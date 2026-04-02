@@ -1,0 +1,15 @@
+Tests: pkg-smoke
+Depends:
+ @
+Restrictions:
+ allow-stderr,
+ isolation-machine,
+ needs-root
+
+Tests: installed-cli
+Depends:
+ @,
+ python3-pytest,
+ python3-pytest-asyncio
+Restrictions:
+ allow-stderr

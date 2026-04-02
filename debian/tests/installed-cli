@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+REPO_DIR="$(pwd)"
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+cp -a "$REPO_DIR/tests" "$TMPDIR/"
+cd "$TMPDIR"
+
+PYTHONPATH= python3 -m pytest -q \
+    tests/test_cli_commands_helpers.py \
+    tests/test_devices.py \
+    tests/test_entrypoints_and_cli.py \
+    tests/test_ipc.py \
+    tests/test_models.py \
+    tests/test_output_helpers.py \
+    tests/test_paths.py \
+    tests/test_record_cli.py \
+    tests/test_recording_guard.py \
+    tests/test_security.py \
+    tests/test_toml.py

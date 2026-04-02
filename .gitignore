@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.codex/*
+.claude/*
+result
+
+# Virtual environments
+.venv/
+venv/
+.venv*/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.benchmarks/
+
+# Type checking
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# Build artifacts
+*.whl
+*.tar.gz
+.vexp/
+.vm-test-logs/
+staging/
+staging-deb/
+staging-rpm/
+
+# Debian packaging build state
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/*.debhelper
+debian/*.substvars
+debian/keyforge/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config
+*.local
+
+# Makepkg
+pkg/
+src/
+*.pkg.tar.zst

@@ -1,0 +1,43 @@
+Source: keyforge
+Section: utils
+Priority: optional
+Maintainer: nyrda <nyrda@keyforge.tools>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-sequence-python3,
+ pybuild-plugin-pyproject,
+ python3-all,
+ python3-build,
+ python3-installer,
+ python3-setuptools,
+ python3-wheel
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://keyforge.tools
+
+Package: keyforge
+Architecture: all
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+ acl,
+ gir1.2-adw-1,
+ gir1.2-gtk-4.0,
+ pkexec | policykit-1 | polkitd,
+ python3-dbus-next,
+ python3-evdev,
+ python3-gi,
+ python3-tomli-w,
+ python3-xlib,
+ systemd,
+ udev
+Recommends:
+ slurp
+Suggests:
+ gnome-shell
+Description: key remapping tool for Linux using evdev and uinput
+ Keyforge provides a privileged remapping daemon, a per-user session manager,
+ and a GTK4 configuration interface for Linux input remapping.
+ .
+ It supports global layered profiles, macros, superkeys, combos, window-based
+ profile activation, and desktop-specific window tracking integrations.

@@ -1,0 +1,504 @@
+import asyncio
+import contextlib
+import json
+import logging
+import os
+import tempfile
+import time
+import uuid
+from pathlib import Path
+
+from dbus_next.constants import MessageType
+from dbus_next.message import Message
+from dbus_next.service import ServiceInterface, method
+
+from keyforge.session.dbus import SessionDBus, name_has_owner
+from keyforge.session.listeners.base import WindowChangeCallback, WindowListener
+
+log = logging.getLogger("keyforge-session.listeners.kde")
+
+KDE_DBUS_INTERFACE = "keyforge.kde.Listener"
+KDE_DBUS_OBJECT_PATH = "/keyforge/KDEListener"
+KDE_IGNORED_PAYLOAD_LOG_INTERVAL_SECONDS = 10.0
+
+
+def has_kde_wayland_support() -> bool:
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    if not Path(runtime_dir, "bus").exists():
+        return False
+    return True
+
+
+async def _probe_kwin_owner(dbus: SessionDBus | None = None) -> bool:
+    return await name_has_owner("org.kde.KWin", dbus)
+
+
+def parse_kde_window_payload(payload: str) -> tuple[str, str] | None:
+    try:
+        data = json.loads(payload)
+        if isinstance(data, str):
+            data = json.loads(data)
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    window_class = str(data.get("class", "") or "")
+    window_title = str(data.get("title", "") or "")
+    return window_class, window_title
+
+
+def parse_kde_cursor_payload(payload: str) -> tuple[str, int, int] | None:
+    try:
+        data = json.loads(payload)
+        if isinstance(data, str):
+            data = json.loads(data)
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    request_id = str(data.get("id", "") or "")
+    if not request_id:
+        return None
+
+    x_raw = data.get("x")
+    y_raw = data.get("y")
+    if x_raw is None or y_raw is None:
+        return None
+
+    try:
+        x = int(float(str(x_raw)))
+        y = int(float(str(y_raw)))
+    except Exception:
+        return None
+
+    return request_id, x, y
+
+
+class _KDEBridge(ServiceInterface):  # type: ignore[misc,valid-type]
+    def __init__(self, listener: "KDEListener") -> None:
+        super().__init__(KDE_DBUS_INTERFACE)
+        self._listener = listener
+
+    @method()
+    def windowChanged(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
+        self._listener._on_window_payload(payload)
+
+    @method()
+    def cursorPosition(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
+        self._listener._on_cursor_payload(payload)
+
+
+class KDEListener(WindowListener):
+    def __init__(
+        self,
+        callback: WindowChangeCallback,
+        client=None,
+        dbus: SessionDBus | None = None,
+    ) -> None:
+        super().__init__(callback, client, dbus=dbus)
+        self._plugin_name = ""
+        self._script_path: Path | None = None
+        self._script_id: int | None = None
+        self._last_class = ""
+        self._last_title = ""
+        self._bus = None
+        self._bridge: _KDEBridge | None = None
+        self._kwin_scripting = None
+        self._window_script_iface = None
+        self._callback_tasks: set[asyncio.Task] = set()
+        self._cursor_waiters: dict[str, asyncio.Future[tuple[int, int]]] = {}
+        self._ignored_window_payloads = 0
+        self._ignored_cursor_payloads = 0
+        self._last_window_payload_log_at = 0.0
+        self._last_cursor_payload_log_at = 0.0
+
+    @property
+    def name(self) -> str:
+        return "kde"
+
+    @property
+    def available(self) -> bool:
+        return self.quick_probe()
+
+    @classmethod
+    def quick_probe(cls) -> bool:
+        return has_kde_wayland_support()
+
+    @classmethod
+    async def probe_available(cls, dbus: SessionDBus | None = None) -> bool:
+        if not cls.quick_probe():
+            return False
+        return await _probe_kwin_owner(dbus)
+
+    async def start(self) -> None:
+        if self.dbus is None:
+            raise RuntimeError("KDE Wayland listener requires shared session D-Bus access")
+        if not await self.__class__.probe_available(self.dbus):
+            raise RuntimeError("KDE Wayland listener requires KWin session D-Bus access")
+
+        self._plugin_name = f"keyforge-kde-{os.getpid()}-{int(time.time() * 1000)}"
+
+        try:
+            self._bus = await self.dbus.bus()
+            self._bridge = _KDEBridge(self)
+            self._bus.export(KDE_DBUS_OBJECT_PATH, self._bridge)
+
+            self._script_path = await asyncio.to_thread(
+                self._write_script_file,
+                self._build_window_script_source(),
+            )
+
+            self._kwin_scripting = await self._get_kwin_scripting_interface()
+            script_id = await self._call_load_script(str(self._script_path), self._plugin_name)
+            self._script_id = int(script_id)
+            if self._script_id < 0:
+                raise RuntimeError("failed to load KDE listener script")
+            log.info(
+                "KDE listener script loaded id=%s plugin=%s",
+                self._script_id,
+                self._plugin_name,
+            )
+
+            self._window_script_iface = await self._get_script_interface(self._script_id)
+            await self._window_script_iface.call_run()
+        except Exception:
+            await self.stop()
+            raise
+
+        self.running = True
+        log.info("KDE Wayland listener started")
+
+    async def stop(self) -> None:
+        self.running = False
+
+        for task in list(self._callback_tasks):
+            task.cancel()
+        self._callback_tasks.clear()
+
+        for request_id, future in list(self._cursor_waiters.items()):
+            if not future.done():
+                future.cancel()
+            self._cursor_waiters.pop(request_id, None)
+
+        if self._window_script_iface:
+            with contextlib.suppress(Exception):
+                await self._window_script_iface.call_stop()
+            self._window_script_iface = None
+
+        if self._kwin_scripting and self._plugin_name:
+            with contextlib.suppress(Exception):
+                await self._call_unload_script(self._plugin_name)
+
+        self._script_id = None
+        self._kwin_scripting = None
+        self._plugin_name = ""
+
+        if self._script_path:
+            with contextlib.suppress(Exception):
+                self._script_path.unlink(missing_ok=True)
+            self._script_path = None
+
+        if self._bus and self._bridge:
+            with contextlib.suppress(Exception):
+                self._bus.unexport(KDE_DBUS_OBJECT_PATH, self._bridge)
+        self._bridge = None
+        self._bus = None
+
+        log.info("KDE Wayland listener stopped")
+
+    async def get_active_window(self) -> tuple[str, str, list[str]]:
+        return self._last_class, self._last_title, []
+
+    async def get_cursor_position(self) -> tuple[int, int] | None:
+        if not self.running or self._kwin_scripting is None:
+            log.debug("KDE cursor get skipped: listener not running")
+            return None
+
+        request_id = uuid.uuid4().hex
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[tuple[int, int]] = loop.create_future()
+        self._cursor_waiters[request_id] = future
+
+        script_path: Path | None = None
+        plugin_name = f"keyforge-kde-cursor-{os.getpid()}-{request_id[:8]}"
+        script_iface = None
+
+        try:
+            script_path = await asyncio.to_thread(
+                self._write_script_file,
+                self._build_cursor_script_source(request_id),
+            )
+            script_id = await self._call_load_script(str(script_path), plugin_name)
+            if script_id < 0:
+                log.debug("KDE cursor get failed: loadScript returned %s", script_id)
+                return None
+
+            script_iface = await self._get_script_interface(script_id)
+            await script_iface.call_run()
+            return await asyncio.wait_for(future, timeout=1.5)
+        except TimeoutError:
+            log.debug("KDE cursor get timed out waiting for response")
+            return None
+        except Exception:
+            log.debug("KDE cursor get failed", exc_info=True)
+            return None
+        finally:
+            self._cursor_waiters.pop(request_id, None)
+            if script_iface is not None:
+                with contextlib.suppress(Exception):
+                    await script_iface.call_stop()
+            if self._kwin_scripting:
+                with contextlib.suppress(Exception):
+                    await self._call_unload_script(plugin_name)
+            if script_path:
+                with contextlib.suppress(Exception):
+                    script_path.unlink(missing_ok=True)
+
+    def _on_window_payload(self, payload: str) -> None:
+        parsed = parse_kde_window_payload(payload)
+        if not parsed:
+            self._log_ignored_payload("window", payload)
+            return
+
+        window_class, window_title = parsed
+        if window_class == self._last_class and window_title == self._last_title:
+            return
+
+        log.debug("KDE window event: class=%s title=%s", window_class, window_title)
+
+        self._last_class = window_class
+        self._last_title = window_title
+
+        task = asyncio.ensure_future(self.callback(window_class, window_title, []))
+        self._callback_tasks.add(task)
+        task.add_done_callback(self._on_callback_done)
+
+    def _on_cursor_payload(self, payload: str) -> None:
+        parsed = parse_kde_cursor_payload(payload)
+        if not parsed:
+            self._log_ignored_payload("cursor", payload)
+            return
+
+        request_id, x, y = parsed
+        future = self._cursor_waiters.get(request_id)
+        if future and not future.done():
+            future.set_result((x, y))
+
+    def _log_ignored_payload(self, payload_type: str, payload: str) -> None:
+        now = time.monotonic()
+
+        if payload_type == "window":
+            self._ignored_window_payloads += 1
+            if (now - self._last_window_payload_log_at) < KDE_IGNORED_PAYLOAD_LOG_INTERVAL_SECONDS:
+                return
+            count = self._ignored_window_payloads
+            self._ignored_window_payloads = 0
+            self._last_window_payload_log_at = now
+        else:
+            self._ignored_cursor_payloads += 1
+            if (now - self._last_cursor_payload_log_at) < KDE_IGNORED_PAYLOAD_LOG_INTERVAL_SECONDS:
+                return
+            count = self._ignored_cursor_payloads
+            self._ignored_cursor_payloads = 0
+            self._last_cursor_payload_log_at = now
+
+        clipped_payload = payload if len(payload) <= 160 else f"{payload[:157]}..."
+        log.debug(
+            "Ignored KDE %s payload (%d recent): %s",
+            payload_type,
+            count,
+            clipped_payload,
+        )
+
+    def _on_callback_done(self, task: asyncio.Task) -> None:
+        self._callback_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            log.error(f"KDE window callback error: {exc}")
+
+    async def _get_kwin_scripting_interface(self):
+        if self._bus is None:
+            raise RuntimeError("missing DBus session connection")
+        introspection = await self._bus.introspect("org.kde.KWin", "/Scripting")
+        proxy = self._bus.get_proxy_object("org.kde.KWin", "/Scripting", introspection)
+        return proxy.get_interface("org.kde.kwin.Scripting")
+
+    async def _call_load_script(self, file_path: str, plugin_name: str) -> int:
+        if self._bus is None:
+            raise RuntimeError("missing DBus session connection")
+
+        reply = await self._bus.call(
+            Message(
+                destination="org.kde.KWin",
+                path="/Scripting",
+                interface="org.kde.kwin.Scripting",
+                member="loadScript",
+                signature="ss",
+                body=[file_path, plugin_name],
+            )
+        )
+        if reply.message_type == MessageType.ERROR:  # type: ignore[union-attr]
+            err = str(reply.body[0]) if reply.body else "loadScript failed"
+            raise RuntimeError(err)
+        if not reply.body:
+            raise RuntimeError("loadScript returned no body")
+        return int(reply.body[0])
+
+    async def _call_unload_script(self, plugin_name: str) -> None:
+        if self._bus is None:
+            return
+
+        reply = await self._bus.call(
+            Message(
+                destination="org.kde.KWin",
+                path="/Scripting",
+                interface="org.kde.kwin.Scripting",
+                member="unloadScript",
+                signature="s",
+                body=[plugin_name],
+            )
+        )
+        if reply.message_type == MessageType.ERROR:  # type: ignore[union-attr]
+            err = str(reply.body[0]) if reply.body else "unloadScript failed"
+            raise RuntimeError(err)
+
+    async def _get_script_interface(self, script_id: int):
+        if self._bus is None:
+            raise RuntimeError("missing DBus session connection")
+        path = f"/Scripting/Script{script_id}"
+        introspection = await self._bus.introspect("org.kde.KWin", path)
+        proxy = self._bus.get_proxy_object("org.kde.KWin", path, introspection)
+        return proxy.get_interface("org.kde.kwin.Script")
+
+    def _write_script_file(self, source: str) -> Path:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", prefix="keyforge-kde-", delete=False
+        ) as handle:
+            handle.write(source)
+            return Path(handle.name)
+
+    def _build_window_script_source(self) -> str:
+        return f"""
+const DBUS_NAME = \"{self._bus.unique_name if self._bus else ""}\";
+const DBUS_PATH = \"{KDE_DBUS_OBJECT_PATH}\";
+const DBUS_IFACE = \"{KDE_DBUS_INTERFACE}\";
+
+function safeString(value) {{
+    if (value === undefined || value === null) {{
+        return \"\";
+    }}
+    return String(value);
+}}
+
+function connectSignal(source, name, callback) {{
+    try {{
+        const sig = source ? source[name] : null;
+        if (sig && typeof sig.connect === "function") {{
+            sig.connect(callback);
+            return true;
+        }}
+    }} catch (e) {{}}
+    return false;
+}}
+
+function disconnectSignal(source, name, callback) {{
+    try {{
+        const sig = source ? source[name] : null;
+        if (sig && typeof sig.disconnect === "function") {{
+            sig.disconnect(callback);
+            return true;
+        }}
+    }} catch (e) {{}}
+    return false;
+}}
+
+function windowClass(win) {{
+    let cls = safeString(win.resourceClass);
+    if (!cls) cls = safeString(win.desktopFileName);
+    if (!cls) cls = safeString(win.resourceName);
+    return cls;
+}}
+
+function windowTitle(win) {{
+    let title = safeString(win.caption);
+    if (!title) title = safeString(win.windowRole);
+    return title;
+}}
+
+function sendWindow(win) {{
+    const payload = JSON.stringify({{
+        class: win ? windowClass(win) : \"\",
+        title: win ? windowTitle(win) : \"\"
+    }});
+    try {{
+        callDBus(DBUS_NAME, DBUS_PATH, DBUS_IFACE, \"windowChanged\", payload);
+    }} catch (e) {{}}
+}}
+
+let currentWindow = workspace.activeWindow || null;
+
+function onWindowMetaChanged() {{
+    sendWindow(workspace.activeWindow || currentWindow);
+}}
+
+function reconnectWindowSignals(win) {{
+    disconnectSignal(currentWindow, "captionChanged", onWindowMetaChanged);
+    disconnectSignal(currentWindow, "windowClassChanged", onWindowMetaChanged);
+    disconnectSignal(currentWindow, "resourceClassChanged", onWindowMetaChanged);
+    disconnectSignal(currentWindow, "resourceNameChanged", onWindowMetaChanged);
+    disconnectSignal(currentWindow, "desktopFileNameChanged", onWindowMetaChanged);
+    disconnectSignal(currentWindow, "windowRoleChanged", onWindowMetaChanged);
+
+    currentWindow = win || null;
+
+    connectSignal(currentWindow, "captionChanged", onWindowMetaChanged);
+    connectSignal(currentWindow, "windowClassChanged", onWindowMetaChanged);
+    connectSignal(currentWindow, "resourceClassChanged", onWindowMetaChanged);
+    connectSignal(currentWindow, "resourceNameChanged", onWindowMetaChanged);
+    connectSignal(currentWindow, "desktopFileNameChanged", onWindowMetaChanged);
+    connectSignal(currentWindow, "windowRoleChanged", onWindowMetaChanged);
+}}
+
+function onWindowActivated(win) {{
+    reconnectWindowSignals(win);
+    sendWindow(workspace.activeWindow || win || currentWindow);
+}}
+
+function onWorkspaceWindowChange() {{
+    reconnectWindowSignals(workspace.activeWindow || currentWindow);
+    sendWindow(workspace.activeWindow || currentWindow);
+}}
+
+connectSignal(workspace, "windowActivated", onWindowActivated);
+connectSignal(workspace, "activeWindowChanged", onWorkspaceWindowChange);
+connectSignal(workspace, "windowAdded", onWorkspaceWindowChange);
+connectSignal(workspace, "windowRemoved", onWorkspaceWindowChange);
+
+reconnectWindowSignals(currentWindow);
+sendWindow(currentWindow);
+""".strip()
+
+    def _build_cursor_script_source(self, request_id: str) -> str:
+        return f"""
+const DBUS_NAME = \"{self._bus.unique_name if self._bus else ""}\";
+const DBUS_PATH = \"{KDE_DBUS_OBJECT_PATH}\";
+const DBUS_IFACE = \"{KDE_DBUS_INTERFACE}\";
+const REQUEST_ID = \"{request_id}\";
+
+try {{
+    const p = workspace.cursorPos;
+    const payload = JSON.stringify({{id: REQUEST_ID, x: p.x, y: p.y}});
+    callDBus(DBUS_NAME, DBUS_PATH, DBUS_IFACE, \"cursorPosition\", payload);
+}} catch (e) {{}}
+""".strip()
+
+    async def health_check(self) -> bool:
+        if not await super().health_check():
+            return False
+        return await self.__class__.probe_available(self.dbus)

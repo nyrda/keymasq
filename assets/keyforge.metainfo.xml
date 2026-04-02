@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>keyforge.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Keyforge</name>
+  <summary>Linux input remapper for keyboards, mice, and gamepads</summary>
+  <developer>
+    <name>nyrda</name>
+  </developer>
+  <launchable type="desktop-id">keyforge.desktop</launchable>
+  <url type="homepage">https://keyforge.tools</url>
+  <url type="bugtracker">https://github.com/nyrda/keyforge/issues</url>
+  <update_contact>nyrda@keyforge.tools</update_contact>
+  <description>
+    <p>
+      Keyforge is a Linux input remapper built around a privileged daemon, a
+      per-user session broker, and a GTK4 GUI.
+    </p>
+    <p>
+      It supports global layered profiles, per-device mappings, window-aware
+      profile activation, macros, superkeys, and multi-step combos.
+    </p>
+  </description>
+  <categories>
+    <category>Settings</category>
+    <category>HardwareSettings</category>
+  </categories>
+  <keywords>
+    <keyword>keyboard</keyword>
+    <keyword>mouse</keyword>
+    <keyword>gamepad</keyword>
+    <keyword>remap</keyword>
+    <keyword>macro</keyword>
+    <keyword>combo</keyword>
+  </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/nyrda/keyforge/master/assets/screenshots/keyforge_profile.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-03-28">
+      <description>
+        <p>Initial public release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

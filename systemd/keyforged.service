@@ -1,0 +1,28 @@
+[Unit]
+Description=Keyforge Input Remapping Daemon
+Documentation=man:keyforged(1)
+Documentation=https://github.com/nyrda/keyforge
+After=systemd-udev-settle.service
+Requires=systemd-udev-settle.service
+
+[Service]
+Type=notify
+User=keyforge
+Group=keyforge
+SupplementaryGroups=input
+ExecStartPre=+/usr/bin/setfacl -m u:keyforge:rw /dev/uinput
+ExecStartPre=+/usr/bin/sh -c 'for p in /dev/input/event*; do [ -e "$p" ] && /usr/bin/setfacl -m u:keyforge:rw "$p"; done'
+ExecStart=/usr/bin/keyforged
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+StateDirectory=keyforge
+ReadWritePaths=/run/keyforge /var/lib/keyforge
+
+[Install]
+WantedBy=multi-user.target

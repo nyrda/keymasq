@@ -1,0 +1,124 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-keyforge"
+version = "0.1.0"
+description = "A key remapping tool for Linux"
+readme = "README.md"
+authors = [{ name = "nyrda", email = "nyrda@keyforge.tools" }]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+keywords = [
+    "linux",
+    "input",
+    "remap",
+    "keyboard",
+    "mouse",
+    "gamepad",
+    "macro",
+    "wayland",
+    "x11",
+]
+classifiers = [
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Desktop Environment",
+    "Topic :: System :: Hardware",
+]
+dependencies = [
+    "PyGObject>=3.42.0",
+    "dbus-next>=0.2.3",
+    "evdev>=1.6.0",
+    "python-xlib>=0.33",
+    "tomli-w>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://keyforge.tools"
+Repository = "https://github.com/nyrda/keyforge"
+Issues = "https://github.com/nyrda/keyforge/issues"
+Documentation = "https://github.com/nyrda/keyforge/tree/master/docs"
+Changelog = "https://github.com/nyrda/keyforge/blob/master/CHANGELOG.md"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+]
+dev = [
+    "basedpyright>=1.38.2",
+    "mypy>=1.0.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.12.0",
+]
+
+[project.scripts]
+keyforged = "keyforge.keyforged.__main__:main"
+keyforge-session = "keyforge.session.__main__:main"
+keyforge = "keyforge.__main__:main"
+keyforge-record = "keyforge.record:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["keyforge*"]
+
+[tool.setuptools.package-data]
+keyforge = ["gui/style.css", "gui/assets/*.svg"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401", "F403"]
+"keyforge/gui/**/*.py" = ["E402"]
+"keyforge/session/listeners/kde.py" = ["N802", "F821"]
+
+[tool.pyright]
+include = ["keyforge", "tests", "benchmarks"]
+exclude = ["build", "pkg"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+reportMissingTypeStubs = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
+reportUnknownParameterType = "none"
+reportMissingParameterType = "none"
+reportMissingTypeArgument = "none"
+reportPrivateUsage = "none"
+reportOptionalMemberAccess = "none"
+reportUnknownLambdaType = "none"
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportUntypedBaseClass = "none"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.setuptools_scm]
+# Version is static in pyproject.toml, not using scm
+version_file = false

@@ -1,0 +1,88 @@
+# Hardware Configuration Example
+# This file describes a hardware device and its capabilities
+
+[hardware]
+name = "Logitech G502 Hero"
+vendor_id = "046d"
+product_id = "c08b"
+image = "g502.png"  # Optional device image
+
+[hardware.evdev]
+# Multiple evdev interfaces for this hardware
+# Each interface has a stable by-id path and an ID for button source mapping
+devices = [
+    { path = "/dev/input/by-id/usb-Logitech_G502_Hero-event-mouse", id = "mouse", type = "mouse" },
+]
+
+[hardware.layout]
+type = "mouse"
+
+# Button definitions with evdev mappings
+# Each button has a logical ID (used in profiles), evdev event name, and source interface
+[[hardware.layout.buttons]]
+id = "btn_left"
+label = "Left Click"
+evdev = "btn_left"
+source = "mouse"
+zone = "left"
+
+[[hardware.layout.buttons]]
+id = "btn_right"
+label = "Right Click"
+evdev = "btn_right"
+source = "mouse"
+zone = "right"
+
+[[hardware.layout.buttons]]
+id = "btn_middle"
+label = "Wheel Click"
+evdev = "btn_middle"
+source = "mouse"
+zone = "wheel"
+
+[[hardware.layout.buttons]]
+id = "btn_back"
+label = "Back"
+evdev = "btn_side"
+source = "mouse"
+zone = "thumb"
+
+[[hardware.layout.buttons]]
+id = "btn_forward"
+label = "Forward"
+evdev = "btn_extra"
+source = "mouse"
+zone = "thumb"
+
+# Wheel events (4-directional)
+[[hardware.layout.buttons]]
+id = "wheel_up"
+label = "Scroll Up"
+evdev = "rel_wheel"
+evdev_value = 1
+source = "mouse"
+type = "wheel"
+
+[[hardware.layout.buttons]]
+id = "wheel_down"
+label = "Scroll Down"
+evdev = "rel_wheel"
+evdev_value = -1
+source = "mouse"
+type = "wheel"
+
+[[hardware.layout.buttons]]
+id = "wheel_left"
+label = "Scroll Left"
+evdev = "rel_hwheel"
+evdev_value = -1
+source = "mouse"
+type = "wheel"
+
+[[hardware.layout.buttons]]
+id = "wheel_right"
+label = "Scroll Right"
+evdev = "rel_hwheel"
+evdev_value = 1
+source = "mouse"
+type = "wheel"

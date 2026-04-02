@@ -1,0 +1,82 @@
+name: keyforge
+arch: x86_64
+platform: linux
+version: 0.1.0
+release: 1
+maintainer: nyrda <nyrda@keyforge.tools>
+description: A key remapping tool for Linux using evdev and uinput
+vendor: nyrda
+homepage: https://keyforge.tools
+license: MIT
+
+depends:
+  - acl
+  - "python3 >= 3.12"
+  - ${RPM_EVDEV_DEP}
+  - ${RPM_TOMLI_W_DEP}
+  - ${RPM_DBUS_NEXT_DEP}
+  - ${RPM_XLIB_DEP}
+  - ${RPM_PYGOBJECT_DEP}
+  - ${RPM_GTK_DEP}
+  - ${RPM_ADW_DEP}
+  - polkit
+  - systemd
+
+recommends:
+  - slurp
+
+contents:
+  - src: staging/rpm${RPM_PYTHON_SITELIB}/
+    dst: ${RPM_PYTHON_SITELIB}
+    type: tree
+    expand: true
+
+  - src: staging/rpm/usr/bin/keyforged
+    dst: /usr/bin/keyforged
+  - src: staging/rpm/usr/bin/keyforge-session
+    dst: /usr/bin/keyforge-session
+  - src: staging/rpm/usr/bin/keyforge
+    dst: /usr/bin/keyforge
+  - src: staging/rpm/usr/bin/keyforge-record
+    dst: /usr/bin/keyforge-record
+
+  - src: systemd/keyforged.service
+    dst: /usr/lib/systemd/system/keyforged.service
+  - src: systemd/keyforge-session.service
+    dst: /usr/lib/systemd/user/keyforge-session.service
+
+  - src: sysusers.d/keyforge.conf
+    dst: /usr/lib/sysusers.d/keyforge.conf
+  - src: tmpfiles.d/keyforge.conf
+    dst: /usr/lib/tmpfiles.d/keyforge.conf
+
+  - src: udev/91-keyforge-acl.rules
+    dst: /usr/lib/udev/rules.d/91-keyforge-acl.rules
+
+  - src: polkit/com.keyforge.record-macro.policy
+    dst: /usr/share/polkit-1/actions/com.keyforge.record-macro.policy
+
+  - src: assets/keyforge.desktop
+    dst: /usr/share/applications/keyforge.desktop
+  - src: assets/keyforge.metainfo.xml
+    dst: /usr/share/metainfo/keyforge.metainfo.xml
+  - src: assets/keyforge.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/keyforge.svg
+
+  - src: examples/security.toml
+    dst: /etc/keyforge/security.toml
+    type: config|noreplace
+
+  - src: gnome-extension/keyforge-bridge@keyforge/
+    dst: /usr/share/gnome-shell/extensions/keyforge-bridge@keyforge/
+    type: tree
+
+  - src: LICENSE
+    dst: /usr/share/licenses/keyforge/LICENSE
+  - src: README.md
+    dst: /usr/share/doc/keyforge/README.md
+
+scripts:
+  postinstall: scripts/nfpm-postinstall.sh
+  preremove: scripts/nfpm-preremove.sh
+  postremove: scripts/nfpm-postremove.sh

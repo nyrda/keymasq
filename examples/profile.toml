@@ -1,0 +1,51 @@
+# Profile Configuration Example
+# Profiles are global and can contain layers for multiple devices.
+
+[profile]
+name = "FPS Gaming"
+enabled = true
+is_permanent = false
+priority = 10
+notify_on_activation = true
+created_at = "2026-03-09T12:34:56"
+
+# Optional: Activate this profile only for specific windows
+# All rules must match (AND logic)
+[[profile.window_rules]]
+field = "class"
+pattern = "cs2"
+
+[[profile.window_rules]]
+field = "title"
+pattern = ".*Counter-Strike.*"
+
+# Device layer for one hardware device
+[devices."046d:c548"]
+always_grab_all = false
+
+# Button mappings for that device
+# Unlisted buttons pass through their original events
+
+[devices."046d:c548".mapping.btn_back]
+action = "keyboard"
+target = "key_1"
+
+[devices."046d:c548".mapping.btn_forward]
+action = "keyboard"
+target = "key_2"
+rapidfire_enabled = true
+rapidfire_hold_ms = 50
+rapidfire_wait_ms = 30
+
+[devices."046d:c548".mapping.wheel_up]
+action = "keyboard"
+target = "key_space"
+tap_enabled = true
+tap_hold_ms = 10
+
+[devices."046d:c548".mapping.btn_middle]
+action = "exec"
+cmd = "playerctl play-pause"
+
+[devices."046d:c548".mapping.btn_extra]
+action = "suppress"

@@ -1,0 +1,11 @@
+assets/keyforge.desktop usr/share/applications/
+assets/keyforge.metainfo.xml usr/share/metainfo/
+assets/keyforge.svg usr/share/icons/hicolor/scalable/apps/
+examples/security.toml etc/keyforge/
+gnome-extension/keyforge-bridge@keyforge usr/share/gnome-shell/extensions/
+polkit/com.keyforge.record-macro.policy usr/share/polkit-1/actions/
+sysusers.d/keyforge.conf usr/lib/sysusers.d/
+systemd/keyforge-session.service usr/lib/systemd/user/
+systemd/keyforged.service usr/lib/systemd/system/
+tmpfiles.d/keyforge.conf usr/lib/tmpfiles.d/
+udev/91-keyforge-acl.rules usr/lib/udev/rules.d/

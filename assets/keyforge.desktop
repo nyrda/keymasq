@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Name=Keyforge
+GenericName=Key Remapping Tool
+Comment=Configure keyboard and mouse button remapping
+Exec=keyforge
+Icon=keyforge
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;
+StartupNotify=true
+Keywords=keyboard;mouse;remap;mapping;gamepad;

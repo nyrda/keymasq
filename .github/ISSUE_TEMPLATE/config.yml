@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security reporting
+    url: https://github.com/nyrda/keyforge/security
+    about: Use a private security reporting path for vulnerabilities instead of public issues.

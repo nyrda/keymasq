@@ -1,0 +1,27 @@
+daemon_allowed_uids = []
+session_allowed_uids = []
+
+[macro]
+exec_timeout_max_ms = 30000
+
+[gui]
+# Allow remapping left/right click in the GUI.
+# Warning: this can leave the desktop without a usable primary/secondary click.
+allow_left_right_click_remap = false
+
+[recording_guard]
+# Tier 1 (recommended): require explicit unlock for live capture/recording APIs.
+unlock_required = true
+# Tier 2 (optional): require unlock for macro get/create/update APIs.
+macro_edit_requires_unlock = false
+
+[session_command_acl]
+# ACL entries are deny rules only.
+# Supported forms: "!command", "-command", or "deny:command".
+# Empty list means allow all commands for that client class.
+gui = []
+cli = []
+
+[daemon_command_acl]
+# Same deny-rule semantics as [session_command_acl].
+session = []

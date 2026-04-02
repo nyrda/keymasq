@@ -1,0 +1,51 @@
+# Contributing
+
+Keyforge accepts focused contributions that preserve the current architecture and
+security model.
+
+## Before You Start
+
+- Read [AGENTS.md](AGENTS.md) for the project map and local rules.
+- Read the relevant docs in `docs/` before changing behavior:
+  - `docs/PROFILES.md`
+  - `docs/COMBOS.md`
+  - `docs/MACROS.md`
+  - `docs/SECURITY.md`
+- Prefer a small issue or discussion before large design changes.
+
+## Development Setup
+
+Use the development guide in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+The expected local quality gates are:
+
+```bash
+python -m pytest tests/ -v
+ruff check keyforge tests
+basedpyright
+```
+
+## Contribution Expectations
+
+- Keep changes local unless the task genuinely requires a broader refactor.
+- Preserve the split between `keyforged`, `keyforge-session`, and the GTK UI.
+- Keep compositor-specific behavior modular.
+- Do not weaken recording or combo-capture security checks.
+- Update the relevant `docs/*.md` file when user-visible behavior or security semantics change.
+- Add or update tests with behavior changes when practical.
+
+## Pull Requests
+
+A good pull request should include:
+
+- a clear summary of the problem and the change
+- any user-visible behavior changes
+- any packaging or service impact
+- tests run locally
+- screenshots for GUI changes when useful
+
+## Scope Notes
+
+The project targets Linux desktops. Packaging, service behavior, and desktop
+integration changes should stay grounded in real supported environments rather
+than hypothetical portability layers.

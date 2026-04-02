@@ -1,0 +1,203 @@
+from keyforge.common.models import (
+    ActionType,
+    ButtonDefinition,
+    DeviceProfileLayer,
+    DeviceType,
+    EvdevDevice,
+    HardwareConfig,
+    MappingAction,
+    ProfileConfig,
+    WindowRule,
+)
+from keyforge.session.hardware import HardwareManager
+from keyforge.session.profiles import ProfileManager
+
+
+class TestHardwareTOML:
+    def test_hardware_roundtrip(self, temp_config_dir):
+        original = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Device",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event5",
+                    device_type=DeviceType.MOUSE,
+                    capabilities=["btn_left", "rel_wheel"],
+                ),
+            ],
+            buttons=[
+                ButtonDefinition(id="btn_left", label="Left", evdev="btn_left", zone="left"),
+                ButtonDefinition(
+                    id="wheel_up", label="Scroll Up", evdev="rel_wheel", evdev_value=1, type="wheel"
+                ),
+            ],
+            image="test.png",
+        )
+
+        manager = HardwareManager()
+        manager.save_hardware(original)
+
+        loaded = manager.get_hardware(original.hardware_id)
+
+        assert loaded.name == original.name
+        assert loaded.vendor_id == original.vendor_id
+        assert loaded.product_id == original.product_id
+        assert len(loaded.buttons) == len(original.buttons)
+        assert loaded.buttons[0].id == "btn_left"
+        assert loaded.buttons[1].evdev_value == 1
+
+    def test_hardware_file_is_human_readable(self, temp_config_dir, sample_hardware_config):
+        manager = HardwareManager()
+        manager.save_hardware(sample_hardware_config)
+
+        config_file = (
+            temp_config_dir
+            / "hardware"
+            / f"{sample_hardware_config.hardware_id.replace(':', '_')}.toml"
+        )
+
+        content = config_file.read_text()
+
+        assert "[hardware]" in content
+        assert "name = " in content
+        assert "vendor_id = " in content
+
+
+class TestProfileTOML:
+    def test_profile_roundtrip(self, temp_config_dir):
+        original = ProfileConfig(
+            name="Test Profile",
+            enabled=True,
+            is_permanent=True,
+            priority=5,
+            device_layers={
+                "1234:5678": DeviceProfileLayer(
+                    hardware_id="1234:5678",
+                    mappings={
+                        "btn_back": MappingAction(action_type=ActionType.KEYBOARD, target="key_1"),
+                        "btn_forward": MappingAction(
+                            action_type=ActionType.KEYBOARD,
+                            target="btn_left",
+                            rapidfire_enabled=True,
+                            rapidfire_hold_ms=50,
+                            rapidfire_wait_ms=30,
+                        ),
+                    },
+                )
+            },
+        )
+
+        manager = ProfileManager()
+        manager.save_profile(original)
+
+        profiles = manager.list_profiles()
+
+        assert len(profiles) == 1
+        loaded = profiles[0].config
+        layer = loaded.device_layers["1234:5678"]
+
+        assert loaded.name == original.name
+        assert loaded.enabled == original.enabled
+        assert loaded.is_permanent == original.is_permanent
+        assert loaded.priority == original.priority
+        assert "btn_back" in layer.mappings
+        assert layer.mappings["btn_back"].action_type == ActionType.KEYBOARD
+        assert layer.mappings["btn_forward"].rapidfire_enabled is True
+        assert layer.mappings["btn_forward"].rapidfire_hold_ms == 50
+
+    def test_profile_file_is_human_readable(self, temp_config_dir, sample_profile_config):
+        manager = ProfileManager()
+        manager.save_profile(sample_profile_config)
+
+        config_file = manager.get_profile(sample_profile_config.name).path
+        content = config_file.read_text()
+
+        assert "[profile]" in content
+        assert "[devices.\"1234:5678\"]" in content
+        assert "mapping" in content
+
+    def test_profile_compositor_dispatch_roundtrip(self, temp_config_dir):
+        original = ProfileConfig(
+            name="Hyprland Profile",
+            enabled=True,
+            device_layers={
+                "1234:5678": DeviceProfileLayer(
+                    hardware_id="1234:5678",
+                    mappings={
+                        "btn_back": MappingAction(
+                            action_type=ActionType.COMPOSITOR_DISPATCH,
+                            compositor_dispatcher="workspace",
+                            compositor_args="e+1",
+                        )
+                    },
+                )
+            },
+        )
+
+        manager = ProfileManager()
+        manager.save_profile(original)
+
+        loaded = manager.list_profiles()[0].config
+        action = loaded.device_layers["1234:5678"].mappings["btn_back"]
+
+        assert action.action_type == ActionType.COMPOSITOR_DISPATCH
+        assert action.compositor_dispatcher == "workspace"
+        assert action.compositor_args == "e+1"
+
+    def test_profile_with_window_rules(self, temp_config_dir):
+        profile = ProfileConfig(
+            name="Game Profile",
+            enabled=True,
+            is_permanent=False,
+            window_rules=[
+                WindowRule(field="class", pattern="cs2"),
+                WindowRule(field="title", pattern=".*Counter-Strike.*"),
+            ],
+            device_layers={},
+        )
+
+        manager = ProfileManager()
+        manager.save_profile(profile)
+
+        loaded = manager.list_profiles()[0].config
+
+        assert len(loaded.window_rules) == 2
+        assert loaded.window_rules[0].field == "class"
+        assert loaded.window_rules[0].pattern == "cs2"
+        assert loaded.window_rules[1].field == "title"
+
+
+class TestTOMLEditing:
+    def test_edit_hardware_manually(self, temp_config_dir, sample_hardware_config):
+        manager = HardwareManager()
+        manager.save_hardware(sample_hardware_config)
+
+        config_file = (
+            temp_config_dir
+            / "hardware"
+            / f"{sample_hardware_config.hardware_id.replace(':', '_')}.toml"
+        )
+
+        content = config_file.read_text()
+        content = content.replace('name = "Test Mouse"', 'name = "My Custom Mouse"')
+        config_file.write_text(content)
+
+        manager2 = HardwareManager()
+        loaded = manager2.get_hardware(sample_hardware_config.hardware_id)
+
+        assert loaded.name == "My Custom Mouse"
+
+    def test_edit_profile_manually(self, temp_config_dir, sample_profile_config):
+        manager = ProfileManager()
+        manager.save_profile(sample_profile_config)
+
+        config_file = manager.get_profile(sample_profile_config.name).path
+        content = config_file.read_text()
+        content = content.replace("enabled = true", "enabled = false")
+        config_file.write_text(content)
+
+        manager2 = ProfileManager()
+        loaded = manager2.list_profiles()[0].config
+
+        assert loaded.enabled is False

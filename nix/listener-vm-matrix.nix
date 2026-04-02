@@ -1,0 +1,905 @@
+{ pkgs, system, keyforgePackage, keyforgeModule }:
+
+let
+  lib = pkgs.lib;
+  gnomeBridgeSource = ../gnome-extension + "/keyforge-bridge@keyforge";
+
+  vmUser = "keyforgevm";
+  vmUid = 1000;
+  giTypelibPath = lib.makeSearchPath "lib/girepository-1.0" [
+    pkgs.cairo
+    pkgs.gdk-pixbuf
+    pkgs.glib
+    pkgs.graphene
+    pkgs.gtk4
+    pkgs.pango
+  ];
+
+  gtkPython = pkgs.python3.withPackages (ps: [ ps.pygobject3 ]);
+
+  mkGtkScript =
+    name: script:
+    pkgs.stdenvNoCC.mkDerivation {
+      pname = name;
+      version = "1";
+      dontUnpack = true;
+
+      nativeBuildInputs = [
+        pkgs.gobject-introspection
+        pkgs.wrapGAppsHook4
+      ];
+      buildInputs = [
+        gtkPython
+        pkgs.cairo
+        pkgs.gdk-pixbuf
+        pkgs.glib
+        pkgs.graphene
+        pkgs.gtk4
+        pkgs.adwaita-icon-theme
+        pkgs.hicolor-icon-theme
+        pkgs.pango
+      ];
+
+      preFixup = ''
+        gappsWrapperArgs+=(
+          --prefix GI_TYPELIB_PATH : "${giTypelibPath}"
+        )
+      '';
+
+      installPhase = ''
+        mkdir -p "$out/bin"
+        install -m755 ${script} "$out/bin/${name}"
+        sed -i '1s|.*|#!${gtkPython}/bin/python|' "$out/bin/${name}"
+      '';
+    };
+
+  windowLab = mkGtkScript "keyforge-listener-window-lab" ./listener-vms/window-lab.py;
+  gnomeBridge = pkgs.runCommand "keyforge-gnome-bridge" { } ''
+    mkdir -p "$out/share/gnome-shell/extensions/keyforge-bridge@keyforge"
+    cp ${gnomeBridgeSource + "/extension.js"} \
+      "$out/share/gnome-shell/extensions/keyforge-bridge@keyforge/extension.js"
+    cp ${gnomeBridgeSource + "/metadata.json"} \
+      "$out/share/gnome-shell/extensions/keyforge-bridge@keyforge/metadata.json"
+  '';
+
+  sessionQuery = pkgs.writeShellApplication {
+    name = "keyforge-session-query";
+    runtimeInputs = [ pkgs.python3 ];
+    text = ''
+      exec ${pkgs.python3}/bin/python ${./listener-vms/session-query.py} "$@"
+    '';
+  };
+
+  gnomeBridgeProbe = pkgs.writeShellApplication {
+    name = "keyforge-gnome-bridge-probe";
+    runtimeInputs = [ pkgs.python3 ];
+    text = ''
+      exec ${pkgs.python3}/bin/python ${./listener-vms/gnome-bridge-probe.py} "$@"
+    '';
+  };
+
+  windowCtl = pkgs.writeShellApplication {
+    name = "keyforge-listener-window-labctl";
+    runtimeInputs = [ pkgs.python3 ];
+    text = ''
+      exec ${pkgs.python3}/bin/python ${./listener-vms/window-labctl.py} "$@"
+    '';
+  };
+
+  listenerVmTools = pkgs.symlinkJoin {
+    name = "keyforge-listener-vm-tools";
+    paths = [ windowLab sessionQuery windowCtl gnomeBridgeProbe ];
+  };
+
+  cosmicMinimalSession = pkgs.stdenvNoCC.mkDerivation {
+    pname = "keyforge-cosmic-minimal-session";
+    version = "1";
+    dontUnpack = true;
+    passthru.providedSessions = [ "cosmic-minimal" ];
+    installPhase = ''
+      mkdir -p "$out/bin" "$out/share/wayland-sessions"
+      cat > "$out/bin/cosmic-minimal-session" <<'EOF'
+#!${pkgs.bash}/bin/bash
+set -euo pipefail
+export XDG_CURRENT_DESKTOP=COSMIC
+export DESKTOP_SESSION=cosmic
+export XDG_SESSION_TYPE=wayland
+exec ${pkgs.cosmic-comp}/bin/cosmic-comp
+EOF
+      chmod +x "$out/bin/cosmic-minimal-session"
+      cat > "$out/share/wayland-sessions/cosmic-minimal.desktop" <<EOF
+[Desktop Entry]
+Name=COSMIC Minimal
+Comment=Minimal COSMIC compositor session for Keyforge listener tests
+Exec=$out/bin/cosmic-minimal-session
+Type=Application
+DesktopNames=COSMIC
+EOF
+    '';
+  };
+
+  userCommand =
+    cmd:
+    let
+      runtimeDir = "/run/user/${toString vmUid}";
+    in
+    "runuser -u ${vmUser} -- sh -lc 'export XDG_RUNTIME_DIR=${runtimeDir}; export DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDir}/bus; ${cmd}'";
+
+  mkDesktopTest =
+    {
+      name,
+      expectedCompositor,
+      extraModule,
+      runListenerAssertions ? true,
+      beforeDesktopScript ? "",
+      desktopReadyScript ? "",
+      preflightScript ? "",
+      memorySize ? 4096,
+      activationMethod ? expectedCompositor,
+    }:
+    pkgs.testers.runNixOSTest {
+      inherit name;
+
+      nodes.machine =
+        {
+          pkgs,
+          ...
+        }:
+        {
+          imports = [
+            keyforgeModule
+            extraModule
+          ];
+
+          documentation.nixos.enable = false;
+
+          virtualisation = {
+            graphics = true;
+            memorySize = memorySize;
+            cores = 4;
+          };
+
+          networking.hostName = name;
+          time.timeZone = "UTC";
+          i18n.defaultLocale = "en_US.UTF-8";
+
+          services.keyforge = {
+            enable = true;
+            securityConfig = {
+              daemon_allowed_uids = [ vmUid ];
+              session_allowed_uids = [ vmUid ];
+              recording_guard = {
+                unlock_required = false;
+                macro_edit_requires_unlock = false;
+              };
+            };
+          };
+
+          users.users.${vmUser} = {
+            isNormalUser = true;
+            uid = vmUid;
+            description = "Listener VM test user";
+            createHome = true;
+            home = "/home/${vmUser}";
+            extraGroups = [ "wheel" "video" "input" ];
+          };
+
+          services.displayManager.autoLogin = {
+            enable = true;
+            user = vmUser;
+          };
+
+          hardware.graphics.enable = true;
+          services.dbus.enable = true;
+          security.polkit.enable = true;
+          services.libinput.enable = true;
+          programs.dconf.enable = true;
+
+          environment.systemPackages = [
+            keyforgePackage
+            listenerVmTools
+            gnomeBridge
+            pkgs.jq
+            pkgs.wmctrl
+            pkgs.xdotool
+            pkgs.slurp
+          ];
+        };
+
+      testScript = ''
+        import json
+        import time
+
+        runtime_dir = "/run/user/${toString vmUid}"
+        listener_socket = f"{runtime_dir}/listener-lab.sock"
+        lab_prestarted = False
+
+        def as_user(cmd: str) -> str:
+            return "${userCommand "{cmd}"}".replace("{cmd}", cmd)
+
+        def session_query(command: str) -> dict:
+            raw = machine.succeed(
+                as_user(
+                    f"keyforge-session-query --socket {runtime_dir}/keyforge/session.sock --command {command}"
+                )
+            )
+            return json.loads(raw)
+
+        def session_query_json(command: str, extra_fields: dict) -> dict:
+            """Send a session query with complex JSON fields via a payload file."""
+            import base64
+            payload_path = f"{runtime_dir}/session-query-payload.json"
+            encoded = base64.b64encode(json.dumps(extra_fields).encode()).decode()
+            machine.succeed(f"echo {encoded} | base64 -d > {payload_path}")
+            machine.succeed(f"chown ${vmUser}: {payload_path}")
+            raw = machine.succeed(
+                as_user(
+                    f"keyforge-session-query --socket {runtime_dir}/keyforge/session.sock "
+                    f"--command {command} --payload-file {payload_path}"
+                )
+            )
+            return json.loads(raw)
+
+        def gnome_activate_title(title: str, timeout: int = 30) -> None:
+            """Ask the GNOME bridge extension to activate a window by title."""
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                try:
+                    raw = machine.succeed(
+                        as_user(
+                            f"keyforge-session-query --socket {runtime_dir}/keyforge/session.sock "
+                            f"--command activate_title --field title={title}"
+                        )
+                    )
+                    result = json.loads(raw)
+                    machine.log(f"gnome_activate_title({title!r}): {result}")
+                    if result.get("status") == "ok":
+                        return
+                except Exception as e:
+                    machine.log(f"gnome_activate_title({title!r}) attempt failed: {e}")
+                time.sleep(1)
+            raise Exception(f"Failed to activate GNOME window {title!r}")
+
+        def hyprland_activate_title(title: str) -> None:
+            """Use hyprctl to focus a window by title on Hyprland."""
+            sig = machine.succeed(as_user(
+                "systemctl --user show-environment"
+                " | sed -n 's/^HYPRLAND_INSTANCE_SIGNATURE=//p'"
+            )).strip()
+            machine.log(f"hyprland_activate_title({title!r}): sig={sig!r}")
+            machine.succeed(
+                f"runuser -u ${vmUser} -- env"
+                f" HYPRLAND_INSTANCE_SIGNATURE={sig}"
+                f" XDG_RUNTIME_DIR={runtime_dir}"
+                f" hyprctl dispatch focuswindow title:{title}"
+            )
+
+        def sway_activate_title(title: str) -> None:
+            """Use swaymsg to focus a window by title on Sway."""
+            sock = machine.succeed(as_user(
+                "systemctl --user show-environment"
+                " | sed -n 's/^SWAYSOCK=//p'"
+            )).strip()
+            machine.log(f"sway_activate_title({title!r}): sock={sock!r}")
+            machine.succeed(
+                f"runuser -u ${vmUser} -- env"
+                f" SWAYSOCK={sock}"
+                f" XDG_RUNTIME_DIR={runtime_dir}"
+                f' swaymsg "[title={title}] focus"'
+            )
+
+        def log_command_output(label: str, cmd: str) -> None:
+            status, output = machine.execute(cmd)
+            machine.log(f"{label} (exit={status})\n{output}")
+
+        def dump_session_debug(label: str) -> None:
+            machine.log(f"==== {label} ====")
+            log_command_output("loginctl list-sessions", "loginctl list-sessions --no-legend")
+            log_command_output("loginctl user-status", "loginctl user-status ${vmUser}")
+            log_command_output(
+                "systemctl status display-manager.service",
+                "systemctl status display-manager.service --no-pager",
+            )
+            log_command_output(
+                "systemctl status user@${toString vmUid}.service",
+                "systemctl status user@${toString vmUid}.service --no-pager",
+            )
+            log_command_output(
+                "journalctl display-manager",
+                "journalctl -b -u display-manager.service --no-pager -n 200",
+            )
+            log_command_output(
+                "journalctl user@${toString vmUid}",
+                "journalctl -b -u user@${toString vmUid}.service --no-pager -n 200",
+            )
+            log_command_output("runtime directory contents", f"ls -la {runtime_dir} || true")
+            log_command_output(
+                "user systemctl failed units",
+                as_user("systemctl --user --failed --no-pager || true"),
+            )
+            log_command_output(
+                "user default target",
+                as_user("systemctl --user status default.target --no-pager || true"),
+            )
+            log_command_output(
+                "keyforge-session user service",
+                as_user("systemctl --user status keyforge-session.service --no-pager || true"),
+            )
+            log_command_output(
+                "keyforge-session journal",
+                as_user("journalctl --user -u keyforge-session.service --no-pager -n 200 || true"),
+            )
+            log_command_output(
+                "gnome-bridge-probe user service",
+                as_user("systemctl --user status gnome-bridge-probe.service --no-pager || true"),
+            )
+            log_command_output(
+                "gnome-bridge-probe journal",
+                as_user("journalctl --user -u gnome-bridge-probe.service --no-pager -n 200 || true"),
+            )
+
+        def wait_for_command(description: str, cmd: str, timeout: int = 180) -> str:
+            machine.log(f"Waiting for {description}: {cmd}")
+            deadline = time.time() + timeout
+            last_output = ""
+            last_status = None
+            while time.time() < deadline:
+                status, output = machine.execute(cmd, timeout=20)
+                last_status = status
+                last_output = output
+                if status == 0:
+                    return output
+                time.sleep(1)
+            dump_session_debug(f"Timed out waiting for {description}")
+            raise AssertionError(
+                f"{description} did not become ready (exit={last_status}): {last_output}"
+            )
+
+        def wait_for_user_command(description: str, cmd: str, timeout: int = 180) -> str:
+            return wait_for_command(description, as_user(cmd), timeout=timeout)
+
+        def wait_for_user_socket(
+            description: str, socket_path: str, unit_name: str, timeout: int = 60
+        ) -> None:
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                status, _ = machine.execute(as_user(f"test -S {socket_path}"), timeout=20)
+                if status == 0:
+                    if socket_path == listener_socket:
+                        ready_status, _ = machine.execute(
+                            as_user(
+                                "keyforge-listener-window-labctl "
+                                f"--socket {socket_path} snapshot >/dev/null"
+                            ),
+                            timeout=20,
+                        )
+                        if ready_status == 0:
+                            return
+                    else:
+                        return
+
+                unit_status, _ = machine.execute(
+                    as_user(f"systemctl --user is-failed {unit_name}"), timeout=20
+                )
+                if unit_status == 0:
+                    dump_session_debug(f"{unit_name} failed while waiting for {description}")
+                    raise AssertionError(
+                        machine.succeed(
+                            as_user(
+                                f"journalctl --user -u {unit_name} --no-pager -n 80 || true"
+                            )
+                        )
+                    )
+                time.sleep(1)
+
+            dump_session_debug(f"Timed out waiting for {description}")
+            raise AssertionError(f"{description} was not created by {unit_name}")
+
+        def wait_for_listener() -> None:
+            machine.log("Waiting for keyforge-session listener readiness")
+            deadline = time.time() + 120
+            last = None
+            while time.time() < deadline:
+                try:
+                    payload = session_query("get_compositor")
+                    last = payload
+                    if (
+                        payload.get("compositor_id") == "${expectedCompositor}"
+                        and payload.get("listener_active") is True
+                    ):
+                        return
+                except Exception as exc:
+                    last = {"error": str(exc)}
+                time.sleep(1)
+            dump_session_debug("Timed out waiting for listener readiness")
+            raise AssertionError(f"listener did not become ready: {last!r}")
+
+        def wait_for_active_title(expected_title: str) -> dict:
+            machine.log(f"Waiting for active window title: {expected_title}")
+            deadline = time.time() + 90
+            last = None
+            last_logged = None
+            while time.time() < deadline:
+                payload = session_query("get_active_window")
+                last = payload
+                if payload != last_logged:
+                    machine.log(f"Observed active window payload: {payload!r}")
+                    last_logged = payload
+                if payload.get("status") == "ok" and payload.get("title") == expected_title:
+                    return payload
+                time.sleep(1)
+            dump_session_debug(f"Timed out waiting for active title {expected_title}")
+            raise AssertionError(f"window title {expected_title!r} was not observed: {last!r}")
+
+        def wait_for_any_active_window(timeout: int = 90) -> dict:
+            machine.log("Waiting for any non-empty active window payload")
+            deadline = time.time() + timeout
+            last = None
+            while time.time() < deadline:
+                payload = session_query("get_active_window")
+                last = payload
+                if payload.get("status") == "ok" and (
+                    payload.get("class") or payload.get("title") or payload.get("tags")
+                ):
+                    return payload
+                time.sleep(1)
+            dump_session_debug("Timed out waiting for any active window")
+            raise AssertionError(f"active window was not observed: {last!r}")
+
+        start_all()
+        machine.wait_for_unit("display-manager.service")
+        machine.wait_for_unit("graphical.target")
+        wait_for_command(
+            "logind session for ${vmUser}",
+            "loginctl list-sessions --no-legend | grep -q '${vmUser}'",
+        )
+        wait_for_user_command("runtime directory", f"test -d {runtime_dir}")
+        wait_for_user_command("user D-Bus socket", f"test -S {runtime_dir}/bus")
+        wait_for_user_command("user default target", "systemctl --user is-active default.target")
+        ${beforeDesktopScript}
+        ${desktopReadyScript}
+        ${preflightScript}
+        if ${if runListenerAssertions then "True" else "False"}:
+            machine.succeed("${userCommand "systemctl --user stop keyforge-session.service || true"}")
+            machine.succeed("${userCommand "systemctl --user start keyforge-session.service || true"}")
+            wait_for_user_command("keyforge-session user service", "systemctl --user is-active keyforge-session.service")
+            wait_for_user_socket(
+                "keyforge-session socket",
+                f"{runtime_dir}/keyforge/session.sock",
+                "keyforge-session.service",
+            )
+
+            with subtest("listener starts"):
+                wait_for_listener()
+                if "${expectedCompositor}" == "kde":
+                    wait_for_user_command(
+                        "KDE listener script loaded",
+                        "journalctl --user -u keyforge-session.service --no-pager "
+                        "| grep -F 'KDE listener script loaded'",
+                    )
+
+            with subtest("window detection and switching"):
+                if "${expectedCompositor}" == "gnome":
+                    wait_for_user_command(
+                        "GNOME bridge connected",
+                        "journalctl --user -u keyforge-session.service --no-pager "
+                        "| grep -F 'GNOME bridge connected'",
+                    )
+                if not lab_prestarted:
+                    machine.succeed(as_user(f"rm -f {listener_socket}"))
+                    machine.succeed(
+                        as_user(
+                            "systemd-run --user --unit=keyforge-window-lab "
+                            "--collect keyforge-listener-window-lab "
+                            f"--socket {listener_socket} "
+                            "--app-id io.keyforge.ListenerLab"
+                        )
+                    )
+                    wait_for_user_socket(
+                        "window lab socket",
+                        listener_socket,
+                        "keyforge-window-lab.service",
+                    )
+
+                machine.succeed(
+                    as_user(
+                        f"keyforge-listener-window-labctl --socket {listener_socket} "
+                        "open alpha Alpha"
+                    )
+                )
+                if "${activationMethod}" == "gnome":
+                    time.sleep(1)
+                    gnome_activate_title("Alpha")
+                    wait_for_any_active_window()
+                alpha = wait_for_active_title("Alpha")
+                assert alpha.get("class"), alpha
+
+                machine.succeed(
+                    as_user(
+                        f"keyforge-listener-window-labctl --socket {listener_socket} "
+                        "open beta Beta"
+                    )
+                )
+                if "${activationMethod}" == "gnome":
+                    time.sleep(1)
+                    gnome_activate_title("Beta")
+                beta = wait_for_active_title("Beta")
+                assert beta.get("class") == alpha.get("class"), (alpha, beta)
+
+                if "${activationMethod}" == "gnome":
+                    gnome_activate_title("Alpha")
+                elif "${activationMethod}" == "hyprland":
+                    hyprland_activate_title("Alpha")
+                elif "${activationMethod}" == "sway":
+                    sway_activate_title("Alpha")
+                else:
+                    machine.succeed(
+                        as_user(
+                            f"keyforge-listener-window-labctl --socket {listener_socket} focus alpha"
+                        )
+                    )
+                wait_for_active_title("Alpha")
+
+                machine.succeed(
+                    as_user(
+                        f"keyforge-listener-window-labctl --socket {listener_socket} "
+                        "retitle alpha AlphaRenamed"
+                    )
+                )
+            wait_for_active_title("AlphaRenamed")
+
+            machine.succeed(
+                as_user(
+                    f"keyforge-listener-window-labctl --socket {listener_socket} close alpha"
+                )
+            )
+            wait_for_active_title("Beta")
+
+            machine.succeed(
+                as_user(f"keyforge-listener-window-labctl --socket {listener_socket} quit")
+            )
+
+            with subtest("cursor position"):
+                uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic")
+                if uses_slurp:
+                    # Slurp-based compositors need keyforged uinput devices and a __slurp_trigger macro.
+                    # Create a hardware config for the QEMU AT keyboard so keyforged grabs it.
+                    import base64
+                    hw_toml = (
+                        '[hardware]\n'
+                        'vendor_id = "0001"\n'
+                        'product_id = "0001"\n'
+                        'name = "QEMU AT Keyboard"\n'
+                        '\n'
+                        '[[hardware.evdev.devices]]\n'
+                        'path = "/dev/input/by-path/platform-i8042-serio-0-event-kbd"\n'
+                        'type = "keyboard"\n'
+                        'id = "kb"\n'
+                        '\n'
+                        '[[hardware.layout.buttons]]\n'
+                        'id = "key_a"\n'
+                        'label = "A"\n'
+                        'evdev = "key_a"\n'
+                    )
+                    hw_dir = "/home/${vmUser}/.config/keyforge/hardware"
+                    machine.succeed(as_user("mkdir -p " + hw_dir))
+                    hw_b64 = base64.b64encode(hw_toml.encode()).decode()
+                    machine.succeed(f"echo {hw_b64} | base64 -d > " + hw_dir + "/0001_0001.toml")
+                    machine.succeed("chown ${vmUser}: " + hw_dir + "/0001_0001.toml")
+
+                    # Create a profile that grabs all interfaces on this hardware.
+                    profile_toml = (
+                        '[profile]\n'
+                        'name = "cursor-test"\n'
+                        'enabled = true\n'
+                        'is_permanent = true\n'
+                        'created_at = "2026-01-01T00:00:00"\n'
+                        '\n'
+                        '[devices."0001:0001"]\n'
+                        'always_grab_all = true\n'
+                    )
+                    prof_dir = "/home/${vmUser}/.config/keyforge/profiles"
+                    machine.succeed(as_user("mkdir -p " + prof_dir))
+                    prof_b64 = base64.b64encode(profile_toml.encode()).decode()
+                    machine.succeed(f"echo {prof_b64} | base64 -d > " + prof_dir + "/cursor-test.toml")
+                    machine.succeed("chown ${vmUser}: " + prof_dir + "/cursor-test.toml")
+
+                    # Tell the session to reload configs and grab the device.
+                    reeval = session_query("reevaluate_hardware")
+                    machine.log(f"reevaluate_hardware: {reeval}")
+                    assert reeval.get("status") == "ok", reeval
+
+                    # Wait for the device grab to complete (uinput devices created).
+                    time.sleep(2)
+
+                    # Verify the device was grabbed by checking session journal.
+                    wait_for_user_command(
+                        "keyforged grabbed device",
+                        "journalctl --user -u keyforge-session.service --no-pager "
+                        "| grep -F 'Grabbed device 0001:0001'",
+                        timeout=30,
+                    )
+
+                    # keyforged registers the internal __slurp_trigger macro at startup.
+                    # Do not recreate it here; names starting with "__" are reserved.
+
+                # Move cursor to a known position via QEMU tablet input.
+                # Coordinates are in the usb-tablet range (0-32767) mapped to display pixels.
+                machine.send_monitor_command("mouse_move 16384 12288 0")
+                time.sleep(1)
+
+                # Query cursor position.
+                cursor = session_query("get_cursor_position")
+                machine.log(f"get_cursor_position: {cursor}")
+                assert cursor.get("status") == "ok", f"cursor query failed: {cursor}"
+                cx = cursor.get("x", 0)
+                cy = cursor.get("y", 0)
+                machine.log(f"Cursor at ({cx}, {cy})")
+                assert isinstance(cx, int) and isinstance(cy, int), cursor
+                # QEMU tablet-to-screen mapping varies across compositor/display setups.
+                # Treat any non-negative, on-screen coordinate as a successful cursor read.
+                assert cx >= 0, f"cursor x={cx} is negative"
+                assert cy >= 0, f"cursor y={cy} is negative"
+                assert cx < 4096, f"cursor x={cx} is implausibly large"
+                assert cy < 4096, f"cursor y={cy} is implausibly large"
+      '';
+    };
+
+  gnomeModule = {
+    services.xserver.enable = true;
+    services.displayManager.defaultSession = "gnome";
+    services.displayManager.gdm.enable = true;
+    services.desktopManager.gnome.enable = true;
+
+    systemd.user.services.keyforge-session = {
+      wantedBy = lib.mkForce [ ];
+      partOf = lib.mkForce [ ];
+      after = lib.mkForce [ ];
+    };
+
+    services.gnome.gnome-initial-setup.enable = false;
+    programs.dconf.profiles.user.databases = [
+      {
+        settings = {
+          "org/gnome/shell" = {
+            disable-user-extensions = false;
+            enabled-extensions = [ "keyforge-bridge@keyforge" ];
+          };
+        };
+      }
+    ];
+  };
+
+  kdeModule = {
+    services.xserver.enable = true;
+    services.displayManager.defaultSession = "plasma";
+    services.displayManager.sddm = {
+      enable = true;
+      wayland.enable = true;
+    };
+    services.desktopManager.plasma6.enable = true;
+  };
+
+  hyprlandModule = {
+    services.displayManager.defaultSession = "hyprland-uwsm";
+    services.displayManager.sddm = {
+      enable = true;
+      wayland.enable = true;
+    };
+    programs.hyprland = {
+      enable = true;
+      withUWSM = true;
+    };
+  };
+
+  xfceModule = {
+    services.xserver.enable = true;
+    services.displayManager.defaultSession = "xfce";
+    services.xserver.displayManager.lightdm.enable = true;
+    services.xserver.desktopManager.xfce.enable = true;
+  };
+
+  cosmicModule = {
+    services.displayManager.defaultSession = "cosmic-minimal";
+    services.displayManager.sessionPackages = [ cosmicMinimalSession ];
+    services.xserver.enable = true;
+    services.displayManager.sddm = {
+      enable = true;
+      wayland.enable = true;
+    };
+    environment.systemPackages = [ pkgs.cosmic-comp ];
+  };
+
+  swayModule = {
+    services.displayManager.defaultSession = "sway";
+    services.displayManager.sddm = {
+      enable = true;
+      wayland.enable = true;
+    };
+    programs.sway.enable = true;
+  };
+
+in
+{
+  inherit listenerVmTools;
+
+  checks = {
+    listener-vm-gnome-bridge = mkDesktopTest {
+      name = "listener-vm-gnome-bridge";
+      expectedCompositor = "gnome";
+      extraModule = gnomeModule;
+      runListenerAssertions = false;
+      memorySize = 4096;
+      beforeDesktopScript = ''
+        bridge_output = f"{runtime_dir}/gnome-bridge-probe.json"
+        bridge_debug = f"{runtime_dir}/gnome-bridge-probe.debug"
+        machine.succeed(
+            as_user(
+                f"rm -f {listener_socket} {runtime_dir}/keyforge/gnome-bridge.sock {bridge_output} {bridge_debug}"
+            )
+        )
+        machine.succeed(
+            as_user(
+                "systemd-run --user --unit=gnome-bridge-probe "
+                "${gnomeBridgeProbe}/bin/keyforge-gnome-bridge-probe "
+                f"--socket {runtime_dir}/keyforge/gnome-bridge.sock "
+                f"--output {bridge_output} "
+                f"--debug-output {bridge_debug} "
+                "--timeout 180 "
+                "--require-focus"
+            )
+        )
+      '';
+      desktopReadyScript = ''
+        wait_for_user_command("GNOME Shell process", "pgrep -u 1000 gnome-shell")
+        wait_for_user_command("GNOME Wayland socket", f"test -S {runtime_dir}/wayland-0")
+        wait_for_user_command(
+            "GNOME bridge extension visible",
+            "gnome-extensions info keyforge-bridge@keyforge >/dev/null",
+        )
+        machine.succeed(as_user("gnome-extensions enable keyforge-bridge@keyforge"))
+        wait_for_user_command(
+            "GNOME bridge extension enabled",
+            "gnome-extensions list --enabled | grep -Fx keyforge-bridge@keyforge",
+        )
+      '';
+      preflightScript = ''
+        log_command_output(
+            "gnome-bridge-probe status after launch",
+            as_user("systemctl --user status gnome-bridge-probe.service --no-pager || true"),
+        )
+        log_command_output(
+            "keyforge runtime dir after probe launch",
+            as_user(f"ls -la {runtime_dir}/keyforge || true"),
+        )
+        log_command_output(
+            "gnome-bridge-probe debug after launch",
+            as_user(f"cat {bridge_debug} || true"),
+        )
+        machine.succeed(as_user("gnome-extensions disable keyforge-bridge@keyforge || true"))
+        machine.succeed(as_user("gnome-extensions enable keyforge-bridge@keyforge"))
+        wait_for_user_command("GNOME bridge probe output", f"test -f {bridge_output}")
+        log_command_output(
+            "gnome-bridge-probe debug",
+            as_user(f"cat {bridge_debug} || true"),
+        )
+        bridge_result = machine.succeed(
+            as_user("systemctl --user show gnome-bridge-probe.service --property=ExecMainStatus --value")
+        ).strip()
+        assert bridge_result == "0", bridge_result
+        bridge_payload = json.loads(machine.succeed(as_user(f"cat {bridge_output}")))
+        assert bridge_payload.get("hello") is True, bridge_payload
+        assert bridge_payload.get("pointer") is not None, bridge_payload
+        assert bridge_payload.get("focus_titles"), bridge_payload
+      '';
+    };
+
+    listener-vm-gnome = mkDesktopTest {
+      name = "listener-vm-gnome";
+      expectedCompositor = "gnome";
+      extraModule = gnomeModule;
+      memorySize = 4096;
+      desktopReadyScript = ''
+        wait_for_user_command("GNOME Shell process", "pgrep -u 1000 gnome-shell")
+        wait_for_user_command("GNOME Wayland socket", f"test -S {runtime_dir}/wayland-0")
+        wait_for_user_command(
+            "WAYLAND_DISPLAY in systemd user env",
+            "systemctl --user show-environment | grep -q WAYLAND_DISPLAY",
+        )
+        wait_for_user_command(
+            "GNOME bridge extension visible",
+            "gnome-extensions info keyforge-bridge@keyforge >/dev/null",
+        )
+        machine.succeed(as_user("gnome-extensions enable keyforge-bridge@keyforge"))
+        wait_for_user_command(
+            "GNOME bridge extension enabled",
+            "gnome-extensions list --enabled | grep -Fx keyforge-bridge@keyforge",
+        )
+      '';
+    };
+
+    listener-vm-kde = mkDesktopTest {
+      name = "listener-vm-kde";
+      expectedCompositor = "kde";
+      extraModule = kdeModule;
+      memorySize = 4096;
+      desktopReadyScript = ''
+        wait_for_command("kwin_wayland process", "pgrep -u ${toString vmUid} kwin_wayland")
+        wait_for_command("plasmashell process", "pgrep -u ${toString vmUid} plasmashell")
+      '';
+    };
+
+    listener-vm-hyprland = mkDesktopTest {
+      name = "listener-vm-hyprland";
+      expectedCompositor = "hyprland";
+      extraModule = hyprlandModule;
+      memorySize = 3072;
+      desktopReadyScript = ''
+        wait_for_command("Hyprland process", "pgrep -u ${toString vmUid} Hyprland")
+        wait_for_user_command(
+            "Hyprland socket directory",
+            "ls $XDG_RUNTIME_DIR/hypr/*/",
+        )
+        wait_for_user_command(
+            "HYPRLAND_INSTANCE_SIGNATURE in systemd env",
+            "systemctl --user show-environment | grep -q HYPRLAND_INSTANCE_SIGNATURE",
+        )
+      '';
+    };
+
+    listener-vm-xfce = mkDesktopTest {
+      name = "listener-vm-xfce";
+      expectedCompositor = "x11";
+      extraModule = xfceModule;
+      memorySize = 3072;
+      desktopReadyScript = ''
+        wait_for_command("xfwm4 process", "pgrep -u ${toString vmUid} xfwm4")
+        wait_for_command("xfdesktop process", "pgrep -u ${toString vmUid} xfdesktop")
+        wait_for_user_command("DISPLAY in environment", "test -n \"$DISPLAY\"")
+        wait_for_user_command("X11 socket", "test -S /tmp/.X11-unix/X0")
+      '';
+    };
+
+    listener-vm-cosmic = mkDesktopTest {
+      name = "listener-vm-cosmic";
+      expectedCompositor = "cosmic";
+      extraModule = cosmicModule;
+      memorySize = 4096;
+      desktopReadyScript = ''
+        wait_for_command("cosmic-comp process", "pgrep -u ${toString vmUid} cosmic-comp")
+        wait_for_user_command(
+            "Wayland socket",
+            "ls $XDG_RUNTIME_DIR/wayland-*",
+        )
+        wait_for_user_command(
+            "WAYLAND_DISPLAY in systemd user env",
+            "systemctl --user show-environment | grep -q WAYLAND_DISPLAY",
+        )
+      '';
+    };
+
+    listener-vm-sway = mkDesktopTest {
+      name = "listener-vm-sway";
+      expectedCompositor = "wayland";
+      activationMethod = "sway";
+      extraModule = swayModule;
+      memorySize = 3072;
+      desktopReadyScript = ''
+        wait_for_command("sway process", "pgrep -u ${toString vmUid} sway")
+        wait_for_user_command(
+            "Wayland socket",
+            "ls $XDG_RUNTIME_DIR/wayland-*",
+        )
+        wait_for_user_command(
+            "WAYLAND_DISPLAY in systemd user env",
+            "systemctl --user show-environment | grep -q WAYLAND_DISPLAY",
+        )
+        wait_for_user_command(
+            "SWAYSOCK in systemd user env",
+            "systemctl --user show-environment | grep -q SWAYSOCK",
+        )
+      '';
+    };
+
+  };
+}

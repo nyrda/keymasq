@@ -72,5 +72,4 @@ Keyforge is a Linux input remapper built around three processes:
 
 ## Commands
 
-You are no done before running  `./scripts/check.sh` passes. It runs `ruff`, `basedpyright`, and the full pytest test suite.
-If you need to run ruff or basedpyright or pytest for smaller scope tests you find them in nix develop.
+You are no done before running  `./scripts/check.sh` passes. It runs `ruff`, `basedpyright` with nix develop, and the full pytest test suite inside a VM.

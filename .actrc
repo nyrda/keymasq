@@ -1,0 +1,4 @@
+--bind
+--container-options=--user=0
+--artifact-server-path=.act-artifacts
+-P ubuntu-24.04=ghcr.io/catthehacker/ubuntu:full-24.04

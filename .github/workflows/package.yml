@@ -78,6 +78,7 @@ jobs:
         run: bash scripts/build-source-tarball.sh
 
       - name: Upload source tarball
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v6
         with:
           name: source-tarball
@@ -94,6 +95,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download source tarball
+        if: ${{ !env.ACT }}
         uses: actions/download-artifact@v8
         with:
           name: source-tarball
@@ -117,6 +119,7 @@ jobs:
             '
 
       - name: Upload Arch package
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v6
         with:
           name: pacman-arch-package
@@ -133,6 +136,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download Arch package
+        if: ${{ !env.ACT }}
         uses: actions/download-artifact@v8
         with:
           name: pacman-arch-package
@@ -183,6 +187,7 @@ jobs:
             '
 
       - name: Upload Debian artifacts
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v6
         with:
           name: debian-package
@@ -202,6 +207,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download Debian artifacts
+        if: ${{ !env.ACT }}
         uses: actions/download-artifact@v8
         with:
           name: debian-package
@@ -249,6 +255,7 @@ jobs:
             '
 
       - name: Upload Fedora RPM
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v6
         with:
           name: rpm-fedora-package
@@ -265,10 +272,17 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download Fedora RPM
+        if: ${{ !env.ACT }}
         uses: actions/download-artifact@v8
         with:
           name: rpm-fedora-package
           path: dist/rpm
+
+      - name: Prepare Fedora RPM for local act run
+        if: ${{ env.ACT }}
+        run: |
+          mkdir -p dist/rpm
+          cp -f dist/*.fedora.*.rpm dist/rpm/
 
       - name: Test Fedora RPM in Fedora container
         run: |
@@ -314,6 +328,7 @@ jobs:
             '
 
       - name: Upload openSUSE RPM
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v6
         with:
           name: rpm-opensuse-package
@@ -330,10 +345,17 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download openSUSE RPM
+        if: ${{ !env.ACT }}
         uses: actions/download-artifact@v8
         with:
           name: rpm-opensuse-package
           path: dist/rpm
+
+      - name: Prepare openSUSE RPM for local act run
+        if: ${{ env.ACT }}
+        run: |
+          mkdir -p dist/rpm
+          cp -f dist/*.opensuse.*.rpm dist/rpm/
 
       - name: Test openSUSE RPM in openSUSE container
         run: |
@@ -360,7 +382,7 @@ jobs:
       - test-rpm-fedora
       - build-rpm-opensuse
       - test-rpm-opensuse
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     permissions:
       attestations: write

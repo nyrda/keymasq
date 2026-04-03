@@ -5,3 +5,11 @@ export PYBUILD_SYSTEM = pyproject
 
 %:
 	dh $@ --buildsystem=pybuild
+
+execute_after_dh_install:
+	set -eu; \
+	for icon in assets/icons/keyforge-*.png; do \
+		size="$${icon##*-}"; \
+		size="$${size%.png}"; \
+		install -Dm644 "$$icon" "debian/keyforge/usr/share/icons/hicolor/$${size}x$${size}/apps/keyforge.png"; \
+	done

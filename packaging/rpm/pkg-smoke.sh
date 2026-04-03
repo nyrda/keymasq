@@ -31,6 +31,9 @@ assert_file /usr/share/polkit-1/actions/com.keyforge.record-macro.policy
 assert_file /usr/share/applications/keyforge.desktop
 assert_file /usr/share/metainfo/keyforge.metainfo.xml
 assert_file /usr/share/icons/hicolor/scalable/apps/keyforge.svg
+for size in 16 22 24 32 48 64 128 256 512; do
+    assert_file "/usr/share/icons/hicolor/${size}x${size}/apps/keyforge.png"
+done
 assert_file /usr/share/gnome-shell/extensions/keyforge-bridge@keyforge/metadata.json
 assert_file /etc/keyforge/security.toml
 

@@ -31,6 +31,7 @@ declare -a source_paths=(
     assets/keyforge.desktop
     assets/keyforge.metainfo.xml
     assets/keyforge.svg
+    assets/icons
     examples
     gnome-extension
     keyforge
@@ -48,10 +49,20 @@ for path in "${source_paths[@]}"; do
     fi
 done
 
+declare -a tracked_source_paths=()
+for path in "${source_paths[@]}"; do
+    mapfile -d '' -t tracked_matches < <(git -C "$REPO_DIR" ls-files -z -- "$path")
+    if [[ "${#tracked_matches[@]}" -eq 0 ]]; then
+        printf 'No tracked files found for source path: %s\n' "$path" >&2
+        exit 1
+    fi
+    tracked_source_paths+=("${tracked_matches[@]}")
+done
+
 mkdir -p "$DIST_DIR"
 rm -f "$archive_path"
 
-git -C "$REPO_DIR" ls-files -z -- "${source_paths[@]}" |
+printf '%s\0' "${tracked_source_paths[@]}" |
     tar -C "$REPO_DIR" \
         --null \
         --files-from=- \

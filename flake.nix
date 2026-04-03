@@ -99,6 +99,11 @@
             install -Dm644 $src/assets/keyforge.desktop $out/share/applications/keyforge.desktop
             install -Dm644 $src/assets/keyforge.metainfo.xml $out/share/metainfo/keyforge.metainfo.xml
             install -Dm644 $src/assets/keyforge.svg $out/share/icons/hicolor/scalable/apps/keyforge.svg
+            for icon in $src/assets/icons/keyforge-*.png; do
+              size=''${icon##*-}
+              size=''${size%.png}
+              install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/keyforge.png
+            done
             install -Dm644 $src/polkit/com.keyforge.record-macro.policy $out/share/polkit-1/actions/com.keyforge.record-macro.policy
           '';
 

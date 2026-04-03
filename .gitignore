@@ -75,6 +75,7 @@ Thumbs.db
 
 # Local config
 *.local
+.act-artifacts/
 
 # Makepkg
 pkg/

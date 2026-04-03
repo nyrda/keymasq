@@ -46,7 +46,7 @@ These directories provide the shared package contents:
 - `sysusers.d/`: creation of the `keyforge` system user/group
 - `tmpfiles.d/`: runtime and state directory creation
 - `polkit/`: privileged recording policy
-- `assets/`: desktop file, AppStream metainfo, and icon
+- `assets/`: desktop file, AppStream metainfo, and SVG/PNG application icons
 - `examples/`: sample configuration files
 - `gnome-extension/`: optional GNOME bridge extension
 
@@ -85,6 +85,7 @@ The main filesystem layout is:
 /usr/share/applications/keyforge.desktop
 /usr/share/metainfo/keyforge.metainfo.xml
 /usr/share/icons/hicolor/scalable/apps/keyforge.svg
+/usr/share/icons/hicolor/<size>x<size>/apps/keyforge.png
 /usr/share/gnome-shell/extensions/keyforge-bridge@keyforge/
 /etc/keyforge/security.toml
 ```

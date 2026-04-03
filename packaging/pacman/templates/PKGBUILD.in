@@ -49,6 +49,14 @@ package() {
         "$pkgdir/usr/share/metainfo/keyforge.metainfo.xml"
     install -Dm644 "assets/keyforge.svg" \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/keyforge.svg"
+    local icon
+    local size
+    for icon in assets/icons/keyforge-*.png; do
+        size="${icon##*-}"
+        size="${size%.png}"
+        install -Dm644 "$icon" \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/keyforge.png"
+    done
 
     install -Dm644 "systemd/keyforged.service" \
         "$pkgdir/usr/lib/systemd/system/keyforged.service"

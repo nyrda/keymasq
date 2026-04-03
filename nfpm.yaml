@@ -62,6 +62,24 @@ contents:
     dst: /usr/share/metainfo/keyforge.metainfo.xml
   - src: assets/keyforge.svg
     dst: /usr/share/icons/hicolor/scalable/apps/keyforge.svg
+  - src: assets/icons/keyforge-16.png
+    dst: /usr/share/icons/hicolor/16x16/apps/keyforge.png
+  - src: assets/icons/keyforge-22.png
+    dst: /usr/share/icons/hicolor/22x22/apps/keyforge.png
+  - src: assets/icons/keyforge-24.png
+    dst: /usr/share/icons/hicolor/24x24/apps/keyforge.png
+  - src: assets/icons/keyforge-32.png
+    dst: /usr/share/icons/hicolor/32x32/apps/keyforge.png
+  - src: assets/icons/keyforge-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/keyforge.png
+  - src: assets/icons/keyforge-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/keyforge.png
+  - src: assets/icons/keyforge-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/keyforge.png
+  - src: assets/icons/keyforge-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/keyforge.png
+  - src: assets/icons/keyforge-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/keyforge.png
 
   - src: examples/security.toml
     dst: /etc/keyforge/security.toml

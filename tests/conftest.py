@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from unittest import mock
@@ -36,15 +37,16 @@ def temp_config_dir(tmp_path: Path) -> Generator[Path, None, None]:
 
 @pytest.fixture
 def temp_socket_dir(tmp_path: Path) -> Generator[Path, None, None]:
-    run_dir = tmp_path / "run" / "keyforge"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    socket_path = run_dir / "socket"
+    # Keep the UNIX socket path short enough for Linux AF_UNIX limits in CI.
+    with tempfile.TemporaryDirectory(prefix="keyforge-sock-") as temp_dir:
+        run_dir = Path(temp_dir)
+        socket_path = run_dir / "socket"
 
-    with (
-        mock.patch("keyforge.common.paths.RUN_DIR", run_dir),
-        mock.patch("keyforge.common.paths.SOCKET_PATH", socket_path),
-    ):
-        yield run_dir
+        with (
+            mock.patch("keyforge.common.paths.RUN_DIR", run_dir),
+            mock.patch("keyforge.common.paths.SOCKET_PATH", socket_path),
+        ):
+            yield run_dir
 
 
 @pytest.fixture

@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk  # pyright: ignore[reportMissingImports]  # noqa: E402
 
 from keyforge.common.paths import ensure_config_dirs  # noqa: E402
-from keyforge.gui.icons import theme_supports_core_icons  # noqa: E402
+from keyforge.gui.icons import register_icon_search_path, theme_supports_core_icons  # noqa: E402
 from keyforge.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keyforge.gui.window import MainWindow  # noqa: E402
 
@@ -38,6 +38,7 @@ class Application(Adw.Application):
         # Ensure Adwaita icon theme is available on non-GNOME Wayland compositors
         # where xdg-desktop-portal may not expose GTK settings correctly
         # (e.g. icon-theme resolves to non-existent "gnome" instead of "Adwaita").
+        register_icon_search_path()
         if not theme_supports_core_icons():
             settings = Gtk.Settings.get_default()
             if settings:

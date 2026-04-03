@@ -1,5 +1,6 @@
 import importlib
 import sys
+from importlib import resources
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -127,3 +128,13 @@ def test_resolve_slurp_path_returns_none_for_non_executable(
     monkeypatch.setattr(paths, "SLURP_PATH", slurp)
 
     assert paths.resolve_slurp_path() is None
+
+
+def test_gui_package_assets_exist() -> None:
+    gui_dir = resources.files("keyforge").joinpath("gui")
+
+    assert gui_dir.joinpath("style.css").is_file()
+    assert gui_dir.joinpath("assets", "gamepad.svg").is_file()
+    assert gui_dir.joinpath("assets", "keyforge-keyboard-symbolic.svg").is_file()
+    assert gui_dir.joinpath("assets", "keyforge-mouse-symbolic.svg").is_file()
+    assert gui_dir.joinpath("assets", "keyforge-combos-symbolic.svg").is_file()

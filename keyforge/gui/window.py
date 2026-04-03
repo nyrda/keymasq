@@ -12,7 +12,12 @@ from gi.repository import Adw, GLib, Gtk
 
 from keyforge.common.paths import KEYFORGE_RECORD_HELPER_PATH, resolve_keyforge_record_helper_path
 from keyforge.common.recording_guard import resolve_unlock_status
-from keyforge.gui.icons import device_icon_names, image_from_icon_names, resolve_icon_name
+from keyforge.gui.icons import (
+    combo_icon_names,
+    device_icon_names,
+    image_from_icon_names,
+    resolve_icon_name,
+)
 from keyforge.gui.session_client import (
     register_session_event_callback,
     run_gui_task,
@@ -782,7 +787,7 @@ class MainWindow(Adw.ApplicationWindow):
             compositor_capabilities=self._compositor_capabilities,
         )
         self.stack.add_titled_with_icon(
-            self.combo_tab, "combos", "Combos", "preferences-desktop-keyboard-shortcuts-symbolic",
+            self.combo_tab, "combos", "Combos", resolve_icon_name(*combo_icon_names()),
         )
         if self._selected_profile_name:
             self.combo_tab.refresh_profiles(
@@ -818,7 +823,7 @@ class MainWindow(Adw.ApplicationWindow):
         if self.combo_tab and self.combo_tab not in self.stack:
             self.stack.add_titled_with_icon(
                 self.combo_tab, "combos", "Combos",
-                "preferences-desktop-keyboard-shortcuts-symbolic",
+                resolve_icon_name(*combo_icon_names()),
             )
 
     def _on_add_device(self, button: Gtk.Button) -> None:

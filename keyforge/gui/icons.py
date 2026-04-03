@@ -7,6 +7,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk
 
 KEYBOARD_ICON_NAMES = (
+    "keyforge-keyboard-symbolic",
     "preferences-desktop-keyboard-shortcuts-symbolic",
     "input-keyboard-symbolic",
     "preferences-desktop-keyboard-symbolic",
@@ -14,7 +15,15 @@ KEYBOARD_ICON_NAMES = (
     "preferences-desktop-keyboard-shortcuts",
 )
 
+COMBO_ICON_NAMES = (
+    "keyforge-combos-symbolic",
+    "preferences-desktop-keyboard-shortcuts-symbolic",
+    "input-keyboard-symbolic",
+    "preferences-desktop-keyboard-shortcuts",
+)
+
 MOUSE_ICON_NAMES = (
+    "keyforge-mouse-symbolic",
     "input-mouse-symbolic",
     "input-mouse",
     "input-tablet",
@@ -35,6 +44,13 @@ def _icon_theme() -> Gtk.IconTheme | None:
     return Gtk.IconTheme.get_for_display(display)
 
 
+def register_icon_search_path() -> None:
+    theme = _icon_theme()
+    if not theme:
+        return
+    theme.add_search_path(os.path.join(os.path.dirname(__file__), "assets"))
+
+
 def resolve_icon_name(*names: str) -> str:
     theme = _icon_theme()
     if theme:
@@ -51,25 +67,12 @@ def image_from_icon_names(*names: str, pixel_size: int | None = None) -> Gtk.Ima
     return image
 
 
-def _device_asset_path(is_keyboard: bool) -> str:
-    filename = "keyboard.svg" if is_keyboard else "mouse.svg"
-    return os.path.join(os.path.dirname(__file__), "assets", filename)
-
-
-def device_header_icon(is_keyboard: bool, pixel_size: int = 32) -> Gtk.Widget:
-    picture = Gtk.Picture()
-    picture.set_can_shrink(True)
-    picture.set_size_request(pixel_size, pixel_size)
-    try:
-        texture = Gdk.Texture.new_from_filename(_device_asset_path(is_keyboard))
-        picture.set_paintable(texture)
-        return picture
-    except Exception:
-        return image_from_icon_names(*device_icon_names(is_keyboard), pixel_size=pixel_size)
-
-
 def device_icon_names(is_keyboard: bool) -> tuple[str, ...]:
     return KEYBOARD_ICON_NAMES if is_keyboard else MOUSE_ICON_NAMES
+
+
+def combo_icon_names() -> tuple[str, ...]:
+    return COMBO_ICON_NAMES
 
 
 def theme_supports_core_icons() -> bool:

@@ -43,8 +43,11 @@
   <rect x="24" y="24" width="80" height="76" rx="13" fill="url(#capInner)" filter="url(#innerShadow)"/>
   <rect x="24" y="24" width="80" height="76" rx="13" fill="none" stroke="#4a4a50" stroke-width="0.5" opacity="0.6"/>
 
-  <!-- Orange K letter centered in inner frame (64, 62) -->
-  <text filter="url(#letterGlow)" x="64" y="62" font-family="sans-serif" font-size="56" font-weight="700" fill="#e85520" text-anchor="middle" dominant-baseline="central">K</text>
+  <!-- Orange K letter centered in inner frame (center y=62).
+       y=82 is the alphabetic baseline: cap-height ~40px (0.72*56),
+       so visual center lands at 82-20=62. Plain px value — no em units,
+       no dominant-baseline — works in Qt SVG and librsvg. -->
+  <text filter="url(#letterGlow)" x="64" y="82" font-family="sans-serif" font-size="56" font-weight="700" fill="#e85520" text-anchor="middle">K</text>
 
-  <text x="64" y="62" font-family="sans-serif" font-size="56" font-weight="700" fill="#ee6625" text-anchor="middle" dominant-baseline="central">K</text>
+  <text x="64" y="82" font-family="sans-serif" font-size="56" font-weight="700" fill="#ee6625" text-anchor="middle">K</text>
 </svg>

@@ -141,8 +141,9 @@ Open the development shell with:
 nix develop
 ```
 
-The dev shell provides the repo's standard quality tools, including `pytest`,
-`ruff`, and `basedpyright`.
+The dev shell provides the repo's standard quality tools and local packaging
+helpers, including `pytest`, `ruff`, `basedpyright`, `nfpm`, Python wheel build
+tools, `git`, and `ssh`.
 
 For NixOS, the intended consumption path is the module. It exposes:
 
@@ -246,6 +247,46 @@ dpkg-deb -I ../keyforge_0.1.0-1_all.deb
 dpkg-deb -c ../keyforge_0.1.0-1_all.deb
 ```
 
+#### Manual current-worktree build via Debian container
+
+Unlike the RPM flow, the Debian package is not currently set up for a host-side
+`nix develop` build. The supported local dev path is to run the same Debian
+container job used in GitHub Actions against the current worktree:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  debian:trixie \
+  bash -lc '
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y \
+      ca-certificates \
+      debhelper \
+      dh-sequence-python3 \
+      lintian \
+      pybuild-plugin-pyproject \
+      python3-all \
+      python3-build \
+      python3-installer \
+      python3-setuptools \
+      python3-wheel
+    bash packaging/debian/ci-build.sh
+  '
+```
+
+This also builds from the current worktree, so local uncommitted changes in the
+packaged files are included. Output artifacts are copied into:
+
+```text
+dist/debian/
+```
+
+That is the same path used by `packaging/debian/ci-build.sh` and the
+`build-deb` GitHub Actions job.
+
 ### Fedora and openSUSE RPMs
 
 RPM packaging is driven by `nfpm.yaml`. The repository uses a single shared
@@ -262,12 +303,54 @@ The RPM build flow:
 3. Resolves the target distro's Python `site-packages` path
 4. Runs `nfpm` with distro-specific dependency values
 
+`scripts/build-packages.sh` builds the wheel directly from the current working
+tree. Unlike the release source tarball flow, it does not archive only tracked
+Git files first, so uncommitted changes in `keyforge/`, packaging metadata, and
+other referenced files are included in the generated RPM payload.
+
 Build RPMs with:
 
 ```bash
 FEDORA_BUILD_HOST=<fedora-builder> \
 OPENSUSE_BUILD_HOST=<opensuse-builder> \
 bash scripts/build-packages.sh
+```
+
+From the Nix dev shell, the same flow is:
+
+```bash
+nix develop -c bash -lc '
+  FEDORA_BUILD_HOST=<fedora-builder> \
+  OPENSUSE_BUILD_HOST=<opensuse-builder> \
+  bash scripts/build-packages.sh
+'
+```
+
+Common current-worktree examples:
+
+Build only the Fedora RPM using a reachable Fedora host for metadata resolution:
+
+```bash
+nix develop -c bash -lc '
+  FEDORA_BUILD_HOST=<user@fedora-builder> \
+  bash scripts/build-packages.sh
+'
+```
+
+Build only the openSUSE RPM:
+
+```bash
+nix develop -c bash -lc '
+  OPENSUSE_BUILD_HOST=<opensuse-builder> \
+  bash scripts/build-packages.sh
+'
+```
+
+If you run the command on Fedora or openSUSE directly, the script can infer the
+local target and build that distro's RPM without a remote build host:
+
+```bash
+nix develop -c bash -lc 'bash scripts/build-packages.sh'
 ```
 
 Typical output:
@@ -288,8 +371,10 @@ For general repository work, use the Nix dev shell:
 nix develop
 ```
 
-That shell covers source checks, but native distro packaging still requires the
-relevant distro tooling.
+That shell covers source checks and the local current-worktree
+`scripts/build-packages.sh` RPM flow. Native distro packaging still requires
+access to the target distro's metadata when dependency names or Python paths
+must be resolved against Fedora or openSUSE.
 
 For Debian package work on Debian or Ubuntu, install:
 
@@ -364,7 +449,7 @@ sh debian/tests/installed-cli
 For broader package validation across Debian-like and RPM-based systems, the
 repository includes VM-oriented helper scripts:
 
-- `scripts/build-packages.sh`: builds `.deb` and RPM artifacts
+- `scripts/build-packages.sh`: builds Fedora and openSUSE RPM artifacts
 - `scripts/test-vms.sh`: copies a package into test VMs, installs it, enables
   services, runs package validation, and can also run pytest remotely
 - `scripts/vm-package-checks.sh`: the shared validation script used inside those

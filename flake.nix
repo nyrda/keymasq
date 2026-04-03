@@ -282,6 +282,7 @@
             packages = [
               (devPython.withPackages (ps: with ps; [
                 build
+                installer
                 setuptools
                 wheel
                 pip
@@ -297,6 +298,9 @@
               pkgs.gobject-introspection
               pkgs.gtk4
               pkgs.libadwaita
+              pkgs.git
+              pkgs.openssh
+              pkgs.nfpm
               devPythonPackages.mypy
               pkgs.ruff
               pkgs.basedpyright

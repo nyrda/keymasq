@@ -15,7 +15,7 @@ from keyforge.common.models import (
     MappingAction,
     is_protected_button,
 )
-from keyforge.gui.icons import device_icon_names, image_from_icon_names
+from keyforge.gui.icons import device_header_icon
 from keyforge.gui.session_client import (
     session_request_async,
 )
@@ -113,7 +113,7 @@ class DeviceTab(ProfileManagedTab):
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
         is_keyboard = self.is_keyboard_hardware()
-        device_icon = image_from_icon_names(*device_icon_names(is_keyboard), pixel_size=32)
+        device_icon = device_header_icon(is_keyboard, pixel_size=32)
         device_icon.set_valign(Gtk.Align.CENTER)
         header_box.append(device_icon)
 

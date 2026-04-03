@@ -2,7 +2,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gdk, Gio, Gtk
+from gi.repository import Gdk, Gtk
 
 KEYBOARD_ICON_NAMES = (
     "preferences-desktop-keyboard-shortcuts-symbolic",
@@ -43,7 +43,7 @@ def resolve_icon_name(*names: str) -> str:
 
 
 def image_from_icon_names(*names: str, pixel_size: int | None = None) -> Gtk.Image:
-    image = Gtk.Image.new_from_gicon(Gio.ThemedIcon.new_from_names(list(names)))
+    image = Gtk.Image.new_from_icon_name(resolve_icon_name(*names))
     if pixel_size is not None:
         image.set_pixel_size(pixel_size)
     return image

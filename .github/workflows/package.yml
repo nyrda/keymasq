@@ -15,8 +15,11 @@ on:
       - "docs/PACKAGING.md"
       - "examples/**"
       - "keyforge/**"
+      - "keyforge.install"
       - "nfpm.yaml"
+      - "packaging/aur/**"
       - "packaging/debian/**"
+      - "packaging/pacman/**"
       - "packaging/rpm/**"
       - "polkit/**"
       - "pyproject.toml"
@@ -40,8 +43,11 @@ on:
       - "docs/PACKAGING.md"
       - "examples/**"
       - "keyforge/**"
+      - "keyforge.install"
       - "nfpm.yaml"
+      - "packaging/aur/**"
       - "packaging/debian/**"
+      - "packaging/pacman/**"
       - "packaging/rpm/**"
       - "polkit/**"
       - "pyproject.toml"
@@ -77,6 +83,38 @@ jobs:
           name: source-tarball
           path: dist/*.tar.gz
           if-no-files-found: error
+
+  test-aur-package:
+    needs: build-source-tarball
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tarball
+          path: dist/
+
+      - name: Build rendered AUR package in Arch container
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            archlinux:base-devel \
+            bash -lc '
+              set -euo pipefail
+              pacman -Syu --noconfirm --needed \
+                python \
+                python-build \
+                python-installer \
+                python-setuptools \
+                python-wheel
+              bash packaging/pacman/ci-test-aur-build.sh /workspace
+            '
 
   build-deb:
     runs-on: ubuntu-24.04
@@ -343,3 +381,60 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
           generate_release_notes: true
+
+  publish-aur:
+    needs:
+      - release
+      - test-aur-package
+    if: startsWith(github.ref, 'refs/tags/v') && vars.ENABLE_AUR_PUBLISH == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tarball
+          path: dist/
+
+      - name: Configure SSH for AUR push
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$AUR_SSH_PRIVATE_KEY"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Render AUR package files
+        env:
+          GITHUB_TAG: ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          version="$(python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          print(data["project"]["version"])
+          PY
+          )"
+          archive_path="dist/keyforge-${version}.tar.gz"
+          archive_sha256="$(sha256sum "$archive_path" | awk '{print $1}')"
+          aur_source_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_TAG}/keyforge-${version}.tar.gz"
+
+          python3 packaging/pacman/render.py \
+            --aur-source-url "$aur_source_url" \
+            --aur-sha256 "$archive_sha256"
+
+      - name: Push AUR repo
+        env:
+          AUR_COMMIT_MESSAGE: "keyforge ${{ github.ref_name }}"
+        run: |
+          bash packaging/pacman/publish-aur.sh

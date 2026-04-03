@@ -1,12 +1,5 @@
 # Installation Guide
 
-This guide covers packaged installs and source installs.
-
-Packaged installs are the recommended path. Dependency details and change
-history are tracked in `docs/DEPENDENCIES.md`.
-
-Python source installs require Python 3.12+.
-
 ## 1. Package Installs (Recommended)
 
 ### Arch Linux
@@ -21,12 +14,13 @@ systemctl --user enable --now keyforge-session
 
 ### Arch Linux (Build from checkout)
 
-Build from a checkout and install with pacman:
+Build from a checkout and install with pacman. The repo-root `PKGBUILD` is
+intended for this flow and packages the current worktree directly:
 
 ```bash
 git clone https://github.com/nyrda/keyforge.git
 cd keyforge
-makepkg -si
+makepkg -sif
 ```
 
 Then enable services:
@@ -136,11 +130,10 @@ This installs the package, enables `keyforged`, enables the
 `keyforge-session` user service for graphical sessions, and generates
 `/etc/keyforge/security.toml`.
 
-## 2. Manual Install Requirements
+## 2. Advanced: Manual Install
 
-Manual installs are intended for advanced custom setups. This document does not
-prescribe one specific tool or command sequence for creating the Python
-environment or registering services.
+This section is for advanced users with custom setups. Most users should use
+the packaged installs above.
 
 For a working manual install, make sure the following pieces exist on the
 system:
@@ -161,23 +154,27 @@ Manual installs do not need to use `systemd` specifically. Any equivalent
 service manager or launcher arrangement is fine as long as `keyforged` runs as
 the privileged service identity and `keyforge-session` runs in the user session.
 
-### Recording and capture unlock integration
+### Recording and capture unlock
 
-The packaged unlock flow uses `keyforge-record` and Polkit. Manual installs do
-not need to replicate that.
+Packaged installs handle this automatically. For manual installs, if macro
+recording prompts do not appear or fail, you can disable the unlock requirement
+in `/etc/keyforge/security.toml`:
 
-For manual installs, the simpler recommendation is to configure
-`/etc/keyforge/security.toml` for your setup. If you are not providing the
-packaged Polkit-based unlock flow, set `[recording_guard] unlock_required =
-false` there.
+```toml
+[recording_guard]
+unlock_required = false
+```
 
-If you intentionally want to remap left or right click from the GUI, also set
-`[gui] allow_left_right_click_remap = true`. Keyforge keeps this disabled by
-default because breaking primary/secondary click can make the desktop UI hard
-to recover from.
+If you want to remap left or right mouse click (disabled by default to prevent
+locking yourself out of the desktop):
 
-For the available security policy settings, see [docs/SECURITY.md](SECURITY.md)
-and [examples/security.toml](../examples/security.toml).
+```toml
+[gui]
+allow_left_right_click_remap = true
+```
+
+For all available settings, see [SECURITY.md](SECURITY.md) and
+[examples/security.toml](../examples/security.toml).
 
 ## 3. Verification
 
@@ -228,11 +225,11 @@ sudo dnf install ./keyforge-*.fedora.*.rpm
 sudo zypper install ./keyforge-*.opensuse.*.rpm
 ```
 
-After upgrading, verify that both services are still active:
+After upgrading, make sure both services are restarted:
 
 ```bash
-systemctl status keyforged
-systemctl --user status keyforge-session
+sudo systemctl restart keyforged
+systemctl --user restart keyforge-session
 ```
 
 ### Uninstall
@@ -243,12 +240,11 @@ under `~/.config/keyforge/`.
 Packaged installs may also leave system-level configuration in place, notably
 `/etc/keyforge/security.toml`.
 
-RPM package removal also disables and stops the `keyforged` system service. On
-all package types, it is a good idea to confirm service state after removal:
+Disable and stop both services:
 
 ```bash
-systemctl status keyforged
-systemctl --user status keyforge-session
+sudo systemctl disable --now keyforged
+systemctl --user disable --now keyforge-session
 ```
 
 ### Rollback

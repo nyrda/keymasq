@@ -72,4 +72,6 @@ Keyforge is a Linux input remapper built around three processes:
 
 ## Commands
 
-You are no done before running  `./scripts/check.sh` passes. It runs `ruff`, `basedpyright` with nix develop, and the full pytest test suite inside a VM.
+All tool commands (`ruff`, `basedpyright`, `pytest`) must run inside `nix develop -c <cmd>`. Example: `nix develop -c ruff check .`
+
+Run `./scripts/check.sh` after any Python code change. Skip it for doc-only, config-only, or non-code changes.

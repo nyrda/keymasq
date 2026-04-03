@@ -8,7 +8,6 @@ __all__ = [
     "HARDWARE_DIR",
     "PROFILES_DIR",
     "SUPERKEYS_DIR",
-    "MACROS_DIR",
     "STATE_DIR",
     "SECURITY_POLICY_PATH",
     "RECORDING_UNLOCK_RUNTIME_DIR",
@@ -45,7 +44,6 @@ CONFIG_DIR = Path.home() / ".config" / "keyforge"
 HARDWARE_DIR = CONFIG_DIR / "hardware"
 PROFILES_DIR = CONFIG_DIR / "profiles"
 SUPERKEYS_DIR = CONFIG_DIR / "superkeys"
-MACROS_DIR = CONFIG_DIR / "macros"
 
 _build_helper_path = "/usr/bin/keyforge-record"
 _build_slurp_path = "/usr/bin/slurp"
@@ -63,7 +61,6 @@ def ensure_config_dirs() -> None:
     HARDWARE_DIR.mkdir(parents=True, exist_ok=True)
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     SUPERKEYS_DIR.mkdir(parents=True, exist_ok=True)
-    MACROS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def ensure_session_socket_dir() -> None:

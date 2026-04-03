@@ -1,38 +1,18 @@
 # GNOME Support
 
-Keyforge supports GNOME 46 and newer through a GNOME Shell extension bridge.
+Keyforge supports GNOME 46 and newer through a GNOME Shell extension.
 
-The extension sends active-window changes and pointer coordinates to `keyforge-session`
-over a local Unix socket:
+## Enable the extension
 
-- socket: `$XDG_RUNTIME_DIR/keyforge/gnome-bridge.sock`
-- protocol: newline-delimited JSON
-
-## Why a bridge is needed
-
-GNOME does not expose the same toplevel protocols used by wlroots, COSMIC or Hyprland.
-The extension runs inside GNOME Shell and forwards:
-
-- focused window changes (`app_id`, `wm_class`, `title`)
-- pointer position requests
-
-If the extension is missing or disconnected, Keyforge soft-degrades and keeps running,
-but window-based matching and pointer reads are unavailable until the bridge reconnects.
-
-## Install the extension
-
-Packaged installs already include the extension files. They do not enable the
-GNOME Shell extension for the user. On GNOME, you must enable the extension
-explicitly after installation.
-
-Enable it with:
+Packaged installs already include the extension files but do not enable it
+automatically. You need to enable it once after installation.
 
 ```bash
 gnome-extensions enable keyforge-bridge@keyforge
 ```
 
-After enabling the extension, restart your GNOME Shell session. Logout/login is
-the safest path. Then restart the Keyforge session service:
+After enabling the extension, log out and back in. Then restart the Keyforge
+session service:
 
 ```bash
 systemctl --user restart keyforge-session
@@ -52,7 +32,18 @@ Watch session logs:
 journalctl --user -u keyforge-session -f
 ```
 
-On success, you should see GNOME listener startup and active-window updates when switching windows.
+On success, you should see GNOME listener startup and active-window updates
+when switching windows.
+
+## What the extension does
+
+GNOME does not expose window information the same way other Wayland compositors
+do. The extension runs inside GNOME Shell and forwards the focused window name
+and pointer position to Keyforge so that window-aware profiles and pointer
+features work.
+
+If the extension is missing or disconnected, Keyforge keeps running but
+window-based profile activation is unavailable until the extension reconnects.
 
 ## Manual install from checkout
 

@@ -69,14 +69,12 @@ def test_ensure_config_dirs_creates_expected_directories(
     monkeypatch.setattr(paths, "HARDWARE_DIR", config_dir / "hardware")
     monkeypatch.setattr(paths, "PROFILES_DIR", config_dir / "profiles")
     monkeypatch.setattr(paths, "SUPERKEYS_DIR", config_dir / "superkeys")
-    monkeypatch.setattr(paths, "MACROS_DIR", config_dir / "macros")
 
     paths.ensure_config_dirs()
 
     assert (config_dir / "hardware").is_dir()
     assert (config_dir / "profiles").is_dir()
     assert (config_dir / "superkeys").is_dir()
-    assert (config_dir / "macros").is_dir()
 
 
 def test_ensure_session_socket_dir_logs_permission_failures(

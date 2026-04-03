@@ -246,9 +246,8 @@ quick operations — use the GUI for creating and editing.
 
 ## Storage
 
-Macros are stored in Keyforge's internal system directory. This location is
-not a user interface — do not edit files here directly. Backup, export, and
-sharing features may be added in a future release.
+Macros are stored in `/var/lib/keyforge/macros/`, owned by the `keyforge`
+system user. Do not edit these files by hand — use the GUI or CLI instead.
 
 ### Deleting Macros
 
@@ -270,11 +269,12 @@ could be misused as a keylogger.
   so the unlock prevents anything from silently recording in the background
   without your knowledge.
 
-- **Macros are stored in a system directory**, not mixed into profile files.
-  The GUI asks Keyforge to save or play them; it does not write arbitrary files
-  directly.
+- **Macros are stored in `/var/lib/keyforge/macros/`**, owned by the `keyforge`
+  system user, not mixed into your profile files. The GUI asks Keyforge to save
+  or play them; it does not write files there directly.
 
-**Optional security settings** (in `/etc/keyforge/security.toml`):
+**Optional security settings** (in `/etc/keyforge/security.toml`). Most users
+do not need to change these — they are intended for system administrators:
 
 - **Disable the unlock requirement** (not recommended):
 
@@ -311,8 +311,8 @@ could be misused as a keylogger.
   places, point them all at one saved macro instead of recreating it.
 - **Slow down for fragile UIs.** If a target app drops inputs, lower the speed
   multiplier.
-- **Record locale-specific text.** Type macro templates assume a standard
-  layout. If you use special characters or a non-QWERTY layout, record the
-  macro live instead.
+- **Record layout-specific text.** Type macro templates assume a standard
+  QWERTY layout. If you use special characters or a different keyboard layout,
+  record the macro live instead.
 - **Use gap notes for timing tweaks.** They're faster and more reliable than
   manually nudging individual events.

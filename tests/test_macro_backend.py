@@ -733,7 +733,6 @@ async def test_cancel_macro_playback_releases_tracked_outputs() -> None:
 
 def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatch) -> None:
     monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
-    monkeypatch.setattr(paths, "MACROS_DIR", temp_config_dir / "macros")
 
     profile = ProfileConfig(
         name="Macro Profile",

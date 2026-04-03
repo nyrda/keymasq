@@ -27,7 +27,8 @@ The repository currently maintains these package outputs:
 | Nix package | Nix and NixOS users | `flake.nix` | `nix build .#default` |
 | Nix app | Nix users who want to launch the GUI directly | `flake.nix` | `nix run .#default` |
 | NixOS module | NixOS systems | `flake.nix` | `nixosModules.default` |
-| Arch Linux package | Arch users and AUR-style packaging | `PKGBUILD` | `.pkg.tar.zst` |
+| Arch local checkout package | Arch users testing/installing the current worktree | `PKGBUILD`, `keyforge.install` | `.pkg.tar.zst` |
+| Arch AUR package | AUR publication and release packaging | `packaging/aur/` | AUR Git repo contents |
 | Debian package | Debian, Ubuntu, Mint, and derivatives | `debian/` | `.deb` |
 | Fedora RPM | Fedora systems | `nfpm.yaml` | `.fedora.x86_64.rpm` |
 | openSUSE RPM | openSUSE systems | `nfpm.yaml` | `.opensuse.x86_64.rpm` |
@@ -174,16 +175,39 @@ Functional module usage:
 
 ### Arch Linux
 
-Arch packaging is defined in `PKGBUILD`.
+Pacman packaging is generated from shared templates under
+`packaging/pacman/templates/` by:
 
-It builds a Python wheel, installs the same service and integration files as
-the other package formats, and produces a standard Arch `.pkg.tar.zst`
-package.
+```bash
+python3 packaging/pacman/render.py
+```
+
+This produces two Arch-facing outputs with the same install payload:
+
+- `PKGBUILD` and `keyforge.install` at the repo root for local worktree
+  installs
+- `packaging/aur/PKGBUILD`, `packaging/aur/keyforge.install`, and
+  `packaging/aur/.SRCINFO` for the AUR package repo
+
+The root `PKGBUILD` is for `git clone ... && makepkg -sif` testing. It copies
+the current checkout into `$srcdir`, builds a wheel from that local snapshot,
+and does not fetch an external archive or VCS source.
+
+The `packaging/aur/` subtree is for release publishing. It expects a tagged
+release tarball URL and checksum. The GitHub release workflow is the intended
+path for updating and pushing that subtree to the AUR repo.
+
+The workflow also runs a private-safe AUR dry-run build from the rendered
+package files. Real AUR publication is gated behind the repository variable
+`ENABLE_AUR_PUBLISH=true`.
+
+Both variants build a Python wheel, install the shared service and integration
+files, and produce the same pacman package payload.
 
 Local build from the current checkout:
 
 ```bash
-makepkg -si --noconfirm --force
+makepkg -sif
 ```
 
 ### Debian and Ubuntu

@@ -37,29 +37,10 @@ optdepends=(
     'hyprland: for Hyprland window rule support'
 )
 install="$pkgname.install"
-source=()
-sha256sums=()
+source=("$pkgname-$pkgver.tar.gz::https://github.com/nyrda/keyforge/releases/download/v0.1.0/keyforge-0.1.0.tar.gz")
+sha256sums=('SKIP')
 
-prepare() {
-    local worktree_dir="$srcdir/$pkgname-$pkgver"
 
-    rm -rf "$worktree_dir"
-    mkdir -p "$worktree_dir"
-
-    shopt -s dotglob nullglob
-    local entry
-    local base_name
-    for entry in "$startdir"/*; do
-        base_name="${entry##*/}"
-        case "$base_name" in
-            .git|.direnv|.mypy_cache|.pytest_cache|.ruff_cache|.venv|dist|pkg|src|*.pkg.tar.*|*.src.tar.*)
-                continue
-                ;;
-        esac
-        cp -a "$entry" "$worktree_dir"/
-    done
-    shopt -u dotglob nullglob
-}
 build() {
     local build_root="$srcdir/$pkgname-$pkgver"
 

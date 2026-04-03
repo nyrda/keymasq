@@ -1,0 +1,29 @@
+pkgbase = keyforge
+	pkgdesc = A key remapping tool for Linux using evdev and uinput
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/nyrda/keyforge
+	arch = any
+	license = MIT
+	makedepends = python-setuptools>=61.0
+	makedepends = python-wheel
+	makedepends = python-build
+	makedepends = python-installer
+	depends = acl
+	depends = slurp
+	depends = python>=3.12
+	depends = python-evdev>=1.6.0
+	depends = python-tomli-w>=1.0.0
+	depends = python-dbus-next>=0.2.3
+	depends = python-xlib>=0.33
+	depends = python-gobject>=3.42.0
+	depends = gtk4
+	depends = libadwaita
+	depends = polkit
+	depends = systemd
+	optdepends = hyprland: for Hyprland window rule support
+	source = keyforge-0.1.0.tar.gz::https://github.com/nyrda/keyforge/releases/download/v0.1.0/keyforge-0.1.0.tar.gz
+	sha256sums = SKIP
+	install = keyforge.install
+
+pkgname = keyforge

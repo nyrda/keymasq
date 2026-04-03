@@ -54,6 +54,7 @@ htmlcov/
 # Build artifacts
 *.whl
 *.tar.gz
+.pybuild/
 .vexp/
 .vm-test-logs/
 staging/

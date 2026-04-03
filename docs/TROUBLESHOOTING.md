@@ -70,20 +70,12 @@ sudo systemctl start keyforged
 systemctl --user start keyforge-session
 ```
 
-If you used `keyforged -vv`, consider purging or rotating old journal entries
-after disabling trace logging again, especially if sensitive input events may
-have been logged:
+If you used `keyforged -vv`, consider clearing old Keyforge journal entries
+after disabling trace logging, especially if sensitive input events may have
+been logged:
 
 ```bash
-sudo journalctl --rotate
-sudo journalctl --vacuum-time=1s
-```
-
-If you only want to trim journal usage rather than aggressively clear old
-entries, use a larger retention window such as:
-
-```bash
-sudo journalctl --vacuum-time=7d
+sudo journalctl -u keyforged --rotate --vacuum-time=1s
 ```
 
 ## Persist verbose flags with systemd overrides
@@ -104,6 +96,9 @@ Add:
 ExecStart=
 ExecStart=/usr/bin/keyforged -v
 ```
+
+The blank `ExecStart=` line clears the default command so the next line
+replaces it.
 
 For trace logging:
 
@@ -148,12 +143,10 @@ sudo systemctl revert keyforged
 systemctl --user revert keyforge-session
 ```
 
-After removing a `-vv` override from `keyforged`, you can rotate and vacuum the
-journal to discard old trace logs:
+After removing a `-vv` override from `keyforged`, you can clear old trace logs:
 
 ```bash
-sudo journalctl --rotate
-sudo journalctl --vacuum-time=1s
+sudo journalctl -u keyforged --rotate --vacuum-time=1s
 ```
 
 ## Common problems
@@ -178,13 +171,10 @@ What to verify:
 
 - the `keyforged` service is running as the `keyforge` user
 - udev rules were installed
-- the service has ACL access to `/dev/uinput` and the input event devices
-
-If this is a source install, re-run the install helper:
-
-```bash
-sudo bash scripts/install-systemd.sh --user "$USER"
-```
+- the service has permission to access `/dev/uinput` and the input event devices
+- no other input remapping tool (e.g. `input-remapper`, `keyd`, `evremap`,
+  `xremap`) has already grabbed the device — only one program can exclusively
+  hold a device at a time
 
 ### `keyforge-session` user service does not start
 

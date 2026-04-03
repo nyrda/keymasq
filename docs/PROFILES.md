@@ -102,41 +102,44 @@ The last applied mapping wins. In practice:
 
 Conditional profiles always override permanent profiles, even if the permanent profile has a higher numeric priority.
 
-## Passthrough And Layer Masking
+## Unmapped Buttons and Overrides
 
 Buttons not listed in a device layer pass through unchanged.
 
-If a higher profile layer explicitly sets a button to `passthrough`, that clears a lower-layer remap for that button. This matters when you want a conditional profile to remove a mapping that a permanent profile normally applies.
+If a higher-priority profile explicitly sets a button to `passthrough`, that
+cancels any remap from a lower-priority profile for that button. This is useful
+when a conditional profile needs to restore a button's original behavior that a
+permanent profile normally remaps.
 
-## Grab Behavior
+## Exclusive Input Capture
 
-`always_grab_all` is now a per-device layer setting, not a whole-profile setting.
+`always_grab_all` is a per-device layer setting that makes Keyforge capture all
+input from the device, even buttons that are not remapped. This prevents the
+original input from reaching your apps.
 
-For a given device, the effective value is:
-
-- `true` if any active layer for that device sets it to `true`
-- `false` otherwise
+For a given device, this is enabled if any active layer for that device sets it
+to `true`.
 
 ## Window Rules
 
-Conditional profiles use `profile.window_rules`.
-
-- All rules must match
-- Supported fields depend on the compositor integration
-- Unsupported rule types do not activate on compositors that cannot provide that metadata
+Conditional profiles use window rules to decide when to activate. All rules in
+a profile must match for it to become active.
 
 Typical fields are:
 
-- `class`
-- `title`
-- `tag`
+- `class` — the application identifier your compositor assigns (e.g.
+  `steam_app_730`, `firefox`). The GUI fills this in automatically when you
+  pick a window.
+- `title` — the window title text.
+- `tag` — the workspace or tag name (compositor-dependent).
 
 ## TOML Format
 
 Each profile file contains:
 
 - one `[profile]` section for global profile metadata
-- one `[devices."<hardware_id>"]` section per device layer
+- one `[devices."<hardware_id>"]` section per device layer (the hardware ID
+  identifies your device — shown in the GUI device tab header, e.g. `1234:5678`)
 - one `[devices."<hardware_id>".mapping.<button_id>]` section per mapped button
 
 Example:
@@ -218,7 +221,7 @@ Deleting a hardware definition does not delete global profiles. Any layers for t
 
 ## CLI
 
-Profile commands now operate on profile names only:
+Profile commands operate on profile names:
 
 ```bash
 keyforge profiles list
@@ -241,7 +244,7 @@ Profile control actions inside mappings now target only a profile name:
 - disable profile
 - toggle profile
 
-They no longer target a separate destination device. Toggling a profile affects all device layers contained in that profile.
+Toggling a profile affects all device layers contained in that profile.
 
 ## Combos
 

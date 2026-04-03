@@ -4,20 +4,20 @@
 [![Quality](https://github.com/nyrda/keyforge/actions/workflows/quality.yml/badge.svg)](https://github.com/nyrda/keyforge/actions/workflows/quality.yml)
 [![Package](https://github.com/nyrda/keyforge/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keyforge/actions/workflows/package.yml)
 
-Keyforge is a Linux input remapper built around a privileged daemon, a
-per-user session broker, and a GTK4 GUI.
+Keyforge is a Linux input remapper with a simple graphical interface.
 
-It supports keyboard, mouse, and gamepad remapping with global layered
-profiles, window-aware activation, macros, superkeys, and combos.
+It supports keyboard, mouse, and gamepad remapping with layered profiles,
+window-aware activation, macros, superkeys, and combos.
 
 ## Features
 
-- Remap keyboard keys, mouse buttons, and gamepad inputs
-- Build global profiles with per-device layers
-- Auto-activate conditional profiles from the focused window
+- Remap keyboard, mouse, and gamepad inputs
+- Layer per-device mappings in global profiles
+- Auto-activate profiles based on the active window
 - Record, edit, and play macros
 - Assign multiple actions to a single key with superkeys
-- Define multi-step combos to trigger actions.
+- Trigger actions with multi-input combos
+
 
 ## Screenshot
 
@@ -27,14 +27,14 @@ Main profile view in the GTK4 application:
 
 ## Desktop Support
 
-| Environment | Support | Notes |
-| --- | --- | --- |
-| Hyprland | Supported | Uses Hyprland IPC sockets for active window metadata |
-| KDE Plasma | Supported | Uses an injected KWin script over session D-Bus |
-| COSMIC | Supported | Uses `ext_foreign_toplevel_list_v1` and `zcosmic_toplevel_info_v1` |
-| GNOME | Supported with setup | Uses the GNOME Shell bridge; see [docs/GNOME.md](docs/GNOME.md) |
-| Generic Wayland | Supported | Uses `zwlr_foreign_toplevel_manager_v1` to read active window metadata |
-| X11 desktops | Supported | Uses `_NET_ACTIVE_WINDOW`, `WM_CLASS`, and window title properties |
+| Environment     | Support              | Notes                                                              |
+| --------------- | -------------------- | ------------------------------------------------------------------ |
+| Hyprland        | Supported            |                                                                    |
+| KDE Plasma      | Supported            |                                                                    |
+| COSMIC          | Supported            |                                                                    |
+| GNOME           | Supported with setup | Requires a GNOME Shell plugin; see [docs/GNOME.md](docs/GNOME.md) |
+| Generic Wayland | Supported            | See [docs/WAYLAND.md](docs/WAYLAND.md) for compositor requirements |
+| X11 desktops    | Supported            |                                                                    |
 
 
 ## Architecture
@@ -118,11 +118,11 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 ## Documentation
 
 - Installation guide: [docs/INSTALL.md](docs/INSTALL.md)
-- Dependency reference: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)
 - Profile system: [docs/PROFILES.md](docs/PROFILES.md)
+- Actions explained: [docs/ACTIONS.md](docs/ACTIONS.md)
+- Superkeys system: [docs/SUPERKEYS.md](docs/SUPERKEYS.md)
 - Combo system: [docs/COMBOS.md](docs/COMBOS.md)
 - Macro system: [docs/MACROS.md](docs/MACROS.md)
-- Gamepad details: [docs/GAMEPAD.md](docs/GAMEPAD.md)
 - GNOME setup: [docs/GNOME.md](docs/GNOME.md)
 - Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - Security model: [docs/SECURITY.md](docs/SECURITY.md)

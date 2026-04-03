@@ -72,13 +72,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build release source tarball
         run: bash scripts/build-source-tarball.sh
 
       - name: Upload source tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: source-tarball
           path: dist/*.tar.gz
@@ -91,10 +91,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download source tarball
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: source-tarball
           path: dist/
@@ -122,7 +122,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build Debian package in Debian container
         run: |
@@ -149,7 +149,7 @@ jobs:
             '
 
       - name: Upload Debian artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: debian-package
           path: |
@@ -165,10 +165,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download Debian artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: debian-package
           path: dist/debian
@@ -191,7 +191,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build Fedora RPM in Fedora container
         run: |
@@ -215,7 +215,7 @@ jobs:
             '
 
       - name: Upload Fedora RPM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rpm-fedora-package
           path: dist/*.fedora.*.rpm
@@ -228,10 +228,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download Fedora RPM
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rpm-fedora-package
           path: dist/rpm
@@ -255,7 +255,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build openSUSE RPM in openSUSE container
         run: |
@@ -280,7 +280,7 @@ jobs:
             '
 
       - name: Upload openSUSE RPM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rpm-opensuse-package
           path: dist/*.opensuse.*.rpm
@@ -293,10 +293,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download openSUSE RPM
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rpm-opensuse-package
           path: dist/rpm
@@ -333,25 +333,25 @@ jobs:
 
     steps:
       - name: Download source tarball
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: source-tarball
           path: dist/
 
       - name: Download Debian artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: debian-package
           path: dist/
 
       - name: Download Fedora RPM
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rpm-fedora-package
           path: dist/
 
       - name: Download openSUSE RPM
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rpm-opensuse-package
           path: dist/
@@ -394,10 +394,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download source tarball
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: source-tarball
           path: dist/

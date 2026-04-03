@@ -30,6 +30,7 @@ declare -a source_roots=(
     pyproject.toml
     assets
     examples
+    gnome-extension
     keyforge
     polkit
     systemd

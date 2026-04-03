@@ -111,6 +111,7 @@ finish_compact_check() {
 pytest_raw_log="$tmp_dir/pytest-vm.raw.log"
 pytest_clean_log="$tmp_dir/pytest-vm.clean.log"
 pytest_report="$tmp_dir/pytest-vm.report.log"
+flake_ref="path:$ROOT_DIR"
 
 if ! run_compact_check "ruff" "cd '$ROOT_DIR' && nix develop -c bash -lc 'ruff check keyforge tests'"; then
   exit 1
@@ -118,7 +119,9 @@ fi
 
 start_compact_check "basedpyright" "cd '$ROOT_DIR' && nix develop -c bash -lc 'basedpyright'"
 basedpyright_pid="$LAST_BG_PID"
-start_background_command "$pytest_raw_log" "cd '$ROOT_DIR' && nix run .#checks.x86_64-linux.pytest-vm.driver -- --keep-machine-state"
+# Use a path flake reference so the VM test sees the current worktree,
+# including uncommitted files that are not present in the Git snapshot.
+start_background_command "$pytest_raw_log" "cd '$ROOT_DIR' && nix run '$flake_ref#checks.x86_64-linux.pytest-vm.driver' -- --keep-machine-state"
 pytest_pid="$LAST_BG_PID"
 
 if finish_compact_check "basedpyright" "$basedpyright_pid"; then

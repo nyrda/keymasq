@@ -8,6 +8,7 @@ gi.require_version("Adw", "1")
 from gi.repository import GLib, Gtk, Pango
 
 from keyforge.common.models import ComboConfig
+from keyforge.gui.icons import image_from_icon_names
 from keyforge.gui.widgets.combo_editor_dialog import (
     ComboEditorDialog,
     combo_default_name,
@@ -57,8 +58,12 @@ class ComboTab(ProfileManagedTab):
     def _setup_header(self) -> None:
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
-        icon = Gtk.Image.new_from_icon_name("input-keyboard-symbolic")
-        icon.set_pixel_size(32)
+        icon = image_from_icon_names(
+            "preferences-desktop-keyboard-shortcuts-symbolic",
+            "input-keyboard-symbolic",
+            "preferences-desktop-keyboard-shortcuts",
+            pixel_size=32,
+        )
         icon.set_valign(Gtk.Align.CENTER)
         header.append(icon)
 

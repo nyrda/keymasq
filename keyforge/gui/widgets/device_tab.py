@@ -15,6 +15,7 @@ from keyforge.common.models import (
     MappingAction,
     is_protected_button,
 )
+from keyforge.gui.icons import device_icon_names, image_from_icon_names
 from keyforge.gui.session_client import (
     session_request_async,
 )
@@ -112,9 +113,7 @@ class DeviceTab(ProfileManagedTab):
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
         is_keyboard = self.is_keyboard_hardware()
-        icon_name = "input-keyboard-symbolic" if is_keyboard else "input-mouse-symbolic"
-        device_icon = Gtk.Image.new_from_icon_name(icon_name)
-        device_icon.set_pixel_size(32)
+        device_icon = image_from_icon_names(*device_icon_names(is_keyboard), pixel_size=32)
         device_icon.set_valign(Gtk.Align.CENTER)
         header_box.append(device_icon)
 

@@ -12,6 +12,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from keyforge.common.paths import KEYFORGE_RECORD_HELPER_PATH, resolve_keyforge_record_helper_path
 from keyforge.common.recording_guard import resolve_unlock_status
+from keyforge.gui.icons import device_icon_names, image_from_icon_names, resolve_icon_name
 from keyforge.gui.session_client import (
     register_session_event_callback,
     run_gui_task,
@@ -712,8 +713,7 @@ class MainWindow(Adw.ApplicationWindow):
             spacing=12,
         )
 
-        icon = Gtk.Image(icon_name="input-mouse-symbolic")
-        icon.set_pixel_size(96)
+        icon = image_from_icon_names(*device_icon_names(False), pixel_size=96)
         icon.add_css_class("dim-label")
         self.placeholder.append(icon)
 
@@ -803,7 +803,7 @@ class MainWindow(Adw.ApplicationWindow):
             compositor_capabilities=self._compositor_capabilities,
         )
 
-        icon = "input-keyboard-symbolic" if tab.is_keyboard_hardware() else "input-mouse-symbolic"
+        icon = resolve_icon_name(*device_icon_names(tab.is_keyboard_hardware()))
         self.stack.add_titled_with_icon(tab, device.hardware_id, device.name, icon)
         if self._selected_profile_name:
             tab.refresh_profiles(

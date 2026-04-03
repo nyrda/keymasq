@@ -362,6 +362,7 @@ jobs:
           sha256sum *.deb *.rpm *.tar.gz > SHA256SUMS
 
       - name: Generate artifact attestations
+        if: ${{ github.event.repository.private == false }}
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: |

@@ -23,12 +23,14 @@ readonly archive_name="keyforge-${version}.tar.gz"
 readonly archive_path="$DIST_DIR/$archive_name"
 readonly archive_prefix="keyforge-${version}/"
 
-declare -a source_roots=(
+declare -a source_paths=(
     CHANGELOG.md
     LICENSE
     README.md
     pyproject.toml
-    assets
+    assets/keyforge.desktop
+    assets/keyforge.metainfo.xml
+    assets/keyforge.svg
     examples
     gnome-extension
     keyforge
@@ -39,7 +41,7 @@ declare -a source_roots=(
     udev
 )
 
-for path in "${source_roots[@]}"; do
+for path in "${source_paths[@]}"; do
     if [[ ! -e "$REPO_DIR/$path" ]]; then
         printf 'Missing required source path: %s\n' "$path" >&2
         exit 1
@@ -49,7 +51,7 @@ done
 mkdir -p "$DIST_DIR"
 rm -f "$archive_path"
 
-git -C "$REPO_DIR" ls-files -z -- "${source_roots[@]}" |
+git -C "$REPO_DIR" ls-files -z -- "${source_paths[@]}" |
     tar -C "$REPO_DIR" \
         --null \
         --files-from=- \

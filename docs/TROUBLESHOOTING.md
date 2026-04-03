@@ -172,8 +172,7 @@ What to verify:
 - the `keyforged` service is running as the `keyforge` user
 - udev rules were installed
 - the service has permission to access `/dev/uinput` and the input event devices
-- no other input remapping tool (e.g. `input-remapper`, `keyd`, `evremap`,
-  `xremap`) has already grabbed the device — only one program can exclusively
+- no other input remapping tool has already grabbed the device — only one program can exclusively
   hold a device at a time
 
 ### `keyforge-session` user service does not start

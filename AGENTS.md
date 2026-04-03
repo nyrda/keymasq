@@ -37,14 +37,8 @@ Keyforge is a Linux input remapper built around three processes:
 
 - Profiles are global, not per-device. Per-device mappings live in profile device layers keyed by `hardware_id`.
 - Active profile ordering matters. Later profiles win.
-- Combos are stored on `ProfileConfig.combos` and resolved alongside mappings.
-- Combo matching is exact on stored `hardware_id` + `source` + `evdev`.
-- Combo capture is profile-scoped. The session layer expands a profile to the `hardware_id`s to capture from.
-- Combo capture uses the same original-input security model as macro recording. Do not bypass unlock or ownership checks.
-- Combos may require `force_grab_unmapped` for otherwise passthrough inputs.
 - Prefix-shadowing between combos is valid runtime behavior. The GUI only rejects exact duplicates within one profile.
 - `COMPOSITOR_DISPATCH` is generic backend behavior. Compositor-specific UI belongs under `gui/widgets/compositor_actions/`.
-- Left and right mouse buttons are protected in the GUI.
 - Xbox triggers are analog output (`ABS_Z`, `ABS_RZ`), not normal digital buttons.
 
 ## GUI Notes

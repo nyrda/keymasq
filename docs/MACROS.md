@@ -51,13 +51,29 @@ you perform them. This is the most accurate option and is recommended when:
 - You use a non-standard keyboard layout.
 - The target application is sensitive to input speed.
 
+**Before you start:** bind **Toggle Recording** to a key on your device. Toggle
+Recording starts and stops a live recording from whatever window you're in, so
+you can record in the target application without switching back to the GUI.
+It requires the GUI to be running and unlocked. You should also bind **Cancel
+Playback** — it immediately stops every running macro and is a useful safety
+net.
+
 **How to record:**
 
-1. Open **Macro Manager** in the GUI.
-2. Click **Record Macro…**.
-3. Perform the inputs you want to capture.
-4. Click **Stop Recording**.
-5. Give the macro a name and save it.
+1. Make sure the Keyforge GUI is running and unlocked.
+2. Switch to the application you want to record in.
+3. Press your **Toggle Recording** key to start capturing.
+4. Perform the inputs you want to capture.
+5. Press **Toggle Recording** again to stop.
+6. The GUI opens a save dialog — give the macro a name and save it.
+
+Starting and stopping from a hotkey keeps the recording clean. If you click
+buttons in the GUI to start or stop, those clicks and any mouse movement to
+reach them will be captured too, which is rarely what you want.
+
+> **Fallback:** you can also click **Record Macro…** in Macro Manager and
+> **Stop Recording** in the GUI, but be aware that interacting with the GUI
+> during a recording will capture those inputs.
 
 **Options available when saving:**
 
@@ -187,6 +203,23 @@ You can:
 - Change which key or button an event uses.
 - Insert gap notes (pauses).
 - Use timing tools to trim, scale, or adjust gaps.
+
+### Event Types
+
+The editor lets you insert several kinds of events into the timeline:
+
+| Event type | Description |
+|---|---|
+| **Key press / release** | Any keyboard key — letters, modifiers, function keys, media keys, etc. |
+| **Mouse click** | Press or release of any mouse button. |
+| **Relative mouse movement** | Move the pointer by a delta (pixels). Useful for macros that should work regardless of where the cursor starts. |
+| **Absolute mouse movement** | Move the pointer to an exact screen coordinate. Useful when a macro always targets a fixed UI element. |
+| **Exec (synchronous)** | Run an external program and wait for it to finish before the macro continues. Macro playback is paused until the process exits. |
+| **Exec (asynchronous)** | Fire-and-forget an external program. The macro continues immediately — the launched process runs independently. |
+
+Exec events are powerful but be cautious: a synchronous exec that hangs will
+stall the macro indefinitely. Prefer asynchronous exec for anything that
+doesn't need to gate later events.
 
 Playback errors are silent — if a macro fails mid-sequence (for example, the
 target device is gone), the GUI won't notify you.

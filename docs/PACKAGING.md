@@ -197,8 +197,9 @@ The `packaging/aur/` subtree is for release publishing. It expects a tagged
 release tarball URL and checksum. The GitHub release workflow is the intended
 path for updating and pushing that subtree to the AUR repo.
 
-The workflow also runs a private-safe AUR dry-run build from the rendered
-package files. Real AUR publication is gated behind the repository variable
+The workflow also builds the rendered Arch package from the release tarball and
+installs that exact artifact in a fresh Arch environment for smoke testing.
+Real AUR publication is gated behind the repository variable
 `ENABLE_AUR_PUBLISH=true`.
 
 Both variants build a Python wheel, install the shared service and integration
@@ -378,11 +379,13 @@ The package workflow lives in `.github/workflows/package.yml`.
 At a high level, CI:
 
 1. Runs source checks
-2. Builds the Debian package
-3. Tests the exact built `.deb` in a clean Debian environment
-4. Builds Fedora and openSUSE RPMs in distro-native environments
-5. Installs and smoke-tests those RPMs in fresh environments
-6. Publishes build artifacts on release tags
+2. Builds the rendered Arch package from the release tarball
+3. Installs and smoke-tests that Arch package in a clean Arch environment
+4. Builds the Debian package
+5. Tests the exact built `.deb` in a clean Debian environment
+6. Builds Fedora and openSUSE RPMs in distro-native environments
+7. Installs and smoke-tests those RPMs in fresh environments
+8. Publishes build artifacts on release tags
 
 On tagged builds, the workflow publishes:
 

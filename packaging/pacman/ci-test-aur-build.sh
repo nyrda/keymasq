@@ -2,17 +2,20 @@
 set -euo pipefail
 
 workspace_dir="${1:-/workspace}"
+dist_dir="${2:-$workspace_dir/dist/arch}"
 repo_copy="/tmp/keyforge"
 build_dir="/tmp/keyforge-aur-build"
 
 rm -rf "$repo_copy" "$build_dir"
 cp -a "$workspace_dir" "$repo_copy"
+mkdir -p "$dist_dir"
+mkdir -p "$build_dir"
 
 if ! id -u builder >/dev/null 2>&1; then
     useradd -m builder
 fi
 
-chown -R builder:builder "$repo_copy"
+chown -R builder:builder "$repo_copy" "$build_dir"
 
 runuser -u builder -- bash -lc '
     set -euo pipefail
@@ -41,3 +44,17 @@ PY
     cd "'"$build_dir"'"
     makepkg --nodeps --noconfirm --cleanbuild --clean
 '
+
+package_path="$(
+    find "$build_dir" -maxdepth 1 -type f \
+        \( -name '*.pkg.tar.zst' -o -name '*.pkg.tar.xz' -o -name '*.pkg.tar.gz' -o -name '*.pkg.tar.bz2' -o -name '*.pkg.tar.lz4' \) \
+        | sort \
+        | head -n 1
+)"
+
+if [[ -z "$package_path" ]]; then
+    echo "failed to locate built pacman package in $build_dir" >&2
+    exit 1
+fi
+
+cp -f "$package_path" "$dist_dir"/

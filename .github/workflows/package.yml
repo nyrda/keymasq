@@ -84,7 +84,7 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
-  test-aur-package:
+  build-pacman-arch:
     needs: build-source-tarball
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -99,7 +99,7 @@ jobs:
           name: source-tarball
           path: dist/
 
-      - name: Build rendered AUR package in Arch container
+      - name: Build rendered Arch package in Arch container
         run: |
           docker run --rm \
             -v "$PWD:/workspace" \
@@ -113,7 +113,41 @@ jobs:
                 python-installer \
                 python-setuptools \
                 python-wheel
-              bash packaging/pacman/ci-test-aur-build.sh /workspace
+              bash packaging/pacman/ci-build.sh
+            '
+
+      - name: Upload Arch package
+        uses: actions/upload-artifact@v6
+        with:
+          name: pacman-arch-package
+          path: dist/arch/*.pkg.tar.*
+          if-no-files-found: error
+
+  test-pacman-arch:
+    needs: build-pacman-arch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download Arch package
+        uses: actions/download-artifact@v8
+        with:
+          name: pacman-arch-package
+          path: dist/arch
+
+      - name: Test Arch package in Arch container
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            archlinux:base-devel \
+            bash -lc '
+              set -euo pipefail
+              bash packaging/pacman/ci-test-installed.sh \
+                "$(echo dist/arch/keyforge-*.pkg.tar.*)"
             '
 
   build-deb:
@@ -318,6 +352,8 @@ jobs:
   release:
     needs:
       - build-source-tarball
+      - build-pacman-arch
+      - test-pacman-arch
       - build-deb
       - test-deb
       - build-rpm-fedora
@@ -386,7 +422,7 @@ jobs:
   publish-aur:
     needs:
       - release
-      - test-aur-package
+      - test-pacman-arch
     if: startsWith(github.ref, 'refs/tags/v') && vars.ENABLE_AUR_PUBLISH == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10

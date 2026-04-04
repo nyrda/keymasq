@@ -451,8 +451,8 @@ class TestDeviceTabWidget:
         protected_calls: list[str] = []
         protected_tab._show_protected_dialog = lambda button: protected_calls.append(button.id)
         protected_tab._show_no_profile_dialog = lambda: protected_calls.append("no-profile")
-        protected_tab._show_function_editor = (
-            lambda button: protected_calls.append(f"edit:{button.id}")
+        protected_tab._show_function_editor = lambda button: protected_calls.append(
+            f"edit:{button.id}"
         )
 
         protected_tab._on_button_clicked(
@@ -480,9 +480,7 @@ class TestDeviceTabWidget:
         )
         allowed_tab._show_function_editor = lambda button: allowed_calls.append(f"edit:{button.id}")
 
-        allowed_tab._on_button_clicked(
-            _Click(Gdk.BUTTON_PRIMARY), 1, 0, 0, device.buttons[0], True
-        )
+        allowed_tab._on_button_clicked(_Click(Gdk.BUTTON_PRIMARY), 1, 0, 0, device.buttons[0], True)
 
         assert allowed_calls == ["warn:btn_left"]
 
@@ -615,7 +613,13 @@ class TestDeviceTabWidget:
             product_id="5678",
             name="Keyboard",
             evdev_devices=[EvdevDevice(path="/dev/input/event0", device_type=DeviceType.KEYBOARD)],
-            buttons=[ButtonDefinition(id="key_a", label="A", evdev="key_a")],
+            buttons=[
+                ButtonDefinition(id="key_a", label="A", evdev="key_a")
+            ]
+            + [
+                ButtonDefinition(id=f"key_{index}", label=f"Key {index}", evdev=f"key_{index}")
+                for index in range(40)
+            ],
         )
 
         hardware_manager = _HardwareManager()
@@ -663,6 +667,162 @@ class TestDeviceTabWidget:
         assert tab.device.evdev_devices[-1].path == "/dev/input/by-id/test-mouse"
         assert tab.device.evdev_devices[-1].device_type == DeviceType.MOUSE
         assert status.get_text() == "Captured btn_side (0 remaining)"
+
+    def test_gamepad_device_tab_add_buttons_capture_sets_gamepad_type(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event0",
+                    device_type=DeviceType.GAMEPAD,
+                    id="joystick",
+                )
+            ],
+            buttons=[
+                ButtonDefinition(
+                    id="btn_south",
+                    label="A",
+                    evdev="btn_south",
+                    source="joystick",
+                )
+            ],
+        )
+
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=_HardwareManager(),
+            demo_mode=True,
+        )
+        status = Gtk.Label()
+        dialog = Adw.Dialog()
+        finished: list[str] = []
+        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
+        tab._add_keys_capturing = True
+        tab._capture_active_hardware_id = "1234:5678"
+        tab._add_keys_pending_ids = ["btn_added_1"]
+
+        captured = {
+            "status": "ok",
+            "captured": {
+                "evdev": "btn_tr",
+                "source": "joystick",
+                "stable_path": "/dev/input/by-id/test-gamepad",
+            },
+        }
+        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+
+        assert finished == ["finished"]
+        assert tab.device.buttons[-1].id == "btn_tr"
+        assert tab.device.buttons[-1].type == "gamepad"
+        assert tab.device.evdev_devices == [
+            EvdevDevice(
+                path="/dev/input/event0",
+                device_type=DeviceType.GAMEPAD,
+                id="joystick",
+            )
+        ]
+        assert status.get_text() == "Captured btn_tr (0 remaining)"
+
+
+class TestHardwareSetupDialog:
+    def test_refresh_configure_modes_offers_gamepad_first(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog.selected_device = {
+            "interfaces": [
+                {
+                    "device_type": "gamepad",
+                    "device_types": ["gamepad"],
+                },
+                {
+                    "device_type": "keyboard",
+                    "device_types": ["keyboard"],
+                },
+            ]
+        }
+
+        dialog._refresh_configure_modes()
+
+        assert dialog._configure_mode_values == ["gamepad", "keyboard"]
+        assert dialog._configure_mode == "gamepad"
+        assert dialog.describe_subtitle.get_label() == "Review the detected controller controls"
+
+    def test_save_gamepad_config_builds_buttons_from_capabilities(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        import evdev
+        from gi.repository import Gtk
+
+        from keyforge.common.models import DeviceType
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved = []
+
+            def save_hardware(self, config) -> None:
+                self.saved.append(config)
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        hardware_manager = _HardwareManager()
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "5678",
+            "name": "Test Pad",
+        }
+        dialog.discovered_interfaces = {
+            "joystick": {
+                "id": "joystick",
+                "stable_path": "/dev/input/by-id/test-pad",
+                "path": "/dev/input/event10",
+                "name": "Test Pad",
+                "device_type": DeviceType.GAMEPAD,
+                "device_types": ["gamepad"],
+                "capabilities": ["btn_start", "btn_south", "btn_east"],
+                "raw_capabilities": {
+                    evdev.ecodes.EV_KEY: [
+                        evdev.ecodes.BTN_START,
+                        evdev.ecodes.BTN_SOUTH,
+                        evdev.ecodes.BTN_EAST,
+                    ]
+                },
+            }
+        }
+        emitted = []
+        dialog.emit = lambda signal, config: emitted.append((signal, config))
+        dialog.close = lambda: None
+
+        dialog._save_gamepad_config()
+
+        assert len(hardware_manager.saved) == 1
+        saved = hardware_manager.saved[0]
+        assert saved.evdev_devices[0].device_type == DeviceType.GAMEPAD
+        assert [button.id for button in saved.buttons] == ["btn_start", "btn_east", "btn_south"]
+        assert [button.label for button in saved.buttons] == ["Start", "B", "A"]
+        assert all(button.type == "gamepad" for button in saved.buttons)
+        assert emitted == [("device-created", saved)]
 
 
 def test_notify_session_reload_returns_false_without_shell_fallback(monkeypatch):
@@ -841,9 +1001,7 @@ def test_device_tab_explicit_passthrough_is_shown_as_active_mask(temp_config_dir
             device_layers={
                 "1234:5678": DeviceProfileLayer(
                     hardware_id="1234:5678",
-                    mappings={
-                        "btn_back": MappingAction(action_type=ActionType.PASSTHROUGH)
-                    },
+                    mappings={"btn_back": MappingAction(action_type=ActionType.PASSTHROUGH)},
                 )
             },
         )
@@ -1507,9 +1665,7 @@ class TestMainWindow:
         assert unlock_updates == []
         assert issues == []
 
-        assert (
-            window._on_status_response({"status": "ok", "keyforged_connected": True}, 3) is False
-        )
+        assert window._on_status_response({"status": "ok", "keyforged_connected": True}, 3) is False
         assert window.session_status.get_label() == "session: 🟢"
         assert window.keyforged_status.get_label() == "keyforged: 🟢"
         assert unlock_updates[-1] == {"status": "ok", "keyforged_connected": True}
@@ -1615,7 +1771,9 @@ class TestComboTabWidget:
         tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
 
         assert window.combo_tab is not None
-        window.combo_tab.profile_dropdown.set_selected(window.combo_tab._profile_names.index("Gaming"))
+        window.combo_tab.profile_dropdown.set_selected(
+            window.combo_tab._profile_names.index("Gaming")
+        )
 
         assert window._selected_profile_name == "Gaming"
         assert tab._selected_profile is not None
@@ -1834,8 +1992,8 @@ class TestComboTabWidget:
             row = row.get_next_sibling()
 
         opened: list[str] = []
-        tab._open_combo_editor = (
-            lambda selected=None: opened.append(selected.id if selected else "new")
+        tab._open_combo_editor = lambda selected=None: opened.append(
+            selected.id if selected else "new"
         )
         first_row = tab.combo_listbox.get_first_child()
         missing_row = Gtk.ListBoxRow()
@@ -1877,9 +2035,7 @@ class TestComboEditorDialog:
         dialog._on_capture_combo_response(
             {
                 "status": "ok",
-                "events": [
-                    {"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}
-                ],
+                "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}],
             }
         )
 
@@ -1945,17 +2101,13 @@ class TestComboEditorDialog:
         dialog._on_capture_combo_response(
             {
                 "status": "ok",
-                "events": [
-                    {"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}
-                ],
+                "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}],
             }
         )
         dialog._on_capture_combo_response(
             {
                 "status": "ok",
-                "events": [
-                    {"evdev": "key_b", "hardware_id": "1234:5678", "source": "kbd"}
-                ],
+                "events": [{"evdev": "key_b", "hardware_id": "1234:5678", "source": "kbd"}],
             }
         )
 

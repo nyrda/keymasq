@@ -28,10 +28,17 @@ MOUSE_ICON_NAMES = (
     "input-mouse",
     "input-tablet",
 )
+GAMEPAD_ICON_NAMES = (
+    "input-gaming-symbolic",
+    "input-gaming",
+    "applications-games-symbolic",
+    "applications-games",
+)
 
 CORE_ICON_GROUPS = (
     KEYBOARD_ICON_NAMES,
     MOUSE_ICON_NAMES,
+    GAMEPAD_ICON_NAMES,
     ("list-add-symbolic", "list-add"),
     ("user-trash-symbolic", "edit-delete-symbolic", "edit-delete"),
 )
@@ -67,7 +74,17 @@ def image_from_icon_names(*names: str, pixel_size: int | None = None) -> Gtk.Ima
     return image
 
 
-def device_icon_names(is_keyboard: bool) -> tuple[str, ...]:
+def device_icon_names(
+    is_keyboard: bool | None = None,
+    *,
+    device_kind: str | None = None,
+) -> tuple[str, ...]:
+    if device_kind == "gamepad":
+        return GAMEPAD_ICON_NAMES
+    if device_kind == "mouse":
+        return MOUSE_ICON_NAMES
+    if device_kind == "keyboard":
+        return KEYBOARD_ICON_NAMES
     return KEYBOARD_ICON_NAMES if is_keyboard else MOUSE_ICON_NAMES
 
 

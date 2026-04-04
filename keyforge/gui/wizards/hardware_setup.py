@@ -1,5 +1,6 @@
 import re
 import subprocess
+from typing import cast
 
 import gi
 
@@ -11,8 +12,11 @@ from gi.repository import Adw, GLib, GObject, Gtk
 
 from keyforge.common.devices import (
     INPUT_CLASS_ORDER,
+    capability_names_from_capabilities,
     detect_input_classes,
     find_all_interfaces,
+    gamepad_button_label,
+    gamepad_button_names_from_capabilities,
     get_interface_id,
     input_class_label,
     normalize_input_classes,
@@ -126,9 +130,10 @@ class HardwareSetupDialog(Adw.Window):
         self.describe_title.add_css_class("title-1")
         box.append(self.describe_title)
 
-        subtitle = Gtk.Label(label="Describe your device's buttons")
+        subtitle = Gtk.Label(label="")
         subtitle.add_css_class("dim-label")
         box.append(subtitle)
+        self.describe_subtitle = subtitle
 
         mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         mode_label = Gtk.Label(label="Configure as:")
@@ -149,6 +154,17 @@ class HardwareSetupDialog(Adw.Window):
         self.keyboard_mode_info.set_wrap(True)
         self.keyboard_mode_info.set_halign(Gtk.Align.START)
         box.append(self.keyboard_mode_info)
+
+        self.gamepad_mode_info = Gtk.Label(
+            label=(
+                "Gamepad profile uses detected capabilities and saves the standard digital "
+                "buttons it reports. Analog axes still passthrough and are not remappable yet."
+            )
+        )
+        self.gamepad_mode_info.add_css_class("dim-label")
+        self.gamepad_mode_info.set_wrap(True)
+        self.gamepad_mode_info.set_halign(Gtk.Align.START)
+        box.append(self.gamepad_mode_info)
 
         grid = Gtk.Grid()
         grid.set_column_spacing(12)
@@ -324,9 +340,7 @@ class HardwareSetupDialog(Adw.Window):
             grouped_types = self._group_device_types(dev_info)
             interfaces = dev_info.get("interfaces", [])
             iface_count = len(interfaces)
-            type_text = " · ".join(
-                self._device_type_label(t) for t in grouped_types
-            )
+            type_text = " · ".join(self._device_type_label(t) for t in grouped_types)
             iface_text = "interface" if iface_count == 1 else "interfaces"
 
             vidpid = Gtk.Label(label=f"{vid_pid} · {iface_count} evdev {iface_text} · {type_text}")
@@ -534,10 +548,13 @@ class HardwareSetupDialog(Adw.Window):
         if not self.selected_device:
             return
 
+        has_gamepad = False
         has_mouse = False
         has_keyboard = False
         for iface in self.selected_device.get("interfaces", []):
             iface_types = self._interface_device_types(iface)
+            if "gamepad" in iface_types:
+                has_gamepad = True
             if "mouse" in iface_types or "pointstick" in iface_types:
                 has_mouse = True
             if "keyboard" in iface_types:
@@ -546,6 +563,9 @@ class HardwareSetupDialog(Adw.Window):
         self.mode_combo_model.splice(0, self.mode_combo_model.get_n_items(), [])
         self._configure_mode_values = []
 
+        if has_gamepad:
+            self.mode_combo_model.append("Gamepad")
+            self._configure_mode_values.append("gamepad")
         if has_mouse:
             self.mode_combo_model.append("Mouse")
             self._configure_mode_values.append("mouse")
@@ -557,10 +577,21 @@ class HardwareSetupDialog(Adw.Window):
             self.mode_combo_model.append("Mouse")
             self._configure_mode_values = ["mouse"]
 
-        self.mode_combo.set_selected(0)
-        self._configure_mode = self._configure_mode_values[0]
+        self._configure_mode = self._preferred_configure_mode()
+        self.mode_combo.set_selected(self._configure_mode_values.index(self._configure_mode))
         self.mode_row.set_visible(len(self._configure_mode_values) > 1)
         self._update_describe_mode_ui()
+
+    def _preferred_configure_mode(self) -> str:
+        if self._configure_mode in self._configure_mode_values:
+            return self._configure_mode
+        if "gamepad" in self._configure_mode_values:
+            return "gamepad"
+        if "mouse" in self._configure_mode_values:
+            return "mouse"
+        if "keyboard" in self._configure_mode_values:
+            return "keyboard"
+        return self._configure_mode_values[0]
 
     def _on_mode_changed(self, combo, param) -> None:
         idx = combo.get_selected()
@@ -571,12 +602,20 @@ class HardwareSetupDialog(Adw.Window):
 
     def _update_describe_mode_ui(self) -> None:
         is_keyboard = self._configure_mode == "keyboard"
-        self.mouse_config_grid.set_visible(not is_keyboard)
-        self.total_label.set_visible(not is_keyboard)
+        is_gamepad = self._configure_mode == "gamepad"
+        self.mouse_config_grid.set_visible(not is_keyboard and not is_gamepad)
+        self.total_label.set_visible(not is_keyboard and not is_gamepad)
         self.keyboard_mode_info.set_visible(is_keyboard)
+        self.gamepad_mode_info.set_visible(is_gamepad)
+        if is_gamepad:
+            self.describe_subtitle.set_label("Review the detected controller controls")
+        elif is_keyboard:
+            self.describe_subtitle.set_label("Set up the keyboard profile")
+        else:
+            self.describe_subtitle.set_label("Describe your device's buttons")
 
         if self.stack.get_visible_child_name() == "describe":
-            self.next_btn.set_label("Save" if is_keyboard else "Next")
+            self.next_btn.set_label("Save" if is_keyboard or is_gamepad else "Next")
 
     def _device_type_sort_order(self, device_type: DeviceType) -> int:
         order = {
@@ -659,12 +698,15 @@ class HardwareSetupDialog(Adw.Window):
             if not raw_path:
                 continue
             stable_path = resolve_stable_path(raw_path)
+            capability_names, raw_capabilities = self._read_interface_capabilities(raw_path)
             interfaces.append(
                 {
                     "path": raw_path,
                     "stable_path": stable_path,
                     "id": get_interface_id(stable_path),
                     "name": str(iface.get("name", "") or raw_path),
+                    "capabilities": capability_names,
+                    "raw_capabilities": raw_capabilities,
                 }
             )
 
@@ -697,6 +739,11 @@ class HardwareSetupDialog(Adw.Window):
                 "device_types": iface_info_by_path.get(iface["path"], {}).get(
                     "device_types",
                     ["other"],
+                ),
+                "capabilities": list(iface.get("capabilities", [])),
+                "raw_capabilities": cast(
+                    dict[int, list[object]],
+                    iface.get("raw_capabilities") or {},
                 ),
             }
 
@@ -802,6 +849,8 @@ class HardwareSetupDialog(Adw.Window):
             selected_device = self.selected_device
             if selected_device is None:
                 return
+            self._configure_mode = self._preferred_configure_mode()
+            self.mode_combo.set_selected(self._configure_mode_values.index(self._configure_mode))
             self.describe_title.set_label(f"Configure {selected_device['name']}")
             self._update_total()
             self._update_describe_mode_ui()
@@ -813,6 +862,9 @@ class HardwareSetupDialog(Adw.Window):
         elif visible_page == "describe":
             if self._configure_mode == "keyboard":
                 self._save_keyboard_config()
+                return
+            if self._configure_mode == "gamepad":
+                self._save_gamepad_config()
                 return
 
             self.button_definitions = self._build_button_list()
@@ -1136,6 +1188,99 @@ class HardwareSetupDialog(Adw.Window):
             name=selected_device["name"],
             evdev_devices=evdev_devices,
             buttons=buttons,
+        )
+
+        self.hardware_manager.save_hardware(config)
+        self.emit("device-created", config)
+        self.close()
+
+    def _read_interface_capabilities(
+        self,
+        raw_path: str,
+    ) -> tuple[list[str], dict[int, list[object]]]:
+        if not raw_path:
+            return ([], {})
+
+        try:
+            device = evdev.InputDevice(raw_path)
+        except Exception:
+            return ([], {})
+
+        try:
+            raw_capabilities = cast(dict[int, list[object]], device.capabilities())
+        except Exception:
+            raw_capabilities = {}
+        finally:
+            try:
+                device.close()
+            except Exception:
+                pass
+
+        return (capability_names_from_capabilities(raw_capabilities), raw_capabilities)
+
+    def _gamepad_interfaces(self) -> list[dict]:
+        interfaces = [
+            iface
+            for iface in self.discovered_interfaces.values()
+            if self._interface_has_role(iface, "gamepad")
+        ]
+        return interfaces or list(self.discovered_interfaces.values())
+
+    def _build_gamepad_buttons(self, interfaces: list[dict]) -> list[ButtonDefinition]:
+        buttons: list[ButtonDefinition] = []
+        seen: set[str] = set()
+
+        for iface in interfaces:
+            raw_capabilities = iface.get("raw_capabilities") or {}
+            if not isinstance(raw_capabilities, dict):
+                continue
+
+            source_id = str(iface.get("id", "") or "")
+            for evdev_name in gamepad_button_names_from_capabilities(raw_capabilities):
+                if evdev_name in seen:
+                    continue
+                seen.add(evdev_name)
+                buttons.append(
+                    ButtonDefinition(
+                        id=evdev_name,
+                        label=gamepad_button_label(evdev_name) or evdev_name,
+                        evdev=evdev_name,
+                        source=source_id or None,
+                        type="gamepad",
+                    )
+                )
+
+        return buttons
+
+    def _save_gamepad_config(self) -> None:
+        selected_device = self.selected_device
+        if selected_device is None:
+            return
+
+        gamepad_interfaces = self._gamepad_interfaces()
+
+        evdev_devices = []
+        for iface in gamepad_interfaces:
+            stable_path = str(iface.get("stable_path", "") or "")
+            iface_id = str(iface.get("id", "") or "")
+            if not stable_path or not iface_id:
+                continue
+            dev_type = primary_input_class(iface.get("device_types"))
+            evdev_devices.append(
+                EvdevDevice(
+                    path=stable_path,
+                    device_type=dev_type,
+                    id=iface_id,
+                    capabilities=list(iface.get("capabilities", [])),
+                )
+            )
+
+        config = HardwareConfig(
+            vendor_id=selected_device["vendor_id"],
+            product_id=selected_device["product_id"],
+            name=selected_device["name"],
+            evdev_devices=evdev_devices,
+            buttons=self._build_gamepad_buttons(gamepad_interfaces),
         )
 
         self.hardware_manager.save_hardware(config)

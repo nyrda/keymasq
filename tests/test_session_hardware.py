@@ -142,3 +142,22 @@ def test_hardware_manager_save_keyboard_layout_appends_helper_comments(temp_conf
     assert 'type = "keyboard"' in text
     assert "# Optional special keys" in text
     assert 'id = "key_volumeup"' in text
+
+
+def test_hardware_manager_saves_gamepad_layout_type(temp_config_dir) -> None:
+    manager = HardwareManager()
+    config = HardwareConfig(
+        vendor_id="9999",
+        product_id="0001",
+        name="Test Gamepad",
+        evdev_devices=[EvdevDevice(path="/dev/input/event50", device_type=DeviceType.GAMEPAD)],
+        buttons=[
+            ButtonDefinition(id="btn_south", label="A", evdev="btn_south", source="joystick"),
+            ButtonDefinition(id="btn_east", label="B", evdev="btn_east", source="joystick"),
+        ],
+    )
+
+    manager.save_hardware(config)
+
+    text = (temp_config_dir / "hardware" / "9999_0001.toml").read_text(encoding="utf-8")
+    assert 'type = "gamepad"' in text

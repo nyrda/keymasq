@@ -104,12 +104,25 @@ Gamepad buttons support the same rapidfire and tap options as keyboard/mouse map
 
 ## GUI Configuration
 
+### Mapping to Virtual Gamepad Output
+
 1. Select a device and profile
 2. Click on a button in the grid
 3. Select "Gamepad Button" from the function dropdown
 4. Enter the target button code (e.g., `btn_south`, `btn_tl`)
 5. Configure rapidfire or tap if needed
 6. Click Apply
+
+### Adding a Physical Gamepad
+
+When you add a gamepad in the hardware setup flow, Keyforge now detects its reported
+digital gamepad buttons from evdev capabilities and creates the hardware profile
+automatically. Standard buttons such as face buttons, shoulders, start/select/guide,
+stick clicks, and digital D-pad buttons are added when the controller reports them.
+
+Analog axes still passthrough normally, but they are not editable remap sources yet.
+If your controller has unusual extra digital buttons, you can add them later from the
+device tab using the same listen/capture flow used for keyboards and mice.
 
 ## Game Compatibility
 
@@ -167,9 +180,9 @@ For Xbox-style naming, use: `btn_a`, `btn_b`, `btn_x`, `btn_y`
 
 ## Limitations
 
-- **Analog axes**: Currently, only digital button output is supported
-- **Triggers**: Digital only (on/off, not pressure-sensitive)
-- **Sticks**: No analog stick emulation (use keyboard/mouse for movement)
+- **Analog axes**: Physical gamepad axes still passthrough, but they are not editable remap sources yet
+- **Triggers**: Virtual gamepad output is still digital only (on/off, not pressure-sensitive)
+- **Sticks**: No analog stick emulation for virtual output yet
 
 ## Future Enhancements
 

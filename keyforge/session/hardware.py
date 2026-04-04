@@ -5,6 +5,7 @@ from pathlib import Path
 import tomli_w
 
 from keyforge.common import paths
+from keyforge.common.devices import is_gamepad_button_name
 from keyforge.common.models import (
     ButtonDefinition,
     DeviceType,
@@ -124,6 +125,13 @@ class HardwareManager:
         evdev_data = {"devices": evdev_devices_data}
 
         is_keyboard_layout = sum(1 for b in config.buttons if b.id.startswith("key_")) >= 40
+        is_gamepad_layout = not is_keyboard_layout and any(
+            is_gamepad_button_name(btn.evdev) or is_gamepad_button_name(btn.id)
+            for btn in config.buttons
+        )
+        layout_type = (
+            "keyboard" if is_keyboard_layout else "gamepad" if is_gamepad_layout else "mouse"
+        )
 
         data = {
             "hardware": {
@@ -132,7 +140,7 @@ class HardwareManager:
                 "product_id": config.product_id,
                 "evdev": evdev_data,
                 "layout": {
-                    "type": "keyboard" if is_keyboard_layout else "mouse",
+                    "type": layout_type,
                     "buttons": buttons_data,
                 },
             }

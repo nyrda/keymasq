@@ -808,7 +808,7 @@ class MainWindow(Adw.ApplicationWindow):
             compositor_capabilities=self._compositor_capabilities,
         )
 
-        icon = resolve_icon_name(*device_icon_names(tab.is_keyboard_hardware()))
+        icon = resolve_icon_name(*device_icon_names(device_kind=tab.device_layout_kind()))
         self.stack.add_titled_with_icon(tab, device.hardware_id, device.name, icon)
         if self._selected_profile_name:
             tab.refresh_profiles(

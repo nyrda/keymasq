@@ -40,6 +40,52 @@ _GAMEPAD_BUTTON_CODES = frozenset(
         evdev.ecodes.BTN_WEST,
     }
 )
+GAMEPAD_BUTTON_ORDER = (
+    "btn_tl2",
+    "btn_tl",
+    "btn_tr2",
+    "btn_tr",
+    "btn_select",
+    "btn_mode",
+    "btn_start",
+    "btn_north",
+    "btn_west",
+    "btn_east",
+    "btn_south",
+    "btn_thumbl",
+    "btn_thumbr",
+    "btn_dpad_up",
+    "btn_dpad_left",
+    "btn_dpad_right",
+    "btn_dpad_down",
+)
+_GAMEPAD_BUTTON_LABELS = {
+    "btn_south": "A",
+    "btn_east": "B",
+    "btn_north": "X",
+    "btn_west": "Y",
+    "btn_tl": "LB",
+    "btn_tr": "RB",
+    "btn_tl2": "LT",
+    "btn_tr2": "RT",
+    "btn_select": "Select",
+    "btn_start": "Start",
+    "btn_mode": "Guide",
+    "btn_thumbl": "LS",
+    "btn_thumbr": "RS",
+    "btn_dpad_up": "D-Up",
+    "btn_dpad_down": "D-Down",
+    "btn_dpad_left": "D-Left",
+    "btn_dpad_right": "D-Right",
+}
+_GAMEPAD_BUTTON_ALIASES = {
+    "btn_a": "btn_south",
+    "btn_b": "btn_east",
+    "btn_x": "btn_north",
+    "btn_y": "btn_west",
+    "btn_lt": "btn_tl2",
+    "btn_rt": "btn_tr2",
+}
 
 
 def normalize_input_classes(
@@ -79,6 +125,69 @@ def input_class_label(value: str | DeviceType) -> str:
     return INPUT_CLASS_LABELS.get(label, label.title())
 
 
+def canonical_gamepad_button_name(evdev_name: str | None) -> str:
+    label = str(evdev_name or "").strip().lower()
+    return _GAMEPAD_BUTTON_ALIASES.get(label, label)
+
+
+def is_gamepad_button_name(evdev_name: str | None) -> bool:
+    return canonical_gamepad_button_name(evdev_name) in _GAMEPAD_BUTTON_LABELS
+
+
+def gamepad_button_label(evdev_name: str | None) -> str | None:
+    canonical = canonical_gamepad_button_name(evdev_name)
+    return _GAMEPAD_BUTTON_LABELS.get(canonical)
+
+
+def capability_name(event_type: int, code: object) -> str | None:
+    code_int = int(code[0] if isinstance(code, tuple) else code)
+    code_name = evdev.ecodes.bytype.get(int(event_type), {}).get(code_int)
+    if isinstance(code_name, tuple):
+        code_name = code_name[0] if code_name else None
+    if not isinstance(code_name, str):
+        return None
+    return code_name.lower()
+
+
+def capability_names_from_capabilities(caps: dict[int, list[object]]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+
+    for event_type in (evdev.ecodes.EV_KEY, evdev.ecodes.EV_REL, evdev.ecodes.EV_ABS):
+        for code in caps.get(event_type, []):
+            name = capability_name(event_type, code)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+
+    return names
+
+
+def ordered_gamepad_button_names(names: Iterable[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    for name in names:
+        canonical = canonical_gamepad_button_name(name)
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        normalized.append(canonical)
+
+    order_map = {name: idx for idx, name in enumerate(GAMEPAD_BUTTON_ORDER)}
+    return sorted(normalized, key=lambda name: (order_map.get(name, 999), name))
+
+
+def gamepad_button_names_from_capabilities(caps: dict[int, list[object]]) -> list[str]:
+    names: list[str] = []
+    for code in caps.get(evdev.ecodes.EV_KEY, []):
+        name = capability_name(evdev.ecodes.EV_KEY, code)
+        if is_gamepad_button_name(name):
+            names.append(canonical_gamepad_button_name(name))
+    return ordered_gamepad_button_names(names)
+
+
 def detect_input_classes_from_capabilities(
     caps: dict[int, list[object]],
     input_props: Iterable[int] | None = None,
@@ -104,9 +213,7 @@ def detect_input_classes_from_capabilities(
     if has_gamepad_axes and has_gamepad_buttons:
         classes.append("gamepad")
 
-    has_mouse_motion = (
-        evdev.ecodes.REL_X in rel_codes and evdev.ecodes.REL_Y in rel_codes
-    )
+    has_mouse_motion = evdev.ecodes.REL_X in rel_codes and evdev.ecodes.REL_Y in rel_codes
     has_mouse_buttons = any(
         evdev.ecodes.BTN_MOUSE <= code < evdev.ecodes.BTN_JOYSTICK for code in key_codes
     )

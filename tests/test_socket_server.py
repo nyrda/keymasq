@@ -55,6 +55,20 @@ class _DropClientWriter(_BroadcastWriter):
             await self._on_wait_closed()
 
 
+class _HangingCloseWriter(_BroadcastWriter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.abort_calls = 0
+        self.transport = self
+
+    async def wait_closed(self) -> None:
+        self.wait_closed_calls += 1
+        await asyncio.Event().wait()
+
+    def abort(self) -> None:
+        self.abort_calls += 1
+
+
 class MockCommandHandler:
     def __init__(self):
         self.commands_received = []
@@ -423,3 +437,19 @@ class TestSocketServer:
         assert failed_writer.wait_closed_calls == 1
         assert not server.clients
         assert disconnects == ["done"]
+
+    async def test_server_stop_times_out_stuck_client_close(self, temp_socket_dir):
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            lambda *_args: {"ok": True},
+            close_timeout_s=0.01,
+        )
+        stuck_writer = _HangingCloseWriter()
+        server.clients = {stuck_writer}  # type: ignore[assignment]
+
+        await asyncio.wait_for(server.stop(), timeout=1.0)
+
+        assert stuck_writer.closed is True
+        assert stuck_writer.wait_closed_calls == 1
+        assert stuck_writer.abort_calls == 1
+        assert not server.clients

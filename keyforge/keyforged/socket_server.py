@@ -35,6 +35,7 @@ class SocketServer:
         peer_validator: Any | None = None,
         single_owner: bool = False,
         broadcast_drain_timeout_s: float = 0.25,
+        close_timeout_s: float = 0.25,
     ) -> None:
         self.socket_path = socket_path
         self.command_handler = command_handler
@@ -43,6 +44,7 @@ class SocketServer:
         self.peer_validator = peer_validator
         self.single_owner = single_owner
         self.broadcast_drain_timeout_s = max(0.01, float(broadcast_drain_timeout_s))
+        self.close_timeout_s = max(0.01, float(close_timeout_s))
         self.server: asyncio.Server | None = None
         self.clients: set[asyncio.StreamWriter] = set()
         self._buffer: dict[asyncio.StreamWriter, bytes] = {}
@@ -76,12 +78,14 @@ class SocketServer:
             self.server.close()
             await self.server.wait_closed()
 
-        for writer in list(self.clients):
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except Exception:
-                pass
+        writers = set(self.clients) | set(self._buffer) | set(self._client_context)
+        for writer in writers:
+            self._request_writer_close(writer)
+
+        await asyncio.gather(
+            *(self._wait_writer_closed(writer) for writer in writers),
+            return_exceptions=True,
+        )
 
         self.clients.clear()
 
@@ -275,27 +279,57 @@ class SocketServer:
         )
 
         try:
-            writer.close()
-        except Exception:
-            pass
+            self._request_writer_close(writer)
 
-        try:
-            if is_owner and self.disconnect_handler:
-                await self.disconnect_handler()
-        finally:
-            if is_owner and context is not None:
-                log.info(
-                    "Daemon owner released uid=%s pid=%s connection=%s",
-                    context.uid,
-                    context.pid,
-                    context.connection_id,
-                )
-                self._owner_context = None
+            try:
+                if is_owner and self.disconnect_handler:
+                    await self.disconnect_handler()
+            finally:
+                if is_owner and context is not None:
+                    log.info(
+                        "Daemon owner released uid=%s pid=%s connection=%s",
+                        context.uid,
+                        context.pid,
+                        context.connection_id,
+                    )
+                    self._owner_context = None
 
-        try:
-            await writer.wait_closed()
+            await self._wait_writer_closed(writer, context)
         except Exception:
             pass
 
         if self.disconnect_handler and not is_owner and not self.clients:
             await self.disconnect_handler()
+
+    def _request_writer_close(self, writer: asyncio.StreamWriter) -> None:
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+    async def _wait_writer_closed(
+        self,
+        writer: asyncio.StreamWriter,
+        context: ClientContext | None = None,
+    ) -> None:
+        try:
+            await asyncio.wait_for(writer.wait_closed(), timeout=self.close_timeout_s)
+        except TimeoutError:
+            peer = context or self._client_context.get(writer)
+            if peer is None:
+                log.warning("Timed out waiting for client socket to close")
+            else:
+                log.warning(
+                    "Timed out waiting for client socket to close pid=%s uid=%s class=%s",
+                    peer.pid,
+                    peer.uid,
+                    peer.client_class,
+                )
+            transport = getattr(writer, "transport", None)
+            if transport is not None:
+                try:
+                    transport.abort()
+                except Exception:
+                    pass
+        except Exception:
+            pass

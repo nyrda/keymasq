@@ -66,7 +66,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  version-metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      is_master: ${{ steps.meta.outputs.is_master }}
+      python_version: ${{ steps.meta.outputs.python_version }}
+      debian_version: ${{ steps.meta.outputs.debian_version }}
+      rpm_version: ${{ steps.meta.outputs.rpm_version }}
+      pkgver: ${{ steps.meta.outputs.pkgver }}
+      source_version: ${{ steps.meta.outputs.source_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Compute build version metadata
+        id: meta
+        env:
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base_version="$(python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          print(data["project"]["version"])
+          PY
+          )"
+          short_sha="${GITHUB_SHA:0:7}"
+
+          if [[ "$GITHUB_REF" == "refs/heads/master" ]]; then
+            python_version="${base_version}.dev${GITHUB_RUN_NUMBER}"
+            debian_version="${base_version}~master.${GITHUB_RUN_NUMBER}+g${short_sha}-1"
+            rpm_version="${base_version}~master.${GITHUB_RUN_NUMBER}+g${short_sha}"
+            pkgver="${base_version}+r${GITHUB_RUN_NUMBER}+g${short_sha}"
+            source_version="$pkgver"
+            is_master=true
+          else
+            python_version="$base_version"
+            debian_version=""
+            rpm_version=""
+            pkgver="$base_version"
+            source_version="$base_version"
+            is_master=false
+          fi
+
+          {
+            printf 'is_master=%s\n' "$is_master"
+            printf 'python_version=%s\n' "$python_version"
+            printf 'debian_version=%s\n' "$debian_version"
+            printf 'rpm_version=%s\n' "$rpm_version"
+            printf 'pkgver=%s\n' "$pkgver"
+            printf 'source_version=%s\n' "$source_version"
+          } >> "$GITHUB_OUTPUT"
+
   build-source-tarball:
+    needs: version-metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -74,8 +131,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Apply master Python version
+        if: needs.version-metadata.outputs.is_master == 'true'
+        run: |
+          python3 scripts/rewrite-build-metadata.py \
+            --python-version "${{ needs.version-metadata.outputs.python_version }}"
+
       - name: Build release source tarball
-        run: bash scripts/build-source-tarball.sh
+        run: |
+          if [[ "${{ needs.version-metadata.outputs.is_master }}" == "true" ]]; then
+            bash scripts/build-source-tarball.sh "${{ needs.version-metadata.outputs.source_version }}"
+          else
+            bash scripts/build-source-tarball.sh
+          fi
 
       - name: Upload source tarball
         if: ${{ !env.ACT }}
@@ -86,7 +154,9 @@ jobs:
           if-no-files-found: error
 
   build-pacman-arch:
-    needs: build-source-tarball
+    needs:
+      - version-metadata
+      - build-source-tarball
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -102,8 +172,11 @@ jobs:
           path: dist/
 
       - name: Build rendered Arch package in Arch container
+        env:
+          KEYFORGE_PKGVER_OVERRIDE: ${{ needs.version-metadata.outputs.pkgver }}
         run: |
           docker run --rm \
+            -e KEYFORGE_PKGVER_OVERRIDE \
             -v "$PWD:/workspace" \
             -w /workspace \
             archlinux:base-devel \
@@ -155,12 +228,20 @@ jobs:
             '
 
   build-deb:
+    needs: version-metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Apply master Debian build metadata
+        if: needs.version-metadata.outputs.is_master == 'true'
+        run: |
+          python3 scripts/rewrite-build-metadata.py \
+            --python-version "${{ needs.version-metadata.outputs.python_version }}" \
+            --debian-version "${{ needs.version-metadata.outputs.debian_version }}"
 
       - name: Build Debian package in Debian container
         run: |
@@ -226,12 +307,20 @@ jobs:
             '
 
   build-rpm-fedora:
+    needs: version-metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Apply master RPM build metadata
+        if: needs.version-metadata.outputs.is_master == 'true'
+        run: |
+          python3 scripts/rewrite-build-metadata.py \
+            --python-version "${{ needs.version-metadata.outputs.python_version }}" \
+            --rpm-version "${{ needs.version-metadata.outputs.rpm_version }}"
 
       - name: Build Fedora RPM in Fedora container
         run: |
@@ -298,12 +387,20 @@ jobs:
             '
 
   build-rpm-opensuse:
+    needs: version-metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Apply master RPM build metadata
+        if: needs.version-metadata.outputs.is_master == 'true'
+        run: |
+          python3 scripts/rewrite-build-metadata.py \
+            --python-version "${{ needs.version-metadata.outputs.python_version }}" \
+            --rpm-version "${{ needs.version-metadata.outputs.rpm_version }}"
 
       - name: Build openSUSE RPM in openSUSE container
         run: |
@@ -440,6 +537,91 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
           generate_release_notes: true
+
+  release-master:
+    needs:
+      - build-source-tarball
+      - build-pacman-arch
+      - test-pacman-arch
+      - build-deb
+      - test-deb
+      - build-rpm-fedora
+      - test-rpm-fedora
+      - build-rpm-opensuse
+      - test-rpm-opensuse
+    if: github.ref == 'refs/heads/master' && github.actor != 'nektos/act'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Compute master release metadata
+        id: meta
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y%m%d-%H%M%S)"
+          short_sha="${GITHUB_SHA:0:7}"
+          tag="master-${stamp}-${short_sha}"
+          name="Keyforge master ${stamp} (${short_sha})"
+          {
+            printf 'stamp=%s\n' "$stamp"
+            printf 'short_sha=%s\n' "$short_sha"
+            printf 'tag=%s\n' "$tag"
+            printf 'name=%s\n' "$name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download source tarball
+        uses: actions/download-artifact@v8
+        with:
+          name: source-tarball
+          path: dist/
+
+      - name: Download Debian artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: debian-package
+          path: dist/
+
+      - name: Download Fedora RPM
+        uses: actions/download-artifact@v8
+        with:
+          name: rpm-fedora-package
+          path: dist/
+
+      - name: Download openSUSE RPM
+        uses: actions/download-artifact@v8
+        with:
+          name: rpm-opensuse-package
+          path: dist/
+
+      - name: Generate master release checksums
+        run: |
+          cd dist
+          sha256sum *.deb *.rpm *.tar.gz > SHA256SUMS
+
+      - name: Create GitHub prerelease for master
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.meta.outputs.name }}
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          body: |
+            Automated prerelease build from `master`.
+
+            Commit: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+            Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          files: |
+            dist/*.deb
+            dist/*.changes
+            dist/*.buildinfo
+            dist/*.rpm
+            dist/*.tar.gz
+            dist/SHA256SUMS
 
   publish-aur:
     needs:

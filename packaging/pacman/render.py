@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import tomllib
 
@@ -76,6 +77,11 @@ def read_version() -> str:
 def parse_args(pkgver: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Render pacman packaging files for the local checkout and the AUR subtree."
+    )
+    parser.add_argument(
+        "--pkgver",
+        default=pkgver,
+        help="Package version to embed in generated pacman packaging files.",
     )
     parser.add_argument(
         "--aur-source-url",
@@ -179,10 +185,14 @@ def build_srcinfo(pkgver: str, aur_source_url: str, aur_sha256: str) -> str:
 
 
 def main() -> None:
-    pkgver = read_version()
+    pkgver = os.environ.get("KEYFORGE_PKGVER_OVERRIDE") or read_version()
     args = parse_args(pkgver)
-    local_replacements = build_replacements(pkgver, "local", args.aur_source_url, args.aur_sha256)
-    aur_replacements = build_replacements(pkgver, "aur", args.aur_source_url, args.aur_sha256)
+    local_replacements = build_replacements(
+        args.pkgver, "local", args.aur_source_url, args.aur_sha256
+    )
+    aur_replacements = build_replacements(
+        args.pkgver, "aur", args.aur_source_url, args.aur_sha256
+    )
 
     write_if_changed(REPO_ROOT / "PKGBUILD", render_template("PKGBUILD.in", local_replacements))
     write_if_changed(
@@ -199,7 +209,7 @@ def main() -> None:
     )
     write_if_changed(
         REPO_ROOT / "packaging/aur/.SRCINFO",
-        build_srcinfo(pkgver, args.aur_source_url, args.aur_sha256),
+        build_srcinfo(args.pkgver, args.aur_source_url, args.aur_sha256),
     )
 
 

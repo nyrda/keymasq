@@ -22,19 +22,21 @@ runuser -u builder -- bash -lc '
 
     cd "'"$repo_copy"'"
 
-    version="$(python3 - <<'"'"'PY'"'"'
+    pkgver="${KEYFORGE_PKGVER_OVERRIDE:-$(
+        python3 - <<'"'"'PY'"'"'
 from pathlib import Path
 import tomllib
 
 data = tomllib.loads(Path("pyproject.toml").read_text())
 print(data["project"]["version"])
 PY
-    )"
+    )}"
 
-    archive_path="'"$repo_copy"'/dist/keyforge-${version}.tar.gz"
+    archive_path="'"$repo_copy"'/dist/keyforge-${pkgver}.tar.gz"
     archive_sha256="$(sha256sum "$archive_path" | awk '"'"'{print $1}'"'"')"
 
     python3 packaging/pacman/render.py \
+        --pkgver "$pkgver" \
         --aur-source-url "file://$archive_path" \
         --aur-sha256 "$archive_sha256"
 

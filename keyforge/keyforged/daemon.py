@@ -200,6 +200,7 @@ class Daemon:
                 hardware_id=data["hardware_id"],
                 evdev_paths=data["evdev_paths"],
                 button_map=data.get("button_map", {}),
+                button_codes=data.get("button_codes", {}),
                 force_grab_unmapped=bool(data.get("force_grab_unmapped", False)),
             )
 

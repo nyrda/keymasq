@@ -149,6 +149,25 @@ def capability_name(event_type: int, code: object) -> str | None:
     return code_name.lower()
 
 
+def resolve_evdev_code(evdev_name: str | None) -> int | None:
+    if not evdev_name:
+        return None
+
+    label = str(evdev_name).strip()
+    if not label:
+        return None
+
+    for candidate in (label.upper(), label.lower()):
+        if not hasattr(evdev.ecodes, candidate):
+            continue
+        code = getattr(evdev.ecodes, candidate)
+        if isinstance(code, tuple):
+            return int(code[0]) if code else None
+        return int(code)
+
+    return None
+
+
 def capability_names_from_capabilities(caps: dict[int, list[object]]) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()

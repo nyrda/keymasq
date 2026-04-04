@@ -152,8 +152,20 @@ def test_hardware_manager_saves_gamepad_layout_type(temp_config_dir) -> None:
         name="Test Gamepad",
         evdev_devices=[EvdevDevice(path="/dev/input/event50", device_type=DeviceType.GAMEPAD)],
         buttons=[
-            ButtonDefinition(id="btn_south", label="A", evdev="btn_south", source="joystick"),
-            ButtonDefinition(id="btn_east", label="B", evdev="btn_east", source="joystick"),
+            ButtonDefinition(
+                id="btn_south",
+                label="A",
+                evdev="btn_south",
+                evdev_code=304,
+                source="joystick",
+            ),
+            ButtonDefinition(
+                id="btn_east",
+                label="B",
+                evdev="btn_east",
+                evdev_code=305,
+                source="joystick",
+            ),
         ],
     )
 
@@ -161,3 +173,5 @@ def test_hardware_manager_saves_gamepad_layout_type(temp_config_dir) -> None:
 
     text = (temp_config_dir / "hardware" / "9999_0001.toml").read_text(encoding="utf-8")
     assert 'type = "gamepad"' in text
+    assert "evdev_code = 304" in text
+    assert HardwareManager().get_hardware("9999:0001") == config

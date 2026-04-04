@@ -720,6 +720,7 @@ class TestDeviceTabWidget:
             "status": "ok",
             "captured": {
                 "evdev": "btn_tr",
+                "code": 311,
                 "source": "joystick",
                 "stable_path": "/dev/input/by-id/test-gamepad",
             },
@@ -729,6 +730,7 @@ class TestDeviceTabWidget:
         assert finished == ["finished"]
         assert tab.device.buttons[-1].id == "btn_tr"
         assert tab.device.buttons[-1].type == "gamepad"
+        assert tab.device.buttons[-1].evdev_code == 311
         assert tab.device.evdev_devices == [
             EvdevDevice(
                 path="/dev/input/event0",
@@ -737,6 +739,64 @@ class TestDeviceTabWidget:
             )
         ]
         assert status.get_text() == "Captured btn_tr (0 remaining)"
+
+    def test_gamepad_device_tab_rejects_alias_duplicate_by_code(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def save_hardware(self, device: HardwareConfig) -> None:
+                return
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event0",
+                    device_type=DeviceType.GAMEPAD,
+                    id="joystick",
+                )
+            ],
+            buttons=[
+                ButtonDefinition(
+                    id="btn_south",
+                    label="A",
+                    evdev="btn_south",
+                    evdev_code=304,
+                    source="joystick",
+                )
+            ],
+        )
+
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=_HardwareManager(),
+            demo_mode=True,
+        )
+        status = Gtk.Label()
+        dialog = Adw.Dialog()
+        tab._add_keys_capturing = True
+        tab._capture_active_hardware_id = "1234:5678"
+        tab._add_keys_pending_ids = ["btn_added_1"]
+
+        captured = {
+            "status": "ok",
+            "captured": {
+                "evdev": "btn_a",
+                "code": 304,
+                "source": "joystick",
+                "stable_path": "/dev/input/by-id/test-gamepad",
+            },
+        }
+        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+
+        assert len(tab.device.buttons) == 1
+        assert "already exists" in status.get_text()
 
 
 class TestHardwareSetupDialog:
@@ -821,6 +881,11 @@ class TestHardwareSetupDialog:
         assert saved.evdev_devices[0].device_type == DeviceType.GAMEPAD
         assert [button.id for button in saved.buttons] == ["btn_start", "btn_east", "btn_south"]
         assert [button.label for button in saved.buttons] == ["Start", "B", "A"]
+        assert [button.evdev_code for button in saved.buttons] == [
+            evdev.ecodes.BTN_START,
+            evdev.ecodes.BTN_EAST,
+            evdev.ecodes.BTN_SOUTH,
+        ]
         assert all(button.type == "gamepad" for button in saved.buttons)
         assert emitted == [("device-created", saved)]
 

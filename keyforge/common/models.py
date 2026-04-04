@@ -75,6 +75,7 @@ class ButtonDefinition:
     id: str
     label: str
     evdev: str
+    evdev_code: int | None = None
     evdev_value: int | None = None
     source: str | None = None
     zone: str | None = None

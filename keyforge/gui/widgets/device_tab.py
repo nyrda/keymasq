@@ -6,7 +6,12 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, GLib, Gtk
 
-from keyforge.common.devices import gamepad_button_label, is_gamepad_button_name
+from keyforge.common.devices import (
+    canonical_gamepad_button_name,
+    gamepad_button_label,
+    is_gamepad_button_name,
+    resolve_evdev_code,
+)
 from keyforge.common.models import (
     ActionType,
     ButtonDefinition,
@@ -454,7 +459,13 @@ class DeviceTab(ProfileManagedTab):
 
             extras = sorted(buttons_by_id.values(), key=lambda button: button.label.lower())
             if extras:
-                self._append_other_buttons_section(content, extras, title="Additional Controls")
+                self._append_other_buttons_section(
+                    content,
+                    extras,
+                    title="Additional Controls",
+                    expanded=True,
+                    prepend=True,
+                )
 
             scrolled.set_child(content)
             self.append(scrolled)
@@ -546,7 +557,13 @@ class DeviceTab(ProfileManagedTab):
         return grid
 
     def _append_other_buttons_section(
-        self, parent: Gtk.Box, extras: list, *, title: str = "Extra Keys"
+        self,
+        parent: Gtk.Box,
+        extras: list,
+        *,
+        title: str = "Extra Keys",
+        expanded: bool = False,
+        prepend: bool = False,
     ) -> None:
         grid = Gtk.Grid()
         grid.set_column_spacing(8)
@@ -565,9 +582,12 @@ class DeviceTab(ProfileManagedTab):
                 row += 1
 
         expander = Gtk.Expander(label=f"{title} ({len(extras)})")
-        expander.set_expanded(False)
+        expander.set_expanded(expanded)
         expander.set_child(grid)
-        parent.append(expander)
+        if prepend:
+            parent.prepend(expander)
+        else:
+            parent.append(expander)
 
     def _create_button_widget(self, button) -> Gtk.Widget:
         protected = is_protected_button(button.id)
@@ -1159,11 +1179,12 @@ class DeviceTab(ProfileManagedTab):
             return True
 
         evdev_name = str(captured.get("evdev", ""))
+        captured_code = captured.get("code")
         if not self._is_supported_added_input(evdev_name):
             status_label.set_text(f"Unsupported input '{evdev_name}', press another input")
             return False
 
-        if any(b.evdev == evdev_name for b in self.device.buttons):
+        if self._button_already_exists(evdev_name, captured_code):
             status_label.set_text(f"{evdev_name} already exists, press another input")
             return False
 
@@ -1175,6 +1196,7 @@ class DeviceTab(ProfileManagedTab):
                 id=evdev_name,
                 evdev=evdev_name,
                 label=self._label_from_evdev(evdev_name),
+                evdev_code=int(captured_code) if captured_code is not None else None,
                 type=button_type,
                 source=source,
             )
@@ -1255,6 +1277,30 @@ class DeviceTab(ProfileManagedTab):
                 or evdev_name in {"rel_wheel", "rel_hwheel"}
             )
         return evdev_name.startswith("btn_") or evdev_name in {"rel_wheel", "rel_hwheel"}
+
+    def _button_already_exists(self, evdev_name: str, evdev_code: object | None) -> bool:
+        try:
+            captured_code = int(evdev_code) if evdev_code is not None else None
+        except Exception:
+            captured_code = None
+
+        captured_name = canonical_gamepad_button_name(evdev_name)
+        for button in self.device.buttons:
+            existing_code = button.evdev_code
+            if existing_code is None:
+                existing_code = resolve_evdev_code(button.evdev)
+
+            if (
+                captured_code is not None
+                and existing_code is not None
+                and existing_code == captured_code
+            ):
+                return True
+
+            if canonical_gamepad_button_name(button.evdev) == captured_name:
+                return True
+
+        return False
 
     def _ensure_evdev_interface_for_capture(
         self,

@@ -2,24 +2,26 @@ import re
 import subprocess
 from typing import cast
 
+import evdev
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-import evdev
 from gi.repository import Adw, GLib, GObject, Gtk
 
 from keyforge.common.devices import (
     INPUT_CLASS_ORDER,
+    canonical_gamepad_button_name,
+    capability_name,
     capability_names_from_capabilities,
     detect_input_classes,
     find_all_interfaces,
     gamepad_button_label,
-    gamepad_button_names_from_capabilities,
     get_interface_id,
     input_class_label,
     normalize_input_classes,
+    ordered_gamepad_button_names,
     primary_input_class,
     resolve_stable_path,
 )
@@ -1021,6 +1023,7 @@ class HardwareSetupDialog(Adw.Window):
 
         btn_def = self.button_definitions[self.current_button_index]
         btn_def["evdev"] = captured.get("evdev", "unknown")
+        btn_def["evdev_code"] = captured.get("code")
         btn_def["evdev_value"] = captured.get("value")
         btn_def["source"] = captured.get("source")
         btn_def["stable_path"] = captured.get("stable_path")
@@ -1227,8 +1230,7 @@ class HardwareSetupDialog(Adw.Window):
         return interfaces or list(self.discovered_interfaces.values())
 
     def _build_gamepad_buttons(self, interfaces: list[dict]) -> list[ButtonDefinition]:
-        buttons: list[ButtonDefinition] = []
-        seen: set[str] = set()
+        button_specs: dict[str, tuple[int, str | None]] = {}
 
         for iface in interfaces:
             raw_capabilities = iface.get("raw_capabilities") or {}
@@ -1236,19 +1238,33 @@ class HardwareSetupDialog(Adw.Window):
                 continue
 
             source_id = str(iface.get("id", "") or "")
-            for evdev_name in gamepad_button_names_from_capabilities(raw_capabilities):
-                if evdev_name in seen:
+            for code in raw_capabilities.get(evdev.ecodes.EV_KEY, []):
+                code_int = int(code[0] if isinstance(code, tuple) else code)
+                evdev_name = capability_name(evdev.ecodes.EV_KEY, code_int)
+                if not evdev_name:
                     continue
-                seen.add(evdev_name)
-                buttons.append(
-                    ButtonDefinition(
-                        id=evdev_name,
-                        label=gamepad_button_label(evdev_name) or evdev_name,
-                        evdev=evdev_name,
-                        source=source_id or None,
-                        type="gamepad",
-                    )
+                label = gamepad_button_label(evdev_name)
+                canonical = canonical_gamepad_button_name(evdev_name)
+                if canonical in button_specs or label is None:
+                    continue
+                button_specs[canonical] = (code_int, source_id or None)
+
+        buttons: list[ButtonDefinition] = []
+        for canonical in ordered_gamepad_button_names(button_specs):
+            code_int, source_id = button_specs[canonical]
+            label = gamepad_button_label(canonical)
+            if label is None:
+                continue
+            buttons.append(
+                ButtonDefinition(
+                    id=canonical,
+                    label=label,
+                    evdev=canonical,
+                    evdev_code=code_int,
+                    source=source_id,
+                    type="gamepad",
                 )
+            )
 
         return buttons
 

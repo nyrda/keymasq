@@ -8,13 +8,14 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 import evdev
 
 from keyforge.common.combos import normalize_combo_evdev
 from keyforge.common.devices import (
+    canonical_gamepad_button_name,
     classify_event_device_type,
     clear_device_path_cache,
     detect_input_classes,
@@ -76,6 +77,7 @@ class LiveInterfaceInfo:
 class DesiredGrabConfig:
     paths: set[str]
     button_map: dict[str, str]
+    button_codes: dict[str, int] = field(default_factory=dict)
     force_grab_unmapped: bool = False
 
 
@@ -508,6 +510,7 @@ class DeviceManager:
         hardware_id: str,
         evdev_paths: list[str],
         button_map: dict[str, str],
+        button_codes: dict[str, int] | None = None,
         force_grab_unmapped: bool = False,
     ) -> dict:
         async with self._op_lock:
@@ -515,6 +518,7 @@ class DeviceManager:
                 hardware_id,
                 evdev_paths,
                 button_map,
+                button_codes=button_codes,
                 force_grab_unmapped=force_grab_unmapped,
             )
 
@@ -523,6 +527,7 @@ class DeviceManager:
         hardware_id: str,
         evdev_paths: list[str],
         button_map: dict[str, str],
+        button_codes: dict[str, int] | None = None,
         force_grab_unmapped: bool = False,
         *,
         update_desired: bool = True,
@@ -536,25 +541,32 @@ class DeviceManager:
             if str(path or "").strip()
         }
         mapped_evdev_names = set(name.lower() for name in button_map.values())
+        resolved_button_codes = {
+            button_id: int(code)
+            for button_id, code in (button_codes or {}).items()
+        }
+        mapped_codes = set(resolved_button_codes.values())
         if update_desired:
             self._desired_paths[hardware_id] = set(requested_paths)
             self._desired_grabs[hardware_id] = DesiredGrabConfig(
                 paths=set(requested_paths),
                 button_map=dict(button_map),
+                button_codes=dict(resolved_button_codes),
                 force_grab_unmapped=bool(force_grab_unmapped),
             )
         log.info(
-            "Grab request for %s: paths=%d mapped_evdev_names=%d",
+            "Grab request for %s: paths=%d mapped_evdev_names=%d mapped_codes=%d",
             hardware_id,
             len(requested_paths),
             len(mapped_evdev_names),
+            len(mapped_codes),
         )
 
         existing_by_path = {
             device.path: device for device in self.grabbed_devices.get(hardware_id, [])
         }
         for device in existing_by_path.values():
-            device.update_button_map(button_map)
+            device.update_button_map(button_map, resolved_button_codes)
 
         devices: list[GrabbedDevice] = list(existing_by_path.values())
         grabbed_count = 0
@@ -577,7 +589,11 @@ class DeviceManager:
                 available_count += 1
                 caps = raw_device.capabilities()
 
-                has_mapped_buttons = self._device_has_mapped_buttons(caps, mapped_evdev_names)
+                has_mapped_buttons = self._device_has_mapped_buttons(
+                    caps,
+                    mapped_evdev_names,
+                    mapped_codes,
+                )
 
                 if has_mapped_buttons or force_grab_unmapped:
                     if hardware_id not in self.grabbed_devices and not created_global_uinputs:
@@ -589,6 +605,7 @@ class DeviceManager:
                         path=path,
                         hardware_id=hardware_id,
                         button_map=button_map,
+                        button_codes=resolved_button_codes,
                         mapping_getter=lambda hid=hardware_id: self.active_mappings.get(hid, {}),
                         event_callback=self._on_device_event,
                         device_type=detected_type,
@@ -615,7 +632,7 @@ class DeviceManager:
                     skipped_count += 1
                     if self.verbosity >= 1:
                         log.debug(
-                            "  %s - skipped (no matching mapped button names)",
+                            "  %s - skipped (no matching mapped button names/codes)",
                             path,
                         )
                     if self.verbosity >= 1:
@@ -647,14 +664,15 @@ class DeviceManager:
             not waiting_for_device
             and hardware_id not in self.grabbed_devices
             and requested_paths
-            and mapped_evdev_names
+            and (mapped_evdev_names or mapped_codes)
             and grabbed_count == 0
         ):
             if created_global_uinputs:
                 self._destroy_global_uinputs()
             raise ValueError(
                 f"No interfaces for {hardware_id} matched mapped buttons "
-                f"(paths={len(requested_paths)}, mapped_names={len(mapped_evdev_names)})"
+                f"(paths={len(requested_paths)}, mapped_names={len(mapped_evdev_names)}, "
+                f"mapped_codes={len(mapped_codes)})"
             )
 
         if devices:
@@ -705,7 +723,13 @@ class DeviceManager:
         if last_error is not None:
             raise last_error
 
-    def _device_has_mapped_buttons(self, caps: dict, mapped_evdev_names: set[str]) -> bool:
+    def _device_has_mapped_buttons(
+        self,
+        caps: dict,
+        mapped_evdev_names: set[str],
+        mapped_codes: set[int] | None = None,
+    ) -> bool:
+        mapped_code_set = {int(code) for code in (mapped_codes or set())}
         for ev_type, codes in caps.items():
             if ev_type == evdev.ecodes.EV_SYN:
                 continue
@@ -715,6 +739,10 @@ class DeviceManager:
                     code_val = code[0]
                 else:
                     code_val = code
+                code_val = int(code_val)
+
+                if code_val in mapped_code_set:
+                    return True
 
                 try:
                     code_name = evdev.ecodes.bytype[ev_type].get(code_val, str(code_val))
@@ -2295,13 +2323,16 @@ class GrabbedDevice:
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
         diagnostics_recorder: Callable[[str, float], None] | None = None,
         runtime_cleanup_callback: Callable[[str, str | None], Awaitable[None]] | None = None,
+        button_codes: dict[str, int] | None = None,
     ) -> None:
         self.path = path
         self.hardware_id = hardware_id
         self.stable_path = resolve_stable_path(path)
         self.interface_id = str(get_interface_id(self.stable_path) or "").lower()
-        self.button_map = button_map
-        self.evdev_to_button = {v.lower(): k for k, v in button_map.items()}
+        self.button_map: dict[str, str] = {}
+        self.evdev_to_button: dict[str, str] = {}
+        self.evdev_code_to_button: dict[int, str] = {}
+        self.update_button_map(button_map, button_codes)
         self.mapping_getter = mapping_getter
         self.event_callback = event_callback
         self.device_type = device_type
@@ -2340,9 +2371,16 @@ class GrabbedDevice:
         }
         self._held_source_actions: dict[str, MappingAction | None] = {}
 
-    def update_button_map(self, button_map: dict[str, str]) -> None:
+    def update_button_map(
+        self,
+        button_map: dict[str, str],
+        button_codes: dict[str, int] | None = None,
+    ) -> None:
         self.button_map = dict(button_map)
         self.evdev_to_button = {v.lower(): k for k, v in button_map.items()}
+        self.evdev_code_to_button = {
+            int(code): button_id for button_id, code in (button_codes or {}).items()
+        }
 
     async def reset_mapping_runtime_state(self) -> None:
         for event_name in self._combo_passthrough_held:
@@ -2664,7 +2702,7 @@ class GrabbedDevice:
             event_name = self._get_key_name(int(code))
             if not event_name or event_name in self._held_source_actions:
                 continue
-            action = self._find_action_for_name(event_name, mapping)
+            action = self._find_action_for_code(int(code), event_name, mapping)
             self._held_source_actions[event_name] = action
             self._reconcile_startup_held_action(action)
 
@@ -2882,6 +2920,17 @@ class GrabbedDevice:
         mapping: dict[str, MappingAction],
     ) -> MappingAction | None:
         event_name = self._get_event_name(event)
+        return self._find_action_for_code(int(event.code), event_name, mapping)
+
+    def _find_action_for_code(
+        self,
+        event_code: int,
+        event_name: str,
+        mapping: dict[str, MappingAction],
+    ) -> MappingAction | None:
+        button_id = self.evdev_code_to_button.get(int(event_code))
+        if button_id and button_id in mapping:
+            return mapping[button_id]
         return self._find_action_for_name(event_name, mapping)
 
     def _find_action_for_name(
@@ -2890,6 +2939,10 @@ class GrabbedDevice:
         mapping: dict[str, MappingAction],
     ) -> MappingAction | None:
         button_id = self.evdev_to_button.get(event_name.lower())
+        if not button_id:
+            canonical_name = canonical_gamepad_button_name(event_name)
+            if canonical_name != event_name.lower():
+                button_id = self.evdev_to_button.get(canonical_name)
 
         if button_id and button_id in mapping:
             return mapping[button_id]

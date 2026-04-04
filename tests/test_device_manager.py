@@ -523,6 +523,7 @@ def _make_grabbed_device(
     monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
     monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
     button_map = kwargs.pop("button_map", {})
+    button_codes = kwargs.pop("button_codes", None)
     keyboard_uinput = kwargs.pop("keyboard_uinput", _FakeUInput())
     mouse_uinput = kwargs.pop("mouse_uinput", _FakeUInput())
     gamepad_uinput = kwargs.pop("gamepad_uinput", _FakeUInput())
@@ -530,6 +531,7 @@ def _make_grabbed_device(
         path="/dev/input/event-test",
         hardware_id="1234:5678",
         button_map=button_map,
+        button_codes=button_codes,
         mapping_getter=lambda: {},
         event_callback=AsyncMock(return_value=None),
         keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
@@ -2411,13 +2413,19 @@ class TestDeviceManagerHelpers:
                 self.path = kwargs["path"]
                 self.interface_id = "mouse"
                 self.button_map_updates: list[dict[str, str]] = []
+                self.button_code_updates: list[dict[str, int]] = []
                 self.grab = AsyncMock()
                 self.release = AsyncMock()
                 self.reset_mapping_runtime_state = AsyncMock()
                 created[self.path] = self
 
-            def update_button_map(self, button_map: dict[str, str]) -> None:
+            def update_button_map(
+                self,
+                button_map: dict[str, str],
+                button_codes: dict[str, int] | None = None,
+            ) -> None:
                 self.button_map_updates.append(dict(button_map))
+                self.button_code_updates.append(dict(button_codes or {}))
 
             def release_tracked_outputs(self) -> None:
                 return
@@ -2466,6 +2474,7 @@ class TestDeviceManagerHelpers:
             "/dev/input/event0",
         )
         assert created["/dev/input/event1"].button_map_updates == [{"right": "btn_side"}]
+        assert created["/dev/input/event1"].button_code_updates == [{}]
         assert released == {"released": True, "hardware_id": "1234:5678"}
         assert created["/dev/input/event0"].release.await_count == 1
         assert created["/dev/input/event1"].release.await_count == 1
@@ -2619,6 +2628,38 @@ class TestDeviceManagerHelpers:
 
 
 class TestGrabbedDeviceHelpers:
+    def test_find_action_for_event_prefers_evdev_code_over_alias_name(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"south": "btn_south"},
+            button_codes={"south": evdev.ecodes.BTN_SOUTH},
+        )
+        mapping = {"south": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")}
+        event = evdev.InputEvent(
+            0,
+            0,
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.BTN_SOUTH,
+            1,
+        )
+
+        assert device._find_action_for_event(event, mapping) == mapping["south"]
+
+    def test_device_has_mapped_buttons_matches_by_code_when_names_differ(self) -> None:
+        manager = DeviceManager()
+        caps = {
+            evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+        }
+
+        assert manager._device_has_mapped_buttons(
+            caps,
+            {"btn_south"},
+            {evdev.ecodes.BTN_SOUTH},
+        )
+
     def test_bucket_tracking_and_release_all_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         device = _make_grabbed_device(monkeypatch)
         passthrough = _FakeUInput()
@@ -2753,6 +2794,30 @@ class TestGrabbedDeviceHelpers:
         assert device._held_source_actions["key_b"] == mapping_state["right"]
         assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Z, 0)]
         assert mouse.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)]
+
+    def test_seed_startup_held_actions_matches_gamepad_alias_by_code(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"south": "btn_south"},
+            button_codes={"south": evdev.ecodes.BTN_SOUTH},
+        )
+
+        class _FakeInputDevice:
+            def active_keys(self) -> list[int]:
+                return [evdev.ecodes.BTN_SOUTH]
+
+        device.device = _FakeInputDevice()  # type: ignore[assignment]
+        mapping_state = {
+            "south": dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_z"),
+        }
+        device.mapping_getter = lambda: mapping_state
+
+        device._seed_startup_held_actions()
+
+        assert device._held_source_actions["btn_a"] == mapping_state["south"]
 
     def test_reconcile_startup_held_action_releases_gamepad_output(
         self,

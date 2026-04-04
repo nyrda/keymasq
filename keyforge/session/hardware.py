@@ -57,6 +57,7 @@ class HardwareManager:
                     id=btn["id"],
                     label=btn.get("label", btn["id"]),
                     evdev=btn["evdev"],
+                    evdev_code=btn.get("evdev_code"),
                     evdev_value=btn.get("evdev_value"),
                     source=btn.get("source"),
                     zone=btn.get("zone"),
@@ -96,6 +97,8 @@ class HardwareManager:
                 "label": btn.label,
                 "evdev": btn.evdev,
             }
+            if btn.evdev_code is not None:
+                btn_data["evdev_code"] = btn.evdev_code
             if btn.evdev_value is not None:
                 btn_data["evdev_value"] = btn.evdev_value
             if btn.source:

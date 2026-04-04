@@ -10,7 +10,7 @@ import signal
 import traceback
 from datetime import datetime
 
-from keyforge.common.devices import normalize_input_classes
+from keyforge.common.devices import normalize_input_classes, resolve_evdev_code
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.models import MappingAction
 from keyforge.common.paths import (
@@ -132,6 +132,20 @@ class SessionManager:
         self.dbus = SessionDBus()
 
         self.action_handler = ActionHandler()
+
+    def _resolved_button_codes(self, buttons: list[object]) -> dict[str, int]:
+        resolved: dict[str, int] = {}
+        for button in buttons:
+            button_id = str(getattr(button, "id", "") or "")
+            if not button_id:
+                continue
+            code = getattr(button, "evdev_code", None)
+            if code is None:
+                code = resolve_evdev_code(getattr(button, "evdev", None))
+            if code is None:
+                continue
+            resolved[button_id] = int(code)
+        return resolved
 
     async def start(self) -> None:
         self.running = True
@@ -2083,6 +2097,7 @@ class SessionManager:
                         "hardware_id": hardware_id,
                         "evdev_paths": list(new_interfaces.values()),
                         "button_map": {b.id: b.evdev for b in hardware_config.buttons},
+                        "button_codes": self._resolved_button_codes(hardware_config.buttons),
                         "button_sources": {
                             b.id: b.source for b in hardware_config.buttons if b.source
                         },

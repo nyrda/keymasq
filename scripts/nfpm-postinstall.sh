@@ -32,7 +32,11 @@ touch /usr/share/icons/hicolor 2>/dev/null || true
 touch /usr/share/applications/keyforge.desktop 2>/dev/null || true
 
 echo ""
-echo "Keyforge has been installed!"
+if [ "${1:-1}" -gt 1 ]; then
+    echo "Keyforge has been upgraded!"
+else
+    echo "Keyforge has been installed!"
+fi
 echo ""
 echo "To use Keyforge:"
 echo "  1. Enable the daemon:"

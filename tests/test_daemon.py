@@ -30,6 +30,8 @@ def daemon_testbed(monkeypatch):
         cancel_macro_playback=AsyncMock(return_value={"canceled": True}),
         set_diagnostics=AsyncMock(return_value={"status": "ok"}),
         complete_macro_exec_wait=Mock(return_value={"completed": True}),
+        start_topology_watcher=AsyncMock(return_value=None),
+        stop_topology_watcher=AsyncMock(return_value=None),
         release_all_devices=AsyncMock(return_value=None),
     )
     recording_manager = SimpleNamespace(
@@ -259,6 +261,8 @@ async def test_start_offloads_macro_store_prep_to_thread(
     assert to_thread_calls[0][0].__name__ == "_prepare_macro_store"
     macro_store.ensure.assert_called_once()
     macro_store.register_internal.assert_called_once()
+    device_manager.start_topology_watcher.assert_awaited_once()
+    device_manager.stop_topology_watcher.assert_awaited_once()
     assert device_manager.broadcast_callback == fake_socket_server.broadcast_event
     assert recording_manager.broadcast_callback == fake_socket_server.broadcast_event
 

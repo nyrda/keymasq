@@ -453,3 +453,14 @@ class TestSocketServer:
         assert stuck_writer.wait_closed_calls == 1
         assert stuck_writer.abort_calls == 1
         assert not server.clients
+
+    async def test_server_stop_closes_open_client_without_hanging(self, temp_socket_dir):
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            lambda *_args: {"ok": True},
+        )
+        await server.start()
+
+        _reader, _writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+
+        await asyncio.wait_for(server.stop(), timeout=1.0)

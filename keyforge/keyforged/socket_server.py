@@ -76,7 +76,6 @@ class SocketServer:
     async def stop(self) -> None:
         if self.server:
             self.server.close()
-            await self.server.wait_closed()
 
         writers = set(self.clients) | set(self._buffer) | set(self._client_context)
         for writer in writers:
@@ -86,6 +85,9 @@ class SocketServer:
             *(self._wait_writer_closed(writer) for writer in writers),
             return_exceptions=True,
         )
+
+        if self.server:
+            await self.server.wait_closed()
 
         self.clients.clear()
 

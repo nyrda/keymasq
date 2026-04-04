@@ -102,6 +102,7 @@ class Daemon:
         log.info(f"Starting keyforged (socket: {SOCKET_PATH})")
 
         await self.socket_server.start()
+        await self.device_manager.start_topology_watcher()
 
         sd_notify("READY=1")
 
@@ -118,6 +119,7 @@ class Daemon:
         log.info("Stopping keyforged")
         self.running = False
 
+        await self.device_manager.stop_topology_watcher()
         await self.device_manager.cancel_macro_playback()
         await self.device_manager.release_all_devices()
 

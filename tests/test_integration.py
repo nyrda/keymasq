@@ -19,6 +19,9 @@ class TestIntegration:
     async def full_system(self, temp_socket_dir):
         manager = DeviceManager(release_grace_s=0.1, held_release_retry_s=0.1)
 
+        async def handle_disconnect() -> None:
+            await manager.release_all_devices()
+
         server = SocketServer(
             str(paths.SOCKET_PATH),
             lambda cmd, data: (
@@ -26,6 +29,7 @@ class TestIntegration:
                 if hasattr(manager, "_handle_command")
                 else self._default_handler(cmd, data)
             ),
+            handle_disconnect,
         )
 
         async def command_handler(cmd_type, data):
@@ -215,7 +219,7 @@ class TestIntegration:
             data={
                 "hardware_id": "1234:5678",
                 "evdev_paths": [mouse_path],
-                "button_map": {},
+                "button_map": {"btn_side": "btn_side"},
             },
         )
         writer.write(encode_command(cmd))
@@ -228,6 +232,7 @@ class TestIntegration:
         await writer.wait_closed()
 
         await asyncio.sleep(0.3)
+        assert "1234:5678" not in manager.grabbed_devices
 
     async def test_release_with_grace_can_be_canceled_by_regrab(self, full_system, virtual_mouse):
         _server, manager = full_system

@@ -10,10 +10,10 @@ import evdev
 import pytest
 
 from keyforge.common.ipc import CommandType
-from keyforge.common.models import ActionType, DeviceType
+from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged import device_manager as dm
 from keyforge.keyforged.combo_engine import ComboDecision
-from keyforge.keyforged.device_manager import DeviceManager, GrabbedDevice
+from keyforge.keyforged.device_manager import DesiredGrabConfig, DeviceManager, GrabbedDevice
 
 
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
@@ -45,6 +45,69 @@ class TestDeviceManager:
         assert "1234:5678" in manager.grabbed_devices
 
         await manager.release_device("1234:5678")
+
+    @pytest.mark.asyncio
+    async def test_grab_device_keeps_desired_state_when_interface_is_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager._create_global_uinputs = Mock()
+        manager._destroy_global_uinputs = Mock()
+
+        def _missing_input_device(_path: str):
+            raise FileNotFoundError(errno.ENOENT, "missing")
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm.evdev, "InputDevice", _missing_input_device)
+
+        result = await manager.grab_device(
+            hardware_id="1234:5678",
+            evdev_paths=["/dev/input/event404"],
+            button_map={"btn_side": "btn_side"},
+        )
+
+        assert result == {
+            "grabbed": True,
+            "hardware_id": "1234:5678",
+            "grabbed_count": 0,
+            "skipped_count": 0,
+            "waiting_for_device": True,
+        }
+        assert manager.grabbed_devices == {}
+        assert manager._desired_paths["1234:5678"] == {"/dev/input/event404"}
+        assert manager._desired_grabs["1234:5678"] == DesiredGrabConfig(
+            paths={"/dev/input/event404"},
+            button_map={"btn_side": "btn_side"},
+            force_grab_unmapped=False,
+        )
+        manager._create_global_uinputs.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_grab_device_still_errors_when_present_interfaces_match_no_buttons(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+
+        class _InputDevice:
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A],
+                }
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm.evdev, "InputDevice", _InputDevice)
+
+        with pytest.raises(ValueError, match="matched mapped buttons"):
+            await manager.grab_device(
+                hardware_id="1234:5678",
+                evdev_paths=["/dev/input/event10"],
+                button_map={"btn_side": "btn_side"},
+            )
 
     @pytest.mark.asyncio
     async def test_release_device(self, manager, virtual_mouse):
@@ -102,12 +165,12 @@ class TestDeviceManager:
         await manager.grab_device(
             hardware_id="1234:5678",
             evdev_paths=[mouse_path],
-            button_map={},
+            button_map={"btn_left": "btn_left"},
         )
         await manager.grab_device(
             hardware_id="abcd:ef01",
             evdev_paths=[keyboard_path],
-            button_map={},
+            button_map={"key_a": "key_a"},
         )
 
         assert len(manager.grabbed_devices) == 2
@@ -224,6 +287,90 @@ class TestListDevices:
 
         assert snapshots == [{"event": [1.0, 3.0]}]
         assert calls == [(snapshots.append, ({"event": [1.0, 3.0]},))]
+
+    @pytest.mark.asyncio
+    async def test_topology_watch_loop_retries_when_live_and_reconciled_snapshots_differ(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager(topology_poll_s=0.01)
+        snapshot = {
+            "/dev/input/by-id/test-mouse": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-mouse",
+                path="/dev/input/event10",
+                interface_id="mouse",
+            )
+        }
+        manager._live_topology_snapshot = dict(snapshot)
+        manager._reconciled_topology_snapshot = {}
+        manager._schedule_topology_reconcile = Mock()  # type: ignore[assignment]
+        sleep_calls = 0
+
+        async def fake_sleep(_delay: float) -> None:
+            nonlocal sleep_calls
+            sleep_calls += 1
+            if sleep_calls >= 2:
+                raise asyncio.CancelledError()
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            assert kwargs == {}
+            return snapshot
+
+        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
+
+        with pytest.raises(asyncio.CancelledError):
+            await manager._topology_watch_loop()
+
+        manager._schedule_topology_reconcile.assert_called_once_with(snapshot)
+
+    @pytest.mark.asyncio
+    async def test_topology_watch_loop_logs_scan_failures_and_keeps_running(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager(topology_poll_s=0.01)
+        snapshot = {
+            "/dev/input/by-id/test-mouse": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-mouse",
+                path="/dev/input/event10",
+                interface_id="mouse",
+            )
+        }
+        manager._schedule_topology_reconcile = Mock()  # type: ignore[assignment]
+        sleep_calls = 0
+        scan_calls = 0
+
+        async def fake_sleep(_delay: float) -> None:
+            nonlocal sleep_calls
+            sleep_calls += 1
+            if sleep_calls >= 3:
+                raise asyncio.CancelledError()
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            nonlocal scan_calls
+            assert kwargs == {}
+            scan_calls += 1
+            if scan_calls == 1:
+                raise RuntimeError("scan boom")
+            return snapshot
+
+        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
+
+        with caplog.at_level(logging.WARNING, logger="keyforged.devices"):
+            with pytest.raises(asyncio.CancelledError):
+                await manager._topology_watch_loop()
+
+        assert "Topology scan failed: scan boom" in caplog.text
+        manager._schedule_topology_reconcile.assert_called_once_with(snapshot)
 
 
 class TestMacroControlActions:
@@ -1177,6 +1324,34 @@ class TestRapidfireRelease:
         manager._clear_combo_runtime.assert_not_awaited()
         fake_device.release_tracked_outputs.assert_called_once()
         fake_device.release.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_release_interface_preserves_desired_state_for_missing_managed_device(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        fake_device = SimpleNamespace(
+            path="/dev/input/event0",
+            interface_id="mouse",
+            release_tracked_outputs=Mock(),
+            release=AsyncMock(),
+        )
+        action = MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
+        manager.grabbed_devices = {"hw": [fake_device]}
+        manager.active_mappings = {"hw": {"btn_side": action}}
+        manager._desired_paths["hw"] = {"/dev/input/event0"}
+        manager._desired_grabs["hw"] = DesiredGrabConfig(
+            paths={"/dev/input/event0"},
+            button_map={"btn_side": "btn_side"},
+        )
+        manager._clear_combo_runtime_for_binding_scope = AsyncMock()  # type: ignore[method-assign]
+
+        await manager._release_interface_unlocked("hw", "/dev/input/event0")
+
+        assert manager.grabbed_devices == {}
+        assert manager.active_mappings["hw"] == {"btn_side": action}
+        assert manager._desired_paths["hw"] == {"/dev/input/event0"}
+        assert manager._desired_grabs["hw"].paths == {"/dev/input/event0"}
 
     @pytest.mark.asyncio
     async def test_release_device_clears_scoped_combo_runtime_before_releasing_hardware(
@@ -2259,6 +2434,7 @@ class TestDeviceManagerHelpers:
 
         monkeypatch.setattr(dm.evdev, "InputDevice", _RawInputDevice)
         monkeypatch.setattr(dm, "GrabbedDevice", _FakeManagedDevice)
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
 
         first = await manager.grab_device(
             "1234:5678",
@@ -2277,6 +2453,7 @@ class TestDeviceManagerHelpers:
             "hardware_id": "1234:5678",
             "grabbed_count": 2,
             "skipped_count": 0,
+            "waiting_for_device": False,
         }
         assert second["grabbed_count"] == 2
         manager._create_global_uinputs.assert_called_once()
@@ -2348,6 +2525,30 @@ class TestDeviceManagerHelpers:
         assert manager.active_combos[0].steps[0].timeout_ms == 250
         manager._clear_combo_runtime.assert_awaited_once()
         manager._refresh_combo_timeout_watchdog.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_schedule_topology_reconcile_logs_failures_and_clears_task(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager(topology_debounce_s=0.01)
+        snapshot: dict[str, dm.LiveInterfaceInfo] = {}
+
+        async def fake_sleep(_delay: float) -> None:
+            return
+
+        manager._reconcile_topology = AsyncMock(side_effect=RuntimeError("reconcile boom"))  # type: ignore[assignment]
+        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+
+        with caplog.at_level(logging.WARNING, logger="keyforged.devices"):
+            manager._schedule_topology_reconcile(snapshot)
+            task = manager._topology_reconcile_task
+            assert task is not None
+            await task
+
+        assert "Topology reconcile failed: reconcile boom" in caplog.text
+        assert manager._topology_reconcile_task is None
 
     def test_combo_capture_queue_round_trip(self) -> None:
         manager = DeviceManager()

@@ -48,6 +48,8 @@ from keyforge.session.superkeys import SuperkeyManager
 log = logging.getLogger("keyforge-session")
 GRAB_DEVICE_TIMEOUT_S = 330.0
 GRAB_RETRY_DELAY_S = 5.0
+TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
+TOPOLOGY_REFRESH_RETRY_S = 1.0
 
 
 class SessionManager:
@@ -72,6 +74,7 @@ class SessionManager:
         self._grabbed_interfaces: dict[str, dict[str, str]] = {}
         self._grab_waiting_devices: set[str] = set()
         self._grab_retry_tasks: dict[str, asyncio.Task] = {}
+        self._topology_refresh_task: asyncio.Task | None = None
         self._last_sent_mapping_signatures: dict[str, str] = {}
         self._last_sent_combo_signature: str = ""
         self._active_profile_names: list[str] = []
@@ -165,6 +168,12 @@ class SessionManager:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._compositor_supervisor_task
             self._compositor_supervisor_task = None
+
+        if self._topology_refresh_task:
+            self._topology_refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._topology_refresh_task
+            self._topology_refresh_task = None
 
         if self._recording_settings_save_task:
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -1403,6 +1412,48 @@ class SessionManager:
         self._shutdown_event.set()
         self._retry_event.set()
 
+    def _invalidate_grabbed_state(self) -> None:
+        for hardware_id in list(self._device_exec_refs):
+            self._clear_exec_refs(hardware_id)
+        self._clear_combo_exec_refs()
+        for task in list(self._grab_retry_tasks.values()):
+            if not task.done():
+                task.cancel()
+        self._grab_retry_tasks.clear()
+        self._grabbed_devices.clear()
+        self._grabbed_interfaces.clear()
+        self._grab_waiting_devices.clear()
+        self._last_sent_mapping_signatures.clear()
+        self._last_sent_combo_signature = ""
+
+    def _schedule_topology_refresh(self) -> None:
+        existing = self._topology_refresh_task
+        if existing is not None and not existing.done():
+            existing.cancel()
+
+        async def _run() -> None:
+            try:
+                delay = TOPOLOGY_REFRESH_DEBOUNCE_S
+                while True:
+                    await asyncio.sleep(delay)
+                    try:
+                        self._invalidate_grabbed_state()
+                        await self._reevaluate_profiles()
+                        return
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        log.warning("Topology refresh failed: %s", e)
+                        delay = TOPOLOGY_REFRESH_RETRY_S
+            except asyncio.CancelledError:
+                raise
+            finally:
+                task = self._topology_refresh_task
+                if task is asyncio.current_task():
+                    self._topology_refresh_task = None
+
+        self._topology_refresh_task = asyncio.create_task(_run())
+
     async def _wait_for_session_clients_to_close(self, timeout_s: float = 1.0) -> None:
         if not self._session_clients:
             return
@@ -1701,6 +1752,7 @@ class SessionManager:
             await self._on_device_connected(data)
         elif event_type == CommandType.DEVICE_DISCONNECTED:
             log.info(f"Device disconnected: {data}")
+            await self._on_device_disconnected(data)
         elif event_type == CommandType.DEVICE_GRAB_STATUS:
             self._handle_device_grab_status_event(data)
         elif event_type == CommandType.RECORDING_STARTED:
@@ -2040,15 +2092,20 @@ class SessionManager:
                 timeout=GRAB_DEVICE_TIMEOUT_S,
             )
             if result.status == "ok":
+                grabbed_count = (
+                    int(result.data.get("grabbed_count", 0) or 0)
+                    if isinstance(result.data, dict)
+                    else 0
+                )
                 self._cancel_grab_retry(hardware_id)
                 self._grab_waiting_devices.discard(hardware_id)
-                self._grabbed_devices.add(hardware_id)
-                self._grabbed_interfaces[hardware_id] = new_interfaces
                 log.info(f"keyforged: Grabbed device {hardware_id}: {result.data}")
-                if (
-                    isinstance(result.data, dict)
-                    and int(result.data.get("grabbed_count", 0) or 0) == 0
-                ):
+                if grabbed_count > 0:
+                    self._grabbed_devices.add(hardware_id)
+                    self._grabbed_interfaces[hardware_id] = new_interfaces
+                else:
+                    self._grabbed_devices.discard(hardware_id)
+                    self._grabbed_interfaces.pop(hardware_id, None)
                     log.warning(
                         (
                             "keyforged grab returned zero interfaces for %s "
@@ -2058,6 +2115,8 @@ class SessionManager:
                         list(new_interfaces.keys()),
                         len(resolved.mappings),
                     )
+                    self._last_sent_mapping_signatures.pop(hardware_id, None)
+                    return
             else:
                 log.error(f"keyforged: Failed to grab device {hardware_id}: {result.error}")
                 if "timed out waiting" in str(result.error or "").lower():
@@ -2418,11 +2477,25 @@ class SessionManager:
         if not hardware_id or ":" not in hardware_id:
             return
 
-        hardware_config = self.hardware.get_hardware(hardware_id)
-        if not hardware_config:
+        if (
+            self.hardware.get_hardware(hardware_id) is None
+            and hardware_id not in self._resolved_devices
+        ):
             return
+        self._schedule_topology_refresh()
 
-        await self._reevaluate_profiles()
+    async def _on_device_disconnected(self, device_info: dict) -> None:
+        hardware_id = str(device_info.get("hardware_id", "") or "")
+        if not hardware_id or ":" not in hardware_id:
+            hardware_id = f"{device_info.get('vendor_id', '')}:{device_info.get('product_id', '')}"
+        if not hardware_id or ":" not in hardware_id:
+            return
+        if (
+            self.hardware.get_hardware(hardware_id) is None
+            and hardware_id not in self._resolved_devices
+        ):
+            return
+        self._schedule_topology_refresh()
 
     async def on_window_change(
         self, window_class: str, window_title: str, window_tags: list[str]

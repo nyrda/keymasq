@@ -607,6 +607,75 @@ async def test_handle_event_macro_async_exec_uses_exec_trigger_path() -> None:
 
 
 @pytest.mark.asyncio
+async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        name="Test Mouse"
+    )
+    manager._grabbed_devices = {"1234:5678"}
+    manager._grabbed_interfaces = {"1234:5678": {"mouse": "/dev/input/event10"}}
+    manager._last_sent_mapping_signatures = {"1234:5678": "sig"}
+    manager._last_sent_combo_signature = "combo"
+    manager._device_exec_refs = {"1234:5678": {7}}
+    manager._combo_exec_refs = {8}
+    manager._exec_refs = {7: "echo device", 8: "echo combo"}
+    manager._reevaluate_profiles = AsyncMock()  # type: ignore[assignment]
+
+    async def _instant_sleep(_delay: float) -> None:
+        return
+
+    monkeypatch.setattr(session_manager_module.asyncio, "sleep", _instant_sleep)
+
+    await manager._handle_event(
+        CommandType.DEVICE_DISCONNECTED,
+        {"hardware_id": "1234:5678", "vendor_id": "1234", "product_id": "5678"},
+    )
+
+    task = manager._topology_refresh_task
+    assert task is not None
+    await task
+
+    assert manager._grabbed_devices == set()
+    assert manager._grabbed_interfaces == {}
+    assert manager._last_sent_mapping_signatures == {}
+    assert manager._last_sent_combo_signature == ""
+    assert manager._exec_refs == {}
+    manager._reevaluate_profiles.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_topology_refresh_retries_after_reevaluate_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    sleep_calls: list[float] = []
+    manager._reevaluate_profiles = AsyncMock(side_effect=[RuntimeError("refresh boom"), None])  # type: ignore[assignment]
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+        return
+
+    monkeypatch.setattr(session_manager_module.asyncio, "sleep", fake_sleep)
+
+    with caplog.at_level("WARNING", logger="keyforge-session"):
+        manager._schedule_topology_refresh()
+        task = manager._topology_refresh_task
+        assert task is not None
+        await task
+
+    assert sleep_calls == [
+        session_manager_module.TOPOLOGY_REFRESH_DEBOUNCE_S,
+        session_manager_module.TOPOLOGY_REFRESH_RETRY_S,
+    ]
+    assert "Topology refresh failed: refresh boom" in caplog.text
+    assert manager._reevaluate_profiles.await_count == 2
+    assert manager._topology_refresh_task is None
+
+
+@pytest.mark.asyncio
 async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     manager = SessionManager()
     manager._security_policy.recording_unlock_required = True
@@ -1166,6 +1235,35 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout() -> Non
         ),
     )
     manager._schedule_grab_retry.assert_called_once_with(hardware_id)
+
+
+@pytest.mark.asyncio
+async def test_apply_resolved_device_profile_waits_when_daemon_reports_no_live_interfaces() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={
+            "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_f13")
+        },
+    )
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        hardware_id=hardware_id,
+        name="Test Mouse",
+        evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/by-id/test-mouse")],
+        buttons=[SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse")],
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
+    )
+
+    await manager._apply_resolved_device_profile(hardware_id, resolved)
+
+    manager.client.send_command.assert_awaited_once()
+    assert hardware_id not in manager._grabbed_devices
+    assert hardware_id not in manager._grabbed_interfaces
+    assert manager._last_sent_mapping_signatures == {}
 
 
 @pytest.mark.asyncio

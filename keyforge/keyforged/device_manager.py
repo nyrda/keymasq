@@ -8,6 +8,7 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import cast
 
 import evdev
@@ -44,6 +45,8 @@ log = logging.getLogger("keyforged.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
 ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
+TOPOLOGY_POLL_INTERVAL_S = 0.5
+TOPOLOGY_DEBOUNCE_S = 0.5
 
 
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task:
@@ -59,6 +62,23 @@ def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task:
     return task
 
 
+@dataclass(frozen=True)
+class LiveInterfaceInfo:
+    hardware_id: str
+    vendor_id: str
+    product_id: str
+    stable_path: str
+    path: str
+    interface_id: str
+
+
+@dataclass
+class DesiredGrabConfig:
+    paths: set[str]
+    button_map: dict[str, str]
+    force_grab_unmapped: bool = False
+
+
 class DeviceManager:
     def __init__(
         self,
@@ -66,6 +86,8 @@ class DeviceManager:
         broadcast_callback: Callable[[CommandType, dict], Awaitable[None]] | None = None,
         release_grace_s: float = 60.0,
         held_release_retry_s: float = 10.0,
+        topology_poll_s: float = TOPOLOGY_POLL_INTERVAL_S,
+        topology_debounce_s: float = TOPOLOGY_DEBOUNCE_S,
     ) -> None:
         self.grabbed_devices: dict[str, list[GrabbedDevice]] = {}
         self.active_mappings: dict[str, dict[str, MappingAction]] = {}
@@ -94,7 +116,10 @@ class DeviceManager:
         self._diag_samples: dict[str, deque[float]] = {}
         self._release_grace_s = max(0.01, float(release_grace_s))
         self._held_release_retry_s = max(0.01, float(held_release_retry_s))
+        self._topology_poll_s = max(0.05, float(topology_poll_s))
+        self._topology_debounce_s = max(0.05, float(topology_debounce_s))
         self._desired_paths: dict[str, set[str]] = {}
+        self._desired_grabs: dict[str, DesiredGrabConfig] = {}
         self._pending_interface_release: dict[tuple[str, str], asyncio.Task] = {}
         self._pending_hardware_release: dict[str, asyncio.Task] = {}
         self._combo_capture_queues: dict[
@@ -104,6 +129,10 @@ class DeviceManager:
         self._combo_engine = ComboEngine()
         self._combo_timeout_task: asyncio.Task | None = None
         self._active_combo_actions: dict[str, dict[str, object]] = {}
+        self._topology_task: asyncio.Task | None = None
+        self._topology_reconcile_task: asyncio.Task | None = None
+        self._live_topology_snapshot: dict[str, LiveInterfaceInfo] = {}
+        self._reconciled_topology_snapshot: dict[str, LiveInterfaceInfo] = {}
 
     def _create_global_uinputs(self) -> None:
         if self._device_count == 0:
@@ -314,6 +343,166 @@ class DeviceManager:
             self._mouse_uinput = None
             self._gamepad_uinput = None
 
+    async def start_topology_watcher(self) -> None:
+        if self._topology_task is not None and not self._topology_task.done():
+            return
+        snapshot = await asyncio.to_thread(self._scan_live_interfaces_sync)
+        self._live_topology_snapshot = dict(snapshot)
+        self._reconciled_topology_snapshot = dict(snapshot)
+        self._topology_task = asyncio.create_task(self._topology_watch_loop())
+
+    async def stop_topology_watcher(self) -> None:
+        task = self._topology_task
+        self._topology_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        reconcile_task = self._topology_reconcile_task
+        self._topology_reconcile_task = None
+        if reconcile_task is not None and not reconcile_task.done():
+            reconcile_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reconcile_task
+
+    async def _topology_watch_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(self._topology_poll_s)
+                try:
+                    snapshot = await asyncio.to_thread(self._scan_live_interfaces_sync)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.warning("Topology scan failed: %s", e)
+                    continue
+
+                if snapshot != self._live_topology_snapshot:
+                    self._live_topology_snapshot = dict(snapshot)
+                    self._schedule_topology_reconcile(snapshot)
+                    continue
+
+                if (
+                    snapshot != self._reconciled_topology_snapshot
+                    and (
+                        self._topology_reconcile_task is None
+                        or self._topology_reconcile_task.done()
+                    )
+                ):
+                    self._schedule_topology_reconcile(snapshot)
+        except asyncio.CancelledError:
+            raise
+
+    def _schedule_topology_reconcile(self, snapshot: dict[str, LiveInterfaceInfo]) -> None:
+        task = self._topology_reconcile_task
+        if task is not None and not task.done():
+            task.cancel()
+
+        async def _run() -> None:
+            try:
+                await asyncio.sleep(self._topology_debounce_s)
+                await self._reconcile_topology(snapshot)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("Topology reconcile failed: %s", e)
+            finally:
+                current = self._topology_reconcile_task
+                if current is asyncio.current_task():
+                    self._topology_reconcile_task = None
+
+        self._topology_reconcile_task = asyncio.create_task(_run())
+
+    async def _reconcile_topology(self, snapshot: dict[str, LiveInterfaceInfo]) -> None:
+        async with self._op_lock:
+            previous = dict(self._reconciled_topology_snapshot)
+            desired_hardware_ids = set(self._desired_grabs)
+            events = self._build_topology_events(previous, snapshot, desired_hardware_ids)
+            await self._reconcile_topology_unlocked(snapshot)
+            self._reconciled_topology_snapshot = dict(snapshot)
+
+        for event_type, payload in events:
+            if self.broadcast_callback is None:
+                continue
+            try:
+                await self.broadcast_callback(event_type, payload)
+            except Exception as e:
+                log.warning("Failed to broadcast topology event %s: %s", event_type.value, e)
+
+    async def _reconcile_topology_unlocked(
+        self,
+        snapshot: dict[str, LiveInterfaceInfo],
+    ) -> None:
+        live_paths = set(snapshot)
+        removed: list[tuple[str, str]] = []
+
+        for hardware_id, devices in self.grabbed_devices.items():
+            for device in devices:
+                stable_path = str(getattr(device, "stable_path", "") or device.path)
+                if stable_path not in live_paths:
+                    removed.append((hardware_id, device.path))
+
+        for hardware_id, path in removed:
+            await self._release_interface_unlocked(hardware_id, path)
+
+    def _build_topology_events(
+        self,
+        previous: dict[str, LiveInterfaceInfo],
+        current: dict[str, LiveInterfaceInfo],
+        desired_hardware_ids: set[str],
+    ) -> list[tuple[CommandType, dict]]:
+        events: list[tuple[CommandType, dict]] = []
+
+        for stable_path in sorted(previous.keys() - current.keys()):
+            info = previous[stable_path]
+            if info.hardware_id not in desired_hardware_ids:
+                continue
+            events.append((CommandType.DEVICE_DISCONNECTED, self._live_interface_payload(info)))
+
+        for stable_path in sorted(current.keys() - previous.keys()):
+            info = current[stable_path]
+            if info.hardware_id not in desired_hardware_ids:
+                continue
+            events.append((CommandType.DEVICE_CONNECTED, self._live_interface_payload(info)))
+
+        return events
+
+    def _live_interface_payload(self, info: LiveInterfaceInfo) -> dict[str, str]:
+        return {
+            "hardware_id": info.hardware_id,
+            "vendor_id": info.vendor_id,
+            "product_id": info.product_id,
+            "path": info.path,
+            "stable_path": info.stable_path,
+            "interface_id": info.interface_id,
+        }
+
+    def _scan_live_interfaces_sync(self) -> dict[str, LiveInterfaceInfo]:
+        clear_device_path_cache()
+        snapshot: dict[str, LiveInterfaceInfo] = {}
+
+        for path in evdev.list_devices():
+            try:
+                device = evdev.InputDevice(path)
+                info = device.info
+                vendor_id = f"{info.vendor:04x}"
+                product_id = f"{info.product:04x}"
+                hardware_id = f"{vendor_id}:{product_id}"
+                stable_path = resolve_stable_path(path)
+                snapshot[stable_path] = LiveInterfaceInfo(
+                    hardware_id=hardware_id,
+                    vendor_id=vendor_id,
+                    product_id=product_id,
+                    stable_path=stable_path,
+                    path=path,
+                    interface_id=str(get_interface_id(stable_path) or "").lower(),
+                )
+            except Exception as e:
+                log.debug("Could not read live topology device %s: %s", path, e)
+
+        return snapshot
+
     async def grab_device(
         self,
         hardware_id: str,
@@ -335,22 +524,31 @@ class DeviceManager:
         evdev_paths: list[str],
         button_map: dict[str, str],
         force_grab_unmapped: bool = False,
+        *,
+        update_desired: bool = True,
     ) -> dict:
         clear_device_path_cache()
         self._cancel_pending_hardware_release(hardware_id)
 
+        requested_paths = {
+            resolve_stable_path(str(path))
+            for path in evdev_paths
+            if str(path or "").strip()
+        }
         mapped_evdev_names = set(name.lower() for name in button_map.values())
-        requested_paths = set(evdev_paths)
-        self._desired_paths[hardware_id] = set(requested_paths)
+        if update_desired:
+            self._desired_paths[hardware_id] = set(requested_paths)
+            self._desired_grabs[hardware_id] = DesiredGrabConfig(
+                paths=set(requested_paths),
+                button_map=dict(button_map),
+                force_grab_unmapped=bool(force_grab_unmapped),
+            )
         log.info(
             "Grab request for %s: paths=%d mapped_evdev_names=%d",
             hardware_id,
-            len(evdev_paths),
+            len(requested_paths),
             len(mapped_evdev_names),
         )
-
-        if hardware_id not in self.grabbed_devices:
-            self._create_global_uinputs()
 
         existing_by_path = {
             device.path: device for device in self.grabbed_devices.get(hardware_id, [])
@@ -361,6 +559,8 @@ class DeviceManager:
         devices: list[GrabbedDevice] = list(existing_by_path.values())
         grabbed_count = 0
         skipped_count = 0
+        available_count = 0
+        created_global_uinputs = False
 
         for path in existing_by_path.keys():
             if path in requested_paths:
@@ -369,16 +569,20 @@ class DeviceManager:
         for path in sorted(existing_by_path.keys() - requested_paths):
             self._schedule_interface_release(hardware_id, path)
 
-        for path in evdev_paths:
+        for path in sorted(requested_paths):
             if path in existing_by_path:
                 continue
             try:
                 raw_device = evdev.InputDevice(path)
+                available_count += 1
                 caps = raw_device.capabilities()
 
                 has_mapped_buttons = self._device_has_mapped_buttons(caps, mapped_evdev_names)
 
                 if has_mapped_buttons or force_grab_unmapped:
+                    if hardware_id not in self.grabbed_devices and not created_global_uinputs:
+                        self._create_global_uinputs()
+                        created_global_uinputs = True
                     detected_types = self._detect_device_types(raw_device)
                     detected_type = primary_input_class(detected_types)
                     device = GrabbedDevice(
@@ -416,30 +620,48 @@ class DeviceManager:
                         )
                     if self.verbosity >= 1:
                         log.debug(f"  {path} - skipped (no mapped buttons)")
-
+            except OSError as e:
+                if e.errno in {errno.ENOENT, errno.ENODEV}:
+                    log.info("Skipping unavailable interface for %s: %s", hardware_id, path)
+                    continue
+                log.error(f"Failed to grab {path}: {e}")
+                for d in devices:
+                    if d.path in existing_by_path:
+                        continue
+                    await d.release()
+                if created_global_uinputs:
+                    self._destroy_global_uinputs()
+                raise
             except Exception as e:
                 log.error(f"Failed to grab {path}: {e}")
                 for d in devices:
                     if d.path in existing_by_path:
                         continue
                     await d.release()
-                if hardware_id not in self.grabbed_devices:
+                if created_global_uinputs:
                     self._destroy_global_uinputs()
                 raise
 
+        waiting_for_device = bool(requested_paths and available_count == 0 and not devices)
         if (
-            hardware_id not in self.grabbed_devices
-            and evdev_paths
+            not waiting_for_device
+            and hardware_id not in self.grabbed_devices
+            and requested_paths
             and mapped_evdev_names
             and grabbed_count == 0
         ):
-            self._destroy_global_uinputs()
+            if created_global_uinputs:
+                self._destroy_global_uinputs()
             raise ValueError(
                 f"No interfaces for {hardware_id} matched mapped buttons "
-                f"(paths={len(evdev_paths)}, mapped_names={len(mapped_evdev_names)})"
+                f"(paths={len(requested_paths)}, mapped_names={len(mapped_evdev_names)})"
             )
 
-        self.grabbed_devices[hardware_id] = devices
+        if devices:
+            self.grabbed_devices[hardware_id] = devices
+        else:
+            self.grabbed_devices.pop(hardware_id, None)
+
         log.info(
             "Configured device %s: total_interfaces=%d newly_grabbed=%d skipped=%d",
             hardware_id,
@@ -452,6 +674,7 @@ class DeviceManager:
             "hardware_id": hardware_id,
             "grabbed_count": len(devices),
             "skipped_count": skipped_count,
+            "waiting_for_device": waiting_for_device,
         }
 
     async def _grab_with_retry(self, device: "GrabbedDevice", path: str) -> None:
@@ -519,6 +742,7 @@ class DeviceManager:
         self._cancel_pending_hardware_release(hardware_id)
         self._cancel_pending_interface_releases_for_hardware(hardware_id)
         await self._clear_combo_runtime_for_binding_scope(hardware_id)
+        self._desired_grabs.pop(hardware_id, None)
         devices = self.grabbed_devices.pop(hardware_id, [])
 
         for device in devices:
@@ -537,6 +761,9 @@ class DeviceManager:
     ) -> dict:
         devices = self.grabbed_devices.get(hardware_id, [])
         if not devices:
+            self._desired_grabs.pop(hardware_id, None)
+            self.active_mappings.pop(hardware_id, None)
+            self._desired_paths.pop(hardware_id, None)
             return {"released": True, "hardware_id": hardware_id}
 
         self.active_mappings[hardware_id] = {}
@@ -667,15 +894,18 @@ class DeviceManager:
             self.grabbed_devices[hardware_id] = keep
         else:
             self.grabbed_devices.pop(hardware_id, None)
-            self.active_mappings.pop(hardware_id, None)
-            self._desired_paths.pop(hardware_id, None)
+            if not self._desired_paths.get(hardware_id):
+                self.active_mappings.pop(hardware_id, None)
+                self._desired_paths.pop(hardware_id, None)
+                self._desired_grabs.pop(hardware_id, None)
             self._destroy_global_uinputs()
 
     async def release_all_devices(self) -> None:
         async with self._op_lock:
             await self.cancel_macro_playback()
             await self._clear_combo_runtime()
-            for hardware_id in list(self.grabbed_devices.keys()):
+            hardware_ids = set(self.grabbed_devices) | set(self._desired_grabs)
+            for hardware_id in list(hardware_ids):
                 await self._release_device_unlocked(hardware_id)
 
     async def set_mapping(

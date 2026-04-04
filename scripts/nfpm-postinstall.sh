@@ -25,6 +25,12 @@ udevadm trigger --subsystem-match=misc --action=add 2>/dev/null || true
 # Reload systemd
 systemctl daemon-reload 2>/dev/null || true
 
+# Bump mtimes so desktop environments that watch icon/theme changes
+# can notice the new launcher assets without a full session restart.
+find /usr/share/icons/hicolor -path '*/apps/keyforge.*' -exec touch {} + >/dev/null 2>&1 || true
+touch /usr/share/icons/hicolor 2>/dev/null || true
+touch /usr/share/applications/keyforge.desktop 2>/dev/null || true
+
 echo ""
 echo "Keyforge has been installed!"
 echo ""

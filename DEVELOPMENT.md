@@ -39,7 +39,9 @@ use one terminal per process:
 ```
 
 These helpers automatically enter `nix develop` when needed and force Python to
-import the source checkout from the current repository.
+import the current source tree. `dev-keyforged.sh` stages the Python package
+under `/tmp` before switching to the `keyforge` user so development works even
+when the repository lives under a private home directory.
 
 Before using them, stop any installed services that would conflict with the same
 daemon or session sockets:

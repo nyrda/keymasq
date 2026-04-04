@@ -13,7 +13,27 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
   exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
 fi
 
-export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+stage_source_checkout() {
+  local repo_id
+  local stage_root
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    repo_id="$(printf '%s' "${REPO_ROOT}" | sha256sum | cut -c1-12)"
+  else
+    repo_id="$(printf '%s' "${REPO_ROOT}" | cksum | awk '{print $1}')"
+  fi
+
+  stage_root="/tmp/keyforge-dev-keyforged-${USER:-$(id -un)}-${repo_id}"
+  rm -rf "${stage_root}"
+  mkdir -p "${stage_root}"
+  chmod 0755 "${stage_root}"
+  cp -R "${REPO_ROOT}/keyforge" "${stage_root}/"
+
+  printf '%s\n' "${stage_root}"
+}
+
+STAGED_PYTHONPATH="$(stage_source_checkout)"
+export PYTHONPATH="${STAGED_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}"
 
 exec sudo -u keyforge env \
   HOME=/var/lib/keyforge \

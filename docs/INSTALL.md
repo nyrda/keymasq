@@ -43,9 +43,14 @@ systemctl --user enable --now keyforge-session
 
 ### Fedora
 
-Download the current Fedora RPM from the GitHub release, then install it:
+Import the Keyforge RPM signing key once, verify the fingerprint, then install
+the current Fedora RPM from the GitHub release:
 
 ```bash
+curl -fsSLO https://keyforge.tools/keys/keyforge-rpm-signing-key.asc
+gpg --show-keys --fingerprint keyforge-rpm-signing-key.asc
+sudo rpm --import keyforge-rpm-signing-key.asc
+rpm --checksig ./keyforge-*.fedora.*.rpm
 sudo dnf install ./keyforge-*.fedora.*.rpm
 sudo systemctl enable --now keyforged
 systemctl --user enable --now keyforge-session
@@ -53,19 +58,31 @@ systemctl --user enable --now keyforge-session
 
 ### openSUSE Tumbleweed / Leap
 
-Download the current openSUSE RPM from the GitHub release, then install it:
+Import the Keyforge RPM signing key once, verify the fingerprint, then install
+the current openSUSE RPM from the GitHub release:
 
 ```bash
+curl -fsSLO https://keyforge.tools/keys/keyforge-rpm-signing-key.asc
+gpg --show-keys --fingerprint keyforge-rpm-signing-key.asc
+sudo rpm --import keyforge-rpm-signing-key.asc
+rpm --checksig ./keyforge-*.opensuse.*.rpm
 sudo zypper install ./keyforge-*.opensuse.*.rpm
 sudo systemctl enable --now keyforged
 systemctl --user enable --now keyforge-session
 ```
 
+The current RPM signing key fingerprint is:
+
+```text
+733B FA24 A526 857B 06E7  A5D9 E002 1F70 BA1C 66DE
+```
+
 ### Verify GitHub release checksums
 
 GitHub releases include a `SHA256SUMS` file for the published `.deb` and `.rpm`
-artifacts. After downloading the package you want to install and the matching
-`SHA256SUMS` file, verify them from the same directory:
+artifacts, plus the published `rpm-signing-key.asc`. After downloading the
+package you want to install and the matching `SHA256SUMS` file, verify them
+from the same directory:
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS
@@ -81,9 +98,9 @@ grep 'keyforge_.*_all.deb' SHA256SUMS
 ### Verify GitHub artifact attestations
 
 GitHub releases are also accompanied by GitHub Actions build attestations for
-the published `.deb`, `.rpm`, and `SHA256SUMS` files. If you have the GitHub
-CLI installed, you can verify that an artifact was produced by the Keyforge
-release workflow:
+the published `.deb`, `.rpm`, `rpm-signing-key.asc`, and `SHA256SUMS` files. If
+you have the GitHub CLI installed, you can verify that an artifact was produced
+by the Keyforge release workflow:
 
 ```bash
 gh attestation verify ./keyforge_*_all.deb -R nyrda/keyforge
@@ -93,6 +110,7 @@ Use the same command shape for RPMs or `SHA256SUMS`:
 
 ```bash
 gh attestation verify ./keyforge-*.fedora.*.rpm -R nyrda/keyforge
+gh attestation verify ./rpm-signing-key.asc -R nyrda/keyforge
 gh attestation verify ./SHA256SUMS -R nyrda/keyforge
 ```
 

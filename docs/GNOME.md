@@ -7,12 +7,26 @@ Keyforge supports GNOME 46 and newer through a GNOME Shell extension.
 Packaged installs already include the extension files but do not enable it
 automatically. You need to enable it once after installation.
 
+If you install the package while already logged into GNOME, the files may be on
+disk before the current GNOME Shell session notices the new extension. In that
+case, `gnome-extensions enable keyforge-bridge@keyforge` can fail with
+`Extension "keyforge-bridge@keyforge" does not exist` even though the files are
+present under `/usr/share/gnome-shell/extensions/`.
+
+For packaged installs, log out and back in once after installing Keyforge so
+GNOME Shell rescans system extensions. Then enable the bridge:
+
 ```bash
 gnome-extensions enable keyforge-bridge@keyforge
 ```
 
-After enabling the extension, log out and back in. Then restart the Keyforge
-session service:
+If you want to verify that GNOME Shell sees it before enabling, check:
+
+```bash
+gnome-extensions info keyforge-bridge@keyforge
+```
+
+After enabling the extension, restart the Keyforge session service:
 
 ```bash
 systemctl --user restart keyforge-session
@@ -48,7 +62,8 @@ window-based profile activation is unavailable until the extension reconnects.
 ## Manual install from checkout
 
 If you are running from a local checkout or another manual install, copy the
-extension into your user extension directory first, then enable it:
+extension into your user extension directory first. If GNOME Shell does not see
+it immediately, log out and back in before enabling it:
 
 ```bash
 mkdir -p ~/.local/share/gnome-shell/extensions/keyforge-bridge@keyforge

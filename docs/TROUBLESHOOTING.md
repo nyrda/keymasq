@@ -236,8 +236,11 @@ journalctl --user -u keyforge-session -n 100
 
 Important:
 
-- after installing or enabling the GNOME Shell bridge extension, log out and
-  back in before troubleshooting further
+- after installing the Keyforge package into an already running GNOME session,
+  log out and back in before enabling the GNOME Shell bridge extension
+- if `gnome-extensions enable keyforge-bridge@keyforge` says the extension does
+  not exist, GNOME Shell has usually not rescanned extensions yet; log out and
+  back in, then run the enable command again
 - restarting `keyforge-session` alone is not always enough if GNOME Shell has
   not reloaded the extension into the current session yet
 

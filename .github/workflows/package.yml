@@ -13,6 +13,7 @@ on:
       - "assets/**"
       - "debian/**"
       - "docs/PACKAGING.md"
+      - "docs/INSTALL.md"
       - "examples/**"
       - "keyforge/**"
       - "keyforge.install"
@@ -41,6 +42,7 @@ on:
       - "assets/**"
       - "debian/**"
       - "docs/PACKAGING.md"
+      - "docs/INSTALL.md"
       - "examples/**"
       - "keyforge/**"
       - "keyforge.install"
@@ -468,6 +470,115 @@ jobs:
                 "$(echo dist/rpm/keyforge-*.opensuse.*.rpm)"
             '
 
+  sign-rpm-packages:
+    needs:
+      - build-rpm-fedora
+      - test-rpm-fedora
+      - build-rpm-opensuse
+      - test-rpm-opensuse
+    if: github.event_name != 'pull_request' && github.actor != 'nektos/act'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install RPM signing tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnupg rpm
+
+      - name: Download Fedora RPM
+        uses: actions/download-artifact@v8
+        with:
+          name: rpm-fedora-package
+          path: dist/
+
+      - name: Download openSUSE RPM
+        uses: actions/download-artifact@v8
+        with:
+          name: rpm-opensuse-package
+          path: dist/
+
+      - name: Sign RPM artifacts
+        env:
+          RPM_SIGNING_KEY_PRIVATE_ASC: ${{ secrets.RPM_SIGNING_KEY_PRIVATE_ASC }}
+          RPM_SIGNING_PUBLIC_KEY_PATH: dist/rpm-signing-key.asc
+        run: |
+          test -n "$RPM_SIGNING_KEY_PRIVATE_ASC"
+          bash packaging/rpm/sign-rpms.sh dist/*.rpm
+
+      - name: Upload signed RPM artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: rpm-signed-packages
+          path: |
+            dist/*.rpm
+            dist/rpm-signing-key.asc
+          if-no-files-found: error
+
+  test-rpm-fedora-signed:
+    needs: sign-rpm-packages
+    if: github.event_name != 'pull_request' && github.actor != 'nektos/act'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download signed RPM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: rpm-signed-packages
+          path: dist/rpm
+
+      - name: Test signed Fedora RPM in Fedora container
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            fedora:43 \
+            bash -lc '
+              set -euo pipefail
+              dnf install -y python3 systemd acl
+              KEYFORGE_RPM_SIGNING_PUBLIC_KEY_PATH=dist/rpm/rpm-signing-key.asc \
+                bash packaging/rpm/ci-test-installed.sh \
+                "$(echo dist/rpm/keyforge-*.fedora.*.rpm)"
+            '
+
+  test-rpm-opensuse-signed:
+    needs: sign-rpm-packages
+    if: github.event_name != 'pull_request' && github.actor != 'nektos/act'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download signed RPM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: rpm-signed-packages
+          path: dist/rpm
+
+      - name: Test signed openSUSE RPM in openSUSE container
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            opensuse/tumbleweed:latest \
+            bash -lc '
+              set -euo pipefail
+              zypper --non-interactive refresh
+              zypper --non-interactive install python3 systemd acl
+              KEYFORGE_RPM_SIGNING_PUBLIC_KEY_PATH=dist/rpm/rpm-signing-key.asc \
+                bash packaging/rpm/ci-test-installed.sh \
+                "$(echo dist/rpm/keyforge-*.opensuse.*.rpm)"
+            '
+
   release:
     needs:
       - build-source-tarball
@@ -475,10 +586,9 @@ jobs:
       - test-pacman-arch
       - build-deb
       - test-deb
-      - build-rpm-fedora
-      - test-rpm-fedora
-      - build-rpm-opensuse
-      - test-rpm-opensuse
+      - sign-rpm-packages
+      - test-rpm-fedora-signed
+      - test-rpm-opensuse-signed
     if: startsWith(github.ref, 'refs/tags/v') && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     permissions:
@@ -499,22 +609,16 @@ jobs:
           name: debian-package
           path: dist/
 
-      - name: Download Fedora RPM
+      - name: Download signed RPM artifacts
         uses: actions/download-artifact@v8
         with:
-          name: rpm-fedora-package
-          path: dist/
-
-      - name: Download openSUSE RPM
-        uses: actions/download-artifact@v8
-        with:
-          name: rpm-opensuse-package
+          name: rpm-signed-packages
           path: dist/
 
       - name: Generate release checksums
         run: |
           cd dist
-          sha256sum *.deb *.rpm *.tar.gz > SHA256SUMS
+          sha256sum ./*.deb ./*.rpm ./*.tar.gz ./rpm-signing-key.asc > SHA256SUMS
 
       - name: Generate artifact attestations
         if: ${{ github.event.repository.private == false }}
@@ -524,6 +628,7 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
+            dist/rpm-signing-key.asc
             dist/SHA256SUMS
 
       - name: Create GitHub Release
@@ -535,6 +640,7 @@ jobs:
             dist/*.buildinfo
             dist/*.rpm
             dist/*.tar.gz
+            dist/rpm-signing-key.asc
             dist/SHA256SUMS
           generate_release_notes: true
 
@@ -545,10 +651,9 @@ jobs:
       - test-pacman-arch
       - build-deb
       - test-deb
-      - build-rpm-fedora
-      - test-rpm-fedora
-      - build-rpm-opensuse
-      - test-rpm-opensuse
+      - sign-rpm-packages
+      - test-rpm-fedora-signed
+      - test-rpm-opensuse-signed
     if: github.ref == 'refs/heads/master' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     permissions:
@@ -584,22 +689,16 @@ jobs:
           name: debian-package
           path: dist/
 
-      - name: Download Fedora RPM
+      - name: Download signed RPM artifacts
         uses: actions/download-artifact@v8
         with:
-          name: rpm-fedora-package
-          path: dist/
-
-      - name: Download openSUSE RPM
-        uses: actions/download-artifact@v8
-        with:
-          name: rpm-opensuse-package
+          name: rpm-signed-packages
           path: dist/
 
       - name: Generate master release checksums
         run: |
           cd dist
-          sha256sum *.deb *.rpm *.tar.gz > SHA256SUMS
+          sha256sum ./*.deb ./*.rpm ./*.tar.gz ./rpm-signing-key.asc > SHA256SUMS
 
       - name: Create GitHub prerelease for master
         uses: softprops/action-gh-release@v2
@@ -621,6 +720,7 @@ jobs:
             dist/*.buildinfo
             dist/*.rpm
             dist/*.tar.gz
+            dist/rpm-signing-key.asc
             dist/SHA256SUMS
 
   publish-aur:

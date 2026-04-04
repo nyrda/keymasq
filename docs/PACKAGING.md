@@ -363,6 +363,17 @@ dist/keyforge-0.1.0-1.opensuse.x86_64.rpm
 If you only provide one compatible build host, the script builds only that RPM
 variant.
 
+Release RPMs are signed after the Fedora and openSUSE build jobs complete.
+GitHub Actions imports the armored private key from the
+`RPM_SIGNING_KEY_PRIVATE_ASC` repository secret, signs the generated `.rpm`
+files with `rpmsign`, verifies the resulting signatures, and publishes the
+matching armored public key as `rpm-signing-key.asc` alongside the release
+artifacts. The public key is intended to be mirrored at:
+
+```text
+https://keyforge.tools/keys/keyforge-rpm-signing-key.asc
+```
+
 ## Build environments
 
 For general repository work, use the Nix dev shell:

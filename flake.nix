@@ -301,6 +301,8 @@
               pkgs.git
               pkgs.openssh
               pkgs.nfpm
+              pkgs.gnupg
+              pkgs.rpm
               devPythonPackages.mypy
               pkgs.ruff
               pkgs.basedpyright

@@ -306,6 +306,7 @@
               pkgs.basedpyright
               pkgs.dpkg
               pkgs.nodejs
+              pkgs.cloc
               # GitHub Actions
               pkgs.gh           # GitHub CLI - manage workflows, PRs, releases
               pkgs.act          # run GitHub Actions locally

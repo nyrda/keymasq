@@ -46,6 +46,10 @@ class WindowListener(ABC):
     def supports_compositor_dispatch(self) -> bool:
         return False
 
+    @property
+    def compositor_dispatch_available(self) -> bool:
+        return bool(self.running and self.supports_compositor_dispatch)
+
     @classmethod
     @abstractmethod
     async def probe_available(cls, dbus: "SessionDBus | None" = None) -> bool:
@@ -64,6 +68,9 @@ class WindowListener(ABC):
 
     async def get_cursor_position(self) -> tuple[int, int] | None:
         return None
+
+    def runtime_support_details(self) -> dict[str, bool | str | int]:
+        return {}
 
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
         log.info(

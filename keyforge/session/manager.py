@@ -52,6 +52,21 @@ TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
 TOPOLOGY_REFRESH_RETRY_S = 1.0
 
 
+def _merge_support_details(
+    base: dict[str, bool | str],
+    listener: WindowListener | None,
+) -> dict[str, bool | str | int]:
+    merged: dict[str, bool | str | int] = dict(base)
+    if listener is None:
+        return merged
+    runtime_details_getter = getattr(listener, "runtime_support_details", None)
+    if callable(runtime_details_getter):
+        runtime_details = runtime_details_getter()
+        if isinstance(runtime_details, dict) and runtime_details:
+            merged.update(runtime_details)
+    return merged
+
+
 class SessionManager:
     _RECORDING_SETTINGS_PATH = CONFIG_DIR / "recording_settings.json"
     _MAX_SESSION_CLIENT_BUFFER_BYTES = 16 * 1024 * 1024
@@ -383,7 +398,10 @@ class SessionManager:
             return result
 
         if command == "get_compositor":
-            details = await get_compositor_support_details(self._compositor_id, self.dbus)
+            details = _merge_support_details(
+                await get_compositor_support_details(self._compositor_id, self.dbus),
+                self._window_listener,
+            )
             return {
                 "compositor_id": self._compositor_id,
                 "compositor_name": get_compositor_name(self._compositor_id),
@@ -460,8 +478,9 @@ class SessionManager:
 
         if command == "get_status":
             unlock_status = await self._resolve_unlock_status_async(peer.uid)
-            compositor_details = await get_compositor_support_details(
-                self._compositor_id, self.dbus
+            compositor_details = _merge_support_details(
+                await get_compositor_support_details(self._compositor_id, self.dbus),
+                self._window_listener,
             )
             policy = self._security_policy
             return {
@@ -2865,9 +2884,15 @@ class SessionManager:
         return data
 
     def _compositor_dispatch_available(self) -> bool:
-        return self._window_listener is not None and bool(
-            getattr(self._window_listener, "running", False)
-            and self._window_listener.supports_compositor_dispatch
+        listener = self._window_listener
+        if listener is None:
+            return False
+        available = getattr(listener, "compositor_dispatch_available", None)
+        if available is not None:
+            return bool(available)
+        return bool(
+            getattr(listener, "running", False)
+            and getattr(listener, "supports_compositor_dispatch", False)
         )
 
     async def _play_macro_by_name(self, name: str) -> None:

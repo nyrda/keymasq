@@ -6,6 +6,8 @@ import Shell from 'gi://Shell'
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js'
 
 class KeyforgeBridge {
+    static PROTOCOL_VERSION = 2
+
     constructor() {
         this._socketPath = GLib.build_filenamev([
             GLib.get_user_runtime_dir(),
@@ -84,7 +86,7 @@ class KeyforgeBridge {
                 this._readCancellable = new Gio.Cancellable()
                 this._connected = true
 
-                this._sendMessage({type: 'hello', protocol: 1})
+                this._sendMessage({type: 'hello', protocol: KeyforgeBridge.PROTOCOL_VERSION})
                 this._sendFocusChanged()
                 this._readLoop()
             } catch (_e) {

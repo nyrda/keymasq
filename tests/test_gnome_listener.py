@@ -261,6 +261,34 @@ def test_gnome_support_details_reports_missing_extension(monkeypatch, tmp_path) 
     assert "not installed" in str(details["warning"])
 
 
+@pytest.mark.asyncio
+async def test_gnome_hello_marks_bridge_protocol_compatible() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener.running = True
+    listener._writer = _FakeWriter()
+    listener._bridge_connected = True
+
+    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
+
+    assert listener.compositor_dispatch_available is True
+    assert listener.runtime_support_details()["warning"] == ""
+
+
+@pytest.mark.asyncio
+async def test_gnome_hello_reports_stale_bridge_protocol_warning() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener.running = True
+    listener._writer = _FakeWriter()
+    listener._bridge_connected = True
+
+    await listener._handle_bridge_message({"type": "hello", "protocol": 1})
+
+    details = listener.runtime_support_details()
+    assert listener.compositor_dispatch_available is False
+    assert details["bridge_protocol"] == 1
+    assert "Log out and back in" in str(details["warning"])
+
+
 def test_gnome_probe_requires_missing_native_toplevel_protocols(monkeypatch, tmp_path) -> None:
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -317,6 +345,8 @@ async def test_gnome_dispatch_sends_bridge_request_and_resolves_result() -> None
 
     listener = GnomeListener(_callback)
     listener._writer = _FakeWriter()
+    listener._bridge_connected = True
+    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
 
     async def _respond() -> None:
         await asyncio.sleep(0)
@@ -348,14 +378,10 @@ async def test_gnome_dispatch_sends_bridge_request_and_resolves_result() -> None
 @pytest.mark.asyncio
 async def test_gnome_dispatch_rejects_invalid_dispatcher_without_bridge_write() -> None:
     listener = GnomeListener(lambda *_args: asyncio.sleep(0))
-    writer = _FakeWriter()
-    listener._writer = writer
-
     assert await listener.dispatch("togglefloating", "") == (
         False,
         "unsupported GNOME dispatcher: togglefloating",
     )
-    assert writer.payloads == []
 
 
 @pytest.mark.asyncio

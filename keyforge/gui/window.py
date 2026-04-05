@@ -314,6 +314,16 @@ class MainWindow(Adw.ApplicationWindow):
             keyforged_ok = bool(data and data.get("keyforged_connected") is True)
             self._update_unlock_state(data if isinstance(data, dict) else None)
             self._update_compositor_dispatch_state(data if isinstance(data, dict) else None)
+            if isinstance(data, dict) and data.get("status") == "ok":
+                compositor_id = data.get("compositor_id")
+                if compositor_id is not None:
+                    self._compositor_id = compositor_id
+                details = data.get("compositor_details")
+                if isinstance(details, dict):
+                    self._compositor_support_details = details
+                    self._compositor_supported = bool(details.get("supported", False))
+                self._update_compositor_warning_banner()
+                self._update_compositor_status()
 
             if session_ok:
                 if keyforged_ok:
@@ -1239,19 +1249,24 @@ class MainWindow(Adw.ApplicationWindow):
             self.warning_banner.set_revealed(False)
             return
 
+        compositor_name = get_compositor_name(self._compositor_id)
+        msg = str(self._compositor_support_details.get("warning", "") or "")
+        if msg:
+            self.warning_banner.set_title(msg)
+            self.warning_banner.set_visible(True)
+            self.warning_banner.set_revealed(True)
+            return
+
         if self._compositor_supported:
             self.warning_banner.set_visible(False)
             self.warning_banner.set_revealed(False)
             return
 
-        compositor_name = get_compositor_name(self._compositor_id)
         if self._compositor_id == "gnome":
-            msg = str(self._compositor_support_details.get("warning", "") or "")
-            if not msg:
-                msg = (
-                    "GNOME Shell detected, but Keyforge cannot access the GNOME bridge. "
-                    "Window rules are unavailable on this setup."
-                )
+            msg = (
+                "GNOME Shell detected, but Keyforge cannot access the GNOME bridge. "
+                "Window rules are unavailable on this setup."
+            )
         elif self._compositor_id:
             msg = (
                 f"⚠️ Compositor '{compositor_name}' has limited support. "

@@ -17,6 +17,7 @@ log = logging.getLogger("keyforge-session.listeners.gnome")
 
 class GnomeListener(WindowListener):
     _EXTENSION_UUID = "keyforge-bridge@keyforge"
+    _BRIDGE_PROTOCOL_VERSION = 2
     _NO_ARG_DISPATCHERS = frozenset({"close_active"})
     _TOGGLE_DISPATCHERS = frozenset({"fullscreen", "maximize"})
     _WORKSPACE_DISPATCHERS = frozenset({"workspace", "move_to_workspace"})
@@ -40,6 +41,8 @@ class GnomeListener(WindowListener):
         self._last_title = ""
         self._last_warn_no_bridge = 0.0
         self._bridge_connected = False
+        self._bridge_protocol: int | None = None
+        self._bridge_protocol_compatible = False
 
     @property
     def name(self) -> str:
@@ -48,6 +51,16 @@ class GnomeListener(WindowListener):
     @property
     def supports_compositor_dispatch(self) -> bool:
         return True
+
+    @property
+    def compositor_dispatch_available(self) -> bool:
+        return bool(
+            self.running
+            and self._writer is not None
+            and self._bridge_connected
+            and self._bridge_protocol_compatible
+            and self.supports_compositor_dispatch
+        )
 
     @classmethod
     def _has_runtime_prereqs(cls) -> bool:
@@ -351,6 +364,9 @@ class GnomeListener(WindowListener):
 
     async def stop(self) -> None:
         self.running = False
+        self._bridge_connected = False
+        self._bridge_protocol = None
+        self._bridge_protocol_compatible = False
 
         if self._reader_task is not None:
             self._reader_task.cancel()
@@ -418,6 +434,8 @@ class GnomeListener(WindowListener):
                 pass
 
         self._writer = writer
+        self._bridge_protocol = None
+        self._bridge_protocol_compatible = False
         if not self._bridge_connected:
             self._bridge_connected = True
             log.info("GNOME bridge connected")
@@ -450,6 +468,8 @@ class GnomeListener(WindowListener):
                 self._bridge_connected = False
                 if self.running:
                     log.warning("GNOME bridge disconnected; waiting for extension reconnect")
+            self._bridge_protocol = None
+            self._bridge_protocol_compatible = False
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -458,6 +478,29 @@ class GnomeListener(WindowListener):
 
     async def _handle_bridge_message(self, payload: dict) -> None:
         msg_type = str(payload.get("type", "") or "")
+        if msg_type == "hello":
+            protocol = int(payload.get("protocol", 0) or 0)
+            self._bridge_protocol = protocol
+            self._bridge_protocol_compatible = protocol == self._BRIDGE_PROTOCOL_VERSION
+            if self._bridge_protocol_compatible:
+                log.info("GNOME bridge protocol ready: %s", protocol)
+            elif protocol < self._BRIDGE_PROTOCOL_VERSION:
+                log.warning(
+                    (
+                        "GNOME bridge protocol mismatch: connected=%s expected=%s. "
+                        "Log out and back in to reload the updated GNOME Shell extension."
+                    ),
+                    protocol,
+                    self._BRIDGE_PROTOCOL_VERSION,
+                )
+            else:
+                log.warning(
+                    "GNOME bridge protocol mismatch: connected=%s expected=%s.",
+                    protocol,
+                    self._BRIDGE_PROTOCOL_VERSION,
+                )
+            return
+
         if msg_type == "focus_changed":
             window_class, window_title = self._window_info_from_payload(payload)
             log.info(
@@ -549,6 +592,28 @@ class GnomeListener(WindowListener):
 
         return False, f"unsupported GNOME dispatcher: {dispatcher_name}"
 
+    def runtime_support_details(self) -> dict[str, bool | str | int]:
+        details: dict[str, bool | str | int] = {
+            "bridge_connected": self._bridge_connected,
+            "bridge_protocol_expected": self._BRIDGE_PROTOCOL_VERSION,
+        }
+        if self._bridge_protocol is not None:
+            details["bridge_protocol"] = self._bridge_protocol
+        if self._bridge_connected and self._bridge_protocol is not None:
+            if self._bridge_protocol == self._BRIDGE_PROTOCOL_VERSION:
+                details["warning"] = ""
+            elif self._bridge_protocol < self._BRIDGE_PROTOCOL_VERSION:
+                details["warning"] = (
+                    "GNOME bridge update detected. Log out and back in to reload the "
+                    "updated GNOME Shell extension and enable new GNOME actions."
+                )
+            else:
+                details["warning"] = (
+                    "GNOME bridge is newer than keyforge-session. Restart Keyforge and "
+                    "ensure both sides are updated together."
+                )
+        return details
+
     async def _send_request(self, payload: dict, timeout: float) -> dict | None:
         if self._writer is None:
             return None
@@ -614,6 +679,11 @@ class GnomeListener(WindowListener):
         ok, message = self._validate_dispatch(dispatcher_name, dispatcher_args)
         if not ok:
             return False, message
+        if self._writer is None or not self._bridge_connected:
+            return False, "GNOME bridge not connected"
+        if not self._bridge_protocol_compatible:
+            warning = str(self.runtime_support_details().get("warning", "") or "").strip()
+            return False, warning or "GNOME bridge protocol is not ready"
 
         result = await self._send_request(
             {

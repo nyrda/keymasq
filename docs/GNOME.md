@@ -69,6 +69,10 @@ If the extension is missing or disconnected, Keyforge keeps running but
 window-based profile activation is unavailable until the extension reconnects.
 GNOME compositor actions are also unavailable until the bridge reconnects.
 
+If Keyforge updates the installed bridge files but your current GNOME session is
+still running the old extension code, Keyforge now shows a warning telling you
+to log out and back in. That reloads GNOME Shell and starts the updated bridge.
+
 ## Manual install from checkout
 
 If you are running from a local checkout or another manual install, copy the

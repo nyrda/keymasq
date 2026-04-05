@@ -1709,6 +1709,24 @@ class TestMainWindow:
         assert device_tab._selected_profile is not None
         assert device_tab._selected_profile.config.name == "Desktop"
 
+    def test_main_window_shows_warning_banner_even_when_compositor_supported(self):
+        from keyforge.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        window._startup_probe_done = True
+        window._compositor_id = "gnome"
+        window._compositor_supported = True
+        window._compositor_support_details = {
+            "supported": True,
+            "warning": "GNOME bridge update detected. Log out and back in.",
+        }
+
+        window._update_compositor_warning_banner()
+
+        assert window.warning_banner.get_revealed() is True
+        assert "Log out and back in" in window.warning_banner.get_title()
+
     def test_main_window_apply_loaded_devices_updates_empty_state_and_demo_devices(
         self, temp_config_dir
     ):

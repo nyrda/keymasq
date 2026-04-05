@@ -226,6 +226,8 @@ Symptoms:
 - logs mention a missing or disconnected bridge
 - the bridge is still not detected immediately after installing or enabling the
   extension
+- Keyforge shows a banner telling you to log out and back in to reload the
+  updated GNOME bridge
 
 Checks:
 

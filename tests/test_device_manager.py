@@ -2494,6 +2494,7 @@ class TestDeviceManagerHelpers:
         assert string_action.action_type == ActionType.KEYBOARD
         assert string_action.target == "key_a"
         assert dispatch_action.action_type == ActionType.COMPOSITOR_DISPATCH
+        assert dispatch_action.compositor_id == "hyprland"
         assert dispatch_action.compositor_dispatcher == "workspace"
         assert dispatch_action.compositor_args == "2"
 

@@ -25,10 +25,14 @@ def build_compositor_action_pages(
     )
 
 
-def compositor_action_tab_name(action: MappingAction | None) -> str | None:
+def compositor_action_tab_name(
+    action: MappingAction | None,
+    status: dict[str, object] | None = None,
+) -> str | None:
     return compositor_action_tab_name_for_definitions(
         COMPOSITOR_ACTION_DEFINITIONS,
         action,
+        status,
     )
 
 

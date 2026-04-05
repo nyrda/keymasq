@@ -1389,6 +1389,7 @@ def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_li
         "Back",
         MappingAction(
             action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="hyprland",
             compositor_dispatcher="workspace",
             compositor_args="2",
         ),
@@ -1398,6 +1399,31 @@ def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_li
         },
     )
     assert hidden_dialog.stack.get_child_by_name("hyprland") is None
+
+
+def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
+    from gi.repository import Gtk
+
+    from keyforge.common.models import ActionType, MappingAction
+    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="gnome",
+            compositor_dispatcher="workspace",
+            compositor_args="2",
+        ),
+        compositor_action_status={
+            "listener_name": "gnome",
+            "compositor_dispatch_available": True,
+        },
+    )
+
+    assert dialog.stack.get_child_by_name("gnome") is not None
+    assert dialog.stack.get_visible_child_name() == "gnome"
 
 
 def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):

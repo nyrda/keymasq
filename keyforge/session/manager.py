@@ -1887,9 +1887,23 @@ class SessionManager:
         await self.action_handler.execute_command(cmd)
 
     async def _handle_compositor_dispatch_trigger(self, data: dict) -> None:
+        target_compositor = str(data.get("compositor", "") or "").strip()
         dispatcher = str(data.get("dispatcher", "") or "").strip()
         args = str(data.get("args", "") or "").strip()
         if not dispatcher:
+            return
+
+        current_compositor = str(self._compositor_id or "").strip()
+        if target_compositor and target_compositor != current_compositor:
+            log.warning(
+                (
+                    "Ignored compositor dispatch for mismatched target: "
+                    "target=%s current=%s dispatcher=%s"
+                ),
+                target_compositor,
+                current_compositor or "none",
+                dispatcher,
+            )
             return
 
         listener = self._window_listener
@@ -2433,6 +2447,8 @@ class SessionManager:
             return data
 
         if action_type == "compositor_dispatch":
+            if action.compositor_id:
+                data["compositor"] = action.compositor_id
             data["dispatcher"] = action.compositor_dispatcher or ""
             data["args"] = action.compositor_args or ""
             return data
@@ -2605,6 +2621,8 @@ class SessionManager:
                     self._device_exec_refs[hardware_id].add(exec_ref)
                     action_data["exec_ref"] = exec_ref
             elif action.action_type.value == "compositor_dispatch":
+                if action.compositor_id:
+                    action_data["compositor"] = action.compositor_id
                 action_data["dispatcher"] = action.compositor_dispatcher or ""
                 action_data["args"] = action.compositor_args or ""
             elif action.action_type.value in (
@@ -2716,6 +2734,8 @@ class SessionManager:
             dispatcher = str(action.compositor_dispatcher or "").strip()
             if not dispatcher:
                 return None
+            if action.compositor_id:
+                action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = dispatcher
             action_data["args"] = action.compositor_args or ""
             return action_data

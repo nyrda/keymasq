@@ -275,6 +275,23 @@ async def test_compositor_dispatch_calls_active_listener_even_when_unsupported()
 
 
 @pytest.mark.asyncio
+async def test_compositor_dispatch_ignores_mismatched_target_compositor() -> None:
+    manager = SessionManager()
+    listener = SimpleNamespace(
+        supports_compositor_dispatch=True,
+        dispatch=AsyncMock(return_value=(True, "ok")),
+    )
+    manager._window_listener = listener  # type: ignore[assignment]
+    manager._compositor_id = "gnome"
+
+    await manager._handle_compositor_dispatch_trigger(
+        {"compositor": "hyprland", "dispatcher": "workspace", "args": "2"}
+    )
+
+    listener.dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_owner_disconnect_cleans_runtime_unlock() -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=111, uid=1000, gid=1000)

@@ -1144,6 +1144,8 @@ class DeviceManager:
 
         action_type_str = action_data.get("action", "passthrough")
         if action_type_str == "hyprland_dispatch":
+            action_data = dict(action_data)
+            action_data.setdefault("compositor", "hyprland")
             action_type_str = "compositor_dispatch"
         action_type = ActionType(action_type_str)
 
@@ -1170,6 +1172,7 @@ class DeviceManager:
             macro_start_y=int(action_data.get("macro_start_y", 0)),
             macro_block_mouse_movement=bool(action_data.get("macro_block_mouse_movement", False)),
             profile_name=action_data.get("profile_name"),
+            compositor_id=action_data.get("compositor"),
             compositor_dispatcher=action_data.get("dispatcher"),
             compositor_args=action_data.get("args"),
             move_x=int(action_data.get("x", 0)),
@@ -2039,6 +2042,7 @@ class DeviceManager:
             await self._broadcast_combo_action(
                 {
                     "action_type": "compositor_dispatch",
+                    "compositor": action.compositor_id or "",
                     "dispatcher": action.compositor_dispatcher or "",
                     "args": action.compositor_args or "",
                     "source_device": trigger_binding.hardware_id,
@@ -3120,6 +3124,7 @@ class GrabbedDevice:
                         CommandType.ACTION_TRIGGER,
                         {
                             "action_type": "compositor_dispatch",
+                            "compositor": action.compositor_id or "",
                             "dispatcher": action.compositor_dispatcher or "",
                             "args": action.compositor_args or "",
                             "source_device": self.hardware_id,

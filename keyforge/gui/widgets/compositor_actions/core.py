@@ -23,6 +23,7 @@ class CompositorActionPreset:
 @dataclass(frozen=True)
 class CompositorActionDefinition:
     page_id: str
+    compositor_id: str
     title: str
     subtitle: str
     dispatcher_placeholder: str
@@ -215,11 +216,25 @@ def build_compositor_action_pages_for_definitions(
 def compositor_action_tab_name_for_definitions(
     definitions: Sequence[CompositorActionDefinition],
     action: MappingAction | None,
+    status: dict[str, object] | None = None,
 ) -> str | None:
     if action is None:
         return None
+    resolved_status = dict(status or {})
+    compositor_id = str(action.compositor_id or "").strip()
+    if compositor_id:
+        for definition in definitions:
+            if (
+                action.action_type == definition.action_type
+                and definition.compositor_id == compositor_id
+                and definition.is_available(action, resolved_status)
+            ):
+                return definition.page_id
     for definition in definitions:
-        if action.action_type == definition.action_type:
+        if (
+            action.action_type == definition.action_type
+            and definition.is_available(action, resolved_status)
+        ):
             return definition.page_id
     return None
 
@@ -228,7 +243,16 @@ def describe_compositor_action_for_definitions(
     definitions: Sequence[CompositorActionDefinition],
     action: MappingAction,
 ) -> str | None:
+    compositor_id = str(action.compositor_id or "").strip()
+    if compositor_id:
+        for definition in definitions:
+            if (
+                action.action_type == definition.action_type
+                and definition.compositor_id == compositor_id
+            ):
+                return definition.describe_action(action)
+        return None
     for definition in definitions:
         if action.action_type == definition.action_type:
-            return definition.describe_action(action)
+            return None
     return None

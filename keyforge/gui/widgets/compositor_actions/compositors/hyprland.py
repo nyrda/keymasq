@@ -129,6 +129,9 @@ def _hyprland_available(current_action: MappingAction | None, status: dict[str, 
 def _hyprland_fields(current_action: MappingAction | None) -> tuple[str, str]:
     if current_action is None or current_action.action_type != ActionType.COMPOSITOR_DISPATCH:
         return "", ""
+    compositor_id = str(current_action.compositor_id or "").strip()
+    if compositor_id and compositor_id != "hyprland":
+        return "", ""
     return (
         str(current_action.compositor_dispatcher or ""),
         str(current_action.compositor_args or ""),
@@ -138,6 +141,7 @@ def _hyprland_fields(current_action: MappingAction | None) -> tuple[str, str]:
 def _build_hyprland_action(dispatcher: str, args: str) -> MappingAction:
     return MappingAction(
         action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_id="hyprland",
         compositor_dispatcher=dispatcher,
         compositor_args=args,
     )
@@ -151,6 +155,7 @@ def _describe_hyprland_action(action: MappingAction) -> str:
 
 HYPRLAND_ACTION_DEFINITION = CompositorActionDefinition(
     page_id="hyprland",
+    compositor_id="hyprland",
     title="Hyprland",
     subtitle="Send a Hyprland dispatcher through the active Hyprland listener.",
     dispatcher_placeholder="e.g. togglefloating",

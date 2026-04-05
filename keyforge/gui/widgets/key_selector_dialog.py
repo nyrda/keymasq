@@ -1452,7 +1452,10 @@ class KeySelectorDialog(Adw.Dialog):
     def _set_initial_tab(self):
         if not self._current_action:
             return
-        compositor_tab = compositor_action_tab_name(self._current_action)
+        compositor_tab = compositor_action_tab_name(
+            self._current_action,
+            self._compositor_action_status,
+        )
         if compositor_tab not in self._compositor_action_page_ids:
             compositor_tab = None
         tab_map = {

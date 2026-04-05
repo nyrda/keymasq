@@ -152,6 +152,33 @@ text fields.
 
 ![Hyprland tab — preset dropdown and custom dispatcher fields](../assets/screenshots/keyforge_key_action_hyprland.png)
 
+### GNOME
+
+GNOME compositor actions are routed through the Keyforge GNOME Shell bridge
+extension. Unlike Hyprland, GNOME does not expose a generic dispatcher socket,
+so only a small allowlisted set of actions is available.
+
+**Preset examples:**
+
+| Preset | What it does |
+|---|---|
+| Workspace Next / Previous | Switch to the next or previous GNOME workspace. |
+| Workspace 1 / 2 | Switch to a specific GNOME workspace number. |
+| Move To Workspace 1 / 2 | Move the focused window to a specific workspace and switch there. |
+| Close Window | Close the focused window. |
+| Toggle Fullscreen | Toggle fullscreen on the focused window. |
+| Toggle Maximize | Toggle maximized state on the focused window. |
+
+**Supported custom dispatchers:**
+
+| Dispatcher | Accepted args |
+|---|---|
+| `workspace` | `next`, `prev`, or a 1-based workspace number |
+| `move_to_workspace` | `next`, `prev`, or a 1-based workspace number |
+| `close_active` | no args |
+| `fullscreen` | `toggle`, `on`, `off` |
+| `maximize` | `toggle`, `on`, `off` |
+
 ## Macro
 
 Trigger macro recording controls or play a saved macro.

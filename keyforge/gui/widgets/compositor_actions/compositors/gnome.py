@@ -108,6 +108,7 @@ GNOME_ACTION_DEFINITION = CompositorActionDefinition(
     args_placeholder="e.g. next, prev, 2, toggle",
     action_type=ActionType.COMPOSITOR_DISPATCH,
     presets=GNOME_DISPATCH_PRESETS,
+    allow_custom=False,
     is_available=_gnome_available,
     extract_fields=_gnome_fields,
     build_action=_build_gnome_action,

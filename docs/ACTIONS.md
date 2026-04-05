@@ -127,7 +127,7 @@ Map to a gamepad button or trigger. Available inputs include:
 ## Compositor
 
 Send a command to your window compositor. Currently Keyforge supports
-Hyprland, with more compositors planned.
+Hyprland and KDE Plasma.
 
 ### Hyprland
 
@@ -151,6 +151,26 @@ For custom dispatchers, enter the dispatcher name and any arguments in the
 text fields.
 
 ![Hyprland tab — preset dropdown and custom dispatcher fields](../assets/screenshots/keyforge_key_action_hyprland.png)
+
+### KDE Plasma
+
+Choose from a preset dropdown of supported KWin actions.
+
+**Preset examples:**
+
+| Preset | What it does |
+|---|---|
+| Desktop Next / Previous | Switch to the next or previous virtual desktop. |
+| Close Window | Close the focused window. |
+| Fullscreen Toggle | Toggle fullscreen on the focused window. |
+| Focus Left / Right / Up / Down | Move focus in a direction. |
+| Move Left / Right / Up / Down | Move the focused window in a direction. |
+| Tile Left / Right / Top / Bottom | Quick-tile the focused window to an edge. |
+| All Desktops Toggle | Show or hide the focused window on all desktops. |
+| Show Desktop Toggle | Toggle Plasma's show-desktop mode. |
+
+KDE compositor actions are restricted to Keyforge's supported KWin action IDs.
+Unlike Hyprland dispatchers, arbitrary arguments are not supported.
 
 ### GNOME
 

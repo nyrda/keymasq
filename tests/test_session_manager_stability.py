@@ -17,6 +17,7 @@ from keyforge.common.models import (
 )
 from keyforge.common.security import PeerCredentials, SecurityPolicy
 from keyforge.session.listeners.hyprland import HyprlandListener
+from keyforge.session.listeners.kde import KDEListener
 from keyforge.session.manager import SessionManager
 from keyforge.session.profiles import ResolvedCombo, ResolvedDeviceProfile, ResolvedProfiles
 
@@ -600,6 +601,28 @@ async def test_handle_session_request_get_compositor_merges_listener_runtime_war
     assert result["compositor_dispatch_available"] is False
     assert result["details"]["bridge_protocol"] == 1
     assert "Log out and back in" in str(result["details"]["warning"])
+
+
+async def test_handle_session_request_get_compositor_reports_kde_dispatch_availability() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    listener = KDEListener(AsyncMock())
+    listener.running = True
+    manager._window_listener = listener
+    manager._compositor_id = "kde"
+
+    result = await manager._handle_session_request(
+        {"command": "get_compositor"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["compositor_id"] == "kde"
+    assert result["listener_active"] is True
+    assert result["listener_name"] == "kde"
+    assert result["compositor_dispatch_available"] is True
 
 
 @pytest.mark.asyncio

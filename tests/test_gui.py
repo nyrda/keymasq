@@ -1400,7 +1400,6 @@ def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_li
     )
     assert hidden_dialog.stack.get_child_by_name("hyprland") is None
 
-
 def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
     from gi.repository import Gtk
 
@@ -1424,6 +1423,65 @@ def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
 
     assert dialog.stack.get_child_by_name("gnome") is not None
     assert dialog.stack.get_visible_child_name() == "gnome"
+
+
+def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
+    from gi.repository import Gtk
+
+    from keyforge.common.models import ActionType, MappingAction
+    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    active_dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        compositor_action_status={
+            "listener_name": "kde",
+            "compositor_dispatch_available": True,
+        },
+    )
+    assert active_dialog.stack.get_child_by_name("kde") is not None
+    assert active_dialog.stack.get_child_by_name("hyprland") is None
+    assert active_dialog.stack.get_child_by_name("gnome") is None
+
+    hidden_dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="kde",
+            compositor_dispatcher="tile_left",
+            compositor_args="",
+        ),
+        compositor_action_status={
+            "listener_name": "x11",
+            "compositor_dispatch_available": False,
+        },
+    )
+    assert hidden_dialog.stack.get_child_by_name("kde") is None
+
+
+def test_compositor_action_helpers_resolve_kde_actions() -> None:
+    from keyforge.common.models import ActionType, MappingAction
+    from keyforge.gui.widgets.compositor_actions import (
+        compositor_action_tab_name,
+        describe_compositor_action,
+    )
+
+    action = MappingAction(
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_id="kde",
+        compositor_dispatcher="tile_left",
+        compositor_args="",
+    )
+
+    assert compositor_action_tab_name(
+        action,
+        {
+            "listener_name": "kde",
+            "compositor_dispatch_available": True,
+        },
+    ) == "kde"
+    assert describe_compositor_action(action) == "KDE Plasma → tile_left"
 
 
 def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):

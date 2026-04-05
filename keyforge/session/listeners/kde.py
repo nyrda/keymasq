@@ -20,6 +20,27 @@ log = logging.getLogger("keyforge-session.listeners.kde")
 KDE_DBUS_INTERFACE = "keyforge.kde.Listener"
 KDE_DBUS_OBJECT_PATH = "/keyforge/KDEListener"
 KDE_IGNORED_PAYLOAD_LOG_INTERVAL_SECONDS = 10.0
+KDE_DISPATCH_TIMEOUT_SECONDS = 1.5
+KDE_DISPATCH_METHODS: dict[str, str] = {
+    "desktop_next": "slotSwitchDesktopNext",
+    "desktop_prev": "slotSwitchDesktopPrevious",
+    "window_close": "slotWindowClose",
+    "fullscreen_toggle": "slotWindowFullScreen",
+    "focus_left": "slotSwitchWindowLeft",
+    "focus_right": "slotSwitchWindowRight",
+    "focus_up": "slotSwitchWindowUp",
+    "focus_down": "slotSwitchWindowDown",
+    "move_left": "slotWindowMoveLeft",
+    "move_right": "slotWindowMoveRight",
+    "move_up": "slotWindowMoveUp",
+    "move_down": "slotWindowMoveDown",
+    "tile_left": "slotWindowQuickTileLeft",
+    "tile_right": "slotWindowQuickTileRight",
+    "tile_top": "slotWindowQuickTileTop",
+    "tile_bottom": "slotWindowQuickTileBottom",
+    "all_desktops_toggle": "slotWindowOnAllDesktops",
+    "show_desktop_toggle": "slotToggleShowDesktop",
+}
 
 
 def has_kde_wayland_support() -> bool:
@@ -78,6 +99,29 @@ def parse_kde_cursor_payload(payload: str) -> tuple[str, int, int] | None:
     return request_id, x, y
 
 
+def parse_kde_dispatch_payload(payload: str) -> tuple[str, bool, str] | None:
+    try:
+        data = json.loads(payload)
+        if isinstance(data, str):
+            data = json.loads(data)
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    request_id = str(data.get("id", "") or "")
+    if not request_id:
+        return None
+
+    ok_raw = data.get("ok")
+    if not isinstance(ok_raw, bool):
+        return None
+
+    message = str(data.get("message", "") or "")
+    return request_id, ok_raw, message
+
+
 class _KDEBridge(ServiceInterface):  # type: ignore[misc,valid-type]
     def __init__(self, listener: "KDEListener") -> None:
         super().__init__(KDE_DBUS_INTERFACE)
@@ -90,6 +134,10 @@ class _KDEBridge(ServiceInterface):  # type: ignore[misc,valid-type]
     @method()
     def cursorPosition(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
         self._listener._on_cursor_payload(payload)
+
+    @method()
+    def dispatchResult(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
+        self._listener._on_dispatch_payload(payload)
 
 
 class KDEListener(WindowListener):
@@ -111,6 +159,7 @@ class KDEListener(WindowListener):
         self._window_script_iface = None
         self._callback_tasks: set[asyncio.Task] = set()
         self._cursor_waiters: dict[str, asyncio.Future[tuple[int, int]]] = {}
+        self._dispatch_waiters: dict[str, asyncio.Future[tuple[bool, str]]] = {}
         self._ignored_window_payloads = 0
         self._ignored_cursor_payloads = 0
         self._last_window_payload_log_at = 0.0
@@ -123,6 +172,10 @@ class KDEListener(WindowListener):
     @property
     def available(self) -> bool:
         return self.quick_probe()
+
+    @property
+    def supports_compositor_dispatch(self) -> bool:
+        return True
 
     @classmethod
     def quick_probe(cls) -> bool:
@@ -184,6 +237,11 @@ class KDEListener(WindowListener):
                 future.cancel()
             self._cursor_waiters.pop(request_id, None)
 
+        for request_id, future in list(self._dispatch_waiters.items()):
+            if not future.done():
+                future.cancel()
+            self._dispatch_waiters.pop(request_id, None)
+
         if self._window_script_iface:
             with contextlib.suppress(Exception):
                 await self._window_script_iface.call_stop()
@@ -239,7 +297,7 @@ class KDEListener(WindowListener):
 
             script_iface = await self._get_script_interface(script_id)
             await script_iface.call_run()
-            return await asyncio.wait_for(future, timeout=1.5)
+            return await asyncio.wait_for(future, timeout=KDE_DISPATCH_TIMEOUT_SECONDS)
         except TimeoutError:
             log.debug("KDE cursor get timed out waiting for response")
             return None
@@ -248,6 +306,61 @@ class KDEListener(WindowListener):
             return None
         finally:
             self._cursor_waiters.pop(request_id, None)
+            if script_iface is not None:
+                with contextlib.suppress(Exception):
+                    await script_iface.call_stop()
+            if self._kwin_scripting:
+                with contextlib.suppress(Exception):
+                    await self._call_unload_script(plugin_name)
+            if script_path:
+                with contextlib.suppress(Exception):
+                    script_path.unlink(missing_ok=True)
+
+    async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
+        if not self.running or self._kwin_scripting is None:
+            return False, "KDE listener not running"
+
+        dispatcher_name = "_".join(str(dispatcher or "").strip().split())
+        dispatcher_args = str(args or "").strip()
+        if not dispatcher_name:
+            return False, "missing dispatcher"
+        if dispatcher_args:
+            return False, "KDE compositor actions do not accept arguments"
+
+        method_name = KDE_DISPATCH_METHODS.get(dispatcher_name)
+        if method_name is None:
+            return False, f"unsupported KDE dispatcher: {dispatcher_name}"
+
+        request_id = uuid.uuid4().hex
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[tuple[bool, str]] = loop.create_future()
+        self._dispatch_waiters[request_id] = future
+
+        script_path: Path | None = None
+        plugin_name = f"keyforge-kde-dispatch-{os.getpid()}-{request_id[:8]}"
+        script_iface = None
+
+        try:
+            script_path = await asyncio.to_thread(
+                self._write_script_file,
+                self._build_dispatch_script_source(request_id, method_name),
+            )
+            script_id = await self._call_load_script(str(script_path), plugin_name)
+            if script_id < 0:
+                log.debug("KDE dispatch failed: loadScript returned %s", script_id)
+                return False, "failed to load KWin dispatch script"
+
+            script_iface = await self._get_script_interface(script_id)
+            await script_iface.call_run()
+            return await asyncio.wait_for(future, timeout=KDE_DISPATCH_TIMEOUT_SECONDS)
+        except TimeoutError:
+            log.debug("KDE dispatch timed out waiting for response")
+            return False, "timed out waiting for KDE dispatch response"
+        except Exception:
+            log.debug("KDE dispatch failed", exc_info=True)
+            return False, "KDE dispatch failed"
+        finally:
+            self._dispatch_waiters.pop(request_id, None)
             if script_iface is not None:
                 with contextlib.suppress(Exception):
                     await script_iface.call_stop()
@@ -287,6 +400,18 @@ class KDEListener(WindowListener):
         future = self._cursor_waiters.get(request_id)
         if future and not future.done():
             future.set_result((x, y))
+
+    def _on_dispatch_payload(self, payload: str) -> None:
+        parsed = parse_kde_dispatch_payload(payload)
+        if not parsed:
+            clipped_payload = payload if len(payload) <= 160 else f"{payload[:157]}..."
+            log.debug("Ignored KDE dispatch payload: %s", clipped_payload)
+            return
+
+        request_id, ok, message = parsed
+        future = self._dispatch_waiters.get(request_id)
+        if future and not future.done():
+            future.set_result((ok, message))
 
     def _log_ignored_payload(self, payload_type: str, payload: str) -> None:
         now = time.monotonic()
@@ -496,6 +621,38 @@ try {{
     const payload = JSON.stringify({{id: REQUEST_ID, x: p.x, y: p.y}});
     callDBus(DBUS_NAME, DBUS_PATH, DBUS_IFACE, \"cursorPosition\", payload);
 }} catch (e) {{}}
+""".strip()
+
+    def _build_dispatch_script_source(self, request_id: str, method_name: str) -> str:
+        return f"""
+const DBUS_NAME = \"{self._bus.unique_name if self._bus else ""}\";
+const DBUS_PATH = \"{KDE_DBUS_OBJECT_PATH}\";
+const DBUS_IFACE = \"{KDE_DBUS_INTERFACE}\";
+const REQUEST_ID = \"{request_id}\";
+const METHOD_NAME = \"{method_name}\";
+
+function sendResult(ok, message) {{
+    const payload = JSON.stringify({{
+        id: REQUEST_ID,
+        ok: !!ok,
+        message: String(message || "")
+    }});
+    try {{
+        callDBus(DBUS_NAME, DBUS_PATH, DBUS_IFACE, \"dispatchResult\", payload);
+    }} catch (e) {{}}
+}}
+
+try {{
+    const method = workspace ? workspace[METHOD_NAME] : null;
+    if (typeof method !== "function") {{
+        sendResult(false, "unsupported method: " + METHOD_NAME);
+    }} else {{
+        method.call(workspace);
+        sendResult(true, "ok");
+    }}
+}} catch (e) {{
+    sendResult(false, String(e));
+}}
 """.strip()
 
     async def health_check(self) -> bool:

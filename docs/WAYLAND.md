@@ -27,3 +27,5 @@ this protocol:
 - **COSMIC** — uses `ext_foreign_toplevel_list_v1` and `zcosmic_toplevel_info_v1`
 - **KDE Plasma** — uses an injected KWin script over session D-Bus
 - **GNOME** — uses a GNOME Shell plugin; see [GNOME.md](GNOME.md)
+
+On KDE Plasma, Keyforge's compositor actions run through the same KWin script bridge instead of shelling out to `qdbus` or external helpers.

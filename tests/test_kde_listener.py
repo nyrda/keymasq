@@ -2,9 +2,11 @@ import asyncio
 
 from keyforge.session.listeners import kde as kde_listener_module
 from keyforge.session.listeners.kde import (
+    KDE_DISPATCH_METHODS,
     KDEListener,
     has_kde_wayland_support,
     parse_kde_cursor_payload,
+    parse_kde_dispatch_payload,
     parse_kde_window_payload,
 )
 
@@ -38,6 +40,21 @@ def test_parse_kde_cursor_payload_accepts_wrapped_json_string() -> None:
     assert parse_kde_cursor_payload(payload) == ("abc123", 123, 456)
 
 
+def test_parse_kde_dispatch_payload_valid() -> None:
+    payload = '{"id":"abc123","ok":true,"message":"ok"}'
+    assert parse_kde_dispatch_payload(payload) == ("abc123", True, "ok")
+
+
+def test_parse_kde_dispatch_payload_requires_boolean_ok() -> None:
+    payload = '{"id":"abc123","ok":"true","message":"ok"}'
+    assert parse_kde_dispatch_payload(payload) is None
+
+
+def test_parse_kde_dispatch_payload_accepts_wrapped_json_string() -> None:
+    payload = '"{\\"id\\":\\"abc123\\",\\"ok\\":false,\\"message\\":\\"bad\\"}"'
+    assert parse_kde_dispatch_payload(payload) == ("abc123", False, "bad")
+
+
 def test_kde_window_script_tracks_metadata_changes() -> None:
     async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
         return
@@ -63,6 +80,18 @@ def test_kde_cursor_script_uses_cursor_position_method() -> None:
 
     assert "workspace.cursorPos" in script
     assert '"cursorPosition"' in script
+
+
+def test_kde_dispatch_script_uses_workspace_method_and_reply_hook() -> None:
+    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        return
+
+    listener = KDEListener(_cb)
+    script = listener._build_dispatch_script_source("req1", KDE_DISPATCH_METHODS["tile_left"])
+
+    assert 'const METHOD_NAME = "slotWindowQuickTileLeft"' in script
+    assert 'workspace[METHOD_NAME]' in script
+    assert '"dispatchResult"' in script
 
 
 def test_kde_ignored_payload_logging_is_rate_limited(monkeypatch) -> None:
@@ -122,3 +151,79 @@ def test_probe_available_true_when_kwin_owner_present(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(kde_listener_module, "_probe_kwin_owner", _owner_true)
 
     assert asyncio.run(KDEListener.probe_available()) is True
+
+
+def test_dispatch_rejects_args() -> None:
+    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        return
+
+    listener = KDEListener(_cb)
+    listener.running = True
+    listener._kwin_scripting = object()
+
+    ok, message = asyncio.run(listener.dispatch("tile_left", "unexpected"))
+
+    assert ok is False
+    assert message == "KDE compositor actions do not accept arguments"
+
+
+def test_dispatch_rejects_unsupported_dispatcher() -> None:
+    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        return
+
+    listener = KDEListener(_cb)
+    listener.running = True
+    listener._kwin_scripting = object()
+
+    ok, message = asyncio.run(listener.dispatch("unknown_action"))
+
+    assert ok is False
+    assert message == "unsupported KDE dispatcher: unknown_action"
+
+
+def test_dispatch_runs_one_shot_kwin_script(monkeypatch, tmp_path) -> None:
+    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        return
+
+    class _Uuid:
+        hex = "abc12345def67890"
+
+    class _ScriptIface:
+        async def call_run(self) -> None:
+            listener._on_dispatch_payload('{"id":"abc12345def67890","ok":true,"message":"ok"}')
+
+        async def call_stop(self) -> None:
+            return
+
+    async def _load_script(_file_path: str, _plugin_name: str) -> int:
+        return 42
+
+    async def _get_script_interface(_script_id: int):
+        return _ScriptIface()
+
+    unloaded: list[str] = []
+
+    async def _unload_script(plugin_name: str) -> None:
+        unloaded.append(plugin_name)
+
+    listener = KDEListener(_cb)
+    listener.running = True
+    listener._kwin_scripting = object()
+    script_path = tmp_path / "dispatch.js"
+
+    def _write_script_file(source: str):
+        script_path.write_text(source)
+        return script_path
+
+    monkeypatch.setattr(kde_listener_module.uuid, "uuid4", lambda: _Uuid())
+    monkeypatch.setattr(listener, "_write_script_file", _write_script_file)
+    monkeypatch.setattr(listener, "_call_load_script", _load_script)
+    monkeypatch.setattr(listener, "_get_script_interface", _get_script_interface)
+    monkeypatch.setattr(listener, "_call_unload_script", _unload_script)
+
+    ok, message = asyncio.run(listener.dispatch("tile_left"))
+
+    assert ok is True
+    assert message == "ok"
+    assert listener._dispatch_waiters == {}
+    assert unloaded == [f"keyforge-kde-dispatch-{kde_listener_module.os.getpid()}-abc12345"]

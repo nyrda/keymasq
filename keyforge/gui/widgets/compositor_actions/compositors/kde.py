@@ -159,6 +159,7 @@ KDE_ACTION_DEFINITION = CompositorActionDefinition(
     args_placeholder="No arguments supported",
     action_type=ActionType.COMPOSITOR_DISPATCH,
     presets=KDE_DISPATCH_PRESETS,
+    allow_custom=False,
     is_available=_kde_available,
     extract_fields=_kde_fields,
     build_action=_build_kde_action,

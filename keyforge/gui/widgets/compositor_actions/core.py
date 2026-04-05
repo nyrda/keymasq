@@ -30,6 +30,7 @@ class CompositorActionDefinition:
     args_placeholder: str
     action_type: ActionType
     presets: tuple[CompositorActionPreset, ...]
+    allow_custom: bool
     is_available: Callable[[MappingAction | None, dict[str, object]], bool]
     extract_fields: Callable[[MappingAction | None], tuple[str, str]]
     build_action: Callable[[str, str], MappingAction]
@@ -83,7 +84,8 @@ class _CompositorDispatchPage(Gtk.Box):
 
         self._preset_dropdown = Gtk.DropDown()
         preset_model = Gtk.StringList()
-        preset_model.append("Custom")
+        if self._definition.allow_custom:
+            preset_model.append("Custom")
         for preset in self._definition.presets:
             preset_model.append(preset.label)
         self._preset_dropdown.set_model(preset_model)
@@ -104,6 +106,7 @@ class _CompositorDispatchPage(Gtk.Box):
         self._dispatcher_entry.set_hexpand(True)
         self._dispatcher_entry.set_placeholder_text(self._definition.dispatcher_placeholder)
         self._dispatcher_entry.set_text(self._dispatcher)
+        self._dispatcher_entry.set_editable(self._definition.allow_custom)
         self._dispatcher_entry.connect("changed", self._on_fields_changed)
         dispatcher_row.append(self._dispatcher_entry)
         self.append(dispatcher_row)
@@ -120,6 +123,7 @@ class _CompositorDispatchPage(Gtk.Box):
         self._args_entry.set_hexpand(True)
         self._args_entry.set_placeholder_text(self._definition.args_placeholder)
         self._args_entry.set_text(self._args)
+        self._args_entry.set_editable(self._definition.allow_custom)
         self._args_entry.connect("changed", self._on_fields_changed)
         args_row.append(self._args_entry)
         self.append(args_row)
@@ -142,23 +146,35 @@ class _CompositorDispatchPage(Gtk.Box):
 
     def _selected_preset(self) -> CompositorActionPreset | None:
         index = int(self._preset_dropdown.get_selected())
-        if index <= 0 or index > len(self._definition.presets):
+        if self._definition.allow_custom:
+            if index <= 0 or index > len(self._definition.presets):
+                return None
+            return self._definition.presets[index - 1]
+        if index < 0 or index >= len(self._definition.presets):
             return None
-        return self._definition.presets[index - 1]
+        return self._definition.presets[index]
+
+    def _apply_selected_preset(self) -> None:
+        preset = self._selected_preset()
+        if preset is None:
+            return
+        self._dispatcher_entry.set_text(preset.dispatcher)
+        self._args_entry.set_text(preset.args)
 
     def _select_initial_preset(self) -> None:
-        selected = 0
-        for index, preset in enumerate(self._definition.presets, start=1):
+        selected = 0 if not self._definition.allow_custom else 0
+        found = False
+        for raw_index, preset in enumerate(self._definition.presets):
             if preset.dispatcher == self._dispatcher and preset.args == self._args:
-                selected = index
+                selected = raw_index if not self._definition.allow_custom else raw_index + 1
+                found = True
                 break
         self._preset_dropdown.set_selected(selected)
+        if not found and not self._definition.allow_custom and self._definition.presets:
+            self._apply_selected_preset()
 
     def _on_preset_changed(self, _dropdown, _pspec) -> None:
-        preset = self._selected_preset()
-        if preset is not None:
-            self._dispatcher_entry.set_text(preset.dispatcher)
-            self._args_entry.set_text(preset.args)
+        self._apply_selected_preset()
         self._update_hint()
         self._update_map_button()
 

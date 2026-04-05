@@ -162,6 +162,7 @@ HYPRLAND_ACTION_DEFINITION = CompositorActionDefinition(
     args_placeholder="e.g. e+1, l, special",
     action_type=ActionType.COMPOSITOR_DISPATCH,
     presets=HYPRLAND_DISPATCH_PRESETS,
+    allow_custom=True,
     is_available=_hyprland_available,
     extract_fields=_hyprland_fields,
     build_action=_build_hyprland_action,

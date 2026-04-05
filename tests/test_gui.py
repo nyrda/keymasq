@@ -1424,6 +1424,14 @@ def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
     assert dialog.stack.get_child_by_name("gnome") is not None
     assert dialog.stack.get_visible_child_name() == "gnome"
 
+    page = dialog.stack.get_child_by_name("gnome")
+    assert page is not None
+    assert page._preset_dropdown.get_selected() == 3
+    assert page._dispatcher_entry.get_text() == "workspace"
+    assert page._args_entry.get_text() == "2"
+    assert page._dispatcher_entry.get_editable() is False
+    assert page._args_entry.get_editable() is False
+
 
 def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
     from gi.repository import Gtk
@@ -1442,6 +1450,13 @@ def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
     assert active_dialog.stack.get_child_by_name("kde") is not None
     assert active_dialog.stack.get_child_by_name("hyprland") is None
     assert active_dialog.stack.get_child_by_name("gnome") is None
+    page = active_dialog.stack.get_child_by_name("kde")
+    assert page is not None
+    assert page._preset_dropdown.get_selected() == 0
+    assert page._dispatcher_entry.get_text() == "desktop_next"
+    assert page._args_entry.get_text() == ""
+    assert page._dispatcher_entry.get_editable() is False
+    assert page._args_entry.get_editable() is False
 
     hidden_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -1458,6 +1473,28 @@ def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
         },
     )
     assert hidden_dialog.stack.get_child_by_name("kde") is None
+
+
+def test_key_selector_dialog_keeps_hyprland_custom_dispatch_enabled():
+    from gi.repository import Gtk
+
+    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        compositor_action_status={
+            "listener_name": "hyprland",
+            "compositor_dispatch_available": True,
+        },
+    )
+    page = dialog.stack.get_child_by_name("hyprland")
+    assert page is not None
+    assert page._preset_dropdown.get_selected() == 0
+    assert page._dispatcher_entry.get_text() == ""
+    assert page._args_entry.get_text() == ""
+    assert page._dispatcher_entry.get_editable() is True
+    assert page._args_entry.get_editable() is True
 
 
 def test_compositor_action_helpers_resolve_kde_actions() -> None:

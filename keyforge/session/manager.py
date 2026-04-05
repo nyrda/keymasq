@@ -52,6 +52,21 @@ TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
 TOPOLOGY_REFRESH_RETRY_S = 1.0
 
 
+def _merge_support_details(
+    base: dict[str, bool | str],
+    listener: WindowListener | None,
+) -> dict[str, bool | str | int]:
+    merged: dict[str, bool | str | int] = dict(base)
+    if listener is None:
+        return merged
+    runtime_details_getter = getattr(listener, "runtime_support_details", None)
+    if callable(runtime_details_getter):
+        runtime_details = runtime_details_getter()
+        if isinstance(runtime_details, dict) and runtime_details:
+            merged.update(runtime_details)
+    return merged
+
+
 class SessionManager:
     _RECORDING_SETTINGS_PATH = CONFIG_DIR / "recording_settings.json"
     _MAX_SESSION_CLIENT_BUFFER_BYTES = 16 * 1024 * 1024
@@ -383,7 +398,10 @@ class SessionManager:
             return result
 
         if command == "get_compositor":
-            details = await get_compositor_support_details(self._compositor_id, self.dbus)
+            details = _merge_support_details(
+                await get_compositor_support_details(self._compositor_id, self.dbus),
+                self._window_listener,
+            )
             return {
                 "compositor_id": self._compositor_id,
                 "compositor_name": get_compositor_name(self._compositor_id),
@@ -460,8 +478,9 @@ class SessionManager:
 
         if command == "get_status":
             unlock_status = await self._resolve_unlock_status_async(peer.uid)
-            compositor_details = await get_compositor_support_details(
-                self._compositor_id, self.dbus
+            compositor_details = _merge_support_details(
+                await get_compositor_support_details(self._compositor_id, self.dbus),
+                self._window_listener,
             )
             policy = self._security_policy
             return {
@@ -1887,9 +1906,23 @@ class SessionManager:
         await self.action_handler.execute_command(cmd)
 
     async def _handle_compositor_dispatch_trigger(self, data: dict) -> None:
+        target_compositor = str(data.get("compositor", "") or "").strip()
         dispatcher = str(data.get("dispatcher", "") or "").strip()
         args = str(data.get("args", "") or "").strip()
         if not dispatcher:
+            return
+
+        current_compositor = str(self._compositor_id or "").strip()
+        if target_compositor and target_compositor != current_compositor:
+            log.warning(
+                (
+                    "Ignored compositor dispatch for mismatched target: "
+                    "target=%s current=%s dispatcher=%s"
+                ),
+                target_compositor,
+                current_compositor or "none",
+                dispatcher,
+            )
             return
 
         listener = self._window_listener
@@ -2433,6 +2466,8 @@ class SessionManager:
             return data
 
         if action_type == "compositor_dispatch":
+            if action.compositor_id:
+                data["compositor"] = action.compositor_id
             data["dispatcher"] = action.compositor_dispatcher or ""
             data["args"] = action.compositor_args or ""
             return data
@@ -2605,6 +2640,8 @@ class SessionManager:
                     self._device_exec_refs[hardware_id].add(exec_ref)
                     action_data["exec_ref"] = exec_ref
             elif action.action_type.value == "compositor_dispatch":
+                if action.compositor_id:
+                    action_data["compositor"] = action.compositor_id
                 action_data["dispatcher"] = action.compositor_dispatcher or ""
                 action_data["args"] = action.compositor_args or ""
             elif action.action_type.value in (
@@ -2716,6 +2753,8 @@ class SessionManager:
             dispatcher = str(action.compositor_dispatcher or "").strip()
             if not dispatcher:
                 return None
+            if action.compositor_id:
+                action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = dispatcher
             action_data["args"] = action.compositor_args or ""
             return action_data
@@ -2845,9 +2884,15 @@ class SessionManager:
         return data
 
     def _compositor_dispatch_available(self) -> bool:
-        return self._window_listener is not None and bool(
-            getattr(self._window_listener, "running", False)
-            and self._window_listener.supports_compositor_dispatch
+        listener = self._window_listener
+        if listener is None:
+            return False
+        available = getattr(listener, "compositor_dispatch_available", None)
+        if available is not None:
+            return bool(available)
+        return bool(
+            getattr(listener, "running", False)
+            and getattr(listener, "supports_compositor_dispatch", False)
         )
 
     async def _play_macro_by_name(self, name: str) -> None:

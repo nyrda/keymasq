@@ -127,6 +127,7 @@ class TestProfileTOML:
                     mappings={
                         "btn_back": MappingAction(
                             action_type=ActionType.COMPOSITOR_DISPATCH,
+                            compositor_id="hyprland",
                             compositor_dispatcher="workspace",
                             compositor_args="e+1",
                         )
@@ -142,6 +143,7 @@ class TestProfileTOML:
         action = loaded.device_layers["1234:5678"].mappings["btn_back"]
 
         assert action.action_type == ActionType.COMPOSITOR_DISPATCH
+        assert action.compositor_id == "hyprland"
         assert action.compositor_dispatcher == "workspace"
         assert action.compositor_args == "e+1"
 

@@ -275,6 +275,23 @@ async def test_compositor_dispatch_calls_active_listener_even_when_unsupported()
 
 
 @pytest.mark.asyncio
+async def test_compositor_dispatch_ignores_mismatched_target_compositor() -> None:
+    manager = SessionManager()
+    listener = SimpleNamespace(
+        supports_compositor_dispatch=True,
+        dispatch=AsyncMock(return_value=(True, "ok")),
+    )
+    manager._window_listener = listener  # type: ignore[assignment]
+    manager._compositor_id = "gnome"
+
+    await manager._handle_compositor_dispatch_trigger(
+        {"compositor": "hyprland", "dispatcher": "workspace", "args": "2"}
+    )
+
+    listener.dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_owner_disconnect_cleans_runtime_unlock() -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=111, uid=1000, gid=1000)
@@ -538,6 +555,51 @@ async def test_handle_session_request_get_compositor_reports_compositor_dispatch
     assert result["listener_active"] is True
     assert result["listener_name"] == "hyprland"
     assert result["compositor_dispatch_available"] is True
+
+
+@pytest.mark.asyncio
+async def test_handle_session_request_get_compositor_merges_listener_runtime_warning() -> None:
+    import keyforge.session.manager as session_manager_module
+
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    class _Listener:
+        name = "gnome"
+        running = True
+        supports_compositor_dispatch = True
+        compositor_dispatch_available = False
+
+        def runtime_support_details(self) -> dict[str, bool | str | int]:
+            return {
+                "warning": "GNOME bridge update detected. Log out and back in.",
+                "bridge_protocol": 1,
+                "bridge_protocol_expected": 2,
+            }
+
+    manager._window_listener = _Listener()  # type: ignore[assignment]
+    manager._compositor_id = "gnome"
+
+    async def _support_details(_compositor_id: str | None, _dbus=None) -> dict[str, bool | str]:
+        return {"supported": True, "warning": ""}
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_manager_module, "get_compositor_support_details", _support_details)
+
+    try:
+        result = await manager._handle_session_request(
+            {"command": "get_compositor"},
+            "client",
+            peer,
+            object(),
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert result["supported"] is True
+    assert result["compositor_dispatch_available"] is False
+    assert result["details"]["bridge_protocol"] == 1
+    assert "Log out and back in" in str(result["details"]["warning"])
 
 
 @pytest.mark.asyncio

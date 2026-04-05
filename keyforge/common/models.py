@@ -119,6 +119,7 @@ class MappingAction:
     macro_start_y: int = 0
     macro_block_mouse_movement: bool = False
     profile_name: str | None = None
+    compositor_id: str | None = None
     compositor_dispatcher: str | None = None
     compositor_args: str | None = None
     move_x: int = 0

@@ -6,6 +6,17 @@ import keyforge.session.listeners.gnome as gnome_module
 from keyforge.session.listeners.gnome import GnomeListener
 
 
+class _FakeWriter:
+    def __init__(self) -> None:
+        self.payloads: list[dict] = []
+
+    def write(self, data: bytes) -> None:
+        self.payloads.append(gnome_module.json.loads(data.decode("utf-8")))
+
+    async def drain(self) -> None:
+        return None
+
+
 def test_gnome_probe_requires_shell_owner(monkeypatch, tmp_path) -> None:
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -250,6 +261,34 @@ def test_gnome_support_details_reports_missing_extension(monkeypatch, tmp_path) 
     assert "not installed" in str(details["warning"])
 
 
+@pytest.mark.asyncio
+async def test_gnome_hello_marks_bridge_protocol_compatible() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener.running = True
+    listener._writer = _FakeWriter()
+    listener._bridge_connected = True
+
+    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
+
+    assert listener.compositor_dispatch_available is True
+    assert listener.runtime_support_details()["warning"] == ""
+
+
+@pytest.mark.asyncio
+async def test_gnome_hello_reports_stale_bridge_protocol_warning() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener.running = True
+    listener._writer = _FakeWriter()
+    listener._bridge_connected = True
+
+    await listener._handle_bridge_message({"type": "hello", "protocol": 1})
+
+    details = listener.runtime_support_details()
+    assert listener.compositor_dispatch_available is False
+    assert details["bridge_protocol"] == 1
+    assert "Log out and back in" in str(details["warning"])
+
+
 def test_gnome_probe_requires_missing_native_toplevel_protocols(monkeypatch, tmp_path) -> None:
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -276,16 +315,6 @@ async def test_gnome_get_active_window_queries_bridge_when_cache_empty() -> None
     async def _callback(window_class: str, window_title: str, tags: list[str]) -> None:
         observed.append((window_class, window_title, tags))
 
-    class _FakeWriter:
-        def __init__(self) -> None:
-            self.payloads: list[dict] = []
-
-        def write(self, data: bytes) -> None:
-            self.payloads.append(gnome_module.json.loads(data.decode("utf-8")))
-
-        async def drain(self) -> None:
-            return None
-
     listener = GnomeListener(_callback)
     listener._writer = _FakeWriter()
 
@@ -305,6 +334,64 @@ async def test_gnome_get_active_window_queries_bridge_when_cache_empty() -> None
     assert await listener.get_active_window() == ("org.keyforge.ListenerLab", "Alpha", [])
     assert observed == [("org.keyforge.ListenerLab", "Alpha", [])]
     assert listener._writer.payloads == [{"type": "get_active_window", "request_id": 1}]
+
+
+@pytest.mark.asyncio
+async def test_gnome_dispatch_sends_bridge_request_and_resolves_result() -> None:
+    observed: list[tuple[str, str, list[str]]] = []
+
+    async def _callback(window_class: str, window_title: str, tags: list[str]) -> None:
+        observed.append((window_class, window_title, tags))
+
+    listener = GnomeListener(_callback)
+    listener._writer = _FakeWriter()
+    listener._bridge_connected = True
+    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
+
+    async def _respond() -> None:
+        await asyncio.sleep(0)
+        await listener._handle_bridge_message(
+            {
+                "type": "dispatch_result",
+                "request_id": 1,
+                "ok": True,
+                "message": "switched to workspace 2",
+                "app_id": "org.gnome.Nautilus",
+                "title": "Home",
+            }
+        )
+
+    asyncio.create_task(_respond())
+
+    assert await listener.dispatch("workspace", "2") == (True, "switched to workspace 2")
+    assert listener._writer.payloads == [
+        {
+            "type": "dispatch",
+            "request_id": 1,
+            "dispatcher": "workspace",
+            "args": "2",
+        }
+    ]
+    assert observed == [("org.gnome.Nautilus", "Home", [])]
+
+
+@pytest.mark.asyncio
+async def test_gnome_dispatch_rejects_invalid_dispatcher_without_bridge_write() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    assert await listener.dispatch("togglefloating", "") == (
+        False,
+        "unsupported GNOME dispatcher: togglefloating",
+    )
+
+
+@pytest.mark.asyncio
+async def test_gnome_dispatch_fails_when_bridge_missing() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+
+    assert await listener.dispatch("workspace", "next") == (
+        False,
+        "GNOME bridge not connected",
+    )
 
 
 @pytest.mark.asyncio

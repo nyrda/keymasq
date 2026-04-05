@@ -1389,6 +1389,7 @@ def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_li
         "Back",
         MappingAction(
             action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="hyprland",
             compositor_dispatcher="workspace",
             compositor_args="2",
         ),
@@ -1398,6 +1399,31 @@ def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_li
         },
     )
     assert hidden_dialog.stack.get_child_by_name("hyprland") is None
+
+
+def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
+    from gi.repository import Gtk
+
+    from keyforge.common.models import ActionType, MappingAction
+    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="gnome",
+            compositor_dispatcher="workspace",
+            compositor_args="2",
+        ),
+        compositor_action_status={
+            "listener_name": "gnome",
+            "compositor_dispatch_available": True,
+        },
+    )
+
+    assert dialog.stack.get_child_by_name("gnome") is not None
+    assert dialog.stack.get_visible_child_name() == "gnome"
 
 
 def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
@@ -1682,6 +1708,24 @@ class TestMainWindow:
         assert window.combo_tab.status_label.get_text() == "waiting"
         assert device_tab._selected_profile is not None
         assert device_tab._selected_profile.config.name == "Desktop"
+
+    def test_main_window_shows_warning_banner_even_when_compositor_supported(self):
+        from keyforge.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        window._startup_probe_done = True
+        window._compositor_id = "gnome"
+        window._compositor_supported = True
+        window._compositor_support_details = {
+            "supported": True,
+            "warning": "GNOME bridge update detected. Log out and back in.",
+        }
+
+        window._update_compositor_warning_banner()
+
+        assert window.warning_banner.get_revealed() is True
+        assert "Log out and back in" in window.warning_banner.get_title()
 
     def test_main_window_apply_loaded_devices_updates_empty_state_and_demo_devices(
         self, temp_config_dir

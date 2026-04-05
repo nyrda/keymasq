@@ -56,8 +56,22 @@ do. The extension runs inside GNOME Shell and forwards the focused window name
 and pointer position to Keyforge so that window-aware profiles and pointer
 features work.
 
+The same bridge also handles GNOME compositor actions. These are allowlisted
+bridge RPCs, not arbitrary shell commands. Keyforge currently supports:
+
+- `workspace` with `next`, `prev`, or a 1-based workspace number
+- `move_to_workspace` with `next`, `prev`, or a 1-based workspace number
+- `close_active`
+- `fullscreen` with `toggle`, `on`, or `off`
+- `maximize` with `toggle`, `on`, or `off`
+
 If the extension is missing or disconnected, Keyforge keeps running but
 window-based profile activation is unavailable until the extension reconnects.
+GNOME compositor actions are also unavailable until the bridge reconnects.
+
+If Keyforge updates the installed bridge files but your current GNOME session is
+still running the old extension code, Keyforge now shows a warning telling you
+to log out and back in. That reloads GNOME Shell and starts the updated bridge.
 
 ## Manual install from checkout
 

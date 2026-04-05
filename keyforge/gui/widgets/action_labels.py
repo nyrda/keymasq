@@ -113,6 +113,11 @@ def describe_mapping_action_verbose(
     compositor_action = describe_compositor_action(action)
     if compositor_action is not None:
         return compositor_action
+    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
+        dispatcher = action.compositor_dispatcher or "dispatch"
+        args = str(action.compositor_args or "").strip()
+        suffix = f" {args}" if args else ""
+        return f"Compositor → {dispatcher}{suffix}"
 
     if action.action_type == ActionType.START_MACRO_RECORDING:
         return "Toggle Macro Recording"

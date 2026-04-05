@@ -1,10 +1,13 @@
 import GLib from 'gi://GLib'
 import Gio from 'gi://Gio'
+import Meta from 'gi://Meta'
 import Shell from 'gi://Shell'
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js'
 
 class KeyforgeBridge {
+    static PROTOCOL_VERSION = 2
+
     constructor() {
         this._socketPath = GLib.build_filenamev([
             GLib.get_user_runtime_dir(),
@@ -83,7 +86,7 @@ class KeyforgeBridge {
                 this._readCancellable = new Gio.Cancellable()
                 this._connected = true
 
-                this._sendMessage({type: 'hello', protocol: 1})
+                this._sendMessage({type: 'hello', protocol: KeyforgeBridge.PROTOCOL_VERSION})
                 this._sendFocusChanged()
                 this._readLoop()
             } catch (_e) {
@@ -204,7 +207,204 @@ class KeyforgeBridge {
                 const titles = wins.map(w => w.get_title())
                 this._sendMessage({type: 'activated', request_id: requestId, title, found: false, available_titles: titles})
             }
+        } else if (message.type === 'dispatch') {
+            this._handleDispatch(message)
         }
+    }
+
+    _handleDispatch(message) {
+        const requestId = Number(message.request_id || 0)
+        const dispatcher = String(message.dispatcher || '').trim()
+        const args = String(message.args || '').trim()
+
+        if (dispatcher === 'workspace') {
+            this._handleWorkspaceDispatch(requestId, args)
+            return
+        }
+
+        if (dispatcher === 'move_to_workspace') {
+            this._handleMoveToWorkspaceDispatch(requestId, args)
+            return
+        }
+
+        if (dispatcher === 'close_active') {
+            this._handleCloseActive(requestId)
+            return
+        }
+
+        if (dispatcher === 'fullscreen') {
+            this._handleFullscreen(requestId, args)
+            return
+        }
+
+        if (dispatcher === 'maximize') {
+            this._handleMaximize(requestId, args)
+            return
+        }
+
+        this._dispatchResult(requestId, false, `unsupported GNOME dispatcher: ${dispatcher}`)
+    }
+
+    _dispatchResult(requestId, ok, message, win = null) {
+        this._sendMessage({
+            type: 'dispatch_result',
+            request_id: requestId,
+            ok,
+            message,
+            ...this._activeWindowPayload(win),
+        })
+    }
+
+    _getWorkspaceManager() {
+        return global.workspace_manager || global.get_workspace_manager?.() || null
+    }
+
+    _workspaceCount(manager) {
+        if (!manager)
+            return 0
+        if (typeof manager.n_workspaces === 'number')
+            return manager.n_workspaces
+        if (typeof manager.get_n_workspaces === 'function')
+            return Number(manager.get_n_workspaces())
+        return 0
+    }
+
+    _resolveWorkspace(manager, args) {
+        if (!manager)
+            return {ok: false, message: 'workspace manager unavailable'}
+
+        const activeWorkspace = manager.get_active_workspace?.() || null
+        const workspaceCount = this._workspaceCount(manager)
+        let targetIndex = -1
+
+        if (args === 'next' || args === 'prev') {
+            if (!activeWorkspace)
+                return {ok: false, message: 'active workspace unavailable'}
+            const activeIndex = Number(activeWorkspace.index())
+            targetIndex = args === 'next' ? activeIndex + 1 : activeIndex - 1
+        } else {
+            const parsedIndex = Number.parseInt(args, 10)
+            if (!Number.isInteger(parsedIndex) || parsedIndex < 1)
+                return {ok: false, message: 'workspace expects next, prev, or a workspace number'}
+            targetIndex = parsedIndex - 1
+        }
+
+        if (targetIndex < 0 || targetIndex >= workspaceCount)
+            return {ok: false, message: `workspace ${targetIndex + 1} does not exist`}
+
+        const workspace = manager.get_workspace_by_index?.(targetIndex) || null
+        if (!workspace)
+            return {ok: false, message: `workspace ${targetIndex + 1} does not exist`}
+
+        return {
+            ok: true,
+            workspace,
+            index: targetIndex,
+        }
+    }
+
+    _handleWorkspaceDispatch(requestId, args) {
+        const manager = this._getWorkspaceManager()
+        const resolved = this._resolveWorkspace(manager, args)
+        if (!resolved.ok) {
+            this._dispatchResult(requestId, false, resolved.message)
+            return
+        }
+
+        const timestamp = global.get_current_time()
+        const focusedWindow = global.display.focus_window
+        if (focusedWindow && focusedWindow.located_on_workspace?.(resolved.workspace))
+            resolved.workspace.activate_with_focus(focusedWindow, timestamp)
+        else
+            resolved.workspace.activate(timestamp)
+        this._dispatchResult(requestId, true, `switched to workspace ${resolved.index + 1}`)
+    }
+
+    _handleMoveToWorkspaceDispatch(requestId, args) {
+        const target = global.display.focus_window
+        if (!target) {
+            this._dispatchResult(requestId, false, 'no focused window')
+            return
+        }
+
+        const manager = this._getWorkspaceManager()
+        const resolved = this._resolveWorkspace(manager, args)
+        if (!resolved.ok) {
+            this._dispatchResult(requestId, false, resolved.message)
+            return
+        }
+
+        target.change_workspace_by_index(resolved.index, false)
+        resolved.workspace.activate_with_focus(target, global.get_current_time())
+        this._dispatchResult(
+            requestId,
+            true,
+            `moved window to workspace ${resolved.index + 1}`,
+            target)
+    }
+
+    _handleCloseActive(requestId) {
+        const target = global.display.focus_window
+        if (!target) {
+            this._dispatchResult(requestId, false, 'no focused window')
+            return
+        }
+        target.delete(global.get_current_time())
+        this._dispatchResult(requestId, true, 'closed focused window')
+    }
+
+    _handleFullscreen(requestId, args) {
+        const target = global.display.focus_window
+        if (!target) {
+            this._dispatchResult(requestId, false, 'no focused window')
+            return
+        }
+
+        if (args === 'toggle') {
+            if (target.is_fullscreen())
+                target.unmake_fullscreen()
+            else
+                target.make_fullscreen()
+        } else if (args === 'on') {
+            target.make_fullscreen()
+        } else if (args === 'off') {
+            target.unmake_fullscreen()
+        } else {
+            this._dispatchResult(requestId, false, 'fullscreen expects toggle, on, or off')
+            return
+        }
+
+        this._dispatchResult(requestId, true, `fullscreen ${args}`, target)
+    }
+
+    _handleMaximize(requestId, args) {
+        const target = global.display.focus_window
+        if (!target) {
+            this._dispatchResult(requestId, false, 'no focused window')
+            return
+        }
+
+        if (!target.can_maximize?.()) {
+            this._dispatchResult(requestId, false, 'focused window cannot be maximized')
+            return
+        }
+
+        const flags = Meta.MaximizeFlags.BOTH
+        if (args === 'toggle') {
+            if (target.is_maximized())
+                target.unmaximize(flags)
+            else
+                target.maximize(flags)
+        } else if (args === 'on') {
+            target.maximize(flags)
+        } else if (args === 'off') {
+            target.unmaximize(flags)
+        } else {
+            this._dispatchResult(requestId, false, 'maximize expects toggle, on, or off')
+            return
+        }
+
+        this._dispatchResult(requestId, true, `maximize ${args}`, target)
     }
 
     _sendFocusChanged() {

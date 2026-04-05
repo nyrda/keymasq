@@ -196,6 +196,8 @@ class ProfileManager:
 
         action_type_str = action_data.get("action", "passthrough")
         if action_type_str == "hyprland_dispatch":
+            action_data = dict(action_data)
+            action_data.setdefault("compositor", "hyprland")
             action_type_str = "compositor_dispatch"
         if action_type_str == "rapidfire":
             action_type_str = "keyboard"
@@ -258,6 +260,7 @@ class ProfileManager:
         if action_type == ActionType.COMPOSITOR_DISPATCH:
             return MappingAction(
                 action_type=action_type,
+                compositor_id=str(action_data.get("compositor", "") or "") or None,
                 compositor_dispatcher=str(action_data.get("dispatcher", "") or ""),
                 compositor_args=str(action_data.get("args", "") or ""),
             )
@@ -314,6 +317,8 @@ class ProfileManager:
             action_data["target"] = action.profile_name or ""
             action_data["profile_name"] = action.profile_name or ""
         if action.action_type == ActionType.COMPOSITOR_DISPATCH:
+            if action.compositor_id:
+                action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = action.compositor_dispatcher or ""
             action_data["args"] = action.compositor_args or ""
         if action.rapidfire_enabled:

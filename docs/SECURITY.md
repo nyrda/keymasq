@@ -155,6 +155,7 @@ In practice, this means:
 Compositor dispatch actions are routed through the active window-listener implementation.
 
 - The action is modeled generically as compositor dispatch
+- Dispatch actions can carry an explicit compositor target to avoid cross-compositor overlap
 - The active listener must explicitly opt in to dispatch support
 - If the listener does not support dispatch, the action is rejected
 - No shell fallback is used for compositor dispatch

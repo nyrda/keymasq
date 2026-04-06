@@ -1,6 +1,5 @@
 import asyncio
 import os
-from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import evdev
@@ -115,7 +114,7 @@ class TestActionExecution:
             hold_ms=1,
             event_name="test_key",
             uinput_dev=grabbed.uinput,
-            asyncio_mod=cast(Any, asyncio),
+            asyncio_mod=gdm.ASYNCIO_RUNTIME,
         )
 
         assert grabbed.uinput.write.call_count == 2

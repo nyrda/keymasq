@@ -3,9 +3,9 @@ import contextlib
 import errno
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final, Protocol, TypeVar, cast
+from typing import Final, Protocol, TypeVar, cast
 
 import evdev
 
@@ -36,6 +36,7 @@ type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type UInputWriter = Callable[[object | None], _WritableUInput | None]
 type TaskFactory = Callable[[], asyncio.Task[None]]
+type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
 _T = TypeVar("_T")
 
 
@@ -100,15 +101,15 @@ class _AsyncioLoop(Protocol):
 class _AsyncioModule(Protocol):
     def get_running_loop(self) -> _AsyncioLoop: ...
 
-    Event: Final[Callable[[], _AsyncioEvent]]
+    def create_event(self) -> _AsyncioEvent: ...
 
-    def wait_for(self, aw: Awaitable[object], timeout: float) -> Awaitable[object]: ...
+    def wait_for(self, aw: Awaitable[_T], timeout: float) -> Awaitable[_T]: ...
 
     async def sleep(self, delay: float, /) -> None: ...
 
     def current_task(self) -> asyncio.Task[object] | None: ...
 
-    def create_task(self, coro: object, /) -> asyncio.Task[None]: ...
+    def create_task(self, coro: Coroutine[object, object, _T], /) -> asyncio.Task[_T]: ...
 
     def to_thread(
         self,
@@ -150,6 +151,38 @@ class _EvdevModule(Protocol):
 type ClassifyEventDeviceTypeFn = Callable[[evdev.InputEvent, list[str]], str]
 
 
+class _AsyncioRuntimeAdapter:
+    def get_running_loop(self) -> _AsyncioLoop:
+        return asyncio.get_running_loop()
+
+    def create_event(self) -> _AsyncioEvent:
+        return asyncio.Event()
+
+    def wait_for(self, aw: Awaitable[_T], timeout: float) -> Awaitable[_T]:
+        return asyncio.wait_for(aw, timeout)
+
+    async def sleep(self, delay: float, /) -> None:
+        await asyncio.sleep(delay)
+
+    def current_task(self) -> asyncio.Task[object] | None:
+        return cast(asyncio.Task[object] | None, asyncio.current_task())
+
+    def create_task(self, coro: Coroutine[object, object, _T], /) -> asyncio.Task[_T]:
+        return asyncio.create_task(coro)
+
+    def to_thread(
+        self,
+        func: Callable[..., _T],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> Awaitable[_T]:
+        return asyncio.to_thread(func, *args, **kwargs)
+
+
+ASYNCIO_RUNTIME: Final[_AsyncioModule] = _AsyncioRuntimeAdapter()
+
+
 @dataclass
 class RapidfireOutputState:
     kind: str
@@ -184,6 +217,83 @@ class GrabbedDeviceState:
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
 
 
+class _GrabbedDeviceRuntime(Protocol):
+    @property
+    def path(self) -> str: ...
+
+    @property
+    def hardware_id(self) -> str: ...
+
+    @property
+    def stable_path(self) -> str: ...
+
+    @property
+    def interface_id(self) -> str: ...
+
+    @property
+    def device_types(self) -> list[str]: ...
+
+    @property
+    def verbosity(self) -> int: ...
+
+    @property
+    def device(self) -> _ManagedInputDevice | None: ...
+
+    @property
+    def uinput(self) -> object | None: ...
+
+    @property
+    def keyboard_uinput(self) -> object | None: ...
+
+    @property
+    def mouse_uinput(self) -> object | None: ...
+
+    @property
+    def gamepad_uinput(self) -> object | None: ...
+
+    @property
+    def broadcast_callback(self) -> BroadcastCallback | None: ...
+
+    @property
+    def recording_manager(self) -> RecordingManager | None: ...
+
+    @property
+    def macro_player(self) -> MacroPlayer | None: ...
+
+    @property
+    def suppress_rel_getter(self) -> Callable[[], bool] | None: ...
+
+    @property
+    def diagnostics_recorder(self) -> Callable[[str, float], None] | None: ...
+
+    @property
+    def runtime_cleanup_callback(self) -> RuntimeCleanupCallback | None: ...
+
+    @property
+    def mapping_getter(self) -> MappingGetter: ...
+
+    @property
+    def event_callback(self) -> DeviceEventCallback: ...
+
+    @property
+    def evdev_to_button(self) -> dict[str, str]: ...
+
+    @property
+    def evdev_code_to_button(self) -> dict[int, str]: ...
+
+    @property
+    def state(self) -> GrabbedDeviceState: ...
+
+    @property
+    def _running(self) -> bool: ...
+
+    async def reset_superkeys(self) -> None: ...
+
+
+def _runtime_is_running(device_runtime: _GrabbedDeviceRuntime) -> bool:
+    return device_runtime._running  # pyright: ignore[reportPrivateUsage]
+
+
 def _device_input(path: str) -> _ManagedInputDevice:
     return cast(_ManagedInputDevice, evdev.InputDevice(path))
 
@@ -214,7 +324,7 @@ def _evdev_code_name(raw_name: object, fallback: int) -> str:
 
 
 async def event_loop(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     *,
     asyncio_mod: _AsyncioModule,
     log: logging.Logger,
@@ -226,7 +336,7 @@ async def event_loop(
 
     try:
         async for event in device.async_read_loop():
-            if not device_runtime._running:
+            if not _runtime_is_running(device_runtime):
                 break
             try:
                 await process_event(
@@ -241,7 +351,7 @@ async def event_loop(
                 )
                 error_backoff = 0.01
             except Exception as exc:
-                if device_runtime._running:
+                if _runtime_is_running(device_runtime):
                     await recover_from_event_processing_error(device_runtime)
                     log.warning(
                         "Event processing error on %s: %s (backoff %.3fs)",
@@ -254,13 +364,13 @@ async def event_loop(
     except asyncio.CancelledError:
         pass
     except OSError as exc:
-        if device_runtime._running:
+        if _runtime_is_running(device_runtime):
             await cleanup_runtime_failure(device_runtime, log=log)
             log.warning("Device read error on %s: %s", device_runtime.path, exc)
 
 
 async def cleanup_runtime_failure(
-    device_runtime: Any, *, log: logging.Logger
+    device_runtime: _GrabbedDeviceRuntime, *, log: logging.Logger
 ) -> None:
     if device_runtime.runtime_cleanup_callback is not None:
         try:
@@ -283,7 +393,7 @@ async def cleanup_runtime_failure(
     release_all_keys(device_runtime, evdev_mod=evdev, uinput_writer=_uinput_writer)
 
 
-async def recover_from_event_processing_error(device_runtime: Any) -> None:
+async def recover_from_event_processing_error(device_runtime: _GrabbedDeviceRuntime) -> None:
     await cleanup_runtime_failure(device_runtime, log=log)
 
 
@@ -308,7 +418,7 @@ def get_key_name(code: int, *, evdev_mod: _EvdevModule) -> str | None:
 
 
 async def broadcast_grab_status(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     state: str,
     active_names: list[str],
     *,
@@ -334,7 +444,7 @@ async def broadcast_grab_status(
 
 
 async def wait_for_active_key_activity(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     timeout_s: float,
     *,
     asyncio_mod: _AsyncioModule,
@@ -345,7 +455,7 @@ async def wait_for_active_key_activity(
         return False
 
     loop = asyncio_mod.get_running_loop()
-    readable = asyncio_mod.Event()
+    readable = asyncio_mod.create_event()
     fd = device_runtime.device.fileno()
     loop.add_reader(fd, readable.set)
     try:
@@ -384,7 +494,7 @@ async def wait_for_active_key_activity(
 
 
 async def wait_for_active_keys_to_clear(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     *,
     asyncio_mod: _AsyncioModule,
     time_mod: _TimeModule,
@@ -503,7 +613,7 @@ async def wait_for_active_keys_to_clear(
         )
 
 
-def seed_startup_held_actions(device_runtime: Any) -> None:
+def seed_startup_held_actions(device_runtime: _GrabbedDeviceRuntime) -> None:
     if device_runtime.device is None:
         return
 
@@ -523,7 +633,7 @@ def seed_startup_held_actions(device_runtime: Any) -> None:
 
 
 def reconcile_startup_held_action(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     action: MappingAction | None,
     *,
     action_type_enum: type[ActionType],
@@ -559,7 +669,7 @@ def reconcile_startup_held_action(
 
 
 async def process_event(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     event: _InputEventLike,
     *,
     evdev_mod: _EvdevModule,
@@ -771,7 +881,7 @@ async def process_event(
             action,
             event,
             event_name,
-            asyncio_mod=cast(Any, asyncio),
+            asyncio_mod=ASYNCIO_RUNTIME,
             command_type=CommandType,
             fire_and_observe_fn=_fire_and_observe,
             action_type_enum=action_type_enum,
@@ -804,7 +914,7 @@ async def process_event(
 
 
 def find_action_for_event(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     event: _InputEventLike,
     mapping: dict[str, MappingAction],
 ) -> MappingAction | None:
@@ -813,7 +923,7 @@ def find_action_for_event(
 
 
 def find_action_for_code(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     event_code: int,
     event_name: str,
     mapping: dict[str, MappingAction],
@@ -830,7 +940,7 @@ def find_action_for_code(
 
 
 def find_action_for_name(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     event_name: str,
     mapping: dict[str, MappingAction],
     *,
@@ -849,7 +959,7 @@ def find_action_for_name(
 
 
 async def execute_action(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     action: MappingAction,
     event: _InputEventLike,
     event_name: str,
@@ -1125,9 +1235,9 @@ async def execute_action(
                 machine = superkey_machine_cls(
                     config=cast(RuntimeSuperkeyConfig, action.superkey_config),
                     event_name=event_name,
-                    keyboard_uinput=device_runtime.keyboard_uinput,
-                    mouse_uinput=device_runtime.mouse_uinput,
-                    gamepad_uinput=device_runtime.gamepad_uinput,
+                    keyboard_uinput=cast(_WritableUInput, device_runtime.keyboard_uinput),
+                    mouse_uinput=cast(_WritableUInput, device_runtime.mouse_uinput),
+                    gamepad_uinput=cast(_WritableUInput, device_runtime.gamepad_uinput),
                     broadcast_callback=superkey_broadcast,
                     key_event_tracker=superkey_key_event_tracker,
                 )
@@ -1140,7 +1250,7 @@ async def execute_action(
 
 
 async def _execute_key_action(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     action: MappingAction,
     event: _InputEventLike,
     event_name: str,
@@ -1210,7 +1320,7 @@ async def _execute_key_action(
 
 
 async def _execute_move_action(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     action: MappingAction,
     event: _InputEventLike,
     event_name: str,
@@ -1263,7 +1373,7 @@ async def _execute_move_action(
 
 
 def start_rapidfire_task(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     event_name: str,
     kind: str,
     task_factory: TaskFactory,
@@ -1286,7 +1396,7 @@ def start_rapidfire_task(
     device_runtime.state.rapidfire_outputs[event_name] = state
 
 
-def stop_rapidfire(device_runtime: Any, event_name: str) -> None:
+def stop_rapidfire(device_runtime: _GrabbedDeviceRuntime, event_name: str) -> None:
     device_runtime.state.rapidfire_active[event_name] = False
     task = device_runtime.state.rapidfire_tasks.pop(event_name, None)
     if task is not None and not task.done():
@@ -1313,7 +1423,7 @@ def stop_rapidfire(device_runtime: Any, event_name: str) -> None:
 
 
 async def stop_rapidfire_async(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     event_name: str,
     *,
     asyncio_mod: _AsyncioModule,
@@ -1326,7 +1436,9 @@ async def stop_rapidfire_async(
             await task
 
 
-def finish_rapidfire_task(device_runtime: Any, event_name: str, task: asyncio.Task[object]) -> None:
+def finish_rapidfire_task(
+    device_runtime: _GrabbedDeviceRuntime, event_name: str, task: asyncio.Task[object]
+) -> None:
     if device_runtime.state.rapidfire_tasks.get(event_name) is not task:
         return
     device_runtime.state.rapidfire_tasks.pop(event_name, None)
@@ -1352,7 +1464,9 @@ def finish_rapidfire_task(device_runtime: Any, event_name: str, task: asyncio.Ta
             ensure_key_released(device_runtime, code, uinput)
 
 
-def bucket_for_uinput(device_runtime: Any, uinput_dev: object | None) -> str | None:
+def bucket_for_uinput(
+    device_runtime: _GrabbedDeviceRuntime, uinput_dev: object | None
+) -> str | None:
     if uinput_dev is None:
         return None
     if device_runtime.uinput is not None and uinput_dev is device_runtime.uinput:
@@ -1366,7 +1480,9 @@ def bucket_for_uinput(device_runtime: Any, uinput_dev: object | None) -> str | N
     return None
 
 
-def track_key_state(device_runtime: Any, uinput_dev: object | None, code: int, value: int) -> None:
+def track_key_state(
+    device_runtime: _GrabbedDeviceRuntime, uinput_dev: object | None, code: int, value: int
+) -> None:
     bucket = bucket_for_uinput(device_runtime, uinput_dev)
     if not bucket:
         return
@@ -1378,7 +1494,7 @@ def track_key_state(device_runtime: Any, uinput_dev: object | None, code: int, v
 
 
 def write_key(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     uinput_dev: object | None,
     code: int,
     value: int,
@@ -1394,7 +1510,9 @@ def write_key(
     track_key_state(device_runtime, uinput_dev, int(code), int(value))
 
 
-def track_superkey_output(device_runtime: Any, action_type: str, code: int, value: int) -> bool:
+def track_superkey_output(
+    device_runtime: _GrabbedDeviceRuntime, action_type: str, code: int, value: int
+) -> bool:
     bucket = (
         action_type if action_type in device_runtime.state.superkey_output_refcounts else None
     )
@@ -1422,7 +1540,7 @@ def track_superkey_output(device_runtime: Any, action_type: str, code: int, valu
 
 
 def passthrough(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     event: _InputEventLike,
     *,
     evdev_mod: _EvdevModule,
@@ -1454,7 +1572,7 @@ def passthrough(
 
 
 async def rapidfire_trigger(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     axis_code: int,
     hold_ms: int,
     wait_ms: int,
@@ -1472,7 +1590,7 @@ async def rapidfire_trigger(
     try:
         while (
             device_runtime.state.rapidfire_active.get(event_name, False)
-            and device_runtime._running
+            and _runtime_is_running(device_runtime)
         ):
             gamepad_uinput = uinput_writer(device_runtime.gamepad_uinput)
             if gamepad_uinput is None:
@@ -1505,7 +1623,7 @@ async def rapidfire_trigger(
 
 
 def ensure_trigger_released(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     axis_code: int,
     *,
     evdev_mod: _EvdevModule,
@@ -1521,7 +1639,7 @@ def ensure_trigger_released(
 
 
 async def tap_trigger(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     axis_code: int,
     hold_ms: int,
     event_name: str,
@@ -1548,7 +1666,7 @@ async def tap_trigger(
 
 
 async def rapidfire_key(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     code: int,
     hold_ms: int,
     wait_ms: int,
@@ -1565,7 +1683,7 @@ async def rapidfire_key(
     try:
         while (
             device_runtime.state.rapidfire_active.get(event_name, False)
-            and device_runtime._running
+            and _runtime_is_running(device_runtime)
         ):
             write_key(
                 device_runtime,
@@ -1601,7 +1719,9 @@ async def rapidfire_key(
             finish_rapidfire_task(device_runtime, event_name, task)
 
 
-def ensure_key_released(device_runtime: Any, code: int, uinput_dev: object | None) -> None:
+def ensure_key_released(
+    device_runtime: _GrabbedDeviceRuntime, code: int, uinput_dev: object | None
+) -> None:
     try:
         if uinput_dev:
             write_key(
@@ -1616,16 +1736,18 @@ def ensure_key_released(device_runtime: Any, code: int, uinput_dev: object | Non
         pass
 
 
-def emit_configured_mouse_move(device_runtime: Any, action: MappingAction) -> None:
+def emit_configured_mouse_move(
+    device_runtime: _GrabbedDeviceRuntime, action: MappingAction
+) -> None:
     emit_mouse_move(
-        device_runtime.mouse_uinput,
+        cast(_WritableUInput | None, device_runtime.mouse_uinput),
         int(action.move_x),
         int(action.move_y),
         absolute=action.action_type == ActionType.MOUSE_MOVE_ABS,
     )
 
 def release_all_keys(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     *,
     evdev_mod: _EvdevModule,
     uinput_writer: UInputWriter,
@@ -1675,7 +1797,7 @@ def release_all_keys(
 
 
 async def tap_key(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     code: int,
     hold_ms: int,
     event_name: str,
@@ -1710,7 +1832,7 @@ async def tap_key(
 
 
 async def rapidfire_move(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     action: MappingAction,
     event_name: str,
     hold_ms: int,
@@ -1725,7 +1847,7 @@ async def rapidfire_move(
     try:
         while (
             device_runtime.state.rapidfire_active.get(event_name, False)
-            and device_runtime._running
+            and _runtime_is_running(device_runtime)
         ):
             emit_configured_mouse_move(device_runtime, action)
             await asyncio_mod.sleep(hold)
@@ -1742,7 +1864,7 @@ async def rapidfire_move(
 
 
 async def tap_move(
-    device_runtime: Any,
+    device_runtime: _GrabbedDeviceRuntime,
     action: MappingAction,
     event_name: str,
     hold_ms: int,
@@ -1848,7 +1970,7 @@ class GrabbedDevice:
         try:
             await wait_for_active_keys_to_clear(
                 self,
-                asyncio_mod=cast(Any, asyncio),
+                asyncio_mod=ASYNCIO_RUNTIME,
                 time_mod=time,
                 log=log,
                 active_key_idle_max_wait_s=ACTIVE_KEY_IDLE_MAX_WAIT_S,
@@ -1865,7 +1987,7 @@ class GrabbedDevice:
             raise
 
         self._running = True
-        self.task = asyncio.create_task(event_loop(self, asyncio_mod=cast(Any, asyncio), log=log))
+        self.task = asyncio.create_task(event_loop(self, asyncio_mod=ASYNCIO_RUNTIME, log=log))
 
         log.info("Grabbed %s for %s", self.path, self.hardware_id)
 

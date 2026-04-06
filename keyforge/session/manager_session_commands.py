@@ -1,24 +1,18 @@
 # pyright: reportPrivateUsage=false
 
 import asyncio
-import inspect
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.security import PeerCredentials, command_allowed
+from keyforge.session import manager_compositor as runtime_compositor
 from keyforge.session import manager_recording as runtime_recording
-from keyforge.session.compositor import (
-    get_compositor_capabilities,
-    get_compositor_name,
-    get_compositor_support_details,
-)
 from keyforge.session.manager_common import (
     JsonObject,
     float_value,
     int_value,
     json_object,
-    merge_support_details,
     str_value,
 )
 
@@ -129,101 +123,35 @@ async def _handle_compositor_commands(
 ) -> JsonObject | None:
     _ = peer, writer
     if command == "get_compositor":
-        details = merge_support_details(
-            await get_compositor_support_details(manager._compositor_id, manager.dbus),
-            manager._window_listener,
-        )
-        return {
-            "compositor_id": manager._compositor_id,
-            "compositor_name": get_compositor_name(manager._compositor_id),
-            "supported": bool(details.get("supported", False)),
-            "capabilities": get_compositor_capabilities(manager._compositor_id),
-            "details": details,
-            "listener_active": manager._window_listener is not None,
-            "listener_name": (
-                getattr(manager._window_listener, "name", "")
-                if manager._window_listener is not None
-                else ""
-            ),
-            "compositor_dispatch_available": manager._compositor_dispatch_available(),
-        }
+        return await runtime_compositor.build_compositor_payload(manager)
 
     if command == "get_active_window":
-        return await manager._get_active_window_payload()
+        return await runtime_compositor.get_active_window_payload(manager)
 
     if command == "activate_title":
-        title = str_value(request.get("title"), "").strip()
-        if not title:
-            return {"status": "error", "message": "title parameter required"}
-        listener = manager._window_listener
-        activate_window_by_title = (
-            getattr(listener, "activate_window_by_title", None) if listener is not None else None
+        return await runtime_compositor.activate_title(
+            manager,
+            str_value(request.get("title"), "").strip(),
         )
-        if not callable(activate_window_by_title):
-            return {
-                "status": "error",
-                "message": "Window activation not supported on this compositor",
-            }
-        try:
-            result_obj = activate_window_by_title(title)
-            if not inspect.isawaitable(result_obj):
-                return {
-                    "status": "error",
-                    "message": "Window activation not supported on this compositor",
-                }
-            result = await result_obj
-            if result and result.get("found"):
-                return {"status": "ok", "title": title, "found": True}
-            return {
-                "status": "error",
-                "message": f"Window with title {title!r} not found",
-                "details": result,
-            }
-        except Exception as exc:
-            return {"status": "error", "message": str(exc)}
 
     if command == "get_cursor_position":
-        pos = None
-
-        if manager._window_listener:
-            try:
-                pos = await manager._window_listener.get_cursor_position()
-            except Exception as e:
-                log.debug(
-                    "Cursor query failed (compositor_id=%s listener=%s): %s",
-                    manager._compositor_id,
-                    getattr(manager._window_listener, "name", "unknown"),
-                    e,
-                )
-
-        if pos is None:
-            return {
-                "status": "error",
-                "message": "Cursor position is unavailable on this compositor",
-            }
-        return {"status": "ok", "x": int(pos[0]), "y": int(pos[1])}
+        return await runtime_compositor.get_cursor_position_payload(manager)
 
     if command == "get_status":
         unlock_status = await runtime_recording.resolve_unlock_status_async(manager, peer.uid)
-        compositor_details = merge_support_details(
-            await get_compositor_support_details(manager._compositor_id, manager.dbus),
-            manager._window_listener,
-        )
+        compositor_status = await runtime_compositor.build_compositor_payload(manager)
+        compositor_details = cast(dict[str, object], compositor_status["details"])
         policy = manager._security_policy
         return {
             "status": "ok",
             "keyforged_connected": manager._connected,
-            "compositor_id": manager._compositor_id,
-            "compositor_name": get_compositor_name(manager._compositor_id),
-            "compositor_supported": bool(compositor_details.get("supported", False)),
+            "compositor_id": compositor_status["compositor_id"],
+            "compositor_name": compositor_status["compositor_name"],
+            "compositor_supported": bool(compositor_status["supported"]),
             "compositor_details": compositor_details,
-            "listener_active": manager._window_listener is not None,
-            "listener_name": (
-                getattr(manager._window_listener, "name", "")
-                if manager._window_listener is not None
-                else ""
-            ),
-            "compositor_dispatch_available": manager._compositor_dispatch_available(),
+            "listener_active": compositor_status["listener_active"],
+            "listener_name": compositor_status["listener_name"],
+            "compositor_dispatch_available": compositor_status["compositor_dispatch_available"],
             "active_profiles": list(manager._active_profile_names),
             "recording_active": manager.recording_state.active,
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),

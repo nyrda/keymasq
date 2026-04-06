@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 
 import keyforge.session.manager as session_manager_module
+import keyforge.session.manager_compositor as session_compositor_module
 import keyforge.session.manager_recording as session_recording_module
 import keyforge.session.manager_session_commands as session_commands_module
 from keyforge.common.ipc import Command, CommandType, Response
@@ -275,7 +276,8 @@ async def test_compositor_dispatch_calls_active_listener_even_when_unsupported()
     manager._window_listener = listener  # type: ignore[assignment]
     manager._compositor_id = "x11"
 
-    await manager._handle_compositor_dispatch_trigger(
+    await session_compositor_module.handle_compositor_dispatch_trigger(
+        manager,
         {"dispatcher": "workspace", "args": "2"}
     )
 
@@ -292,7 +294,8 @@ async def test_compositor_dispatch_ignores_mismatched_target_compositor() -> Non
     manager._window_listener = listener  # type: ignore[assignment]
     manager._compositor_id = "gnome"
 
-    await manager._handle_compositor_dispatch_trigger(
+    await session_compositor_module.handle_compositor_dispatch_trigger(
+        manager,
         {"compositor": "hyprland", "dispatcher": "workspace", "args": "2"}
     )
 
@@ -381,9 +384,9 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
     async def _unsupported(_compositor_id: str | None, _dbus=None) -> bool:
         return False
 
-    monkeypatch.setattr("keyforge.session.manager.is_compositor_supported", _unsupported)
+    monkeypatch.setattr("keyforge.session.manager_compositor.is_compositor_supported", _unsupported)
 
-    await manager._switch_compositor("wayland")
+    await session_compositor_module.switch_compositor(manager, "wayland")
     assert manager._compositor_id == "wayland"
     assert manager._window_listener is None
     assert "wayland" in manager._listener_retry_after
@@ -391,14 +394,14 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
     async def _supported(_compositor_id: str | None, _dbus=None) -> bool:
         return True
 
-    monkeypatch.setattr("keyforge.session.manager.is_compositor_supported", _supported)
+    monkeypatch.setattr("keyforge.session.manager_compositor.is_compositor_supported", _supported)
 
-    async def _fail_listener_start() -> None:
+    async def _fail_listener_start(_manager: SessionManager) -> None:
         manager._window_listener = None
         manager._last_listener_start_error = "listener boot failed"
 
-    manager._start_window_listener = _fail_listener_start  # type: ignore[assignment]
-    await manager._switch_compositor("x11")
+    monkeypatch.setattr(session_compositor_module, "start_window_listener", _fail_listener_start)
+    await session_compositor_module.switch_compositor(manager, "x11")
 
     assert manager._compositor_id == "x11"
     assert manager._window_listener is None
@@ -608,7 +611,11 @@ async def test_handle_session_request_get_compositor_merges_listener_runtime_war
         return {"supported": True, "warning": ""}
 
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(session_commands_module, "get_compositor_support_details", _support_details)
+    monkeypatch.setattr(
+        session_compositor_module,
+        "get_compositor_support_details",
+        _support_details,
+    )
 
     try:
         result = await manager._handle_session_request(
@@ -803,7 +810,11 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     async def _support_details(_compositor_id: str | None, _dbus=None) -> dict[str, bool | str]:
         return {"supported": False, "warning": ""}
 
-    monkeypatch.setattr(session_manager_module, "get_compositor_support_details", _support_details)
+    monkeypatch.setattr(
+        session_compositor_module,
+        "get_compositor_support_details",
+        _support_details,
+    )
 
     result = await manager._handle_session_request(
         {"command": "get_status"},
@@ -901,7 +912,11 @@ async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     async def _support_details(_compositor_id: str | None, _dbus=None) -> dict[str, bool | str]:
         return {"supported": False, "warning": ""}
 
-    monkeypatch.setattr(session_manager_module, "get_compositor_support_details", _support_details)
+    monkeypatch.setattr(
+        session_compositor_module,
+        "get_compositor_support_details",
+        _support_details,
+    )
 
     result = await manager._handle_session_request(
         {"command": "get_status"},

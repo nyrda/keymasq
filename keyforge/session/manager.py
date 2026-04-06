@@ -32,18 +32,11 @@ from keyforge.common.security import (
     load_security_policy,
     uid_allowed,
 )
+from keyforge.session import manager_compositor as runtime_compositor
 from keyforge.session import manager_recording as runtime_recording
 from keyforge.session import manager_session_commands as session_commands
 from keyforge.session.action_handler import ActionHandler
 from keyforge.session.client import KeyforgedClient
-from keyforge.session.compositor import (
-    detect_compositor,
-    get_compositor_capabilities,
-    get_compositor_name,
-    get_compositor_support_details,
-    get_listener_class,
-    is_compositor_supported,
-)
 from keyforge.session.dbus import SessionDBus
 from keyforge.session.hardware import HardwareManager
 from keyforge.session.listeners.base import WindowListener
@@ -158,7 +151,9 @@ class SessionManager:
         await self._start_session_server()
 
         self._connect_task = asyncio.create_task(self._connect_loop())
-        self._compositor_supervisor_task = asyncio.create_task(self._compositor_supervisor_loop())
+        self._compositor_supervisor_task = asyncio.create_task(
+            runtime_compositor.compositor_supervisor_loop(self)
+        )
 
         try:
             await self._shutdown_event.wait()
@@ -192,7 +187,7 @@ class SessionManager:
                 await save_task
             self.recording_state.settings_save_task = None
 
-        await self._stop_window_listener()
+        await runtime_compositor.stop_window_listener(self)
         await self.dbus.disconnect()
 
         if self._session_server:
@@ -364,59 +359,6 @@ class SessionManager:
             },
             "window": self._current_window,
         }
-
-    async def _get_active_window_payload(self) -> JsonObject:
-        if self._window_listener is not None:
-            try:
-                (
-                    window_class,
-                    window_title,
-                    window_tags,
-                ) = await self._window_listener.get_active_window()
-                window_info = self._normalize_window_info(window_class, window_title, window_tags)
-                if window_info["class"] or window_info["title"] or window_info["tags"]:
-                    self._current_window = cast(JsonObject, window_info)
-                    return {"status": "ok", **window_info}
-            except Exception as e:
-                log.debug(
-                    "Active window query failed (compositor_id=%s listener=%s): %s",
-                    self._compositor_id,
-                    getattr(self._window_listener, "name", "unknown"),
-                    e,
-                )
-
-        if self._current_window:
-            return {"status": "ok", **self._normalize_window_info_from_dict(self._current_window)}
-
-        return {
-            "status": "error",
-            "message": "Active window is unavailable on this compositor",
-        }
-
-    def _normalize_window_info(
-        self,
-        window_class: str,
-        window_title: str,
-        window_tags: list[str],
-    ) -> dict[str, str | list[str]]:
-        return {
-            "class": str(window_class or ""),
-            "title": str(window_title or ""),
-            "tags": [str(tag) for tag in window_tags if str(tag or "").strip()],
-        }
-
-    def _normalize_window_info_from_dict(
-        self, window_info: JsonObject
-    ) -> dict[str, str | list[str]]:
-        return self._normalize_window_info(
-            _str_value(window_info.get("class"), ""),
-            _str_value(window_info.get("title"), ""),
-            [
-                str(tag)
-                for tag in _json_list(window_info.get("tags"))
-                if str(tag or "").strip()
-            ],
-        )
 
     def _broadcast_profiles_changed(self) -> None:
         message = {"event": "profiles_changed", **self._build_active_profiles_payload()}
@@ -659,159 +601,6 @@ class SessionManager:
                         pass
                     retry_delay = min(retry_delay * 2, max_delay)
 
-    async def _compositor_supervisor_loop(self) -> None:
-        while self.running:
-            try:
-                await self._ensure_compositor_listener()
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                log.debug(f"Compositor supervisor error: {e}")
-
-            stable = (
-                self._window_listener is not None
-                and self._compositor_id is not None
-                and self._compositor_candidate == self._compositor_id
-                and self._compositor_candidate_hits >= 2
-            )
-            await asyncio.sleep(
-                self._compositor_probe_slow_s if stable else self._compositor_probe_fast_s
-            )
-
-    async def _ensure_compositor_listener(self) -> None:
-        detected = await detect_compositor(self.dbus)
-
-        if detected == self._compositor_candidate:
-            self._compositor_candidate_hits += 1
-        else:
-            self._compositor_candidate = detected
-            self._compositor_candidate_hits = 1
-
-        current_healthy = False
-        if self._window_listener is not None:
-            with contextlib.suppress(Exception):
-                current_healthy = await self._window_listener.health_check()
-
-        if self._window_listener is not None and not current_healthy:
-            log.warning("Window listener became unhealthy, restarting compositor binding")
-            await self._stop_window_listener()
-            self._compositor_id = None
-
-        if self._compositor_candidate_hits < 2:
-            return
-
-        target = self._compositor_candidate
-        if target == self._compositor_id and self._window_listener is not None:
-            return
-
-        await self._switch_compositor(target)
-
-    async def _switch_compositor(self, compositor_id: str | None) -> None:
-        if compositor_id == self._compositor_id and self._window_listener is not None:
-            return
-
-        if compositor_id and compositor_id == self._compositor_id and self._window_listener is None:
-            if not self._listener_retry_ready(compositor_id):
-                return
-
-        previous = self._compositor_id
-        await self._stop_window_listener()
-
-        self._compositor_id = compositor_id
-        self._compositor_capabilities = get_compositor_capabilities(self._compositor_id)
-
-        if compositor_id is None:
-            if previous is not None:
-                log.info("Compositor transitioned %s -> none (headless mode)", previous)
-            return
-
-        compositor_name = get_compositor_name(compositor_id)
-        support_details: dict[str, bool | str] = {}
-        if compositor_id == "gnome":
-            support_details = await get_compositor_support_details(compositor_id, self.dbus)
-            supported = bool(support_details.get("supported", False))
-        else:
-            supported = await is_compositor_supported(compositor_id, self.dbus)
-        if not supported:
-            self._note_listener_failure(
-                compositor_id,
-                str(
-                    support_details.get("warning", "")
-                    or f"listener support unavailable for {compositor_name}"
-                ),
-            )
-            return
-
-        await self._start_window_listener()
-        if self._window_listener is None:
-            self._note_listener_failure(compositor_id, self._last_listener_start_error)
-            return
-
-        self._listener_retry_after.pop(compositor_id, None)
-        self._listener_last_error.pop(compositor_id, None)
-        self._listener_last_log_at.pop(compositor_id, None)
-
-        if previous != compositor_id:
-            log.info("Compositor transitioned %s -> %s", previous or "none", compositor_id)
-        else:
-            log.info("Compositor listener restarted for %s", compositor_id)
-
-    async def _stop_window_listener(self) -> None:
-        if self._window_listener is None:
-            return
-        try:
-            await self._window_listener.stop()
-        except Exception as e:
-            log.debug(f"Error stopping window listener: {e}")
-        self._window_listener = None
-
-    def _listener_retry_ready(self, compositor_id: str) -> bool:
-        now = asyncio.get_running_loop().time()
-        return now >= float(self._listener_retry_after.get(compositor_id, 0.0))
-
-    def _note_listener_failure(self, compositor_id: str, error: str) -> None:
-        now = asyncio.get_running_loop().time()
-        error_text = (error or "listener startup failed").strip()
-
-        previous_error = self._listener_last_error.get(compositor_id)
-        last_log_at = float(self._listener_last_log_at.get(compositor_id, 0.0))
-        should_log = (
-            previous_error != error_text or (now - last_log_at) >= self._listener_log_interval_s
-        )
-
-        if should_log:
-            log.warning(
-                "No compatible window listener environment detected for '%s': %s. "
-                "Window tracking is disabled until environment changes.",
-                compositor_id,
-                error_text,
-            )
-            self._listener_last_log_at[compositor_id] = now
-
-        self._listener_last_error[compositor_id] = error_text
-        self._listener_retry_after[compositor_id] = now + self._listener_retry_interval_s
-
-    async def _start_window_listener(self) -> None:
-        listener_class = get_listener_class(self._compositor_id)
-        log.debug(f"Window listener class for {self._compositor_id}: {listener_class}")
-        if not listener_class:
-            log.debug(f"No window listener available for compositor: {self._compositor_id}")
-            self._last_listener_start_error = "no listener class available"
-            return
-
-        try:
-            self._window_listener = listener_class(self.on_window_change, self.client, self.dbus)
-            log.debug(f"Window listener instance created: {self._window_listener}")
-            await self._window_listener.start()
-            log.info(f"Started {self._window_listener.name} window listener")
-            self._last_listener_start_error = ""
-        except NotImplementedError as e:
-            self._last_listener_start_error = str(e)
-            self._window_listener = None
-        except Exception as e:
-            self._last_listener_start_error = str(e)
-            log.debug(f"Failed to start window listener: {e}")
-            self._window_listener = None
 
     async def _handle_event(self, event_type: CommandType, data: JsonObject) -> None:
         if self.verbosity >= 1:
@@ -853,7 +642,9 @@ class SessionManager:
             elif action_type_str == "exec" and exec_ref is None:
                 asyncio.create_task(self._handle_exec_trigger(data))
             elif action_type_str in {"compositor_dispatch", "hyprland_dispatch"}:
-                asyncio.create_task(self._handle_compositor_dispatch_trigger(data))
+                asyncio.create_task(
+                    runtime_compositor.handle_compositor_dispatch_trigger(self, data)
+                )
             elif action_type_str == "macro":
                 macro_name = str(data.get("macro_name", "")).strip()
                 if macro_name:
@@ -983,47 +774,6 @@ class SessionManager:
         if action_handler is None:
             return
         await action_handler.execute_command(cmd)
-
-    async def _handle_compositor_dispatch_trigger(self, data: JsonObject) -> None:
-        target_compositor = _str_value(data.get("compositor"), "").strip()
-        dispatcher = _str_value(data.get("dispatcher"), "").strip()
-        args = _str_value(data.get("args"), "").strip()
-        if not dispatcher:
-            return
-
-        current_compositor = str(self._compositor_id or "").strip()
-        if target_compositor and target_compositor != current_compositor:
-            log.warning(
-                (
-                    "Ignored compositor dispatch for mismatched target: "
-                    "target=%s current=%s dispatcher=%s"
-                ),
-                target_compositor,
-                current_compositor or "none",
-                dispatcher,
-            )
-            return
-
-        listener = self._window_listener
-        if listener is None:
-            log.warning(
-                (
-                    "Ignored compositor dispatch trigger while listener inactive: "
-                    "dispatcher=%s compositor=%s"
-                ),
-                dispatcher,
-                self._compositor_id or "none",
-            )
-            return
-
-        ok, message = await listener.dispatch(dispatcher, args)
-        if not ok:
-            log.warning(
-                "Compositor dispatch failed: dispatcher=%s args=%s message=%s",
-                dispatcher,
-                args,
-                message,
-            )
 
     async def _activate_initial_profiles(self) -> None:
         hardware_ids = self.hardware.list_hardware_ids()
@@ -1637,18 +1387,7 @@ class SessionManager:
     async def on_window_change(
         self, window_class: str, window_title: str, window_tags: list[str]
     ) -> None:
-        window_info = self._normalize_window_info(window_class, window_title, window_tags)
-
-        if self.verbosity >= 1:
-            log.debug(
-                "Window changed: class=%s, title=%s, tags=%s",
-                window_class,
-                window_title,
-                window_tags,
-            )
-
-        self._current_window = cast(JsonObject, window_info)
-        await self._reevaluate_profiles()
+        await runtime_compositor.on_window_change(self, window_class, window_title, window_tags)
 
     def _send_notification(self, title: str, message: str) -> None:
         log.info("Notification: %s: %s", title, message)
@@ -1960,18 +1699,6 @@ class SessionManager:
                 data["superkey"] = self._serialize_superkey_signature(superkey_config, hardware_id)
 
         return data
-
-    def _compositor_dispatch_available(self) -> bool:
-        listener = self._window_listener
-        if listener is None:
-            return False
-        available = getattr(listener, "compositor_dispatch_available", None)
-        if available is not None:
-            return bool(available)
-        return bool(
-            getattr(listener, "running", False)
-            and getattr(listener, "supports_compositor_dispatch", False)
-        )
 
     def _mapping_log_view(self, mapping: JsonObject) -> JsonObject:
         view: JsonObject = {}

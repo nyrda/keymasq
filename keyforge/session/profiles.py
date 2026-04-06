@@ -113,6 +113,9 @@ class ProfileManager:
             except Exception as e:
                 log.error("Failed to load %s: %s", profile_file, e)
 
+    def reload(self) -> None:
+        self._load_all()
+
     def _load_profile(self, path: Path) -> ProfileConfig:
         with open(path, "rb") as f:
             data = cast(TomlDict, tomllib.load(f))

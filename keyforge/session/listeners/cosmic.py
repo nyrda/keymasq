@@ -19,7 +19,7 @@ class CosmicListener(WindowListener):
     def __init__(
         self,
         callback: WindowChangeCallback,
-        client=None,
+        client: object | None = None,
         dbus: SessionDBus | None = None,
     ) -> None:
         super().__init__(callback, client, dbus=dbus)
@@ -43,8 +43,8 @@ class CosmicListener(WindowListener):
     @classmethod
     async def _pick_cosmic_socket(cls):
         required = {"ext_foreign_toplevel_list_v1", "zcosmic_toplevel_info_v1"}
-        for socket_path in WlrootsWaylandListener._candidate_wayland_sockets():
-            if not await WlrootsWaylandListener._socket_connectable(socket_path):
+        for socket_path in WlrootsWaylandListener.candidate_wayland_sockets():
+            if not await WlrootsWaylandListener.socket_connectable(socket_path):
                 continue
             globals_found = await list_registry_globals(socket_path)
             if required.issubset(globals_found):

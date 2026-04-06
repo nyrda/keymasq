@@ -54,7 +54,7 @@ class WindowListener(ABC):
     @abstractmethod
     async def probe_available(cls, dbus: "SessionDBus | None" = None) -> bool:
         _ = dbus
-        pass
+        raise NotImplementedError
 
     async def health_check(self) -> bool:
         if not self.running:

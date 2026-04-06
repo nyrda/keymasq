@@ -124,22 +124,22 @@ def parse_kde_dispatch_payload(payload: str) -> tuple[str, bool, str] | None:
     return request_id, ok_raw, message
 
 
-class _KDEBridge(ServiceInterface):  # type: ignore[misc,valid-type]
+class _KDEBridge(ServiceInterface):
     def __init__(self, listener: "KDEListener") -> None:
         super().__init__(KDE_DBUS_INTERFACE)
         self._listener = listener
 
     @method()
     def windowChanged(self, payload: "s") -> None:
-        self._listener._on_window_payload(payload)
+        self._listener.handle_window_payload(payload)
 
     @method()
     def cursorPosition(self, payload: "s") -> None:
-        self._listener._on_cursor_payload(payload)
+        self._listener.handle_cursor_payload(payload)
 
     @method()
     def dispatchResult(self, payload: "s") -> None:
-        self._listener._on_dispatch_payload(payload)
+        self._listener.handle_dispatch_payload(payload)
 
 
 class KDEListener(WindowListener):
@@ -403,7 +403,7 @@ class KDEListener(WindowListener):
                 with contextlib.suppress(Exception):
                     script_path.unlink(missing_ok=True)
 
-    def _on_window_payload(self, payload: str) -> None:
+    def handle_window_payload(self, payload: str) -> None:
         parsed = parse_kde_window_payload(payload)
         if not parsed:
             self._log_ignored_payload("window", payload)
@@ -422,7 +422,10 @@ class KDEListener(WindowListener):
         self._callback_tasks.add(task)
         task.add_done_callback(self._on_callback_done)
 
-    def _on_cursor_payload(self, payload: str) -> None:
+    def _on_window_payload(self, payload: str) -> None:
+        self.handle_window_payload(payload)
+
+    def handle_cursor_payload(self, payload: str) -> None:
         parsed = parse_kde_cursor_payload(payload)
         if not parsed:
             self._log_ignored_payload("cursor", payload)
@@ -433,7 +436,10 @@ class KDEListener(WindowListener):
         if future and not future.done():
             future.set_result((x, y))
 
-    def _on_dispatch_payload(self, payload: str) -> None:
+    def _on_cursor_payload(self, payload: str) -> None:
+        self.handle_cursor_payload(payload)
+
+    def handle_dispatch_payload(self, payload: str) -> None:
         parsed = parse_kde_dispatch_payload(payload)
         if not parsed:
             clipped_payload = payload if len(payload) <= 160 else f"{payload[:157]}..."
@@ -444,6 +450,9 @@ class KDEListener(WindowListener):
         future = self._dispatch_waiters.get(request_id)
         if future and not future.done():
             future.set_result((ok, message))
+
+    def _on_dispatch_payload(self, payload: str) -> None:
+        self.handle_dispatch_payload(payload)
 
     def _log_ignored_payload(self, payload_type: str, payload: str) -> None:
         now = time.monotonic()

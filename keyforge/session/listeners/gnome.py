@@ -39,7 +39,7 @@ class GnomeListener(WindowListener):
     def __init__(
         self,
         callback: WindowChangeCallback,
-        client=None,
+        client: object | None = None,
         dbus: SessionDBus | None = None,
     ) -> None:
         super().__init__(callback, client, dbus=dbus)

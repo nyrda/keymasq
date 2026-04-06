@@ -34,6 +34,9 @@ class HardwareManager:
             except Exception as e:
                 log.error(f"Failed to load {config_file}: {e}")
 
+    def reload(self) -> None:
+        self._load_all()
+
     def _load_config(self, path: Path) -> HardwareConfig:
         with open(path, "rb") as f:
             data = tomllib.load(f)

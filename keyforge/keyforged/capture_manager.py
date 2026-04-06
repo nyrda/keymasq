@@ -186,10 +186,13 @@ class CaptureManager:
             "warnings": warnings,
         }
 
-    def _authorize_combo_capture(self) -> _ComboCaptureAuthorization:
+    def authorize_combo_capture(self) -> _ComboCaptureAuthorization:
         token = str(uuid.uuid4())
         self._combo_capture_authorizations.add(token)
         return _ComboCaptureAuthorization(token=token)
+
+    def _authorize_combo_capture(self) -> _ComboCaptureAuthorization:
+        return self.authorize_combo_capture()
 
     def _consume_combo_capture_authorization(
         self,

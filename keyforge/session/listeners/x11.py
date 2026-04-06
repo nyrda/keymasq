@@ -2,8 +2,9 @@ import asyncio
 import logging
 import os
 import threading
+from collections.abc import Sequence
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 from keyforge.session.dbus import SessionDBus
 from keyforge.session.listeners.base import WindowChangeCallback, WindowListener
@@ -11,38 +12,113 @@ from keyforge.session.listeners.base import WindowChangeCallback, WindowListener
 log = logging.getLogger("keyforge-session.listeners.x11")
 
 _x_module = None
+xdisplay: object | None
 try:
     from Xlib import X as XLIB_X
-    from Xlib import display as xdisplay
+    from Xlib import display
 except Exception:
     xdisplay = None
 else:
     _x_module = XLIB_X
+    xdisplay = display
 
 X = _x_module
+
+
+class _XDisplayModule(Protocol):
+    def Display(self, display: str) -> "_XDisplay": ...  # noqa: N802 - Xlib API
+
+
+class _XScreen(Protocol):
+    root: "_XWindow"
+
+
+class _XDisplay(Protocol):
+    def screen(self) -> _XScreen: ...
+
+    def intern_atom(self, name: str) -> int: ...
+
+    def sync(self) -> None: ...
+
+    def close(self) -> None: ...
+
+    def fileno(self) -> int: ...
+
+    def pending_events(self) -> int: ...
+
+    def next_event(self) -> "_XEvent": ...
+
+    def create_resource_object(self, resource_type: str, resource_id: int) -> "_XWindow": ...
+
+
+class _XProperty(Protocol):
+    value: object
+
+
+class _XPointer(Protocol):
+    root_x: int
+    root_y: int
+
+
+class _XWindow(Protocol):
+    id: int
+
+    def change_attributes(self, *, event_mask: int) -> None: ...
+
+    def get_full_property(self, atom: int, property_type: int) -> _XProperty | None: ...
+
+    def get_wm_class(self) -> Sequence[object] | None: ...
+
+    def get_wm_name(self) -> object: ...
+
+    def query_pointer(self) -> _XPointer: ...
+
+
+class _XEvent(Protocol):
+    type: int
+    window: _XWindow | None
+    atom: int | None
 
 
 def has_x11_support() -> bool:
     return xdisplay is not None
 
 
+def _xdisplay_module() -> _XDisplayModule | None:
+    if xdisplay is None:
+        return None
+    return cast(_XDisplayModule, xdisplay)
+
+
+def _first_property_value(prop: _XProperty | None) -> object | None:
+    if prop is None:
+        return None
+    value = prop.value
+    if isinstance(value, Sequence):
+        sequence = cast(Sequence[object], value)
+        if not sequence:
+            return None
+        return sequence[0]
+    return value
+
+
 class X11Listener(WindowListener):
     def __init__(
         self,
         callback: WindowChangeCallback,
-        client=None,
+        client: object | None = None,
         dbus: SessionDBus | None = None,
     ) -> None:
         super().__init__(callback, client, dbus=dbus)
-        self._xdisplay = None
-        self._root = None
-        self._atom_active = None
-        self._atom_net_wm_name = None
-        self._atom_wm_name = None
-        self._atom_wm_class = None
+        self._xdisplay: _XDisplay | None = None
+        self._root: _XWindow | None = None
+        self._atom_active: int | None = None
+        self._atom_net_wm_name: int | None = None
+        self._atom_wm_name: int | None = None
+        self._atom_wm_class: int | None = None
         self._window_watch_atoms: set[int] = set()
         self._active_window_id: int | None = None
-        self._active_window = None
+        self._active_window: _XWindow | None = None
         self._fd_event: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._display_fd: int | None = None
@@ -77,11 +153,11 @@ class X11Listener(WindowListener):
 
     @classmethod
     def _can_open_display(cls, display_name: str) -> bool:
-        if xdisplay is None:
+        display_mod = _xdisplay_module()
+        if display_mod is None:
             return False
         try:
-            display_mod = cast(object, xdisplay)
-            disp = display_mod.Display(display_name)  # type: ignore[attr-defined]
+            disp = display_mod.Display(display_name)
             disp.close()
             return True
         except Exception:
@@ -202,14 +278,14 @@ class X11Listener(WindowListener):
             self._fd_event.set()
 
     def _open_display(self) -> None:
-        if xdisplay is None or X is None:
+        display_mod = _xdisplay_module()
+        if display_mod is None or X is None:
             raise RuntimeError("python-xlib is unavailable")
         if not self._display_name:
             raise RuntimeError("X11 display name is not set")
 
         with self._x_lock:
-            display_mod = cast(object, xdisplay)
-            self._xdisplay = display_mod.Display(self._display_name)  # type: ignore[attr-defined]
+            self._xdisplay = display_mod.Display(self._display_name)
             self._root = self._xdisplay.screen().root
             self._atom_active = self._xdisplay.intern_atom("_NET_ACTIVE_WINDOW")
             self._atom_net_wm_name = self._xdisplay.intern_atom("_NET_WM_NAME")
@@ -217,13 +293,9 @@ class X11Listener(WindowListener):
             self._atom_wm_class = self._xdisplay.intern_atom("WM_CLASS")
 
             self._window_watch_atoms = {
-                atom
-                for atom in (
-                    self._atom_net_wm_name,
-                    self._atom_wm_name,
-                    self._atom_wm_class,
-                )
-                if isinstance(atom, int)
+                self._atom_net_wm_name,
+                self._atom_wm_name,
+                self._atom_wm_class,
             }
 
             self._root.change_attributes(event_mask=int(getattr(X, "PropertyChangeMask", 0)))
@@ -288,13 +360,13 @@ class X11Listener(WindowListener):
 
             return changed
 
-    def _handle_x_event_unlocked(self, event) -> bool:
-        if X is None or getattr(event, "type", None) != int(getattr(X, "PropertyNotify", -1)):
+    def _handle_x_event_unlocked(self, event: _XEvent) -> bool:
+        if X is None or event.type != int(getattr(X, "PropertyNotify", -1)):
             return False
 
-        event_window = getattr(event, "window", None)
-        event_window_id = getattr(event_window, "id", None)
-        event_atom = getattr(event, "atom", None)
+        event_window = event.window
+        event_window_id = event_window.id if event_window is not None else None
+        event_atom = event.atom
 
         if (
             self._root is not None
@@ -361,10 +433,11 @@ class X11Listener(WindowListener):
             self._atom_active,
             int(getattr(X, "AnyPropertyType", 0)),
         )
-        if not prop or not prop.value:
+        raw_window_id = _first_property_value(prop)
+        if not raw_window_id:
             return None
 
-        window_id = int(prop.value[0])
+        window_id = int(cast(int | str | bytes | bytearray, raw_window_id))
         if window_id == 0:
             return None
 

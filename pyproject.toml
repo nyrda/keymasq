@@ -102,6 +102,8 @@ reportMissingTypeArgument = "none"
 reportPrivateUsage = "none"
 reportUntypedBaseClass = "none"
 executionEnvironments = [
+    { root = "keyforge/session", extraPaths = ["."], reportMissingTypeStubs = "error", reportUnknownMemberType = "error", reportUnknownArgumentType = "error", reportUnknownVariableType = "error", reportUnknownParameterType = "error", reportMissingParameterType = "error", reportMissingTypeArgument = "error", reportPrivateUsage = "error", reportUntypedBaseClass = "error" },
+    { root = "keyforge/keyforged", extraPaths = ["."], reportMissingTypeStubs = "error", reportUnknownMemberType = "error", reportUnknownArgumentType = "error", reportUnknownVariableType = "error", reportUnknownParameterType = "error", reportMissingParameterType = "error", reportMissingTypeArgument = "error", reportPrivateUsage = "error", reportUntypedBaseClass = "error" },
     { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none", reportUnknownLambdaType = "none" },
 ]
 

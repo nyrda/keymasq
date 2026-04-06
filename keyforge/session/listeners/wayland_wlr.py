@@ -20,7 +20,7 @@ class WlrootsWaylandListener(WindowListener):
     def __init__(
         self,
         callback: WindowChangeCallback,
-        client=None,
+        client: object | None = None,
         dbus: SessionDBus | None = None,
     ) -> None:
         super().__init__(callback, client, dbus=dbus)
@@ -44,7 +44,7 @@ class WlrootsWaylandListener(WindowListener):
         return Path(f"/run/user/{os.getuid()}")
 
     @classmethod
-    def _candidate_wayland_sockets(cls) -> list[Path]:
+    def candidate_wayland_sockets(cls) -> list[Path]:
         runtime_dir = cls._runtime_dir()
         if not runtime_dir.exists():
             return []
@@ -56,7 +56,7 @@ class WlrootsWaylandListener(WindowListener):
         return sockets
 
     @classmethod
-    async def _socket_connectable(cls, socket_path: Path, timeout_s: float = 0.2) -> bool:
+    async def socket_connectable(cls, socket_path: Path, timeout_s: float = 0.2) -> bool:
         try:
             connect_coro = asyncio.open_unix_connection(path=str(socket_path))
             _, writer = await asyncio.wait_for(connect_coro, timeout=timeout_s)
@@ -69,8 +69,8 @@ class WlrootsWaylandListener(WindowListener):
     @classmethod
     async def _pick_wayland_socket(cls) -> Path | None:
         required = {"zwlr_foreign_toplevel_manager_v1"}
-        for path in cls._candidate_wayland_sockets():
-            if await cls._socket_connectable(path):
+        for path in cls.candidate_wayland_sockets():
+            if await cls.socket_connectable(path):
                 globals_found = await list_registry_globals(path)
                 if required.issubset(globals_found):
                     return path

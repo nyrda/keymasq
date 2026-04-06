@@ -764,7 +764,8 @@ class SessionManager:
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
             if result.status == "ok":
-                return result.data or {"status": "ok"}
+                response_data = _json_object(result.data)
+                return response_data if response_data else {"status": "ok"}
             return {"status": "error", "message": result.error or "playback failed"}
 
         if command == "cancel_macro_playback":
@@ -775,7 +776,8 @@ class SessionManager:
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
             if result.status == "ok":
-                return result.data or {"status": "ok", "cancelled": True}
+                response_data = _json_object(result.data)
+                return response_data if response_data else {"status": "ok", "cancelled": True}
             return {"status": "error", "message": result.error or "cancel failed"}
 
         if command == "list_devices_for_recording":
@@ -1600,8 +1602,8 @@ class SessionManager:
     def _reload_config_from_disk(self) -> None:
         self._security_policy = load_security_policy(SECURITY_POLICY_PATH)
         self.superkeys.reload()
-        self.profiles._load_all()
-        self.hardware._load_all()
+        self.profiles.reload()
+        self.hardware.reload()
 
     async def _connect_loop(self) -> None:
         retry_delay = 1.0
@@ -3231,7 +3233,8 @@ class SessionManager:
 
         if result.status == "ok":
             self._recording_active = True
-            return _json_object(result.data) or {"status": "ok"}
+            response_data = _json_object(result.data)
+            return response_data if response_data else {"status": "ok"}
 
         message = str(result.error or "Daemon unavailable")
         response: JsonObject = {"status": "error", "message": message}

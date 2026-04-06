@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import cast
 
 from keyforge.common.paths import GNOME_BRIDGE_SOCKET_PATH
 from keyforge.common.security import get_peer_credentials
@@ -13,6 +14,19 @@ from keyforge.session.listeners.base import WindowChangeCallback, WindowListener
 from keyforge.session.wayland_protocols.registry_probe import list_registry_globals
 
 log = logging.getLogger("keyforge-session.listeners.gnome")
+type JsonObject = dict[str, object]
+
+
+def _json_object(value: object) -> JsonObject | None:
+    return cast(JsonObject, value) if isinstance(value, dict) else None
+
+
+def _str_value(value: object, default: str = "") -> str:
+    return default if value is None else str(value)
+
+
+def _int_value(value: object, default: int = 0) -> int:
+    return default if value is None else int(cast(int | float | str | bytes, value))
 
 
 class GnomeListener(WindowListener):
@@ -31,12 +45,12 @@ class GnomeListener(WindowListener):
         super().__init__(callback, client, dbus=dbus)
         self._server: asyncio.AbstractServer | None = None
         self._writer: asyncio.StreamWriter | None = None
-        self._reader_task: asyncio.Task | None = None
+        self._reader_task: asyncio.Task[None] | None = None
         self._request_id = 0
-        self._pending_pointer: dict[int, asyncio.Future] = {}
-        self._pending_activate: dict[int, asyncio.Future] = {}
-        self._pending_window: dict[int, asyncio.Future] = {}
-        self._pending_dispatch: dict[int, asyncio.Future] = {}
+        self._pending_pointer: dict[int, asyncio.Future[JsonObject | None]] = {}
+        self._pending_activate: dict[int, asyncio.Future[JsonObject | None]] = {}
+        self._pending_window: dict[int, asyncio.Future[JsonObject | None]] = {}
+        self._pending_dispatch: dict[int, asyncio.Future[JsonObject | None]] = {}
         self._last_class = ""
         self._last_title = ""
         self._last_warn_no_bridge = 0.0
@@ -145,7 +159,7 @@ class GnomeListener(WindowListener):
             return None
         if not isinstance(parsed, list):
             return None
-        return [str(item) for item in parsed]
+        return [str(item) for item in cast(list[object], parsed)]
 
     @classmethod
     async def _user_extensions_globally_disabled(cls) -> bool | None:
@@ -453,8 +467,10 @@ class GnomeListener(WindowListener):
                 if not raw:
                     break
                 try:
-                    payload = json.loads(raw.decode("utf-8"))
+                    payload = _json_object(json.loads(raw.decode("utf-8")))
                 except Exception:
+                    continue
+                if payload is None:
                     continue
                 await self._handle_bridge_message(payload)
         except asyncio.CancelledError:
@@ -476,10 +492,10 @@ class GnomeListener(WindowListener):
             except Exception:
                 pass
 
-    async def _handle_bridge_message(self, payload: dict) -> None:
-        msg_type = str(payload.get("type", "") or "")
+    async def _handle_bridge_message(self, payload: JsonObject) -> None:
+        msg_type = _str_value(payload.get("type"), "")
         if msg_type == "hello":
-            protocol = int(payload.get("protocol", 0) or 0)
+            protocol = _int_value(payload.get("protocol"), 0)
             self._bridge_protocol = protocol
             self._bridge_protocol_compatible = protocol == self._BRIDGE_PROTOCOL_VERSION
             if self._bridge_protocol_compatible:
@@ -512,7 +528,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "pointer":
-            request_id = int(payload.get("request_id", 0) or 0)
+            request_id = _int_value(payload.get("request_id"), 0)
             future = self._pending_pointer.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -520,7 +536,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "activated":
-            request_id = int(payload.get("request_id", 0) or 0)
+            request_id = _int_value(payload.get("request_id"), 0)
             future = self._pending_activate.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -532,7 +548,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "active_window":
-            request_id = int(payload.get("request_id", 0) or 0)
+            request_id = _int_value(payload.get("request_id"), 0)
             future = self._pending_window.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -540,7 +556,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "dispatch_result":
-            request_id = int(payload.get("request_id", 0) or 0)
+            request_id = _int_value(payload.get("request_id"), 0)
             future = self._pending_dispatch.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -558,9 +574,9 @@ class GnomeListener(WindowListener):
         self._last_title = window_title
         await self.callback(window_class, window_title, [])
 
-    def _window_info_from_payload(self, payload: dict) -> tuple[str, str]:
-        window_class = str(payload.get("app_id", "") or payload.get("wm_class", "") or "")
-        window_title = str(payload.get("title", "") or "")
+    def _window_info_from_payload(self, payload: JsonObject) -> tuple[str, str]:
+        window_class = _str_value(payload.get("app_id") or payload.get("wm_class"), "")
+        window_title = _str_value(payload.get("title"), "")
         return window_class, window_title
 
     def _validate_dispatch(self, dispatcher: str, args: str) -> tuple[bool, str]:
@@ -614,16 +630,16 @@ class GnomeListener(WindowListener):
                 )
         return details
 
-    async def _send_request(self, payload: dict, timeout: float) -> dict | None:
+    async def _send_request(self, payload: JsonObject, timeout: float) -> JsonObject | None:
         if self._writer is None:
             return None
 
         self._request_id += 1
         request_id = self._request_id
-        payload = dict(payload)
-        payload["request_id"] = request_id
-        future = asyncio.get_running_loop().create_future()
-        msg_type = str(payload.get("type", "") or "")
+        request_payload = dict(payload)
+        request_payload["request_id"] = request_id
+        future: asyncio.Future[JsonObject | None] = asyncio.get_running_loop().create_future()
+        msg_type = _str_value(request_payload.get("type"), "")
 
         if msg_type == "get_active_window":
             self._pending_window[request_id] = future
@@ -637,7 +653,7 @@ class GnomeListener(WindowListener):
             return None
 
         try:
-            self._writer.write((json.dumps(payload) + "\n").encode("utf-8"))
+            self._writer.write((json.dumps(request_payload) + "\n").encode("utf-8"))
             await self._writer.drain()
             result = await asyncio.wait_for(future, timeout=timeout)
         except Exception:
@@ -647,7 +663,7 @@ class GnomeListener(WindowListener):
             self._pending_dispatch.pop(request_id, None)
             return None
 
-        return result if isinstance(result, dict) else None
+        return result
 
     async def _request_active_window(self) -> tuple[str, str]:
         result = await self._send_request({"type": "get_active_window"}, timeout=0.6)
@@ -661,7 +677,7 @@ class GnomeListener(WindowListener):
             await self._emit_if_changed(window_class, window_title)
         return self._last_class, self._last_title, []
 
-    async def activate_window_by_title(self, title: str) -> dict | None:
+    async def activate_window_by_title(self, title: str) -> JsonObject | None:
         """Ask the GNOME bridge extension to activate a window by title."""
         result = await self._send_request(
             {"type": "activate_title", "title": title},
@@ -695,7 +711,7 @@ class GnomeListener(WindowListener):
         )
         if result is None:
             return False, "GNOME bridge not connected"
-        return bool(result.get("ok")), str(result.get("message", "") or "")
+        return bool(result.get("ok")), _str_value(result.get("message"), "")
 
     async def get_cursor_position(self) -> tuple[int, int] | None:
         if self._writer is None:
@@ -708,8 +724,8 @@ class GnomeListener(WindowListener):
         result = await self._send_request({"type": "get_pointer"}, timeout=0.6)
         if result is None:
             return None
-        x = int(result.get("x", 0) or 0)
-        y = int(result.get("y", 0) or 0)
+        x = _int_value(result.get("x"), 0)
+        y = _int_value(result.get("y"), 0)
         return x, y
 
     async def health_check(self) -> bool:

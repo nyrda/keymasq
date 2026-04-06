@@ -14,7 +14,13 @@ from typing import cast
 
 from keyforge.common.devices import normalize_input_classes, resolve_evdev_code
 from keyforge.common.ipc import Command, CommandType
-from keyforge.common.models import ButtonDefinition, MappingAction
+from keyforge.common.models import (
+    ButtonDefinition,
+    HardwareConfig,
+    MappingAction,
+    SuperkeyAction,
+    SuperkeyConfig,
+)
 from keyforge.common.paths import (
     CONFIG_DIR,
     SECURITY_POLICY_PATH,
@@ -1311,21 +1317,27 @@ class SessionManager:
         if result.status != "ok" or result_data is None:
             return {"status": "error", "message": result.error or "Combo capture failed"}
 
-        events = result_data.get("events")
-        if not isinstance(events, list):
+        events_raw = result_data.get("events")
+        if not isinstance(events_raw, list):
             return {"status": "error", "message": "Combo capture returned no events"}
+        event_items = cast(list[object], events_raw)
+
+        events: list[JsonObject] = []
+        for raw_event in event_items:
+            event = _json_object(raw_event)
+            if event is None:
+                continue
+            events.append(
+                {
+                    "evdev": _str_value(event.get("evdev"), ""),
+                    "hardware_id": _str_value(event.get("hardware_id"), ""),
+                    "source": _str_value(event.get("source"), ""),
+                }
+            )
 
         return {
             "status": "ok",
-            "events": [
-                {
-                    "evdev": str(event.get("evdev", "") or ""),
-                    "hardware_id": str(event.get("hardware_id", "") or ""),
-                    "source": str(event.get("source", "") or ""),
-                }
-                for event in events
-                if isinstance(event, dict)
-            ],
+            "events": events,
             "warnings": _json_list(result_data.get("warnings")),
         }
 
@@ -1895,8 +1907,9 @@ class SessionManager:
             return
         try:
             result = await self.client.send_command(Command(command=CommandType.STOP_RECORDING))
-            if result.status == "ok" and isinstance(result.data, dict):
-                recording_data = dict(result.data)
+            result_data = _json_object(result.data)
+            if result.status == "ok" and result_data is not None:
+                recording_data = dict(result_data)
                 if self._recording_start_cursor:
                     recording_data["start_x"] = int(self._recording_start_cursor[0])
                     recording_data["start_y"] = int(self._recording_start_cursor[1])
@@ -2296,11 +2309,11 @@ class SessionManager:
             traceback.print_exc()
 
     def _get_interfaces_to_grab(
-        self, hardware_config, resolved: ResolvedDeviceProfile
+        self, hardware_config: HardwareConfig, resolved: ResolvedDeviceProfile
     ) -> dict[str, str]:
         from keyforge.common.models import ActionType
 
-        interface_to_path = {}
+        interface_to_path: dict[str, str] = {}
         for dev in hardware_config.evdev_devices:
             if dev.id:
                 interface_to_path[dev.id] = dev.path
@@ -2308,9 +2321,11 @@ class SessionManager:
         if resolved.always_grab_all:
             return interface_to_path
 
-        button_to_source = {b.id: b.source for b in hardware_config.buttons if b.source}
+        button_to_source: dict[str, str] = {
+            b.id: b.source for b in hardware_config.buttons if b.source
+        }
 
-        sources_to_grab = set()
+        sources_to_grab: set[str] = set()
 
         for button_id, action in resolved.mappings.items():
             if action.action_type != ActionType.PASSTHROUGH:
@@ -2859,8 +2874,8 @@ class SessionManager:
 
         return None
 
-    def _serialize_superkey(self, config, hardware_id: str) -> dict:
-        data = {
+    def _serialize_superkey(self, config: SuperkeyConfig, hardware_id: str) -> JsonObject:
+        data: JsonObject = {
             "name": config.name,
             "tap_timeout_ms": config.tap_timeout_ms,
             "double_tap_window_ms": config.double_tap_window_ms,
@@ -2882,8 +2897,10 @@ class SessionManager:
 
         return data
 
-    def _serialize_superkey_signature(self, config, hardware_id: str) -> dict:
-        data = {
+    def _serialize_superkey_signature(
+        self, config: SuperkeyConfig, hardware_id: str
+    ) -> JsonObject:
+        data: JsonObject = {
             "name": config.name,
             "tap_timeout_ms": int(config.tap_timeout_ms),
             "double_tap_window_ms": int(config.double_tap_window_ms),
@@ -2913,8 +2930,10 @@ class SessionManager:
 
         return data
 
-    def _serialize_superkey_action(self, action, hardware_id: str) -> dict:
-        data = {"action": action.action_type.value}
+    def _serialize_superkey_action(
+        self, action: SuperkeyAction, hardware_id: str
+    ) -> JsonObject:
+        data: JsonObject = {"action": action.action_type.value}
 
         if action.target:
             data["target"] = action.target
@@ -2935,8 +2954,10 @@ class SessionManager:
 
         return data
 
-    def _serialize_superkey_action_signature(self, action, hardware_id: str) -> dict:
-        data = {"action": action.action_type.value}
+    def _serialize_superkey_action_signature(
+        self, action: SuperkeyAction, hardware_id: str
+    ) -> JsonObject:
+        data: JsonObject = {"action": action.action_type.value}
 
         if action.target:
             data["target"] = action.target
@@ -2949,8 +2970,9 @@ class SessionManager:
             data["rapidfire_hold_ms"] = int(action.rapidfire_hold_ms)
             data["rapidfire_wait_ms"] = int(action.rapidfire_wait_ms)
 
-        if action.action_type.value == "superkey" and action.superkey_name:
-            superkey_config = self.superkeys.get_superkey(action.superkey_name)
+        superkey_name = getattr(action, "superkey_name", None)
+        if action.action_type.value == "superkey" and isinstance(superkey_name, str):
+            superkey_config = self.superkeys.get_superkey(superkey_name)
             if superkey_config:
                 data["superkey"] = self._serialize_superkey_signature(superkey_config, hardware_id)
 
@@ -2973,10 +2995,11 @@ class SessionManager:
             get_result = await self.client.send_command(
                 Command(command=CommandType.MACRO_GET, data={"name": name})
             )
-            if get_result.status != "ok" or not isinstance(get_result.data, dict):
+            get_result_data = _json_object(get_result.data)
+            if get_result.status != "ok" or get_result_data is None:
                 return
-            macro = get_result.data.get("macro")
-            if not isinstance(macro, dict):
+            macro = _json_object(get_result_data.get("macro"))
+            if macro is None:
                 return
             macro = self._sanitize_macro_for_policy(macro)
             payload = {
@@ -2999,19 +3022,20 @@ class SessionManager:
 
     def _sanitize_macro_for_policy(self, macro: JsonObject) -> JsonObject:
         cloned = dict(macro)
-        events = cloned.get("events")
-        if not isinstance(events, list):
+        events = _json_list(cloned.get("events"))
+        if not events:
             return cloned
 
         max_timeout = max(1, int(self._security_policy.macro_exec_timeout_max_ms))
         sanitized: list[JsonObject] = []
         for ev in events:
-            if not isinstance(ev, dict):
+            event_data = _json_object(ev)
+            if event_data is None:
                 continue
-            item = dict(ev)
-            action = str(item.get("macro_action", "") or "").lower()
+            item = dict(event_data)
+            action = _str_value(item.get("macro_action"), "").lower()
             if action == "exec_sync":
-                timeout_ms = int(item.get("timeout_ms", max_timeout) or max_timeout)
+                timeout_ms = _int_value(item.get("timeout_ms"), max_timeout)
                 item["timeout_ms"] = max(1, min(timeout_ms, max_timeout))
             sanitized.append(item)
         cloned["events"] = sanitized
@@ -3037,8 +3061,8 @@ class SessionManager:
         if "record_gamepad" in request:
             self._recording_settings["record_gamepad"] = bool(request.get("record_gamepad"))
         if "device_overrides" in request:
-            overrides = request.get("device_overrides")
-            if isinstance(overrides, dict):
+            overrides = _json_object(request.get("device_overrides"))
+            if overrides is not None:
                 self._recording_settings["device_overrides"] = {
                     str(path): bool(enabled) for path, enabled in overrides.items()
                 }
@@ -3065,8 +3089,8 @@ class SessionManager:
         try:
             if not self._RECORDING_SETTINGS_PATH.exists():
                 return
-            data = json.loads(self._RECORDING_SETTINGS_PATH.read_text())
-            if not isinstance(data, dict):
+            data = _json_object(json.loads(self._RECORDING_SETTINGS_PATH.read_text()))
+            if data is None:
                 return
             self._recording_settings["include_mouse_movement"] = bool(
                 data.get("include_mouse_movement", False)
@@ -3080,8 +3104,8 @@ class SessionManager:
             self._recording_settings["record_keyboard"] = bool(data.get("record_keyboard", True))
             self._recording_settings["record_mouse"] = bool(data.get("record_mouse", False))
             self._recording_settings["record_gamepad"] = bool(data.get("record_gamepad", True))
-            overrides = data.get("device_overrides", {})
-            if isinstance(overrides, dict):
+            overrides = _json_object(data.get("device_overrides"))
+            if overrides is not None:
                 self._recording_settings["device_overrides"] = {
                     str(path): bool(enabled) for path, enabled in overrides.items()
                 }
@@ -3093,8 +3117,8 @@ class SessionManager:
         try:
             existing: JsonObject = {}
             if self._RECORDING_SETTINGS_PATH.exists():
-                loaded = json.loads(self._RECORDING_SETTINGS_PATH.read_text())
-                if isinstance(loaded, dict):
+                loaded = _json_object(json.loads(self._RECORDING_SETTINGS_PATH.read_text()))
+                if loaded is not None:
                     existing = dict(loaded)
 
             existing["include_mouse_movement"] = bool(settings.get("include_mouse_movement", False))
@@ -3148,8 +3172,8 @@ class SessionManager:
             except Exception:
                 devices = []
 
-        overrides = self._recording_settings.get("device_overrides", {})
-        if isinstance(overrides, dict) and overrides:
+        overrides = _json_object(self._recording_settings.get("device_overrides"))
+        if overrides:
             devices = [
                 d
                 for d in devices
@@ -3207,7 +3231,7 @@ class SessionManager:
 
         if result.status == "ok":
             self._recording_active = True
-            return result.data or {"status": "ok"}
+            return _json_object(result.data) or {"status": "ok"}
 
         message = str(result.error or "Daemon unavailable")
         response: JsonObject = {"status": "error", "message": message}
@@ -3240,17 +3264,21 @@ class SessionManager:
             result = await self.client.send_command(Command(command=CommandType.LIST_DEVICES))
         except Exception:
             return []
-        if result.status != "ok" or not result.data:
+        result_data = _json_object(result.data)
+        if result.status != "ok" or result_data is None:
             return []
 
         grabbed_paths = {
             p for interface_map in self._grabbed_interfaces.values() for p in interface_map.values()
         }
 
-        devices = []
-        for d in result.data.get("devices", []):
-            path = d.get("path")
-            dtype = d.get("device_type", "other")
+        devices: list[JsonObject] = []
+        for raw_device in _json_list(result_data.get("devices")):
+            d = _json_object(raw_device)
+            if d is None:
+                continue
+            path = _str_value(d.get("path"), "")
+            dtype = _str_value(d.get("device_type"), "other")
             resolved_types = self._recording_device_types(d)
             if not path or not set(device_types).intersection(resolved_types):
                 continue
@@ -3262,7 +3290,7 @@ class SessionManager:
             devices.append(
                 {
                     "path": path,
-                    "name": d.get("name", path),
+                    "name": _str_value(d.get("name"), path),
                     "vendor_id": str(d.get("vendor_id", "") or ""),
                     "product_id": str(d.get("product_id", "") or ""),
                     "device_type": dtype,
@@ -3285,13 +3313,13 @@ class SessionManager:
         if not safe_name:
             raise ValueError("Invalid macro name")
 
-        data = self._pending_recording_data or {}
-        macro = {
+        data: JsonObject = self._pending_recording_data or {}
+        macro: JsonObject = {
             "name": safe_name,
             "created_at": datetime.now().isoformat(),
             "duration_ms": _int_value(data.get("duration_ms"), 0),
-            "device_types": data.get("device_types", []),
-            "events": data.get("events", []),
+            "device_types": _json_list(data.get("device_types")),
+            "events": _json_list(data.get("events")),
             "move_to_start": bool(move_to_start),
             "start_x": int(start_x),
             "start_y": int(start_y),
@@ -3308,9 +3336,10 @@ class SessionManager:
             return {"status": "error", "message": result.error or "Failed to save recording"}
 
         created_name = safe_name
-        if isinstance(result.data, dict):
-            created = result.data.get("macro")
-            if isinstance(created, dict):
+        result_data = _json_object(result.data)
+        if result_data is not None:
+            created = _json_object(result_data.get("macro"))
+            if created is not None:
                 created_name = str(created.get("name", safe_name))
 
         self._pending_recording_data = None
@@ -3320,14 +3349,16 @@ class SessionManager:
     def _mapping_log_view(self, mapping: JsonObject) -> JsonObject:
         view: JsonObject = {}
         for button_id, action_data in mapping.items():
-            if not isinstance(action_data, dict):
+            action_data_dict = _json_object(action_data)
+            if action_data_dict is None:
                 view[button_id] = action_data
                 continue
 
-            data = dict(action_data)
+            data = dict(action_data_dict)
             events = data.get("macro_events")
             if isinstance(events, list):
-                data["macro_events"] = f"<{len(events)} events>"
+                event_count = len(cast(list[object], events))
+                data["macro_events"] = f"<{event_count} events>"
             view[button_id] = data
 
         return view

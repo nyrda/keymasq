@@ -4,14 +4,12 @@ import contextlib
 import json
 import logging
 import os
-import re
-import secrets
 import signal
 import traceback
 from datetime import datetime
 from typing import cast
 
-from keyforge.common.devices import normalize_input_classes, resolve_evdev_code
+from keyforge.common.devices import resolve_evdev_code
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.models import (
     ButtonDefinition,
@@ -27,7 +25,6 @@ from keyforge.common.paths import (
     SOCKET_PATH,
     ensure_session_socket_dir,
 )
-from keyforge.common.recording_guard import resolve_unlock_status
 from keyforge.common.security import (
     PeerCredentials,
     SecurityPolicy,
@@ -35,6 +32,7 @@ from keyforge.common.security import (
     load_security_policy,
     uid_allowed,
 )
+from keyforge.session import manager_recording as runtime_recording
 from keyforge.session import manager_session_commands as session_commands
 from keyforge.session.action_handler import ActionHandler
 from keyforge.session.client import KeyforgedClient
@@ -49,20 +47,15 @@ from keyforge.session.compositor import (
 from keyforge.session.dbus import SessionDBus
 from keyforge.session.hardware import HardwareManager
 from keyforge.session.listeners.base import WindowListener
-from keyforge.session.manager_common import (
-    JsonObject,
-)
-from keyforge.session.manager_common import (
-    int_value as _int_value,
-)
-from keyforge.session.manager_common import (
-    json_list as _json_list,
-)
-from keyforge.session.manager_common import (
-    json_object as _json_object,
-)
-from keyforge.session.manager_common import (
-    str_value as _str_value,
+from keyforge.session.manager_common import JsonObject
+from keyforge.session.manager_common import int_value as _int_value
+from keyforge.session.manager_common import json_list as _json_list
+from keyforge.session.manager_common import json_object as _json_object
+from keyforge.session.manager_common import str_value as _str_value
+from keyforge.session.manager_state import (
+    CaptureRuntimeState,
+    RecordingRuntimeState,
+    UnlockRuntimeState,
 )
 from keyforge.session.profiles import ProfileManager, ResolvedCombo, ResolvedDeviceProfile
 from keyforge.session.superkeys import SuperkeyManager
@@ -120,9 +113,7 @@ class SessionManager:
         self._session_server: asyncio.Server | None = None
         self._session_clients: set[asyncio.StreamWriter] = set()
         self._session_client_peers: dict[asyncio.StreamWriter, PeerCredentials] = {}
-        self._capture_locks: set[str] = set()
-        self._capture_resume_profiles: dict[str, list[str]] = {}
-        self._capture_tokens: dict[str, str] = {}
+        self.capture_state = CaptureRuntimeState()
 
         self._exec_refs: dict[int, str] = {}
         self._next_exec_ref: int = 1
@@ -131,25 +122,9 @@ class SessionManager:
 
         self._superkey_exec_refs: dict[int, tuple[str, str]] = {}
         self._next_superkey_exec_ref: int = 10000
-        self._recording_active: bool = False
-        self._pending_recording_data: JsonObject | None = None
-        self._recording_start_cursor: tuple[int, int] | None = None
-        self._recording_settings: JsonObject = {
-            "include_mouse_movement": False,
-            "include_mouse_clicks": False,
-            "record_start_position": False,
-            "record_keyboard": True,
-            "record_mouse": False,
-            "record_gamepad": True,
-            "device_overrides": {},
-        }
-        self._recording_settings_pending_save: JsonObject | None = None
-        self._recording_settings_save_task: asyncio.Task[None] | None = None
-        self._load_recording_settings_from_disk()
-        self._recording_devices_cache: list[JsonObject] = []
-        self._recording_refresh_owner: JsonObject | None = None
-        self._runtime_refresh_claim_consumed_until: dict[int, int] = {}
-        self._recording_refresh_ttl_s = 60
+        self.recording_state = RecordingRuntimeState()
+        self.unlock_state = UnlockRuntimeState()
+        runtime_recording.load_recording_settings_from_disk(self)
         self._security_policy: SecurityPolicy = load_security_policy(SECURITY_POLICY_PATH)
         self.dbus = SessionDBus()
 
@@ -211,10 +186,11 @@ class SessionManager:
                 await self._topology_refresh_task
             self._topology_refresh_task = None
 
-        if self._recording_settings_save_task:
+        save_task = cast(asyncio.Task[None] | None, self.recording_state.settings_save_task)
+        if save_task:
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._recording_settings_save_task
-            self._recording_settings_save_task = None
+                await save_task
+            self.recording_state.settings_save_task = None
 
         await self._stop_window_listener()
         await self.dbus.disconnect()
@@ -231,14 +207,14 @@ class SessionManager:
                 pass
         await self._wait_for_session_clients_to_close()
 
-        for token in list(self._capture_tokens.values()):
+        for token in list(self.capture_state.tokens.values()):
             try:
                 await self.client.send_command(
                     Command(command=CommandType.CAPTURE_END, data={"token": token})
                 )
             except Exception:
                 pass
-        self._capture_tokens.clear()
+        self.capture_state.tokens.clear()
 
         await self.client.disconnect()
 
@@ -350,7 +326,7 @@ class SessionManager:
         except Exception as e:
             log.debug(f"Session client error: {e}")
         finally:
-            await self._clear_recording_refresh_owner_if_writer(peer, writer)
+            await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
             self._session_clients.discard(writer)
             self._session_client_peers.pop(writer, None)
             try:
@@ -373,517 +349,6 @@ class SessionManager:
             peer,
             writer,
         )
-
-    def _is_sensitive_session_command(
-        self,
-        command: str,
-        policy: SecurityPolicy | None = None,
-    ) -> bool:
-        if policy is None:
-            policy = self._security_policy
-
-        if command == "lock_recording_unlock":
-            return True
-
-        if policy.recording_unlock_required and command in {
-            "start_recording",
-            "begin_capture",
-            "capture_read",
-            "end_capture",
-            "capture_combo",
-        }:
-            return True
-
-        if policy.macro_edit_requires_unlock and command in {
-            "get_macro",
-            "create_macro",
-            "update_macro",
-        }:
-            return True
-
-        return False
-
-    def _has_active_gui_recording_owner(self) -> bool:
-        owner = self._recording_refresh_owner
-        if owner is None:
-            return False
-        return bool(str(owner.get("lease_id", "") or "").strip())
-
-    async def _resolve_unlock_status_async(self, uid: int) -> dict[str, bool | int | str]:
-        return await asyncio.to_thread(resolve_unlock_status, uid)
-
-    def _serialize_recording_unlock_state(
-        self,
-        unlock_status: dict[str, bool | int | str],
-        *,
-        refresh_owner: bool,
-    ) -> dict[str, bool | int | str]:
-        unlock_required = bool(self._security_policy.recording_unlock_required)
-        raw_unlocked = bool(unlock_status.get("unlocked", False))
-        return {
-            "recording_unlock_required": unlock_required,
-            "recording_unlocked": raw_unlocked,
-            "recording_unlock_source": str(unlock_status.get("source", "none") or "none"),
-            "recording_unlock_expires_at": int(unlock_status.get("expires_at", 0) or 0),
-            "recording_refresh_owner": bool(refresh_owner),
-        }
-
-    def _is_refresh_owner_request(
-        self,
-        peer: PeerCredentials,
-        writer: asyncio.StreamWriter,
-    ) -> bool:
-        owner = self._recording_refresh_owner
-        if owner is None:
-            return False
-        return (
-            owner.get("uid") == int(peer.uid)
-            and owner.get("pid") == int(peer.pid)
-            and owner.get("writer_id") == id(writer)
-        )
-
-    def _has_other_session_client_for_uid(
-        self,
-        uid: int,
-        *,
-        excluding: asyncio.StreamWriter | None = None,
-    ) -> bool:
-        for current_writer, peer in self._session_client_peers.items():
-            if current_writer is excluding:
-                continue
-            if int(peer.uid) == int(uid):
-                return True
-        return False
-
-    async def _cleanup_runtime_unlock_for_uid(self, uid: int, *, reason: str) -> None:
-        try:
-            result = await self.client.send_command(
-                Command(
-                    command=CommandType.LOCK_RECORDING_UNLOCK,
-                    data={"uid": int(uid), "cleanup": True},
-                )
-            )
-            if result.status == "ok":
-                log.info("Runtime unlock cleaned up uid=%s reason=%s", uid, reason)
-            else:
-                log.debug(
-                    "Runtime unlock cleanup failed uid=%s reason=%s error=%s",
-                    uid,
-                    reason,
-                    result.error,
-                )
-        except Exception as e:
-            log.debug(
-                "Runtime unlock cleanup failed uid=%s reason=%s error=%s",
-                uid,
-                reason,
-                e,
-            )
-
-    async def _clear_recording_refresh_owner_if_writer(
-        self,
-        peer: PeerCredentials,
-        writer: asyncio.StreamWriter,
-    ) -> None:
-        owner = self._recording_refresh_owner
-        uid = int(peer.uid)
-
-        if owner is not None and owner.get("writer_id") == id(writer):
-            self._recording_refresh_owner = None
-            self._runtime_refresh_claim_consumed_until.pop(uid, None)
-            await self._cleanup_runtime_unlock_for_uid(uid, reason="refresh_owner_disconnect")
-            return
-
-        if owner is not None and owner.get("uid") == uid:
-            return
-
-        if self._has_other_session_client_for_uid(uid, excluding=writer):
-            return
-
-        unlock_status = await self._resolve_unlock_status_async(uid)
-        if not bool(unlock_status.get("unlocked", False)):
-            return
-
-        if str(unlock_status.get("source", "none") or "none") != "runtime":
-            return
-
-        await self._cleanup_runtime_unlock_for_uid(uid, reason="last_client_disconnect")
-
-    async def _claim_recording_unlock_refresh(
-        self,
-        peer: PeerCredentials,
-        writer: asyncio.StreamWriter,
-    ) -> JsonObject:
-        unlock_status = await self._resolve_unlock_status_async(peer.uid)
-        if not bool(unlock_status.get("unlocked", False)):
-            return {
-                "status": "error",
-                "error_code": "recording_locked",
-                "message": "recording_locked: unlock required before claiming refresh",
-            }
-
-        source = str(unlock_status.get("source", "none") or "none")
-        expires_at = int(unlock_status.get("expires_at", 0) or 0)
-
-        if source == "runtime":
-            consumed_until = int(
-                self._runtime_refresh_claim_consumed_until.get(int(peer.uid), 0) or 0
-            )
-            if expires_at <= consumed_until:
-                return {
-                    "status": "error",
-                    "error_code": "recording_refresh_reclaim_denied",
-                    "message": (
-                        "recording_refresh_denied: runtime lease already claimed; "
-                        "unlock again to re-establish owner"
-                    ),
-                }
-
-        lease_id = secrets.token_urlsafe(24)
-        self._recording_refresh_owner = {
-            "uid": int(peer.uid),
-            "pid": int(peer.pid),
-            "writer_id": id(writer),
-            "lease_id": lease_id,
-        }
-        if source == "runtime":
-            self._runtime_refresh_claim_consumed_until[int(peer.uid)] = expires_at
-
-        if source == "runtime":
-            try:
-                refresh_result = await self.client.send_command(
-                    Command(
-                        command=CommandType.REFRESH_RECORDING_UNLOCK,
-                        data={
-                            "uid": int(peer.uid),
-                            "ttl": int(self._recording_refresh_ttl_s),
-                        },
-                    )
-                )
-            except Exception:
-                self._recording_refresh_owner = None
-                return {"status": "error", "message": "Daemon unavailable"}
-
-            if refresh_result.status != "ok":
-                self._recording_refresh_owner = None
-                return {
-                    "status": "error",
-                    "error_code": "recording_refresh_denied",
-                    "message": refresh_result.error
-                    or "Failed to establish recording refresh lease",
-                }
-
-        unlock_status = await self._resolve_unlock_status_async(peer.uid)
-        return {
-            "status": "ok",
-            "lease_id": lease_id,
-            **self._serialize_recording_unlock_state(
-                {
-                    **unlock_status,
-                    "source": source,
-                    "expires_at": int(unlock_status.get("expires_at", expires_at) or expires_at),
-                },
-                refresh_owner=True,
-            ),
-        }
-
-    async def _refresh_recording_unlock(
-        self,
-        peer: PeerCredentials,
-        writer: asyncio.StreamWriter,
-        lease_id: str,
-    ) -> JsonObject:
-        if not lease_id:
-            return {
-                "status": "error",
-                "error_code": "recording_refresh_denied",
-                "message": "recording_refresh_denied: missing lease id",
-            }
-
-        owner = self._recording_refresh_owner
-        if owner is None:
-            return {
-                "status": "error",
-                "error_code": "recording_refresh_denied",
-                "message": "recording_refresh_denied: no active refresh owner",
-            }
-
-        if (
-            owner.get("uid") != int(peer.uid)
-            or owner.get("pid") != int(peer.pid)
-            or owner.get("writer_id") != id(writer)
-            or owner.get("lease_id") != lease_id
-        ):
-            return {
-                "status": "error",
-                "error_code": "recording_refresh_owner_mismatch",
-                "message": "recording_refresh_denied: caller is not active refresh owner",
-            }
-
-        try:
-            result = await self.client.send_command(
-                Command(
-                    command=CommandType.REFRESH_RECORDING_UNLOCK,
-                    data={
-                        "uid": int(peer.uid),
-                        "ttl": int(self._recording_refresh_ttl_s),
-                    },
-                )
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
-
-        if result.status != "ok":
-            return {
-                "status": "error",
-                "error_code": "recording_refresh_denied",
-                "message": result.error or "Failed to refresh recording unlock",
-            }
-
-        unlock_status = await self._resolve_unlock_status_async(peer.uid)
-        if str(unlock_status.get("source", "none") or "none") == "runtime":
-            expires_at = int(unlock_status.get("expires_at", 0) or 0)
-            consumed_until = int(
-                self._runtime_refresh_claim_consumed_until.get(int(peer.uid), 0) or 0
-            )
-            if expires_at > consumed_until:
-                self._runtime_refresh_claim_consumed_until[int(peer.uid)] = expires_at
-        if not bool(unlock_status.get("unlocked", False)):
-            self._recording_refresh_owner = None
-
-        return {
-            "status": "ok",
-            **self._serialize_recording_unlock_state(
-                unlock_status,
-                refresh_owner=self._is_refresh_owner_request(peer, writer),
-            ),
-        }
-
-    async def _lock_recording_unlock(
-        self,
-        peer: PeerCredentials,
-        writer: asyncio.StreamWriter,
-        lease_id: str,
-    ) -> JsonObject:
-        if not lease_id:
-            return {
-                "status": "error",
-                "error_code": "recording_lock_denied",
-                "message": "recording_lock_denied: missing lease id",
-            }
-
-        owner = self._recording_refresh_owner
-        if owner is None:
-            return {
-                "status": "error",
-                "error_code": "recording_lock_denied",
-                "message": "recording_lock_denied: no active refresh owner",
-            }
-
-        if (
-            owner.get("uid") != int(peer.uid)
-            or owner.get("pid") != int(peer.pid)
-            or owner.get("writer_id") != id(writer)
-            or owner.get("lease_id") != lease_id
-        ):
-            return {
-                "status": "error",
-                "error_code": "recording_lock_owner_mismatch",
-                "message": "recording_lock_denied: caller is not active refresh owner",
-            }
-
-        try:
-            result = await self.client.send_command(
-                Command(
-                    command=CommandType.LOCK_RECORDING_UNLOCK,
-                    data={"uid": int(peer.uid)},
-                )
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
-
-        if result.status != "ok":
-            return {
-                "status": "error",
-                "error_code": "recording_lock_denied",
-                "message": result.error or "Failed to lock recording unlock",
-            }
-
-        self._recording_refresh_owner = None
-        self._runtime_refresh_claim_consumed_until.pop(int(peer.uid), None)
-        return {
-            "status": "ok",
-            **self._serialize_recording_unlock_state(
-                {"unlocked": False, "source": "none", "expires_at": 0},
-                refresh_owner=False,
-            ),
-        }
-
-    async def _begin_capture(self, hardware_id: str) -> JsonObject:
-        self._capture_locks.add(hardware_id)
-
-        current_profiles = list(
-            self._resolved_devices.get(
-                hardware_id, ResolvedDeviceProfile(hardware_id)
-            ).active_profile_names
-        )
-        self._capture_resume_profiles[hardware_id] = current_profiles
-
-        released = False
-        if hardware_id in self._grabbed_devices:
-            await self._deactivate_profile(hardware_id, immediate=True)
-            released = True
-
-        return {
-            "status": "ok",
-            "hardware_id": hardware_id,
-            "released": released,
-            "profiles": current_profiles,
-        }
-
-    async def _capture_begin(self, hardware_id: str) -> JsonObject:
-        lock_result = await self._begin_capture(hardware_id)
-        try:
-            result = await self.client.send_command(
-                Command(command=CommandType.CAPTURE_BEGIN, data={"hardware_id": hardware_id})
-            )
-        except Exception:
-            await self._end_capture(hardware_id)
-            return {"status": "error", "message": "Daemon unavailable"}
-
-        result_data = _json_object(result.data)
-        if result.status != "ok" or result_data is None:
-            await self._end_capture(hardware_id)
-            return {"status": "error", "message": result.error or "Failed to begin capture"}
-
-        token = _str_value(result_data.get("token"), "")
-        if not token:
-            await self._end_capture(hardware_id)
-            return {"status": "error", "message": "Missing capture token"}
-
-        self._capture_tokens[hardware_id] = token
-        response = {
-            "status": "ok",
-            "hardware_id": hardware_id,
-            "token": token,
-            "warnings": result_data.get("warnings", []),
-        }
-        response.update(lock_result)
-        return response
-
-    async def _capture_read(self, hardware_id: str) -> JsonObject:
-        token = self._capture_tokens.get(hardware_id, "")
-        if not token:
-            return {"status": "error", "message": "capture not active"}
-
-        try:
-            result = await self.client.send_command(
-                Command(command=CommandType.CAPTURE_READ, data={"token": token})
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
-
-        result_data = _json_object(result.data)
-        if result.status == "ok" and result_data is not None:
-            return {"status": "ok", "captured": result_data.get("captured")}
-        return {"status": "error", "message": result.error or "Failed to read capture"}
-
-    async def _capture_end(self, hardware_id: str) -> JsonObject:
-        token = self._capture_tokens.pop(hardware_id, "")
-        if token:
-            try:
-                await self.client.send_command(
-                    Command(command=CommandType.CAPTURE_END, data={"token": token})
-                )
-            except Exception:
-                pass
-        return await self._end_capture(hardware_id)
-
-    async def _end_capture(self, hardware_id: str) -> JsonObject:
-        was_locked = hardware_id in self._capture_locks
-        self._capture_locks.discard(hardware_id)
-
-        previous_profile_names = self._capture_resume_profiles.pop(hardware_id, [])
-        if not was_locked:
-            return {"status": "ok", "hardware_id": hardware_id, "resumed": False}
-
-        await self._reevaluate_profiles()
-        active_names = list(
-            self._resolved_devices.get(
-                hardware_id, ResolvedDeviceProfile(hardware_id)
-            ).active_profile_names
-        )
-        return {
-            "status": "ok",
-            "hardware_id": hardware_id,
-            "resumed": bool(active_names),
-            "profiles": active_names or previous_profile_names,
-        }
-
-    async def _capture_combo(self, profile_name: str, timeout_s: float) -> JsonObject:
-        profile = self.profiles.get_profile(profile_name)
-        if profile is None:
-            return {"status": "error", "message": f"Unknown profile '{profile_name}'"}
-
-        hardware_ids = sorted(
-            {
-                *self.hardware.list_hardware_ids(),
-                *profile.config.device_layers.keys(),
-                *(
-                    event.hardware_id
-                    for combo in getattr(profile.config, "combos", [])
-                    for step in combo.steps
-                    for event in step.events
-                    if event.hardware_id
-                ),
-            }
-        )
-        if not hardware_ids:
-            return {
-                "status": "error",
-                "message": "No known devices available for combo capture",
-            }
-
-        try:
-            result = await self.client.send_command(
-                Command(
-                    command=CommandType.CAPTURE_COMBO,
-                    data={
-                        "hardware_ids": hardware_ids,
-                        "timeout_s": float(timeout_s),
-                    },
-                )
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
-
-        result_data = _json_object(result.data)
-        if result.status != "ok" or result_data is None:
-            return {"status": "error", "message": result.error or "Combo capture failed"}
-
-        events_raw = result_data.get("events")
-        if not isinstance(events_raw, list):
-            return {"status": "error", "message": "Combo capture returned no events"}
-        event_items = cast(list[object], events_raw)
-
-        events: list[JsonObject] = []
-        for raw_event in event_items:
-            event = _json_object(raw_event)
-            if event is None:
-                continue
-            events.append(
-                {
-                    "evdev": _str_value(event.get("evdev"), ""),
-                    "hardware_id": _str_value(event.get("hardware_id"), ""),
-                    "source": _str_value(event.get("source"), ""),
-                }
-            )
-
-        return {
-            "status": "ok",
-            "events": events,
-            "warnings": _json_list(result_data.get("warnings")),
-        }
 
     def _build_active_profiles_payload(self) -> JsonObject:
         return {
@@ -1392,7 +857,7 @@ class SessionManager:
             elif action_type_str == "macro":
                 macro_name = str(data.get("macro_name", "")).strip()
                 if macro_name:
-                    asyncio.create_task(self._play_macro_by_name(macro_name))
+                    asyncio.create_task(runtime_recording.play_macro_by_name(self, macro_name))
         elif event_type == CommandType.DEVICE_CONNECTED:
             log.info(f"Device connected: {data}")
             await self._on_device_connected(data)
@@ -1402,17 +867,17 @@ class SessionManager:
         elif event_type == CommandType.DEVICE_GRAB_STATUS:
             self._handle_device_grab_status_event(data)
         elif event_type == CommandType.RECORDING_STARTED:
-            self._recording_active = True
+            self.recording_state.active = True
             self._broadcast_to_session_clients({"event": "recording_started", **data})
         elif event_type == CommandType.RECORDING_STOPPED:
-            self._recording_active = False
+            self.recording_state.active = False
             recording_data = dict(data)
-            if self._recording_start_cursor:
-                recording_data["start_x"] = int(self._recording_start_cursor[0])
-                recording_data["start_y"] = int(self._recording_start_cursor[1])
+            if self.recording_state.start_cursor:
+                recording_data["start_x"] = int(self.recording_state.start_cursor[0])
+                recording_data["start_y"] = int(self.recording_state.start_cursor[1])
                 recording_data["move_to_start"] = True
-            self._pending_recording_data = recording_data
-            self._recording_start_cursor = None
+            self.recording_state.pending_data = recording_data
+            self.recording_state.start_cursor = None
             self._broadcast_to_session_clients(
                 {
                     "event": "recording_stopped",
@@ -1428,11 +893,11 @@ class SessionManager:
             self._broadcast_to_session_clients({"event": "recording_progress", **data})
 
     async def _handle_start_macro_trigger(self) -> None:
-        if self._recording_active:
+        if self.recording_state.active:
             await self._handle_stop_macro_trigger()
             return
 
-        if not self._has_active_gui_recording_owner():
+        if not runtime_recording.has_active_gui_recording_owner(self):
             log.info("Ignored start_macro_recording trigger: no active GUI recording owner")
             self._send_notification(
                 "Keyforge: Recording Unavailable",
@@ -1441,26 +906,16 @@ class SessionManager:
             self._broadcast_to_session_clients({"event": "recording_auth_requested"})
             return
 
-        result = await self._start_recording(reset_if_active=False)
+        result = await runtime_recording.start_recording(self, reset_if_active=False)
         if result.get("status") != "ok":
-            self._notify_recording_unlock_required(result)
+            runtime_recording.notify_recording_unlock_required(self, result)
             self._broadcast_to_session_clients({"event": "recording_auth_requested"})
 
     async def _handle_stop_macro_trigger(self) -> None:
-        if not self._recording_active:
+        if not self.recording_state.active:
             return
         try:
-            result = await self.client.send_command(Command(command=CommandType.STOP_RECORDING))
-            result_data = _json_object(result.data)
-            if result.status == "ok" and result_data is not None:
-                recording_data = dict(result_data)
-                if self._recording_start_cursor:
-                    recording_data["start_x"] = int(self._recording_start_cursor[0])
-                    recording_data["start_y"] = int(self._recording_start_cursor[1])
-                    recording_data["move_to_start"] = True
-                self._pending_recording_data = recording_data
-            self._recording_active = False
-            self._recording_start_cursor = None
+            await runtime_recording.stop_recording(self, error_if_idle=False)
         except Exception:
             pass
 
@@ -1659,7 +1114,7 @@ class SessionManager:
         self._active_profile_names = [profile.name for profile in resolved.active_profiles]
 
         for hardware_id in hardware_ids:
-            if hardware_id in self._capture_locks:
+            if hardware_id in self.capture_state.locks:
                 log.info("Reevaluate skipped for %s: capture lock active", hardware_id)
                 continue
             device_resolution = resolved.devices.get(
@@ -1680,7 +1135,7 @@ class SessionManager:
     async def _apply_resolved_device_profile(
         self, hardware_id: str, resolved: ResolvedDeviceProfile
     ) -> None:
-        if hardware_id in self._capture_locks:
+        if hardware_id in self.capture_state.locks:
             log.debug(f"Skipping activation for {hardware_id} while capture is active")
             return
 
@@ -2209,22 +1664,6 @@ class SessionManager:
         except Exception as e:
             log.debug(f"Failed to send notification: {e}")
 
-    def _is_recording_locked_error(self, result: JsonObject) -> bool:
-        if result.get("error_code") == "recording_locked":
-            return True
-
-        message = str(result.get("message", "") or "").lower()
-        return "recording_locked" in message
-
-    def _notify_recording_unlock_required(self, result: JsonObject) -> None:
-        if not self._is_recording_locked_error(result):
-            return
-
-        self._send_notification(
-            "Keyforge: Recording Locked",
-            "Recording/capture requires unlock in Keyforge GUI.",
-        )
-
     def _maybe_notify_profile_activation(
         self,
         device_name: str,
@@ -2533,363 +1972,6 @@ class SessionManager:
             getattr(listener, "running", False)
             and getattr(listener, "supports_compositor_dispatch", False)
         )
-
-    async def _play_macro_by_name(self, name: str) -> None:
-        try:
-            get_result = await self.client.send_command(
-                Command(command=CommandType.MACRO_GET, data={"name": name})
-            )
-            get_result_data = _json_object(get_result.data)
-            if get_result.status != "ok" or get_result_data is None:
-                return
-            macro = _json_object(get_result_data.get("macro"))
-            if macro is None:
-                return
-            macro = self._sanitize_macro_for_policy(macro)
-            payload = {
-                "macro_name": str(macro.get("name", name) or name),
-                "macro_events": macro.get("events", []),
-                "replay_mouse_movement": True,
-                "replay_mouse_clicks": True,
-                "speed": 1.0,
-                "loop_mode": str(macro.get("loop_mode", "none") or "none"),
-                "loop_count": _int_value(macro.get("loop_count"), 1),
-                "move_to_start": bool(macro.get("move_to_start", False)),
-                "start_x": _int_value(macro.get("start_x"), 0),
-                "start_y": _int_value(macro.get("start_y"), 0),
-                "block_mouse_movement": bool(macro.get("block_mouse_movement", False)),
-            }
-
-            await self.client.send_command(Command(command=CommandType.PLAY_MACRO, data=payload))
-        except Exception:
-            pass
-
-    def _sanitize_macro_for_policy(self, macro: JsonObject) -> JsonObject:
-        cloned = dict(macro)
-        events = _json_list(cloned.get("events"))
-        if not events:
-            return cloned
-
-        max_timeout = max(1, int(self._security_policy.macro_exec_timeout_max_ms))
-        sanitized: list[JsonObject] = []
-        for ev in events:
-            event_data = _json_object(ev)
-            if event_data is None:
-                continue
-            item = dict(event_data)
-            action = _str_value(item.get("macro_action"), "").lower()
-            if action == "exec_sync":
-                timeout_ms = _int_value(item.get("timeout_ms"), max_timeout)
-                item["timeout_ms"] = max(1, min(timeout_ms, max_timeout))
-            sanitized.append(item)
-        cloned["events"] = sanitized
-        return cloned
-
-    def _update_recording_settings(self, request: JsonObject) -> None:
-        if "include_mouse_movement" in request:
-            self._recording_settings["include_mouse_movement"] = bool(
-                request.get("include_mouse_movement")
-            )
-        if "include_mouse_clicks" in request:
-            self._recording_settings["include_mouse_clicks"] = bool(
-                request.get("include_mouse_clicks")
-            )
-        if "record_start_position" in request:
-            self._recording_settings["record_start_position"] = bool(
-                request.get("record_start_position")
-            )
-        if "record_keyboard" in request:
-            self._recording_settings["record_keyboard"] = bool(request.get("record_keyboard"))
-        if "record_mouse" in request:
-            self._recording_settings["record_mouse"] = bool(request.get("record_mouse"))
-        if "record_gamepad" in request:
-            self._recording_settings["record_gamepad"] = bool(request.get("record_gamepad"))
-        if "device_overrides" in request:
-            overrides = _json_object(request.get("device_overrides"))
-            if overrides is not None:
-                self._recording_settings["device_overrides"] = {
-                    str(path): bool(enabled) for path, enabled in overrides.items()
-                }
-        self._queue_recording_settings_save(dict(self._recording_settings))
-
-    def _queue_recording_settings_save(self, settings: JsonObject) -> None:
-        self._recording_settings_pending_save = settings
-        if self._recording_settings_save_task and not self._recording_settings_save_task.done():
-            return
-        self._recording_settings_save_task = asyncio.create_task(
-            self._flush_recording_settings_saves()
-        )
-
-    async def _flush_recording_settings_saves(self) -> None:
-        try:
-            while self._recording_settings_pending_save is not None:
-                pending = self._recording_settings_pending_save
-                self._recording_settings_pending_save = None
-                await asyncio.to_thread(self._save_recording_settings_to_disk, pending)
-        finally:
-            self._recording_settings_save_task = None
-
-    def _load_recording_settings_from_disk(self) -> None:
-        try:
-            if not self._RECORDING_SETTINGS_PATH.exists():
-                return
-            data = _json_object(json.loads(self._RECORDING_SETTINGS_PATH.read_text()))
-            if data is None:
-                return
-            self._recording_settings["include_mouse_movement"] = bool(
-                data.get("include_mouse_movement", False)
-            )
-            self._recording_settings["include_mouse_clicks"] = bool(
-                data.get("include_mouse_clicks", False)
-            )
-            self._recording_settings["record_start_position"] = bool(
-                data.get("record_start_position", False)
-            )
-            self._recording_settings["record_keyboard"] = bool(data.get("record_keyboard", True))
-            self._recording_settings["record_mouse"] = bool(data.get("record_mouse", False))
-            self._recording_settings["record_gamepad"] = bool(data.get("record_gamepad", True))
-            overrides = _json_object(data.get("device_overrides"))
-            if overrides is not None:
-                self._recording_settings["device_overrides"] = {
-                    str(path): bool(enabled) for path, enabled in overrides.items()
-                }
-        except Exception:
-            pass
-
-    def _save_recording_settings_to_disk(self, settings: JsonObject | None = None) -> None:
-        settings = settings or self._recording_settings
-        try:
-            existing: JsonObject = {}
-            if self._RECORDING_SETTINGS_PATH.exists():
-                loaded = _json_object(json.loads(self._RECORDING_SETTINGS_PATH.read_text()))
-                if loaded is not None:
-                    existing = dict(loaded)
-
-            existing["include_mouse_movement"] = bool(settings.get("include_mouse_movement", False))
-            existing["include_mouse_clicks"] = bool(settings.get("include_mouse_clicks", False))
-            existing["record_start_position"] = bool(settings.get("record_start_position", False))
-
-            self._RECORDING_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._RECORDING_SETTINGS_PATH.write_text(json.dumps(existing))
-        except Exception:
-            pass
-
-    async def _start_recording(self, reset_if_active: bool = False) -> JsonObject:
-        if self._recording_active:
-            if not reset_if_active:
-                return {"status": "error", "message": "Recording already in progress"}
-            try:
-                result = await self.client.send_command(Command(command=CommandType.STOP_RECORDING))
-                result_data = _json_object(result.data)
-                if result.status == "ok" and result_data is not None:
-                    self._pending_recording_data = result_data
-            except Exception:
-                pass
-            self._recording_active = False
-
-        include_mouse_movement = self._recording_settings.get("include_mouse_movement", False)
-        include_mouse_clicks = self._recording_settings.get("include_mouse_clicks", False)
-        record_start_position = self._recording_settings.get("record_start_position", False)
-        device_types: list[str] = []
-        if self._recording_settings.get("record_keyboard", True):
-            device_types.append("keyboard")
-        if self._recording_settings.get("record_gamepad", True):
-            device_types.append("gamepad")
-        if self._recording_settings.get("record_mouse", False) or (
-            include_mouse_movement or include_mouse_clicks
-        ):
-            device_types.append("mouse")
-
-        devices: list[JsonObject]
-        if self._recording_devices_cache:
-            devices = [
-                d
-                for d in self._recording_devices_cache
-                if self._recording_device_matches_types(d, device_types)
-            ]
-        else:
-            try:
-                devices = await asyncio.wait_for(
-                    self._get_devices_for_recording(device_types),
-                    timeout=1.5,
-                )
-            except Exception:
-                devices = []
-
-        overrides = _json_object(self._recording_settings.get("device_overrides"))
-        if overrides:
-            devices = [
-                d
-                for d in devices
-                if bool(
-                    overrides.get(
-                        str(d.get("path", "")),
-                        self._recording_device_matches_types(d, device_types),
-                    )
-                )
-            ]
-        log.debug(
-            "recording start device selection: types=%s overrides=%r devices=%s",
-            device_types,
-            overrides,
-            [str(d.get("path", "")) for d in devices],
-        )
-
-        # Get initial cursor position if enabled, otherwise use 0,0
-        start_x, start_y = 0, 0
-        self._recording_start_cursor = None
-        if record_start_position:
-            if self._window_listener:
-                try:
-                    pos = await self._window_listener.get_cursor_position()
-                    if pos:
-                        start_x, start_y = int(pos[0]), int(pos[1])
-                        self._recording_start_cursor = (start_x, start_y)
-                        log.debug(
-                            f"Recording start cursor position captured: x={start_x}, y={start_y}"
-                        )
-                    else:
-                        log.debug("Recording start: get_cursor_position returned None")
-                except Exception as e:
-                    log.debug(f"Failed to get cursor position for recording start: {e}")
-            else:
-                log.debug("Recording start: no window listener available")
-        else:
-            log.debug("Recording start: record_start_position is disabled")
-
-        try:
-            result = await self.client.send_command(
-                Command(
-                    command=CommandType.START_RECORDING,
-                    data={
-                        "devices": devices,
-                        "include_mouse_movement": include_mouse_movement,
-                        "include_mouse_clicks": include_mouse_clicks,
-                        "start_x": start_x,
-                        "start_y": start_y,
-                    },
-                )
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
-
-        if result.status == "ok":
-            self._recording_active = True
-            response_data = _json_object(result.data)
-            return response_data if response_data else {"status": "ok"}
-
-        message = str(result.error or "Daemon unavailable")
-        response: JsonObject = {"status": "error", "message": message}
-        if "recording_locked" in message.lower():
-            response["error_code"] = "recording_locked"
-        return response
-
-    async def _refresh_recording_devices_cache(self) -> None:
-        try:
-            devices = await self._get_devices_for_recording(["keyboard", "gamepad", "mouse"])
-            self._recording_devices_cache = devices
-        except Exception:
-            pass
-
-    def _recording_device_types(self, device: JsonObject) -> list[str]:
-        return normalize_input_classes(
-            cast(list[str] | None, _json_list(device.get("device_types")) or None),
-            _str_value(device.get("device_type"), "other"),
-        )
-
-    def _recording_device_matches_types(self, device: JsonObject, device_types: list[str]) -> bool:
-        return bool(set(device_types).intersection(self._recording_device_types(device)))
-
-    async def _get_devices_for_recording(
-        self,
-        device_types: list[str],
-        include_grabbed: bool = False,
-    ) -> list[JsonObject]:
-        try:
-            result = await self.client.send_command(Command(command=CommandType.LIST_DEVICES))
-        except Exception:
-            return []
-        result_data = _json_object(result.data)
-        if result.status != "ok" or result_data is None:
-            return []
-
-        grabbed_paths = {
-            p for interface_map in self._grabbed_interfaces.values() for p in interface_map.values()
-        }
-
-        devices: list[JsonObject] = []
-        for raw_device in _json_list(result_data.get("devices")):
-            d = _json_object(raw_device)
-            if d is None:
-                continue
-            path = _str_value(d.get("path"), "")
-            dtype = _str_value(d.get("device_type"), "other")
-            resolved_types = self._recording_device_types(d)
-            if not path or not set(device_types).intersection(resolved_types):
-                continue
-
-            is_grabbed = path in grabbed_paths
-            if is_grabbed and not include_grabbed:
-                continue
-
-            devices.append(
-                {
-                    "path": path,
-                    "name": _str_value(d.get("name"), path),
-                    "vendor_id": str(d.get("vendor_id", "") or ""),
-                    "product_id": str(d.get("product_id", "") or ""),
-                    "device_type": dtype,
-                    "device_types": resolved_types,
-                    "grabbed_by_keyforge": is_grabbed,
-                }
-            )
-
-        return devices
-
-    async def _save_recording(
-        self,
-        name: str,
-        move_to_start: bool = False,
-        start_x: int = 0,
-        start_y: int = 0,
-        block_mouse_movement: bool = False,
-    ) -> JsonObject:
-        safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", name).strip("._")
-        if not safe_name:
-            raise ValueError("Invalid macro name")
-
-        data: JsonObject = self._pending_recording_data or {}
-        macro: JsonObject = {
-            "name": safe_name,
-            "created_at": datetime.now().isoformat(),
-            "duration_ms": _int_value(data.get("duration_ms"), 0),
-            "device_types": _json_list(data.get("device_types")),
-            "events": _json_list(data.get("events")),
-            "move_to_start": bool(move_to_start),
-            "start_x": int(start_x),
-            "start_y": int(start_y),
-            "block_mouse_movement": bool(block_mouse_movement),
-        }
-        try:
-            result = await self.client.send_command(
-                Command(command=CommandType.MACRO_CREATE, data={"macro": macro})
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
-
-        if result.status != "ok":
-            return {"status": "error", "message": result.error or "Failed to save recording"}
-
-        created_name = safe_name
-        result_data = _json_object(result.data)
-        if result_data is not None:
-            created = _json_object(result_data.get("macro"))
-            if created is not None:
-                created_name = str(created.get("name", safe_name))
-
-        self._pending_recording_data = None
-        self._broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
-        return {"status": "ok", "name": created_name}
 
     def _mapping_log_view(self, mapping: JsonObject) -> JsonObject:
         view: JsonObject = {}

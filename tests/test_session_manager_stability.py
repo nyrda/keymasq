@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 
 import keyforge.session.manager as session_manager_module
+import keyforge.session.manager_recording as session_recording_module
 import keyforge.session.manager_session_commands as session_commands_module
 from keyforge.common.ipc import Command, CommandType, Response
 from keyforge.common.models import (
@@ -194,8 +195,10 @@ async def test_sensitive_command_requires_active_recording_owner() -> None:
     owner_writer = object()
     other_writer = object()
 
-    manager._lock_recording_unlock = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
-    manager._recording_refresh_owner = {
+    lock_recording_unlock = AsyncMock(return_value={"status": "ok"})
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_recording_module, "lock_recording_unlock", lock_recording_unlock)
+    manager.unlock_state.refresh_owner = {
         "uid": 1000,
         "pid": 111,
         "writer_id": id(owner_writer),
@@ -218,7 +221,8 @@ async def test_sensitive_command_requires_active_recording_owner() -> None:
         owner_writer,  # type: ignore[arg-type]
     )
     assert allowed["status"] == "ok"
-    manager._lock_recording_unlock.assert_awaited_once()
+    lock_recording_unlock.assert_awaited_once()
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -228,7 +232,7 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
     manager = SessionManager()
     peer = PeerCredentials(pid=111, uid=1000, gid=1000)
     writer = object()
-    manager._start_recording = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
+    start_recording = AsyncMock(return_value={"status": "ok"})
     manager._security_policy = SecurityPolicy(
         session_command_acl={"client": []},
         daemon_command_acl={"session": []},
@@ -247,6 +251,7 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
         return True
 
     monkeypatch.setattr(session_commands_module, "command_allowed", fake_command_allowed)
+    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
 
     result = await manager._handle_session_request(
         {"command": "start_recording"},
@@ -257,7 +262,7 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
 
     assert result["status"] == "error"
     assert result["error_code"] == "sensitive_command_denied"
-    manager._start_recording.assert_not_awaited()
+    start_recording.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -299,7 +304,7 @@ async def test_owner_disconnect_cleans_runtime_unlock() -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=111, uid=1000, gid=1000)
     writer = object()
-    manager._recording_refresh_owner = {
+    manager.unlock_state.refresh_owner = {
         "uid": 1000,
         "pid": 111,
         "writer_id": id(writer),
@@ -307,9 +312,13 @@ async def test_owner_disconnect_cleans_runtime_unlock() -> None:
     }
     manager.client.send_command = AsyncMock(return_value=Response(status="ok"))
 
-    await manager._clear_recording_refresh_owner_if_writer(peer, writer)  # type: ignore[arg-type]
+    await session_recording_module.clear_recording_refresh_owner_if_writer(
+        manager,
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
 
-    assert manager._recording_refresh_owner is None
+    assert manager.unlock_state.refresh_owner is None
     manager.client.send_command.assert_awaited_once_with(
         Command(
             command=CommandType.LOCK_RECORDING_UNLOCK,
@@ -325,12 +334,22 @@ async def test_last_client_disconnect_cleans_runtime_unlock_without_owner() -> N
     writer = object()
     manager._session_clients.add(writer)  # type: ignore[arg-type]
     manager._session_client_peers[writer] = peer  # type: ignore[index]
-    manager._resolve_unlock_status_async = AsyncMock(  # type: ignore[method-assign]
+    resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "runtime", "expires_at": 2000}
+    )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_unlock_status_async",
+        resolve_unlock_status_async,
     )
     manager.client.send_command = AsyncMock(return_value=Response(status="ok"))
 
-    await manager._clear_recording_refresh_owner_if_writer(peer, writer)  # type: ignore[arg-type]
+    await session_recording_module.clear_recording_refresh_owner_if_writer(
+        manager,
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
 
     manager.client.send_command.assert_awaited_once_with(
         Command(
@@ -338,6 +357,7 @@ async def test_last_client_disconnect_cleans_runtime_unlock_without_owner() -> N
             data={"uid": 1000, "cleanup": True},
         )
     )
+    monkeypatch.undo()
 
 
 def test_signal_handler_only_sets_shutdown_state() -> None:
@@ -421,7 +441,7 @@ async def test_reload_handler_debounces_burst_updates() -> None:
 @pytest.mark.asyncio
 async def test_recording_settings_persistence_applies_latest_snapshot_last() -> None:
     manager = SessionManager()
-    manager._recording_settings = {
+    manager.recording_state.settings = {
         "include_mouse_movement": False,
         "include_mouse_clicks": False,
         "record_start_position": False,
@@ -429,7 +449,7 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last() -> 
     persisted: dict[str, bool] = {}
     writes: list[dict[str, bool]] = []
 
-    def _fake_save(settings: dict | None = None) -> None:
+    def _fake_save(_manager, settings: dict | None = None) -> None:
         state = dict(settings or {})
         # Simulate an older snapshot that takes longer to persist.
         if state.get("include_mouse_movement", False):
@@ -440,15 +460,17 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last() -> 
         persisted.update(state)
         writes.append(state)
 
-    manager._save_recording_settings_to_disk = _fake_save  # type: ignore[method-assign]
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_recording_module, "save_recording_settings_to_disk", _fake_save)
 
-    manager._update_recording_settings({"include_mouse_movement": True})
-    manager._update_recording_settings(
+    session_recording_module.update_recording_settings(manager, {"include_mouse_movement": True})
+    session_recording_module.update_recording_settings(
+        manager,
         {"include_mouse_movement": False, "include_mouse_clicks": True}
     )
 
     for _ in range(100):
-        save_task = manager._recording_settings_save_task
+        save_task = manager.recording_state.settings_save_task
         if save_task is None or save_task.done():
             break
         await asyncio.sleep(0.01)
@@ -461,6 +483,7 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last() -> 
         "include_mouse_clicks": True,
         "record_start_position": False,
     }
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -768,8 +791,13 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     manager._security_policy.gui_allow_left_right_click_remap = True
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
-    manager._resolve_unlock_status_async = AsyncMock(  # type: ignore[method-assign]
+    resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "runtime", "expires_at": 1234}
+    )
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_unlock_status_async",
+        resolve_unlock_status_async,
     )
 
     async def _support_details(_compositor_id: str | None, _dbus=None) -> dict[str, bool | str]:
@@ -790,7 +818,7 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     assert result["gui_allow_left_right_click_remap"] is True
     assert result["recording_unlock_source"] == "runtime"
     assert result["recording_unlock_expires_at"] == 1234
-    manager._resolve_unlock_status_async.assert_awaited_once_with(peer.uid)
+    resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
 
 
 @pytest.mark.asyncio
@@ -799,15 +827,21 @@ async def test_get_recording_settings_uses_unlock_and_owner_state_only() -> None
     manager._security_policy.recording_unlock_required = True
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
-    manager._resolve_unlock_status_async = AsyncMock(  # type: ignore[method-assign]
+    resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "runtime", "expires_at": 4321}
     )
-    manager._recording_refresh_owner = {
+    manager.unlock_state.refresh_owner = {
         "uid": peer.uid,
         "pid": peer.pid,
         "writer_id": id(writer),
         "lease_id": "lease-test",
     }
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_unlock_status_async",
+        resolve_unlock_status_async,
+    )
 
     result = await manager._handle_session_request(
         {"command": "get_recording_settings"},
@@ -821,7 +855,8 @@ async def test_get_recording_settings_uses_unlock_and_owner_state_only() -> None
     assert result["recording_unlock_required"] is True
     assert result["recording_refresh_owner"] is True
     assert "authorized" not in result
-    manager._resolve_unlock_status_async.assert_awaited_once_with(peer.uid)
+    resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -830,7 +865,9 @@ async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not
     manager._security_policy.recording_unlock_required = False
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
-    manager._start_recording = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
+    start_recording = AsyncMock(return_value={"status": "ok"})
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
 
     result = await manager._handle_session_request(
         {"command": "start_recording"},
@@ -840,7 +877,8 @@ async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not
     )
 
     assert result == {"status": "ok"}
-    manager._start_recording.assert_awaited_once_with(reset_if_active=False)
+    start_recording.assert_awaited_once_with(manager, reset_if_active=False)
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -851,8 +889,13 @@ async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     manager._security_policy.recording_unlock_required = False
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
-    manager._resolve_unlock_status_async = AsyncMock(  # type: ignore[method-assign]
+    resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": False, "source": "none", "expires_at": 0}
+    )
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_unlock_status_async",
+        resolve_unlock_status_async,
     )
 
     async def _support_details(_compositor_id: str | None, _dbus=None) -> dict[str, bool | str]:
@@ -883,7 +926,7 @@ async def test_capture_commands_with_owner_return_error_on_missing_hardware_id(
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
-    manager._recording_refresh_owner = {
+    manager.unlock_state.refresh_owner = {
         "uid": peer.uid,
         "pid": peer.pid,
         "writer_id": id(writer),
@@ -1051,7 +1094,7 @@ async def test_capture_combo_session_command_round_trip() -> None:
 
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
-    manager._recording_refresh_owner = {
+    manager.unlock_state.refresh_owner = {
         "uid": peer.uid,
         "pid": peer.pid,
         "writer_id": id(writer),
@@ -1102,7 +1145,7 @@ async def test_capture_combo_uses_all_known_hardware_ids_not_just_profile_layers
         )
     )
 
-    result = await manager._capture_combo("Work", 15.0)
+    result = await session_recording_module.capture_combo(manager, "Work", 15.0)
 
     assert result == {
         "status": "ok",
@@ -1449,24 +1492,31 @@ async def test_claim_recording_unlock_refresh_creates_runtime_lease(
     manager = SessionManager()
     peer = PeerCredentials(pid=12, uid=101, gid=100)
     writer = object()
-    manager._resolve_unlock_status_async = AsyncMock(  # type: ignore[method-assign]
+    resolve_unlock_status_async = AsyncMock(
         side_effect=[
             {"unlocked": True, "source": "runtime", "expires_at": 2000},
             {"unlocked": True, "source": "runtime", "expires_at": 2000},
         ]
     )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_unlock_status_async",
+        resolve_unlock_status_async,
+    )
 
     manager.client.send_command = AsyncMock(return_value=Response(status="ok"))
 
-    result = await manager._claim_recording_unlock_refresh(peer, writer)
+    result = await session_recording_module.claim_recording_unlock_refresh(manager, peer, writer)
 
     assert result["status"] == "ok"
     assert result["recording_refresh_owner"] is True
-    assert manager._recording_refresh_owner is not None
-    assert manager._recording_refresh_owner["uid"] == peer.uid
-    assert manager._runtime_refresh_claim_consumed_until[peer.uid] == 2000
-    assert manager._resolve_unlock_status_async.await_count == 2
+    assert manager.unlock_state.refresh_owner is not None
+    assert manager.unlock_state.refresh_owner["uid"] == peer.uid
+    assert manager.unlock_state.runtime_refresh_claim_consumed_until[peer.uid] == 2000
+    assert resolve_unlock_status_async.await_count == 2
     manager.client.send_command.assert_awaited_once()
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -1476,14 +1526,14 @@ async def test_claim_recording_unlock_refresh_blocks_reclaimed_runtime_lease(
     manager = SessionManager()
     peer = PeerCredentials(pid=12, uid=202, gid=100)
     writer = object()
-    manager._runtime_refresh_claim_consumed_until[peer.uid] = 5000
+    manager.unlock_state.runtime_refresh_claim_consumed_until[peer.uid] = 5000
 
     def _resolve(_uid: int) -> dict:
         return {"unlocked": True, "source": "runtime", "expires_at": 5000}
 
-    monkeypatch.setattr(session_manager_module, "resolve_unlock_status", _resolve)
+    monkeypatch.setattr(session_recording_module, "resolve_unlock_status", _resolve)
 
-    result = await manager._claim_recording_unlock_refresh(peer, writer)
+    result = await session_recording_module.claim_recording_unlock_refresh(manager, peer, writer)
 
     assert result == {
         "status": "error",

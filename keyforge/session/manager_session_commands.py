@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.security import PeerCredentials, command_allowed
+from keyforge.session import manager_recording as runtime_recording
 from keyforge.session.compositor import (
     get_compositor_capabilities,
     get_compositor_name,
@@ -43,9 +44,10 @@ async def handle_session_request(
             "message": f"{client_class} is not allowed to call '{command}'",
         }
 
-    if manager._is_sensitive_session_command(
+    if runtime_recording.is_sensitive_session_command(
+        manager,
         command, policy
-    ) and not manager._is_refresh_owner_request(peer, writer):
+    ) and not runtime_recording.is_refresh_owner_request(manager, peer, writer):
         return {
             "status": "error",
             "error_code": "sensitive_command_denied",
@@ -202,7 +204,7 @@ async def _handle_compositor_commands(
         return {"status": "ok", "x": int(pos[0]), "y": int(pos[1])}
 
     if command == "get_status":
-        unlock_status = await manager._resolve_unlock_status_async(peer.uid)
+        unlock_status = await runtime_recording.resolve_unlock_status_async(manager, peer.uid)
         compositor_details = merge_support_details(
             await get_compositor_support_details(manager._compositor_id, manager.dbus),
             manager._window_listener,
@@ -223,12 +225,13 @@ async def _handle_compositor_commands(
             ),
             "compositor_dispatch_available": manager._compositor_dispatch_available(),
             "active_profiles": list(manager._active_profile_names),
-            "recording_active": manager._recording_active,
+            "recording_active": manager.recording_state.active,
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
             "gui_allow_left_right_click_remap": bool(policy.gui_allow_left_right_click_remap),
-            **manager._serialize_recording_unlock_state(
+            **runtime_recording.serialize_recording_unlock_state(
+                manager,
                 unlock_status,
-                refresh_owner=manager._is_refresh_owner_request(peer, writer),
+                refresh_owner=runtime_recording.is_refresh_owner_request(manager, peer, writer),
             ),
         }
 
@@ -243,61 +246,49 @@ async def _handle_recording_commands(
     writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
     if command == "start_recording":
-        manager._update_recording_settings(request)
-        start_result = await manager._start_recording(reset_if_active=False)
-        manager._notify_recording_unlock_required(start_result)
+        runtime_recording.update_recording_settings(manager, request)
+        start_result = await runtime_recording.start_recording(manager, reset_if_active=False)
+        runtime_recording.notify_recording_unlock_required(manager, start_result)
         return start_result
 
     if command == "set_recording_settings":
-        manager._update_recording_settings(request)
-        return {"status": "ok", **manager._recording_settings}
+        runtime_recording.update_recording_settings(manager, request)
+        return {"status": "ok", **manager.recording_state.settings}
 
     if command == "get_recording_settings":
-        unlock_status = await manager._resolve_unlock_status_async(peer.uid)
+        unlock_status = await runtime_recording.resolve_unlock_status_async(manager, peer.uid)
         return {
             "status": "ok",
-            **manager._serialize_recording_unlock_state(
+            **runtime_recording.serialize_recording_unlock_state(
+                manager,
                 unlock_status,
-                refresh_owner=manager._is_refresh_owner_request(peer, writer),
+                refresh_owner=runtime_recording.is_refresh_owner_request(manager, peer, writer),
             ),
-            **manager._recording_settings,
+            **manager.recording_state.settings,
         }
 
     if command == "claim_recording_unlock_refresh":
-        return await manager._claim_recording_unlock_refresh(peer, writer)
+        return await runtime_recording.claim_recording_unlock_refresh(manager, peer, writer)
 
     if command == "refresh_recording_unlock":
         lease_id = str_value(request.get("lease_id"), "").strip()
-        return await manager._refresh_recording_unlock(peer, writer, lease_id)
+        return await runtime_recording.refresh_recording_unlock(manager, peer, writer, lease_id)
 
     if command == "lock_recording_unlock":
         lease_id = str_value(request.get("lease_id"), "").strip()
-        return await manager._lock_recording_unlock(peer, writer, lease_id)
+        return await runtime_recording.lock_recording_unlock(manager, peer, writer, lease_id)
 
     if command == "stop_recording":
-        if not manager._recording_active:
-            return {"status": "error", "message": "No recording in progress"}
-        try:
-            result = await manager.client.send_command(Command(command=CommandType.STOP_RECORDING))
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
-        if result.status == "ok":
-            result_data = json_object(result.data)
-            if result_data is not None:
-                manager._pending_recording_data = result_data
-                manager._recording_active = False
-                return {"status": "ok", **result_data}
-            manager._recording_active = False
-            return {"status": "ok"}
-        return {"status": "error", "message": result.error or "Failed to stop recording"}
+        return await runtime_recording.stop_recording(manager, error_if_idle=True)
 
     if command == "save_recording":
         name = str_value(request.get("name"), "").strip()
         if not name:
             return {"status": "error", "message": "Name required"}
-        if not manager._pending_recording_data:
+        if not manager.recording_state.pending_data:
             return {"status": "error", "message": "No pending recording"}
-        save_result = await manager._save_recording(
+        save_result = await runtime_recording.save_recording(
+            manager,
             name,
             move_to_start=bool(request.get("move_to_start", False)),
             start_x=int_value(request.get("start_x"), 0),
@@ -309,7 +300,7 @@ async def _handle_recording_commands(
         return {"status": "ok", "name": save_result.get("name", name)}
 
     if command == "discard_recording":
-        manager._pending_recording_data = None
+        manager.recording_state.pending_data = None
         return {"status": "ok"}
 
     return None
@@ -439,7 +430,7 @@ async def _handle_macro_commands(
         if macro is None:
             return {"status": "error", "message": "Macro not found"}
 
-        macro = manager._sanitize_macro_for_policy(macro)
+        macro = runtime_recording.sanitize_macro_for_policy(manager, macro)
         payload: JsonObject = {
             "macro_name": str(macro.get("name", name) or name),
             "macro_events": macro.get("events", []),
@@ -486,37 +477,40 @@ async def _handle_capture_commands(
     request: JsonObject,
 ) -> JsonObject | None:
     if command == "list_devices_for_recording":
-        devices = await manager._get_devices_for_recording(
+        devices = await runtime_recording.get_devices_for_recording(
+            manager,
             ["keyboard", "gamepad", "mouse"],
             include_grabbed=True,
         )
-        manager._recording_devices_cache = [d for d in devices if not d.get("grabbed_by_keyforge")]
+        manager.recording_state.devices_cache = [
+            d for d in devices if not d.get("grabbed_by_keyforge")
+        ]
         return {"status": "ok", "devices": devices}
 
     if command == "begin_capture":
         hardware_id = str_value(request.get("hardware_id"), "")
         if not hardware_id:
             return {"error": "missing hardware_id"}
-        return await manager._capture_begin(hardware_id)
+        return await runtime_recording.capture_begin(manager, hardware_id)
 
     if command == "capture_read":
         hardware_id = str_value(request.get("hardware_id"), "")
         if not hardware_id:
             return {"error": "missing hardware_id"}
-        return await manager._capture_read(hardware_id)
+        return await runtime_recording.capture_read(manager, hardware_id)
 
     if command == "end_capture":
         hardware_id = str_value(request.get("hardware_id"), "")
         if not hardware_id:
             return {"error": "missing hardware_id"}
-        return await manager._capture_end(hardware_id)
+        return await runtime_recording.capture_end(manager, hardware_id)
 
     if command == "capture_combo":
         profile_name = str_value(request.get("profile_name"), "")
         if not profile_name:
             return {"error": "missing profile_name"}
         timeout_s = float_value(request.get("timeout_s"), 15.0)
-        return await manager._capture_combo(profile_name, timeout_s)
+        return await runtime_recording.capture_combo(manager, profile_name, timeout_s)
 
     return None
 

@@ -18,6 +18,7 @@ from keyforge.common.models import (
 )
 from keyforge.keyforged.device_manager import DeviceManager
 from keyforge.keyforged.recording import RecordingManager
+from keyforge.keyforged.runtime import grabbed_device as gdm
 from keyforge.keyforged.runtime import macros as mdm
 from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 from keyforge.session.profiles import ProfileManager
@@ -57,6 +58,19 @@ async def _play_macro_task(manager: DeviceManager, **kwargs: object) -> None:
         random_mod=dm.random,
         uuid_mod=dm.uuid,
         command_type=dm.CommandType,
+    )
+
+
+async def _process_grabbed_event(device: GrabbedDevice, event: evdev.InputEvent) -> None:
+    await gdm.process_event(
+        device,
+        event,
+        evdev_mod=evdev,
+        time_mod=gdm.time,
+        log=gdm.log,
+        combo_decision_cls=gdm.ComboDecision,
+        classify_event_device_type_fn=gdm.classify_event_device_type,
+        action_type_enum=gdm.ActionType,
     )
 
 
@@ -119,7 +133,7 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
     )
 
     start_event = evdev.InputEvent(1, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
-    await gd_start._process_event(start_event)
+    await _process_grabbed_event(gd_start, start_event)
     assert len(recorder.calls) == 0
 
     normal_mapping = {
@@ -138,7 +152,7 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
     )
 
     normal_event = evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
-    await gd_normal._process_event(normal_event)
+    await _process_grabbed_event(gd_normal, normal_event)
 
     assert len(recorder.calls) == 1
     assert recorder.calls[0][0] == "keyboard"

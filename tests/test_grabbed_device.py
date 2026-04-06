@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import evdev
 import pytest
 
+from keyforge.keyforged.runtime import grabbed_device as gdm
 from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 
 
@@ -81,39 +82,15 @@ class TestGrabbedDevice:
 
 class TestActionExecution:
     def test_resolve_code_btn_left(self):
-        grabbed = GrabbedDevice(
-            path="/dev/input/event0",
-            hardware_id="test",
-            button_map={},
-            mapping_getter=lambda: {},
-            event_callback=lambda *args: None,
-        )
-
-        code = grabbed._resolve_code("btn_left")
+        code = gdm.resolve_output_code("btn_left")
         assert code == evdev.ecodes.BTN_LEFT
 
     def test_resolve_code_key_a(self):
-        grabbed = GrabbedDevice(
-            path="/dev/input/event0",
-            hardware_id="test",
-            button_map={},
-            mapping_getter=lambda: {},
-            event_callback=lambda *args: None,
-        )
-
-        code = grabbed._resolve_code("key_a")
+        code = gdm.resolve_output_code("key_a")
         assert code == evdev.ecodes.KEY_A
 
     def test_resolve_code_unknown(self):
-        grabbed = GrabbedDevice(
-            path="/dev/input/event0",
-            hardware_id="test",
-            button_map={},
-            mapping_getter=lambda: {},
-            event_callback=lambda *args: None,
-        )
-
-        code = grabbed._resolve_code("unknown_key_xyz")
+        code = gdm.resolve_output_code("unknown_key_xyz")
         assert code is None
 
     @pytest.mark.asyncio
@@ -131,8 +108,13 @@ class TestActionExecution:
         grabbed.uinput.syn = MagicMock()
         grabbed.keyboard_uinput = grabbed.uinput
 
-        await grabbed._tap_key(
-            evdev.ecodes.KEY_A, hold_ms=1, event_name="test_key", uinput_dev=grabbed.uinput
+        await gdm.tap_key(
+            grabbed,
+            evdev.ecodes.KEY_A,
+            hold_ms=1,
+            event_name="test_key",
+            uinput_dev=grabbed.uinput,
+            asyncio_mod=asyncio,
         )
 
         assert grabbed.uinput.write.call_count == 2
@@ -161,7 +143,7 @@ class TestPassthrough:
             10,
         )
 
-        grabbed._passthrough(event)
+        gdm.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
         passthrough.write.assert_not_called()
 
     def test_relative_mouse_movement_is_not_suppressed_without_filter(self):
@@ -185,5 +167,5 @@ class TestPassthrough:
             12,
         )
 
-        grabbed._passthrough(event)
+        gdm.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
         passthrough.write.assert_called_once_with(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 12)

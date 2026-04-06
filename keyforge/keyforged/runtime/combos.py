@@ -1,7 +1,13 @@
-# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
-
 import contextlib
-from typing import Any
+from typing import Any, cast
+
+
+def _evdev_code_name(raw_name: object, fallback: int) -> str:
+    if isinstance(raw_name, tuple):
+        names = cast(tuple[object, ...], raw_name)
+        first: object = names[0] if names else str(fallback)
+        return str(first).lower()
+    return str(raw_name).lower()
 
 
 async def on_device_event(
@@ -86,10 +92,10 @@ def build_combo_event_payload(
     if event_type != evdev_mod.ecodes.EV_KEY or int(event_value) not in {0, 1, 2}:
         return None
 
-    code_name = evdev_mod.ecodes.bytype.get(event_type, {}).get(event_code, str(event_code))
-    if isinstance(code_name, tuple):
-        code_name = code_name[0] if code_name else str(event_code)
-    evdev_name = str(code_name).lower()
+    raw_code_name: object = evdev_mod.ecodes.bytype.get(event_type, {}).get(
+        event_code, str(event_code)
+    )
+    evdev_name = _evdev_code_name(raw_code_name, event_code)
     if not evdev_name.startswith(("key_", "btn_")):
         return None
 
@@ -264,7 +270,12 @@ def held_combo_modifier_bindings_for_scope(
         modifier_names = modifier_getter()
         if not isinstance(modifier_names, (list, tuple, set, frozenset)):
             continue
-        for evdev_name in modifier_names:
+        modifier_name_values = cast(
+            list[object] | tuple[object, ...] | set[object] | frozenset[object],
+            modifier_names,
+        )
+        modifier_names_str = [name for name in modifier_name_values if isinstance(name, str)]
+        for evdev_name in modifier_names_str:
             held.add(
                 combo_binding_cls(
                     hardware_id=hardware_id,

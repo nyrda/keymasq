@@ -1,5 +1,3 @@
-# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false
-
 from collections.abc import Callable
 from typing import cast
 
@@ -10,6 +8,14 @@ from keyforge.common.models import (
 from keyforge.keyforged.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 type JsonObject = dict[str, object]
+
+
+def _default_optional_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _default_int_or_none(value: object, *, int_value: Callable[..., int]) -> int | None:
+    return None if value is None else int_value(value)
 
 
 def parse_action(
@@ -164,13 +170,12 @@ def parse_superkey_action(
         raise TypeError("superkey action must be an object")
 
     if optional_str is None:
-        optional_str = cast(
-            Callable[..., str | None], lambda value: None if value is None else str(value)
-        )
+        optional_str = _default_optional_str
     if int_or_none is None:
-        int_or_none = cast(
-            Callable[..., int | None], lambda value: None if value is None else int_value(value)
-        )
+        def fallback_int_or_none(value: object) -> int | None:
+            return _default_int_or_none(value, int_value=int_value)
+
+        int_or_none = fallback_int_or_none
 
     return SuperkeyActionData(
         action_type=str_value(action.get("action"), "keyboard"),

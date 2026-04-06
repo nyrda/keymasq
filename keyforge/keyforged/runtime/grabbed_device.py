@@ -1,5 +1,3 @@
-# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
-
 import asyncio
 import contextlib
 import errno
@@ -22,7 +20,7 @@ from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged.combo_engine import ComboDecision
 from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
 from keyforge.keyforged.recording import RecordingManager
-from keyforge.keyforged.superkey_state import SuperkeyConfig, SuperkeyMachine
+from keyforge.keyforged.superkey_state import SuperkeyMachine
 
 log = logging.getLogger("keyforged.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
@@ -33,7 +31,6 @@ type BroadcastCallback = Callable[[CommandType, dict[str, object]], Awaitable[No
 type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
-type RapidfireTaskFactory = Callable[[], asyncio.Task[None]]
 
 
 class _DeviceInfo(Protocol):
@@ -92,6 +89,14 @@ def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[objec
     return task
 
 
+def _evdev_code_name(raw_name: object, fallback: int) -> str:
+    if isinstance(raw_name, tuple):
+        names = cast(tuple[object, ...], raw_name)
+        first: object = names[0] if names else str(fallback)
+        return str(first).lower()
+    return str(raw_name).lower()
+
+
 async def event_loop(device_runtime: Any, *, asyncio_mod: Any, log: Any) -> None:
     error_backoff = 0.01
     device = device_runtime.device
@@ -103,11 +108,20 @@ async def event_loop(device_runtime: Any, *, asyncio_mod: Any, log: Any) -> None
             if not device_runtime._running:
                 break
             try:
-                await device_runtime._process_event(event)
+                await process_event(
+                    device_runtime,
+                    event,
+                    evdev_mod=evdev,
+                    time_mod=time,
+                    log=log,
+                    combo_decision_cls=ComboDecision,
+                    classify_event_device_type_fn=classify_event_device_type,
+                    action_type_enum=ActionType,
+                )
                 error_backoff = 0.01
             except Exception as exc:
                 if device_runtime._running:
-                    await device_runtime._recover_from_event_processing_error()
+                    await recover_from_event_processing_error(device_runtime)
                     log.warning(
                         "Event processing error on %s: %s (backoff %.3fs)",
                         device_runtime.path,
@@ -120,7 +134,7 @@ async def event_loop(device_runtime: Any, *, asyncio_mod: Any, log: Any) -> None
         pass
     except OSError as exc:
         if device_runtime._running:
-            await device_runtime._cleanup_runtime_failure()
+            await cleanup_runtime_failure(device_runtime, log=log)
             log.warning("Device read error on %s: %s", device_runtime.path, exc)
 
 
@@ -143,29 +157,29 @@ async def cleanup_runtime_failure(device_runtime: Any, *, log: Any) -> None:
         log.warning(
             "Failed to reset superkeys after event error on %s: %s", device_runtime.path, exc
         )
-    device_runtime._release_all_keys()
+    release_all_keys(device_runtime, evdev_mod=evdev, uinput_writer=_uinput_writer)
 
 
 async def recover_from_event_processing_error(device_runtime: Any) -> None:
-    await device_runtime._cleanup_runtime_failure()
+    await cleanup_runtime_failure(device_runtime, log=log)
 
 
 def get_event_name(event: Any, *, evdev_mod: Any) -> str:
     try:
-        code_name = evdev_mod.ecodes.bytype[event.type].get(event.code, str(event.code))
-        if isinstance(code_name, tuple):
-            code_name = code_name[0] if code_name else str(event.code)
-        return str(code_name).lower()
+        raw_code_name: object = evdev_mod.ecodes.bytype[event.type].get(
+            event.code, str(event.code)
+        )
+        return _evdev_code_name(raw_code_name, int(event.code))
     except Exception:
         return str(event.code)
 
 
 def get_key_name(code: int, *, evdev_mod: Any) -> str | None:
     try:
-        code_name = evdev_mod.ecodes.bytype[evdev_mod.ecodes.EV_KEY].get(code, str(code))
-        if isinstance(code_name, tuple):
-            code_name = code_name[0] if code_name else str(code)
-        return str(code_name).lower()
+        raw_code_name: object = evdev_mod.ecodes.bytype[evdev_mod.ecodes.EV_KEY].get(
+            code, str(code)
+        )
+        return _evdev_code_name(raw_code_name, code)
     except Exception:
         return None
 
@@ -272,7 +286,14 @@ async def wait_for_active_keys_to_clear(
         now = time_mod.monotonic()
         if not active_codes:
             if warned:
-                await device_runtime._broadcast_grab_status("ready", [], waited_s=now - started_at)
+                await broadcast_grab_status(
+                    device_runtime,
+                    "ready",
+                    [],
+                    waited_s=now - started_at,
+                    command_type=CommandType,
+                    log=log,
+                )
                 log.info(
                     "[%s] active keys cleared, proceeding with grab", device_runtime.hardware_id
                 )
@@ -280,7 +301,7 @@ async def wait_for_active_keys_to_clear(
         active_names = [
             event_name
             for code in active_codes
-            if (event_name := device_runtime._get_key_name(int(code))) is not None
+            if (event_name := get_key_name(int(code), evdev_mod=evdev)) is not None
         ]
         summary = (
             ", ".join(active_names)
@@ -288,8 +309,13 @@ async def wait_for_active_keys_to_clear(
             else ", ".join(str(int(code)) for code in active_codes)
         )
         if now - started_at >= active_key_idle_max_wait_s:
-            await device_runtime._broadcast_grab_status(
-                "timed_out", active_names, waited_s=now - started_at
+            await broadcast_grab_status(
+                device_runtime,
+                "timed_out",
+                active_names,
+                waited_s=now - started_at,
+                command_type=CommandType,
+                log=log,
             )
             log.error(
                 "[%s] timed out waiting %.1fs for active keys to clear before grab: %s",
@@ -302,8 +328,13 @@ async def wait_for_active_keys_to_clear(
                 f"{active_key_idle_max_wait_s:.1f}s for active keys to clear: {summary}"
             )
         if not warned:
-            await device_runtime._broadcast_grab_status(
-                "waiting", active_names, waited_s=now - started_at
+            await broadcast_grab_status(
+                device_runtime,
+                "waiting",
+                active_names,
+                waited_s=now - started_at,
+                command_type=CommandType,
+                log=log,
             )
             log.warning(
                 "[%s] delaying grab until keys are released: %s",
@@ -313,8 +344,13 @@ async def wait_for_active_keys_to_clear(
             warned = True
             last_log_at = now
         elif now - last_log_at >= active_key_idle_log_interval_s:
-            await device_runtime._broadcast_grab_status(
-                "waiting", active_names, waited_s=now - started_at
+            await broadcast_grab_status(
+                device_runtime,
+                "waiting",
+                active_names,
+                waited_s=now - started_at,
+                command_type=CommandType,
+                log=log,
             )
             log.info(
                 "[%s] still waiting to grab; active keys still down: %s",
@@ -330,7 +366,13 @@ async def wait_for_active_keys_to_clear(
         )
         if wait_timeout <= 0.0:
             continue
-        await device_runtime._wait_for_active_key_activity(wait_timeout)
+        await wait_for_active_key_activity(
+            device_runtime,
+            wait_timeout,
+            asyncio_mod=asyncio_mod,
+            errno_mod=errno,
+            log=log,
+        )
 
 
 def seed_startup_held_actions(device_runtime: Any) -> None:
@@ -344,12 +386,12 @@ def seed_startup_held_actions(device_runtime: Any) -> None:
 
     mapping = device_runtime.mapping_getter()
     for code in active_codes:
-        event_name = device_runtime._get_key_name(int(code))
+        event_name = get_key_name(int(code), evdev_mod=evdev)
         if not event_name or event_name in device_runtime._held_source_actions:
             continue
-        action = device_runtime._find_action_for_code(int(code), event_name, mapping)
+        action = find_action_for_code(device_runtime, int(code), event_name, mapping)
         device_runtime._held_source_actions[event_name] = action
-        device_runtime._reconcile_startup_held_action(action)
+        reconcile_startup_held_action(device_runtime, action, action_type_enum=ActionType)
 
 
 def reconcile_startup_held_action(
@@ -359,25 +401,30 @@ def reconcile_startup_held_action(
         return
 
     if action.action_type == action_type_enum.KEYBOARD:
-        code = device_runtime._resolve_code(action.target)
+        code = resolve_output_code(action.target)
         if code is not None:
-            device_runtime._ensure_key_released(code, device_runtime.keyboard_uinput)
+            ensure_key_released(device_runtime, code, device_runtime.keyboard_uinput)
         return
 
     if action.action_type == action_type_enum.MOUSE:
-        code = device_runtime._resolve_code(action.target)
+        code = resolve_output_code(action.target)
         if code is not None:
-            device_runtime._ensure_key_released(code, device_runtime.mouse_uinput)
+            ensure_key_released(device_runtime, code, device_runtime.mouse_uinput)
         return
 
     if action.action_type == action_type_enum.GAMEPAD:
-        is_trigger, axis_code = device_runtime._get_trigger_axis(action.target)
+        is_trigger, axis_code = get_trigger_axis(action.target)
         if is_trigger and axis_code is not None:
-            device_runtime._ensure_trigger_released(axis_code)
+            ensure_trigger_released(
+                device_runtime,
+                axis_code,
+                evdev_mod=evdev,
+                uinput_writer=_uinput_writer,
+            )
             return
-        code = device_runtime._resolve_code(action.target)
+        code = resolve_output_code(action.target)
         if code is not None:
-            device_runtime._ensure_key_released(code, device_runtime.gamepad_uinput)
+            ensure_key_released(device_runtime, code, device_runtime.gamepad_uinput)
 
 
 async def process_event(
@@ -396,7 +443,7 @@ async def process_event(
     combo_consumed = False
     combo_passthrough_requested = False
 
-    event_name = device_runtime._get_event_name(event)
+    event_name = get_event_name(event, evdev_mod=evdev_mod)
     consumed = await device_runtime.event_callback(
         device_runtime.hardware_id,
         device_runtime.path,
@@ -433,7 +480,7 @@ async def process_event(
         return
 
     if event.type not in (evdev_mod.ecodes.EV_KEY, evdev_mod.ecodes.EV_REL):
-        device_runtime._passthrough(event)
+        passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=_uinput_writer)
         diag_label = "passthrough_other"
         if device_runtime.diagnostics_recorder:
             device_runtime.diagnostics_recorder(
@@ -446,7 +493,7 @@ async def process_event(
         event.type == evdev_mod.ecodes.EV_KEY
         and event_name in device_runtime._combo_passthrough_held
     ):
-        device_runtime._passthrough(event)
+        passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=_uinput_writer)
         if int(event.value) == 0:
             device_runtime._combo_passthrough_held.discard(event_name)
         diag_label = "combo_passthrough_held"
@@ -471,7 +518,7 @@ async def process_event(
             and int(event.value) == 1
         ):
             device_runtime._combo_passthrough_held.add(event_name)
-        device_runtime._passthrough(event)
+        passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=_uinput_writer)
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_fast"
         if device_runtime.diagnostics_recorder:
             device_runtime.diagnostics_recorder(
@@ -480,7 +527,7 @@ async def process_event(
             )
         return
 
-    action = device_runtime._find_action_for_event(event, mapping)
+    action = find_action_for_event(device_runtime, event, mapping)
     if event.type == evdev_mod.ecodes.EV_KEY:
         held_action = device_runtime._held_source_actions.get(event_name)
         if int(event.value) == 1 and event_name not in device_runtime._held_source_actions:
@@ -586,7 +633,19 @@ async def process_event(
             )
 
     if action:
-        await device_runtime._execute_action(action, event, event_name)
+        await execute_action(
+            device_runtime,
+            action,
+            event,
+            event_name,
+            asyncio_mod=asyncio,
+            command_type=CommandType,
+            fire_and_observe_fn=_fire_and_observe,
+            action_type_enum=action_type_enum,
+            superkey_machine_cls=SuperkeyMachine,
+            evdev_mod=evdev_mod,
+            uinput_writer=_uinput_writer,
+        )
         diag_label = (
             f"combo_release_action_{action.action_type.value}"
             if combo_consumed
@@ -599,7 +658,7 @@ async def process_event(
             and int(event.value) == 1
         ):
             device_runtime._combo_passthrough_held.add(event_name)
-        device_runtime._passthrough(event)
+        passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=_uinput_writer)
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_mapped"
 
     if event.type == evdev_mod.ecodes.EV_KEY and int(event.value) == 0:
@@ -612,8 +671,8 @@ async def process_event(
 
 
 def find_action_for_event(device_runtime: Any, event: Any, mapping: dict[str, Any]) -> Any:
-    event_name = device_runtime._get_event_name(event)
-    return device_runtime._find_action_for_code(int(event.code), event_name, mapping)
+    event_name = get_event_name(event, evdev_mod=evdev)
+    return find_action_for_code(device_runtime, int(event.code), event_name, mapping)
 
 
 def find_action_for_code(
@@ -622,7 +681,12 @@ def find_action_for_code(
     button_id = device_runtime.evdev_code_to_button.get(int(event_code))
     if button_id and button_id in mapping:
         return mapping[button_id]
-    return device_runtime._find_action_for_name(event_name, mapping)
+    return find_action_for_name(
+        device_runtime,
+        event_name,
+        mapping,
+        canonical_gamepad_button_name_fn=canonical_gamepad_button_name,
+    )
 
 
 def find_action_for_name(
@@ -655,12 +719,11 @@ async def execute_action(
     fire_and_observe_fn: Any,
     action_type_enum: Any,
     superkey_machine_cls: Any,
-    superkey_config_cls: Any,
     evdev_mod: Any,
     uinput_writer: Any,
 ) -> None:
     if action.action_type == action_type_enum.PASSTHROUGH:
-        device_runtime._passthrough(event)
+        passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
 
     elif action.action_type == action_type_enum.SUPPRESS:
         pass
@@ -693,32 +756,52 @@ async def execute_action(
 
     elif action.action_type == action_type_enum.GAMEPAD:
         if action.target:
-            is_trigger, axis_code = device_runtime._get_trigger_axis(action.target)
+            is_trigger, axis_code = get_trigger_axis(action.target)
             if is_trigger:
                 if axis_code is None:
                     return
                 if action.rapidfire_enabled:
                     if event.value == 1:
-                        device_runtime._start_rapidfire_task(
+                        start_rapidfire_task(
+                            device_runtime,
                             event_name,
                             "trigger",
                             lambda: asyncio_mod.create_task(
-                                device_runtime._rapidfire_trigger(
+                                rapidfire_trigger(
+                                    device_runtime,
                                     axis_code,
                                     action.rapidfire_hold_ms,
                                     action.rapidfire_wait_ms,
                                     event_name,
+                                    asyncio_mod=asyncio_mod,
+                                    evdev_mod=evdev_mod,
+                                    uinput_writer=uinput_writer,
                                 )
                             ),
                             axis_code=axis_code,
+                            code=None,
+                            uinput=None,
                         )
                     elif event.value == 0:
-                        await device_runtime._stop_rapidfire_async(event_name)
+                        await stop_rapidfire_async(
+                            device_runtime,
+                            event_name,
+                            asyncio_mod=asyncio_mod,
+                            contextlib_mod=contextlib,
+                        )
                 elif action.tap_enabled:
                     if event.value == 1 and not device_runtime._tap_active.get(event_name, False):
                         device_runtime._tap_active[event_name] = True
                         fire_and_observe_fn(
-                            device_runtime._tap_trigger(axis_code, action.tap_hold_ms, event_name),
+                            tap_trigger(
+                                device_runtime,
+                                axis_code,
+                                action.tap_hold_ms,
+                                event_name,
+                                asyncio_mod=asyncio_mod,
+                                evdev_mod=evdev_mod,
+                                uinput_writer=uinput_writer,
+                            ),
                             f"tap action {event_name}",
                         )
                 else:
@@ -885,6 +968,18 @@ async def execute_action(
                             f"superkey action {event_name}",
                         )
 
+                def superkey_key_event_tracker(
+                    action_type: str,
+                    code: int,
+                    value: int,
+                ) -> bool:
+                    return track_superkey_output(
+                        device_runtime,
+                        action_type,
+                        code,
+                        value,
+                    )
+
                 machine = superkey_machine_cls(
                     config=action.superkey_config,
                     event_name=event_name,
@@ -892,7 +987,7 @@ async def execute_action(
                     mouse_uinput=device_runtime.mouse_uinput,
                     gamepad_uinput=device_runtime.gamepad_uinput,
                     broadcast_callback=superkey_broadcast,
-                    key_event_tracker=device_runtime._track_superkey_output,
+                    key_event_tracker=superkey_key_event_tracker,
                 )
                 device_runtime._superkey_machines[event_name] = machine
 
@@ -916,37 +1011,60 @@ async def _execute_key_action(
 ) -> None:
     if not action.target:
         return
-    code = device_runtime._resolve_code(action.target)
+    code = resolve_output_code(action.target)
     if not code:
         return
     if action.rapidfire_enabled:
         if event.value == 1:
-            device_runtime._start_rapidfire_task(
+            start_rapidfire_task(
+                device_runtime,
                 event_name,
                 trigger_kind,
                 lambda: asyncio_mod.create_task(
-                    device_runtime._rapidfire_key(
+                    rapidfire_key(
+                        device_runtime,
                         code,
                         action.rapidfire_hold_ms,
                         action.rapidfire_wait_ms,
                         event_name,
                         uinput_dev,
+                        asyncio_mod=asyncio_mod,
                     )
                 ),
                 code=code,
                 uinput=uinput_dev,
+                axis_code=None,
             )
         elif event.value == 0:
-            await device_runtime._stop_rapidfire_async(event_name)
+            await stop_rapidfire_async(
+                device_runtime,
+                event_name,
+                asyncio_mod=asyncio_mod,
+                contextlib_mod=contextlib,
+            )
     elif action.tap_enabled:
         if event.value == 1 and not device_runtime._tap_active.get(event_name, False):
             device_runtime._tap_active[event_name] = True
             fire_and_observe_fn(
-                device_runtime._tap_key(code, action.tap_hold_ms, event_name, uinput_dev),
+                tap_key(
+                    device_runtime,
+                    code,
+                    action.tap_hold_ms,
+                    event_name,
+                    uinput_dev,
+                    asyncio_mod=asyncio_mod,
+                ),
                 f"tap action {event_name}",
             )
     else:
-        device_runtime._write_key(uinput_dev, code, int(event.value))
+        write_key(
+            device_runtime,
+            uinput_dev,
+            code,
+            int(event.value),
+            evdev_mod=evdev,
+            uinput_writer=_uinput_writer,
+        )
 
 
 async def _execute_move_action(
@@ -960,29 +1078,46 @@ async def _execute_move_action(
 ) -> None:
     if action.rapidfire_enabled:
         if event.value == 1:
-            device_runtime._start_rapidfire_task(
+            start_rapidfire_task(
+                device_runtime,
                 event_name,
                 "move",
                 lambda: asyncio_mod.create_task(
-                    device_runtime._rapidfire_move(
+                    rapidfire_move(
+                        device_runtime,
                         action,
                         event_name,
                         action.rapidfire_hold_ms,
                         action.rapidfire_wait_ms,
+                        asyncio_mod=asyncio_mod,
                     )
                 ),
+                code=None,
+                uinput=None,
+                axis_code=None,
             )
         elif event.value == 0:
-            await device_runtime._stop_rapidfire_async(event_name)
+            await stop_rapidfire_async(
+                device_runtime,
+                event_name,
+                asyncio_mod=asyncio_mod,
+                contextlib_mod=contextlib,
+            )
     elif action.tap_enabled:
         if event.value == 1 and not device_runtime._tap_active.get(event_name, False):
             device_runtime._tap_active[event_name] = True
             fire_and_observe_fn(
-                device_runtime._tap_move(action, event_name, action.tap_hold_ms),
+                tap_move(
+                    device_runtime,
+                    action,
+                    event_name,
+                    action.tap_hold_ms,
+                    asyncio_mod=asyncio_mod,
+                ),
                 f"tap move {event_name}",
             )
     elif event.value == 1:
-        device_runtime._emit_mouse_move(action)
+        emit_configured_mouse_move(device_runtime, action)
 
 
 def start_rapidfire_task(
@@ -995,7 +1130,7 @@ def start_rapidfire_task(
     uinput: Any,
     axis_code: int | None,
 ) -> None:
-    device_runtime._stop_rapidfire(event_name)
+    stop_rapidfire(device_runtime, event_name)
     task = task_factory()
     device_runtime._rapidfire_active[event_name] = True
     device_runtime._rapidfire_tasks[event_name] = task
@@ -1021,20 +1156,25 @@ def stop_rapidfire(device_runtime: Any, event_name: str) -> None:
     if kind == "trigger":
         axis_code = state.get("axis_code")
         if axis_code is not None:
-            device_runtime._ensure_trigger_released(cast(int, axis_code))
+            ensure_trigger_released(
+                device_runtime,
+                cast(int, axis_code),
+                evdev_mod=evdev,
+                uinput_writer=_uinput_writer,
+            )
         return
     if kind == "key":
         code = state.get("code")
         uinput = state.get("uinput")
         if code is not None:
-            device_runtime._ensure_key_released(cast(int, code), uinput)
+            ensure_key_released(device_runtime, cast(int, code), uinput)
 
 
 async def stop_rapidfire_async(
     device_runtime: Any, event_name: str, *, asyncio_mod: Any, contextlib_mod: Any
 ) -> None:
     task = device_runtime._rapidfire_tasks.get(event_name)
-    device_runtime._stop_rapidfire(event_name)
+    stop_rapidfire(device_runtime, event_name)
     if task is not None and not task.done():
         with contextlib_mod.suppress(asyncio_mod.CancelledError):
             await task
@@ -1052,13 +1192,18 @@ def finish_rapidfire_task(device_runtime: Any, event_name: str, task: Any) -> No
     if kind == "trigger":
         axis_code = state.get("axis_code")
         if axis_code is not None:
-            device_runtime._ensure_trigger_released(cast(int, axis_code))
+            ensure_trigger_released(
+                device_runtime,
+                cast(int, axis_code),
+                evdev_mod=evdev,
+                uinput_writer=_uinput_writer,
+            )
         return
     if kind == "key":
         code = state.get("code")
         uinput = state.get("uinput")
         if code is not None:
-            device_runtime._ensure_key_released(cast(int, code), uinput)
+            ensure_key_released(device_runtime, cast(int, code), uinput)
 
 
 def bucket_for_uinput(device_runtime: Any, uinput_dev: Any) -> str | None:
@@ -1076,7 +1221,7 @@ def bucket_for_uinput(device_runtime: Any, uinput_dev: Any) -> str | None:
 
 
 def track_key_state(device_runtime: Any, uinput_dev: Any, code: int, value: int) -> None:
-    bucket = device_runtime._bucket_for_uinput(uinput_dev)
+    bucket = bucket_for_uinput(device_runtime, uinput_dev)
     if not bucket:
         return
     held = device_runtime._held_output_keys[bucket]
@@ -1100,7 +1245,7 @@ def write_key(
         return
     writer.write(evdev_mod.ecodes.EV_KEY, int(code), int(value))
     writer.syn()
-    device_runtime._track_key_state(uinput_dev, int(code), int(value))
+    track_key_state(device_runtime, uinput_dev, int(code), int(value))
 
 
 def track_superkey_output(device_runtime: Any, action_type: str, code: int, value: int) -> bool:
@@ -1137,7 +1282,14 @@ def passthrough(device_runtime: Any, event: Any, *, evdev_mod: Any, uinput_write
     ):
         return
     if event.type == evdev_mod.ecodes.EV_KEY:
-        device_runtime._write_key(device_runtime.uinput, int(event.code), int(event.value))
+        write_key(
+            device_runtime,
+            device_runtime.uinput,
+            int(event.code),
+            int(event.value),
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
+        )
         return
     uinput = device_runtime.uinput
     writer = uinput_writer(uinput)
@@ -1185,9 +1337,14 @@ async def rapidfire_trigger(
         pass
     finally:
         if pressed:
-            device_runtime._ensure_trigger_released(axis_code)
+            ensure_trigger_released(
+                device_runtime,
+                axis_code,
+                evdev_mod=evdev_mod,
+                uinput_writer=uinput_writer,
+            )
         if task is not None:
-            device_runtime._finish_rapidfire_task(event_name, task)
+            finish_rapidfire_task(device_runtime, event_name, task)
 
 
 def ensure_trigger_released(
@@ -1246,12 +1403,26 @@ async def rapidfire_key(
 
     try:
         while device_runtime._rapidfire_active.get(event_name, False) and device_runtime._running:
-            device_runtime._write_key(uinput_dev, code, 1)
+            write_key(
+                device_runtime,
+                uinput_dev,
+                code,
+                1,
+                evdev_mod=evdev,
+                uinput_writer=_uinput_writer,
+            )
             pressed = True
             await asyncio_mod.sleep(hold)
 
             if pressed:
-                device_runtime._write_key(uinput_dev, code, 0)
+                write_key(
+                    device_runtime,
+                    uinput_dev,
+                    code,
+                    0,
+                    evdev_mod=evdev,
+                    uinput_writer=_uinput_writer,
+                )
                 pressed = False
             if not device_runtime._rapidfire_active.get(event_name, False):
                 break
@@ -1261,17 +1432,33 @@ async def rapidfire_key(
         pass
     finally:
         if pressed:
-            device_runtime._ensure_key_released(code, uinput_dev)
+            ensure_key_released(device_runtime, code, uinput_dev)
         if task is not None:
-            device_runtime._finish_rapidfire_task(event_name, task)
+            finish_rapidfire_task(device_runtime, event_name, task)
 
 
 def ensure_key_released(device_runtime: Any, code: int, uinput_dev: Any) -> None:
     try:
         if uinput_dev:
-            device_runtime._write_key(uinput_dev, code, 0)
+            write_key(
+                device_runtime,
+                uinput_dev,
+                code,
+                0,
+                evdev_mod=evdev,
+                uinput_writer=_uinput_writer,
+            )
     except Exception:
         pass
+
+
+def emit_configured_mouse_move(device_runtime: Any, action: Any) -> None:
+    emit_mouse_move(
+        device_runtime.mouse_uinput,
+        int(action.move_x),
+        int(action.move_y),
+        absolute=action.action_type == ActionType.MOUSE_MOVE_ABS,
+    )
 
 
 def release_all_keys(device_runtime: Any, *, evdev_mod: Any, uinput_writer: Any) -> None:
@@ -1331,9 +1518,23 @@ async def tap_key(
     hold = hold_ms / 1000.0
 
     try:
-        device_runtime._write_key(uinput_dev, code, 1)
+        write_key(
+            device_runtime,
+            uinput_dev,
+            code,
+            1,
+            evdev_mod=evdev,
+            uinput_writer=_uinput_writer,
+        )
         await asyncio_mod.sleep(hold)
-        device_runtime._write_key(uinput_dev, code, 0)
+        write_key(
+            device_runtime,
+            uinput_dev,
+            code,
+            0,
+            evdev_mod=evdev,
+            uinput_writer=_uinput_writer,
+        )
     except Exception:
         pass
     finally:
@@ -1355,7 +1556,7 @@ async def rapidfire_move(
 
     try:
         while device_runtime._rapidfire_active.get(event_name, False) and device_runtime._running:
-            device_runtime._emit_mouse_move(action)
+            emit_configured_mouse_move(device_runtime, action)
             await asyncio_mod.sleep(hold)
 
             if not device_runtime._rapidfire_active.get(event_name, False):
@@ -1366,7 +1567,7 @@ async def rapidfire_move(
         pass
     finally:
         if task is not None:
-            device_runtime._finish_rapidfire_task(event_name, task)
+            finish_rapidfire_task(device_runtime, event_name, task)
 
 
 async def tap_move(
@@ -1375,7 +1576,7 @@ async def tap_move(
     hold = hold_ms / 1000.0
 
     try:
-        device_runtime._emit_mouse_move(action)
+        emit_configured_mouse_move(device_runtime, action)
         await asyncio_mod.sleep(hold)
     except Exception:
         pass
@@ -1468,7 +1669,7 @@ class GrabbedDevice:
             self._held_source_actions.setdefault(event_name, None)
         self._combo_passthrough_held.clear()
         await self.reset_superkeys()
-        self._seed_startup_held_actions()
+        seed_startup_held_actions(self)
 
     async def reset_superkeys(self) -> None:
         for machine in self._superkey_machines.values():
@@ -1486,7 +1687,14 @@ class GrabbedDevice:
         )
 
         try:
-            await self._wait_for_active_keys_to_clear()
+            await wait_for_active_keys_to_clear(
+                self,
+                asyncio_mod=asyncio,
+                time_mod=time,
+                log=log,
+                active_key_idle_max_wait_s=ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                active_key_idle_log_interval_s=ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+            )
             self.device.grab()
         except Exception:
             if self.uinput:
@@ -1498,13 +1706,13 @@ class GrabbedDevice:
             raise
 
         self._running = True
-        self.task = asyncio.create_task(self._event_loop())
+        self.task = asyncio.create_task(event_loop(self, asyncio_mod=asyncio, log=log))
 
         log.info("Grabbed %s for %s", self.path, self.hardware_id)
 
     async def release(self) -> None:
         self._running = False
-        self._release_all_keys()
+        release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
         self._held_source_actions.clear()
         self._combo_passthrough_held.clear()
 
@@ -1539,15 +1747,22 @@ class GrabbedDevice:
         log.info("Released %s", self.path)
 
     def release_tracked_outputs(self) -> None:
-        self._release_all_keys()
+        release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
 
     def emit_combo_release(self, evdev_name: str) -> None:
         if not self.uinput:
             return
-        code = self._resolve_code(evdev_name)
+        code = resolve_output_code(evdev_name)
         if code is None:
             return
-        self._write_key(self.uinput, code, 0)
+        write_key(
+            self,
+            self.uinput,
+            code,
+            0,
+            evdev_mod=evdev,
+            uinput_writer=_uinput_writer,
+        )
 
     def has_held_source_inputs(self) -> bool:
         return bool(self._held_source_actions)
@@ -1558,271 +1773,3 @@ class GrabbedDevice:
             for event_name in self._combo_passthrough_held
             if normalize_combo_evdev(event_name) in COMBO_HELD_REARM_MODIFIERS
         }
-
-    async def _event_loop(self) -> None:
-        await event_loop(self, asyncio_mod=asyncio, log=log)
-
-    async def _cleanup_runtime_failure(self) -> None:
-        await cleanup_runtime_failure(self, log=log)
-
-    async def _recover_from_event_processing_error(self) -> None:
-        await recover_from_event_processing_error(self)
-
-    def _get_event_name(self, event: evdev.InputEvent) -> str:
-        return get_event_name(event, evdev_mod=evdev)
-
-    def _get_key_name(self, code: int) -> str | None:
-        return get_key_name(code, evdev_mod=evdev)
-
-    async def _broadcast_grab_status(
-        self,
-        state: str,
-        active_names: list[str],
-        *,
-        waited_s: float,
-    ) -> None:
-        await broadcast_grab_status(
-            self,
-            state,
-            active_names,
-            waited_s=waited_s,
-            command_type=CommandType,
-            log=log,
-        )
-
-    async def _wait_for_active_key_activity(self, timeout_s: float) -> bool:
-        return await wait_for_active_key_activity(
-            self,
-            timeout_s,
-            asyncio_mod=asyncio,
-            errno_mod=errno,
-            log=log,
-        )
-
-    async def _wait_for_active_keys_to_clear(self) -> None:
-        await wait_for_active_keys_to_clear(
-            self,
-            asyncio_mod=asyncio,
-            time_mod=time,
-            log=log,
-            active_key_idle_max_wait_s=ACTIVE_KEY_IDLE_MAX_WAIT_S,
-            active_key_idle_log_interval_s=ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
-        )
-
-    def _seed_startup_held_actions(self) -> None:
-        seed_startup_held_actions(self)
-
-    def _reconcile_startup_held_action(self, action: MappingAction | None) -> None:
-        reconcile_startup_held_action(self, action, action_type_enum=ActionType)
-
-    async def _process_event(self, event: evdev.InputEvent) -> None:
-        await process_event(
-            self,
-            event,
-            evdev_mod=evdev,
-            time_mod=time,
-            log=log,
-            combo_decision_cls=ComboDecision,
-            classify_event_device_type_fn=classify_event_device_type,
-            action_type_enum=ActionType,
-        )
-
-    def _find_action_for_event(
-        self,
-        event: evdev.InputEvent,
-        mapping: dict[str, MappingAction],
-    ) -> MappingAction | None:
-        return cast(MappingAction | None, find_action_for_event(self, event, mapping))
-
-    def _find_action_for_code(
-        self,
-        event_code: int,
-        event_name: str,
-        mapping: dict[str, MappingAction],
-    ) -> MappingAction | None:
-        return cast(
-            MappingAction | None,
-            find_action_for_code(self, event_code, event_name, mapping),
-        )
-
-    def _find_action_for_name(
-        self,
-        event_name: str,
-        mapping: dict[str, MappingAction],
-    ) -> MappingAction | None:
-        return cast(
-            MappingAction | None,
-            find_action_for_name(
-                self,
-                event_name,
-                mapping,
-                canonical_gamepad_button_name_fn=canonical_gamepad_button_name,
-            ),
-        )
-
-    async def _execute_action(
-        self,
-        action: MappingAction,
-        event: evdev.InputEvent,
-        event_name: str,
-    ) -> None:
-        await execute_action(
-            self,
-            action,
-            event,
-            event_name,
-            asyncio_mod=asyncio,
-            command_type=CommandType,
-            fire_and_observe_fn=_fire_and_observe,
-            action_type_enum=ActionType,
-            superkey_machine_cls=SuperkeyMachine,
-            superkey_config_cls=SuperkeyConfig,
-            evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
-        )
-
-    def _start_rapidfire_task(
-        self,
-        event_name: str,
-        kind: str,
-        task_factory: RapidfireTaskFactory,
-        *,
-        code: int | None = None,
-        uinput: evdev.UInput | None = None,
-        axis_code: int | None = None,
-    ) -> None:
-        start_rapidfire_task(
-            self,
-            event_name,
-            kind,
-            task_factory,
-            code=code,
-            uinput=uinput,
-            axis_code=axis_code,
-        )
-
-    def _stop_rapidfire(self, event_name: str) -> None:
-        stop_rapidfire(self, event_name)
-
-    async def _stop_rapidfire_async(self, event_name: str) -> None:
-        await stop_rapidfire_async(
-            self,
-            event_name,
-            asyncio_mod=asyncio,
-            contextlib_mod=contextlib,
-        )
-
-    def _finish_rapidfire_task(self, event_name: str, task: asyncio.Task[None]) -> None:
-        finish_rapidfire_task(self, event_name, task)
-
-    def _bucket_for_uinput(self, uinput_dev: evdev.UInput | None) -> str | None:
-        return bucket_for_uinput(self, uinput_dev)
-
-    def _track_key_state(self, uinput_dev: evdev.UInput | None, code: int, value: int) -> None:
-        track_key_state(self, uinput_dev, code, value)
-
-    def _write_key(self, uinput_dev: evdev.UInput | None, code: int, value: int) -> None:
-        write_key(
-            self,
-            uinput_dev,
-            code,
-            value,
-            evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
-        )
-
-    def _track_superkey_output(self, action_type: str, code: int, value: int) -> bool:
-        return track_superkey_output(self, action_type, code, value)
-
-    def _passthrough(self, event: evdev.InputEvent) -> None:
-        passthrough(self, event, evdev_mod=evdev, uinput_writer=_uinput_writer)
-
-    def _resolve_code(self, key_name: str) -> int | None:
-        return resolve_output_code(key_name)
-
-    def _get_trigger_axis(self, target: str) -> tuple[bool, int | None]:
-        return get_trigger_axis(target)
-
-    async def _rapidfire_trigger(
-        self, axis_code: int, hold_ms: int, wait_ms: int, event_name: str
-    ) -> None:
-        await rapidfire_trigger(
-            self,
-            axis_code,
-            hold_ms,
-            wait_ms,
-            event_name,
-            asyncio_mod=asyncio,
-            evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
-        )
-
-    def _ensure_trigger_released(self, axis_code: int) -> None:
-        ensure_trigger_released(
-            self,
-            axis_code,
-            evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
-        )
-
-    async def _tap_trigger(self, axis_code: int, hold_ms: int, event_name: str) -> None:
-        await tap_trigger(
-            self,
-            axis_code,
-            hold_ms,
-            event_name,
-            asyncio_mod=asyncio,
-            evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
-        )
-
-    async def _rapidfire_key(
-        self, code: int, hold_ms: int, wait_ms: int, event_name: str, uinput_dev: evdev.UInput
-    ) -> None:
-        await rapidfire_key(
-            self,
-            code,
-            hold_ms,
-            wait_ms,
-            event_name,
-            uinput_dev,
-            asyncio_mod=asyncio,
-        )
-
-    def _ensure_key_released(self, code: int, uinput_dev: evdev.UInput | None) -> None:
-        ensure_key_released(self, code, uinput_dev)
-
-    def _release_all_keys(self) -> None:
-        release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
-
-    async def _tap_key(
-        self, code: int, hold_ms: int, event_name: str, uinput_dev: evdev.UInput
-    ) -> None:
-        await tap_key(self, code, hold_ms, event_name, uinput_dev, asyncio_mod=asyncio)
-
-    def _emit_mouse_move(self, action: MappingAction) -> None:
-        emit_mouse_move(
-            self.mouse_uinput,
-            int(action.move_x),
-            int(action.move_y),
-            absolute=action.action_type == ActionType.MOUSE_MOVE_ABS,
-        )
-
-    async def _rapidfire_move(
-        self,
-        action: MappingAction,
-        event_name: str,
-        hold_ms: int,
-        wait_ms: int,
-    ) -> None:
-        await rapidfire_move(
-            self,
-            action,
-            event_name,
-            hold_ms,
-            wait_ms,
-            asyncio_mod=asyncio,
-        )
-
-    async def _tap_move(self, action: MappingAction, event_name: str, hold_ms: int) -> None:
-        await tap_move(self, action, event_name, hold_ms, asyncio_mod=asyncio)

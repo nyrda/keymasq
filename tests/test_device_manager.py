@@ -703,6 +703,135 @@ async def _runtime_run_macro_control_action(
     )
 
 
+async def _runtime_process_grabbed_event(device: GrabbedDevice, event: evdev.InputEvent) -> None:
+    await gdm.process_event(
+        device,
+        event,
+        evdev_mod=evdev,
+        time_mod=gdm.time,
+        log=gdm.log,
+        combo_decision_cls=gdm.ComboDecision,
+        classify_event_device_type_fn=gdm.classify_event_device_type,
+        action_type_enum=gdm.ActionType,
+    )
+
+
+async def _runtime_execute_grabbed_action(
+    device: GrabbedDevice,
+    action: MappingAction,
+    event: evdev.InputEvent | SimpleNamespace,
+    event_name: str,
+) -> None:
+    await gdm.execute_action(
+        device,
+        action,
+        event,
+        event_name,
+        asyncio_mod=asyncio,
+        command_type=dm.CommandType,
+        fire_and_observe_fn=gdm._fire_and_observe,
+        action_type_enum=gdm.ActionType,
+        superkey_machine_cls=gdm.SuperkeyMachine,
+        evdev_mod=evdev,
+        uinput_writer=gdm._uinput_writer,
+    )
+
+
+async def _runtime_recover_grabbed_event_processing_error(device: GrabbedDevice) -> None:
+    await gdm.recover_from_event_processing_error(device)
+
+
+async def _runtime_wait_for_grabbed_active_key_activity(
+    device: GrabbedDevice,
+    timeout_s: float,
+) -> bool:
+    return await gdm.wait_for_active_key_activity(
+        device,
+        timeout_s,
+        asyncio_mod=asyncio,
+        errno_mod=errno,
+        log=gdm.log,
+    )
+
+
+async def _runtime_wait_for_grabbed_active_keys_to_clear(device: GrabbedDevice) -> None:
+    await gdm.wait_for_active_keys_to_clear(
+        device,
+        asyncio_mod=asyncio,
+        time_mod=gdm.time,
+        log=gdm.log,
+        active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+        active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+    )
+
+
+def _runtime_find_grabbed_action_for_event(
+    device: GrabbedDevice,
+    event: evdev.InputEvent,
+    mapping: dict[str, MappingAction],
+) -> MappingAction | None:
+    return gdm.find_action_for_event(device, event, mapping)
+
+
+def _runtime_write_grabbed_key(
+    device: GrabbedDevice,
+    uinput_dev: object | None,
+    code: int,
+    value: int,
+) -> None:
+    gdm.write_key(
+        device,
+        uinput_dev,
+        code,
+        value,
+        evdev_mod=evdev,
+        uinput_writer=gdm._uinput_writer,
+    )
+
+
+async def _runtime_tap_grabbed_key(
+    device: GrabbedDevice,
+    code: int,
+    hold_ms: int,
+    event_name: str,
+    uinput_dev: object,
+) -> None:
+    await gdm.tap_key(
+        device,
+        code,
+        hold_ms,
+        event_name,
+        uinput_dev,
+        asyncio_mod=asyncio,
+    )
+
+
+async def _runtime_tap_grabbed_trigger(
+    device: GrabbedDevice,
+    axis_code: int,
+    hold_ms: int,
+    event_name: str,
+) -> None:
+    await gdm.tap_trigger(
+        device,
+        axis_code,
+        hold_ms,
+        event_name,
+        asyncio_mod=asyncio,
+        evdev_mod=evdev,
+        uinput_writer=gdm._uinput_writer,
+    )
+
+
+async def _runtime_tap_grabbed_move(
+    device: GrabbedDevice,
+    action: MappingAction,
+    event_name: str,
+    hold_ms: int,
+) -> None:
+    await gdm.tap_move(device, action, event_name, hold_ms, asyncio_mod=asyncio)
+
+
 async def _runtime_topology_watch_loop(manager: DeviceManager) -> None:
     await tdm.topology_watch_loop(
         manager,
@@ -905,9 +1034,9 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
         monkeypatch.setattr(
-            GrabbedDevice,
-            "_wait_for_active_key_activity",
-            lambda _self, timeout_s: fake_wait_for_active_key_activity(timeout_s),
+            gdm,
+            "wait_for_active_key_activity",
+            lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
 
         device = GrabbedDevice(
@@ -980,9 +1109,9 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.time, "monotonic", fake_monotonic)
         monkeypatch.setattr(
-            GrabbedDevice,
-            "_wait_for_active_key_activity",
-            lambda _self, timeout_s: fake_wait_for_active_key_activity(timeout_s),
+            gdm,
+            "wait_for_active_key_activity",
+            lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
 
         device = GrabbedDevice(
@@ -997,7 +1126,7 @@ class TestRapidfireRelease:
         device.device = fake_input  # type: ignore[assignment]
 
         with caplog.at_level(logging.INFO, logger="keyforged.devices"):
-            await device._wait_for_active_keys_to_clear()
+            await _runtime_wait_for_grabbed_active_keys_to_clear(device)
 
         assert wait_timeouts == pytest.approx([1.0, 0.8, 1.0])
         assert len(to_thread_calls) == 4
@@ -1039,7 +1168,7 @@ class TestRapidfireRelease:
         device.device = _FakeInputDevice()  # type: ignore[assignment]
 
         with caplog.at_level(logging.WARNING, logger="keyforged.devices"):
-            await device._wait_for_active_keys_to_clear()
+            await _runtime_wait_for_grabbed_active_keys_to_clear(device)
 
         assert [call[0] for call in to_thread_calls] == [device.device.active_keys]
         assert "failed to read active keys before grab: broken active_keys" in caplog.text
@@ -1080,9 +1209,9 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.time, "monotonic", fake_monotonic)
         monkeypatch.setattr(
-            GrabbedDevice,
-            "_wait_for_active_key_activity",
-            lambda _self, timeout_s: fake_wait_for_active_key_activity(timeout_s),
+            gdm,
+            "wait_for_active_key_activity",
+            lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
 
         device = GrabbedDevice(
@@ -1098,7 +1227,7 @@ class TestRapidfireRelease:
 
         with caplog.at_level(logging.ERROR, logger="keyforged.devices"):
             with pytest.raises(TimeoutError, match="timed out waiting 60.0s"):
-                await device._wait_for_active_keys_to_clear()
+                await _runtime_wait_for_grabbed_active_keys_to_clear(device)
 
         assert wait_timeouts == []
         assert "timed out waiting 60.0s for active keys to clear before grab" in caplog.text
@@ -1197,12 +1326,14 @@ class TestRapidfireRelease:
 
         monkeypatch.setattr(gdm.asyncio, "sleep", fake_sleep)
 
-        await device._rapidfire_key(
+        await gdm.rapidfire_key(
+            device,
             evdev.ecodes.KEY_A,
             50,
             50,
             "btn_side",
             fake_uinput,  # type: ignore[arg-type]
+            asyncio_mod=asyncio,
         )
 
         assert fake_uinput.writes == [
@@ -1230,27 +1361,29 @@ class TestRapidfireRelease:
         )
 
         calls: list[str] = []
-        original_stop = device._stop_rapidfire
+        original_stop = gdm.stop_rapidfire
 
-        def wrapped_stop(event_name: str) -> None:
+        def wrapped_stop(device_runtime: GrabbedDevice, event_name: str) -> None:
             calls.append(f"stop:{event_name}")
-            original_stop(event_name)
+            original_stop(device_runtime, event_name)
 
-        monkeypatch.setattr(device, "_stop_rapidfire", wrapped_stop)
+        monkeypatch.setattr(gdm, "stop_rapidfire", wrapped_stop)
 
         def task_factory() -> asyncio.Task:
             calls.append("factory")
             return asyncio.create_task(asyncio.sleep(0))
 
-        device._start_rapidfire_task(
+        gdm.start_rapidfire_task(
+            device,
             "btn_side",
             "key",
             task_factory,
             code=evdev.ecodes.KEY_A,
             uinput=fake_uinput,  # type: ignore[arg-type]
+            axis_code=None,
         )
         await asyncio.sleep(0)
-        device._stop_rapidfire("btn_side")
+        gdm.stop_rapidfire(device, "btn_side")
 
         assert calls[:2] == ["stop:btn_side", "factory"]
 
@@ -1284,14 +1417,14 @@ class TestRapidfireRelease:
         press_event = SimpleNamespace(value=1)
         release_event = SimpleNamespace(value=0)
 
-        await device._execute_action(action, press_event, "btn_side")
-        await device._execute_action(action, release_event, "btn_side")
-        await device._execute_action(action, press_event, "btn_side")
+        await _runtime_execute_grabbed_action(device, action, press_event, "btn_side")
+        await _runtime_execute_grabbed_action(device, action, release_event, "btn_side")
+        await _runtime_execute_grabbed_action(device, action, press_event, "btn_side")
         await asyncio.sleep(0)
 
         assert len(device._rapidfire_tasks) == 1
 
-        await device._execute_action(action, release_event, "btn_side")
+        await _runtime_execute_grabbed_action(device, action, release_event, "btn_side")
         await asyncio.sleep(0.01)
 
         assert device._rapidfire_tasks == {}
@@ -1350,11 +1483,11 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await device._process_event(press_event)
+        await _runtime_process_grabbed_event(device, press_event)
         await asyncio.sleep(0)
         assert "btn_side" in device._held_source_actions
 
-        await device._process_event(release_event)
+        await _runtime_process_grabbed_event(device, release_event)
         await asyncio.sleep(0.01)
 
         assert device._rapidfire_tasks == {}
@@ -1408,8 +1541,8 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await device._process_event(press_event)
-        await device._process_event(release_event)
+        await _runtime_process_grabbed_event(device, press_event)
+        await _runtime_process_grabbed_event(device, release_event)
         await asyncio.sleep(0)
 
         assert passthrough_uinput.writes == [
@@ -1465,8 +1598,8 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await device._process_event(press_event)
-        await device._process_event(release_event)
+        await _runtime_process_grabbed_event(device, press_event)
+        await _runtime_process_grabbed_event(device, release_event)
 
         assert passthrough_uinput.writes == []
         assert mapped_uinput.writes == [
@@ -1515,8 +1648,8 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await device._process_event(press_event)
-        await device._process_event(release_event)
+        await _runtime_process_grabbed_event(device, press_event)
+        await _runtime_process_grabbed_event(device, release_event)
 
         assert passthrough_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1),
@@ -1571,11 +1704,11 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await device._process_event(press_event)
+        await _runtime_process_grabbed_event(device, press_event)
         await asyncio.sleep(0)
         assert "key_f5" in device._held_source_actions
 
-        await device._process_event(release_event)
+        await _runtime_process_grabbed_event(device, release_event)
         await asyncio.sleep(0.01)
 
         assert device._rapidfire_tasks == {}
@@ -1745,22 +1878,34 @@ class TestEventLoopRecovery:
                 )
 
         sleep_calls: list[float] = []
-        original_execute_action = device._execute_action
+        original_execute_action = gdm.execute_action
 
-        async def fail_after_press(action, event, event_name):
-            await original_execute_action(action, event, event_name)
+        async def fail_after_press(_device, action, event, event_name, **_kwargs):
+            await original_execute_action(
+                _device,
+                action,
+                event,
+                event_name,
+                asyncio_mod=asyncio,
+                command_type=dm.CommandType,
+                fire_and_observe_fn=gdm._fire_and_observe,
+                action_type_enum=gdm.ActionType,
+                superkey_machine_cls=gdm.SuperkeyMachine,
+                evdev_mod=evdev,
+                uinput_writer=gdm._uinput_writer,
+            )
             raise RuntimeError("boom")
 
         async def fake_sleep(delay: float) -> None:
             sleep_calls.append(delay)
 
-        monkeypatch.setattr(device, "_execute_action", fail_after_press)
+        monkeypatch.setattr(gdm, "execute_action", fail_after_press)
         monkeypatch.setattr(gdm.asyncio, "sleep", fake_sleep)
 
         device.device = _FakeInputDevice()  # type: ignore[assignment]
         device._running = True
 
-        await device._event_loop()
+        await gdm.event_loop(device, asyncio_mod=asyncio, log=gdm.log)
 
         assert sleep_calls == [0.01]
         assert fake_uinput.writes == [
@@ -1823,12 +1968,13 @@ class TestCombos:
         monkeypatch.setattr(gdm, "resolve_stable_path", fail_resolve)
         monkeypatch.setattr(gdm, "get_interface_id", fail_interface)
 
-        decision = await device._process_event(
+        decision = await _runtime_process_grabbed_event(
+            device,
             SimpleNamespace(
                 type=evdev.ecodes.EV_KEY,
                 code=evdev.ecodes.KEY_F13,
                 value=1,
-            )
+            ),
         )
 
         assert decision is None
@@ -2310,16 +2456,20 @@ class TestCombos:
         device._running = True
         manager.grabbed_devices = {"1234:5678": [device]}
 
-        await device._process_event(
+        await _runtime_process_grabbed_event(
+            device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_LEFTMETA, value=1)
         )
-        await device._process_event(
+        await _runtime_process_grabbed_event(
+            device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_4, value=1)
         )
-        await device._process_event(
+        await _runtime_process_grabbed_event(
+            device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_4, value=0)
         )
-        await device._process_event(
+        await _runtime_process_grabbed_event(
+            device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_1, value=1)
         )
 
@@ -2436,7 +2586,7 @@ class TestSuperkeys:
             value=0,
         )
 
-        await device._process_event(press_event)
+        await _runtime_process_grabbed_event(device, press_event)
 
         assert device._combo_passthrough_held == {"key_1"}
         assert "key_1" not in device._held_source_actions
@@ -2450,7 +2600,7 @@ class TestSuperkeys:
         assert device._combo_passthrough_held == set()
         assert device._held_source_actions["key_1"] is None
 
-        await device._process_event(release_event)
+        await _runtime_process_grabbed_event(device, release_event)
 
         assert passthrough_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 1),
@@ -2499,13 +2649,13 @@ class TestSuperkeys:
             value=0,
         )
 
-        await device._process_event(press_event)
+        await _runtime_process_grabbed_event(device, press_event)
         assert "btn_side" in device._superkey_machines
 
         await device.reset_superkeys()
         assert device._superkey_machines == {}
 
-        await device._process_event(release_event)
+        await _runtime_process_grabbed_event(device, release_event)
 
         assert device._superkey_machines == {}
 
@@ -2566,10 +2716,10 @@ class TestSuperkeys:
             value=0,
         )
 
-        await device._process_event(side_press)
+        await _runtime_process_grabbed_event(device, side_press)
         await asyncio.sleep(0)
         await asyncio.sleep(0)
-        await device._process_event(extra_press)
+        await _runtime_process_grabbed_event(device, extra_press)
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
@@ -2580,7 +2730,7 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
         ]
 
-        await device._process_event(side_release)
+        await _runtime_process_grabbed_event(device, side_release)
         await asyncio.sleep(0)
 
         assert keyboard_uinput.writes == [
@@ -2588,7 +2738,7 @@ class TestSuperkeys:
         ]
         assert device._held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
 
-        await device._process_event(extra_release)
+        await _runtime_process_grabbed_event(device, extra_release)
         await asyncio.sleep(0)
 
         assert keyboard_uinput.writes == [
@@ -2677,8 +2827,10 @@ class TestSuperkeys:
             value=0,
         )
 
-        await asyncio.wait_for(device._process_event(press_event), timeout=0.05)
-        await asyncio.wait_for(device._process_event(release_event), timeout=0.05)
+        await asyncio.wait_for(_runtime_process_grabbed_event(device, press_event), timeout=0.05)
+        await asyncio.wait_for(
+            _runtime_process_grabbed_event(device, release_event), timeout=0.05
+        )
 
         blocker.set()
         await asyncio.sleep(0)
@@ -2708,9 +2860,11 @@ class TestRuntimeFailureCleanup:
             runtime_cleanup_callback=cleanup,
         )
         device._running = True
-        device._write_key(keyboard_uinput, evdev.ecodes.KEY_A, 1)  # type: ignore[arg-type]
+        _runtime_write_grabbed_key(
+            device, keyboard_uinput, evdev.ecodes.KEY_A, 1
+        )  # type: ignore[arg-type]
 
-        await device._recover_from_event_processing_error()
+        await _runtime_recover_grabbed_event_processing_error(device)
 
         cleanup.assert_awaited_once_with("1234:5678", "kbd")
         assert keyboard_uinput.writes == [
@@ -3001,7 +3155,7 @@ class TestGrabbedDeviceHelpers:
             1,
         )
 
-        assert device._find_action_for_event(event, mapping) == mapping["south"]
+        assert _runtime_find_grabbed_action_for_event(device, event, mapping) == mapping["south"]
 
     def test_device_has_mapped_buttons_matches_by_code_when_names_differ(self) -> None:
         caps = {
@@ -3027,10 +3181,10 @@ class TestGrabbedDeviceHelpers:
         device.keyboard_uinput = keyboard  # type: ignore[assignment]
         device.mouse_uinput = mouse  # type: ignore[assignment]
         device.gamepad_uinput = gamepad  # type: ignore[assignment]
-        device._track_key_state(device.uinput, evdev.ecodes.KEY_A, 1)
-        device._track_key_state(device.keyboard_uinput, evdev.ecodes.KEY_B, 1)
-        device._track_key_state(device.mouse_uinput, evdev.ecodes.BTN_LEFT, 1)
-        device._track_superkey_output("gamepad", evdev.ecodes.BTN_SOUTH, 1)
+        gdm.track_key_state(device, device.uinput, evdev.ecodes.KEY_A, 1)
+        gdm.track_key_state(device, device.keyboard_uinput, evdev.ecodes.KEY_B, 1)
+        gdm.track_key_state(device, device.mouse_uinput, evdev.ecodes.BTN_LEFT, 1)
+        gdm.track_superkey_output(device, "gamepad", evdev.ecodes.BTN_SOUTH, 1)
         device._rapidfire_tasks["btn_side"] = task  # type: ignore[assignment]
         device._rapidfire_outputs["btn_side"] = {"kind": "key"}
         device._rapidfire_active["btn_side"] = True
@@ -3038,9 +3192,9 @@ class TestGrabbedDeviceHelpers:
         device._combo_passthrough_held.add("btn_side")
         device._held_source_actions["btn_side"] = None
 
-        assert device._bucket_for_uinput(device.keyboard_uinput) == "keyboard"
+        assert gdm.bucket_for_uinput(device, device.keyboard_uinput) == "keyboard"
 
-        device._release_all_keys()
+        gdm.release_all_keys(device, evdev_mod=evdev, uinput_writer=gdm._uinput_writer)
 
         assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)]
         assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)]
@@ -3100,10 +3254,10 @@ class TestGrabbedDeviceHelpers:
 
         monkeypatch.setattr(gdm.asyncio, "wait_for", fake_wait_for)
 
-        assert await device._wait_for_active_key_activity(0.1) is False
+        assert await _runtime_wait_for_grabbed_active_key_activity(device, 0.1) is False
 
         with caplog.at_level(logging.WARNING, logger="keyforged.devices"):
-            assert await device._wait_for_active_key_activity(0.1) is True
+            assert await _runtime_wait_for_grabbed_active_key_activity(device, 0.1) is True
 
         assert "failed to drain pending events before grab" in caplog.text
 
@@ -3138,9 +3292,16 @@ class TestGrabbedDeviceHelpers:
         device.mapping_getter = lambda: mapping_state
 
         with caplog.at_level(logging.WARNING, logger="keyforged.devices"):
-            await device._broadcast_grab_status("waiting", ["key_a"], waited_s=1.5)
+            await gdm.broadcast_grab_status(
+                device,
+                "waiting",
+                ["key_a"],
+                waited_s=1.5,
+                command_type=CommandType,
+                log=gdm.log,
+            )
 
-        device._seed_startup_held_actions()
+        gdm.seed_startup_held_actions(device)
 
         callback.assert_awaited_once()
         assert "Failed to broadcast grab status" in caplog.text
@@ -3169,7 +3330,7 @@ class TestGrabbedDeviceHelpers:
         }
         device.mapping_getter = lambda: mapping_state
 
-        device._seed_startup_held_actions()
+        gdm.seed_startup_held_actions(device)
 
         assert device._held_source_actions["btn_a"] == mapping_state["south"]
 
@@ -3181,11 +3342,17 @@ class TestGrabbedDeviceHelpers:
         gamepad = _FakeUInput()
         device.gamepad_uinput = gamepad  # type: ignore[assignment]
 
-        device._reconcile_startup_held_action(
+        gdm.reconcile_startup_held_action(
+            device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt")
+            ,
+            action_type_enum=ActionType,
         )
-        device._reconcile_startup_held_action(
+        gdm.reconcile_startup_held_action(
+            device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_south")
+            ,
+            action_type_enum=ActionType,
         )
 
         assert gamepad.writes == [
@@ -3206,16 +3373,22 @@ class TestGrabbedDeviceHelpers:
 
         monkeypatch.setattr(gdm.asyncio, "sleep", AsyncMock())
 
-        await device._tap_key(evdev.ecodes.KEY_A, 25, "tap", device.keyboard_uinput)  # type: ignore[arg-type]
+        await _runtime_tap_grabbed_key(
+            device,
+            evdev.ecodes.KEY_A,
+            25,
+            "tap",
+            device.keyboard_uinput,  # type: ignore[arg-type]
+        )
         device._tap_active["trigger"] = True
-        await device._tap_trigger(evdev.ecodes.ABS_Z, 25, "trigger")
+        await _runtime_tap_grabbed_trigger(device, evdev.ecodes.ABS_Z, 25, "trigger")
         move_action = dm.MappingAction(
             action_type=ActionType.MOUSE_MOVE_REL,
             move_x=4,
             move_y=-3,
         )
         device._tap_active["move"] = True
-        await device._tap_move(move_action, "move", 25)
+        await _runtime_tap_grabbed_move(device, move_action, "move", 25)
         device.emit_combo_release("key_b")
         device.emit_combo_release("missing")
 
@@ -3246,15 +3419,22 @@ class TestGrabbedDeviceHelpers:
             mouse_uinput=mouse,  # type: ignore[arg-type]
             gamepad_uinput=gamepad,  # type: ignore[arg-type]
         )
-        passthrough = Mock()
+        passthrough_calls: list[tuple[int, int, int]] = []
         emitted_moves: list[tuple[ActionType, int, int]] = []
         fire_tasks: list[asyncio.Task] = []
-
-        device._passthrough = passthrough
         monkeypatch.setattr(
-            device,
-            "_emit_mouse_move",
-            lambda action: emitted_moves.append((action.action_type, action.move_x, action.move_y)),
+            gdm,
+            "emit_configured_mouse_move",
+            lambda _device, action: emitted_moves.append(
+                (action.action_type, action.move_x, action.move_y)
+            ),
+        )
+        monkeypatch.setattr(
+            gdm,
+            "passthrough",
+            lambda _device, event, **_kwargs: passthrough_calls.append(
+                (event.type, event.code, event.value)
+            ),
         )
 
         def fire_and_observe(coro, _label: str) -> asyncio.Task:
@@ -3267,47 +3447,56 @@ class TestGrabbedDeviceHelpers:
         press = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=1, value=1)
         release = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=1, value=0)
 
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.PASSTHROUGH),
             press,
             "btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
             press,
             "mouse_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
             release,
             "mouse_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt"),
             press,
             "trigger_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt"),
             release,
             "trigger_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_south"),
             press,
             "pad_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_south"),
             release,
             "pad_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.EXEC, exec_ref=7),
             press,
             "exec_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(
                 action_type=ActionType.COMPOSITOR_DISPATCH,
                 compositor_dispatcher="workspace",
@@ -3316,42 +3505,50 @@ class TestGrabbedDeviceHelpers:
             press,
             "dispatch_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.START_MACRO_RECORDING),
             press,
             "start_rec",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.STOP_MACRO_RECORDING),
             press,
             "stop_rec",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK),
             press,
             "cancel_macro",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
             press,
             "toggle_profile",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.MACRO, macro_name="demo"),
             press,
             "macro_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.MACRO, macro_name="demo"),
             release,
             "macro_btn",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.MOUSE_MOVE_REL, move_x=5, move_y=-2),
             press,
             "move_rel",
         )
-        await device._execute_action(
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.MOUSE_MOVE_ABS, move_x=10, move_y=20),
             press,
             "move_abs",
@@ -3360,7 +3557,7 @@ class TestGrabbedDeviceHelpers:
         if fire_tasks:
             await asyncio.gather(*fire_tasks)
 
-        passthrough.assert_called_once_with(press)
+        assert passthrough_calls == [(press.type, press.code, press.value)]
         assert mouse.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
@@ -3401,11 +3598,11 @@ class TestGrabbedDeviceHelpers:
 
         monkeypatch.setattr(gdm, "_fire_and_observe", fire_and_observe)
         monkeypatch.setattr(
-            device,
-            "_tap_move",
+            gdm,
+            "tap_move",
             AsyncMock(
-                side_effect=lambda action, event_name, hold_ms: move_calls.append(
-                    (event_name, hold_ms)
+                side_effect=lambda _device, action, event_name, hold_ms, **_kwargs: (
+                    move_calls.append((event_name, hold_ms))
                 )
             ),
         )
@@ -3425,9 +3622,15 @@ class TestGrabbedDeviceHelpers:
             tap_hold_ms=33,
         )
 
-        await device._execute_action(superkey_action, SimpleNamespace(value=1), "super_btn")
-        await device._execute_action(superkey_action, SimpleNamespace(value=0), "super_btn")
-        await device._execute_action(tap_move_action, SimpleNamespace(value=1), "move_btn")
+        await _runtime_execute_grabbed_action(
+            device, superkey_action, SimpleNamespace(value=1), "super_btn"
+        )
+        await _runtime_execute_grabbed_action(
+            device, superkey_action, SimpleNamespace(value=0), "super_btn"
+        )
+        await _runtime_execute_grabbed_action(
+            device, tap_move_action, SimpleNamespace(value=1), "move_btn"
+        )
         await asyncio.sleep(0)
 
         assert created_configs and created_configs[0].name == "super"

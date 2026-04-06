@@ -418,12 +418,20 @@ checks.
 Run the standard source checks first:
 
 ```bash
-./scripts/check.sh
+./scripts/check.sh full
 ```
 
-This wrapper runs `ruff` and `basedpyright` in the Nix dev shell, then runs the
-full pytest suite in the Nix VM harness because the runtime tests need `uinput`
-and other integration pieces that are not reliable on the host shell alone.
+This wrapper runs `ruff`, `basedpyright`, and the selected pytest scope in the
+Nix dev shell. Use `./scripts/check.sh keyforged`, `./scripts/check.sh session`,
+or `./scripts/check.sh gui` for focused local validation, and keep `full` for
+packaging work, shared-code changes, and broad refactors.
+
+When the host does not have usable `uinput` access, the same entrypoint can use
+the VM backend:
+
+```bash
+./scripts/check.sh --vm full
+```
 
 ### Debian package tests
 

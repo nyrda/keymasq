@@ -68,4 +68,13 @@ Keyforge is a Linux input remapper built around three processes:
 
 All tool commands (`ruff`, `basedpyright`, `pytest`) must run inside `nix develop -c <cmd>`. Example: `nix develop -c ruff check .`
 
-Run `./scripts/check.sh` after any Python code change. Skip it for doc-only, config-only, or non-code changes.
+Run `./scripts/check.sh <category>` after Python code changes:
+
+- `keyforged` for `keyforge/keyforged/` changes and keyforged-only tests
+- `session` for `keyforge/session/` changes and session/compositor tests
+- `gui` for `keyforge/gui/` changes and GTK tests
+- `full` for multi-category edits, shared-code edits (`keyforge/common/`, CLI, packaging-affecting changes), or before handing off a broad refactor
+
+`./scripts/check.sh` without an argument defaults to `full`. Skip checks for doc-only, config-only, or non-code changes.
+
+Use `./scripts/check.sh --vm <category>` when the host does not have usable `uinput` access or when you need the same category to run in the VM backend instead of the host backend. The host backend remains the default.

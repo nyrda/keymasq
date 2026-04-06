@@ -117,6 +117,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 markers = [
+    "keyforged: tests covering the keyforged daemon and input runtime",
+    "session: tests covering keyforge-session and compositor/session integration",
+    "gui: tests covering the GTK GUI",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 

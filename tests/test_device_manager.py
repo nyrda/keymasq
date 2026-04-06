@@ -20,6 +20,7 @@ from keyforge.keyforged.runtime import combos as cdm
 from keyforge.keyforged.runtime import grab_lifecycle as ldm
 from keyforge.keyforged.runtime import grabbed_device as gdm
 from keyforge.keyforged.runtime import grabbed_device_actions as gda
+from keyforge.keyforged.runtime import grabbed_device_grab as gdg
 from keyforge.keyforged.runtime import grabbed_device_outputs as gdo
 from keyforge.keyforged.runtime import grabbed_device_repeat as gdr
 from keyforge.keyforged.runtime import grabbed_device_types as gdt
@@ -1045,7 +1046,7 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
         monkeypatch.setattr(
-            gdm,
+            gdg,
             "wait_for_active_key_activity",
             lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
@@ -1120,7 +1121,7 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.time, "monotonic", fake_monotonic)
         monkeypatch.setattr(
-            gdm,
+            gdg,
             "wait_for_active_key_activity",
             lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
@@ -1220,7 +1221,7 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.time, "monotonic", fake_monotonic)
         monkeypatch.setattr(
-            gdm,
+            gdg,
             "wait_for_active_key_activity",
             lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
@@ -1951,7 +1952,7 @@ class TestEventLoopRecovery:
                 )
 
         sleep_calls: list[float] = []
-        original_execute_action = gdm.execute_action
+        original_execute_action = gda.execute_action
 
         async def fail_after_press(_device, action, event, event_name, **_kwargs):
             await original_execute_action(
@@ -1972,7 +1973,7 @@ class TestEventLoopRecovery:
         async def fake_sleep(delay: float) -> None:
             sleep_calls.append(delay)
 
-        monkeypatch.setattr(gdm, "execute_action", fail_after_press)
+        monkeypatch.setattr(gda, "execute_action", fail_after_press)
         monkeypatch.setattr(gdm.asyncio, "sleep", fake_sleep)
 
         device.device = _FakeInputDevice()  # type: ignore[assignment]

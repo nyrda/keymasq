@@ -286,21 +286,23 @@ class DeviceManager:
 
     async def start_topology_watcher(self) -> None:
         await runtime_topology.start_topology_watcher(
-            self,
-            asyncio_mod=asyncio,
+            cast(Any, self),
+            asyncio_mod=cast(Any, asyncio),
+            cancelled_error=asyncio.CancelledError,
             log=log,
-            live_interface_info_cls=LiveInterfaceInfo,
+            live_interface_info_cls=cast(Any, LiveInterfaceInfo),
             clear_device_path_cache_fn=clear_device_path_cache,
             device_paths_fn=_device_paths,
-            device_input_fn=_device_input,
+            device_input_fn=cast(Any, _device_input),
             resolve_stable_path_fn=resolve_stable_path,
             get_interface_id_fn=get_interface_id,
         )
 
     async def stop_topology_watcher(self) -> None:
         await runtime_topology.stop_topology_watcher(
-            self,
-            asyncio_mod=asyncio,
+            cast(Any, self),
+            asyncio_mod=cast(Any, asyncio),
+            cancelled_error=asyncio.CancelledError,
             contextlib_mod=contextlib,
         )
 

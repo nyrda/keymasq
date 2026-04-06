@@ -4,6 +4,7 @@ import logging
 import os
 from collections import deque
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import evdev
@@ -339,6 +340,7 @@ class TestListDevices:
             manager,
             snapshot,
             asyncio_mod=dm.asyncio,
+            cancelled_error=asyncio.CancelledError,
             log=dm.log,
         )
 
@@ -389,6 +391,7 @@ class TestListDevices:
             manager,
             snapshot,
             asyncio_mod=dm.asyncio,
+            cancelled_error=asyncio.CancelledError,
             log=dm.log,
         )
 
@@ -834,13 +837,14 @@ async def _runtime_tap_grabbed_move(
 
 async def _runtime_topology_watch_loop(manager: DeviceManager) -> None:
     await tdm.topology_watch_loop(
-        manager,
-        asyncio_mod=dm.asyncio,
+        cast(Any, manager),
+        asyncio_mod=cast(Any, dm.asyncio),
+        cancelled_error=asyncio.CancelledError,
         log=dm.log,
-        live_interface_info_cls=dm.LiveInterfaceInfo,
+        live_interface_info_cls=cast(Any, dm.LiveInterfaceInfo),
         clear_device_path_cache_fn=dm.clear_device_path_cache,
         device_paths_fn=dm._device_paths,
-        device_input_fn=dm._device_input,
+        device_input_fn=cast(Any, dm._device_input),
         resolve_stable_path_fn=dm.resolve_stable_path,
         get_interface_id_fn=dm.get_interface_id,
     )
@@ -851,9 +855,10 @@ def _runtime_schedule_topology_reconcile(
     snapshot: dict[str, dm.LiveInterfaceInfo],
 ) -> None:
     tdm.schedule_topology_reconcile(
-        manager,
+        cast(Any, manager),
         snapshot,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=cast(Any, dm.asyncio),
+        cancelled_error=asyncio.CancelledError,
         log=dm.log,
     )
 

@@ -19,6 +19,31 @@ from keyforge.common.models import (
 )
 
 
+def _create_virtual_uinput(
+    *,
+    capabilities: dict[int, list[int]],
+    name: str,
+    vendor: int,
+    product: int,
+) -> evdev.UInput:
+    try:
+        device = evdev.UInput(
+            events=capabilities,
+            name=name,
+            vendor=vendor,
+            product=product,
+        )
+    except Exception as exc:
+        pytest.skip(f"Virtual uinput device unavailable: {exc}")
+
+    backing_device = getattr(device, "device", None)
+    if not getattr(backing_device, "path", None):
+        device.close()
+        pytest.skip("Virtual uinput device path unavailable")
+
+    return device
+
+
 @pytest.fixture
 def temp_config_dir(tmp_path: Path) -> Generator[Path, None, None]:
     config_dir = tmp_path / "keyforge"
@@ -67,8 +92,8 @@ def virtual_mouse():
         ],
     }
 
-    device = evdev.UInput(
-        events=capabilities,
+    device = _create_virtual_uinput(
+        capabilities=capabilities,
         name="Test Virtual Mouse",
         vendor=0x1234,
         product=0x5678,
@@ -96,8 +121,8 @@ def virtual_keyboard():
         ],
     }
 
-    device = evdev.UInput(
-        events=capabilities,
+    device = _create_virtual_uinput(
+        capabilities=capabilities,
         name="Test Virtual Keyboard",
         vendor=0xABCD,
         product=0xEF01,

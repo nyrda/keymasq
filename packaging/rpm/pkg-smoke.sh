@@ -12,8 +12,12 @@ assert_file() {
 assert_cmd() {
     local name="$1"
     shift
-    "$@" >/dev/null 2>&1 || {
+    local output=""
+    output="$("$@" 2>&1)" || {
         echo "command failed: $name" >&2
+        if [[ -n "$output" ]]; then
+            printf '%s\n' "$output" >&2
+        fi
         exit 1
     }
 }
@@ -37,10 +41,10 @@ done
 assert_file /usr/share/gnome-shell/extensions/keyforge-bridge@keyforge/metadata.json
 assert_file /etc/keyforge/security.toml
 
-assert_cmd "keyforge cli help" keyforge --help
-assert_cmd "keyforged help" keyforged --help
-assert_cmd "keyforge-session help" keyforge-session --help
-assert_cmd "keyforge-record help" keyforge-record --help
+assert_cmd "keyforge --help" keyforge --help
+assert_cmd "keyforged --help" keyforged --help
+assert_cmd "keyforge-session --help" keyforge-session --help
+assert_cmd "keyforge-record --help" keyforge-record --help
 assert_cmd "python import" python3 -c "import keyforge, keyforge.common.models"
 assert_cmd "python package css" python3 -c "from importlib import resources; assert resources.files('keyforge').joinpath('gui/style.css').is_file()"
 assert_cmd "python package gui assets" python3 -c "from importlib import resources; gui = resources.files('keyforge').joinpath('gui'); assert gui.joinpath('assets', 'gamepad.svg').is_file(); assert gui.joinpath('assets', 'keyforge-keyboard-symbolic.svg').is_file(); assert gui.joinpath('assets', 'keyforge-mouse-symbolic.svg').is_file(); assert gui.joinpath('assets', 'keyforge-combos-symbolic.svg').is_file()"

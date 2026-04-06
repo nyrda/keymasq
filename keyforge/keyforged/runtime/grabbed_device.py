@@ -4,6 +4,7 @@ import errno
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
 import evdev
@@ -20,6 +21,7 @@ from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged.combo_engine import ComboDecision
 from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
 from keyforge.keyforged.recording import RecordingManager
+from keyforge.keyforged.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keyforge.keyforged.superkey_state import SuperkeyMachine
 
 log = logging.getLogger("keyforged.devices")
@@ -31,6 +33,15 @@ type BroadcastCallback = Callable[[CommandType, dict[str, object]], Awaitable[No
 type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
+type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
+type UInputWriter = Callable[[object | None], _WritableUInput | None]
+type TaskFactory = Callable[[], asyncio.Task[None]]
+
+
+class _InputEventLike(Protocol):
+    type: int
+    code: int
+    value: int
 
 
 class _DeviceInfo(Protocol):
@@ -68,11 +79,45 @@ class _WritableUInput(Protocol):
     def close(self) -> None: ...
 
 
+@dataclass
+class RapidfireOutputState:
+    kind: str
+    code: int | None = None
+    uinput: object | None = None
+    axis_code: int | None = None
+
+
+@dataclass
+class GrabbedDeviceState:
+    rapidfire_active: dict[str, bool] = field(default_factory=dict)
+    rapidfire_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    rapidfire_outputs: dict[str, RapidfireOutputState] = field(default_factory=dict)
+    tap_active: dict[str, bool] = field(default_factory=dict)
+    superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
+    combo_passthrough_held: set[str] = field(default_factory=set)
+    held_output_keys: dict[str, set[int]] = field(
+        default_factory=lambda: {
+            "passthrough": set(),
+            "keyboard": set(),
+            "mouse": set(),
+            "gamepad": set(),
+        }
+    )
+    superkey_output_refcounts: dict[str, dict[int, int]] = field(
+        default_factory=lambda: {
+            "keyboard": {},
+            "mouse": {},
+            "gamepad": {},
+        }
+    )
+    held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
+
+
 def _device_input(path: str) -> _ManagedInputDevice:
     return cast(_ManagedInputDevice, evdev.InputDevice(path))
 
 
-def _uinput_writer(device: evdev.UInput | None) -> _WritableUInput | None:
+def _uinput_writer(device: object | None) -> _WritableUInput | None:
     return cast(_WritableUInput | None, device)
 
 
@@ -97,7 +142,12 @@ def _evdev_code_name(raw_name: object, fallback: int) -> str:
     return str(raw_name).lower()
 
 
-async def event_loop(device_runtime: Any, *, asyncio_mod: Any, log: Any) -> None:
+async def event_loop(
+    device_runtime: Any,
+    *,
+    asyncio_mod: Any,
+    log: Any,
+) -> None:
     error_backoff = 0.01
     device = device_runtime.device
     if device is None:
@@ -138,7 +188,9 @@ async def event_loop(device_runtime: Any, *, asyncio_mod: Any, log: Any) -> None
             log.warning("Device read error on %s: %s", device_runtime.path, exc)
 
 
-async def cleanup_runtime_failure(device_runtime: Any, *, log: Any) -> None:
+async def cleanup_runtime_failure(
+    device_runtime: Any, *, log: Any
+) -> None:
     if device_runtime.runtime_cleanup_callback is not None:
         try:
             await device_runtime.runtime_cleanup_callback(
@@ -164,7 +216,7 @@ async def recover_from_event_processing_error(device_runtime: Any) -> None:
     await cleanup_runtime_failure(device_runtime, log=log)
 
 
-def get_event_name(event: Any, *, evdev_mod: Any) -> str:
+def get_event_name(event: _InputEventLike, *, evdev_mod: Any) -> str:
     try:
         raw_code_name: object = evdev_mod.ecodes.bytype[event.type].get(
             event.code, str(event.code)
@@ -211,7 +263,12 @@ async def broadcast_grab_status(
 
 
 async def wait_for_active_key_activity(
-    device_runtime: Any, timeout_s: float, *, asyncio_mod: Any, errno_mod: Any, log: Any
+    device_runtime: Any,
+    timeout_s: float,
+    *,
+    asyncio_mod: Any,
+    errno_mod: Any,
+    log: Any,
 ) -> bool:
     if device_runtime.device is None:
         return False
@@ -387,15 +444,18 @@ def seed_startup_held_actions(device_runtime: Any) -> None:
     mapping = device_runtime.mapping_getter()
     for code in active_codes:
         event_name = get_key_name(int(code), evdev_mod=evdev)
-        if not event_name or event_name in device_runtime._held_source_actions:
+        if not event_name or event_name in device_runtime.state.held_source_actions:
             continue
         action = find_action_for_code(device_runtime, int(code), event_name, mapping)
-        device_runtime._held_source_actions[event_name] = action
+        device_runtime.state.held_source_actions[event_name] = action
         reconcile_startup_held_action(device_runtime, action, action_type_enum=ActionType)
 
 
 def reconcile_startup_held_action(
-    device_runtime: Any, action: Any, *, action_type_enum: Any
+    device_runtime: Any,
+    action: Any,
+    *,
+    action_type_enum: Any,
 ) -> None:
     if action is None or not action.target:
         return
@@ -429,7 +489,7 @@ def reconcile_startup_held_action(
 
 async def process_event(
     device_runtime: Any,
-    event: Any,
+    event: _InputEventLike,
     *,
     evdev_mod: Any,
     time_mod: Any,
@@ -461,8 +521,8 @@ async def process_event(
                 event.type == evdev_mod.ecodes.EV_KEY
                 and int(event.value) == 0
                 and (
-                    event_name in device_runtime._held_source_actions
-                    or event_name in device_runtime._combo_passthrough_held
+                    event_name in device_runtime.state.held_source_actions
+                    or event_name in device_runtime.state.combo_passthrough_held
                 )
             ):
                 return
@@ -491,11 +551,11 @@ async def process_event(
 
     if (
         event.type == evdev_mod.ecodes.EV_KEY
-        and event_name in device_runtime._combo_passthrough_held
+        and event_name in device_runtime.state.combo_passthrough_held
     ):
         passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=_uinput_writer)
         if int(event.value) == 0:
-            device_runtime._combo_passthrough_held.discard(event_name)
+            device_runtime.state.combo_passthrough_held.discard(event_name)
         diag_label = "combo_passthrough_held"
         if device_runtime.diagnostics_recorder:
             device_runtime.diagnostics_recorder(
@@ -509,7 +569,8 @@ async def process_event(
     )
     mapping = device_runtime.mapping_getter()
     has_held_source_action = (
-        event.type == evdev_mod.ecodes.EV_KEY and event_name in device_runtime._held_source_actions
+        event.type == evdev_mod.ecodes.EV_KEY
+        and event_name in device_runtime.state.held_source_actions
     )
     if not mapping and not recording_active and not has_held_source_action:
         if (
@@ -517,7 +578,7 @@ async def process_event(
             and event.type == evdev_mod.ecodes.EV_KEY
             and int(event.value) == 1
         ):
-            device_runtime._combo_passthrough_held.add(event_name)
+            device_runtime.state.combo_passthrough_held.add(event_name)
         passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=_uinput_writer)
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_fast"
         if device_runtime.diagnostics_recorder:
@@ -529,10 +590,10 @@ async def process_event(
 
     action = find_action_for_event(device_runtime, event, mapping)
     if event.type == evdev_mod.ecodes.EV_KEY:
-        held_action = device_runtime._held_source_actions.get(event_name)
-        if int(event.value) == 1 and event_name not in device_runtime._held_source_actions:
-            device_runtime._held_source_actions[event_name] = action
-        elif int(event.value) in (0, 2) and event_name in device_runtime._held_source_actions:
+        held_action = device_runtime.state.held_source_actions.get(event_name)
+        if int(event.value) == 1 and event_name not in device_runtime.state.held_source_actions:
+            device_runtime.state.held_source_actions[event_name] = action
+        elif int(event.value) in (0, 2) and event_name in device_runtime.state.held_source_actions:
             action = held_action
 
     if recording_active:
@@ -548,9 +609,10 @@ async def process_event(
             recording_manager = device_runtime.recording_manager
             if recording_manager is None:
                 return
+            input_event = cast(evdev.InputEvent, event)
             recording_manager.record_event(
-                classify_event_device_type_fn(event, device_runtime.device_types),
-                event,
+                classify_event_device_type_fn(input_event, device_runtime.device_types),
+                input_event,
             )
 
     if device_runtime.verbosity >= 2:
@@ -657,12 +719,12 @@ async def process_event(
             and event.type == evdev_mod.ecodes.EV_KEY
             and int(event.value) == 1
         ):
-            device_runtime._combo_passthrough_held.add(event_name)
+            device_runtime.state.combo_passthrough_held.add(event_name)
         passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=_uinput_writer)
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_mapped"
 
     if event.type == evdev_mod.ecodes.EV_KEY and int(event.value) == 0:
-        device_runtime._held_source_actions.pop(event_name, None)
+        device_runtime.state.held_source_actions.pop(event_name, None)
 
     if device_runtime.diagnostics_recorder:
         device_runtime.diagnostics_recorder(
@@ -670,14 +732,21 @@ async def process_event(
         )
 
 
-def find_action_for_event(device_runtime: Any, event: Any, mapping: dict[str, Any]) -> Any:
+def find_action_for_event(
+    device_runtime: Any,
+    event: _InputEventLike,
+    mapping: dict[str, MappingAction],
+) -> MappingAction | None:
     event_name = get_event_name(event, evdev_mod=evdev)
     return find_action_for_code(device_runtime, int(event.code), event_name, mapping)
 
 
 def find_action_for_code(
-    device_runtime: Any, event_code: int, event_name: str, mapping: dict[str, Any]
-) -> Any:
+    device_runtime: Any,
+    event_code: int,
+    event_name: str,
+    mapping: dict[str, MappingAction],
+) -> MappingAction | None:
     button_id = device_runtime.evdev_code_to_button.get(int(event_code))
     if button_id and button_id in mapping:
         return mapping[button_id]
@@ -692,10 +761,10 @@ def find_action_for_code(
 def find_action_for_name(
     device_runtime: Any,
     event_name: str,
-    mapping: dict[str, Any],
+    mapping: dict[str, MappingAction],
     *,
-    canonical_gamepad_button_name_fn: Any,
-) -> Any:
+    canonical_gamepad_button_name_fn: Callable[[str], str],
+) -> MappingAction | None:
     button_id = device_runtime.evdev_to_button.get(event_name.lower())
     if not button_id:
         canonical_name = canonical_gamepad_button_name_fn(event_name)
@@ -710,17 +779,17 @@ def find_action_for_name(
 
 async def execute_action(
     device_runtime: Any,
-    action: Any,
-    event: Any,
+    action: MappingAction,
+    event: _InputEventLike,
     event_name: str,
     *,
     asyncio_mod: Any,
-    command_type: Any,
-    fire_and_observe_fn: Any,
-    action_type_enum: Any,
-    superkey_machine_cls: Any,
+    command_type: type[CommandType],
+    fire_and_observe_fn: FireAndObserve,
+    action_type_enum: type[ActionType],
+    superkey_machine_cls: type[SuperkeyMachine],
     evdev_mod: Any,
-    uinput_writer: Any,
+    uinput_writer: UInputWriter,
 ) -> None:
     if action.action_type == action_type_enum.PASSTHROUGH:
         passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
@@ -790,8 +859,10 @@ async def execute_action(
                             contextlib_mod=contextlib,
                         )
                 elif action.tap_enabled:
-                    if event.value == 1 and not device_runtime._tap_active.get(event_name, False):
-                        device_runtime._tap_active[event_name] = True
+                    if event.value == 1 and not device_runtime.state.tap_active.get(
+                        event_name, False
+                    ):
+                        device_runtime.state.tap_active[event_name] = True
                         fire_and_observe_fn(
                             tap_trigger(
                                 device_runtime,
@@ -958,7 +1029,7 @@ async def execute_action(
 
     elif action.action_type == action_type_enum.SUPERKEY:
         if action.superkey_config:
-            machine = device_runtime._superkey_machines.get(event_name)
+            machine = device_runtime.state.superkey_machines.get(event_name)
             if event.value == 1 and not machine:
 
                 async def superkey_broadcast(data: dict[str, object]) -> None:
@@ -981,7 +1052,7 @@ async def execute_action(
                     )
 
                 machine = superkey_machine_cls(
-                    config=action.superkey_config,
+                    config=cast(RuntimeSuperkeyConfig, action.superkey_config),
                     event_name=event_name,
                     keyboard_uinput=device_runtime.keyboard_uinput,
                     mouse_uinput=device_runtime.mouse_uinput,
@@ -989,7 +1060,7 @@ async def execute_action(
                     broadcast_callback=superkey_broadcast,
                     key_event_tracker=superkey_key_event_tracker,
                 )
-                device_runtime._superkey_machines[event_name] = machine
+                device_runtime.state.superkey_machines[event_name] = machine
 
             if event.value == 1 and machine is not None:
                 await machine.on_down()
@@ -999,13 +1070,13 @@ async def execute_action(
 
 async def _execute_key_action(
     device_runtime: Any,
-    action: Any,
-    event: Any,
+    action: MappingAction,
+    event: _InputEventLike,
     event_name: str,
     *,
     asyncio_mod: Any,
-    fire_and_observe_fn: Any,
-    uinput_dev: Any,
+    fire_and_observe_fn: FireAndObserve,
+    uinput_dev: object | None,
     target_kind: str,
     trigger_kind: str,
 ) -> None:
@@ -1043,8 +1114,8 @@ async def _execute_key_action(
                 contextlib_mod=contextlib,
             )
     elif action.tap_enabled:
-        if event.value == 1 and not device_runtime._tap_active.get(event_name, False):
-            device_runtime._tap_active[event_name] = True
+        if event.value == 1 and not device_runtime.state.tap_active.get(event_name, False):
+            device_runtime.state.tap_active[event_name] = True
             fire_and_observe_fn(
                 tap_key(
                     device_runtime,
@@ -1069,12 +1140,12 @@ async def _execute_key_action(
 
 async def _execute_move_action(
     device_runtime: Any,
-    action: Any,
-    event: Any,
+    action: MappingAction,
+    event: _InputEventLike,
     event_name: str,
     *,
     asyncio_mod: Any,
-    fire_and_observe_fn: Any,
+    fire_and_observe_fn: FireAndObserve,
 ) -> None:
     if action.rapidfire_enabled:
         if event.value == 1:
@@ -1104,8 +1175,8 @@ async def _execute_move_action(
                 contextlib_mod=contextlib,
             )
     elif action.tap_enabled:
-        if event.value == 1 and not device_runtime._tap_active.get(event_name, False):
-            device_runtime._tap_active[event_name] = True
+        if event.value == 1 and not device_runtime.state.tap_active.get(event_name, False):
+            device_runtime.state.tap_active[event_name] = True
             fire_and_observe_fn(
                 tap_move(
                     device_runtime,
@@ -1124,89 +1195,93 @@ def start_rapidfire_task(
     device_runtime: Any,
     event_name: str,
     kind: str,
-    task_factory: Any,
+    task_factory: TaskFactory,
     *,
     code: int | None,
-    uinput: Any,
+    uinput: object | None,
     axis_code: int | None,
 ) -> None:
     stop_rapidfire(device_runtime, event_name)
     task = task_factory()
-    device_runtime._rapidfire_active[event_name] = True
-    device_runtime._rapidfire_tasks[event_name] = task
-    state: dict[str, object] = {"kind": kind}
+    device_runtime.state.rapidfire_active[event_name] = True
+    device_runtime.state.rapidfire_tasks[event_name] = task
+    state = RapidfireOutputState(kind=kind)
     if code is not None:
-        state["code"] = int(code)
+        state.code = int(code)
     if uinput is not None:
-        state["uinput"] = uinput
+        state.uinput = uinput
     if axis_code is not None:
-        state["axis_code"] = int(axis_code)
-    device_runtime._rapidfire_outputs[event_name] = state
+        state.axis_code = int(axis_code)
+    device_runtime.state.rapidfire_outputs[event_name] = state
 
 
 def stop_rapidfire(device_runtime: Any, event_name: str) -> None:
-    device_runtime._rapidfire_active[event_name] = False
-    task = device_runtime._rapidfire_tasks.pop(event_name, None)
+    device_runtime.state.rapidfire_active[event_name] = False
+    task = device_runtime.state.rapidfire_tasks.pop(event_name, None)
     if task is not None and not task.done():
         task.cancel()
-    state = device_runtime._rapidfire_outputs.pop(event_name, None)
+    state = device_runtime.state.rapidfire_outputs.pop(event_name, None)
     if not state:
         return
-    kind = str(state.get("kind", "") or "")
+    kind = state.kind
     if kind == "trigger":
-        axis_code = state.get("axis_code")
+        axis_code = state.axis_code
         if axis_code is not None:
             ensure_trigger_released(
                 device_runtime,
-                cast(int, axis_code),
+                axis_code,
                 evdev_mod=evdev,
                 uinput_writer=_uinput_writer,
             )
         return
     if kind == "key":
-        code = state.get("code")
-        uinput = state.get("uinput")
+        code = state.code
+        uinput = state.uinput
         if code is not None:
-            ensure_key_released(device_runtime, cast(int, code), uinput)
+            ensure_key_released(device_runtime, code, uinput)
 
 
 async def stop_rapidfire_async(
-    device_runtime: Any, event_name: str, *, asyncio_mod: Any, contextlib_mod: Any
+    device_runtime: Any,
+    event_name: str,
+    *,
+    asyncio_mod: Any,
+    contextlib_mod: Any,
 ) -> None:
-    task = device_runtime._rapidfire_tasks.get(event_name)
+    task = device_runtime.state.rapidfire_tasks.get(event_name)
     stop_rapidfire(device_runtime, event_name)
     if task is not None and not task.done():
         with contextlib_mod.suppress(asyncio_mod.CancelledError):
             await task
 
 
-def finish_rapidfire_task(device_runtime: Any, event_name: str, task: Any) -> None:
-    if device_runtime._rapidfire_tasks.get(event_name) is not task:
+def finish_rapidfire_task(device_runtime: Any, event_name: str, task: asyncio.Task[object]) -> None:
+    if device_runtime.state.rapidfire_tasks.get(event_name) is not task:
         return
-    device_runtime._rapidfire_tasks.pop(event_name, None)
-    device_runtime._rapidfire_active.pop(event_name, None)
-    state = device_runtime._rapidfire_outputs.pop(event_name, None)
+    device_runtime.state.rapidfire_tasks.pop(event_name, None)
+    device_runtime.state.rapidfire_active.pop(event_name, None)
+    state = device_runtime.state.rapidfire_outputs.pop(event_name, None)
     if not state:
         return
-    kind = str(state.get("kind", "") or "")
+    kind = state.kind
     if kind == "trigger":
-        axis_code = state.get("axis_code")
+        axis_code = state.axis_code
         if axis_code is not None:
             ensure_trigger_released(
                 device_runtime,
-                cast(int, axis_code),
+                axis_code,
                 evdev_mod=evdev,
                 uinput_writer=_uinput_writer,
             )
         return
     if kind == "key":
-        code = state.get("code")
-        uinput = state.get("uinput")
+        code = state.code
+        uinput = state.uinput
         if code is not None:
-            ensure_key_released(device_runtime, cast(int, code), uinput)
+            ensure_key_released(device_runtime, code, uinput)
 
 
-def bucket_for_uinput(device_runtime: Any, uinput_dev: Any) -> str | None:
+def bucket_for_uinput(device_runtime: Any, uinput_dev: object | None) -> str | None:
     if uinput_dev is None:
         return None
     if device_runtime.uinput is not None and uinput_dev is device_runtime.uinput:
@@ -1220,11 +1295,11 @@ def bucket_for_uinput(device_runtime: Any, uinput_dev: Any) -> str | None:
     return None
 
 
-def track_key_state(device_runtime: Any, uinput_dev: Any, code: int, value: int) -> None:
+def track_key_state(device_runtime: Any, uinput_dev: object | None, code: int, value: int) -> None:
     bucket = bucket_for_uinput(device_runtime, uinput_dev)
     if not bucket:
         return
-    held = device_runtime._held_output_keys[bucket]
+    held = device_runtime.state.held_output_keys[bucket]
     if int(value) == 1:
         held.add(int(code))
     elif int(value) == 0:
@@ -1233,12 +1308,12 @@ def track_key_state(device_runtime: Any, uinput_dev: Any, code: int, value: int)
 
 def write_key(
     device_runtime: Any,
-    uinput_dev: Any,
+    uinput_dev: object | None,
     code: int,
     value: int,
     *,
     evdev_mod: Any,
-    uinput_writer: Any,
+    uinput_writer: UInputWriter,
 ) -> None:
     writer = uinput_writer(uinput_dev)
     if writer is None:
@@ -1249,22 +1324,24 @@ def write_key(
 
 
 def track_superkey_output(device_runtime: Any, action_type: str, code: int, value: int) -> bool:
-    bucket = action_type if action_type in device_runtime._superkey_output_refcounts else None
+    bucket = (
+        action_type if action_type in device_runtime.state.superkey_output_refcounts else None
+    )
     if bucket is None:
         return True
 
-    refcounts = device_runtime._superkey_output_refcounts[bucket]
+    refcounts = device_runtime.state.superkey_output_refcounts[bucket]
     current = refcounts.get(int(code), 0)
 
     if int(value) == 1:
         refcounts[int(code)] = current + 1
-        device_runtime._held_output_keys[bucket].add(int(code))
+        device_runtime.state.held_output_keys[bucket].add(int(code))
         return current == 0
 
     if int(value) == 0:
         if current <= 1:
             refcounts.pop(int(code), None)
-            device_runtime._held_output_keys[bucket].discard(int(code))
+            device_runtime.state.held_output_keys[bucket].discard(int(code))
             return current == 1
 
         refcounts[int(code)] = current - 1
@@ -1273,7 +1350,13 @@ def track_superkey_output(device_runtime: Any, action_type: str, code: int, valu
     return True
 
 
-def passthrough(device_runtime: Any, event: Any, *, evdev_mod: Any, uinput_writer: Any) -> None:
+def passthrough(
+    device_runtime: Any,
+    event: _InputEventLike,
+    *,
+    evdev_mod: Any,
+    uinput_writer: UInputWriter,
+) -> None:
     if (
         device_runtime.suppress_rel_getter
         and event.type == evdev_mod.ecodes.EV_REL
@@ -1316,7 +1399,10 @@ async def rapidfire_trigger(
     pressed = False
 
     try:
-        while device_runtime._rapidfire_active.get(event_name, False) and device_runtime._running:
+        while (
+            device_runtime.state.rapidfire_active.get(event_name, False)
+            and device_runtime._running
+        ):
             gamepad_uinput = uinput_writer(device_runtime.gamepad_uinput)
             if gamepad_uinput is None:
                 return
@@ -1329,7 +1415,7 @@ async def rapidfire_trigger(
                 gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 0)
                 gamepad_uinput.syn()
                 pressed = False
-            if not device_runtime._rapidfire_active.get(event_name, False):
+            if not device_runtime.state.rapidfire_active.get(event_name, False):
                 break
 
             await asyncio_mod.sleep(wait)
@@ -1348,7 +1434,11 @@ async def rapidfire_trigger(
 
 
 def ensure_trigger_released(
-    device_runtime: Any, axis_code: int, *, evdev_mod: Any, uinput_writer: Any
+    device_runtime: Any,
+    axis_code: int,
+    *,
+    evdev_mod: Any,
+    uinput_writer: Any,
 ) -> None:
     try:
         gamepad_uinput = uinput_writer(device_runtime.gamepad_uinput)
@@ -1383,7 +1473,7 @@ async def tap_trigger(
     except Exception:
         pass
     finally:
-        device_runtime._tap_active.pop(event_name, None)
+        device_runtime.state.tap_active.pop(event_name, None)
 
 
 async def rapidfire_key(
@@ -1392,7 +1482,7 @@ async def rapidfire_key(
     hold_ms: int,
     wait_ms: int,
     event_name: str,
-    uinput_dev: Any,
+    uinput_dev: object | None,
     *,
     asyncio_mod: Any,
 ) -> None:
@@ -1402,7 +1492,10 @@ async def rapidfire_key(
     pressed = False
 
     try:
-        while device_runtime._rapidfire_active.get(event_name, False) and device_runtime._running:
+        while (
+            device_runtime.state.rapidfire_active.get(event_name, False)
+            and device_runtime._running
+        ):
             write_key(
                 device_runtime,
                 uinput_dev,
@@ -1424,7 +1517,7 @@ async def rapidfire_key(
                     uinput_writer=_uinput_writer,
                 )
                 pressed = False
-            if not device_runtime._rapidfire_active.get(event_name, False):
+            if not device_runtime.state.rapidfire_active.get(event_name, False):
                 break
 
             await asyncio_mod.sleep(wait)
@@ -1437,7 +1530,7 @@ async def rapidfire_key(
             finish_rapidfire_task(device_runtime, event_name, task)
 
 
-def ensure_key_released(device_runtime: Any, code: int, uinput_dev: Any) -> None:
+def ensure_key_released(device_runtime: Any, code: int, uinput_dev: object | None) -> None:
     try:
         if uinput_dev:
             write_key(
@@ -1452,7 +1545,7 @@ def ensure_key_released(device_runtime: Any, code: int, uinput_dev: Any) -> None
         pass
 
 
-def emit_configured_mouse_move(device_runtime: Any, action: Any) -> None:
+def emit_configured_mouse_move(device_runtime: Any, action: MappingAction) -> None:
     emit_mouse_move(
         device_runtime.mouse_uinput,
         int(action.move_x),
@@ -1461,7 +1554,7 @@ def emit_configured_mouse_move(device_runtime: Any, action: Any) -> None:
     )
 
 
-def release_all_keys(device_runtime: Any, *, evdev_mod: Any, uinput_writer: Any) -> None:
+def release_all_keys(device_runtime: Any, *, evdev_mod: Any, uinput_writer: UInputWriter) -> None:
     devices = {
         "passthrough": device_runtime.uinput,
         "keyboard": device_runtime.keyboard_uinput,
@@ -1472,7 +1565,7 @@ def release_all_keys(device_runtime: Any, *, evdev_mod: Any, uinput_writer: Any)
         writer = uinput_writer(uinput_dev)
         if writer is None:
             continue
-        held = sorted(device_runtime._held_output_keys.get(bucket, set()))
+        held = sorted(device_runtime.state.held_output_keys.get(bucket, set()))
         if not held:
             continue
         try:
@@ -1482,9 +1575,9 @@ def release_all_keys(device_runtime: Any, *, evdev_mod: Any, uinput_writer: Any)
         except Exception:
             pass
         finally:
-            device_runtime._held_output_keys[bucket].clear()
-            if bucket in device_runtime._superkey_output_refcounts:
-                device_runtime._superkey_output_refcounts[bucket].clear()
+            device_runtime.state.held_output_keys[bucket].clear()
+            if bucket in device_runtime.state.superkey_output_refcounts:
+                device_runtime.state.superkey_output_refcounts[bucket].clear()
 
     gamepad_uinput = uinput_writer(device_runtime.gamepad_uinput)
     if gamepad_uinput is not None:
@@ -1495,15 +1588,15 @@ def release_all_keys(device_runtime: Any, *, evdev_mod: Any, uinput_writer: Any)
         except Exception:
             pass
 
-    for task in list(device_runtime._rapidfire_tasks.values()):
+    for task in list(device_runtime.state.rapidfire_tasks.values()):
         if not task.done():
             task.cancel()
-    device_runtime._rapidfire_tasks.clear()
-    device_runtime._rapidfire_outputs.clear()
-    device_runtime._rapidfire_active.clear()
-    device_runtime._tap_active.clear()
-    device_runtime._combo_passthrough_held.clear()
-    device_runtime._held_source_actions.clear()
+    device_runtime.state.rapidfire_tasks.clear()
+    device_runtime.state.rapidfire_outputs.clear()
+    device_runtime.state.rapidfire_active.clear()
+    device_runtime.state.tap_active.clear()
+    device_runtime.state.combo_passthrough_held.clear()
+    device_runtime.state.held_source_actions.clear()
 
 
 async def tap_key(
@@ -1511,7 +1604,7 @@ async def tap_key(
     code: int,
     hold_ms: int,
     event_name: str,
-    uinput_dev: Any,
+    uinput_dev: object | None,
     *,
     asyncio_mod: Any,
 ) -> None:
@@ -1538,12 +1631,12 @@ async def tap_key(
     except Exception:
         pass
     finally:
-        device_runtime._tap_active.pop(event_name, None)
+        device_runtime.state.tap_active.pop(event_name, None)
 
 
 async def rapidfire_move(
     device_runtime: Any,
-    action: Any,
+    action: MappingAction,
     event_name: str,
     hold_ms: int,
     wait_ms: int,
@@ -1555,11 +1648,14 @@ async def rapidfire_move(
     task = asyncio_mod.current_task()
 
     try:
-        while device_runtime._rapidfire_active.get(event_name, False) and device_runtime._running:
+        while (
+            device_runtime.state.rapidfire_active.get(event_name, False)
+            and device_runtime._running
+        ):
             emit_configured_mouse_move(device_runtime, action)
             await asyncio_mod.sleep(hold)
 
-            if not device_runtime._rapidfire_active.get(event_name, False):
+            if not device_runtime.state.rapidfire_active.get(event_name, False):
                 break
 
             await asyncio_mod.sleep(wait)
@@ -1571,7 +1667,12 @@ async def rapidfire_move(
 
 
 async def tap_move(
-    device_runtime: Any, action: Any, event_name: str, hold_ms: int, *, asyncio_mod: Any
+    device_runtime: Any,
+    action: MappingAction,
+    event_name: str,
+    hold_ms: int,
+    *,
+    asyncio_mod: Any,
 ) -> None:
     hold = hold_ms / 1000.0
 
@@ -1581,7 +1682,7 @@ async def tap_move(
     except Exception:
         pass
     finally:
-        device_runtime._tap_active.pop(event_name, None)
+        device_runtime.state.tap_active.pop(event_name, None)
 
 
 class GrabbedDevice:
@@ -1634,24 +1735,7 @@ class GrabbedDevice:
         self.runtime_cleanup_callback = runtime_cleanup_callback
         self.task: asyncio.Task[None] | None = None
         self._running = False
-        self._rapidfire_active: dict[str, bool] = {}
-        self._rapidfire_tasks: dict[str, asyncio.Task[None]] = {}
-        self._rapidfire_outputs: dict[str, dict[str, object]] = {}
-        self._tap_active: dict[str, bool] = {}
-        self._superkey_machines: dict[str, SuperkeyMachine] = {}
-        self._combo_passthrough_held: set[str] = set()
-        self._held_output_keys: dict[str, set[int]] = {
-            "passthrough": set(),
-            "keyboard": set(),
-            "mouse": set(),
-            "gamepad": set(),
-        }
-        self._superkey_output_refcounts: dict[str, dict[int, int]] = {
-            "keyboard": {},
-            "mouse": {},
-            "gamepad": {},
-        }
-        self._held_source_actions: dict[str, MappingAction | None] = {}
+        self.state = GrabbedDeviceState()
 
     def update_button_map(
         self,
@@ -1665,16 +1749,16 @@ class GrabbedDevice:
         }
 
     async def reset_mapping_runtime_state(self) -> None:
-        for event_name in self._combo_passthrough_held:
-            self._held_source_actions.setdefault(event_name, None)
-        self._combo_passthrough_held.clear()
+        for event_name in self.state.combo_passthrough_held:
+            self.state.held_source_actions.setdefault(event_name, None)
+        self.state.combo_passthrough_held.clear()
         await self.reset_superkeys()
         seed_startup_held_actions(self)
 
     async def reset_superkeys(self) -> None:
-        for machine in self._superkey_machines.values():
+        for machine in self.state.superkey_machines.values():
             await machine.stop()
-        self._superkey_machines.clear()
+        self.state.superkey_machines.clear()
 
     async def grab(self) -> None:
         self.device = _device_input(self.path)
@@ -1713,8 +1797,8 @@ class GrabbedDevice:
     async def release(self) -> None:
         self._running = False
         release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
-        self._held_source_actions.clear()
-        self._combo_passthrough_held.clear()
+        self.state.held_source_actions.clear()
+        self.state.combo_passthrough_held.clear()
 
         await self.reset_superkeys()
 
@@ -1765,11 +1849,11 @@ class GrabbedDevice:
         )
 
     def has_held_source_inputs(self) -> bool:
-        return bool(self._held_source_actions)
+        return bool(self.state.held_source_actions)
 
     def combo_passthrough_held_modifiers(self) -> set[str]:
         return {
             event_name
-            for event_name in self._combo_passthrough_held
+            for event_name in self.state.combo_passthrough_held
             if normalize_combo_evdev(event_name) in COMBO_HELD_REARM_MODIFIERS
         }

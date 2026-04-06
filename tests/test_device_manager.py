@@ -85,8 +85,8 @@ class TestDeviceManager:
             "waiting_for_device": True,
         }
         assert manager.grabbed_devices == {}
-        assert manager._desired_paths["1234:5678"] == {"/dev/input/event404"}
-        assert manager._desired_grabs["1234:5678"] == DesiredGrabConfig(
+        assert manager.grab_state.desired_paths["1234:5678"] == {"/dev/input/event404"}
+        assert manager.grab_state.desired_grabs["1234:5678"] == DesiredGrabConfig(
             paths={"/dev/input/event404"},
             button_map={"btn_side": "btn_side"},
             force_grab_unmapped=False,
@@ -276,13 +276,13 @@ class TestListDevices:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
-        manager._diagnostics_enabled = True
-        manager._diag_samples = {"event": deque([1.0, 3.0])}
+        manager.diagnostics_state.enabled = True
+        manager.diagnostics_state.samples = {"event": deque([1.0, 3.0])}
         snapshots: list[dict[str, list[float]]] = []
         calls: list[tuple[object, tuple[object, ...]]] = []
 
         async def fake_sleep(_delay: float) -> None:
-            manager._diagnostics_enabled = False
+            manager.diagnostics_state.enabled = False
 
         async def fake_to_thread(func, /, *args, **kwargs):
             assert kwargs == {}
@@ -314,8 +314,8 @@ class TestListDevices:
                 interface_id="mouse",
             )
         }
-        manager._live_topology_snapshot = dict(snapshot)
-        manager._reconciled_topology_snapshot = {}
+        manager.topology_state.live_snapshot = dict(snapshot)
+        manager.topology_state.reconciled_snapshot = {}
         schedule_topology_reconcile = Mock()
         sleep_calls = 0
 
@@ -494,7 +494,7 @@ class TestMacroControlActions:
 
         assert begin_mouse_rel_suppression.called is True
         assert end_mouse_rel_suppression.called is True
-        assert manager._macro_exec_waiters == {}
+        assert manager.macro_state.exec_waiters == {}
         callback.assert_awaited_once()
         assert callback.await_args.args[0] == CommandType.ACTION_TRIGGER
 
@@ -522,7 +522,7 @@ class TestReleaseScheduling:
         monkeypatch.setattr(ldm, "release_device_unlocked", release_device)
 
         _runtime_schedule_hardware_release(manager, "hw", 0.001)
-        task = manager._pending_hardware_release["hw"]
+        task = manager.grab_state.pending_hardware_release["hw"]
         await task
         monkeypatch.undo()
 
@@ -1319,10 +1319,10 @@ class TestRapidfireRelease:
             keyboard_uinput=fake_uinput,  # type: ignore[arg-type]
         )
         device._running = True
-        device._rapidfire_active["btn_side"] = True
+        device.state.rapidfire_active["btn_side"] = True
 
         async def fake_sleep(_delay: float) -> None:
-            device._rapidfire_active["btn_side"] = False
+            device.state.rapidfire_active["btn_side"] = False
 
         monkeypatch.setattr(gdm.asyncio, "sleep", fake_sleep)
 
@@ -1422,14 +1422,14 @@ class TestRapidfireRelease:
         await _runtime_execute_grabbed_action(device, action, press_event, "btn_side")
         await asyncio.sleep(0)
 
-        assert len(device._rapidfire_tasks) == 1
+        assert len(device.state.rapidfire_tasks) == 1
 
         await _runtime_execute_grabbed_action(device, action, release_event, "btn_side")
         await asyncio.sleep(0.01)
 
-        assert device._rapidfire_tasks == {}
-        assert device._rapidfire_outputs == {}
-        assert device._held_output_keys["keyboard"] == set()
+        assert device.state.rapidfire_tasks == {}
+        assert device.state.rapidfire_outputs == {}
+        assert device.state.held_output_keys["keyboard"] == set()
         assert fake_uinput.writes[-1] == (
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_A,
@@ -1485,15 +1485,15 @@ class TestRapidfireRelease:
 
         await _runtime_process_grabbed_event(device, press_event)
         await asyncio.sleep(0)
-        assert "btn_side" in device._held_source_actions
+        assert "btn_side" in device.state.held_source_actions
 
         await _runtime_process_grabbed_event(device, release_event)
         await asyncio.sleep(0.01)
 
-        assert device._rapidfire_tasks == {}
-        assert device._rapidfire_outputs == {}
-        assert device._held_output_keys["keyboard"] == set()
-        assert "btn_side" not in device._held_source_actions
+        assert device.state.rapidfire_tasks == {}
+        assert device.state.rapidfire_outputs == {}
+        assert device.state.held_output_keys["keyboard"] == set()
+        assert "btn_side" not in device.state.held_source_actions
         assert fake_uinput.writes[-1] == (
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_A,
@@ -1550,7 +1550,7 @@ class TestRapidfireRelease:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 0),
         ]
         assert mapped_uinput.writes == []
-        assert device._combo_passthrough_held == set()
+        assert device.state.combo_passthrough_held == set()
 
     @pytest.mark.asyncio
     async def test_combo_passthrough_does_not_bypass_unrelated_mapping_action(
@@ -1606,7 +1606,7 @@ class TestRapidfireRelease:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
         ]
-        assert device._combo_passthrough_held == set()
+        assert device.state.combo_passthrough_held == set()
 
     @pytest.mark.asyncio
     async def test_combo_consumed_modifier_release_still_passthroughs_when_held(
@@ -1655,7 +1655,7 @@ class TestRapidfireRelease:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 0),
         ]
-        assert device._combo_passthrough_held == set()
+        assert device.state.combo_passthrough_held == set()
 
     @pytest.mark.asyncio
     async def test_combo_consumed_release_still_stops_existing_rapidfire_action(
@@ -1706,15 +1706,15 @@ class TestRapidfireRelease:
 
         await _runtime_process_grabbed_event(device, press_event)
         await asyncio.sleep(0)
-        assert "key_f5" in device._held_source_actions
+        assert "key_f5" in device.state.held_source_actions
 
         await _runtime_process_grabbed_event(device, release_event)
         await asyncio.sleep(0.01)
 
-        assert device._rapidfire_tasks == {}
-        assert device._rapidfire_outputs == {}
-        assert device._held_output_keys["keyboard"] == set()
-        assert "key_f5" not in device._held_source_actions
+        assert device.state.rapidfire_tasks == {}
+        assert device.state.rapidfire_outputs == {}
+        assert device.state.held_output_keys["keyboard"] == set()
+        assert "key_f5" not in device.state.held_source_actions
         assert fake_uinput.writes[-1] == (
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_B,
@@ -1732,7 +1732,7 @@ class TestRapidfireRelease:
             await fake_device.release()
 
         manager.grabbed_devices = {"hw": []}
-        manager._desired_paths["hw"] = {"/dev/input/event0"}
+        manager.grab_state.desired_paths["hw"] = {"/dev/input/event0"}
         monkeypatch.setattr(ldm, "release_interface_unlocked", release_interface)
 
         await _runtime_delayed_interface_release(manager, "hw", "/dev/input/event0", 0.001)
@@ -1780,8 +1780,8 @@ class TestRapidfireRelease:
         action = MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
         manager.grabbed_devices = {"hw": [fake_device]}
         manager.active_mappings = {"hw": {"btn_side": action}}
-        manager._desired_paths["hw"] = {"/dev/input/event0"}
-        manager._desired_grabs["hw"] = DesiredGrabConfig(
+        manager.grab_state.desired_paths["hw"] = {"/dev/input/event0"}
+        manager.grab_state.desired_grabs["hw"] = DesiredGrabConfig(
             paths={"/dev/input/event0"},
             button_map={"btn_side": "btn_side"},
         )
@@ -1793,8 +1793,8 @@ class TestRapidfireRelease:
 
         assert manager.grabbed_devices == {}
         assert manager.active_mappings["hw"] == {"btn_side": action}
-        assert manager._desired_paths["hw"] == {"/dev/input/event0"}
-        assert manager._desired_grabs["hw"].paths == {"/dev/input/event0"}
+        assert manager.grab_state.desired_paths["hw"] == {"/dev/input/event0"}
+        assert manager.grab_state.desired_grabs["hw"].paths == {"/dev/input/event0"}
 
     @pytest.mark.asyncio
     async def test_release_device_clears_scoped_combo_runtime_before_releasing_hardware(
@@ -1824,7 +1824,7 @@ class TestRapidfireRelease:
         self,
     ) -> None:
         manager = DeviceManager()
-        manager._combo_engine.drop_candidates_for_binding_scope = Mock(  # type: ignore[method-assign]
+        manager.combo_state.engine.drop_candidates_for_binding_scope = Mock(  # type: ignore[method-assign]
             return_value={"combo-1"}
         )
         stop_combo_action = AsyncMock()
@@ -1836,7 +1836,7 @@ class TestRapidfireRelease:
         await _runtime_clear_combo_scope(manager, "1234:5678", "mouse")
         monkeypatch.undo()
 
-        manager._combo_engine.drop_candidates_for_binding_scope.assert_called_once_with(
+        manager.combo_state.engine.drop_candidates_for_binding_scope.assert_called_once_with(
             "1234:5678",
             "mouse",
         )
@@ -1912,8 +1912,8 @@ class TestEventLoopRecovery:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
-        assert device._held_output_keys["keyboard"] == set()
-        assert device._held_source_actions == {}
+        assert device.state.held_output_keys["keyboard"] == set()
+        assert device.state.held_source_actions == {}
 
 
 class TestCombos:
@@ -2121,7 +2121,7 @@ class TestCombos:
     @pytest.mark.asyncio
     async def test_runtime_combo_keyboard_action_mirrors_press_and_release(self, monkeypatch):
         manager = DeviceManager()
-        manager._keyboard_uinput = Mock()
+        manager.output_state.keyboard_uinput = Mock()
 
         await manager.set_combos(
             [
@@ -2166,12 +2166,12 @@ class TestCombos:
 
         assert pressed is not None and pressed.consume_current_event is True
         assert released is not None and released.consume_current_event is True
-        assert manager._keyboard_uinput.write.call_args_list[0].args == (
+        assert manager.output_state.keyboard_uinput.write.call_args_list[0].args == (
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_F5,
             1,
         )
-        assert manager._keyboard_uinput.write.call_args_list[1].args == (
+        assert manager.output_state.keyboard_uinput.write.call_args_list[1].args == (
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_F5,
             0,
@@ -2180,7 +2180,7 @@ class TestCombos:
     @pytest.mark.asyncio
     async def test_runtime_combo_tap_key_releases_when_runtime_clears(self, monkeypatch):
         manager = DeviceManager()
-        manager._keyboard_uinput = _FakeUInput()
+        manager.output_state.keyboard_uinput = _FakeUInput()
 
         await manager.set_combos(
             [
@@ -2223,7 +2223,7 @@ class TestCombos:
         await _runtime_clear_combo_runtime(manager)
 
         assert pressed is not None and pressed.consume_current_event is True
-        assert manager._keyboard_uinput.writes == [
+        assert manager.output_state.keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
         ]
@@ -2231,7 +2231,7 @@ class TestCombos:
     @pytest.mark.asyncio
     async def test_runtime_combo_tap_trigger_releases_when_runtime_clears(self, monkeypatch):
         manager = DeviceManager()
-        manager._gamepad_uinput = _FakeUInput()
+        manager.output_state.gamepad_uinput = _FakeUInput()
 
         await manager.set_combos(
             [
@@ -2274,7 +2274,7 @@ class TestCombos:
         await _runtime_clear_combo_runtime(manager)
 
         assert pressed is not None and pressed.consume_current_event is True
-        assert manager._gamepad_uinput.writes == [
+        assert manager.output_state.gamepad_uinput.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
         ]
@@ -2403,7 +2403,7 @@ class TestCombos:
         monkeypatch,
     ):
         manager = DeviceManager()
-        manager._keyboard_uinput = _FakeUInput()
+        manager.output_state.keyboard_uinput = _FakeUInput()
 
         await manager.set_combos(
             [
@@ -2447,7 +2447,7 @@ class TestCombos:
                 manager, *args, **kwargs
             ),
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=manager._keyboard_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=manager.output_state.keyboard_uinput,  # type: ignore[arg-type]
             mouse_uinput=_FakeUInput(),  # type: ignore[arg-type]
             gamepad_uinput=_FakeUInput(),  # type: ignore[arg-type]
         )
@@ -2478,7 +2478,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_4, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_4, 0),
         ]
-        assert manager._keyboard_uinput.writes == [
+        assert manager.output_state.keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
         ]
 
@@ -2588,8 +2588,8 @@ class TestSuperkeys:
 
         await _runtime_process_grabbed_event(device, press_event)
 
-        assert device._combo_passthrough_held == {"key_1"}
-        assert "key_1" not in device._held_source_actions
+        assert device.state.combo_passthrough_held == {"key_1"}
+        assert "key_1" not in device.state.held_source_actions
 
         await device.reset_mapping_runtime_state()
         mapping_state["key_1"] = dm.MappingAction(
@@ -2597,8 +2597,8 @@ class TestSuperkeys:
             target="key_a",
         )
 
-        assert device._combo_passthrough_held == set()
-        assert device._held_source_actions["key_1"] is None
+        assert device.state.combo_passthrough_held == set()
+        assert device.state.held_source_actions["key_1"] is None
 
         await _runtime_process_grabbed_event(device, release_event)
 
@@ -2607,7 +2607,7 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 0),
         ]
         assert mapped_uinput.writes == []
-        assert "key_1" not in device._held_source_actions
+        assert "key_1" not in device.state.held_source_actions
 
     @pytest.mark.asyncio
     async def test_superkey_release_after_reset_does_not_recreate_stale_machine(
@@ -2650,14 +2650,14 @@ class TestSuperkeys:
         )
 
         await _runtime_process_grabbed_event(device, press_event)
-        assert "btn_side" in device._superkey_machines
+        assert "btn_side" in device.state.superkey_machines
 
         await device.reset_superkeys()
-        assert device._superkey_machines == {}
+        assert device.state.superkey_machines == {}
 
         await _runtime_process_grabbed_event(device, release_event)
 
-        assert device._superkey_machines == {}
+        assert device.state.superkey_machines == {}
 
     @pytest.mark.asyncio
     async def test_shared_superkey_config_on_two_inputs_holds_output_until_both_release(
@@ -2723,9 +2723,9 @@ class TestSuperkeys:
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
-        assert set(device._superkey_machines) == {"btn_side", "btn_extra"}
-        assert device._superkey_machines["btn_side"].state.value == "holding"
-        assert device._superkey_machines["btn_extra"].state.value == "holding"
+        assert set(device.state.superkey_machines) == {"btn_side", "btn_extra"}
+        assert device.state.superkey_machines["btn_side"].state.value == "holding"
+        assert device.state.superkey_machines["btn_extra"].state.value == "holding"
         assert keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
         ]
@@ -2736,7 +2736,7 @@ class TestSuperkeys:
         assert keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
         ]
-        assert device._held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
+        assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
 
         await _runtime_process_grabbed_event(device, extra_release)
         await asyncio.sleep(0)
@@ -2745,7 +2745,7 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
-        assert device._held_output_keys["keyboard"] == set()
+        assert device.state.held_output_keys["keyboard"] == set()
 
     @pytest.mark.asyncio
     async def test_reset_mapping_runtime_state_seeds_startup_held_action_and_releases_output(
@@ -2776,7 +2776,7 @@ class TestSuperkeys:
 
         await device.reset_mapping_runtime_state()
 
-        assert device._held_source_actions["key_f13"] == mapping_state["key_f13"]
+        assert device.state.held_source_actions["key_f13"] == mapping_state["key_f13"]
         assert device.keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
@@ -2875,7 +2875,7 @@ class TestRuntimeFailureCleanup:
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0),
         ]
-        assert device._held_output_keys["keyboard"] == set()
+        assert device.state.held_output_keys["keyboard"] == set()
 
 
 class TestDeviceManagerHelpers:
@@ -2977,7 +2977,7 @@ class TestDeviceManagerHelpers:
         assert created["/dev/input/event1"].release.await_count == 1
         assert manager.grabbed_devices == {}
         assert manager.active_mappings == {}
-        assert manager._desired_paths == {}
+        assert manager.grab_state.desired_paths == {}
         destroy_global_uinputs.assert_called_once()
 
     def test_parse_action_supports_string_and_hyprland_dispatch_alias(self) -> None:
@@ -3056,12 +3056,12 @@ class TestDeviceManagerHelpers:
 
         with caplog.at_level(logging.WARNING, logger="keyforged.devices"):
             _runtime_schedule_topology_reconcile(manager, snapshot)
-            task = manager._topology_reconcile_task
+            task = manager.topology_state.reconcile_task
             assert task is not None
             await task
 
         assert "Topology reconcile failed: reconcile boom" in caplog.text
-        assert manager._topology_reconcile_task is None
+        assert manager.topology_state.reconcile_task is None
 
     def test_combo_capture_queue_round_trip(self) -> None:
         manager = DeviceManager()
@@ -3069,7 +3069,7 @@ class TestDeviceManagerHelpers:
         manager.grabbed_devices = {"hw": [object(), object()], "other": [object()]}
 
         started = manager.begin_combo_capture("token", {"1234:5678"}, ready)
-        capture_queue, hardware_ids, notify_event = manager._combo_capture_queues["token"]
+        capture_queue, hardware_ids, notify_event = manager.combo_state.capture_queues["token"]
         capture_queue.put({"evdev": "key_a"})
 
         assert started == {"token": "token", "grabbed_devices": 3}
@@ -3084,18 +3084,18 @@ class TestDeviceManagerHelpers:
     async def test_refresh_combo_timeout_watchdog_cancels_or_replaces_existing_task(self) -> None:
         manager = DeviceManager()
         previous = asyncio.create_task(asyncio.sleep(60))
-        manager._combo_timeout_task = previous
-        manager._combo_engine.next_deadline = Mock(return_value=None)  # type: ignore[method-assign]
+        manager.combo_state.timeout_task = previous
+        manager.combo_state.engine.next_deadline = Mock(return_value=None)  # type: ignore[method-assign]
 
         _runtime_refresh_combo_watchdog(manager)
         await asyncio.sleep(0)
 
         assert previous.cancelled() is True
-        assert manager._combo_timeout_task is None
+        assert manager.combo_state.timeout_task is None
 
         replacement = asyncio.create_task(asyncio.sleep(60))
-        manager._combo_timeout_task = replacement
-        manager._combo_engine.next_deadline = Mock(return_value=42.0)  # type: ignore[method-assign]
+        manager.combo_state.timeout_task = replacement
+        manager.combo_state.engine.next_deadline = Mock(return_value=42.0)  # type: ignore[method-assign]
         combo_timeout_watchdog = AsyncMock()
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(cdm, "combo_timeout_watchdog", combo_timeout_watchdog)
@@ -3105,9 +3105,9 @@ class TestDeviceManagerHelpers:
 
         assert replacement.cancelled() is True
         combo_timeout_watchdog.assert_awaited_once()
-        manager._combo_timeout_task.cancel()
+        manager.combo_state.timeout_task.cancel()
         await asyncio.sleep(0)
-        assert manager._combo_timeout_task.done() is True
+        assert manager.combo_state.timeout_task.done() is True
         monkeypatch.undo()
 
     @pytest.mark.asyncio
@@ -3116,7 +3116,7 @@ class TestDeviceManagerHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
-        manager._combo_engine.expire_timeouts = Mock()  # type: ignore[method-assign]
+        manager.combo_state.engine.expire_timeouts = Mock()  # type: ignore[method-assign]
         refreshes: list[str] = []
         monkeypatch.setattr(
             cdm,
@@ -3128,11 +3128,11 @@ class TestDeviceManagerHelpers:
         monkeypatch.setattr(dm.asyncio, "sleep", AsyncMock())
 
         task = asyncio.create_task(_runtime_combo_timeout_watchdog(manager, 10.5))
-        manager._combo_timeout_task = task
+        manager.combo_state.timeout_task = task
         await task
 
-        manager._combo_engine.expire_timeouts.assert_called_once_with(10.0)
-        assert manager._combo_timeout_task is None
+        manager.combo_state.engine.expire_timeouts.assert_called_once_with(10.0)
+        assert manager.combo_state.timeout_task is None
         assert refreshes == ["refresh"]
 
 
@@ -3185,12 +3185,12 @@ class TestGrabbedDeviceHelpers:
         gdm.track_key_state(device, device.keyboard_uinput, evdev.ecodes.KEY_B, 1)
         gdm.track_key_state(device, device.mouse_uinput, evdev.ecodes.BTN_LEFT, 1)
         gdm.track_superkey_output(device, "gamepad", evdev.ecodes.BTN_SOUTH, 1)
-        device._rapidfire_tasks["btn_side"] = task  # type: ignore[assignment]
-        device._rapidfire_outputs["btn_side"] = {"kind": "key"}
-        device._rapidfire_active["btn_side"] = True
-        device._tap_active["btn_side"] = True
-        device._combo_passthrough_held.add("btn_side")
-        device._held_source_actions["btn_side"] = None
+        device.state.rapidfire_tasks["btn_side"] = task  # type: ignore[assignment]
+        device.state.rapidfire_outputs["btn_side"] = gdm.RapidfireOutputState(kind="key")
+        device.state.rapidfire_active["btn_side"] = True
+        device.state.tap_active["btn_side"] = True
+        device.state.combo_passthrough_held.add("btn_side")
+        device.state.held_source_actions["btn_side"] = None
 
         assert gdm.bucket_for_uinput(device, device.keyboard_uinput) == "keyboard"
 
@@ -3204,9 +3204,9 @@ class TestGrabbedDeviceHelpers:
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0),
         ]
         canceled.assert_called_once()
-        assert device._rapidfire_tasks == {}
-        assert device._tap_active == {}
-        assert device._held_source_actions == {}
+        assert device.state.rapidfire_tasks == {}
+        assert device.state.tap_active == {}
+        assert device.state.held_source_actions == {}
 
     @pytest.mark.asyncio
     async def test_wait_for_active_key_activity_handles_timeouts_and_drain_errors(
@@ -3305,8 +3305,8 @@ class TestGrabbedDeviceHelpers:
 
         callback.assert_awaited_once()
         assert "Failed to broadcast grab status" in caplog.text
-        assert device._held_source_actions["key_a"] == mapping_state["left"]
-        assert device._held_source_actions["key_b"] == mapping_state["right"]
+        assert device.state.held_source_actions["key_a"] == mapping_state["left"]
+        assert device.state.held_source_actions["key_b"] == mapping_state["right"]
         assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Z, 0)]
         assert mouse.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)]
 
@@ -3332,7 +3332,7 @@ class TestGrabbedDeviceHelpers:
 
         gdm.seed_startup_held_actions(device)
 
-        assert device._held_source_actions["btn_a"] == mapping_state["south"]
+        assert device.state.held_source_actions["btn_a"] == mapping_state["south"]
 
     def test_reconcile_startup_held_action_releases_gamepad_output(
         self,
@@ -3380,14 +3380,14 @@ class TestGrabbedDeviceHelpers:
             "tap",
             device.keyboard_uinput,  # type: ignore[arg-type]
         )
-        device._tap_active["trigger"] = True
+        device.state.tap_active["trigger"] = True
         await _runtime_tap_grabbed_trigger(device, evdev.ecodes.ABS_Z, 25, "trigger")
         move_action = dm.MappingAction(
             action_type=ActionType.MOUSE_MOVE_REL,
             move_x=4,
             move_y=-3,
         )
-        device._tap_active["move"] = True
+        device.state.tap_active["move"] = True
         await _runtime_tap_grabbed_move(device, move_action, "move", 25)
         device.emit_combo_release("key_b")
         device.emit_combo_release("missing")
@@ -3401,7 +3401,7 @@ class TestGrabbedDeviceHelpers:
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
         ]
         assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)]
-        assert device._tap_active == {}
+        assert device.state.tap_active == {}
 
     @pytest.mark.asyncio
     async def test_execute_action_covers_synthetic_non_keyboard_branches(
@@ -3643,8 +3643,8 @@ class TestComboActionDispatch:
     @pytest.mark.asyncio
     async def test_start_and_stop_combo_action_cover_additional_synthetic_paths(self) -> None:
         manager = DeviceManager()
-        manager._mouse_uinput = _FakeUInput()
-        manager._gamepad_uinput = _FakeUInput()
+        manager.output_state.mouse_uinput = _FakeUInput()
+        manager.output_state.gamepad_uinput = _FakeUInput()
         manager.play_macro = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
         broadcast_combo_action = AsyncMock()
         emit_combo_mouse_move = Mock()
@@ -3745,7 +3745,7 @@ class TestComboActionDispatch:
         assert manager.play_macro.await_args_list[0].kwargs["trigger_value"] == 1
         assert manager.play_macro.await_args_list[1].kwargs["trigger_value"] == 0
         assert broadcast_combo_action.await_count == 4
-        assert manager._gamepad_uinput.writes == [
+        assert manager.output_state.gamepad_uinput.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
         ]

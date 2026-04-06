@@ -164,8 +164,8 @@ async def test_multiple_switches_while_held_keep_original_release_and_clear_stat
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1) in key_events
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0) in key_events
     assert all(code not in (evdev.ecodes.KEY_B, evdev.ecodes.KEY_C) for _, code, _ in key_events)
-    assert device._held_source_actions == {}
-    assert device._held_output_keys["keyboard"] == set()
+    assert device.state.held_source_actions == {}
+    assert device.state.held_output_keys["keyboard"] == set()
 
 
 @pytest.mark.asyncio
@@ -177,7 +177,7 @@ async def test_release_device_uses_grace_period_and_cleans_outputs() -> None:
     manager.active_mappings["1234:5678"] = {
         "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
     }
-    manager._desired_paths["1234:5678"] = {dummy.path}
+    manager.grab_state.desired_paths["1234:5678"] = {dummy.path}
 
     result = await manager.release_device("1234:5678", immediate=False, grace_s=0.05)
     assert result["scheduled"] is True
@@ -199,7 +199,7 @@ async def test_release_device_retries_when_source_button_is_held() -> None:
     manager.active_mappings["1234:5678"] = {
         "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
     }
-    manager._desired_paths["1234:5678"] = {dummy.path}
+    manager.grab_state.desired_paths["1234:5678"] = {dummy.path}
 
     result = await manager.release_device("1234:5678", immediate=False, grace_s=0.03)
     assert result["scheduled"] is True

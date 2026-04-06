@@ -9,7 +9,7 @@ def create_global_uinputs(
     log: Any,
     uinput_writer: Any,
 ) -> None:
-    if manager._device_count == 0:
+    if manager.output_state.device_count == 0:
         log.info("Creating global output uinput devices")
 
         keyboard_caps = {
@@ -125,7 +125,7 @@ def create_global_uinputs(
             ],
             evdev_mod.ecodes.EV_SYN: [],
         }
-        manager._keyboard_uinput = evdev_mod.UInput(
+        manager.output_state.keyboard_uinput = evdev_mod.UInput(
             events=cast(dict[int, Sequence[int]], keyboard_caps),
             name="keyforge-keyboard",
         )
@@ -148,7 +148,7 @@ def create_global_uinputs(
             ],
             evdev_mod.ecodes.EV_SYN: [],
         }
-        manager._mouse_uinput = evdev_mod.UInput(
+        manager.output_state.mouse_uinput = evdev_mod.UInput(
             events=cast(dict[int, Sequence[int]], mouse_caps),
             name="keyforge-mouse",
         )
@@ -185,7 +185,7 @@ def create_global_uinputs(
             ],
             evdev_mod.ecodes.EV_SYN: [],
         }
-        manager._gamepad_uinput = evdev_mod.UInput(
+        manager.output_state.gamepad_uinput = evdev_mod.UInput(
             events=cast(dict[int, Sequence[int]], gamepad_caps),
             name="Microsoft X-Box 360 pad",
             vendor=0x045E,
@@ -194,7 +194,7 @@ def create_global_uinputs(
             bustype=0x0003,
         )
 
-        gamepad_uinput = uinput_writer(manager._gamepad_uinput)
+        gamepad_uinput = uinput_writer(manager.output_state.gamepad_uinput)
         if gamepad_uinput is not None:
             gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_X, 0)
             gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_Y, 0)
@@ -206,19 +206,19 @@ def create_global_uinputs(
             gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_HAT0Y, 0)
             gamepad_uinput.syn()
 
-    manager._device_count += 1
+    manager.output_state.device_count += 1
 
 
 def destroy_global_uinputs(manager: Any, *, log: Any) -> None:
-    manager._device_count = max(0, manager._device_count - 1)
+    manager.output_state.device_count = max(0, manager.output_state.device_count - 1)
 
-    if manager._device_count == 0:
+    if manager.output_state.device_count == 0:
         log.info("Destroying global output uinput devices")
 
         for uinput_dev in [
-            manager._keyboard_uinput,
-            manager._mouse_uinput,
-            manager._gamepad_uinput,
+            manager.output_state.keyboard_uinput,
+            manager.output_state.mouse_uinput,
+            manager.output_state.gamepad_uinput,
         ]:
             if uinput_dev:
                 try:
@@ -226,6 +226,6 @@ def destroy_global_uinputs(manager: Any, *, log: Any) -> None:
                 except Exception as exc:
                     log.warning("Failed to close global uinput device: %s", exc)
 
-        manager._keyboard_uinput = None
-        manager._mouse_uinput = None
-        manager._gamepad_uinput = None
+        manager.output_state.keyboard_uinput = None
+        manager.output_state.mouse_uinput = None
+        manager.output_state.gamepad_uinput = None

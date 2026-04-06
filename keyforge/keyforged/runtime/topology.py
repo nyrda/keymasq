@@ -15,7 +15,10 @@ async def start_topology_watcher(
     resolve_stable_path_fn: Any,
     get_interface_id_fn: Any,
 ) -> None:
-    if manager._topology_task is not None and not manager._topology_task.done():
+    if (
+        manager.topology_state.watcher_task is not None
+        and not manager.topology_state.watcher_task.done()
+    ):
         return
     snapshot = await asyncio_mod.to_thread(
         scan_live_interfaces_sync,
@@ -27,9 +30,9 @@ async def start_topology_watcher(
         get_interface_id_fn=get_interface_id_fn,
         log=log,
     )
-    manager._live_topology_snapshot = dict(snapshot)
-    manager._reconciled_topology_snapshot = dict(snapshot)
-    manager._topology_task = asyncio_mod.create_task(
+    manager.topology_state.live_snapshot = dict(snapshot)
+    manager.topology_state.reconciled_snapshot = dict(snapshot)
+    manager.topology_state.watcher_task = asyncio_mod.create_task(
         topology_watch_loop(
             manager,
             asyncio_mod=asyncio_mod,
@@ -45,15 +48,15 @@ async def start_topology_watcher(
 
 
 async def stop_topology_watcher(manager: Any, *, asyncio_mod: Any, contextlib_mod: Any) -> None:
-    task = manager._topology_task
-    manager._topology_task = None
+    task = manager.topology_state.watcher_task
+    manager.topology_state.watcher_task = None
     if task is not None and not task.done():
         task.cancel()
         with contextlib_mod.suppress(asyncio_mod.CancelledError):
             await task
 
-    reconcile_task = manager._topology_reconcile_task
-    manager._topology_reconcile_task = None
+    reconcile_task = manager.topology_state.reconcile_task
+    manager.topology_state.reconcile_task = None
     if reconcile_task is not None and not reconcile_task.done():
         reconcile_task.cancel()
         with contextlib_mod.suppress(asyncio_mod.CancelledError):
@@ -74,7 +77,7 @@ async def topology_watch_loop(
 ) -> None:
     try:
         while True:
-            await asyncio_mod.sleep(manager._topology_poll_s)
+            await asyncio_mod.sleep(manager.topology_state.poll_s)
             try:
                 snapshot = await asyncio_mod.to_thread(
                     scan_live_interfaces_sync,
@@ -92,13 +95,14 @@ async def topology_watch_loop(
                 log.warning("Topology scan failed: %s", exc)
                 continue
 
-            if snapshot != manager._live_topology_snapshot:
-                manager._live_topology_snapshot = dict(snapshot)
+            if snapshot != manager.topology_state.live_snapshot:
+                manager.topology_state.live_snapshot = dict(snapshot)
                 schedule_topology_reconcile(manager, snapshot, asyncio_mod=asyncio_mod, log=log)
                 continue
 
-            if snapshot != manager._reconciled_topology_snapshot and (
-                manager._topology_reconcile_task is None or manager._topology_reconcile_task.done()
+            if snapshot != manager.topology_state.reconciled_snapshot and (
+                manager.topology_state.reconcile_task is None
+                or manager.topology_state.reconcile_task.done()
             ):
                 schedule_topology_reconcile(manager, snapshot, asyncio_mod=asyncio_mod, log=log)
     except asyncio_mod.CancelledError:
@@ -112,33 +116,33 @@ def schedule_topology_reconcile(
     asyncio_mod: Any,
     log: Any,
 ) -> None:
-    task = manager._topology_reconcile_task
+    task = manager.topology_state.reconcile_task
     if task is not None and not task.done():
         task.cancel()
 
     async def _run() -> None:
         try:
-            await asyncio_mod.sleep(manager._topology_debounce_s)
+            await asyncio_mod.sleep(manager.topology_state.debounce_s)
             await reconcile_topology(manager, snapshot, log=log)
         except asyncio_mod.CancelledError:
             raise
         except Exception as exc:
             log.warning("Topology reconcile failed: %s", exc)
         finally:
-            current = manager._topology_reconcile_task
+            current = manager.topology_state.reconcile_task
             if current is asyncio_mod.current_task():
-                manager._topology_reconcile_task = None
+                manager.topology_state.reconcile_task = None
 
-    manager._topology_reconcile_task = asyncio_mod.create_task(_run())
+    manager.topology_state.reconcile_task = asyncio_mod.create_task(_run())
 
 
 async def reconcile_topology(manager: Any, snapshot: dict[str, Any], *, log: Any) -> None:
     async with manager._op_lock:
-        previous = dict(manager._reconciled_topology_snapshot)
-        desired_hardware_ids = set(manager._desired_grabs)
+        previous = dict(manager.topology_state.reconciled_snapshot)
+        desired_hardware_ids = set(manager.grab_state.desired_grabs)
         events = build_topology_events(manager, previous, snapshot, desired_hardware_ids)
         await reconcile_topology_unlocked(manager, snapshot)
-        manager._reconciled_topology_snapshot = dict(snapshot)
+        manager.topology_state.reconciled_snapshot = dict(snapshot)
 
     for event_type, payload in events:
         if manager.broadcast_callback is None:

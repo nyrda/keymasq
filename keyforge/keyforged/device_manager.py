@@ -29,7 +29,6 @@ from keyforge.common.models import (
 )
 from keyforge.keyforged.combo_engine import (
     ComboDecision,
-    ComboEngine,
     RuntimeCombo,
     RuntimeComboBinding,
     RuntimeComboStep,
@@ -59,7 +58,6 @@ TEST_UINPUT_PRODUCTS = {
     "passthrough": 0x1004,
 }
 type JsonObject = dict[str, object]
-type ComboCaptureQueue = tuple[queue.SimpleQueue[JsonObject], set[str], asyncio.Event | None]
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
 type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
@@ -193,6 +191,58 @@ class DesiredGrabConfig:
     force_grab_unmapped: bool = False
 
 
+@dataclass
+class OutputRuntimeState:
+    device_count: int = 0
+    keyboard_uinput: evdev.UInput | None = None
+    mouse_uinput: evdev.UInput | None = None
+    gamepad_uinput: evdev.UInput | None = None
+
+
+@dataclass
+class MacroRuntimeState:
+    tasks: dict[int, asyncio.Task[None]] = field(default_factory=dict)
+    instance_meta: dict[int, dict[str, str]] = field(default_factory=dict)
+    instance_seq: int = 0
+    instance_held: dict[int, set[tuple[str, int]]] = field(default_factory=dict)
+    held_refcount: dict[tuple[str, int], int] = field(default_factory=dict)
+    cancel_instance_ids: set[int] = field(default_factory=set)
+    mouse_inhibit_count: int = 0
+    exec_waiters: dict[str, asyncio.Future[int]] = field(default_factory=dict)
+    mouse_rel_suppressed: bool = False
+    mouse_rel_suppression_watchdog_task: asyncio.Task[None] | None = None
+
+
+@dataclass
+class DiagnosticsState:
+    enabled: bool = False
+    interval: float = 5.0
+    task: asyncio.Task[None] | None = None
+    samples: dict[str, deque[float]] = field(default_factory=dict)
+
+
+@dataclass
+class GrabRuntimeState:
+    release_grace_s: float
+    held_release_retry_s: float
+    desired_paths: dict[str, set[str]] = field(default_factory=dict)
+    desired_grabs: dict[str, DesiredGrabConfig] = field(default_factory=dict)
+    pending_interface_release: dict[tuple[str, str], asyncio.Task[None]] = field(
+        default_factory=dict
+    )
+    pending_hardware_release: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+
+
+@dataclass
+class TopologyRuntimeState:
+    poll_s: float
+    debounce_s: float
+    watcher_task: asyncio.Task[None] | None = None
+    reconcile_task: asyncio.Task[None] | None = None
+    live_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
+    reconciled_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
+
+
 class DeviceManager:
     def __init__(
         self,
@@ -208,46 +258,31 @@ class DeviceManager:
         self.verbosity = verbosity
         self.broadcast_callback = broadcast_callback
 
-        self._device_count = 0
-        self._keyboard_uinput: evdev.UInput | None = None
-        self._mouse_uinput: evdev.UInput | None = None
-        self._gamepad_uinput: evdev.UInput | None = None
+        self.output_state = OutputRuntimeState()
         self.recording_manager: RecordingManager | None = None
-        self._macro_tasks: dict[int, asyncio.Task[None]] = {}
-        self._macro_instance_meta: dict[int, dict[str, str]] = {}
-        self._macro_instance_seq = 0
-        self._macro_instance_held: dict[int, set[tuple[str, int]]] = {}
-        self._macro_held_refcount: dict[tuple[str, int], int] = {}
-        self._macro_cancel_instance_ids: set[int] = set()
-        self._macro_mouse_inhibit_count = 0
-        self._macro_exec_waiters: dict[str, asyncio.Future[int]] = {}
-        self._mouse_rel_suppressed = False
-        self._mouse_rel_suppression_watchdog_task: asyncio.Task[None] | None = None
+        self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
-        self._diagnostics_enabled = False
-        self._diagnostics_interval = 5.0
-        self._diagnostics_task: asyncio.Task[None] | None = None
-        self._diag_samples: dict[str, deque[float]] = {}
-        self._release_grace_s = max(0.01, float(release_grace_s))
-        self._held_release_retry_s = max(0.01, float(held_release_retry_s))
-        self._topology_poll_s = max(0.05, float(topology_poll_s))
-        self._topology_debounce_s = max(0.05, float(topology_debounce_s))
-        self._desired_paths: dict[str, set[str]] = {}
-        self._desired_grabs: dict[str, DesiredGrabConfig] = {}
-        self._pending_interface_release: dict[tuple[str, str], asyncio.Task[None]] = {}
-        self._pending_hardware_release: dict[str, asyncio.Task[None]] = {}
-        self._combo_capture_queues: dict[str, ComboCaptureQueue] = {}
-        self.active_combos: list[RuntimeCombo] = []
-        self._combo_engine = ComboEngine()
-        self._combo_timeout_task: asyncio.Task[None] | None = None
-        self._active_combo_actions: dict[str, dict[str, object]] = {}
-        self._topology_task: asyncio.Task[None] | None = None
-        self._topology_reconcile_task: asyncio.Task[None] | None = None
-        self._live_topology_snapshot: dict[str, LiveInterfaceInfo] = {}
-        self._reconciled_topology_snapshot: dict[str, LiveInterfaceInfo] = {}
+        self.diagnostics_state = DiagnosticsState()
+        self.grab_state = GrabRuntimeState(
+            release_grace_s=max(0.01, float(release_grace_s)),
+            held_release_retry_s=max(0.01, float(held_release_retry_s)),
+        )
+        self.combo_state = runtime_combos.ComboRuntimeState()
+        self.topology_state = TopologyRuntimeState(
+            poll_s=max(0.05, float(topology_poll_s)),
+            debounce_s=max(0.05, float(topology_debounce_s)),
+        )
         self._command_type = CommandType
         self._desired_grab_config_cls = DesiredGrabConfig
         self._device_input = _device_input
+
+    @property
+    def active_combos(self) -> list[RuntimeCombo]:
+        return self.combo_state.active_combos
+
+    @active_combos.setter
+    def active_combos(self, value: list[RuntimeCombo]) -> None:
+        self.combo_state.active_combos = value
 
     async def start_topology_watcher(self) -> None:
         await runtime_topology.start_topology_watcher(
@@ -279,7 +314,7 @@ class DeviceManager:
     ) -> JsonObject:
         async with self._op_lock:
             return await runtime_grab_lifecycle.grab_device_unlocked(
-                self,
+                cast(Any, self),
                 hardware_id,
                 evdev_paths,
                 button_map,
@@ -310,12 +345,12 @@ class DeviceManager:
         async with self._op_lock:
             if immediate:
                 return await runtime_grab_lifecycle.release_device_unlocked(
-                    self,
+                    cast(Any, self),
                     hardware_id,
                     log=log,
                 )
             return runtime_grab_lifecycle.schedule_hardware_release_unlocked(
-                self,
+                cast(Any, self),
                 hardware_id,
                 grace_s,
                 asyncio_mod=asyncio,
@@ -324,7 +359,7 @@ class DeviceManager:
 
     async def release_all_devices(self) -> None:
         await runtime_grab_lifecycle.release_all_devices(
-            self,
+            cast(Any, self),
             fire_and_observe_fn=_fire_and_observe,
         )
 
@@ -334,7 +369,7 @@ class DeviceManager:
         mapping: JsonObject,
     ) -> JsonObject:
         return await runtime_grab_lifecycle.set_mapping(
-            self,
+            cast(Any, self),
             hardware_id,
             mapping,
             json_object_fn=_json_object,
@@ -424,12 +459,12 @@ class DeviceManager:
 
             self.active_combos = parsed
             await runtime_combos.clear_combo_runtime(
-                self,
+                cast(Any, self),
                 asyncio_mod=asyncio,
                 contextlib_mod=contextlib,
                 mapping_action_cls=MappingAction,
                 evdev_mod=evdev,
-                uinput_writer=_uinput_writer,
+                uinput_writer=cast(Any, _uinput_writer),
                 emit_mouse_move_fn=emit_mouse_move,
                 get_trigger_axis_fn=get_trigger_axis,
                 resolve_code_fn=resolve_output_code,
@@ -438,9 +473,9 @@ class DeviceManager:
                 action_type_enum=ActionType,
                 time_mod=time,
             )
-            self._combo_engine.set_combos(parsed)
+            self.combo_state.engine.set_combos(parsed)
             runtime_combos.refresh_combo_timeout_watchdog(
-                self,
+                cast(Any, self),
                 asyncio_mod=asyncio,
                 time_mod=time,
                 action_type_enum=ActionType,
@@ -452,44 +487,46 @@ class DeviceManager:
                 command_type=CommandType,
                 contextlib_mod=contextlib,
                 evdev_mod=evdev,
-                uinput_writer=_uinput_writer,
+                uinput_writer=cast(Any, _uinput_writer),
             )
             log.info("Updated combos (%d active)", len(parsed))
             return {"updated": True, "combo_count": len(parsed)}
 
     async def set_diagnostics(self, enabled: bool, interval: float = 5.0) -> JsonObject:
-        self._diagnostics_enabled = bool(enabled)
-        self._diagnostics_interval = max(0.5, float(interval or 5.0))
+        self.diagnostics_state.enabled = bool(enabled)
+        self.diagnostics_state.interval = max(0.5, float(interval or 5.0))
 
-        if not self._diagnostics_enabled:
-            if self._diagnostics_task:
-                self._diagnostics_task.cancel()
+        if not self.diagnostics_state.enabled:
+            if self.diagnostics_state.task:
+                self.diagnostics_state.task.cancel()
                 try:
-                    await self._diagnostics_task
+                    await self.diagnostics_state.task
                 except asyncio.CancelledError:
                     pass
-                self._diagnostics_task = None
-            self._diag_samples.clear()
+                self.diagnostics_state.task = None
+            self.diagnostics_state.samples.clear()
             log.info("Diagnostics disabled")
-            return {"enabled": False, "interval": self._diagnostics_interval}
+            return {"enabled": False, "interval": self.diagnostics_state.interval}
 
-        if self._diagnostics_task is None or self._diagnostics_task.done():
-            self._diagnostics_task = asyncio.create_task(self._diagnostics_loop())
-        log.info("Diagnostics enabled (interval %.2fs)", self._diagnostics_interval)
-        return {"enabled": True, "interval": self._diagnostics_interval}
+        if self.diagnostics_state.task is None or self.diagnostics_state.task.done():
+            self.diagnostics_state.task = asyncio.create_task(self._diagnostics_loop())
+        log.info("Diagnostics enabled (interval %.2fs)", self.diagnostics_state.interval)
+        return {"enabled": True, "interval": self.diagnostics_state.interval}
 
     def _record_diagnostic(self, label: str, duration_us: float) -> None:
-        if not self._diagnostics_enabled:
+        if not self.diagnostics_state.enabled:
             return
-        bucket = self._diag_samples.setdefault(label, deque(maxlen=20000))
+        bucket = self.diagnostics_state.samples.setdefault(label, deque(maxlen=20000))
         bucket.append(float(duration_us))
 
     async def _diagnostics_loop(self) -> None:
         try:
-            while self._diagnostics_enabled:
-                await asyncio.sleep(self._diagnostics_interval)
+            while self.diagnostics_state.enabled:
+                await asyncio.sleep(self.diagnostics_state.interval)
                 snapshot = {
-                    label: list(samples) for label, samples in self._diag_samples.items() if samples
+                    label: list(samples)
+                    for label, samples in self.diagnostics_state.samples.items()
+                    if samples
                 }
                 if snapshot:
                     await asyncio.to_thread(self._log_diagnostics_snapshot, snapshot)
@@ -587,7 +624,7 @@ class DeviceManager:
         trigger_value: int = 1,
     ) -> JsonObject:
         return await runtime_macros.play_macro(
-            self,
+            cast(Any, self),
             macro_events,
             macro_name,
             replay_mouse_movement,
@@ -602,29 +639,29 @@ class DeviceManager:
             source_device,
             source_button,
             trigger_value,
-            asyncio_mod=asyncio,
+            asyncio_mod=cast(Any, asyncio),
             contextlib_mod=contextlib,
             evdev_mod=evdev,
             log=log,
             int_value_fn=_int_value,
             str_value_fn=_str_value,
-            uinput_writer=_uinput_writer,
+            uinput_writer=cast(Any, _uinput_writer),
             random_mod=random,
             uuid_mod=uuid,
-            command_type=CommandType,
+            command_type=cast(Any, CommandType),
         )
 
     async def cancel_macro_playback(self) -> JsonObject:
         return await runtime_macros.cancel_macro_playback(
-            self,
-            asyncio_mod=asyncio,
+            cast(Any, self),
+            asyncio_mod=cast(Any, asyncio),
             evdev_mod=evdev,
             contextlib_mod=contextlib,
-            uinput_writer=_uinput_writer,
+            uinput_writer=cast(Any, _uinput_writer),
         )
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:
-        return runtime_macros.complete_macro_exec_wait(self, wait_id, returncode)
+        return runtime_macros.complete_macro_exec_wait(cast(Any, self), wait_id, returncode)
 
     def begin_combo_capture(
         self,
@@ -633,7 +670,7 @@ class DeviceManager:
         notify_event: asyncio.Event | None = None,
     ) -> JsonObject:
         return runtime_combos.begin_combo_capture(
-            self,
+            cast(Any, self),
             token,
             hardware_ids,
             notify_event,
@@ -641,10 +678,10 @@ class DeviceManager:
         )
 
     def read_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.read_combo_capture(self, token, queue_mod=queue)
+        return runtime_combos.read_combo_capture(cast(Any, self), token, queue_mod=queue)
 
     def end_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.end_combo_capture(self, token)
+        return runtime_combos.end_combo_capture(cast(Any, self), token)
 
 
 GrabbedDevice = runtime_grabbed_device.GrabbedDevice

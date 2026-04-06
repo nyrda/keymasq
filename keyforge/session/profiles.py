@@ -506,7 +506,8 @@ class ProfileManager:
                     window_tags = window_info.get("tags", [])
                     if not isinstance(window_tags, list):
                         window_tags = []
-                    if not any(re.search(rule.pattern, str(tag)) for tag in window_tags):
+                    tags = cast(list[object], window_tags)
+                    if not any(re.search(rule.pattern, str(tag)) for tag in tags):
                         return False
                 else:
                     field_value = window_info.get(rule.field, "")

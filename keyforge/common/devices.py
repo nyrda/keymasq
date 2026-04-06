@@ -161,10 +161,11 @@ def capability_name(event_type: int, code: object) -> str | None:
 
 
 def _capability_code_int(code: object) -> int | None:
-    candidate: object
     if isinstance(code, tuple):
         tuple_code = cast(tuple[object, ...], code)
-        candidate = tuple_code[0] if tuple_code else code
+        if not tuple_code:
+            return None
+        candidate = tuple_code[0]
     else:
         candidate = code
     if isinstance(candidate, int):

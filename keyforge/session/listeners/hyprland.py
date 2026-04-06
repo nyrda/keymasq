@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import cast
 
 from keyforge.session.dbus import SessionDBus
 from keyforge.session.listeners.base import WindowChangeCallback, WindowListener
@@ -183,7 +184,10 @@ class HyprlandListener(WindowListener):
 
             data = json.loads(response.decode())
             tags = data.get("tags", [])
-            return tags if isinstance(tags, list) else []
+            if not isinstance(tags, list):
+                return []
+            tag_items = cast(list[object], tags)
+            return [str(tag) for tag in tag_items]
 
         except Exception as e:
             log.debug(f"Failed to get window tags: {e}")

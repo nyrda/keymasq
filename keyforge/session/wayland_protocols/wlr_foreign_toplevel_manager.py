@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+from typing import cast
 
 WLR_TOPLEVEL_STATE_ACTIVATED = 2
 
@@ -91,12 +92,23 @@ def _state_has_activated(state: object) -> bool:
     if state is None:
         return False
     if isinstance(state, dict):
-        if "activated" in state:
-            return bool(state.get("activated"))
-        values = state.values()
+        state_dict = cast(dict[object, object], state)
+        if "activated" in state_dict:
+            return bool(state_dict.get("activated"))
+        values = tuple(state_dict.values())
         return any(_state_has_activated(value) for value in values)
-    if isinstance(state, (list, tuple, set, frozenset)):
-        for value in state:
+    if isinstance(state, list):
+        values: tuple[object, ...] = tuple(cast(list[object], state))
+    elif isinstance(state, tuple):
+        values = cast(tuple[object, ...], state)
+    elif isinstance(state, set):
+        values = tuple(cast(set[object], state))
+    elif isinstance(state, frozenset):
+        values = tuple(cast(frozenset[object], state))
+    else:
+        values = ()
+    if values:
+        for value in values:
             if _state_has_activated(value):
                 return True
         return False

@@ -20,6 +20,7 @@ from keyforge.session.listeners.base import WindowChangeCallback, WindowListener
 
 log = logging.getLogger("keyforge-session.listeners.kde")
 type JsonObject = dict[str, object]
+s = str
 
 KDE_DBUS_INTERFACE = "keyforge.kde.Listener"
 KDE_DBUS_OBJECT_PATH = "/keyforge/KDEListener"
@@ -129,16 +130,16 @@ class _KDEBridge(ServiceInterface):  # type: ignore[misc,valid-type]
         self._listener = listener
 
     @method()
-    def windowChanged(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
-        self._listener._on_window_payload(cast(str, payload))
+    def windowChanged(self, payload: "s") -> None:
+        self._listener._on_window_payload(payload)
 
     @method()
-    def cursorPosition(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
-        self._listener._on_cursor_payload(cast(str, payload))
+    def cursorPosition(self, payload: "s") -> None:
+        self._listener._on_cursor_payload(payload)
 
     @method()
-    def dispatchResult(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
-        self._listener._on_dispatch_payload(cast(str, payload))
+    def dispatchResult(self, payload: "s") -> None:
+        self._listener._on_dispatch_payload(payload)
 
 
 class KDEListener(WindowListener):

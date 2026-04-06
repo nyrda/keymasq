@@ -26,7 +26,7 @@ class WlrootsWaylandListener(WindowListener):
         super().__init__(callback, client, dbus=dbus)
         self._tracker = WlrForeignToplevelManagerTracker()
         self._client: WlrForeignToplevelWaylandClient | None = None
-        self._forward_task: asyncio.Task | None = None
+        self._forward_task: asyncio.Task[None] | None = None
         self._last_class = ""
         self._last_title = ""
         self._slurp = get_slurp_capture()

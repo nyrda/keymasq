@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import contextlib
-import inspect
 import json
 import logging
 import os
@@ -32,11 +31,11 @@ from keyforge.common.recording_guard import resolve_unlock_status
 from keyforge.common.security import (
     PeerCredentials,
     SecurityPolicy,
-    command_allowed,
     get_peer_credentials,
     load_security_policy,
     uid_allowed,
 )
+from keyforge.session import manager_session_commands as session_commands
 from keyforge.session.action_handler import ActionHandler
 from keyforge.session.client import KeyforgedClient
 from keyforge.session.compositor import (
@@ -50,6 +49,21 @@ from keyforge.session.compositor import (
 from keyforge.session.dbus import SessionDBus
 from keyforge.session.hardware import HardwareManager
 from keyforge.session.listeners.base import WindowListener
+from keyforge.session.manager_common import (
+    JsonObject,
+)
+from keyforge.session.manager_common import (
+    int_value as _int_value,
+)
+from keyforge.session.manager_common import (
+    json_list as _json_list,
+)
+from keyforge.session.manager_common import (
+    json_object as _json_object,
+)
+from keyforge.session.manager_common import (
+    str_value as _str_value,
+)
 from keyforge.session.profiles import ProfileManager, ResolvedCombo, ResolvedDeviceProfile
 from keyforge.session.superkeys import SuperkeyManager
 
@@ -58,46 +72,6 @@ GRAB_DEVICE_TIMEOUT_S = 330.0
 GRAB_RETRY_DELAY_S = 5.0
 TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
 TOPOLOGY_REFRESH_RETRY_S = 1.0
-type JsonObject = dict[str, object]
-type _IntLike = int | float | str | bytes
-type _FloatLike = int | float | str | bytes
-
-
-def _json_object(value: object) -> JsonObject | None:
-    return cast(JsonObject, value) if isinstance(value, dict) else None
-
-
-def _json_list(value: object) -> list[object]:
-    return cast(list[object], value) if isinstance(value, list) else []
-
-
-def _str_value(value: object, default: str = "") -> str:
-    return default if value is None else str(value)
-
-
-def _int_value(value: object, default: int = 0) -> int:
-    return default if value is None else int(cast(_IntLike, value))
-
-
-def _float_value(value: object, default: float = 0.0) -> float:
-    return default if value is None else float(cast(_FloatLike, value))
-
-
-def _merge_support_details(
-    base: dict[str, bool | str],
-    listener: WindowListener | None,
-) -> dict[str, bool | str | int]:
-    merged: dict[str, bool | str | int] = dict(base)
-    if listener is None:
-        return merged
-    runtime_details_getter = getattr(listener, "runtime_support_details", None)
-    if callable(runtime_details_getter):
-        runtime_details = _json_object(runtime_details_getter())
-        if runtime_details:
-            for key, value in runtime_details.items():
-                if isinstance(value, (bool, int, str)):
-                    merged[key] = value
-    return merged
 
 
 class SessionManager:
@@ -392,445 +366,13 @@ class SessionManager:
         peer: PeerCredentials,
         writer: asyncio.StreamWriter,
     ) -> JsonObject:
-        command = _str_value(request.get("command"), "")
-        policy = self._security_policy
-
-        if not command_allowed(command, policy.session_command_acl, client_class):
-            return {
-                "status": "error",
-                "message": f"{client_class} is not allowed to call '{command}'",
-            }
-
-        if self._is_sensitive_session_command(
-            command, policy
-        ) and not self._is_refresh_owner_request(peer, writer):
-            return {
-                "status": "error",
-                "error_code": "sensitive_command_denied",
-                "message": "Sensitive command denied: caller is not active GUI owner",
-            }
-
-        if command == "get_active_profiles":
-            return self._build_active_profiles_payload()
-
-        if command == "list_profiles":
-            return self._build_profile_overview()
-
-        if command in {"enable_profile", "disable_profile", "toggle_profile"}:
-            profile_name = _str_value(request.get("profile_name"), "")
-            if not profile_name:
-                return {"status": "error", "message": "missing profile_name"}
-
-            enabled: bool | None = None
-            if command == "enable_profile":
-                enabled = True
-            elif command == "disable_profile":
-                enabled = False
-
-            result = await self._set_profile_enabled(profile_name, enabled)
-            return result
-
-        if command == "get_compositor":
-            details = _merge_support_details(
-                await get_compositor_support_details(self._compositor_id, self.dbus),
-                self._window_listener,
-            )
-            return {
-                "compositor_id": self._compositor_id,
-                "compositor_name": get_compositor_name(self._compositor_id),
-                "supported": bool(details.get("supported", False)),
-                "capabilities": get_compositor_capabilities(self._compositor_id),
-                "details": details,
-                "listener_active": self._window_listener is not None,
-                "listener_name": (
-                    getattr(self._window_listener, "name", "")
-                    if self._window_listener is not None
-                    else ""
-                ),
-                "compositor_dispatch_available": self._compositor_dispatch_available(),
-            }
-
-        if command == "get_active_window":
-            return await self._get_active_window_payload()
-
-        if command == "activate_title":
-            title = _str_value(request.get("title"), "").strip()
-            if not title:
-                return {"status": "error", "message": "title parameter required"}
-            listener = self._window_listener
-            activate_window_by_title = (
-                getattr(listener, "activate_window_by_title", None)
-                if listener is not None
-                else None
-            )
-            if not callable(activate_window_by_title):
-                return {
-                    "status": "error",
-                    "message": "Window activation not supported on this compositor",
-                }
-            try:
-                result_obj = activate_window_by_title(title)
-                if not inspect.isawaitable(result_obj):
-                    return {
-                        "status": "error",
-                        "message": "Window activation not supported on this compositor",
-                    }
-                result = await result_obj
-                if result and result.get("found"):
-                    return {"status": "ok", "title": title, "found": True}
-                return {
-                    "status": "error",
-                    "message": f"Window with title {title!r} not found",
-                    "details": result,
-                }
-            except Exception as exc:
-                return {"status": "error", "message": str(exc)}
-
-        if command == "get_cursor_position":
-            pos = None
-
-            if self._window_listener:
-                try:
-                    pos = await self._window_listener.get_cursor_position()
-                except Exception as e:
-                    log.debug(
-                        "Cursor query failed (compositor_id=%s listener=%s): %s",
-                        self._compositor_id,
-                        getattr(self._window_listener, "name", "unknown"),
-                        e,
-                    )
-
-            if pos is None:
-                return {
-                    "status": "error",
-                    "message": "Cursor position is unavailable on this compositor",
-                }
-            return {"status": "ok", "x": int(pos[0]), "y": int(pos[1])}
-
-        if command == "reload":
-            await self._reload_profiles()
-            return {"status": "ok"}
-
-        if command in {"reevaluate_profiles", "reevaluate_hardware"}:
-            log.info("Global profile reevaluate requested")
-            await asyncio.to_thread(self._reload_config_from_disk)
-            await self._reevaluate_profiles()
-            return {"status": "ok"}
-
-        if command == "ping":
-            return {"status": "ok"}
-
-        if command == "get_status":
-            unlock_status = await self._resolve_unlock_status_async(peer.uid)
-            compositor_details = _merge_support_details(
-                await get_compositor_support_details(self._compositor_id, self.dbus),
-                self._window_listener,
-            )
-            policy = self._security_policy
-            return {
-                "status": "ok",
-                "keyforged_connected": self._connected,
-                "compositor_id": self._compositor_id,
-                "compositor_name": get_compositor_name(self._compositor_id),
-                "compositor_supported": bool(compositor_details.get("supported", False)),
-                "compositor_details": compositor_details,
-                "listener_active": self._window_listener is not None,
-                "listener_name": (
-                    getattr(self._window_listener, "name", "")
-                    if self._window_listener is not None
-                    else ""
-                ),
-                "compositor_dispatch_available": self._compositor_dispatch_available(),
-                "active_profiles": list(self._active_profile_names),
-                "recording_active": self._recording_active,
-                "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
-                "gui_allow_left_right_click_remap": bool(policy.gui_allow_left_right_click_remap),
-                **self._serialize_recording_unlock_state(
-                    unlock_status,
-                    refresh_owner=self._is_refresh_owner_request(peer, writer),
-                ),
-            }
-
-        if command == "start_recording":
-            self._update_recording_settings(request)
-            start_result = await self._start_recording(reset_if_active=False)
-            self._notify_recording_unlock_required(start_result)
-            return start_result
-
-        if command == "set_recording_settings":
-            self._update_recording_settings(request)
-            return {"status": "ok", **self._recording_settings}
-
-        if command == "get_recording_settings":
-            unlock_status = await self._resolve_unlock_status_async(peer.uid)
-            return {
-                "status": "ok",
-                **self._serialize_recording_unlock_state(
-                    unlock_status,
-                    refresh_owner=self._is_refresh_owner_request(peer, writer),
-                ),
-                **self._recording_settings,
-            }
-
-        if command == "claim_recording_unlock_refresh":
-            return await self._claim_recording_unlock_refresh(peer, writer)
-
-        if command == "refresh_recording_unlock":
-            lease_id = _str_value(request.get("lease_id"), "").strip()
-            return await self._refresh_recording_unlock(peer, writer, lease_id)
-
-        if command == "lock_recording_unlock":
-            lease_id = _str_value(request.get("lease_id"), "").strip()
-            return await self._lock_recording_unlock(peer, writer, lease_id)
-
-        if command == "stop_recording":
-            if not self._recording_active:
-                return {"status": "error", "message": "No recording in progress"}
-            try:
-                result = await self.client.send_command(Command(command=CommandType.STOP_RECORDING))
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            if result.status == "ok":
-                result_data = _json_object(result.data)
-                if result_data is not None:
-                    self._pending_recording_data = result_data
-                    self._recording_active = False
-                    return {"status": "ok", **result_data}
-                self._recording_active = False
-                return {"status": "ok"}
-            return {"status": "error", "message": result.error or "Failed to stop recording"}
-
-        if command == "save_recording":
-            name = _str_value(request.get("name"), "").strip()
-            if not name:
-                return {"status": "error", "message": "Name required"}
-            if not self._pending_recording_data:
-                return {"status": "error", "message": "No pending recording"}
-            save_result = await self._save_recording(
-                name,
-                move_to_start=bool(request.get("move_to_start", False)),
-                start_x=_int_value(request.get("start_x"), 0),
-                start_y=_int_value(request.get("start_y"), 0),
-                block_mouse_movement=bool(request.get("block_mouse_movement", False)),
-            )
-            if save_result.get("status") != "ok":
-                return save_result
-            return {"status": "ok", "name": save_result.get("name", name)}
-
-        if command == "discard_recording":
-            self._pending_recording_data = None
-            return {"status": "ok"}
-
-        if command == "list_macros":
-            try:
-                result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_LIST_META)
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            result_data = _json_object(result.data)
-            if result.status == "ok" and result_data is not None:
-                return {"status": "ok", "macros": result_data.get("macros", [])}
-            return {"status": "error", "message": result.error or "Failed to list macros"}
-
-        if command == "get_macro":
-            name = _str_value(request.get("name"), "")
-            try:
-                result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_GET, data={"name": name})
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            result_data = _json_object(result.data)
-            if result.status == "ok" and result_data is not None:
-                return {"status": "ok", "macro": result_data.get("macro")}
-            return {"status": "error", "message": result.error or "Macro not found"}
-
-        if command == "create_macro":
-            macro = _json_object(request.get("macro"))
-            if macro is None:
-                return {"status": "error", "message": "macro payload required"}
-            try:
-                result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_CREATE, data={"macro": macro})
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            result_data = _json_object(result.data)
-            if result.status == "ok" and result_data is not None:
-                created = _json_object(result_data.get("macro")) or {}
-                self._broadcast_to_session_clients(
-                    {"event": "macro_saved", "name": _str_value(created.get("name"), "")}
-                )
-                return {"status": "ok", "macro": created}
-            return {"status": "error", "message": result.error or "Failed to create macro"}
-
-        if command == "update_macro":
-            name = _str_value(request.get("name"), "")
-            macro = _json_object(request.get("macro"))
-            if macro is None:
-                return {"status": "error", "message": "macro payload required"}
-            update_payload: JsonObject = {"name": name, "macro": macro}
-            if "expected_revision" in request:
-                update_payload["expected_revision"] = request.get("expected_revision")
-            try:
-                result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_UPDATE, data=update_payload)
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            result_data = _json_object(result.data)
-            if result.status == "ok" and result_data is not None:
-                updated = _json_object(result_data.get("macro")) or {}
-                self._broadcast_to_session_clients(
-                    {"event": "macro_saved", "name": _str_value(updated.get("name"), name)}
-                )
-                return {"status": "ok", "macro": updated}
-            return {"status": "error", "message": result.error or "Failed to update macro"}
-
-        if command == "delete_macro":
-            name = _str_value(request.get("name"), "")
-            delete_payload: JsonObject = {"name": name}
-            if "expected_revision" in request:
-                delete_payload["expected_revision"] = request.get("expected_revision")
-            try:
-                result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_DELETE, data=delete_payload)
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            if result.status != "ok":
-                return {"status": "error", "message": result.error or "Failed to delete macro"}
-            await self._reload_profiles()
-            return {"status": "ok"}
-
-        if command == "rename_macro":
-            rename_payload: JsonObject = {
-                "old_name": _str_value(request.get("old"), ""),
-                "new_name": _str_value(request.get("new"), ""),
-            }
-            if "expected_revision" in request:
-                rename_payload["expected_revision"] = request.get("expected_revision")
-            try:
-                result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_RENAME, data=rename_payload)
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            if result.status != "ok":
-                return {"status": "error", "message": result.error or "Failed to rename macro"}
-            await self._reload_profiles()
-            result_data = _json_object(result.data)
-            if result_data is not None:
-                return {"status": "ok", "macro": result_data.get("macro")}
-            return {"status": "ok"}
-
-        if command == "play_macro":
-            name = _str_value(request.get("name"), "")
-            try:
-                get_result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_GET, data={"name": name})
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-
-            get_result_data = _json_object(get_result.data)
-            if get_result.status != "ok" or get_result_data is None:
-                return {"status": "error", "message": get_result.error or "Macro not found"}
-
-            macro = _json_object(get_result_data.get("macro"))
-            if macro is None:
-                return {"status": "error", "message": "Macro not found"}
-
-            macro = self._sanitize_macro_for_policy(macro)
-            payload: JsonObject = {
-                "macro_name": str(macro.get("name", name) or name),
-                "macro_events": macro.get("events", []),
-                "replay_mouse_movement": request.get("replay_mouse_movement", True),
-                "replay_mouse_clicks": request.get("replay_mouse_clicks", True),
-                "speed": _float_value(request.get("speed"), 1.0),
-                "loop_mode": str(macro.get("loop_mode", "none") or "none"),
-                "loop_count": _int_value(macro.get("loop_count"), 1),
-                "move_to_start": bool(macro.get("move_to_start", False)),
-                "start_x": _int_value(macro.get("start_x"), 0),
-                "start_y": _int_value(macro.get("start_y"), 0),
-                "block_mouse_movement": bool(macro.get("block_mouse_movement", False)),
-            }
-
-            try:
-                result = await self.client.send_command(
-                    Command(command=CommandType.PLAY_MACRO, data=payload)
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            if result.status == "ok":
-                response_data = _json_object(result.data)
-                return response_data if response_data else {"status": "ok"}
-            return {"status": "error", "message": result.error or "playback failed"}
-
-        if command == "cancel_macro_playback":
-            try:
-                result = await self.client.send_command(
-                    Command(command=CommandType.CANCEL_MACRO_PLAYBACK)
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-            if result.status == "ok":
-                response_data = _json_object(result.data)
-                return response_data if response_data else {"status": "ok", "cancelled": True}
-            return {"status": "error", "message": result.error or "cancel failed"}
-
-        if command == "list_devices_for_recording":
-            devices = await self._get_devices_for_recording(
-                ["keyboard", "gamepad", "mouse"],
-                include_grabbed=True,
-            )
-            self._recording_devices_cache = [d for d in devices if not d.get("grabbed_by_keyforge")]
-            return {"status": "ok", "devices": devices}
-
-        if command == "begin_capture":
-            hardware_id = _str_value(request.get("hardware_id"), "")
-            if not hardware_id:
-                return {"error": "missing hardware_id"}
-            return await self._capture_begin(hardware_id)
-
-        if command == "capture_read":
-            hardware_id = _str_value(request.get("hardware_id"), "")
-            if not hardware_id:
-                return {"error": "missing hardware_id"}
-            return await self._capture_read(hardware_id)
-
-        if command == "end_capture":
-            hardware_id = _str_value(request.get("hardware_id"), "")
-            if not hardware_id:
-                return {"error": "missing hardware_id"}
-            return await self._capture_end(hardware_id)
-
-        if command == "capture_combo":
-            profile_name = _str_value(request.get("profile_name"), "")
-            if not profile_name:
-                return {"error": "missing profile_name"}
-            timeout_s = _float_value(request.get("timeout_s"), 15.0)
-            return await self._capture_combo(profile_name, timeout_s)
-
-        if command == "set_diagnostics":
-            enabled = bool(request.get("enabled", False))
-            interval = _float_value(request.get("interval"), 5.0)
-            try:
-                result = await self.client.send_command(
-                    Command(
-                        command=CommandType.SET_DIAGNOSTICS,
-                        data={"enabled": enabled, "interval": interval},
-                    )
-                )
-            except Exception:
-                return {"status": "error", "message": "Daemon unavailable"}
-
-            if result.status == "ok":
-                return {"status": "ok", "data": result.data or {}}
-            return {"status": "error", "message": result.error or "Failed to update diagnostics"}
-
-        return {"error": f"Unknown command: {command}"}
+        return await session_commands.handle_session_request(
+            self,
+            request,
+            client_class,
+            peer,
+            writer,
+        )
 
     def _is_sensitive_session_command(
         self,

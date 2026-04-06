@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 
 import keyforge.session.manager as session_manager_module
+import keyforge.session.manager_session_commands as session_commands_module
 from keyforge.common.ipc import Command, CommandType, Response
 from keyforge.common.models import (
     ActionType,
@@ -245,7 +246,7 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
         )
         return True
 
-    monkeypatch.setattr(session_manager_module, "command_allowed", fake_command_allowed)
+    monkeypatch.setattr(session_commands_module, "command_allowed", fake_command_allowed)
 
     result = await manager._handle_session_request(
         {"command": "start_recording"},
@@ -561,8 +562,6 @@ async def test_handle_session_request_get_compositor_reports_compositor_dispatch
 
 @pytest.mark.asyncio
 async def test_handle_session_request_get_compositor_merges_listener_runtime_warning() -> None:
-    import keyforge.session.manager as session_manager_module
-
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
@@ -586,7 +585,7 @@ async def test_handle_session_request_get_compositor_merges_listener_runtime_war
         return {"supported": True, "warning": ""}
 
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(session_manager_module, "get_compositor_support_details", _support_details)
+    monkeypatch.setattr(session_commands_module, "get_compositor_support_details", _support_details)
 
     try:
         result = await manager._handle_session_request(

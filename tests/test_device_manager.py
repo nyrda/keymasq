@@ -19,6 +19,10 @@ from keyforge.keyforged.runtime import actions as adm
 from keyforge.keyforged.runtime import combos as cdm
 from keyforge.keyforged.runtime import grab_lifecycle as ldm
 from keyforge.keyforged.runtime import grabbed_device as gdm
+from keyforge.keyforged.runtime import grabbed_device_actions as gda
+from keyforge.keyforged.runtime import grabbed_device_outputs as gdo
+from keyforge.keyforged.runtime import grabbed_device_repeat as gdr
+from keyforge.keyforged.runtime import grabbed_device_types as gdt
 from keyforge.keyforged.runtime import macros as mdm
 from keyforge.keyforged.runtime import topology as tdm
 from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
@@ -1430,19 +1434,19 @@ class TestRapidfireRelease:
         )
 
         calls: list[str] = []
-        original_stop = gdm.stop_rapidfire
+        original_stop = gdr.stop_rapidfire
 
         def wrapped_stop(device_runtime: GrabbedDevice, event_name: str) -> None:
             calls.append(f"stop:{event_name}")
             original_stop(device_runtime, event_name)
 
-        monkeypatch.setattr(gdm, "stop_rapidfire", wrapped_stop)
+        monkeypatch.setattr(gdr, "stop_rapidfire", wrapped_stop)
 
         def task_factory() -> asyncio.Task:
             calls.append("factory")
             return asyncio.create_task(asyncio.sleep(0))
 
-        gdm.start_rapidfire_task(
+        gdr.start_rapidfire_task(
             device,
             "btn_side",
             "key",
@@ -1452,7 +1456,7 @@ class TestRapidfireRelease:
             axis_code=None,
         )
         await asyncio.sleep(0)
-        gdm.stop_rapidfire(device, "btn_side")
+        gdr.stop_rapidfire(device, "btn_side")
 
         assert calls[:2] == ["stop:btn_side", "factory"]
 
@@ -3293,18 +3297,18 @@ class TestGrabbedDeviceHelpers:
         device.keyboard_uinput = keyboard  # type: ignore[assignment]
         device.mouse_uinput = mouse  # type: ignore[assignment]
         device.gamepad_uinput = gamepad  # type: ignore[assignment]
-        gdm.track_key_state(device, device.uinput, evdev.ecodes.KEY_A, 1)
-        gdm.track_key_state(device, device.keyboard_uinput, evdev.ecodes.KEY_B, 1)
-        gdm.track_key_state(device, device.mouse_uinput, evdev.ecodes.BTN_LEFT, 1)
+        gdo.track_key_state(device, device.uinput, evdev.ecodes.KEY_A, 1)
+        gdo.track_key_state(device, device.keyboard_uinput, evdev.ecodes.KEY_B, 1)
+        gdo.track_key_state(device, device.mouse_uinput, evdev.ecodes.BTN_LEFT, 1)
         gdm.track_superkey_output(device, "gamepad", evdev.ecodes.BTN_SOUTH, 1)
         device.state.rapidfire_tasks["btn_side"] = task  # type: ignore[assignment]
-        device.state.rapidfire_outputs["btn_side"] = gdm.RapidfireOutputState(kind="key")
+        device.state.rapidfire_outputs["btn_side"] = gdt.RapidfireOutputState(kind="key")
         device.state.rapidfire_active["btn_side"] = True
         device.state.tap_active["btn_side"] = True
         device.state.combo_passthrough_held.add("btn_side")
         device.state.held_source_actions["btn_side"] = None
 
-        assert gdm.bucket_for_uinput(device, device.keyboard_uinput) == "keyboard"
+        assert gdo.bucket_for_uinput(device, device.keyboard_uinput) == "keyboard"
 
         gdm.release_all_keys(device, evdev_mod=evdev, uinput_writer=gdm._uinput_writer)
 
@@ -3535,14 +3539,14 @@ class TestGrabbedDeviceHelpers:
         emitted_moves: list[tuple[ActionType, int, int]] = []
         fire_tasks: list[asyncio.Task] = []
         monkeypatch.setattr(
-            gdm,
+            gda,
             "emit_configured_mouse_move",
             lambda _device, action: emitted_moves.append(
                 (action.action_type, action.move_x, action.move_y)
             ),
         )
         monkeypatch.setattr(
-            gdm,
+            gda,
             "passthrough",
             lambda _device, event, **_kwargs: passthrough_calls.append(
                 (event.type, event.code, event.value)
@@ -3710,7 +3714,7 @@ class TestGrabbedDeviceHelpers:
 
         monkeypatch.setattr(gdm, "_fire_and_observe", fire_and_observe)
         monkeypatch.setattr(
-            gdm,
+            gda,
             "tap_move",
             AsyncMock(
                 side_effect=lambda _device, action, event_name, hold_ms, **_kwargs: (

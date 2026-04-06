@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Coroutine, Sequence
@@ -8,52 +7,13 @@ from typing import Final, TypeVar, cast
 import evdev
 
 from keyforge.common.combos import normalize_combo_evdev
-from keyforge.common.devices import (
-    classify_event_device_type,
-    get_interface_id,
-    resolve_stable_path,
-)
-from keyforge.common.models import ActionType, DeviceType
-from keyforge.keyforged.combo_engine import ComboDecision
+from keyforge.common.devices import get_interface_id, resolve_stable_path
+from keyforge.common.models import DeviceType
 from keyforge.keyforged.output_helpers import resolve_output_code
 from keyforge.keyforged.recording import RecordingManager
-from keyforge.keyforged.runtime.grabbed_device_actions import (
-    execute_action,
-    track_superkey_output,
-)
-from keyforge.keyforged.runtime.grabbed_device_events import (
-    cleanup_runtime_failure,
-    event_loop,
-    find_action_for_code,
-    find_action_for_event,
-    find_action_for_name,
-    get_event_name,
-    get_key_name,
-    process_event,
-    recover_from_event_processing_error,
-)
-from keyforge.keyforged.runtime.grabbed_device_grab import (
-    broadcast_grab_status,
-    reconcile_startup_held_action,
-    seed_startup_held_actions,
-    wait_for_active_key_activity,
-    wait_for_active_keys_to_clear,
-)
-from keyforge.keyforged.runtime.grabbed_device_outputs import (
-    emit_configured_mouse_move,
-    ensure_key_released,
-    ensure_trigger_released,
-    passthrough,
-    release_all_keys,
-    write_key,
-)
-from keyforge.keyforged.runtime.grabbed_device_repeat import (
-    rapidfire_key,
-    start_rapidfire_task,
-    tap_key,
-    tap_move,
-    tap_trigger,
-)
+from keyforge.keyforged.runtime import grabbed_device_events as runtime_events
+from keyforge.keyforged.runtime import grabbed_device_grab as runtime_grab
+from keyforge.keyforged.runtime import grabbed_device_outputs as runtime_outputs
 from keyforge.keyforged.runtime.grabbed_device_types import (
     AsyncioEvent as _AsyncioEvent,
 )
@@ -77,7 +37,6 @@ from keyforge.keyforged.runtime.grabbed_device_types import (
     WritableUInput as _WritableUInput,
 )
 from keyforge.keyforged.runtime.outputs import uinput_identity
-from keyforge.keyforged.superkey_state import SuperkeyMachine
 
 log = logging.getLogger("keyforged.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
@@ -91,41 +50,10 @@ __all__ = [
     "ACTIVE_KEY_IDLE_LOG_INTERVAL_S",
     "ACTIVE_KEY_IDLE_MAX_WAIT_S",
     "COMBO_HELD_REARM_MODIFIERS",
-    "ActionType",
-    "ComboDecision",
     "GrabbedDevice",
     "GrabbedDeviceState",
-    "SuperkeyMachine",
-    "broadcast_grab_status",
-    "classify_event_device_type",
-    "cleanup_runtime_failure",
-    "ensure_key_released",
-    "ensure_trigger_released",
-    "emit_configured_mouse_move",
-    "event_loop",
-    "execute_action",
-    "find_action_for_code",
-    "find_action_for_event",
-    "find_action_for_name",
-    "get_event_name",
     "get_interface_id",
-    "get_key_name",
-    "passthrough",
-    "process_event",
-    "rapidfire_key",
-    "recover_from_event_processing_error",
-    "release_all_keys",
-    "reconcile_startup_held_action",
     "resolve_stable_path",
-    "seed_startup_held_actions",
-    "start_rapidfire_task",
-    "tap_key",
-    "tap_move",
-    "tap_trigger",
-    "track_superkey_output",
-    "wait_for_active_key_activity",
-    "wait_for_active_keys_to_clear",
-    "write_key",
 ]
 
 
@@ -167,21 +95,6 @@ def _device_input(path: str) -> _ManagedInputDevice:
 
 def _uinput_writer(device: object | None) -> _WritableUInput | None:
     return cast(_WritableUInput | None, device)
-
-
-def _fire_and_observe(  # pyright: ignore[reportUnusedFunction]
-    coro: Awaitable[object], label: str
-) -> asyncio.Task[object]:
-    task = asyncio.ensure_future(coro)
-
-    def _log_task_result(done: asyncio.Task[object]) -> None:
-        with contextlib.suppress(asyncio.CancelledError):
-            exc = done.exception()
-            if exc is not None:
-                log.warning("%s failed: %s", label, exc)
-
-    task.add_done_callback(_log_task_result)
-    return task
 
 
 class GrabbedDevice:
@@ -252,7 +165,7 @@ class GrabbedDevice:
             self.state.held_source_actions.setdefault(event_name, None)
         self.state.combo_passthrough_held.clear()
         await self.reset_superkeys()
-        seed_startup_held_actions(self)
+        runtime_grab.seed_startup_held_actions(self)
 
     async def reset_superkeys(self) -> None:
         for machine in self.state.superkey_machines.values():
@@ -283,7 +196,7 @@ class GrabbedDevice:
             )
 
         try:
-            await wait_for_active_keys_to_clear(
+            await runtime_grab.wait_for_active_keys_to_clear(
                 self,
                 asyncio_mod=ASYNCIO_RUNTIME,
                 time_mod=time,
@@ -302,13 +215,15 @@ class GrabbedDevice:
             raise
 
         self._running = True
-        self.task = asyncio.create_task(event_loop(self, asyncio_mod=ASYNCIO_RUNTIME, log=log))
+        self.task = asyncio.create_task(
+            runtime_events.event_loop(self, asyncio_mod=ASYNCIO_RUNTIME, log=log)
+        )
 
         log.info("Grabbed %s for %s", self.path, self.hardware_id)
 
     async def release(self) -> None:
         self._running = False
-        release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
+        runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
 
@@ -343,7 +258,7 @@ class GrabbedDevice:
         log.info("Released %s", self.path)
 
     def release_tracked_outputs(self) -> None:
-        release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
+        runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
 
     def emit_combo_release(self, evdev_name: str) -> None:
         if not self.uinput:
@@ -351,7 +266,7 @@ class GrabbedDevice:
         code = resolve_output_code(evdev_name)
         if code is None:
             return
-        write_key(
+        runtime_outputs.write_key(
             self,
             self.uinput,
             code,

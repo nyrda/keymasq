@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 import evdev
 import pytest
 
+from keyforge.keyforged.output_helpers import resolve_output_code
 from keyforge.keyforged.runtime import grabbed_device as gdm
+from keyforge.keyforged.runtime import grabbed_device_outputs as gdo
+from keyforge.keyforged.runtime import grabbed_device_repeat as gdr
 from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 
 
@@ -82,15 +85,15 @@ class TestGrabbedDevice:
 
 class TestActionExecution:
     def test_resolve_code_btn_left(self):
-        code = gdm.resolve_output_code("btn_left")
+        code = resolve_output_code("btn_left")
         assert code == evdev.ecodes.BTN_LEFT
 
     def test_resolve_code_key_a(self):
-        code = gdm.resolve_output_code("key_a")
+        code = resolve_output_code("key_a")
         assert code == evdev.ecodes.KEY_A
 
     def test_resolve_code_unknown(self):
-        code = gdm.resolve_output_code("unknown_key_xyz")
+        code = resolve_output_code("unknown_key_xyz")
         assert code is None
 
     @pytest.mark.asyncio
@@ -108,7 +111,7 @@ class TestActionExecution:
         grabbed.uinput.syn = MagicMock()
         grabbed.keyboard_uinput = grabbed.uinput
 
-        await gdm.tap_key(
+        await gdr.tap_key(
             grabbed,
             evdev.ecodes.KEY_A,
             hold_ms=1,
@@ -143,7 +146,7 @@ class TestPassthrough:
             10,
         )
 
-        gdm.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
+        gdo.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
         passthrough.write.assert_not_called()
 
     def test_relative_mouse_movement_is_not_suppressed_without_filter(self):
@@ -167,5 +170,5 @@ class TestPassthrough:
             12,
         )
 
-        gdm.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
+        gdo.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
         passthrough.write.assert_called_once_with(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 12)

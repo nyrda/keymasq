@@ -16,9 +16,11 @@ from keyforge.common.models import (
     MappingAction,
     ProfileConfig,
 )
+from keyforge.keyforged.combo_engine import ComboDecision
 from keyforge.keyforged.device_manager import DeviceManager
 from keyforge.keyforged.recording import RecordingManager
 from keyforge.keyforged.runtime import grabbed_device as gdm
+from keyforge.keyforged.runtime import grabbed_device_events as gde
 from keyforge.keyforged.runtime import macros as mdm
 from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 from keyforge.session.profiles import ProfileManager
@@ -62,15 +64,15 @@ async def _play_macro_task(manager: DeviceManager, **kwargs: object) -> None:
 
 
 async def _process_grabbed_event(device: GrabbedDevice, event: evdev.InputEvent) -> None:
-    await gdm.process_event(
+    await gde.process_event(
         device,
         event,
         evdev_mod=evdev,
-        time_mod=gdm.time,
+        time_mod=gde.time,
         log=gdm.log,
-        combo_decision_cls=gdm.ComboDecision,
-        classify_event_device_type_fn=gdm.classify_event_device_type,
-        action_type_enum=gdm.ActionType,
+        combo_decision_cls=ComboDecision,
+        classify_event_device_type_fn=gde.classify_event_device_type,
+        action_type_enum=ActionType,
     )
 
 

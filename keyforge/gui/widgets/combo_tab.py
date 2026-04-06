@@ -5,7 +5,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.models import ComboConfig
 from keyforge.gui.icons import combo_icon_names, image_from_icon_names

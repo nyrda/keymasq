@@ -662,7 +662,7 @@ class ProfileManager:
                 "mapping": action_map,
             }
 
-        data = {
+        data: dict[str, object] = {
             "profile": profile_data,
             "devices": devices_data,
         }

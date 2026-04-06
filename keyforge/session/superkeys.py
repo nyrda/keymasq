@@ -106,14 +106,14 @@ class SuperkeyManager:
         safe_name = self._sanitize_name(config.name)
         path = paths.SUPERKEYS_DIR / f"{safe_name}.toml"
 
-        data = {
+        data: dict[str, object] = {
             "name": config.name,
         }
 
         if config.description:
             data["description"] = config.description
 
-        timing = {}
+        timing: dict[str, object] = {}
         if config.tap_timeout_ms != 200:
             timing["tap_timeout_ms"] = config.tap_timeout_ms
         if config.double_tap_window_ms != 300:
@@ -123,7 +123,7 @@ class SuperkeyManager:
         if timing:
             data["timing"] = timing
 
-        actions = {}
+        actions: dict[str, object] = {}
         if config.tap_action:
             actions["tap"] = self._serialize_action(config.tap_action)
         if config.double_tap_action:
@@ -142,7 +142,7 @@ class SuperkeyManager:
         log.info(f"Saved superkey: {config.name}")
 
     def _serialize_action(self, action: SuperkeyAction) -> dict:
-        data = {"action": action.action_type.value}
+        data: dict[str, object] = {"action": action.action_type.value}
 
         if action.target:
             data["target"] = action.target

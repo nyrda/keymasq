@@ -1,12 +1,15 @@
 import asyncio
 import contextlib
+import inspect
 import json
 import logging
 import os
 import tempfile
 import time
 import uuid
+from collections.abc import Awaitable
 from pathlib import Path
+from typing import cast
 
 from dbus_next.constants import MessageType
 from dbus_next.message import Message
@@ -217,7 +220,13 @@ class KDEListener(WindowListener):
             )
 
             self._window_script_iface = await self._get_script_interface(self._script_id)
-            await self._window_script_iface.call_run()
+            call_run = getattr(self._window_script_iface, "call_run", None)
+            if not callable(call_run):
+                raise RuntimeError("KDE script interface is missing call_run")
+            result = call_run()
+            if not inspect.isawaitable(result):
+                raise RuntimeError("KDE script interface returned a non-awaitable run result")
+            await cast(Awaitable[object], result)
         except Exception:
             await self.stop()
             raise
@@ -244,7 +253,11 @@ class KDEListener(WindowListener):
 
         if self._window_script_iface:
             with contextlib.suppress(Exception):
-                await self._window_script_iface.call_stop()
+                call_stop = getattr(self._window_script_iface, "call_stop", None)
+                if callable(call_stop):
+                    result = call_stop()
+                    if inspect.isawaitable(result):
+                        await cast(Awaitable[object], result)
             self._window_script_iface = None
 
         if self._kwin_scripting and self._plugin_name:
@@ -296,7 +309,13 @@ class KDEListener(WindowListener):
                 return None
 
             script_iface = await self._get_script_interface(script_id)
-            await script_iface.call_run()
+            call_run = getattr(script_iface, "call_run", None)
+            if not callable(call_run):
+                return None
+            result = call_run()
+            if not inspect.isawaitable(result):
+                return None
+            await cast(Awaitable[object], result)
             return await asyncio.wait_for(future, timeout=KDE_DISPATCH_TIMEOUT_SECONDS)
         except TimeoutError:
             log.debug("KDE cursor get timed out waiting for response")
@@ -308,7 +327,11 @@ class KDEListener(WindowListener):
             self._cursor_waiters.pop(request_id, None)
             if script_iface is not None:
                 with contextlib.suppress(Exception):
-                    await script_iface.call_stop()
+                    call_stop = getattr(script_iface, "call_stop", None)
+                    if callable(call_stop):
+                        result = call_stop()
+                        if inspect.isawaitable(result):
+                            await cast(Awaitable[object], result)
             if self._kwin_scripting:
                 with contextlib.suppress(Exception):
                     await self._call_unload_script(plugin_name)
@@ -351,7 +374,13 @@ class KDEListener(WindowListener):
                 return False, "failed to load KWin dispatch script"
 
             script_iface = await self._get_script_interface(script_id)
-            await script_iface.call_run()
+            call_run = getattr(script_iface, "call_run", None)
+            if not callable(call_run):
+                return False, "failed to run KWin dispatch script"
+            result = call_run()
+            if not inspect.isawaitable(result):
+                return False, "failed to run KWin dispatch script"
+            await cast(Awaitable[object], result)
             return await asyncio.wait_for(future, timeout=KDE_DISPATCH_TIMEOUT_SECONDS)
         except TimeoutError:
             log.debug("KDE dispatch timed out waiting for response")
@@ -363,7 +392,11 @@ class KDEListener(WindowListener):
             self._dispatch_waiters.pop(request_id, None)
             if script_iface is not None:
                 with contextlib.suppress(Exception):
-                    await script_iface.call_stop()
+                    call_stop = getattr(script_iface, "call_stop", None)
+                    if callable(call_stop):
+                        result = call_stop()
+                        if inspect.isawaitable(result):
+                            await cast(Awaitable[object], result)
             if self._kwin_scripting:
                 with contextlib.suppress(Exception):
                     await self._call_unload_script(plugin_name)
@@ -468,7 +501,9 @@ class KDEListener(WindowListener):
                 body=[file_path, plugin_name],
             )
         )
-        if reply.message_type == MessageType.ERROR:  # type: ignore[union-attr]
+        if reply is None:
+            raise RuntimeError("loadScript failed")
+        if reply.message_type == MessageType.ERROR:
             err = str(reply.body[0]) if reply.body else "loadScript failed"
             raise RuntimeError(err)
         if not reply.body:
@@ -489,7 +524,9 @@ class KDEListener(WindowListener):
                 body=[plugin_name],
             )
         )
-        if reply.message_type == MessageType.ERROR:  # type: ignore[union-attr]
+        if reply is None:
+            raise RuntimeError("unloadScript failed")
+        if reply.message_type == MessageType.ERROR:
             err = str(reply.body[0]) if reply.body else "unloadScript failed"
             raise RuntimeError(err)
 

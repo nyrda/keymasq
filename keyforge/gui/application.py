@@ -6,7 +6,12 @@ import gi  # pyright: ignore[reportMissingImports]
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, Gio, Gtk  # pyright: ignore[reportMissingImports]  # noqa: E402
+from gi.repository import (  # pyright: ignore[reportMissingImports, reportAttributeAccessIssue]  # noqa: E402
+    Adw,  # pyright: ignore[reportAttributeAccessIssue]
+    Gdk,  # pyright: ignore[reportAttributeAccessIssue]
+    Gio,  # pyright: ignore[reportAttributeAccessIssue]
+    Gtk,  # pyright: ignore[reportAttributeAccessIssue]
+)
 
 from keyforge.common.paths import ensure_config_dirs  # noqa: E402
 from keyforge.gui.icons import register_icon_search_path, theme_supports_core_icons  # noqa: E402
@@ -104,10 +109,11 @@ class Application(Adw.Application):
             return
         from keyforge.gui.widgets.macro_manager_dialog import MacroManagerDialog
 
-        dialog = MacroManagerDialog(self.window)
-        self.window.set_macro_manager_dialog(dialog)
-        dialog.connect("closed", lambda _d: self.window.set_macro_manager_dialog(None))
-        dialog.present(self.window)
+        window = self.window
+        dialog = MacroManagerDialog(window)
+        window.set_macro_manager_dialog(dialog)
+        dialog.connect("closed", lambda _d: window.set_macro_manager_dialog(None))
+        dialog.present(window)
 
     def _on_record_macro(self, action, param) -> None:
         if not self.window:

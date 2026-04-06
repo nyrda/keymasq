@@ -131,12 +131,13 @@ class CosmicListener(WindowListener):
     async def get_cursor_position(self) -> tuple[int, int] | None:
         if not self._slurp.available:
             return None
-        if not self.client:
+        client = self.client
+        if client is None:
             return None
         try:
             result = await self._slurp.capture_point_async(
                 mode=SlurpMode.POINT_IMMEDIATE,
-                on_ready=lambda: trigger_slurp_macro(self.client),
+                on_ready=lambda: trigger_slurp_macro(client),
             )
             if result:
                 return (result.x, result.y)

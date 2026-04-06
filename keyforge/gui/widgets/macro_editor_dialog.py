@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 
 import evdev
-from gi.repository import Adw, Gdk, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.slurp import get_slurp_capture
 from keyforge.gui.session_client import run_gui_task, session_request, session_request_async
@@ -1710,7 +1710,9 @@ class MacroEditorDialog(Adw.Dialog):
 
     def _on_initial_state_loaded(self, result: dict[str, object] | None) -> bool:
         payload = result or {}
-        self._macro_exec_timeout_max_ms = max(1, int(payload.get("timeout_max", 30000) or 30000))
+        timeout_max_raw = payload.get("timeout_max", 30000)
+        timeout_max = timeout_max_raw if isinstance(timeout_max_raw, int) else 30000
+        self._macro_exec_timeout_max_ms = max(1, timeout_max)
 
         timeout_adjustment = self._control_timeout_spin.get_adjustment()
         timeout_adjustment.set_upper(self._macro_exec_timeout_max_ms)
@@ -1903,13 +1905,14 @@ class MacroEditorDialog(Adw.Dialog):
 
         scale_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         scale_row.append(Gtk.Label(label="Scale:"))
-        self._timing_scale_spin = Gtk.SpinButton()
-        self._timing_scale_spin.set_adjustment(
+        timing_scale_spin = Gtk.SpinButton()
+        self._timing_scale_spin = timing_scale_spin
+        timing_scale_spin.set_adjustment(
             Gtk.Adjustment(value=1.00, lower=0.10, upper=10.00, step_increment=0.10)
         )
-        self._timing_scale_spin.set_digits(2)
-        self._timing_scale_spin.set_width_chars(5)
-        scale_row.append(self._timing_scale_spin)
+        timing_scale_spin.set_digits(2)
+        timing_scale_spin.set_width_chars(5)
+        scale_row.append(timing_scale_spin)
         scale_row.append(Gtk.Label(label="x"))
         apply_scale_btn = Gtk.Button(label="Apply")
         apply_scale_btn.connect("clicked", self._on_apply_scale_clicked)
@@ -1918,21 +1921,23 @@ class MacroEditorDialog(Adw.Dialog):
 
         gap_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         gap_row.append(Gtk.Label(label="Min gap (ms):"))
-        self._timing_min_gap_spin = Gtk.SpinButton()
-        self._timing_min_gap_spin.set_adjustment(
+        timing_min_gap_spin = Gtk.SpinButton()
+        self._timing_min_gap_spin = timing_min_gap_spin
+        timing_min_gap_spin.set_adjustment(
             Gtk.Adjustment(value=0.0, lower=0.0, upper=2000.0, step_increment=1.0)
         )
-        self._timing_min_gap_spin.set_digits(0)
-        self._timing_min_gap_spin.set_width_chars(5)
-        gap_row.append(self._timing_min_gap_spin)
+        timing_min_gap_spin.set_digits(0)
+        timing_min_gap_spin.set_width_chars(5)
+        gap_row.append(timing_min_gap_spin)
         gap_row.append(Gtk.Label(label="Max gap (ms):"))
-        self._timing_max_gap_spin = Gtk.SpinButton()
-        self._timing_max_gap_spin.set_adjustment(
+        timing_max_gap_spin = Gtk.SpinButton()
+        self._timing_max_gap_spin = timing_max_gap_spin
+        timing_max_gap_spin.set_adjustment(
             Gtk.Adjustment(value=250.0, lower=0.0, upper=10000.0, step_increment=10.0)
         )
-        self._timing_max_gap_spin.set_digits(0)
-        self._timing_max_gap_spin.set_width_chars(5)
-        gap_row.append(self._timing_max_gap_spin)
+        timing_max_gap_spin.set_digits(0)
+        timing_max_gap_spin.set_width_chars(5)
+        gap_row.append(timing_max_gap_spin)
         box.append(gap_row)
 
         apply_gap_btn = Gtk.Button(label="Apply Gap Limits")
@@ -1943,13 +1948,14 @@ class MacroEditorDialog(Adw.Dialog):
 
         extend_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         extend_row.append(Gtk.Label(label="Add time (ms):"))
-        self._timing_extend_ms_spin = Gtk.SpinButton()
-        self._timing_extend_ms_spin.set_adjustment(
+        timing_extend_ms_spin = Gtk.SpinButton()
+        self._timing_extend_ms_spin = timing_extend_ms_spin
+        timing_extend_ms_spin.set_adjustment(
             Gtk.Adjustment(value=100.0, lower=1.0, upper=600000.0, step_increment=10.0)
         )
-        self._timing_extend_ms_spin.set_digits(0)
-        self._timing_extend_ms_spin.set_width_chars(7)
-        extend_row.append(self._timing_extend_ms_spin)
+        timing_extend_ms_spin.set_digits(0)
+        timing_extend_ms_spin.set_width_chars(7)
+        extend_row.append(timing_extend_ms_spin)
         box.append(extend_row)
 
         extend_btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -1970,24 +1976,26 @@ class MacroEditorDialog(Adw.Dialog):
 
         at_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         at_row.append(Gtk.Label(label="At (ms):"))
-        self._insert_gap_at_spin = Gtk.SpinButton()
-        self._insert_gap_at_spin.set_adjustment(
+        insert_gap_at_spin = Gtk.SpinButton()
+        self._insert_gap_at_spin = insert_gap_at_spin
+        insert_gap_at_spin.set_adjustment(
             Gtk.Adjustment(value=0.0, lower=0.0, upper=3600000.0, step_increment=1.0)
         )
-        self._insert_gap_at_spin.set_digits(0)
-        self._insert_gap_at_spin.set_width_chars(7)
-        at_row.append(self._insert_gap_at_spin)
+        insert_gap_at_spin.set_digits(0)
+        insert_gap_at_spin.set_width_chars(7)
+        at_row.append(insert_gap_at_spin)
         box.append(at_row)
 
         gap_insert_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         gap_insert_row.append(Gtk.Label(label="Gap (ms):"))
-        self._insert_gap_ms_spin = Gtk.SpinButton()
-        self._insert_gap_ms_spin.set_adjustment(
+        insert_gap_ms_spin = Gtk.SpinButton()
+        self._insert_gap_ms_spin = insert_gap_ms_spin
+        insert_gap_ms_spin.set_adjustment(
             Gtk.Adjustment(value=100.0, lower=1.0, upper=60000.0, step_increment=10.0)
         )
-        self._insert_gap_ms_spin.set_digits(0)
-        self._insert_gap_ms_spin.set_width_chars(7)
-        gap_insert_row.append(self._insert_gap_ms_spin)
+        insert_gap_ms_spin.set_digits(0)
+        insert_gap_ms_spin.set_width_chars(7)
+        gap_insert_row.append(insert_gap_ms_spin)
         box.append(gap_insert_row)
 
         scope_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -2018,7 +2026,7 @@ class MacroEditorDialog(Adw.Dialog):
 
         container.append(self._scrolled)
 
-        self._timeline_scroll_adj = Gtk.Adjustment(
+        timeline_scroll_adj = Gtk.Adjustment(
             value=0.0,
             lower=0.0,
             upper=1.0,
@@ -2026,12 +2034,13 @@ class MacroEditorDialog(Adw.Dialog):
             page_increment=160.0,
             page_size=1.0,
         )
-        self._timeline_scroll_adj.connect(
+        self._timeline_scroll_adj = timeline_scroll_adj
+        timeline_scroll_adj.connect(
             "value-changed", self._on_timeline_scroll_adjustment_changed
         )
 
         hscroll = Gtk.Scrollbar(
-            orientation=Gtk.Orientation.HORIZONTAL, adjustment=self._timeline_scroll_adj
+            orientation=Gtk.Orientation.HORIZONTAL, adjustment=timeline_scroll_adj
         )
         hscroll.set_hexpand(True)
         container.append(hscroll)
@@ -3225,6 +3234,7 @@ class MacroEditorDialog(Adw.Dialog):
                 self._updating_props = False
             return
 
+        assert isinstance(selected_obj, EditableEvent)
         ev = selected_obj
         name = _get_key_name(ev.code)
         self._prop_title.set_label(name)
@@ -3291,6 +3301,7 @@ class MacroEditorDialog(Adw.Dialog):
             self._refresh_after_passthrough_timing_change(selected_obj)
             return
 
+        assert isinstance(selected_obj, EditableEvent)
         ev = selected_obj
         dur = ev.release_t_us - ev.press_t_us
         ev.press_t_us = new_t
@@ -3303,6 +3314,7 @@ class MacroEditorDialog(Adw.Dialog):
         selected_obj = self._timeline._selected
         if selected_obj is None or isinstance(selected_obj, (EditableMove, EditableControl, dict)):
             return
+        assert isinstance(selected_obj, EditableEvent)
         ev = selected_obj
         new_t = int(spin.get_value() * 1000)
         min_release = ev.press_t_us + 1000
@@ -3317,6 +3329,7 @@ class MacroEditorDialog(Adw.Dialog):
         selected_obj = self._timeline._selected
         if selected_obj is None or isinstance(selected_obj, (EditableMove, EditableControl, dict)):
             return
+        assert isinstance(selected_obj, EditableEvent)
         ev = selected_obj
         duration_us = max(1000, int(spin.get_value() * 1000))
         ev.release_t_us = ev.press_t_us + duration_us
@@ -3354,6 +3367,7 @@ class MacroEditorDialog(Adw.Dialog):
         ev = self._timeline._selected
         if ev is None or isinstance(ev, (EditableMove, EditableControl, dict)):
             return
+        assert isinstance(ev, EditableEvent)
 
         from keyforge.common.models import ActionType, MappingAction
         from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
@@ -3381,6 +3395,7 @@ class MacroEditorDialog(Adw.Dialog):
         ev = self._timeline._selected
         if ev is None or action is None or isinstance(ev, (EditableMove, EditableControl, dict)):
             return
+        assert isinstance(ev, EditableEvent)
 
         target = getattr(action, "target", None)
         if action.action_type == ActionType.KEYBOARD and target:
@@ -3828,48 +3843,53 @@ class MacroEditorDialog(Adw.Dialog):
         if control_mode == "wait_fixed":
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             row.append(Gtk.Label(label="Duration (ms):"))
-            duration_spin = Gtk.SpinButton()
-            duration_spin.set_adjustment(
+            duration_spin_widget = Gtk.SpinButton()
+            duration_spin = duration_spin_widget
+            duration_spin_widget.set_adjustment(
                 Gtk.Adjustment(value=100, lower=1, upper=600000, step_increment=10)
             )
-            duration_spin.set_digits(0)
-            duration_spin.set_width_chars(8)
-            row.append(duration_spin)
+            duration_spin_widget.set_digits(0)
+            duration_spin_widget.set_width_chars(8)
+            row.append(duration_spin_widget)
             box.append(row)
         elif control_mode == "wait_random":
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             row.append(Gtk.Label(label="Min (ms):"))
-            min_spin = Gtk.SpinButton()
-            min_spin.set_adjustment(
+            min_spin_widget = Gtk.SpinButton()
+            min_spin = min_spin_widget
+            min_spin_widget.set_adjustment(
                 Gtk.Adjustment(value=50, lower=1, upper=600000, step_increment=10)
             )
-            min_spin.set_digits(0)
-            min_spin.set_width_chars(7)
-            row.append(min_spin)
+            min_spin_widget.set_digits(0)
+            min_spin_widget.set_width_chars(7)
+            row.append(min_spin_widget)
             row.append(Gtk.Label(label="Max (ms):"))
-            max_spin = Gtk.SpinButton()
-            max_spin.set_adjustment(
+            max_spin_widget = Gtk.SpinButton()
+            max_spin = max_spin_widget
+            max_spin_widget.set_adjustment(
                 Gtk.Adjustment(value=150, lower=1, upper=600000, step_increment=10)
             )
-            max_spin.set_digits(0)
-            max_spin.set_width_chars(7)
-            row.append(max_spin)
+            max_spin_widget.set_digits(0)
+            max_spin_widget.set_width_chars(7)
+            row.append(max_spin_widget)
             box.append(row)
         elif control_mode in {"exec_sync", "exec_async"}:
             cmd_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             cmd_label = Gtk.Label(label="Command:")
             cmd_label.set_halign(Gtk.Align.START)
             cmd_row.append(cmd_label)
-            cmd_entry = Gtk.Entry()
-            cmd_entry.set_placeholder_text("/absolute/path/to/script.sh")
-            cmd_row.append(cmd_entry)
+            cmd_entry_widget = Gtk.Entry()
+            cmd_entry = cmd_entry_widget
+            cmd_entry_widget.set_placeholder_text("/absolute/path/to/script.sh")
+            cmd_row.append(cmd_entry_widget)
             box.append(cmd_row)
 
             if control_mode == "exec_sync":
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
                 row.append(Gtk.Label(label="Timeout (ms):"))
-                timeout_spin = Gtk.SpinButton()
-                timeout_spin.set_adjustment(
+                timeout_spin_widget = Gtk.SpinButton()
+                timeout_spin = timeout_spin_widget
+                timeout_spin_widget.set_adjustment(
                     Gtk.Adjustment(
                         value=min(30000, self._macro_exec_timeout_max_ms),
                         lower=1,
@@ -3877,9 +3897,9 @@ class MacroEditorDialog(Adw.Dialog):
                         step_increment=100,
                     )
                 )
-                timeout_spin.set_digits(0)
-                timeout_spin.set_width_chars(8)
-                row.append(timeout_spin)
+                timeout_spin_widget.set_digits(0)
+                timeout_spin_widget.set_width_chars(8)
+                row.append(timeout_spin_widget)
                 box.append(row)
 
                 timeout_hint = Gtk.Label(
@@ -3889,9 +3909,10 @@ class MacroEditorDialog(Adw.Dialog):
                 timeout_hint.set_halign(Gtk.Align.START)
                 box.append(timeout_hint)
 
-                inhibit_check = Gtk.CheckButton(label="Inhibit mouse movement while waiting")
-                inhibit_check.set_active(False)
-                box.append(inhibit_check)
+                inhibit_check_widget = Gtk.CheckButton(label="Inhibit mouse movement while waiting")
+                inhibit_check = inhibit_check_widget
+                inhibit_check_widget.set_active(False)
+                box.append(inhibit_check_widget)
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         footer.set_halign(Gtk.Align.END)

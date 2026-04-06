@@ -81,6 +81,8 @@ class SessionDBus:
                 body=[app_name, 0, app_icon, title, message, [], {}, timeout_ms],
             )
         )
+        if reply is None:
+            raise RuntimeError("notification delivery failed")
         if reply.message_type == MessageType.ERROR:
             err = str(reply.body[0]) if reply.body else "notification delivery failed"
             raise RuntimeError(err)

@@ -92,7 +92,7 @@ class HardwareManager:
 
         buttons_data = []
         for btn in config.buttons:
-            btn_data = {
+            btn_data: dict[str, object] = {
                 "id": btn.id,
                 "label": btn.label,
                 "evdev": btn.evdev,
@@ -115,7 +115,7 @@ class HardwareManager:
 
         evdev_devices_data = []
         for d in config.evdev_devices:
-            dev_data = {
+            dev_data: dict[str, object] = {
                 "path": d.path,
                 "type": d.device_type.value,
             }

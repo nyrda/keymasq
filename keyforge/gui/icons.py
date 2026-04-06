@@ -4,7 +4,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 KEYBOARD_ICON_NAMES = (
     "keyforge-keyboard-symbolic",

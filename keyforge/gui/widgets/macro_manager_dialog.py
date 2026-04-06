@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 
 import evdev
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.gui.session_client import (
     run_gui_task,
@@ -114,10 +114,11 @@ class MacroManagerDialog(Adw.Dialog):
 
         create_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
-        self._record_btn = Gtk.Button(label="Record Macro…")
-        self._record_btn.connect("clicked", self._on_record_new)
-        action_size_group.add_widget(self._record_btn)
-        create_row.append(self._record_btn)
+        record_btn = Gtk.Button(label="Record Macro…")
+        record_btn.connect("clicked", self._on_record_new)
+        action_size_group.add_widget(record_btn)
+        create_row.append(record_btn)
+        self._record_btn = record_btn
 
         empty_btn = Gtk.Button(label="Empty Macro…")
         empty_btn.add_css_class("suggested-action")
@@ -139,11 +140,12 @@ class MacroManagerDialog(Adw.Dialog):
         utility_size_group.add_widget(settings_btn)
         utility_row.append(settings_btn)
 
-        self._cancel_playback_btn = Gtk.Button(label="Cancel Playback")
-        self._cancel_playback_btn.add_css_class("destructive-action")
-        self._cancel_playback_btn.connect("clicked", self._on_cancel_playback)
-        utility_size_group.add_widget(self._cancel_playback_btn)
-        utility_row.append(self._cancel_playback_btn)
+        cancel_playback_btn = Gtk.Button(label="Cancel Playback")
+        cancel_playback_btn.add_css_class("destructive-action")
+        cancel_playback_btn.connect("clicked", self._on_cancel_playback)
+        utility_size_group.add_widget(cancel_playback_btn)
+        utility_row.append(cancel_playback_btn)
+        self._cancel_playback_btn = cancel_playback_btn
 
         spacer = Gtk.Box()
         spacer.set_hexpand(True)

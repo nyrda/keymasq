@@ -259,13 +259,19 @@ class HyprlandListener(WindowListener):
                 if not await self._ensure_cmd_connection():
                     return None
                 try:
-                    self._cmd_writer.write(command.encode())
-                    await self._cmd_writer.drain()
-                    return await self._cmd_reader.read(read_size)
+                    cmd_writer = self._cmd_writer
+                    cmd_reader = self._cmd_reader
+                    if cmd_writer is None or cmd_reader is None:
+                        return None
+                    cmd_writer.write(command.encode())
+                    await cmd_writer.drain()
+                    return await cmd_reader.read(read_size)
                 except Exception:
                     try:
-                        self._cmd_writer.close()
-                        await self._cmd_writer.wait_closed()
+                        cmd_writer = self._cmd_writer
+                        if cmd_writer is not None:
+                            cmd_writer.close()
+                            await cmd_writer.wait_closed()
                     except Exception:
                         pass
                     self._cmd_reader = None

@@ -19,7 +19,7 @@ class _PersistentSessionConnection:
         self._state_lock = threading.Lock()
         self._request_lock = threading.Lock()
         self._response_queue: queue.Queue | None = None
-        self._callbacks: dict[str, list[Callable[[dict], None]]] = {}
+        self._callbacks: dict[str, list[Callable[[dict], bool | None]]] = {}
 
     def request(self, payload: dict, timeout: float = 5.0) -> dict | None:
         if not self._ensure_connected(timeout=timeout):
@@ -53,12 +53,12 @@ class _PersistentSessionConnection:
                     if self._response_queue is response_queue:
                         self._response_queue = None
 
-    def register_callback(self, event: str, callback: Callable[[dict], None]) -> None:
+    def register_callback(self, event: str, callback: Callable[[dict], bool | None]) -> None:
         with self._state_lock:
             self._callbacks.setdefault(event, []).append(callback)
         self._ensure_connected(timeout=1.0)
 
-    def unregister_callback(self, event: str, callback: Callable[[dict], None]) -> None:
+    def unregister_callback(self, event: str, callback: Callable[[dict], bool | None]) -> None:
         with self._state_lock:
             callbacks = self._callbacks.get(event, [])
             try:
@@ -142,7 +142,7 @@ class _PersistentSessionConnection:
             return
 
         try:
-            from gi.repository import GLib
+            from gi.repository import GLib  # pyright: ignore[reportAttributeAccessIssue]
 
             for callback in callbacks:
                 GLib.idle_add(callback, message)
@@ -201,7 +201,7 @@ def run_gui_task(
     on_start: Callable[[], None] | None = None,
     on_done: Callable[[], None] | None = None,
 ) -> None:
-    from gi.repository import GLib
+    from gi.repository import GLib  # pyright: ignore[reportAttributeAccessIssue]
 
     if on_start is not None:
         on_start()
@@ -245,9 +245,9 @@ def get_active_window_async(
     session_request_async({"command": "get_active_window"}, callback, timeout=timeout)
 
 
-def register_session_event_callback(event: str, callback: Callable[[dict], None]) -> None:
+def register_session_event_callback(event: str, callback: Callable[[dict], bool | None]) -> None:
     _PERSISTENT_SESSION.register_callback(event, callback)
 
 
-def unregister_session_event_callback(event: str, callback: Callable[[dict], None]) -> None:
+def unregister_session_event_callback(event: str, callback: Callable[[dict], bool | None]) -> None:
     _PERSISTENT_SESSION.unregister_callback(event, callback)

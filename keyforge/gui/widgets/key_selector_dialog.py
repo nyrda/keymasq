@@ -4,8 +4,13 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-
-from gi.repository import Adw, Gdk, GLib, GObject, Gtk
+from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
+    Adw,  # pyright: ignore[reportAttributeAccessIssue]
+    Gdk,  # pyright: ignore[reportAttributeAccessIssue]
+    GLib,  # pyright: ignore[reportAttributeAccessIssue]
+    GObject,  # pyright: ignore[reportAttributeAccessIssue]
+    Gtk,  # pyright: ignore[reportAttributeAccessIssue]
+)
 
 from keyforge.common.models import ActionType, MappingAction, SuperkeyAction
 from keyforge.common.slurp import get_slurp_capture
@@ -327,9 +332,7 @@ class KeySelectorDialog(Adw.Dialog):
             self._on_compositor_action_selected,
             self._compositor_action_status,
         )
-        self._compositor_action_page_ids = {
-            page.page_id for page in self._compositor_action_pages
-        }
+        self._compositor_action_page_ids = {page.page_id for page in self._compositor_action_pages}
 
         self.stack = Gtk.Stack()
         self.stack.set_vexpand(True)
@@ -1200,9 +1203,7 @@ class KeySelectorDialog(Adw.Dialog):
         title.set_halign(Gtk.Align.START)
         outer.append(title)
 
-        subtitle = Gtk.Label(
-            label="Trigger global profile enable/disable/toggle."
-        )
+        subtitle = Gtk.Label(label="Trigger global profile enable/disable/toggle.")
         subtitle.add_css_class("dim-label")
         subtitle.set_wrap(True)
         subtitle.set_halign(Gtk.Align.START)

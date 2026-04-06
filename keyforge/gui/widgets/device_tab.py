@@ -1,10 +1,12 @@
+from typing import cast
+
 import evdev
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.devices import (
     canonical_gamepad_button_name,
@@ -37,7 +39,7 @@ class DeviceTab(ProfileManagedTab):
         self,
         device: HardwareConfig,
         profile_manager: ProfileManager | None,
-        hardware_manager: "HardwareManager" = None,
+        hardware_manager: "HardwareManager | None" = None,
         main_window=None,
         demo_mode: bool = False,
         compositor_capabilities: list[str] | None = None,
@@ -220,8 +222,10 @@ class DeviceTab(ProfileManagedTab):
         hardware_id = self.device.hardware_id
 
         if delete_profiles:
+            assert self.profile_manager is not None
             self.profile_manager.remove_device_layers(hardware_id)
 
+        assert self.hardware_manager is not None
         self.hardware_manager.delete_hardware(hardware_id)
         session_request_async({"command": "reload"}, lambda _result: False)
 
@@ -746,6 +750,7 @@ class DeviceTab(ProfileManagedTab):
                 if b.id == button.id:
                     b.label = new_label
                     break
+            assert self.hardware_manager is not None
             self.hardware_manager.save_hardware(self.device)
             session_request_async({"command": "reload"}, lambda _result: False)
             widget = self._button_widgets.get(button.id)
@@ -791,9 +796,7 @@ class DeviceTab(ProfileManagedTab):
         dialog.connect(
             "response",
             lambda _dialog, response, source_button=button: (
-                self._show_function_editor(source_button)
-                if response == "continue"
-                else None
+                self._show_function_editor(source_button) if response == "continue" else None
             ),
         )
         dialog.present(self.get_root())
@@ -956,10 +959,11 @@ class DeviceTab(ProfileManagedTab):
         if self._listening_keys:
             btn.set_label("Listening...")
             if root and self._listen_controller is None:
-                self._listen_controller = Gtk.EventControllerKey()
-                self._listen_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-                self._listen_controller.connect("key-pressed", self._on_key_pressed)
-                root.add_controller(self._listen_controller)
+                listen_controller = Gtk.EventControllerKey()
+                listen_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+                listen_controller.connect("key-pressed", self._on_key_pressed)
+                root.add_controller(listen_controller)
+                self._listen_controller = listen_controller
         else:
             btn.set_label("Listen Keys")
             if root and self._listen_controller is not None:
@@ -1068,9 +1072,7 @@ class DeviceTab(ProfileManagedTab):
         box.set_margin_start(16)
         box.set_margin_end(16)
 
-        info = Gtk.Label(
-            label=self._add_input_summary_text()
-        )
+        info = Gtk.Label(label=self._add_input_summary_text())
         info.set_halign(Gtk.Align.START)
         info.set_wrap(True)
         box.append(info)
@@ -1216,6 +1218,7 @@ class DeviceTab(ProfileManagedTab):
 
     def _finish_add_keys(self, parent_dialog: Adw.Dialog) -> None:
         self._stop_add_keys_capture()
+        assert self.hardware_manager is not None
         self.hardware_manager.save_hardware(self.device)
         parent_dialog.close()
         self._reload_ui()
@@ -1280,7 +1283,7 @@ class DeviceTab(ProfileManagedTab):
 
     def _button_already_exists(self, evdev_name: str, evdev_code: object | None) -> bool:
         try:
-            captured_code = int(evdev_code) if evdev_code is not None else None
+            captured_code = int(cast(int, evdev_code)) if evdev_code is not None else None
         except Exception:
             captured_code = None
 
@@ -1394,6 +1397,7 @@ class DeviceTab(ProfileManagedTab):
             if root and self._listen_controller is not None:
                 root.remove_controller(self._listen_controller)
             self._listen_controller = None
+        assert self.profile_manager is not None
         self.profiles = self.profile_manager.list_profiles()
         while child := self.get_first_child():
             self.remove(child)

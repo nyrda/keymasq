@@ -8,7 +8,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GLib, GObject, Gtk
+from gi.repository import Adw, GLib, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.devices import (
     INPUT_CLASS_ORDER,

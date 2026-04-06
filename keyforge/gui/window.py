@@ -8,7 +8,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.paths import KEYFORGE_RECORD_HELPER_PATH, resolve_keyforge_record_helper_path
 from keyforge.common.recording_guard import resolve_unlock_status
@@ -50,7 +50,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.profile_manager = ProfileManager()
         self._session_connected: bool | None = None
         self._keyforged_via_session: bool | None = None
-        self._compositor_id = None
+        self._compositor_id: str | None = None
         self._compositor_supported = False
         self._compositor_capabilities: list[str] = []
         self._listener_name = ""
@@ -59,7 +59,7 @@ class MainWindow(Adw.ApplicationWindow):
             "supported": False,
             "warning": "",
         }
-        self._event_handlers: dict[str, list[Callable[[dict], None]]] = {}
+        self._event_handlers: dict[str, list[Callable[[dict], bool | None]]] = {}
         self._status_query_inflight = False
         self._status_query_id = 0
         self._connection_dialog: Adw.Dialog | None = None
@@ -136,7 +136,8 @@ class MainWindow(Adw.ApplicationWindow):
         return False
 
     def _apply_compositor_state(self, state: dict[str, object]) -> None:
-        self._compositor_id = state.get("compositor_id")
+        compositor_id = state.get("compositor_id")
+        self._compositor_id = compositor_id if isinstance(compositor_id, str) else None
         details = state.get("support_details")
         self._compositor_support_details = details if isinstance(details, dict) else {
             "supported": False,
@@ -246,7 +247,8 @@ class MainWindow(Adw.ApplicationWindow):
                 pass
 
     def _handle_session_event(self, event: dict) -> None:
-        event_type = event.get("event")
+        event_type_raw = event.get("event")
+        event_type = event_type_raw if isinstance(event_type_raw, str) else ""
 
         if event_type == "keyforged_status":
             connected = event.get("connected", False)
@@ -511,7 +513,9 @@ class MainWindow(Adw.ApplicationWindow):
         if self._connection_body_label:
             self._connection_body_label.set_text(body)
 
-        self._connection_dialog.present(self)
+        dialog = self._connection_dialog
+        if dialog is not None:
+            dialog.present(self)
 
     def _on_connection_dialog_closed(self, dialog) -> None:
         if dialog is self._connection_dialog:
@@ -563,9 +567,10 @@ class MainWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(self.stack_switcher)
 
-        self._unlock_add_button = Gtk.Button(icon_name="system-lock-screen-symbolic")
-        self._unlock_add_button.connect("clicked", self._on_unlock_or_add_clicked)
-        header.pack_start(self._unlock_add_button)
+        unlock_add_button = Gtk.Button(icon_name="system-lock-screen-symbolic")
+        unlock_add_button.connect("clicked", self._on_unlock_or_add_clicked)
+        header.pack_start(unlock_add_button)
+        self._unlock_add_button = unlock_add_button
 
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
@@ -591,15 +596,17 @@ class MainWindow(Adw.ApplicationWindow):
         )
         menu_box.append(manage_superkeys_btn)
 
-        self._menu_unlock_btn = Gtk.Button(label="Unlock Recording...")
-        self._menu_unlock_btn.set_halign(Gtk.Align.FILL)
-        self._menu_unlock_btn.connect("clicked", self._on_menu_unlock_clicked, menu_popover)
-        menu_box.append(self._menu_unlock_btn)
+        menu_unlock_btn = Gtk.Button(label="Unlock Recording...")
+        menu_unlock_btn.set_halign(Gtk.Align.FILL)
+        menu_unlock_btn.connect("clicked", self._on_menu_unlock_clicked, menu_popover)
+        menu_box.append(menu_unlock_btn)
+        self._menu_unlock_btn = menu_unlock_btn
 
-        self._menu_record_btn = Gtk.Button(label="Record New Macro...")
-        self._menu_record_btn.set_halign(Gtk.Align.FILL)
-        self._menu_record_btn.connect("clicked", self._on_menu_record_macro_clicked, menu_popover)
-        menu_box.append(self._menu_record_btn)
+        menu_record_btn = Gtk.Button(label="Record New Macro...")
+        menu_record_btn.set_halign(Gtk.Align.FILL)
+        menu_record_btn.connect("clicked", self._on_menu_record_macro_clicked, menu_popover)
+        menu_box.append(menu_record_btn)
+        self._menu_record_btn = menu_record_btn
 
         macros_btn = Gtk.Button(label="Macros...")
         macros_btn.set_halign(Gtk.Align.FILL)
@@ -681,9 +688,10 @@ class MainWindow(Adw.ApplicationWindow):
         )
         self.status_bar.append(self.session_status)
 
-        self._unlock_status_label = Gtk.Label(label="unlock: 🔒")
-        self._unlock_status_label.add_css_class("caption")
-        self.status_bar.append(self._unlock_status_label)
+        unlock_status_label = Gtk.Label(label="unlock: 🔒")
+        unlock_status_label.add_css_class("caption")
+        self.status_bar.append(unlock_status_label)
+        self._unlock_status_label = unlock_status_label
 
         self.compositor_status = Gtk.Label()
         self.compositor_status.add_css_class("caption")

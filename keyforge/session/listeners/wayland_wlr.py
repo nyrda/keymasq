@@ -163,14 +163,15 @@ class WlrootsWaylandListener(WindowListener):
             log.debug("Slurp cursor capture not available")
             return None
 
-        if not self.client:
+        client = self.client
+        if client is None:
             log.debug("Slurp cursor capture requires client connection")
             return None
 
         try:
             result = await self._slurp.capture_point_async(
                 mode=SlurpMode.POINT_IMMEDIATE,
-                on_ready=lambda: trigger_slurp_macro(self.client),
+                on_ready=lambda: trigger_slurp_macro(client),
             )
             if result:
                 return (result.x, result.y)

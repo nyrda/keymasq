@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, cast
 
 from keyforge.common.paths import resolve_slurp_path
 
@@ -214,7 +215,7 @@ class SlurpCapture:
             loop = asyncio.get_running_loop()
             asyncio.ensure_future(coro, loop=loop)
         except RuntimeError:
-            asyncio.run(coro)
+            asyncio.run(cast(Coroutine[Any, Any, object], coro))
 
 
 def get_slurp_capture() -> SlurpCapture:

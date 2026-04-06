@@ -7,7 +7,7 @@ import json
 import threading
 from collections.abc import Callable
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.devices import input_class_label, normalize_input_classes
 from keyforge.common.paths import CONFIG_DIR, ensure_config_dirs

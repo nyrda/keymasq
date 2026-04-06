@@ -3,7 +3,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, GObject, Gtk
+from gi.repository import Adw, Gdk, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.models import ActionType, SuperkeyAction, SuperkeyConfig
 from keyforge.session.profiles import ProfileManager

@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import contextlib
+import inspect
 import json
 import logging
 import os
@@ -12,7 +13,7 @@ from datetime import datetime
 
 from keyforge.common.devices import normalize_input_classes, resolve_evdev_code
 from keyforge.common.ipc import Command, CommandType
-from keyforge.common.models import MappingAction
+from keyforge.common.models import ButtonDefinition, MappingAction
 from keyforge.common.paths import (
     CONFIG_DIR,
     SECURITY_POLICY_PATH,
@@ -148,7 +149,7 @@ class SessionManager:
 
         self.action_handler = ActionHandler()
 
-    def _resolved_button_codes(self, buttons: list[object]) -> dict[str, int]:
+    def _resolved_button_codes(self, buttons: list[ButtonDefinition]) -> dict[str, int]:
         resolved: dict[str, int] = {}
         for button in buttons:
             button_id = str(getattr(button, "id", "") or "")
@@ -425,13 +426,24 @@ class SessionManager:
             if not title:
                 return {"status": "error", "message": "title parameter required"}
             listener = self._window_listener
-            if listener is None or not hasattr(listener, "activate_window_by_title"):
+            activate_window_by_title = (
+                getattr(listener, "activate_window_by_title", None)
+                if listener is not None
+                else None
+            )
+            if not callable(activate_window_by_title):
                 return {
                     "status": "error",
                     "message": "Window activation not supported on this compositor",
                 }
             try:
-                result = await listener.activate_window_by_title(title)
+                result_obj = activate_window_by_title(title)
+                if not inspect.isawaitable(result_obj):
+                    return {
+                        "status": "error",
+                        "message": "Window activation not supported on this compositor",
+                    }
+                result = await result_obj
                 if result and result.get("found"):
                     return {"status": "ok", "title": title, "found": True}
                 return {
@@ -500,9 +512,7 @@ class SessionManager:
                 "active_profiles": list(self._active_profile_names),
                 "recording_active": self._recording_active,
                 "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
-                "gui_allow_left_right_click_remap": bool(
-                    policy.gui_allow_left_right_click_remap
-                ),
+                "gui_allow_left_right_click_remap": bool(policy.gui_allow_left_right_click_remap),
                 **self._serialize_recording_unlock_state(
                     unlock_status,
                     refresh_owner=self._is_refresh_owner_request(peer, writer),
@@ -1753,14 +1763,18 @@ class SessionManager:
                         hardware_id, cmd = ref_data
                         data["cmd"] = cmd
                         data["hardware_id"] = hardware_id
-                        await self.action_handler.handle_action(data)
+                        action_handler = self.action_handler
+                        if action_handler is not None:
+                            await action_handler.handle_action(data)
                     else:
                         log.warning(f"Unknown superkey exec_ref: {exec_ref}")
                 else:
                     cmd = self._exec_refs.get(exec_ref)
                     if cmd:
                         data["cmd"] = cmd
-                        await self.action_handler.handle_action(data)
+                        action_handler = self.action_handler
+                        if action_handler is not None:
+                            await action_handler.handle_action(data)
                     else:
                         log.warning(f"Unknown exec_ref: {exec_ref}")
             action_type_str = data.get("action_type", "")
@@ -1813,6 +1827,7 @@ class SessionManager:
             )
         elif event_type == CommandType.RECORDING_PROGRESS:
             self._broadcast_to_session_clients({"event": "recording_progress", **data})
+
     async def _handle_start_macro_trigger(self) -> None:
         if self._recording_active:
             await self._handle_stop_macro_trigger()
@@ -1887,7 +1902,10 @@ class SessionManager:
         is_async = bool(data.get("macro_exec_async", False))
 
         if wait_id:
-            returncode = await self.action_handler.execute_command(cmd)
+            action_handler = self.action_handler
+            if action_handler is None:
+                return
+            returncode = await action_handler.execute_command(cmd)
             try:
                 await self.client.send_command(
                     Command(
@@ -1900,10 +1918,16 @@ class SessionManager:
             return
 
         if is_async:
-            self.action_handler.execute_command_sync(cmd)
+            action_handler = self.action_handler
+            if action_handler is None:
+                return
+            action_handler.execute_command_sync(cmd)
             return
 
-        await self.action_handler.execute_command(cmd)
+        action_handler = self.action_handler
+        if action_handler is None:
+            return
+        await action_handler.execute_command(cmd)
 
     async def _handle_compositor_dispatch_trigger(self, data: dict) -> None:
         target_compositor = str(data.get("compositor", "") or "").strip()
@@ -2207,8 +2231,8 @@ class SessionManager:
             )
 
             if result.status == "ok":
-                self._last_sent_mapping_signatures[hardware_id] = (
-                    self._resolved_mapping_signature(resolved, hardware_id)
+                self._last_sent_mapping_signatures[hardware_id] = self._resolved_mapping_signature(
+                    resolved, hardware_id
                 )
                 log.info(
                     "Activated resolved profiles %s for %s",
@@ -2374,10 +2398,9 @@ class SessionManager:
             log.debug("Cleared %d combo exec refs", len(refs))
 
     def _mapping_update_needed(self, hardware_id: str, resolved: ResolvedDeviceProfile) -> bool:
-        return (
-            self._last_sent_mapping_signatures.get(hardware_id, "")
-            != self._resolved_mapping_signature(resolved, hardware_id)
-        )
+        return self._last_sent_mapping_signatures.get(
+            hardware_id, ""
+        ) != self._resolved_mapping_signature(resolved, hardware_id)
 
     def _resolved_mapping_signature(self, resolved: ResolvedDeviceProfile, hardware_id: str) -> str:
         mapping: dict[str, dict[str, object]] = {}
@@ -2610,9 +2633,9 @@ class SessionManager:
         if hardware_id not in self._device_exec_refs:
             self._device_exec_refs[hardware_id] = set()
 
-        mapping = {}
+        mapping: dict[str, dict[str, object]] = {}
         for button_id, action in resolved.mappings.items():
-            action_data = {"action": action.action_type.value}
+            action_data: dict[str, object] = {"action": action.action_type.value}
 
             if action.action_type.value in (
                 "keyboard",
@@ -3024,15 +3047,9 @@ class SessionManager:
                 if isinstance(loaded, dict):
                     existing = dict(loaded)
 
-            existing["include_mouse_movement"] = bool(
-                settings.get("include_mouse_movement", False)
-            )
-            existing["include_mouse_clicks"] = bool(
-                settings.get("include_mouse_clicks", False)
-            )
-            existing["record_start_position"] = bool(
-                settings.get("record_start_position", False)
-            )
+            existing["include_mouse_movement"] = bool(settings.get("include_mouse_movement", False))
+            existing["include_mouse_clicks"] = bool(settings.get("include_mouse_clicks", False))
+            existing["record_start_position"] = bool(settings.get("record_start_position", False))
 
             self._RECORDING_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
             self._RECORDING_SETTINGS_PATH.write_text(json.dumps(existing))

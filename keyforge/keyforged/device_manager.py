@@ -7,7 +7,7 @@ import random
 import time
 import uuid
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -24,7 +24,14 @@ from keyforge.common.devices import (
     resolve_stable_path,
 )
 from keyforge.common.ipc import CommandType
-from keyforge.common.models import ActionType, DeviceType, MappingAction
+from keyforge.common.models import (
+    ActionType,
+    DeviceType,
+    MappingAction,
+)
+from keyforge.common.models import (
+    SuperkeyConfig as CommonSuperkeyConfig,
+)
 from keyforge.keyforged.combo_engine import (
     ComboActionTransition,
     ComboDecision,
@@ -36,6 +43,7 @@ from keyforge.keyforged.combo_engine import (
     RuntimeComboStep,
 )
 from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
+from keyforge.keyforged.recording import RecordingManager
 from keyforge.keyforged.superkey_state import (
     SuperkeyActionData,
     SuperkeyConfig,
@@ -51,7 +59,7 @@ TOPOLOGY_DEBOUNCE_S = 0.5
 
 
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task:
-    task = asyncio.create_task(coro)
+    task = asyncio.ensure_future(coro)
 
     def _log_task_result(done: asyncio.Task) -> None:
         with contextlib.suppress(asyncio.CancelledError):
@@ -100,7 +108,7 @@ class DeviceManager:
         self._keyboard_uinput: evdev.UInput | None = None
         self._mouse_uinput: evdev.UInput | None = None
         self._gamepad_uinput: evdev.UInput | None = None
-        self.recording_manager = None
+        self.recording_manager: RecordingManager | None = None
         self._macro_tasks: dict[int, asyncio.Task] = {}
         self._macro_instance_meta: dict[int, dict[str, str]] = {}
         self._macro_instance_seq = 0
@@ -253,7 +261,10 @@ class DeviceManager:
                 ],
                 evdev.ecodes.EV_SYN: [],
             }
-            self._keyboard_uinput = evdev.UInput(events=keyboard_caps, name="keyforge-keyboard")
+            self._keyboard_uinput = evdev.UInput(
+                events=cast(dict[int, Sequence[int]], keyboard_caps),
+                name="keyforge-keyboard",
+            )
 
             mouse_caps = {
                 evdev.ecodes.EV_KEY: [
@@ -273,7 +284,10 @@ class DeviceManager:
                 ],
                 evdev.ecodes.EV_SYN: [],
             }
-            self._mouse_uinput = evdev.UInput(events=mouse_caps, name="keyforge-mouse")
+            self._mouse_uinput = evdev.UInput(
+                events=cast(dict[int, Sequence[int]], mouse_caps),
+                name="keyforge-mouse",
+            )
 
             gamepad_caps = {
                 evdev.ecodes.EV_KEY: [
@@ -308,7 +322,7 @@ class DeviceManager:
                 evdev.ecodes.EV_SYN: [],
             }
             self._gamepad_uinput = evdev.UInput(
-                events=gamepad_caps,
+                events=cast(dict[int, Sequence[int]], gamepad_caps),
                 name="Microsoft X-Box 360 pad",
                 vendor=0x045E,
                 product=0x028E,
@@ -385,12 +399,8 @@ class DeviceManager:
                     self._schedule_topology_reconcile(snapshot)
                     continue
 
-                if (
-                    snapshot != self._reconciled_topology_snapshot
-                    and (
-                        self._topology_reconcile_task is None
-                        or self._topology_reconcile_task.done()
-                    )
+                if snapshot != self._reconciled_topology_snapshot and (
+                    self._topology_reconcile_task is None or self._topology_reconcile_task.done()
                 ):
                     self._schedule_topology_reconcile(snapshot)
         except asyncio.CancelledError:
@@ -536,14 +546,11 @@ class DeviceManager:
         self._cancel_pending_hardware_release(hardware_id)
 
         requested_paths = {
-            resolve_stable_path(str(path))
-            for path in evdev_paths
-            if str(path or "").strip()
+            resolve_stable_path(str(path)) for path in evdev_paths if str(path or "").strip()
         }
         mapped_evdev_names = set(name.lower() for name in button_map.values())
         resolved_button_codes = {
-            button_id: int(code)
-            for button_id, code in (button_codes or {}).items()
+            button_id: int(code) for button_id, code in (button_codes or {}).items()
         }
         mapped_codes = set(resolved_button_codes.values())
         if update_desired:
@@ -956,13 +963,12 @@ class DeviceManager:
             log.info(f"Updated mapping for {hardware_id} ({len(parsed_mapping)} buttons)")
             return {"updated": True, "hardware_id": hardware_id}
 
-    async def set_combos(self, combos: list[object]) -> dict:
+    async def set_combos(self, combos: Sequence[object]) -> dict:
         async with self._op_lock:
             parsed: list[RuntimeCombo] = []
             for combo_data in combos:
                 if not isinstance(combo_data, dict):
                     continue
-
                 action_data = combo_data.get("action")
                 if not isinstance(action_data, (dict, str)):
                     continue
@@ -1056,9 +1062,7 @@ class DeviceManager:
             while self._diagnostics_enabled:
                 await asyncio.sleep(self._diagnostics_interval)
                 snapshot = {
-                    label: list(samples)
-                    for label, samples in self._diag_samples.items()
-                    if samples
+                    label: list(samples) for label, samples in self._diag_samples.items() if samples
                 }
                 if snapshot:
                     await asyncio.to_thread(self._log_diagnostics_snapshot, snapshot)
@@ -1159,7 +1163,7 @@ class DeviceManager:
             keys=action_data.get("keys"),
             cmd=action_data.get("cmd"),
             exec_ref=action_data.get("exec_ref"),
-            superkey_config=superkey_config,
+            superkey_config=cast(CommonSuperkeyConfig | None, superkey_config),
             macro_name=action_data.get("macro_name"),
             macro_events=action_data.get("macro_events"),
             macro_replay_mouse_movement=action_data.get("macro_replay_mouse_movement", True),
@@ -2133,14 +2137,19 @@ class DeviceManager:
             return
         kind = str(state.get("kind", "") or "")
         if kind == "key":
-            self._write_combo_key(
-                state.get("uinput"),
-                int(state.get("code", 0) or 0),
-                0,
-            )
+            uinput_dev = cast(evdev.UInput | None, state.get("uinput"))
+            code = state.get("code")
+            if isinstance(code, int):
+                self._write_combo_key(
+                    uinput_dev,
+                    code,
+                    0,
+                )
             return
         if kind == "trigger":
-            self._write_combo_trigger(int(state.get("axis_code", 0) or 0), 0)
+            axis_code = state.get("axis_code")
+            if isinstance(axis_code, int):
+                self._write_combo_trigger(axis_code, 0)
             return
         if kind in {"tap_key", "tap_trigger", "rapidfire_key", "rapidfire_trigger"}:
             state["active"] = False
@@ -2321,7 +2330,7 @@ class GrabbedDevice:
         mouse_uinput: evdev.UInput | None = None,
         gamepad_uinput: evdev.UInput | None = None,
         broadcast_callback: Callable[[CommandType, dict], Awaitable[None]] | None = None,
-        recording_manager=None,
+        recording_manager: RecordingManager | None = None,
         macro_player: Callable[..., Awaitable[dict]] | None = None,
         suppress_rel_getter: Callable[[], bool] | None = None,
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
@@ -2348,7 +2357,7 @@ class GrabbedDevice:
         self.mouse_uinput = mouse_uinput
         self.gamepad_uinput = gamepad_uinput
         self.broadcast_callback = broadcast_callback
-        self.recording_manager = recording_manager
+        self.recording_manager: RecordingManager | None = recording_manager
         self.macro_player = macro_player
         self.suppress_rel_getter = suppress_rel_getter
         self.mouse_rel_suppression_start_callback = mouse_rel_suppression_start_callback
@@ -2403,7 +2412,10 @@ class GrabbedDevice:
         caps = self.device.capabilities()
         caps.pop(evdev.ecodes.EV_SYN, None)
 
-        self.uinput = evdev.UInput(events=caps, name=f"keyforge-{self.hardware_id}")
+        self.uinput = evdev.UInput(
+            events=cast(dict[int, Sequence[int]], caps),
+            name=f"keyforge-{self.hardware_id}",
+        )
 
         try:
             await self._wait_for_active_keys_to_clear()
@@ -2482,8 +2494,12 @@ class GrabbedDevice:
     async def _event_loop(self) -> None:
         error_backoff = 0.01
 
+        device = self.device
+        if device is None:
+            return
+
         try:
-            async for event in self.device.async_read_loop():
+            async for event in device.async_read_loop():
                 if not self._running:
                     break
                 try:
@@ -2638,8 +2654,10 @@ class GrabbedDevice:
                 for code in active_codes
                 if (event_name := self._get_key_name(int(code))) is not None
             ]
-            summary = ", ".join(active_names) if active_names else ", ".join(
-                str(int(code)) for code in active_codes
+            summary = (
+                ", ".join(active_names)
+                if active_names
+                else ", ".join(str(int(code)) for code in active_codes)
             )
             if now - started_at >= ACTIVE_KEY_IDLE_MAX_WAIT_S:
                 await self._broadcast_grab_status(
@@ -2834,7 +2852,10 @@ class GrabbedDevice:
                     ActionType.CANCEL_MACRO_PLAYBACK,
                 )
             ):
-                self.recording_manager.record_event(
+                recording_manager = self.recording_manager
+                if recording_manager is None:
+                    return
+                recording_manager.record_event(
                     classify_event_device_type(event, self.device_types),
                     event,
                 )
@@ -3039,6 +3060,8 @@ class GrabbedDevice:
             if action.target:
                 is_trigger, axis_code = self._get_trigger_axis(action.target)
                 if is_trigger:
+                    if axis_code is None:
+                        return
                     if action.rapidfire_enabled:
                         if event.value == 1:
                             self._start_rapidfire_task(
@@ -3064,10 +3087,13 @@ class GrabbedDevice:
                                 f"tap action {event_name}",
                             )
                     else:
-                        self.gamepad_uinput.write(
+                        gamepad_uinput = self.gamepad_uinput
+                        if gamepad_uinput is None:
+                            return
+                        gamepad_uinput.write(
                             evdev.ecodes.EV_ABS, axis_code, 255 if event.value else 0
                         )
-                        self.gamepad_uinput.syn()
+                        gamepad_uinput.syn()
                 else:
                     code = self._resolve_code(action.target)
                     if code:
@@ -3288,7 +3314,7 @@ class GrabbedDevice:
                             )
 
                     machine = SuperkeyMachine(
-                        config=action.superkey_config,
+                        config=cast(SuperkeyConfig, action.superkey_config),
                         event_name=event_name,
                         keyboard_uinput=self.keyboard_uinput,
                         mouse_uinput=self.mouse_uinput,
@@ -3338,13 +3364,13 @@ class GrabbedDevice:
         if kind == "trigger":
             axis_code = state.get("axis_code")
             if axis_code is not None:
-                self._ensure_trigger_released(int(axis_code))
+                self._ensure_trigger_released(cast(int, axis_code))
             return
         if kind == "key":
             code = state.get("code")
-            uinput = state.get("uinput")
+            uinput = cast(evdev.UInput | None, state.get("uinput"))
             if code is not None:
-                self._ensure_key_released(int(code), uinput)
+                self._ensure_key_released(cast(int, code), uinput)
             return
 
     async def _stop_rapidfire_async(self, event_name: str) -> None:
@@ -3366,13 +3392,13 @@ class GrabbedDevice:
         if kind == "trigger":
             axis_code = state.get("axis_code")
             if axis_code is not None:
-                self._ensure_trigger_released(int(axis_code))
+                self._ensure_trigger_released(cast(int, axis_code))
             return
         if kind == "key":
             code = state.get("code")
-            uinput = state.get("uinput")
+            uinput = cast(evdev.UInput | None, state.get("uinput"))
             if code is not None:
-                self._ensure_key_released(int(code), uinput)
+                self._ensure_key_released(cast(int, code), uinput)
 
     def _bucket_for_uinput(self, uinput_dev: evdev.UInput | None) -> str | None:
         if uinput_dev is None:
@@ -3439,8 +3465,11 @@ class GrabbedDevice:
         if event.type == evdev.ecodes.EV_KEY:
             self._write_key(self.uinput, int(event.code), int(event.value))
             return
-        self.uinput.write(event.type, event.code, event.value)
-        self.uinput.syn()
+        uinput = self.uinput
+        if uinput is None:
+            return
+        uinput.write(event.type, event.code, event.value)
+        uinput.syn()
 
     def _resolve_code(self, key_name: str) -> int | None:
         return resolve_output_code(key_name)
@@ -3458,14 +3487,17 @@ class GrabbedDevice:
 
         try:
             while self._rapidfire_active.get(event_name, False) and self._running:
-                self.gamepad_uinput.write(evdev.ecodes.EV_ABS, axis_code, 255)
-                self.gamepad_uinput.syn()
+                gamepad_uinput = self.gamepad_uinput
+                if gamepad_uinput is None:
+                    return
+                gamepad_uinput.write(evdev.ecodes.EV_ABS, axis_code, 255)
+                gamepad_uinput.syn()
                 pressed = True
                 await asyncio.sleep(hold)
 
                 if pressed:
-                    self.gamepad_uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
-                    self.gamepad_uinput.syn()
+                    gamepad_uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
+                    gamepad_uinput.syn()
                     pressed = False
                 if not self._rapidfire_active.get(event_name, False):
                     break
@@ -3491,11 +3523,14 @@ class GrabbedDevice:
         hold = hold_ms / 1000.0
 
         try:
-            self.gamepad_uinput.write(evdev.ecodes.EV_ABS, axis_code, 255)
-            self.gamepad_uinput.syn()
+            gamepad_uinput = self.gamepad_uinput
+            if gamepad_uinput is None:
+                return
+            gamepad_uinput.write(evdev.ecodes.EV_ABS, axis_code, 255)
+            gamepad_uinput.syn()
             await asyncio.sleep(hold)
-            self.gamepad_uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
-            self.gamepad_uinput.syn()
+            gamepad_uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
+            gamepad_uinput.syn()
         except Exception:
             pass
         finally:

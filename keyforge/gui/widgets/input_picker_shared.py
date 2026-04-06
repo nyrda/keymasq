@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def _get_gamepad_svg_path() -> str:
@@ -17,8 +18,8 @@ def build_keyboard_tab(
     owner,
     *,
     keyboard_layout: list[list[str]],
-    key_to_evdev: dict[str, str | None],
-    key_widths: dict[str, float],
+    key_to_evdev: Mapping[str, str | None],
+    key_widths: Mapping[str, float],
 ) -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)

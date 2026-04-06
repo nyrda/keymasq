@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gtk
+from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.models import ActionType, MappingAction
 
@@ -212,7 +212,7 @@ def build_compositor_action_pages_for_definitions(
     definitions: Sequence[CompositorActionDefinition],
     current_action: MappingAction | None,
     on_selected: Callable[[MappingAction], None],
-    status: dict[str, object] | None = None,
+    status: Mapping[str, object] | None = None,
 ) -> list[CompositorActionPage]:
     resolved_status = dict(status or {})
     pages: list[CompositorActionPage] = []
@@ -232,7 +232,7 @@ def build_compositor_action_pages_for_definitions(
 def compositor_action_tab_name_for_definitions(
     definitions: Sequence[CompositorActionDefinition],
     action: MappingAction | None,
-    status: dict[str, object] | None = None,
+    status: Mapping[str, object] | None = None,
 ) -> str | None:
     if action is None:
         return None

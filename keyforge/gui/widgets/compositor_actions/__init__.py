@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from keyforge.common.models import MappingAction
 
@@ -15,7 +15,7 @@ from .core import (
 def build_compositor_action_pages(
     current_action: MappingAction | None,
     on_selected: Callable[[MappingAction], None],
-    status: dict[str, object] | None = None,
+    status: Mapping[str, object] | None = None,
 ):
     return build_compositor_action_pages_for_definitions(
         COMPOSITOR_ACTION_DEFINITIONS,
@@ -27,7 +27,7 @@ def build_compositor_action_pages(
 
 def compositor_action_tab_name(
     action: MappingAction | None,
-    status: dict[str, object] | None = None,
+    status: Mapping[str, object] | None = None,
 ) -> str | None:
     return compositor_action_tab_name_for_definitions(
         COMPOSITOR_ACTION_DEFINITIONS,

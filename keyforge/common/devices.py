@@ -1,8 +1,9 @@
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
+from typing import cast
 
 import evdev
 
@@ -140,13 +141,23 @@ def gamepad_button_label(evdev_name: str | None) -> str | None:
 
 
 def capability_name(event_type: int, code: object) -> str | None:
-    code_int = int(code[0] if isinstance(code, tuple) else code)
+    code_int = _capability_code_int(code)
+    if code_int is None:
+        return None
     code_name = evdev.ecodes.bytype.get(int(event_type), {}).get(code_int)
     if isinstance(code_name, tuple):
         code_name = code_name[0] if code_name else None
     if not isinstance(code_name, str):
         return None
     return code_name.lower()
+
+
+def _capability_code_int(code: object) -> int | None:
+    candidate = code[0] if isinstance(code, tuple) else code
+    try:
+        return int(cast(int, candidate))
+    except Exception:
+        return None
 
 
 def resolve_evdev_code(evdev_name: str | None) -> int | None:
@@ -168,7 +179,7 @@ def resolve_evdev_code(evdev_name: str | None) -> int | None:
     return None
 
 
-def capability_names_from_capabilities(caps: dict[int, list[object]]) -> list[str]:
+def capability_names_from_capabilities(caps: Mapping[int, Sequence[object]]) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
 
@@ -198,7 +209,7 @@ def ordered_gamepad_button_names(names: Iterable[str]) -> list[str]:
     return sorted(normalized, key=lambda name: (order_map.get(name, 999), name))
 
 
-def gamepad_button_names_from_capabilities(caps: dict[int, list[object]]) -> list[str]:
+def gamepad_button_names_from_capabilities(caps: Mapping[int, Sequence[object]]) -> list[str]:
     names: list[str] = []
     for code in caps.get(evdev.ecodes.EV_KEY, []):
         name = capability_name(evdev.ecodes.EV_KEY, code)
@@ -208,20 +219,23 @@ def gamepad_button_names_from_capabilities(caps: dict[int, list[object]]) -> lis
 
 
 def detect_input_classes_from_capabilities(
-    caps: dict[int, list[object]],
+    caps: Mapping[int, Sequence[object]],
     input_props: Iterable[int] | None = None,
 ) -> list[str]:
     key_codes = {
-        int(code[0] if isinstance(code, tuple) else code)
+        code_int
         for code in caps.get(evdev.ecodes.EV_KEY, [])
+        if (code_int := _capability_code_int(code)) is not None
     }
     rel_codes = {
-        int(code[0] if isinstance(code, tuple) else code)
+        code_int
         for code in caps.get(evdev.ecodes.EV_REL, [])
+        if (code_int := _capability_code_int(code)) is not None
     }
     abs_codes = {
-        int(code[0] if isinstance(code, tuple) else code)
+        code_int
         for code in caps.get(evdev.ecodes.EV_ABS, [])
+        if (code_int := _capability_code_int(code)) is not None
     }
     props = {int(prop) for prop in (input_props or [])}
 

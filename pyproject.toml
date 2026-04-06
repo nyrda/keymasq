@@ -100,11 +100,11 @@ reportUnknownParameterType = "none"
 reportMissingParameterType = "none"
 reportMissingTypeArgument = "none"
 reportPrivateUsage = "none"
-reportOptionalMemberAccess = "none"
 reportUnknownLambdaType = "none"
-reportArgumentType = "none"
-reportAttributeAccessIssue = "none"
 reportUntypedBaseClass = "none"
+executionEnvironments = [
+    { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none" },
+]
 
 [tool.mypy]
 python_version = "3.12"

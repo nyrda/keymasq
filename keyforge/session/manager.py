@@ -10,6 +10,7 @@ import secrets
 import signal
 import traceback
 from datetime import datetime
+from typing import cast
 
 from keyforge.common.devices import normalize_input_classes, resolve_evdev_code
 from keyforge.common.ipc import Command, CommandType
@@ -51,6 +52,29 @@ GRAB_DEVICE_TIMEOUT_S = 330.0
 GRAB_RETRY_DELAY_S = 5.0
 TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
 TOPOLOGY_REFRESH_RETRY_S = 1.0
+type JsonObject = dict[str, object]
+type _IntLike = int | float | str | bytes
+type _FloatLike = int | float | str | bytes
+
+
+def _json_object(value: object) -> JsonObject | None:
+    return cast(JsonObject, value) if isinstance(value, dict) else None
+
+
+def _json_list(value: object) -> list[object]:
+    return cast(list[object], value) if isinstance(value, list) else []
+
+
+def _str_value(value: object, default: str = "") -> str:
+    return default if value is None else str(value)
+
+
+def _int_value(value: object, default: int = 0) -> int:
+    return default if value is None else int(cast(_IntLike, value))
+
+
+def _float_value(value: object, default: float = 0.0) -> float:
+    return default if value is None else float(cast(_FloatLike, value))
 
 
 def _merge_support_details(
@@ -62,9 +86,11 @@ def _merge_support_details(
         return merged
     runtime_details_getter = getattr(listener, "runtime_support_details", None)
     if callable(runtime_details_getter):
-        runtime_details = runtime_details_getter()
-        if isinstance(runtime_details, dict) and runtime_details:
-            merged.update(runtime_details)
+        runtime_details = _json_object(runtime_details_getter())
+        if runtime_details:
+            for key, value in runtime_details.items():
+                if isinstance(value, (bool, int, str)):
+                    merged[key] = value
     return merged
 
 
@@ -82,25 +108,25 @@ class SessionManager:
         self._shutdown_event = asyncio.Event()
         self._retry_event = asyncio.Event()
         self._connected = False
-        self._reload_task: asyncio.Task | None = None
+        self._reload_task: asyncio.Task[None] | None = None
         self._reload_pending = False
         self.verbosity = verbosity
 
         self._grabbed_devices: set[str] = set()
         self._grabbed_interfaces: dict[str, dict[str, str]] = {}
         self._grab_waiting_devices: set[str] = set()
-        self._grab_retry_tasks: dict[str, asyncio.Task] = {}
-        self._topology_refresh_task: asyncio.Task | None = None
+        self._grab_retry_tasks: dict[str, asyncio.Task[None]] = {}
+        self._topology_refresh_task: asyncio.Task[None] | None = None
         self._last_sent_mapping_signatures: dict[str, str] = {}
         self._last_sent_combo_signature: str = ""
         self._active_profile_names: list[str] = []
         self._resolved_devices: dict[str, ResolvedDeviceProfile] = {}
-        self._current_window: dict = {}
+        self._current_window: JsonObject = {}
         self._window_listener: WindowListener | None = None
         self._compositor_id: str | None = None
         self._compositor_capabilities: list[str] = []
-        self._compositor_supervisor_task: asyncio.Task | None = None
-        self._connect_task: asyncio.Task | None = None
+        self._compositor_supervisor_task: asyncio.Task[None] | None = None
+        self._connect_task: asyncio.Task[None] | None = None
         self._compositor_candidate: str | None = None
         self._compositor_candidate_hits: int = 0
         self._compositor_probe_fast_s: float = 1.0
@@ -126,9 +152,9 @@ class SessionManager:
         self._superkey_exec_refs: dict[int, tuple[str, str]] = {}
         self._next_superkey_exec_ref: int = 10000
         self._recording_active: bool = False
-        self._pending_recording_data: dict | None = None
+        self._pending_recording_data: JsonObject | None = None
         self._recording_start_cursor: tuple[int, int] | None = None
-        self._recording_settings: dict = {
+        self._recording_settings: JsonObject = {
             "include_mouse_movement": False,
             "include_mouse_clicks": False,
             "record_start_position": False,
@@ -137,11 +163,11 @@ class SessionManager:
             "record_gamepad": True,
             "device_overrides": {},
         }
-        self._recording_settings_pending_save: dict | None = None
-        self._recording_settings_save_task: asyncio.Task | None = None
+        self._recording_settings_pending_save: JsonObject | None = None
+        self._recording_settings_save_task: asyncio.Task[None] | None = None
         self._load_recording_settings_from_disk()
-        self._recording_devices_cache: list[dict] = []
-        self._recording_refresh_owner: dict | None = None
+        self._recording_devices_cache: list[JsonObject] = []
+        self._recording_refresh_owner: JsonObject | None = None
         self._runtime_refresh_claim_consumed_until: dict[int, int] = {}
         self._recording_refresh_ttl_s = 60
         self._security_policy: SecurityPolicy = load_security_policy(SECURITY_POLICY_PATH)
@@ -355,12 +381,12 @@ class SessionManager:
 
     async def _handle_session_request(
         self,
-        request: dict,
+        request: JsonObject,
         client_class: str,
         peer: PeerCredentials,
         writer: asyncio.StreamWriter,
-    ) -> dict:
-        command = request.get("command", "")
+    ) -> JsonObject:
+        command = _str_value(request.get("command"), "")
         policy = self._security_policy
 
         if not command_allowed(command, policy.session_command_acl, client_class):
@@ -385,7 +411,7 @@ class SessionManager:
             return self._build_profile_overview()
 
         if command in {"enable_profile", "disable_profile", "toggle_profile"}:
-            profile_name = str(request.get("profile_name", "") or "")
+            profile_name = _str_value(request.get("profile_name"), "")
             if not profile_name:
                 return {"status": "error", "message": "missing profile_name"}
 
@@ -422,7 +448,7 @@ class SessionManager:
             return await self._get_active_window_payload()
 
         if command == "activate_title":
-            title = str(request.get("title", "") or "").strip()
+            title = _str_value(request.get("title"), "").strip()
             if not title:
                 return {"status": "error", "message": "title parameter required"}
             listener = self._window_listener
@@ -544,11 +570,11 @@ class SessionManager:
             return await self._claim_recording_unlock_refresh(peer, writer)
 
         if command == "refresh_recording_unlock":
-            lease_id = str(request.get("lease_id", "") or "").strip()
+            lease_id = _str_value(request.get("lease_id"), "").strip()
             return await self._refresh_recording_unlock(peer, writer, lease_id)
 
         if command == "lock_recording_unlock":
-            lease_id = str(request.get("lease_id", "") or "").strip()
+            lease_id = _str_value(request.get("lease_id"), "").strip()
             return await self._lock_recording_unlock(peer, writer, lease_id)
 
         if command == "stop_recording":
@@ -559,16 +585,17 @@ class SessionManager:
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
             if result.status == "ok":
-                if isinstance(result.data, dict):
-                    self._pending_recording_data = result.data
+                result_data = _json_object(result.data)
+                if result_data is not None:
+                    self._pending_recording_data = result_data
                     self._recording_active = False
-                    return {"status": "ok", **result.data}
+                    return {"status": "ok", **result_data}
                 self._recording_active = False
                 return {"status": "ok"}
             return {"status": "error", "message": result.error or "Failed to stop recording"}
 
         if command == "save_recording":
-            name = request.get("name", "").strip()
+            name = _str_value(request.get("name"), "").strip()
             if not name:
                 return {"status": "error", "message": "Name required"}
             if not self._pending_recording_data:
@@ -576,8 +603,8 @@ class SessionManager:
             save_result = await self._save_recording(
                 name,
                 move_to_start=bool(request.get("move_to_start", False)),
-                start_x=int(request.get("start_x", 0)),
-                start_y=int(request.get("start_y", 0)),
+                start_x=_int_value(request.get("start_x"), 0),
+                start_y=_int_value(request.get("start_y"), 0),
                 block_mouse_movement=bool(request.get("block_mouse_movement", False)),
             )
             if save_result.get("status") != "ok":
@@ -595,25 +622,27 @@ class SessionManager:
                 )
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
-            if result.status == "ok" and isinstance(result.data, dict):
-                return {"status": "ok", "macros": result.data.get("macros", [])}
+            result_data = _json_object(result.data)
+            if result.status == "ok" and result_data is not None:
+                return {"status": "ok", "macros": result_data.get("macros", [])}
             return {"status": "error", "message": result.error or "Failed to list macros"}
 
         if command == "get_macro":
-            name = request.get("name", "")
+            name = _str_value(request.get("name"), "")
             try:
                 result = await self.client.send_command(
                     Command(command=CommandType.MACRO_GET, data={"name": name})
                 )
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
-            if result.status == "ok" and isinstance(result.data, dict):
-                return {"status": "ok", "macro": result.data.get("macro")}
+            result_data = _json_object(result.data)
+            if result.status == "ok" and result_data is not None:
+                return {"status": "ok", "macro": result_data.get("macro")}
             return {"status": "error", "message": result.error or "Macro not found"}
 
         if command == "create_macro":
-            macro = request.get("macro")
-            if not isinstance(macro, dict):
+            macro = _json_object(request.get("macro"))
+            if macro is None:
                 return {"status": "error", "message": "macro payload required"}
             try:
                 result = await self.client.send_command(
@@ -621,44 +650,46 @@ class SessionManager:
                 )
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
-            if result.status == "ok" and isinstance(result.data, dict):
-                created = result.data.get("macro", {})
+            result_data = _json_object(result.data)
+            if result.status == "ok" and result_data is not None:
+                created = _json_object(result_data.get("macro")) or {}
                 self._broadcast_to_session_clients(
-                    {"event": "macro_saved", "name": created.get("name", "")}
+                    {"event": "macro_saved", "name": _str_value(created.get("name"), "")}
                 )
                 return {"status": "ok", "macro": created}
             return {"status": "error", "message": result.error or "Failed to create macro"}
 
         if command == "update_macro":
-            name = request.get("name", "")
-            macro = request.get("macro")
-            if not isinstance(macro, dict):
+            name = _str_value(request.get("name"), "")
+            macro = _json_object(request.get("macro"))
+            if macro is None:
                 return {"status": "error", "message": "macro payload required"}
-            payload = {"name": name, "macro": macro}
+            update_payload: JsonObject = {"name": name, "macro": macro}
             if "expected_revision" in request:
-                payload["expected_revision"] = request.get("expected_revision")
+                update_payload["expected_revision"] = request.get("expected_revision")
             try:
                 result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_UPDATE, data=payload)
+                    Command(command=CommandType.MACRO_UPDATE, data=update_payload)
                 )
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
-            if result.status == "ok" and isinstance(result.data, dict):
-                updated = result.data.get("macro", {})
+            result_data = _json_object(result.data)
+            if result.status == "ok" and result_data is not None:
+                updated = _json_object(result_data.get("macro")) or {}
                 self._broadcast_to_session_clients(
-                    {"event": "macro_saved", "name": updated.get("name", name)}
+                    {"event": "macro_saved", "name": _str_value(updated.get("name"), name)}
                 )
                 return {"status": "ok", "macro": updated}
             return {"status": "error", "message": result.error or "Failed to update macro"}
 
         if command == "delete_macro":
-            name = request.get("name", "")
-            payload = {"name": name}
+            name = _str_value(request.get("name"), "")
+            delete_payload: JsonObject = {"name": name}
             if "expected_revision" in request:
-                payload["expected_revision"] = request.get("expected_revision")
+                delete_payload["expected_revision"] = request.get("expected_revision")
             try:
                 result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_DELETE, data=payload)
+                    Command(command=CommandType.MACRO_DELETE, data=delete_payload)
                 )
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
@@ -668,27 +699,28 @@ class SessionManager:
             return {"status": "ok"}
 
         if command == "rename_macro":
-            payload = {
-                "old_name": request.get("old", ""),
-                "new_name": request.get("new", ""),
+            rename_payload: JsonObject = {
+                "old_name": _str_value(request.get("old"), ""),
+                "new_name": _str_value(request.get("new"), ""),
             }
             if "expected_revision" in request:
-                payload["expected_revision"] = request.get("expected_revision")
+                rename_payload["expected_revision"] = request.get("expected_revision")
             try:
                 result = await self.client.send_command(
-                    Command(command=CommandType.MACRO_RENAME, data=payload)
+                    Command(command=CommandType.MACRO_RENAME, data=rename_payload)
                 )
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
             if result.status != "ok":
                 return {"status": "error", "message": result.error or "Failed to rename macro"}
             await self._reload_profiles()
-            if isinstance(result.data, dict):
-                return {"status": "ok", "macro": result.data.get("macro")}
+            result_data = _json_object(result.data)
+            if result_data is not None:
+                return {"status": "ok", "macro": result_data.get("macro")}
             return {"status": "ok"}
 
         if command == "play_macro":
-            name = request.get("name", "")
+            name = _str_value(request.get("name"), "")
             try:
                 get_result = await self.client.send_command(
                     Command(command=CommandType.MACRO_GET, data={"name": name})
@@ -696,25 +728,26 @@ class SessionManager:
             except Exception:
                 return {"status": "error", "message": "Daemon unavailable"}
 
-            if get_result.status != "ok" or not isinstance(get_result.data, dict):
+            get_result_data = _json_object(get_result.data)
+            if get_result.status != "ok" or get_result_data is None:
                 return {"status": "error", "message": get_result.error or "Macro not found"}
 
-            macro = get_result.data.get("macro")
-            if not isinstance(macro, dict):
+            macro = _json_object(get_result_data.get("macro"))
+            if macro is None:
                 return {"status": "error", "message": "Macro not found"}
 
             macro = self._sanitize_macro_for_policy(macro)
-            payload = {
+            payload: JsonObject = {
                 "macro_name": str(macro.get("name", name) or name),
                 "macro_events": macro.get("events", []),
                 "replay_mouse_movement": request.get("replay_mouse_movement", True),
                 "replay_mouse_clicks": request.get("replay_mouse_clicks", True),
-                "speed": float(request.get("speed", 1.0)),
+                "speed": _float_value(request.get("speed"), 1.0),
                 "loop_mode": str(macro.get("loop_mode", "none") or "none"),
-                "loop_count": int(macro.get("loop_count", 1) or 1),
+                "loop_count": _int_value(macro.get("loop_count"), 1),
                 "move_to_start": bool(macro.get("move_to_start", False)),
-                "start_x": int(macro.get("start_x", 0) or 0),
-                "start_y": int(macro.get("start_y", 0) or 0),
+                "start_x": _int_value(macro.get("start_x"), 0),
+                "start_y": _int_value(macro.get("start_y"), 0),
                 "block_mouse_movement": bool(macro.get("block_mouse_movement", False)),
             }
 
@@ -748,33 +781,33 @@ class SessionManager:
             return {"status": "ok", "devices": devices}
 
         if command == "begin_capture":
-            hardware_id = request.get("hardware_id", "")
+            hardware_id = _str_value(request.get("hardware_id"), "")
             if not hardware_id:
                 return {"error": "missing hardware_id"}
             return await self._capture_begin(hardware_id)
 
         if command == "capture_read":
-            hardware_id = request.get("hardware_id", "")
+            hardware_id = _str_value(request.get("hardware_id"), "")
             if not hardware_id:
                 return {"error": "missing hardware_id"}
             return await self._capture_read(hardware_id)
 
         if command == "end_capture":
-            hardware_id = request.get("hardware_id", "")
+            hardware_id = _str_value(request.get("hardware_id"), "")
             if not hardware_id:
                 return {"error": "missing hardware_id"}
             return await self._capture_end(hardware_id)
 
         if command == "capture_combo":
-            profile_name = str(request.get("profile_name", "") or "")
+            profile_name = _str_value(request.get("profile_name"), "")
             if not profile_name:
                 return {"error": "missing profile_name"}
-            timeout_s = float(request.get("timeout_s", 15.0) or 15.0)
+            timeout_s = _float_value(request.get("timeout_s"), 15.0)
             return await self._capture_combo(profile_name, timeout_s)
 
         if command == "set_diagnostics":
             enabled = bool(request.get("enabled", False))
-            interval = float(request.get("interval", 5.0))
+            interval = _float_value(request.get("interval"), 5.0)
             try:
                 result = await self.client.send_command(
                     Command(
@@ -930,7 +963,7 @@ class SessionManager:
         self,
         peer: PeerCredentials,
         writer: asyncio.StreamWriter,
-    ) -> dict:
+    ) -> JsonObject:
         unlock_status = await self._resolve_unlock_status_async(peer.uid)
         if not bool(unlock_status.get("unlocked", False)):
             return {
@@ -1009,7 +1042,7 @@ class SessionManager:
         peer: PeerCredentials,
         writer: asyncio.StreamWriter,
         lease_id: str,
-    ) -> dict:
+    ) -> JsonObject:
         if not lease_id:
             return {
                 "status": "error",
@@ -1081,7 +1114,7 @@ class SessionManager:
         peer: PeerCredentials,
         writer: asyncio.StreamWriter,
         lease_id: str,
-    ) -> dict:
+    ) -> JsonObject:
         if not lease_id:
             return {
                 "status": "error",
@@ -1136,7 +1169,7 @@ class SessionManager:
             ),
         }
 
-    async def _begin_capture(self, hardware_id: str) -> dict:
+    async def _begin_capture(self, hardware_id: str) -> JsonObject:
         self._capture_locks.add(hardware_id)
 
         current_profiles = list(
@@ -1158,7 +1191,7 @@ class SessionManager:
             "profiles": current_profiles,
         }
 
-    async def _capture_begin(self, hardware_id: str) -> dict:
+    async def _capture_begin(self, hardware_id: str) -> JsonObject:
         lock_result = await self._begin_capture(hardware_id)
         try:
             result = await self.client.send_command(
@@ -1168,11 +1201,12 @@ class SessionManager:
             await self._end_capture(hardware_id)
             return {"status": "error", "message": "Daemon unavailable"}
 
-        if result.status != "ok" or not isinstance(result.data, dict):
+        result_data = _json_object(result.data)
+        if result.status != "ok" or result_data is None:
             await self._end_capture(hardware_id)
             return {"status": "error", "message": result.error or "Failed to begin capture"}
 
-        token = str(result.data.get("token", ""))
+        token = _str_value(result_data.get("token"), "")
         if not token:
             await self._end_capture(hardware_id)
             return {"status": "error", "message": "Missing capture token"}
@@ -1182,12 +1216,12 @@ class SessionManager:
             "status": "ok",
             "hardware_id": hardware_id,
             "token": token,
-            "warnings": result.data.get("warnings", []),
+            "warnings": result_data.get("warnings", []),
         }
         response.update(lock_result)
         return response
 
-    async def _capture_read(self, hardware_id: str) -> dict:
+    async def _capture_read(self, hardware_id: str) -> JsonObject:
         token = self._capture_tokens.get(hardware_id, "")
         if not token:
             return {"status": "error", "message": "capture not active"}
@@ -1199,11 +1233,12 @@ class SessionManager:
         except Exception:
             return {"status": "error", "message": "Daemon unavailable"}
 
-        if result.status == "ok" and isinstance(result.data, dict):
-            return {"status": "ok", "captured": result.data.get("captured")}
+        result_data = _json_object(result.data)
+        if result.status == "ok" and result_data is not None:
+            return {"status": "ok", "captured": result_data.get("captured")}
         return {"status": "error", "message": result.error or "Failed to read capture"}
 
-    async def _capture_end(self, hardware_id: str) -> dict:
+    async def _capture_end(self, hardware_id: str) -> JsonObject:
         token = self._capture_tokens.pop(hardware_id, "")
         if token:
             try:
@@ -1214,7 +1249,7 @@ class SessionManager:
                 pass
         return await self._end_capture(hardware_id)
 
-    async def _end_capture(self, hardware_id: str) -> dict:
+    async def _end_capture(self, hardware_id: str) -> JsonObject:
         was_locked = hardware_id in self._capture_locks
         self._capture_locks.discard(hardware_id)
 
@@ -1235,7 +1270,7 @@ class SessionManager:
             "profiles": active_names or previous_profile_names,
         }
 
-    async def _capture_combo(self, profile_name: str, timeout_s: float) -> dict:
+    async def _capture_combo(self, profile_name: str, timeout_s: float) -> JsonObject:
         profile = self.profiles.get_profile(profile_name)
         if profile is None:
             return {"status": "error", "message": f"Unknown profile '{profile_name}'"}
@@ -1272,10 +1307,11 @@ class SessionManager:
         except Exception:
             return {"status": "error", "message": "Daemon unavailable"}
 
-        if result.status != "ok" or not isinstance(result.data, dict):
+        result_data = _json_object(result.data)
+        if result.status != "ok" or result_data is None:
             return {"status": "error", "message": result.error or "Combo capture failed"}
 
-        events = result.data.get("events")
+        events = result_data.get("events")
         if not isinstance(events, list):
             return {"status": "error", "message": "Combo capture returned no events"}
 
@@ -1290,10 +1326,10 @@ class SessionManager:
                 for event in events
                 if isinstance(event, dict)
             ],
-            "warnings": list(result.data.get("warnings", [])),
+            "warnings": _json_list(result_data.get("warnings")),
         }
 
-    def _build_active_profiles_payload(self) -> dict:
+    def _build_active_profiles_payload(self) -> JsonObject:
         return {
             "status": "ok",
             "active_profiles": list(self._active_profile_names),
@@ -1308,7 +1344,7 @@ class SessionManager:
             "window": self._current_window,
         }
 
-    async def _get_active_window_payload(self) -> dict:
+    async def _get_active_window_payload(self) -> JsonObject:
         if self._window_listener is not None:
             try:
                 (
@@ -1318,7 +1354,7 @@ class SessionManager:
                 ) = await self._window_listener.get_active_window()
                 window_info = self._normalize_window_info(window_class, window_title, window_tags)
                 if window_info["class"] or window_info["title"] or window_info["tags"]:
-                    self._current_window = window_info
+                    self._current_window = cast(JsonObject, window_info)
                     return {"status": "ok", **window_info}
             except Exception as e:
                 log.debug(
@@ -1348,11 +1384,17 @@ class SessionManager:
             "tags": [str(tag) for tag in window_tags if str(tag or "").strip()],
         }
 
-    def _normalize_window_info_from_dict(self, window_info: dict) -> dict[str, str | list[str]]:
+    def _normalize_window_info_from_dict(
+        self, window_info: JsonObject
+    ) -> dict[str, str | list[str]]:
         return self._normalize_window_info(
-            str(window_info.get("class", "") or ""),
-            str(window_info.get("title", "") or ""),
-            [str(tag) for tag in list(window_info.get("tags", []) or []) if str(tag or "").strip()],
+            _str_value(window_info.get("class"), ""),
+            _str_value(window_info.get("title"), ""),
+            [
+                str(tag)
+                for tag in _json_list(window_info.get("tags"))
+                if str(tag or "").strip()
+            ],
         )
 
     def _broadcast_profiles_changed(self) -> None:
@@ -1364,7 +1406,7 @@ class SessionManager:
             "event": "keyforged_status",
             "connected": connected,
         }
-        self._broadcast_to_session_clients(message)
+        self._broadcast_to_session_clients(cast(JsonObject, message))
 
     def _device_name_for_hardware(self, hardware_id: str) -> str:
         hardware = self.hardware.get_hardware(hardware_id)
@@ -1397,10 +1439,10 @@ class SessionManager:
 
         self._grab_retry_tasks[hardware_id] = asyncio.create_task(_retry())
 
-    def _handle_device_grab_status_event(self, data: dict) -> None:
+    def _handle_device_grab_status_event(self, data: JsonObject) -> None:
         hardware_id = str(data.get("hardware_id", "") or "")
         state = str(data.get("state", "") or "").strip().lower()
-        active_keys = [str(key) for key in list(data.get("active_keys", []) or []) if str(key)]
+        active_keys = [str(key) for key in _json_list(data.get("active_keys")) if str(key)]
         summary = ", ".join(active_keys) if active_keys else "unknown keys"
 
         self._broadcast_to_session_clients({"event": "device_grab_status", **data})
@@ -1431,7 +1473,7 @@ class SessionManager:
             )
             self._schedule_grab_retry(hardware_id)
 
-    def _broadcast_to_session_clients(self, message: dict) -> None:
+    def _broadcast_to_session_clients(self, message: JsonObject) -> None:
         for writer in list(self._session_clients):
             try:
                 writer.write(json.dumps(message).encode() + b"\n")
@@ -1750,12 +1792,13 @@ class SessionManager:
             log.debug(f"Failed to start window listener: {e}")
             self._window_listener = None
 
-    async def _handle_event(self, event_type: CommandType, data: dict) -> None:
+    async def _handle_event(self, event_type: CommandType, data: JsonObject) -> None:
         if self.verbosity >= 1:
             log.debug(f"Event: {event_type.value} -> {self._event_log_view(data)}")
 
         if event_type == CommandType.ACTION_TRIGGER:
-            exec_ref = data.get("exec_ref")
+            exec_ref_raw = data.get("exec_ref")
+            exec_ref = _int_value(exec_ref_raw, -1) if exec_ref_raw is not None else None
             if exec_ref is not None:
                 if exec_ref >= 10000:
                     ref_data = self._superkey_exec_refs.get(exec_ref)
@@ -1818,7 +1861,7 @@ class SessionManager:
                 {
                     "event": "recording_stopped",
                     "duration_ms": recording_data.get("duration_ms", 0),
-                    "event_count": len(recording_data.get("events", [])),
+                    "event_count": len(_json_list(recording_data.get("events"))),
                     "device_types": recording_data.get("device_types", []),
                     "start_x": recording_data.get("start_x"),
                     "start_y": recording_data.get("start_y"),
@@ -1870,7 +1913,7 @@ class SessionManager:
         except Exception:
             pass
 
-    async def _handle_profile_trigger(self, data: dict) -> None:
+    async def _handle_profile_trigger(self, data: JsonObject) -> None:
         action_type = str(data.get("action_type", "") or "").strip().lower()
         profile_name = str(data.get("profile_name", "") or "").strip()
         if not profile_name:
@@ -1893,7 +1936,7 @@ class SessionManager:
                 result.get("message", "unknown error"),
             )
 
-    async def _handle_exec_trigger(self, data: dict) -> None:
+    async def _handle_exec_trigger(self, data: JsonObject) -> None:
         cmd = str(data.get("cmd", "") or "").strip()
         if not cmd:
             return
@@ -1929,10 +1972,10 @@ class SessionManager:
             return
         await action_handler.execute_command(cmd)
 
-    async def _handle_compositor_dispatch_trigger(self, data: dict) -> None:
-        target_compositor = str(data.get("compositor", "") or "").strip()
-        dispatcher = str(data.get("dispatcher", "") or "").strip()
-        args = str(data.get("args", "") or "").strip()
+    async def _handle_compositor_dispatch_trigger(self, data: JsonObject) -> None:
+        target_compositor = _str_value(data.get("compositor"), "").strip()
+        dispatcher = _str_value(data.get("dispatcher"), "").strip()
+        args = _str_value(data.get("args"), "").strip()
         if not dispatcher:
             return
 
@@ -1979,7 +2022,7 @@ class SessionManager:
         self,
         profile_name: str,
         enabled: bool | None,
-    ) -> dict:
+    ) -> JsonObject:
         profile = await asyncio.to_thread(
             self.profiles.set_profile_enabled,
             profile_name,
@@ -2003,7 +2046,7 @@ class SessionManager:
             "active_profiles": list(self._active_profile_names),
         }
 
-    def _build_profile_overview(self) -> dict:
+    def _build_profile_overview(self) -> JsonObject:
         known_hardware_ids = set(self.hardware.list_hardware_ids())
         for info in self.profiles.list_profiles():
             known_hardware_ids.update(info.config.device_layers.keys())
@@ -2012,7 +2055,7 @@ class SessionManager:
             self.profiles.list_profiles(),
             key=lambda p: (p.config.name.casefold(), p.config.created_at or datetime.min),
         )
-        devices: list[dict] = []
+        devices: list[JsonObject] = []
         for hardware_id in sorted(known_hardware_ids):
             hardware = self.hardware.get_hardware(hardware_id)
             resolved = self._resolved_devices.get(hardware_id, ResolvedDeviceProfile(hardware_id))
@@ -2164,9 +2207,10 @@ class SessionManager:
                 timeout=GRAB_DEVICE_TIMEOUT_S,
             )
             if result.status == "ok":
+                result_data = _json_object(result.data)
                 grabbed_count = (
-                    int(result.data.get("grabbed_count", 0) or 0)
-                    if isinstance(result.data, dict)
+                    _int_value(result_data.get("grabbed_count"), 0)
+                    if result_data is not None
                     else 0
                 )
                 self._cancel_grab_retry(hardware_id)
@@ -2545,8 +2589,11 @@ class SessionManager:
             return None
         return data
 
-    async def _on_device_connected(self, device_info: dict) -> None:
-        hardware_id = f"{device_info.get('vendor_id', '')}:{device_info.get('product_id', '')}"
+    async def _on_device_connected(self, device_info: JsonObject) -> None:
+        hardware_id = (
+            f"{_str_value(device_info.get('vendor_id'), '')}:"
+            f"{_str_value(device_info.get('product_id'), '')}"
+        )
         if not hardware_id or ":" not in hardware_id:
             return
 
@@ -2557,10 +2604,13 @@ class SessionManager:
             return
         self._schedule_topology_refresh()
 
-    async def _on_device_disconnected(self, device_info: dict) -> None:
-        hardware_id = str(device_info.get("hardware_id", "") or "")
+    async def _on_device_disconnected(self, device_info: JsonObject) -> None:
+        hardware_id = _str_value(device_info.get("hardware_id"), "")
         if not hardware_id or ":" not in hardware_id:
-            hardware_id = f"{device_info.get('vendor_id', '')}:{device_info.get('product_id', '')}"
+            hardware_id = (
+                f"{_str_value(device_info.get('vendor_id'), '')}:"
+                f"{_str_value(device_info.get('product_id'), '')}"
+            )
         if not hardware_id or ":" not in hardware_id:
             return
         if (
@@ -2583,7 +2633,7 @@ class SessionManager:
                 window_tags,
             )
 
-        self._current_window = window_info
+        self._current_window = cast(JsonObject, window_info)
         await self._reevaluate_profiles()
 
     def _send_notification(self, title: str, message: str) -> None:
@@ -2600,14 +2650,14 @@ class SessionManager:
         except Exception as e:
             log.debug(f"Failed to send notification: {e}")
 
-    def _is_recording_locked_error(self, result: dict) -> bool:
+    def _is_recording_locked_error(self, result: JsonObject) -> bool:
         if result.get("error_code") == "recording_locked":
             return True
 
         message = str(result.get("message", "") or "").lower()
         return "recording_locked" in message
 
-    def _notify_recording_unlock_required(self, result: dict) -> None:
+    def _notify_recording_unlock_required(self, result: JsonObject) -> None:
         if not self._is_recording_locked_error(result):
             return
 
@@ -2629,7 +2679,7 @@ class SessionManager:
         profile_list = ", ".join(resolved.active_profile_names) or "passthrough"
         self._send_notification("Profile Activated", f"{device_name}: {profile_list}")
 
-    def _profile_to_mapping(self, resolved: ResolvedDeviceProfile, hardware_id: str) -> dict:
+    def _profile_to_mapping(self, resolved: ResolvedDeviceProfile, hardware_id: str) -> JsonObject:
         if hardware_id not in self._device_exec_refs:
             self._device_exec_refs[hardware_id] = set()
 
@@ -2697,10 +2747,10 @@ class SessionManager:
 
             mapping[button_id] = action_data
 
-        return mapping
+        return cast(JsonObject, mapping)
 
-    def _resolved_combos_payload(self, combos: list[ResolvedCombo]) -> list[dict]:
-        payload: list[dict] = []
+    def _resolved_combos_payload(self, combos: list[ResolvedCombo]) -> list[JsonObject]:
+        payload: list[JsonObject] = []
         for combo in combos:
             if combo.action is None:
                 continue
@@ -2738,7 +2788,7 @@ class SessionManager:
             )
         return payload
 
-    def _combo_action_to_payload(self, action: MappingAction) -> dict | None:
+    def _combo_action_to_payload(self, action: MappingAction) -> JsonObject | None:
         action_type = action.action_type.value
         action_data: dict[str, object] = {"action": action_type}
 
@@ -2936,10 +2986,10 @@ class SessionManager:
                 "replay_mouse_clicks": True,
                 "speed": 1.0,
                 "loop_mode": str(macro.get("loop_mode", "none") or "none"),
-                "loop_count": int(macro.get("loop_count", 1) or 1),
+                "loop_count": _int_value(macro.get("loop_count"), 1),
                 "move_to_start": bool(macro.get("move_to_start", False)),
-                "start_x": int(macro.get("start_x", 0) or 0),
-                "start_y": int(macro.get("start_y", 0) or 0),
+                "start_x": _int_value(macro.get("start_x"), 0),
+                "start_y": _int_value(macro.get("start_y"), 0),
                 "block_mouse_movement": bool(macro.get("block_mouse_movement", False)),
             }
 
@@ -2947,14 +2997,14 @@ class SessionManager:
         except Exception:
             pass
 
-    def _sanitize_macro_for_policy(self, macro: dict) -> dict:
+    def _sanitize_macro_for_policy(self, macro: JsonObject) -> JsonObject:
         cloned = dict(macro)
         events = cloned.get("events")
         if not isinstance(events, list):
             return cloned
 
         max_timeout = max(1, int(self._security_policy.macro_exec_timeout_max_ms))
-        sanitized: list[dict] = []
+        sanitized: list[JsonObject] = []
         for ev in events:
             if not isinstance(ev, dict):
                 continue
@@ -2967,7 +3017,7 @@ class SessionManager:
         cloned["events"] = sanitized
         return cloned
 
-    def _update_recording_settings(self, request: dict) -> None:
+    def _update_recording_settings(self, request: JsonObject) -> None:
         if "include_mouse_movement" in request:
             self._recording_settings["include_mouse_movement"] = bool(
                 request.get("include_mouse_movement")
@@ -2994,7 +3044,7 @@ class SessionManager:
                 }
         self._queue_recording_settings_save(dict(self._recording_settings))
 
-    def _queue_recording_settings_save(self, settings: dict) -> None:
+    def _queue_recording_settings_save(self, settings: JsonObject) -> None:
         self._recording_settings_pending_save = settings
         if self._recording_settings_save_task and not self._recording_settings_save_task.done():
             return
@@ -3038,10 +3088,10 @@ class SessionManager:
         except Exception:
             pass
 
-    def _save_recording_settings_to_disk(self, settings: dict | None = None) -> None:
+    def _save_recording_settings_to_disk(self, settings: JsonObject | None = None) -> None:
         settings = settings or self._recording_settings
         try:
-            existing: dict = {}
+            existing: JsonObject = {}
             if self._RECORDING_SETTINGS_PATH.exists():
                 loaded = json.loads(self._RECORDING_SETTINGS_PATH.read_text())
                 if isinstance(loaded, dict):
@@ -3056,14 +3106,15 @@ class SessionManager:
         except Exception:
             pass
 
-    async def _start_recording(self, reset_if_active: bool = False) -> dict:
+    async def _start_recording(self, reset_if_active: bool = False) -> JsonObject:
         if self._recording_active:
             if not reset_if_active:
                 return {"status": "error", "message": "Recording already in progress"}
             try:
                 result = await self.client.send_command(Command(command=CommandType.STOP_RECORDING))
-                if result.status == "ok" and isinstance(result.data, dict):
-                    self._pending_recording_data = result.data
+                result_data = _json_object(result.data)
+                if result.status == "ok" and result_data is not None:
+                    self._pending_recording_data = result_data
             except Exception:
                 pass
             self._recording_active = False
@@ -3081,7 +3132,7 @@ class SessionManager:
         ):
             device_types.append("mouse")
 
-        devices: list[dict]
+        devices: list[JsonObject]
         if self._recording_devices_cache:
             devices = [
                 d
@@ -3159,7 +3210,7 @@ class SessionManager:
             return result.data or {"status": "ok"}
 
         message = str(result.error or "Daemon unavailable")
-        response = {"status": "error", "message": message}
+        response: JsonObject = {"status": "error", "message": message}
         if "recording_locked" in message.lower():
             response["error_code"] = "recording_locked"
         return response
@@ -3171,20 +3222,20 @@ class SessionManager:
         except Exception:
             pass
 
-    def _recording_device_types(self, device: dict) -> list[str]:
+    def _recording_device_types(self, device: JsonObject) -> list[str]:
         return normalize_input_classes(
-            device.get("device_types"),
-            device.get("device_type", "other"),
+            cast(list[str] | None, _json_list(device.get("device_types")) or None),
+            _str_value(device.get("device_type"), "other"),
         )
 
-    def _recording_device_matches_types(self, device: dict, device_types: list[str]) -> bool:
+    def _recording_device_matches_types(self, device: JsonObject, device_types: list[str]) -> bool:
         return bool(set(device_types).intersection(self._recording_device_types(device)))
 
     async def _get_devices_for_recording(
         self,
         device_types: list[str],
         include_grabbed: bool = False,
-    ) -> list[dict]:
+    ) -> list[JsonObject]:
         try:
             result = await self.client.send_command(Command(command=CommandType.LIST_DEVICES))
         except Exception:
@@ -3229,7 +3280,7 @@ class SessionManager:
         start_x: int = 0,
         start_y: int = 0,
         block_mouse_movement: bool = False,
-    ) -> dict:
+    ) -> JsonObject:
         safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", name).strip("._")
         if not safe_name:
             raise ValueError("Invalid macro name")
@@ -3238,7 +3289,7 @@ class SessionManager:
         macro = {
             "name": safe_name,
             "created_at": datetime.now().isoformat(),
-            "duration_ms": int(data.get("duration_ms", 0)),
+            "duration_ms": _int_value(data.get("duration_ms"), 0),
             "device_types": data.get("device_types", []),
             "events": data.get("events", []),
             "move_to_start": bool(move_to_start),
@@ -3266,8 +3317,8 @@ class SessionManager:
         self._broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
         return {"status": "ok", "name": created_name}
 
-    def _mapping_log_view(self, mapping: dict) -> dict:
-        view: dict = {}
+    def _mapping_log_view(self, mapping: JsonObject) -> JsonObject:
+        view: JsonObject = {}
         for button_id, action_data in mapping.items():
             if not isinstance(action_data, dict):
                 view[button_id] = action_data
@@ -3281,10 +3332,10 @@ class SessionManager:
 
         return view
 
-    def _event_log_view(self, data: dict) -> dict:
+    def _event_log_view(self, data: JsonObject) -> JsonObject:
         view = dict(data)
-        if isinstance(view.get("events"), list):
-            events = view["events"]
+        events = _json_list(view.get("events"))
+        if events:
             view["events"] = f"<{len(events)} events>"
             if "event_count" not in view:
                 view["event_count"] = len(events)

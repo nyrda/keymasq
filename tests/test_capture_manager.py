@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import Mock
 
 import evdev
@@ -66,7 +67,8 @@ def test_capture_manager_begin_read_end(monkeypatch) -> None:
     assert token
 
     first = manager.read(token)
-    assert first["captured"]["evdev"] == "key_a"
+    captured = cast(dict[str, object], first["captured"])
+    assert captured["evdev"] == "key_a"
 
     second = manager.read(token)
     assert second["captured"] is None
@@ -111,9 +113,11 @@ def test_capture_manager_combo_begin_read_end(monkeypatch) -> None:
     second = manager.read_combo(token)
     ended = manager.end(token)
 
-    assert first["event"]["evdev"] == "key_a"
-    assert first["event"]["value"] == 1
-    assert second["event"]["value"] == 0
+    first_event = cast(dict[str, object], first["event"])
+    second_event = cast(dict[str, object], second["event"])
+    assert first_event["evdev"] == "key_a"
+    assert first_event["value"] == 1
+    assert second_event["value"] == 0
     assert ended == {"status": "ok", "ended": True}
     assert fake.closed is True
 

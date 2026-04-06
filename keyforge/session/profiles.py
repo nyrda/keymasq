@@ -6,7 +6,7 @@ import tomllib
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import tomli_w
 
@@ -26,6 +26,25 @@ from keyforge.common.models import (
 log = logging.getLogger("keyforge-session.profiles")
 
 MAX_PROFILE_PATH_ATTEMPTS = 10000
+type TomlDict = dict[str, object]
+type _IntLike = int | float | str | bytes
+type _FloatLike = int | float | str | bytes
+
+
+def _as_toml_dict(value: object) -> TomlDict | None:
+    return cast(TomlDict, value) if isinstance(value, dict) else None
+
+
+def _as_toml_list(value: object) -> list[object]:
+    return cast(list[object], value) if isinstance(value, list) else []
+
+
+def _int_value(value: object, default: int) -> int:
+    return default if value is None else int(cast(_IntLike, value))
+
+
+def _float_value(value: object, default: float) -> float:
+    return default if value is None else float(cast(_FloatLike, value))
 
 
 @dataclass
@@ -78,7 +97,7 @@ class ProfileManager:
         paths.ensure_config_dirs()
         self._superkey_manager = superkey_manager
         self._profiles: dict[str, ProfileInfo] = {}
-        self._pending_repairs: set[asyncio.Task] = set()
+        self._pending_repairs: set[asyncio.Task[None]] = set()
         self._load_all()
 
     def _load_all(self) -> None:
@@ -96,16 +115,17 @@ class ProfileManager:
 
     def _load_profile(self, path: Path) -> ProfileConfig:
         with open(path, "rb") as f:
-            data = tomllib.load(f)
+            data = cast(TomlDict, tomllib.load(f))
 
-        profile = data.get("profile", {})
+        profile = _as_toml_dict(data.get("profile")) or {}
 
         window_rules = [
             WindowRule(
-                field=rule_data.get("field", "class"),
-                pattern=rule_data.get("pattern", ""),
+                field=str(rule_dict.get("field", "class")),
+                pattern=str(rule_dict.get("pattern", "")),
             )
-            for rule_data in profile.get("window_rules", [])
+            for rule_data in _as_toml_list(profile.get("window_rules", []))
+            if (rule_dict := _as_toml_dict(rule_data)) is not None
         ]
 
         created_at = datetime.now()
@@ -122,30 +142,35 @@ class ProfileManager:
         device_layers: dict[str, DeviceProfileLayer] = {}
         devices_data = data.get("devices", {})
         if isinstance(devices_data, dict):
-            for hardware_id, layer_data in devices_data.items():
-                if not isinstance(layer_data, dict):
+            for hardware_id, layer_data in cast(dict[object, object], devices_data).items():
+                layer_dict = _as_toml_dict(layer_data)
+                if layer_dict is None:
                     continue
                 mappings: dict[str, MappingAction] = {}
-                mapping_table = layer_data.get("mapping", {})
+                mapping_table = layer_dict.get("mapping", {})
                 if isinstance(mapping_table, dict):
-                    for button_id, action_data in mapping_table.items():
-                        mappings[str(button_id)] = self._parse_action(action_data)
+                    for button_id, action_data in cast(dict[object, object], mapping_table).items():
+                        parsed_action_data = _as_toml_dict(action_data)
+                        if parsed_action_data is not None:
+                            mappings[str(button_id)] = self._parse_action(parsed_action_data)
+                        elif isinstance(action_data, str):
+                            mappings[str(button_id)] = self._parse_action(action_data)
                 device_layers[str(hardware_id)] = DeviceProfileLayer(
                     hardware_id=str(hardware_id),
-                    always_grab_all=bool(layer_data.get("always_grab_all", False)),
+                    always_grab_all=bool(layer_dict.get("always_grab_all", False)),
                     mappings=mappings,
                 )
 
         config = ProfileConfig(
-            name=profile.get("name", path.stem),
-            enabled=profile.get("enabled", True),
-            is_permanent=profile.get("is_permanent", False),
-            priority=int(profile.get("priority", 0) or 0),
-            notify_on_activation=profile.get("notify_on_activation", True),
+            name=str(profile.get("name", path.stem)),
+            enabled=bool(profile.get("enabled", True)),
+            is_permanent=bool(profile.get("is_permanent", False)),
+            priority=_int_value(profile.get("priority"), 0),
+            notify_on_activation=bool(profile.get("notify_on_activation", True)),
             window_rules=window_rules,
             device_layers=device_layers,
             combos=self._parse_combos(data.get("combos", [])),
-            image=profile.get("image"),
+            image=str(profile.get("image")) if profile.get("image") is not None else None,
             created_at=created_at,
         )
 
@@ -190,11 +215,11 @@ class ProfileManager:
         except Exception as exc:
             log.error("Failed to repair created_at for %s: %s", path, exc)
 
-    def _parse_action(self, action_data: dict | str) -> MappingAction:
+    def _parse_action(self, action_data: TomlDict | str) -> MappingAction:
         if isinstance(action_data, str):
             return MappingAction(action_type=ActionType.KEYBOARD, target=action_data)
 
-        action_type_str = action_data.get("action", "passthrough")
+        action_type_str = str(action_data.get("action", "passthrough"))
         if action_type_str == "hyprland_dispatch":
             action_data = dict(action_data)
             action_data.setdefault("compositor", "hyprland")
@@ -212,7 +237,8 @@ class ProfileManager:
             action_type = ActionType.PASSTHROUGH
 
         if action_type == ActionType.SUPERKEY:
-            superkey_name = action_data.get("superkey_name")
+            superkey_name_raw = action_data.get("superkey_name")
+            superkey_name = str(superkey_name_raw) if superkey_name_raw is not None else None
             if superkey_name:
                 if self._superkey_manager and not self._superkey_manager.get_superkey(
                     superkey_name
@@ -229,12 +255,12 @@ class ProfileManager:
         if action_type == ActionType.MACRO:
             return MappingAction(
                 action_type=ActionType.MACRO,
-                macro_name=action_data.get("target", ""),
-                macro_replay_mouse_movement=action_data.get("replay_mouse_movement", True),
-                macro_replay_mouse_clicks=action_data.get("replay_mouse_clicks", True),
-                macro_speed=float(action_data.get("speed", 1.0)),
+                macro_name=str(action_data.get("target", "")),
+                macro_replay_mouse_movement=bool(action_data.get("replay_mouse_movement", True)),
+                macro_replay_mouse_clicks=bool(action_data.get("replay_mouse_clicks", True)),
+                macro_speed=_float_value(action_data.get("speed"), 1.0),
                 macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
-                macro_loop_count=int(action_data.get("loop_count", 1) or 1),
+                macro_loop_count=_int_value(action_data.get("loop_count"), 1),
             )
 
         if action_type in (
@@ -268,25 +294,27 @@ class ProfileManager:
         if action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
             return MappingAction(
                 action_type=action_type,
-                move_x=int(action_data.get("x", 0)),
-                move_y=int(action_data.get("y", 0)),
-                rapidfire_enabled=action_data.get("rapidfire_enabled", False),
-                rapidfire_hold_ms=action_data.get("rapidfire_hold_ms", 20),
-                rapidfire_wait_ms=action_data.get("rapidfire_wait_ms", 20),
-                tap_enabled=action_data.get("tap_enabled", False),
-                tap_hold_ms=action_data.get("tap_hold_ms", 10),
+                move_x=_int_value(action_data.get("x"), 0),
+                move_y=_int_value(action_data.get("y"), 0),
+                rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
+                rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 20),
+                rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 20),
+                tap_enabled=bool(action_data.get("tap_enabled", False)),
+                tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
             )
 
+        target = action_data.get("target")
+        cmd = action_data.get("cmd")
         return MappingAction(
             action_type=action_type,
-            target=action_data.get("target"),
-            keys=action_data.get("keys"),
-            cmd=action_data.get("cmd"),
-            rapidfire_enabled=action_data.get("rapidfire_enabled", False),
-            rapidfire_hold_ms=action_data.get("rapidfire_hold_ms", 20),
-            rapidfire_wait_ms=action_data.get("rapidfire_wait_ms", 20),
-            tap_enabled=action_data.get("tap_enabled", False),
-            tap_hold_ms=action_data.get("tap_hold_ms", 10),
+            target=str(target) if target is not None else None,
+            keys=cast(list[str] | None, action_data.get("keys")),
+            cmd=str(cmd) if cmd is not None else None,
+            rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
+            rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 20),
+            rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 20),
+            tap_enabled=bool(action_data.get("tap_enabled", False)),
+            tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
         )
 
     def _serialize_action(self, action: MappingAction) -> dict[str, object]:
@@ -335,26 +363,29 @@ class ProfileManager:
             return []
 
         combos: list[ComboConfig] = []
-        for combo_data in combos_data:
-            if not isinstance(combo_data, dict):
+        for combo_data in cast(list[object], combos_data):
+            combo_dict = _as_toml_dict(combo_data)
+            if combo_dict is None:
                 continue
-            steps_data = combo_data.get("steps", [])
+            steps_data = combo_dict.get("steps", [])
             steps: list[ComboStep] = []
             if isinstance(steps_data, list):
-                for step_data in steps_data:
-                    if not isinstance(step_data, dict):
+                for step_data in cast(list[object], steps_data):
+                    step_dict = _as_toml_dict(step_data)
+                    if step_dict is None:
                         continue
-                    events_data = step_data.get("events", [])
+                    events_data = step_dict.get("events", [])
                     events: list[ComboEvent] = []
                     if isinstance(events_data, list):
-                        for event_data in events_data:
-                            if not isinstance(event_data, dict):
+                        for event_data in cast(list[object], events_data):
+                            event_dict = _as_toml_dict(event_data)
+                            if event_dict is None:
                                 continue
-                            evdev = str(event_data.get("evdev", "") or "")
-                            hardware_id = str(event_data.get("hardware_id", "") or "")
+                            evdev = str(event_dict.get("evdev", "") or "")
+                            hardware_id = str(event_dict.get("hardware_id", "") or "")
                             if not evdev or not hardware_id:
                                 continue
-                            source_raw = event_data.get("source")
+                            source_raw = event_dict.get("source")
                             source = str(source_raw) if source_raw is not None else None
                             events.append(
                                 ComboEvent(
@@ -364,23 +395,26 @@ class ProfileManager:
                                 )
                             )
                     if events:
-                        timeout_raw = step_data.get("timeout_ms")
-                        timeout_ms = int(timeout_raw) if timeout_raw is not None else None
+                        timeout_raw = step_dict.get("timeout_ms")
+                        timeout_ms = _int_value(timeout_raw, 0) if timeout_raw is not None else None
                         steps.append(ComboStep(events=events, timeout_ms=timeout_ms))
 
-            action_data = combo_data.get("action")
+            action_data = combo_dict.get("action")
+            action_dict = _as_toml_dict(action_data)
             action = (
                 self._parse_action(action_data)
-                if isinstance(action_data, (dict, str))
+                if isinstance(action_data, str)
+                else self._parse_action(action_dict)
+                if action_dict is not None
                 else None
             )
-            combo_id = str(combo_data.get("id", "") or "")
+            combo_id = str(combo_dict.get("id", "") or "")
             if not combo_id:
                 continue
             combos.append(
                 ComboConfig(
                     id=combo_id,
-                    name=str(combo_data.get("name", "") or ""),
+                    name=str(combo_dict.get("name", "") or ""),
                     steps=steps,
                     action=action,
                 )
@@ -459,7 +493,7 @@ class ProfileManager:
                     f"Invalid regex in window rule {index} for field '{rule.field}': {exc}"
                 ) from exc
 
-    def _matches_window_rules(self, profile: ProfileConfig, window_info: dict | None) -> bool:
+    def _matches_window_rules(self, profile: ProfileConfig, window_info: TomlDict | None) -> bool:
         if not profile.window_rules:
             return False
 
@@ -478,7 +512,7 @@ class ProfileManager:
                     field_value = window_info.get(rule.field, "")
                     if not field_value:
                         return False
-                    if not re.search(rule.pattern, field_value):
+                    if not re.search(rule.pattern, cast(str, field_value)):
                         return False
             except re.error as exc:
                 log.warning(
@@ -493,7 +527,7 @@ class ProfileManager:
 
     def resolve_active_profiles(
         self,
-        window_info: dict | None = None,
+        window_info: TomlDict | None = None,
         capabilities: list[str] | None = None,
         hardware_ids: list[str] | None = None,
     ) -> ResolvedProfiles:

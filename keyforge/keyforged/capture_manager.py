@@ -6,22 +6,59 @@ import select
 import threading
 import time
 import uuid
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Protocol, cast
 
 import evdev
 
 from keyforge.common.devices import clear_device_path_cache, get_interface_id, resolve_stable_path
 
 log = logging.getLogger("keyforge.keyforged.capture_manager")
+type JsonObject = dict[str, object]
+
+
+class _DeviceInfo(Protocol):
+    vendor: int
+    product: int
+
+
+class _CaptureInputDevice(Protocol):
+    path: str
+    name: str
+    fd: int
+    info: _DeviceInfo
+
+    def grab(self) -> None: ...
+
+    def ungrab(self) -> None: ...
+
+    def close(self) -> None: ...
+
+    def read_one(self) -> evdev.InputEvent | None: ...
+
+    def read(self) -> Iterable[evdev.InputEvent]: ...
+
+    def capabilities(self) -> Mapping[int, Sequence[object]]: ...
+
+
+def _event_code_name(event_type: int, code: int) -> str:
+    bytype = cast(dict[int, dict[int, object]], evdev.ecodes.bytype)
+    code_name = bytype.get(event_type, {}).get(code, str(code))
+    if isinstance(code_name, tuple):
+        tuple_name = cast(tuple[object, ...], code_name)
+        first = tuple_name[0] if tuple_name else str(code)
+        return first.lower() if isinstance(first, str) else str(code)
+    return code_name.lower() if isinstance(code_name, str) else str(code)
 
 
 @dataclass
 class CaptureSession:
     token: str
     hardware_id: str
-    devices: list[evdev.InputDevice]
+    devices: list[_CaptureInputDevice]
     started_at: float
-    event_queue: queue.SimpleQueue[dict] | None = None
+    event_queue: queue.SimpleQueue[JsonObject] | None = None
     stop_event: threading.Event | None = None
     reader_thread: threading.Thread | None = None
     notify_loop: asyncio.AbstractEventLoop | None = None
@@ -38,13 +75,13 @@ class CaptureManager:
         self._sessions: dict[str, CaptureSession] = {}
         self._combo_capture_authorizations: set[str] = set()
 
-    def begin(self, hardware_id: str) -> dict:
+    def begin(self, hardware_id: str) -> JsonObject:
         vendor_id, product_id = self._parse_hardware_id(hardware_id)
         matched = self._find_devices(vendor_id, product_id)
         if not matched:
             raise ValueError(f"No devices found for {hardware_id}")
 
-        grabbed: list[evdev.InputDevice] = []
+        grabbed: list[_CaptureInputDevice] = []
         warnings: list[str] = []
         for device in matched:
             try:
@@ -75,7 +112,7 @@ class CaptureManager:
             "warnings": warnings,
         }
 
-    def read(self, token: str) -> dict:
+    def read(self, token: str) -> JsonObject:
         session = self._sessions.get(token)
         if session is None:
             raise ValueError("Invalid capture token")
@@ -102,7 +139,7 @@ class CaptureManager:
         allow_empty: bool = False,
         hardware_ids: set[str] | None = None,
         authorization: _ComboCaptureAuthorization | None = None,
-    ) -> dict:
+    ) -> JsonObject:
         if not self._consume_combo_capture_authorization(authorization):
             raise PermissionError("combo_capture_denied: missing authorization")
 
@@ -113,7 +150,7 @@ class CaptureManager:
         if not matched and not allow_empty:
             raise ValueError("No keyboard devices found for combo capture")
 
-        devices: list[evdev.InputDevice] = []
+        devices: list[_CaptureInputDevice] = []
         warnings: list[str] = []
         for device in matched:
             try:
@@ -168,7 +205,7 @@ class CaptureManager:
         self._combo_capture_authorizations.remove(token)
         return True
 
-    def read_combo(self, token: str) -> dict:
+    def read_combo(self, token: str) -> JsonObject:
         session = self._sessions.get(token)
         if session is None:
             raise ValueError("Invalid capture token")
@@ -192,7 +229,7 @@ class CaptureManager:
 
         return {"event": None}
 
-    def read_combo_nowait(self, token: str) -> dict:
+    def read_combo_nowait(self, token: str) -> JsonObject:
         session = self._sessions.get(token)
         if session is None:
             raise ValueError("Invalid capture token")
@@ -210,7 +247,7 @@ class CaptureManager:
         session.notify_loop = loop
         session.notify_event = notify_event
 
-    def _read_combo_nowait(self, session: CaptureSession) -> dict | None:
+    def _read_combo_nowait(self, session: CaptureSession) -> JsonObject | None:
         if session.event_queue is None:
             return None
         try:
@@ -218,7 +255,7 @@ class CaptureManager:
         except queue.Empty:
             return None
 
-    def end(self, token: str) -> dict:
+    def end(self, token: str) -> JsonObject:
         session = self._sessions.pop(token, None)
         if session is None:
             return {"status": "ok", "ended": False}
@@ -309,12 +346,13 @@ class CaptureManager:
         vendor_id, product_id = hardware_id.split(":", 1)
         return vendor_id.lower(), product_id.lower()
 
-    def _find_devices(self, vendor_id: str, product_id: str) -> list[evdev.InputDevice]:
+    def _find_devices(self, vendor_id: str, product_id: str) -> list[_CaptureInputDevice]:
         clear_device_path_cache()
-        devices: list[evdev.InputDevice] = []
-        for path in evdev.list_devices():
+        devices: list[_CaptureInputDevice] = []
+        list_devices = cast(Callable[[], list[str]], evdev.list_devices)
+        for path in list_devices():
             try:
-                device = evdev.InputDevice(path)
+                device = cast(_CaptureInputDevice, evdev.InputDevice(path))
             except Exception:
                 continue
             if (
@@ -328,14 +366,15 @@ class CaptureManager:
         self,
         exclude_paths: set[str],
         hardware_ids: set[str],
-    ) -> list[evdev.InputDevice]:
+    ) -> list[_CaptureInputDevice]:
         clear_device_path_cache()
-        devices: list[evdev.InputDevice] = []
-        for path in evdev.list_devices():
+        devices: list[_CaptureInputDevice] = []
+        list_devices = cast(Callable[[], list[str]], evdev.list_devices)
+        for path in list_devices():
             if path in exclude_paths:
                 continue
             try:
-                device = evdev.InputDevice(path)
+                device = cast(_CaptureInputDevice, evdev.InputDevice(path))
             except Exception:
                 continue
 
@@ -354,11 +393,11 @@ class CaptureManager:
                 key_codes = []
 
             has_supported_key = False
-            for code in key_codes:
-                code_name = evdev.ecodes.bytype.get(evdev.ecodes.EV_KEY, {}).get(code)
-                if isinstance(code_name, tuple):
-                    code_name = code_name[0] if code_name else None
-                if isinstance(code_name, str) and code_name.startswith(("KEY_", "BTN_")):
+            for code in cast(list[object], key_codes):
+                if not isinstance(code, int):
+                    continue
+                code_name = _event_code_name(evdev.ecodes.EV_KEY, int(code)).upper()
+                if code_name.startswith(("KEY_", "BTN_")):
                     has_supported_key = True
                     break
 
@@ -366,12 +405,11 @@ class CaptureManager:
                 devices.append(device)
         return devices
 
-    def _parse_event(self, device: evdev.InputDevice, event: evdev.InputEvent) -> dict | None:
+    def _parse_event(
+        self, device: _CaptureInputDevice, event: evdev.InputEvent
+    ) -> JsonObject | None:
         if event.type == evdev.ecodes.EV_KEY and event.value == 1:
-            code_name = evdev.ecodes.bytype.get(event.type, {}).get(event.code, str(event.code))
-            if isinstance(code_name, tuple):
-                code_name = code_name[0] if code_name else str(event.code)
-            evdev_name = code_name.lower()
+            evdev_name = _event_code_name(event.type, int(event.code))
             return {
                 "evdev": evdev_name,
                 "code": int(event.code),
@@ -404,14 +442,13 @@ class CaptureManager:
 
         return None
 
-    def _parse_combo_event(self, device: evdev.InputDevice, event: evdev.InputEvent) -> dict | None:
+    def _parse_combo_event(
+        self, device: _CaptureInputDevice, event: evdev.InputEvent
+    ) -> JsonObject | None:
         if event.type != evdev.ecodes.EV_KEY or event.value not in {0, 1}:
             return None
 
-        code_name = evdev.ecodes.bytype.get(event.type, {}).get(event.code, str(event.code))
-        if isinstance(code_name, tuple):
-            code_name = code_name[0] if code_name else str(event.code)
-        evdev_name = code_name.lower()
+        evdev_name = _event_code_name(event.type, int(event.code))
         if not evdev_name.startswith(("key_", "btn_")):
             return None
         return {

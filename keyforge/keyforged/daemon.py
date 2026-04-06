@@ -8,7 +8,8 @@ import stat
 import sys
 import time
 import uuid
-from typing import cast
+from collections.abc import Sequence
+from typing import Protocol, cast
 
 from keyforge.common.ipc import CommandType
 from keyforge.common.paths import (
@@ -24,6 +25,7 @@ from keyforge.common.recording_guard import (
     write_unlock_expires_at,
 )
 from keyforge.common.security import (
+    PeerCredentials,
     SecurityPolicy,
     command_allowed,
     load_security_policy,
@@ -36,15 +38,158 @@ from keyforge.keyforged.recording import RecordingManager
 from keyforge.keyforged.socket_server import ClientContext, SocketServer
 
 log = logging.getLogger("keyforged")
+type JsonObject = dict[str, object]
+type JsonObjectList = list[JsonObject]
+
+
+class _GrabbedDeviceRef(Protocol):
+    path: str
+
+
+class _DaemonDeviceManager(Protocol):
+    broadcast_callback: object | None
+    recording_manager: object | None
+    grabbed_devices: dict[str, list[_GrabbedDeviceRef]]
+
+    async def start_topology_watcher(self) -> None: ...
+
+    async def stop_topology_watcher(self) -> None: ...
+
+    async def cancel_macro_playback(self) -> JsonObject: ...
+
+    async def release_all_devices(self) -> None: ...
+
+    async def grab_device(
+        self,
+        hardware_id: str,
+        evdev_paths: list[str],
+        button_map: dict[str, str],
+        button_codes: dict[str, int] | None = None,
+        force_grab_unmapped: bool = False,
+    ) -> JsonObject: ...
+
+    async def release_device(
+        self, hardware_id: str, immediate: bool = False, grace_s: float | None = None
+    ) -> JsonObject: ...
+
+    async def set_mapping(self, hardware_id: str, mapping: JsonObject) -> JsonObject: ...
+
+    async def set_combos(self, combos: Sequence[object]) -> JsonObject: ...
+
+    async def list_devices(self) -> JsonObject: ...
+
+    async def play_macro(
+        self,
+        macro_events: JsonObjectList,
+        macro_name: str = "",
+        replay_mouse_movement: bool = True,
+        replay_mouse_clicks: bool = True,
+        speed: float = 1.0,
+        loop_mode: str = "none",
+        loop_count: int = 1,
+        move_to_start: bool = False,
+        start_x: int = 0,
+        start_y: int = 0,
+        block_mouse_movement: bool = False,
+        source_device: str = "",
+        source_button: str = "",
+        trigger_value: int = 1,
+    ) -> JsonObject: ...
+
+    def begin_combo_capture(
+        self, token: str, hardware_ids: set[str], notify_event: asyncio.Event
+    ) -> None: ...
+
+    def end_combo_capture(self, token: str) -> None: ...
+
+    def read_combo_capture(self, token: str) -> JsonObject: ...
+
+    async def set_diagnostics(self, enabled: bool, interval: float) -> JsonObject: ...
+
+    def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject: ...
+
+
+class _DaemonRecordingManager(Protocol):
+    broadcast_callback: object | None
+
+    async def start(
+        self,
+        devices: JsonObjectList,
+        include_mouse_movement: bool = False,
+        include_mouse_clicks: bool = False,
+    ) -> JsonObject: ...
+
+    async def stop(self) -> JsonObject: ...
+
+
+class _DaemonMacroStore(Protocol):
+    def ensure(self) -> None: ...
+
+    def register_internal(self, name: str, events: JsonObjectList, **extra: object) -> None: ...
+
+    def get(self, name: str) -> JsonObject: ...
+
+    def list_meta(self) -> JsonObjectList: ...
+
+    def create(self, payload: JsonObject) -> JsonObject: ...
+
+    def update(
+        self, name: str, payload: JsonObject, expected_revision: int | None
+    ) -> JsonObject: ...
+
+    def rename(self, old_name: str, new_name: str, expected_revision: int | None) -> JsonObject: ...
+
+    def delete(self, name: str, expected_revision: int | None) -> None: ...
+
+
+class _DaemonCaptureManager(Protocol):
+    def begin(self, hardware_id: str) -> JsonObject: ...
+
+    def read(self, token: str) -> JsonObject: ...
+
+    def begin_combo(self, *args: object, **kwargs: object) -> JsonObject: ...
+
+    def _authorize_combo_capture(self) -> object: ...
+
+    def register_combo_notifier(
+        self, token: str, loop: asyncio.AbstractEventLoop, notify_event: asyncio.Event
+    ) -> None: ...
+
+    def read_combo_nowait(self, token: str) -> JsonObject: ...
+
+    def end(self, token: str) -> JsonObject: ...
 
 
 def _int_like(value: object, default: int) -> int:
-    if isinstance(value, int | float | str):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
-    return default
+    return default if value in {None, ""} else int(cast(int | float | str, value))
+
+
+def _float_like(value: object, default: float) -> float:
+    return default if value in {None, ""} else float(cast(int | float | str, value))
+
+
+def _str_value(value: object, default: str = "") -> str:
+    return str(value or default)
+
+
+def _json_object(value: object) -> JsonObject:
+    return cast(JsonObject, value)
+
+
+def _json_object_list(value: object) -> JsonObjectList:
+    return cast(JsonObjectList, value)
+
+
+def _str_list(value: object) -> list[str]:
+    return cast(list[str], value)
+
+
+def _str_dict(value: object) -> dict[str, str]:
+    return cast(dict[str, str], value)
+
+
+def _int_dict(value: object) -> dict[str, int]:
+    return cast(dict[str, int], value)
 
 
 def sd_notify(state: str) -> None:
@@ -63,10 +208,10 @@ def sd_notify(state: str) -> None:
 
 class Daemon:
     def __init__(self, verbosity: int = 0) -> None:
-        self.device_manager = DeviceManager(verbosity=verbosity)
-        self.recording_manager = RecordingManager()
-        self.macro_store = MacroStore(STATE_DIR / "macros")
-        self.capture_manager = CaptureManager()
+        self.device_manager = cast(_DaemonDeviceManager, DeviceManager(verbosity=verbosity))
+        self.recording_manager = cast(_DaemonRecordingManager, RecordingManager())
+        self.macro_store = cast(_DaemonMacroStore, MacroStore(STATE_DIR / "macros"))
+        self.capture_manager = cast(_DaemonCaptureManager, CaptureManager())
         self.socket_server: SocketServer | None = None
         self.running = False
         self._shutdown_event = asyncio.Event()
@@ -187,9 +332,9 @@ class Daemon:
     async def _handle_command(
         self,
         command_type: CommandType,
-        data: dict,
+        data: JsonObject,
         client: ClientContext | None = None,
-    ) -> dict:
+    ) -> JsonObject:
         if client and self.security_policy:
             if not command_allowed(
                 command_type.value,
@@ -207,29 +352,30 @@ class Daemon:
 
         if command_type == CommandType.GRAB_DEVICE:
             return await self.device_manager.grab_device(
-                hardware_id=data["hardware_id"],
-                evdev_paths=data["evdev_paths"],
-                button_map=data.get("button_map", {}),
-                button_codes=data.get("button_codes", {}),
+                hardware_id=_str_value(data["hardware_id"]),
+                evdev_paths=_str_list(data["evdev_paths"]),
+                button_map=_str_dict(data.get("button_map", {})),
+                button_codes=_int_dict(data.get("button_codes", {})),
                 force_grab_unmapped=bool(data.get("force_grab_unmapped", False)),
             )
 
         elif command_type == CommandType.RELEASE_DEVICE:
+            grace_s = data.get("grace_s")
             return await self.device_manager.release_device(
-                hardware_id=data["hardware_id"],
+                hardware_id=_str_value(data["hardware_id"]),
                 immediate=bool(data.get("immediate", False)),
-                grace_s=data.get("grace_s"),
+                grace_s=_float_like(grace_s, 0.0) if grace_s is not None else None,
             )
 
         elif command_type == CommandType.SET_MAPPING:
-            mapping = await self._resolve_mapping_macros(data["mapping"])
+            mapping = await self._resolve_mapping_macros(_json_object(data["mapping"]))
             return await self.device_manager.set_mapping(
-                hardware_id=data["hardware_id"],
+                hardware_id=_str_value(data["hardware_id"]),
                 mapping=mapping,
             )
 
         elif command_type == CommandType.SET_COMBOS:
-            combos = await self._resolve_combo_macros(data.get("combos", []))
+            combos = await self._resolve_combo_macros(_json_object_list(data.get("combos", [])))
             return await self.device_manager.set_combos(combos)
 
         elif command_type == CommandType.LIST_DEVICES:
@@ -240,7 +386,7 @@ class Daemon:
 
         elif command_type == CommandType.START_RECORDING:
             return await self.recording_manager.start(
-                data.get("devices", []),
+                _json_object_list(data.get("devices", [])),
                 include_mouse_movement=bool(data.get("include_mouse_movement", False)),
                 include_mouse_clicks=bool(data.get("include_mouse_clicks", False)),
             )
@@ -249,25 +395,21 @@ class Daemon:
             return await self.recording_manager.stop()
 
         elif command_type == CommandType.PLAY_MACRO:
-            macro_events_raw = data.get("macro_events", [])
-            macro_events = (
-                cast(list[dict], macro_events_raw) if isinstance(macro_events_raw, list) else []
-            )
-            macro_name = data.get("macro_name", "")
-            loop_mode = str(data.get("loop_mode", "none") or "none")
-            loop_count = int(data.get("loop_count", 1) or 1)
+            macro_events = _json_object_list(data.get("macro_events", []))
+            macro_name = _str_value(data.get("macro_name", ""))
+            loop_mode = _str_value(data.get("loop_mode", "none"), "none") or "none"
+            loop_count = _int_like(data.get("loop_count", 1), 1)
             move_to_start = bool(data.get("move_to_start", False))
-            start_x = int(data.get("start_x", 0))
-            start_y = int(data.get("start_y", 0))
+            start_x = _int_like(data.get("start_x", 0), 0)
+            start_y = _int_like(data.get("start_y", 0), 0)
             block_mouse_movement = bool(data.get("block_mouse_movement", False))
 
             if macro_name and not macro_events:
                 macro_data = await asyncio.to_thread(self.macro_store.get, macro_name)
-                macro_events_raw = macro_data.get("events", [])
-                macro_events = (
-                    cast(list[dict], macro_events_raw) if isinstance(macro_events_raw, list) else []
+                macro_events = _json_object_list(macro_data.get("events", []))
+                loop_mode = (
+                    _str_value(macro_data.get("loop_mode", loop_mode), loop_mode) or loop_mode
                 )
-                loop_mode = str(macro_data.get("loop_mode", loop_mode) or loop_mode)
                 loop_count = _int_like(macro_data.get("loop_count", loop_count), loop_count)
                 move_to_start = bool(macro_data.get("move_to_start", move_to_start))
                 start_x = _int_like(macro_data.get("start_x", start_x), start_x)
@@ -279,9 +421,9 @@ class Daemon:
             return await self.device_manager.play_macro(
                 macro_events=macro_events,
                 macro_name=macro_name,
-                replay_mouse_movement=data.get("replay_mouse_movement", True),
-                replay_mouse_clicks=data.get("replay_mouse_clicks", True),
-                speed=float(data.get("speed", 1.0)),
+                replay_mouse_movement=bool(data.get("replay_mouse_movement", True)),
+                replay_mouse_clicks=bool(data.get("replay_mouse_clicks", True)),
+                speed=_float_like(data.get("speed", 1.0), 1.0),
                 loop_mode=loop_mode,
                 loop_count=loop_count,
                 move_to_start=move_to_start,
@@ -295,63 +437,59 @@ class Daemon:
             return {"macros": macros}
 
         elif command_type == CommandType.MACRO_GET:
-            name = str(data.get("name", ""))
+            name = _str_value(data.get("name", ""))
             macro = await asyncio.to_thread(self.macro_store.get, name)
             return {"macro": macro}
 
         elif command_type == CommandType.MACRO_CREATE:
-            payload = data.get("macro", {})
-            if not isinstance(payload, dict):
+            raw_payload = data.get("macro", {})
+            if not isinstance(raw_payload, dict):
                 raise ValueError("macro payload must be an object")
-            macro = await asyncio.to_thread(
-                self.macro_store.create,
-                cast(dict[str, object], payload),
-            )
+            payload = cast(JsonObject, raw_payload)
+            macro = await asyncio.to_thread(self.macro_store.create, payload)
             return {"macro": macro}
 
         elif command_type == CommandType.MACRO_UPDATE:
-            name = str(data.get("name", ""))
-            payload = data.get("macro", {})
-            if not isinstance(payload, dict):
+            name = _str_value(data.get("name", ""))
+            raw_payload = data.get("macro", {})
+            if not isinstance(raw_payload, dict):
                 raise ValueError("macro payload must be an object")
+            payload = cast(JsonObject, raw_payload)
             expected_revision = data.get("expected_revision")
-            revision = int(expected_revision) if expected_revision is not None else None
+            revision = _int_like(expected_revision, 0) if expected_revision is not None else None
             macro = await asyncio.to_thread(
                 self.macro_store.update,
                 name,
-                cast(dict[str, object], payload),
+                payload,
                 revision,
             )
             return {"macro": macro}
 
         elif command_type == CommandType.MACRO_RENAME:
-            old_name = str(data.get("old_name", ""))
-            new_name = str(data.get("new_name", ""))
+            old_name = _str_value(data.get("old_name", ""))
+            new_name = _str_value(data.get("new_name", ""))
             expected_revision = data.get("expected_revision")
-            revision = int(expected_revision) if expected_revision is not None else None
+            revision = _int_like(expected_revision, 0) if expected_revision is not None else None
             macro = await asyncio.to_thread(self.macro_store.rename, old_name, new_name, revision)
             return {"macro": macro}
 
         elif command_type == CommandType.MACRO_DELETE:
-            name = str(data.get("name", ""))
+            name = _str_value(data.get("name", ""))
             expected_revision = data.get("expected_revision")
-            revision = int(expected_revision) if expected_revision is not None else None
+            revision = _int_like(expected_revision, 0) if expected_revision is not None else None
             await asyncio.to_thread(self.macro_store.delete, name, revision)
             return {"status": "ok"}
 
         elif command_type == CommandType.MACRO_PLAY_BY_NAME:
-            name = str(data.get("name", ""))
+            name = _str_value(data.get("name", ""))
             macro_data = await asyncio.to_thread(self.macro_store.get, name)
-            macro_events_raw = macro_data.get("events", [])
             return await self.device_manager.play_macro(
-                macro_events=(
-                    cast(list[dict], macro_events_raw) if isinstance(macro_events_raw, list) else []
-                ),
+                macro_events=_json_object_list(macro_data.get("events", [])),
                 macro_name=name,
                 replay_mouse_movement=bool(data.get("replay_mouse_movement", True)),
                 replay_mouse_clicks=bool(data.get("replay_mouse_clicks", True)),
-                speed=float(data.get("speed", 1.0)),
-                loop_mode=str(macro_data.get("loop_mode", "none") or "none"),
+                speed=_float_like(data.get("speed", 1.0), 1.0),
+                loop_mode=_str_value(macro_data.get("loop_mode", "none"), "none") or "none",
                 loop_count=_int_like(macro_data.get("loop_count", 1), 1),
                 move_to_start=bool(macro_data.get("move_to_start", False)),
                 start_x=_int_like(macro_data.get("start_x", 0), 0),
@@ -363,8 +501,8 @@ class Daemon:
             return await self.device_manager.cancel_macro_playback()
 
         elif command_type == CommandType.MACRO_EXEC_COMPLETE:
-            wait_id = str(data.get("wait_id", "") or "")
-            returncode = int(data.get("returncode", 0) or 0)
+            wait_id = _str_value(data.get("wait_id", ""))
+            returncode = _int_like(data.get("returncode", 0), 0)
             return self.device_manager.complete_macro_exec_wait(wait_id, returncode)
 
         elif command_type == CommandType.CAPTURE_BEGIN:
@@ -382,22 +520,22 @@ class Daemon:
         elif command_type == CommandType.CAPTURE_COMBO:
             hardware_ids = {
                 str(hardware_id).lower()
-                for hardware_id in list(data.get("hardware_ids", []))
+                for hardware_id in _str_list(data.get("hardware_ids", []))
                 if str(hardware_id).strip()
             }
-            timeout_s = float(data.get("timeout_s", 15.0) or 15.0)
+            timeout_s = _float_like(data.get("timeout_s", 15.0), 15.0)
             return await self._capture_combo(hardware_ids, timeout_s)
 
         elif command_type == CommandType.SET_DIAGNOSTICS:
             enabled = bool(data.get("enabled", False))
-            interval = float(data.get("interval", 5.0))
+            interval = _float_like(data.get("interval", 5.0), 5.0)
             return await self.device_manager.set_diagnostics(enabled, interval)
 
         elif command_type == CommandType.REFRESH_RECORDING_UNLOCK:
             if client is None:
                 raise PermissionError("recording_refresh_denied: missing client context")
             uid = int(client.uid)
-            ttl = int(data.get("ttl", 60) or 60)
+            ttl = _int_like(data.get("ttl", 60), 60)
             return self._refresh_runtime_unlock(uid, ttl, client)
 
         elif command_type == CommandType.LOCK_RECORDING_UNLOCK:
@@ -410,7 +548,7 @@ class Daemon:
         else:
             raise ValueError(f"Unknown command: {command_type}")
 
-    async def _capture_combo(self, hardware_ids: set[str], timeout_s: float) -> dict:
+    async def _capture_combo(self, hardware_ids: set[str], timeout_s: float) -> JsonObject:
         if not hardware_ids:
             raise ValueError("capture_combo requires at least one hardware_id")
 
@@ -435,7 +573,7 @@ class Daemon:
                 authorization,
             )
             self.capture_manager.register_combo_notifier(token, loop, notify_event)
-            warnings = list(capture_result.get("warnings", []))
+            warnings = _str_list(capture_result.get("warnings", []))
             deadline = loop.time() + max(1.0, float(timeout_s))
             pressed: set[str] = set()
             events: list[dict[str, str]] = []
@@ -447,7 +585,7 @@ class Daemon:
 
                 evdev_name = str(event.get("evdev", "") or "")
                 raw_value = event.get("value")
-                value = int(raw_value) if raw_value is not None else -1
+                value = _int_like(raw_value, -1) if raw_value is not None else -1
                 if not evdev_name.startswith(("key_", "btn_")) or value not in {0, 1}:
                     continue
 
@@ -501,7 +639,7 @@ class Daemon:
         token: str,
         notify_event: asyncio.Event,
         deadline: float,
-    ) -> dict | None:
+    ) -> JsonObject | None:
         loop = asyncio.get_running_loop()
 
         while loop.time() < deadline:
@@ -525,14 +663,14 @@ class Daemon:
 
         return None
 
-    def _drain_capture_combo_event_sources(self, token: str) -> dict | None:
+    def _drain_capture_combo_event_sources(self, token: str) -> JsonObject | None:
         event = self.device_manager.read_combo_capture(token).get("event")
         if isinstance(event, dict):
-            return event
+            return cast(JsonObject, event)
 
         passive_event = self.capture_manager.read_combo_nowait(token).get("event")
         if isinstance(passive_event, dict):
-            return passive_event
+            return cast(JsonObject, passive_event)
 
         return None
 
@@ -662,7 +800,7 @@ class Daemon:
 
         raise PermissionError("sensitive_command_denied: caller is not active session owner")
 
-    def _refresh_runtime_unlock(self, uid: int, ttl: int, client: ClientContext) -> dict:
+    def _refresh_runtime_unlock(self, uid: int, ttl: int, client: ClientContext) -> JsonObject:
         owner = self._recording_refresh_owners.get(uid)
         if owner is None:
             self._recording_refresh_owners[uid] = (int(client.pid), int(client.connection_id))
@@ -751,7 +889,7 @@ class Daemon:
         client: ClientContext,
         *,
         cleanup: bool = False,
-    ) -> dict:
+    ) -> JsonObject:
         if not cleanup:
             owner = self._recording_refresh_owners.get(uid)
             if owner is None:
@@ -783,21 +921,25 @@ class Daemon:
             "locked": True,
         }
 
-    def _log_view(self, data: dict) -> dict:
+    def _log_view(self, data: JsonObject) -> JsonObject:
         def sanitize(value: object) -> object:
             if isinstance(value, dict):
-                out = {}
-                for k, v in value.items():
-                    if k in ("macro_events", "events") and isinstance(v, list):
-                        out[k] = f"<{len(v)} events>"
+                out: JsonObject = {}
+                items = cast(dict[object, object], value)
+                for raw_key, raw_value in items.items():
+                    key = str(raw_key)
+                    if key in ("macro_events", "events") and isinstance(raw_value, list):
+                        events = cast(list[object], raw_value)
+                        out[key] = f"<{len(events)} events>"
                     else:
-                        out[k] = sanitize(v)
+                        out[key] = sanitize(raw_value)
                 return out
             if isinstance(value, list):
-                return [sanitize(v) for v in value]
+                items = cast(list[object], value)
+                return [sanitize(item) for item in items]
             return value
 
-        view = {}
+        view: JsonObject = {}
         for key, value in data.items():
             view[key] = sanitize(value)
         return view
@@ -819,7 +961,7 @@ class Daemon:
                 f"Insecure run directory permissions on {RUN_DIR}: {mode & 0o777:04o}"
             )
 
-    def _validate_peer(self, peer) -> tuple[bool, str, str]:
+    def _validate_peer(self, peer: PeerCredentials) -> tuple[bool, str, str]:
         if self.security_policy is None:
             return False, "unknown", "security policy not loaded"
 
@@ -828,11 +970,11 @@ class Daemon:
 
         return True, "session", "peer uid allowed"
 
-    async def _load_macro_definitions(self, macro_names: set[str]) -> dict[str, dict]:
+    async def _load_macro_definitions(self, macro_names: set[str]) -> dict[str, JsonObject]:
         if not macro_names:
             return {}
 
-        async def load_macro(name: str) -> tuple[str, dict | None]:
+        async def load_macro(name: str) -> tuple[str, JsonObject | None]:
             try:
                 macro = await asyncio.to_thread(self.macro_store.get, name)
             except Exception:
@@ -842,35 +984,38 @@ class Daemon:
         loaded = await asyncio.gather(*(load_macro(name) for name in sorted(macro_names)))
         return {name: macro for name, macro in loaded if isinstance(macro, dict)}
 
-    def _apply_macro_definition(self, action_data: dict, macro: dict) -> dict:
-        updated = dict(action_data)
-        updated["macro_events"] = macro.get("events", [])
-        updated["macro_loop_mode"] = str(macro.get("loop_mode", "none") or "none")
-        updated["macro_loop_count"] = int(macro.get("loop_count", 1) or 1)
+    def _apply_macro_definition(self, action_data: JsonObject, macro: JsonObject) -> JsonObject:
+        updated: JsonObject = dict(action_data)
+        updated["macro_events"] = _json_object_list(macro.get("events", []))
+        updated["macro_loop_mode"] = _str_value(macro.get("loop_mode", "none"), "none") or "none"
+        updated["macro_loop_count"] = _int_like(macro.get("loop_count", 1), 1)
         updated["macro_move_to_start"] = bool(macro.get("move_to_start", False))
-        updated["macro_start_x"] = int(macro.get("start_x", 0))
-        updated["macro_start_y"] = int(macro.get("start_y", 0))
+        updated["macro_start_x"] = _int_like(macro.get("start_x", 0), 0)
+        updated["macro_start_y"] = _int_like(macro.get("start_y", 0), 0)
         updated["macro_block_mouse_movement"] = bool(macro.get("block_mouse_movement", False))
         return updated
 
-    async def _resolve_mapping_macros(self, mapping: dict) -> dict:
-        macro_names = {
-            str(action_data["macro_name"])
-            for action_data in mapping.values()
-            if isinstance(action_data, dict)
-            and action_data.get("action") == "macro"
-            and action_data.get("macro_name")
-            and not action_data.get("macro_events")
-        }
+    async def _resolve_mapping_macros(self, mapping: JsonObject) -> JsonObject:
+        macro_names: set[str] = set()
+        for action_raw in mapping.values():
+            if not isinstance(action_raw, dict):
+                continue
+            action_data = cast(JsonObject, action_raw)
+            if (
+                action_data.get("action") == "macro"
+                and action_data.get("macro_name")
+                and not action_data.get("macro_events")
+            ):
+                macro_names.add(str(action_data["macro_name"]))
         macros = await self._load_macro_definitions(macro_names)
 
-        resolved: dict = {}
+        resolved: JsonObject = {}
         for button_id, action_data in mapping.items():
             if not isinstance(action_data, dict):
                 resolved[button_id] = action_data
                 continue
 
-            updated = dict(action_data)
+            updated: JsonObject = dict(cast(JsonObject, action_data))
             macro_name = str(updated.get("macro_name", "") or "")
             if (
                 updated.get("action") == "macro"
@@ -887,27 +1032,30 @@ class Daemon:
 
         return resolved
 
-    async def _resolve_combo_macros(self, combos: list[dict]) -> list[dict]:
-        macro_names = {
-            str(action_data["macro_name"])
-            for combo in combos
-            for action_data in [combo.get("action")]
-            if isinstance(action_data, dict)
-            and action_data.get("action") == "macro"
-            and action_data.get("macro_name")
-            and not action_data.get("macro_events")
-        }
+    async def _resolve_combo_macros(self, combos: JsonObjectList) -> JsonObjectList:
+        macro_names: set[str] = set()
+        for combo in combos:
+            action_raw = combo.get("action")
+            if not isinstance(action_raw, dict):
+                continue
+            action_data = cast(JsonObject, action_raw)
+            if (
+                action_data.get("action") == "macro"
+                and action_data.get("macro_name")
+                and not action_data.get("macro_events")
+            ):
+                macro_names.add(str(action_data["macro_name"]))
         macros = await self._load_macro_definitions(macro_names)
 
-        resolved: list[dict] = []
+        resolved: JsonObjectList = []
         for combo in combos:
-            updated = dict(combo)
+            updated: JsonObject = dict(combo)
             action_data = updated.get("action")
             if not isinstance(action_data, dict):
                 resolved.append(updated)
                 continue
 
-            action = dict(action_data)
+            action: JsonObject = dict(cast(JsonObject, action_data))
             macro_name = str(action.get("macro_name", "") or "")
             if (
                 action.get("action") == "macro"

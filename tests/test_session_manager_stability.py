@@ -1,6 +1,7 @@
 import asyncio
 import time
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, Mock, call
 
 import pytest
@@ -599,8 +600,9 @@ async def test_handle_session_request_get_compositor_merges_listener_runtime_war
 
     assert result["supported"] is True
     assert result["compositor_dispatch_available"] is False
-    assert result["details"]["bridge_protocol"] == 1
-    assert "Log out and back in" in str(result["details"]["warning"])
+    details = cast(dict[str, object], result["details"])
+    assert details["bridge_protocol"] == 1
+    assert "Log out and back in" in str(details["warning"])
 
 
 async def test_handle_session_request_get_compositor_reports_kde_dispatch_availability() -> None:

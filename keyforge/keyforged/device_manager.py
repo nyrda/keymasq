@@ -343,7 +343,7 @@ class DeviceManager:
         hardware_id: str,
         immediate: bool = False,
         grace_s: float | None = None,
-    ) -> JsonObject:
+        ) -> JsonObject:
         async with self._op_lock:
             if immediate:
                 return await runtime_grab_lifecycle.release_device_unlocked(

@@ -2972,7 +2972,7 @@ class TestDeviceManagerHelpers:
             manager,
             "1234:5678",
             "/dev/input/event0",
-            asyncio_mod=dm.asyncio,
+            asyncio_mod=ldm.ASYNCIO_RUNTIME,
             log=ldm.log,
         )
         assert created["/dev/input/event1"].button_map_updates == [{"right": "btn_side"}]

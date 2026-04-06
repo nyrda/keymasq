@@ -2,8 +2,8 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any, Final, Protocol, cast
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
+from typing import Final, Protocol, TypeVar, cast
 
 import evdev
 
@@ -16,6 +16,7 @@ from keyforge.keyforged.runtime import combos as runtime_combos
 from keyforge.keyforged.runtime import outputs as runtime_outputs
 
 log = logging.getLogger("keyforged.devices")
+_T = TypeVar("_T")
 type JsonObject = dict[str, object]
 type JsonObjectFn = Callable[[object], JsonObject | None]
 type StrValueFn = Callable[..., str]
@@ -34,6 +35,8 @@ class _WritableUInput(Protocol):
     def write(self, event_type: int, code: int, value: int) -> None: ...
 
     def syn(self) -> None: ...
+
+    def close(self) -> None: ...
 
 
 type UInputWriter = Callable[[object | None], _WritableUInput | None]
@@ -73,9 +76,10 @@ type GrabbedDeviceFactory = Callable[..., _ManagedGrabbedDevice]
 
 
 class _OutputState(Protocol):
-    keyboard_uinput: object | None
-    mouse_uinput: object | None
-    gamepad_uinput: object | None
+    device_count: int
+    keyboard_uinput: _WritableUInput | None
+    mouse_uinput: _WritableUInput | None
+    gamepad_uinput: _WritableUInput | None
 
 
 class _MacroState(Protocol):
@@ -122,9 +126,9 @@ class _ErrnoModule(Protocol):
 class _AsyncioModule(Protocol):
     async def sleep(self, delay: float, /) -> None: ...
 
-    def create_task(self, coro: object, /) -> asyncio.Task[None]: ...
+    def create_task(self, coro: Coroutine[object, object, _T], /) -> asyncio.Task[_T]: ...
 
-    def current_task(self) -> asyncio.Task[object] | None: ...
+    def current_task(self) -> asyncio.Task[None] | None: ...
 
 
 class _Ecodes(Protocol):
@@ -135,6 +139,39 @@ class _Ecodes(Protocol):
 class _EvdevModule(Protocol):
     @property
     def ecodes(self) -> _Ecodes: ...
+
+
+class _AsyncioRuntimeAdapter:
+    async def sleep(self, delay: float, /) -> None:
+        await asyncio.sleep(delay)
+
+    def create_task(self, coro: Coroutine[object, object, _T], /) -> asyncio.Task[_T]:
+        return asyncio.create_task(coro)
+
+    def current_task(self) -> asyncio.Task[None] | None:
+        return cast(asyncio.Task[None] | None, asyncio.current_task())
+
+
+class _ComboEcodesByType:
+    def get(self, key: int, default: dict[int, object] | None = None) -> dict[int, object]:
+        value = evdev.ecodes.bytype.get(key)
+        if isinstance(value, dict):
+            return cast(dict[int, object], value)
+        return {} if default is None else default
+
+
+class _ComboEcodes:
+    EV_KEY: Final[int] = evdev.ecodes.EV_KEY
+    EV_ABS: Final[int] = evdev.ecodes.EV_ABS
+    bytype: Final[_ComboEcodesByType] = _ComboEcodesByType()
+
+
+class _ComboEvdevAdapter:
+    ecodes: Final[_ComboEcodes] = _ComboEcodes()
+
+
+ASYNCIO_RUNTIME = _AsyncioRuntimeAdapter()
+COMBO_EVDEV_RUNTIME = _ComboEvdevAdapter()
 
 
 def _normalize_evdev_name(value: object, default: str) -> str:
@@ -176,6 +213,40 @@ def _manager_record_diagnostic(manager: _GrabManager, label: str, duration_us: f
 
 def _manager_op_lock(manager: _GrabManager) -> asyncio.Lock:
     return manager._op_lock  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_asyncio_runtime() -> runtime_combos._AsyncioModule:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_combos._AsyncioModule, ASYNCIO_RUNTIME)  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_evdev_runtime() -> runtime_combos._EvdevModule:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_combos._EvdevModule, COMBO_EVDEV_RUNTIME)  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_uinput_writer() -> runtime_combos.UInputWriter:
+    return _identity_uinput
+
+
+def _outputs_manager(manager: _GrabManager) -> runtime_outputs._OutputManager:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_outputs._OutputManager, manager)  # pyright: ignore[reportPrivateUsage]
+
+
+def _outputs_evdev_runtime() -> runtime_outputs._EvdevModule:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_outputs._EvdevModule, evdev)  # pyright: ignore[reportPrivateUsage]
+
+
+def _outputs_uinput_writer() -> runtime_outputs.UInputWriter:
+    return _identity_uinput
+
+
+def _combo_emit_mouse_move(
+    uinput_dev: object | None,
+    move_x: int,
+    move_y: int,
+    *,
+    absolute: bool = False,
+) -> None:
+    emit_mouse_move(cast(_WritableUInput | None, uinput_dev), move_x, move_y, absolute=absolute)
 
 
 async def grab_device_unlocked(
@@ -249,7 +320,7 @@ async def grab_device_unlocked(
             manager,
             hardware_id,
             path,
-            asyncio_mod=cast(Any, asyncio),
+            asyncio_mod=ASYNCIO_RUNTIME,
             log=log,
         )
 
@@ -271,7 +342,7 @@ async def grab_device_unlocked(
             event_value,
             stable_path,
             source,
-            evdev_mod=cast(Any, evdev),
+            evdev_mod=_combo_evdev_runtime(),
             resolve_stable_path_fn=resolve_stable_path_fn,
             get_interface_id_fn=get_interface_id_fn,
             combo_binding_cls=RuntimeComboBinding,
@@ -281,14 +352,14 @@ async def grab_device_unlocked(
             time_mod=time,
             action_type_enum=ActionType,
             mapping_action_cls=MappingAction,
-            emit_mouse_move_fn=cast(Any, emit_mouse_move),
+            emit_mouse_move_fn=_combo_emit_mouse_move,
             get_trigger_axis_fn=get_trigger_axis,
             resolve_code_fn=resolve_output_code,
             fire_and_observe_fn=fire_and_observe_fn,
             command_type=CommandType,
-            asyncio_mod=cast(Any, asyncio),
+            asyncio_mod=_combo_asyncio_runtime(),
             contextlib_mod=contextlib,
-            uinput_writer=_identity_uinput,
+            uinput_writer=_combo_uinput_writer(),
         )
 
     async def runtime_cleanup_callback(
@@ -299,12 +370,12 @@ async def grab_device_unlocked(
             manager,
             cleanup_hardware_id,
             cleanup_source,
-            asyncio_mod=cast(Any, asyncio),
+            asyncio_mod=_combo_asyncio_runtime(),
             contextlib_mod=contextlib,
             mapping_action_cls=MappingAction,
-            evdev_mod=cast(Any, evdev),
-            uinput_writer=_identity_uinput,
-            emit_mouse_move_fn=cast(Any, emit_mouse_move),
+            evdev_mod=_combo_evdev_runtime(),
+            uinput_writer=_combo_uinput_writer(),
+            emit_mouse_move_fn=_combo_emit_mouse_move,
             get_trigger_axis_fn=get_trigger_axis,
             resolve_code_fn=resolve_output_code,
             fire_and_observe_fn=fire_and_observe_fn,
@@ -330,10 +401,10 @@ async def grab_device_unlocked(
             if has_mapped_buttons or force_grab_unmapped:
                 if hardware_id not in manager.grabbed_devices and not created_global_uinputs:
                     runtime_outputs.create_global_uinputs(
-                        cast(Any, manager),
-                        evdev_mod=cast(Any, evdev),
+                        _outputs_manager(manager),
+                        evdev_mod=_outputs_evdev_runtime(),
                         log=log,
-                        uinput_writer=cast(Any, _identity_uinput),
+                        uinput_writer=_outputs_uinput_writer(),
                     )
                     created_global_uinputs = True
                 detected_types = _manager_detect_device_types(manager, raw_device)
@@ -369,7 +440,7 @@ async def grab_device_unlocked(
                 await grab_with_retry(
                     device,
                     path,
-                    asyncio_mod=cast(Any, asyncio),
+                    asyncio_mod=ASYNCIO_RUNTIME,
                     log=log,
                     errno_mod=errno_mod,
                 )
@@ -392,7 +463,7 @@ async def grab_device_unlocked(
                     continue
                 await device.release()
             if created_global_uinputs:
-                runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
+                runtime_outputs.destroy_global_uinputs(_outputs_manager(manager), log=log)
             raise
         except Exception as exc:
             log.error("Failed to grab %s: %s", path, exc)
@@ -401,7 +472,7 @@ async def grab_device_unlocked(
                     continue
                 await device.release()
             if created_global_uinputs:
-                runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
+                runtime_outputs.destroy_global_uinputs(_outputs_manager(manager), log=log)
             raise
 
     waiting_for_device = bool(requested_paths and available_count == 0 and not devices)
@@ -413,7 +484,7 @@ async def grab_device_unlocked(
         and grabbed_count == 0
     ):
         if created_global_uinputs:
-            runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
+            runtime_outputs.destroy_global_uinputs(_outputs_manager(manager), log=log)
         raise ValueError(
             f"No interfaces for {hardware_id} matched mapped buttons "
             f"(paths={len(requested_paths)}, mapped_names={len(mapped_evdev_names)}, "
@@ -522,12 +593,12 @@ async def release_device_unlocked(
         manager,
         hardware_id,
         None,
-        asyncio_mod=cast(Any, asyncio),
+        asyncio_mod=_combo_asyncio_runtime(),
         contextlib_mod=contextlib,
         mapping_action_cls=MappingAction,
-        evdev_mod=cast(Any, evdev),
-        uinput_writer=_identity_uinput,
-        emit_mouse_move_fn=cast(Any, emit_mouse_move),
+        evdev_mod=_combo_evdev_runtime(),
+        uinput_writer=_combo_uinput_writer(),
+        emit_mouse_move_fn=_combo_emit_mouse_move,
         get_trigger_axis_fn=get_trigger_axis,
         resolve_code_fn=resolve_output_code,
         fire_and_observe_fn=_fire_and_forget,
@@ -541,7 +612,7 @@ async def release_device_unlocked(
     for device in devices:
         await device.release()
 
-    runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
+    runtime_outputs.destroy_global_uinputs(_outputs_manager(manager), log=log)
     manager.active_mappings.pop(hardware_id, None)
     manager.grab_state.desired_paths.pop(hardware_id, None)
     log.info("Released device %s", hardware_id)
@@ -710,12 +781,12 @@ async def release_interface_unlocked(
         manager,
         hardware_id,
         str(getattr(removed, "interface_id", "") or "").lower(),
-        asyncio_mod=cast(Any, asyncio),
+        asyncio_mod=_combo_asyncio_runtime(),
         contextlib_mod=contextlib,
         mapping_action_cls=MappingAction,
-        evdev_mod=cast(Any, evdev),
-        uinput_writer=_identity_uinput,
-        emit_mouse_move_fn=cast(Any, emit_mouse_move),
+        evdev_mod=_combo_evdev_runtime(),
+        uinput_writer=_combo_uinput_writer(),
+        emit_mouse_move_fn=_combo_emit_mouse_move,
         get_trigger_axis_fn=get_trigger_axis,
         resolve_code_fn=resolve_output_code,
         fire_and_observe_fn=_fire_and_forget,
@@ -734,7 +805,7 @@ async def release_interface_unlocked(
             manager.active_mappings.pop(hardware_id, None)
             manager.grab_state.desired_paths.pop(hardware_id, None)
             manager.grab_state.desired_grabs.pop(hardware_id, None)
-        runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
+        runtime_outputs.destroy_global_uinputs(_outputs_manager(manager), log=log)
 
 
 async def release_all_devices(
@@ -744,12 +815,12 @@ async def release_all_devices(
         await manager.cancel_macro_playback()
         await runtime_combos.clear_combo_runtime(
             manager,
-            asyncio_mod=cast(Any, asyncio),
+            asyncio_mod=_combo_asyncio_runtime(),
             contextlib_mod=contextlib,
             mapping_action_cls=MappingAction,
-            evdev_mod=cast(Any, evdev),
-            uinput_writer=_identity_uinput,
-            emit_mouse_move_fn=cast(Any, emit_mouse_move),
+            evdev_mod=_combo_evdev_runtime(),
+            uinput_writer=_combo_uinput_writer(),
+            emit_mouse_move_fn=_combo_emit_mouse_move,
             get_trigger_axis_fn=get_trigger_axis,
             resolve_code_fn=resolve_output_code,
             fire_and_observe_fn=fire_and_observe_fn,

@@ -8,6 +8,7 @@ import pytest
 
 import keyforge.session.manager as session_manager_module
 import keyforge.session.manager_compositor as session_compositor_module
+import keyforge.session.manager_events as session_events_module
 import keyforge.session.manager_payloads as session_payloads_module
 import keyforge.session.manager_profiles as session_profiles_module
 import keyforge.session.manager_recording as session_recording_module
@@ -675,7 +676,8 @@ async def test_handle_event_compositor_dispatch_uses_listener() -> None:
     manager._window_listener = listener
     manager._compositor_id = "hyprland"
 
-    await manager._handle_event(
+    await session_events_module.handle_event(
+        manager,
         CommandType.ACTION_TRIGGER,
         {
             "action_type": "compositor_dispatch",
@@ -696,7 +698,8 @@ async def test_handle_event_exec_ref_runs_command_once() -> None:
     manager.exec_state.exec_refs[7] = "echo once"
     manager.action_handler.execute_command = AsyncMock(return_value=0)
 
-    await manager._handle_event(
+    await session_events_module.handle_event(
+        manager,
         CommandType.ACTION_TRIGGER,
         {
             "action_type": "exec",
@@ -716,7 +719,8 @@ async def test_handle_event_macro_async_exec_uses_exec_trigger_path() -> None:
     manager.action_handler.handle_action = AsyncMock()
     manager.action_handler.execute_command_sync = Mock()
 
-    await manager._handle_event(
+    await session_events_module.handle_event(
+        manager,
         CommandType.ACTION_TRIGGER,
         {
             "action_type": "exec",
@@ -752,7 +756,8 @@ async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
 
     monkeypatch.setattr(session_manager_module.asyncio, "sleep", _instant_sleep)
 
-    await manager._handle_event(
+    await session_events_module.handle_event(
+        manager,
         CommandType.DEVICE_DISCONNECTED,
         {"hardware_id": "1234:5678", "vendor_id": "1234", "product_id": "5678"},
     )
@@ -786,7 +791,11 @@ async def test_topology_refresh_retries_after_reevaluate_failure(
     monkeypatch.setattr(session_manager_module.asyncio, "sleep", fake_sleep)
 
     with caplog.at_level("WARNING", logger="keyforge-session"):
-        manager._schedule_topology_refresh()
+        session_profiles_module.schedule_topology_refresh(
+            manager,
+            session_manager_module.TOPOLOGY_REFRESH_DEBOUNCE_S,
+            session_manager_module.TOPOLOGY_REFRESH_RETRY_S,
+        )
         task = manager.profile_state.topology_refresh_task
         assert task is not None
         await task
@@ -1027,8 +1036,8 @@ def test_handle_device_grab_status_waiting_notifies_once_and_broadcasts() -> Non
         "waited_s": 1.2,
     }
 
-    manager._handle_device_grab_status_event(event)
-    manager._handle_device_grab_status_event(event)
+    session_events_module.handle_device_grab_status_event(manager, event)
+    session_events_module.handle_device_grab_status_event(manager, event)
 
     manager._send_notification.assert_called_once_with(
         "Keyforge: Grab Pending",
@@ -1048,7 +1057,9 @@ def test_handle_device_grab_status_timeout_notifies_and_schedules_retry() -> Non
     )
     manager._send_notification = Mock()
     manager._broadcast_to_session_clients = Mock()
-    manager._schedule_grab_retry = Mock()  # type: ignore[assignment]
+    monkeypatch = pytest.MonkeyPatch()
+    schedule_grab_retry = Mock()
+    monkeypatch.setattr(session_profiles_module, "schedule_grab_retry", schedule_grab_retry)
     manager.profile_state.grab_waiting_devices.add("1234:5678")
 
     event = {
@@ -1058,13 +1069,20 @@ def test_handle_device_grab_status_timeout_notifies_and_schedules_retry() -> Non
         "waited_s": 300.0,
     }
 
-    manager._handle_device_grab_status_event(event)
+    try:
+        session_events_module.handle_device_grab_status_event(manager, event)
+    finally:
+        monkeypatch.undo()
 
     manager._send_notification.assert_called_once_with(
         "Keyforge: Grab Timed Out",
         "Test Keyboard: keys stayed down too long (key_l). Retrying automatically.",
     )
-    manager._schedule_grab_retry.assert_called_once_with("1234:5678")
+    schedule_grab_retry.assert_called_once_with(
+        manager,
+        "1234:5678",
+        session_events_module.GRAB_RETRY_DELAY_S,
+    )
     manager._broadcast_to_session_clients.assert_called_once_with(
         {"event": "device_grab_status", **event}
     )

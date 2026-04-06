@@ -231,7 +231,9 @@ async def reevaluate_profiles(manager: "SessionManager") -> None:
         manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
 
     await update_combos(manager, resolved.combos)
-    manager._broadcast_profiles_changed()
+    manager._broadcast_to_session_clients(
+        {"event": "profiles_changed", **build_active_profiles_payload(manager)}
+    )
 
 
 async def apply_resolved_device_profile(
@@ -367,7 +369,7 @@ async def apply_resolved_device_profile(
             manager._send_notification(
                 "Keyforge: Grab Timed Out",
                 (
-                    f"{manager._device_name_for_hardware(hardware_id)}: grab timed out while "
+                    f"{device_name_for_hardware(manager, hardware_id)}: grab timed out while "
                     "waiting for keys to be released. Retrying automatically."
                 ),
             )
@@ -563,3 +565,10 @@ def maybe_notify_profile_activation(
         return
     profile_list = ", ".join(resolved.active_profile_names) or "passthrough"
     manager._send_notification("Profile Activated", f"{device_name}: {profile_list}")
+
+
+def device_name_for_hardware(manager: "SessionManager", hardware_id: str) -> str:
+    hardware = manager.hardware.get_hardware(hardware_id)
+    if hardware is None:
+        return hardware_id
+    return str(getattr(hardware, "name", "") or hardware_id)

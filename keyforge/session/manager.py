@@ -28,6 +28,7 @@ from keyforge.common.security import (
     uid_allowed,
 )
 from keyforge.session import manager_compositor as runtime_compositor
+from keyforge.session import manager_events as runtime_events
 from keyforge.session import manager_profiles as runtime_profiles
 from keyforge.session import manager_recording as runtime_recording
 from keyforge.session import manager_session_commands as session_commands
@@ -37,9 +38,6 @@ from keyforge.session.dbus import SessionDBus
 from keyforge.session.hardware import HardwareManager
 from keyforge.session.listeners.base import WindowListener
 from keyforge.session.manager_common import JsonObject
-from keyforge.session.manager_common import int_value as _int_value
-from keyforge.session.manager_common import json_list as _json_list
-from keyforge.session.manager_common import str_value as _str_value
 from keyforge.session.manager_state import (
     CaptureRuntimeState,
     ExecRuntimeState,
@@ -62,7 +60,10 @@ class SessionManager:
     _MAX_SESSION_CLIENT_BUFFER_BYTES = 16 * 1024 * 1024
 
     def __init__(self, verbosity: int = 0) -> None:
-        self.client = KeyforgedClient(self._handle_event)
+        async def _client_event_handler(event_type: CommandType, data: JsonObject) -> None:
+            await runtime_events.handle_event(self, event_type, data)
+
+        self.client = KeyforgedClient(_client_event_handler)
         self.superkeys = SuperkeyManager()
         self.profiles = ProfileManager(superkey_manager=self.superkeys)
         self.hardware = HardwareManager()
@@ -329,65 +330,12 @@ class SessionManager:
             writer,
         )
 
-    def _build_active_profiles_payload(self) -> JsonObject:
-        return runtime_profiles.build_active_profiles_payload(self)
-
-    def _broadcast_profiles_changed(self) -> None:
-        message = {"event": "profiles_changed", **self._build_active_profiles_payload()}
-        self._broadcast_to_session_clients(message)
-
     def _broadcast_keyforged_status(self, connected: bool) -> None:
         message = {
             "event": "keyforged_status",
             "connected": connected,
         }
         self._broadcast_to_session_clients(cast(JsonObject, message))
-
-    def _device_name_for_hardware(self, hardware_id: str) -> str:
-        hardware = self.hardware.get_hardware(hardware_id)
-        if hardware is None:
-            return hardware_id
-        return str(getattr(hardware, "name", "") or hardware_id)
-
-    def _cancel_grab_retry(self, hardware_id: str) -> None:
-        runtime_profiles.cancel_grab_retry(self, hardware_id)
-
-    def _schedule_grab_retry(self, hardware_id: str, delay_s: float = GRAB_RETRY_DELAY_S) -> None:
-        runtime_profiles.schedule_grab_retry(self, hardware_id, delay_s)
-
-    def _handle_device_grab_status_event(self, data: JsonObject) -> None:
-        hardware_id = str(data.get("hardware_id", "") or "")
-        state = str(data.get("state", "") or "").strip().lower()
-        active_keys = [str(key) for key in _json_list(data.get("active_keys")) if str(key)]
-        summary = ", ".join(active_keys) if active_keys else "unknown keys"
-
-        self._broadcast_to_session_clients({"event": "device_grab_status", **data})
-
-        if not hardware_id:
-            return
-
-        device_name = self._device_name_for_hardware(hardware_id)
-        if state == "waiting":
-            if hardware_id in self.profile_state.grab_waiting_devices:
-                return
-            self.profile_state.grab_waiting_devices.add(hardware_id)
-            self._send_notification(
-                "Keyforge: Grab Pending",
-                f"{device_name}: waiting for keys to be released ({summary}).",
-            )
-            return
-
-        if state == "ready":
-            self.profile_state.grab_waiting_devices.discard(hardware_id)
-            return
-
-        if state == "timed_out":
-            self.profile_state.grab_waiting_devices.discard(hardware_id)
-            self._send_notification(
-                "Keyforge: Grab Timed Out",
-                f"{device_name}: keys stayed down too long ({summary}). Retrying automatically.",
-            )
-            self._schedule_grab_retry(hardware_id)
 
     def _broadcast_to_session_clients(self, message: JsonObject) -> None:
         for writer in list(self._session_clients):
@@ -412,16 +360,6 @@ class SessionManager:
         log.info("Received shutdown signal")
         self._shutdown_event.set()
         self._retry_event.set()
-
-    def _invalidate_grabbed_state(self) -> None:
-        runtime_profiles.invalidate_grabbed_state(self)
-
-    def _schedule_topology_refresh(self) -> None:
-        runtime_profiles.schedule_topology_refresh(
-            self,
-            TOPOLOGY_REFRESH_DEBOUNCE_S,
-            TOPOLOGY_REFRESH_RETRY_S,
-        )
 
     async def _wait_for_session_clients_to_close(self, timeout_s: float = 1.0) -> None:
         if not self._session_clients:
@@ -527,210 +465,6 @@ class SessionManager:
                     retry_delay = min(retry_delay * 2, max_delay)
 
 
-    async def _handle_event(self, event_type: CommandType, data: JsonObject) -> None:
-        if self.verbosity >= 1:
-            log.debug(f"Event: {event_type.value} -> {self._event_log_view(data)}")
-
-        if event_type == CommandType.ACTION_TRIGGER:
-            exec_ref_raw = data.get("exec_ref")
-            exec_ref = _int_value(exec_ref_raw, -1) if exec_ref_raw is not None else None
-            if exec_ref is not None:
-                if exec_ref >= 10000:
-                    ref_data = self.exec_state.superkey_exec_refs.get(exec_ref)
-                    if ref_data:
-                        hardware_id, cmd = ref_data
-                        data["cmd"] = cmd
-                        data["hardware_id"] = hardware_id
-                        action_handler = self.action_handler
-                        if action_handler is not None:
-                            await action_handler.handle_action(data)
-                    else:
-                        log.warning(f"Unknown superkey exec_ref: {exec_ref}")
-                else:
-                    cmd = self.exec_state.exec_refs.get(exec_ref)
-                    if cmd:
-                        data["cmd"] = cmd
-                        action_handler = self.action_handler
-                        if action_handler is not None:
-                            await action_handler.handle_action(data)
-                    else:
-                        log.warning(f"Unknown exec_ref: {exec_ref}")
-            action_type_str = data.get("action_type", "")
-            if action_type_str == "start_macro_recording":
-                asyncio.create_task(self._handle_start_macro_trigger())
-            elif action_type_str == "stop_macro_recording":
-                asyncio.create_task(self._handle_stop_macro_trigger())
-            elif action_type_str == "cancel_macro_playback":
-                asyncio.create_task(self._handle_cancel_macro_trigger())
-            elif action_type_str in {"profile_enable", "profile_disable", "profile_toggle"}:
-                asyncio.create_task(self._handle_profile_trigger(data))
-            elif action_type_str == "exec" and exec_ref is None:
-                asyncio.create_task(self._handle_exec_trigger(data))
-            elif action_type_str in {"compositor_dispatch", "hyprland_dispatch"}:
-                asyncio.create_task(
-                    runtime_compositor.handle_compositor_dispatch_trigger(self, data)
-                )
-            elif action_type_str == "macro":
-                macro_name = str(data.get("macro_name", "")).strip()
-                if macro_name:
-                    asyncio.create_task(runtime_recording.play_macro_by_name(self, macro_name))
-        elif event_type == CommandType.DEVICE_CONNECTED:
-            log.info(f"Device connected: {data}")
-            await self._on_device_connected(data)
-        elif event_type == CommandType.DEVICE_DISCONNECTED:
-            log.info(f"Device disconnected: {data}")
-            await self._on_device_disconnected(data)
-        elif event_type == CommandType.DEVICE_GRAB_STATUS:
-            self._handle_device_grab_status_event(data)
-        elif event_type == CommandType.RECORDING_STARTED:
-            self.recording_state.active = True
-            self._broadcast_to_session_clients({"event": "recording_started", **data})
-        elif event_type == CommandType.RECORDING_STOPPED:
-            self.recording_state.active = False
-            recording_data = dict(data)
-            if self.recording_state.start_cursor:
-                recording_data["start_x"] = int(self.recording_state.start_cursor[0])
-                recording_data["start_y"] = int(self.recording_state.start_cursor[1])
-                recording_data["move_to_start"] = True
-            self.recording_state.pending_data = recording_data
-            self.recording_state.start_cursor = None
-            self._broadcast_to_session_clients(
-                {
-                    "event": "recording_stopped",
-                    "duration_ms": recording_data.get("duration_ms", 0),
-                    "event_count": len(_json_list(recording_data.get("events"))),
-                    "device_types": recording_data.get("device_types", []),
-                    "start_x": recording_data.get("start_x"),
-                    "start_y": recording_data.get("start_y"),
-                    "move_to_start": recording_data.get("move_to_start", False),
-                }
-            )
-        elif event_type == CommandType.RECORDING_PROGRESS:
-            self._broadcast_to_session_clients({"event": "recording_progress", **data})
-
-    async def _handle_start_macro_trigger(self) -> None:
-        if self.recording_state.active:
-            await self._handle_stop_macro_trigger()
-            return
-
-        if not runtime_recording.has_active_gui_recording_owner(self):
-            log.info("Ignored start_macro_recording trigger: no active GUI recording owner")
-            self._send_notification(
-                "Keyforge: Recording Unavailable",
-                "Macro recording from triggers requires Keyforge GUI to be open.",
-            )
-            self._broadcast_to_session_clients({"event": "recording_auth_requested"})
-            return
-
-        result = await runtime_recording.start_recording(self, reset_if_active=False)
-        if result.get("status") != "ok":
-            runtime_recording.notify_recording_unlock_required(self, result)
-            self._broadcast_to_session_clients({"event": "recording_auth_requested"})
-
-    async def _handle_stop_macro_trigger(self) -> None:
-        if not self.recording_state.active:
-            return
-        try:
-            await runtime_recording.stop_recording(self, error_if_idle=False)
-        except Exception:
-            pass
-
-    async def _handle_cancel_macro_trigger(self) -> None:
-        try:
-            await self.client.send_command(Command(command=CommandType.CANCEL_MACRO_PLAYBACK))
-        except Exception:
-            pass
-
-    async def _handle_profile_trigger(self, data: JsonObject) -> None:
-        action_type = str(data.get("action_type", "") or "").strip().lower()
-        profile_name = str(data.get("profile_name", "") or "").strip()
-        if not profile_name:
-            return
-
-        enabled: bool | None
-        if action_type == "profile_enable":
-            enabled = True
-        elif action_type == "profile_disable":
-            enabled = False
-        else:
-            enabled = None
-
-        result = await runtime_profiles.set_profile_enabled(self, profile_name, enabled)
-        if result.get("status") != "ok":
-            log.warning(
-                "Profile trigger failed action=%s profile=%s message=%s",
-                action_type,
-                profile_name,
-                result.get("message", "unknown error"),
-            )
-
-    async def _handle_exec_trigger(self, data: JsonObject) -> None:
-        cmd = str(data.get("cmd", "") or "").strip()
-        if not cmd:
-            return
-
-        wait_id = str(data.get("macro_exec_wait_id", "") or "").strip()
-        is_async = bool(data.get("macro_exec_async", False))
-
-        if wait_id:
-            action_handler = self.action_handler
-            if action_handler is None:
-                return
-            returncode = await action_handler.execute_command(cmd)
-            try:
-                await self.client.send_command(
-                    Command(
-                        command=CommandType.MACRO_EXEC_COMPLETE,
-                        data={"wait_id": wait_id, "returncode": int(returncode)},
-                    )
-                )
-            except Exception:
-                pass
-            return
-
-        if is_async:
-            action_handler = self.action_handler
-            if action_handler is None:
-                return
-            action_handler.execute_command_sync(cmd)
-            return
-
-        action_handler = self.action_handler
-        if action_handler is None:
-            return
-        await action_handler.execute_command(cmd)
-
-    async def _on_device_connected(self, device_info: JsonObject) -> None:
-        hardware_id = (
-            f"{_str_value(device_info.get('vendor_id'), '')}:"
-            f"{_str_value(device_info.get('product_id'), '')}"
-        )
-        if not hardware_id or ":" not in hardware_id:
-            return
-
-        if (
-            self.hardware.get_hardware(hardware_id) is None
-            and hardware_id not in self.profile_state.resolved_devices
-        ):
-            return
-        self._schedule_topology_refresh()
-
-    async def _on_device_disconnected(self, device_info: JsonObject) -> None:
-        hardware_id = _str_value(device_info.get("hardware_id"), "")
-        if not hardware_id or ":" not in hardware_id:
-            hardware_id = (
-                f"{_str_value(device_info.get('vendor_id'), '')}:"
-                f"{_str_value(device_info.get('product_id'), '')}"
-            )
-        if not hardware_id or ":" not in hardware_id:
-            return
-        if (
-            self.hardware.get_hardware(hardware_id) is None
-            and hardware_id not in self.profile_state.resolved_devices
-        ):
-            return
-        self._schedule_topology_refresh()
-
     async def on_window_change(
         self, window_class: str, window_title: str, window_tags: list[str]
     ) -> None:
@@ -749,16 +483,6 @@ class SessionManager:
             await self.dbus.notify(title, message, app_name="keyforge", timeout_ms=2000)
         except Exception as e:
             log.debug(f"Failed to send notification: {e}")
-
-    def _event_log_view(self, data: JsonObject) -> JsonObject:
-        view = dict(data)
-        events = _json_list(view.get("events"))
-        if events:
-            view["events"] = f"<{len(events)} events>"
-            if "event_count" not in view:
-                view["event_count"] = len(events)
-        return view
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(

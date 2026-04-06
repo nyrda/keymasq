@@ -27,6 +27,7 @@ result
 .venv/
 venv/
 .venv*/
+.direnv/
 ENV/
 env/
 

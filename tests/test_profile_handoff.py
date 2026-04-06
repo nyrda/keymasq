@@ -4,7 +4,8 @@ import evdev
 import pytest
 
 from keyforge.common.models import ActionType, MappingAction
-from keyforge.keyforged.device_manager import DeviceManager, GrabbedDevice
+from keyforge.keyforged.device_manager import DeviceManager
+from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 
 
 class _FakeUInput:

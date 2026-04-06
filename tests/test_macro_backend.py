@@ -15,8 +15,9 @@ from keyforge.common.models import (
     MappingAction,
     ProfileConfig,
 )
-from keyforge.keyforged.device_manager import DeviceManager, GrabbedDevice
+from keyforge.keyforged.device_manager import DeviceManager
 from keyforge.keyforged.recording import RecordingManager
+from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 from keyforge.session.profiles import ProfileManager
 
 

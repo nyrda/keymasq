@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import evdev
 import pytest
 
-from keyforge.keyforged.device_manager import GrabbedDevice
+from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 
 
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")

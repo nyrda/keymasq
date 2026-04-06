@@ -1,13 +1,214 @@
-from collections.abc import Sequence
-from typing import Any, cast
+import logging
+from collections.abc import Callable, Mapping, Sequence
+from typing import Final, Protocol, cast
+
+
+class _ClosableUInput(Protocol):
+    def close(self) -> None: ...
+
+
+class _WritableUInput(_ClosableUInput, Protocol):
+    def write(self, event_type: int, code: int, value: int) -> None: ...
+
+    def syn(self) -> None: ...
+
+
+type UInputWriter = Callable[[_ClosableUInput | None], _WritableUInput | None]
+
+
+class _OutputState(Protocol):
+    device_count: int
+    keyboard_uinput: _ClosableUInput | None
+    mouse_uinput: _ClosableUInput | None
+    gamepad_uinput: _ClosableUInput | None
+
+
+class _OutputManager(Protocol):
+    output_state: _OutputState
+
+
+class _AbsInfoFactory(Protocol):
+    def __call__(
+        self, value: int, min: int, max: int, fuzz: int, flat: int, resolution: int
+    ) -> object: ...
+
+
+class _UInputFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        events: Mapping[int, Sequence[object]],
+        name: str,
+        vendor: int = ...,
+        product: int = ...,
+        version: int = ...,
+        bustype: int = ...,
+    ) -> _ClosableUInput: ...
+
+
+class _Ecodes(Protocol):
+    EV_KEY: Final[int]
+    EV_SYN: Final[int]
+    EV_REL: Final[int]
+    EV_ABS: Final[int]
+    KEY_ESC: Final[int]
+    KEY_1: Final[int]
+    KEY_2: Final[int]
+    KEY_3: Final[int]
+    KEY_4: Final[int]
+    KEY_5: Final[int]
+    KEY_6: Final[int]
+    KEY_7: Final[int]
+    KEY_8: Final[int]
+    KEY_9: Final[int]
+    KEY_0: Final[int]
+    KEY_MINUS: Final[int]
+    KEY_EQUAL: Final[int]
+    KEY_BACKSPACE: Final[int]
+    KEY_TAB: Final[int]
+    KEY_Q: Final[int]
+    KEY_W: Final[int]
+    KEY_E: Final[int]
+    KEY_R: Final[int]
+    KEY_T: Final[int]
+    KEY_Y: Final[int]
+    KEY_U: Final[int]
+    KEY_I: Final[int]
+    KEY_O: Final[int]
+    KEY_P: Final[int]
+    KEY_LEFTBRACE: Final[int]
+    KEY_RIGHTBRACE: Final[int]
+    KEY_ENTER: Final[int]
+    KEY_LEFTCTRL: Final[int]
+    KEY_A: Final[int]
+    KEY_S: Final[int]
+    KEY_D: Final[int]
+    KEY_F: Final[int]
+    KEY_G: Final[int]
+    KEY_H: Final[int]
+    KEY_J: Final[int]
+    KEY_K: Final[int]
+    KEY_L: Final[int]
+    KEY_SEMICOLON: Final[int]
+    KEY_APOSTROPHE: Final[int]
+    KEY_GRAVE: Final[int]
+    KEY_LEFTSHIFT: Final[int]
+    KEY_BACKSLASH: Final[int]
+    KEY_102ND: Final[int]
+    KEY_Z: Final[int]
+    KEY_X: Final[int]
+    KEY_C: Final[int]
+    KEY_V: Final[int]
+    KEY_B: Final[int]
+    KEY_N: Final[int]
+    KEY_M: Final[int]
+    KEY_COMMA: Final[int]
+    KEY_DOT: Final[int]
+    KEY_SLASH: Final[int]
+    KEY_RIGHTSHIFT: Final[int]
+    KEY_LEFTALT: Final[int]
+    KEY_LEFTMETA: Final[int]
+    KEY_SPACE: Final[int]
+    KEY_CAPSLOCK: Final[int]
+    KEY_F1: Final[int]
+    KEY_F2: Final[int]
+    KEY_F3: Final[int]
+    KEY_F4: Final[int]
+    KEY_F5: Final[int]
+    KEY_F6: Final[int]
+    KEY_F7: Final[int]
+    KEY_F8: Final[int]
+    KEY_F9: Final[int]
+    KEY_F10: Final[int]
+    KEY_F11: Final[int]
+    KEY_F12: Final[int]
+    KEY_RIGHTCTRL: Final[int]
+    KEY_RIGHTALT: Final[int]
+    KEY_RIGHTMETA: Final[int]
+    KEY_MENU: Final[int]
+    KEY_SYSRQ: Final[int]
+    KEY_SCROLLLOCK: Final[int]
+    KEY_PAUSE: Final[int]
+    KEY_HOME: Final[int]
+    KEY_UP: Final[int]
+    KEY_PAGEUP: Final[int]
+    KEY_LEFT: Final[int]
+    KEY_RIGHT: Final[int]
+    KEY_END: Final[int]
+    KEY_DOWN: Final[int]
+    KEY_PAGEDOWN: Final[int]
+    KEY_INSERT: Final[int]
+    KEY_DELETE: Final[int]
+    KEY_MUTE: Final[int]
+    KEY_VOLUMEDOWN: Final[int]
+    KEY_VOLUMEUP: Final[int]
+    KEY_NUMLOCK: Final[int]
+    KEY_KPSLASH: Final[int]
+    KEY_KPASTERISK: Final[int]
+    KEY_KPMINUS: Final[int]
+    KEY_KP7: Final[int]
+    KEY_KP8: Final[int]
+    KEY_KP9: Final[int]
+    KEY_KPPLUS: Final[int]
+    KEY_KP4: Final[int]
+    KEY_KP5: Final[int]
+    KEY_KP6: Final[int]
+    KEY_KP1: Final[int]
+    KEY_KP2: Final[int]
+    KEY_KP3: Final[int]
+    KEY_KPENTER: Final[int]
+    KEY_KP0: Final[int]
+    KEY_KPDOT: Final[int]
+    BTN_LEFT: Final[int]
+    BTN_RIGHT: Final[int]
+    BTN_MIDDLE: Final[int]
+    BTN_SIDE: Final[int]
+    BTN_EXTRA: Final[int]
+    BTN_FORWARD: Final[int]
+    BTN_BACK: Final[int]
+    REL_X: Final[int]
+    REL_Y: Final[int]
+    REL_WHEEL: Final[int]
+    REL_HWHEEL: Final[int]
+    BTN_SOUTH: Final[int]
+    BTN_EAST: Final[int]
+    BTN_NORTH: Final[int]
+    BTN_WEST: Final[int]
+    BTN_TL: Final[int]
+    BTN_TR: Final[int]
+    BTN_TL2: Final[int]
+    BTN_TR2: Final[int]
+    BTN_SELECT: Final[int]
+    BTN_START: Final[int]
+    BTN_MODE: Final[int]
+    BTN_THUMBL: Final[int]
+    BTN_THUMBR: Final[int]
+    BTN_DPAD_UP: Final[int]
+    BTN_DPAD_DOWN: Final[int]
+    BTN_DPAD_LEFT: Final[int]
+    BTN_DPAD_RIGHT: Final[int]
+    ABS_X: Final[int]
+    ABS_Y: Final[int]
+    ABS_RX: Final[int]
+    ABS_RY: Final[int]
+    ABS_Z: Final[int]
+    ABS_RZ: Final[int]
+    ABS_HAT0X: Final[int]
+    ABS_HAT0Y: Final[int]
+
+
+class _EvdevModule(Protocol):
+    ecodes: Final[_Ecodes]
+    UInput: Final[_UInputFactory]
+    AbsInfo: Final[_AbsInfoFactory]
 
 
 def create_global_uinputs(
-    manager: Any,
+    manager: _OutputManager,
     *,
-    evdev_mod: Any,
-    log: Any,
-    uinput_writer: Any,
+    evdev_mod: _EvdevModule,
+    log: logging.Logger,
+    uinput_writer: UInputWriter,
 ) -> None:
     if manager.output_state.device_count == 0:
         log.info("Creating global output uinput devices")
@@ -209,7 +410,7 @@ def create_global_uinputs(
     manager.output_state.device_count += 1
 
 
-def destroy_global_uinputs(manager: Any, *, log: Any) -> None:
+def destroy_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> None:
     manager.output_state.device_count = max(0, manager.output_state.device_count - 1)
 
     if manager.output_state.device_count == 0:

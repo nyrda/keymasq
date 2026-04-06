@@ -294,10 +294,10 @@ async def grab_device_unlocked(
             if has_mapped_buttons or force_grab_unmapped:
                 if hardware_id not in manager.grabbed_devices and not created_global_uinputs:
                     runtime_outputs.create_global_uinputs(
-                        manager,
-                        evdev_mod=evdev,
+                        cast(Any, manager),
+                        evdev_mod=cast(Any, evdev),
                         log=log,
-                        uinput_writer=_identity_uinput,
+                        uinput_writer=cast(Any, _identity_uinput),
                     )
                     created_global_uinputs = True
                 detected_types = _manager_detect_device_types(manager, raw_device)
@@ -356,7 +356,7 @@ async def grab_device_unlocked(
                     continue
                 await device.release()
             if created_global_uinputs:
-                runtime_outputs.destroy_global_uinputs(manager, log=log)
+                runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
             raise
         except Exception as exc:
             log.error("Failed to grab %s: %s", path, exc)
@@ -365,7 +365,7 @@ async def grab_device_unlocked(
                     continue
                 await device.release()
             if created_global_uinputs:
-                runtime_outputs.destroy_global_uinputs(manager, log=log)
+                runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
             raise
 
     waiting_for_device = bool(requested_paths and available_count == 0 and not devices)
@@ -377,7 +377,7 @@ async def grab_device_unlocked(
         and grabbed_count == 0
     ):
         if created_global_uinputs:
-            runtime_outputs.destroy_global_uinputs(manager, log=log)
+            runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
         raise ValueError(
             f"No interfaces for {hardware_id} matched mapped buttons "
             f"(paths={len(requested_paths)}, mapped_names={len(mapped_evdev_names)}, "
@@ -504,7 +504,7 @@ async def release_device_unlocked(
     for device in devices:
         await device.release()
 
-    runtime_outputs.destroy_global_uinputs(manager, log=log)
+    runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
     manager.active_mappings.pop(hardware_id, None)
     manager.grab_state.desired_paths.pop(hardware_id, None)
     log.info("Released device %s", hardware_id)
@@ -692,7 +692,7 @@ async def release_interface_unlocked(
             manager.active_mappings.pop(hardware_id, None)
             manager.grab_state.desired_paths.pop(hardware_id, None)
             manager.grab_state.desired_grabs.pop(hardware_id, None)
-        runtime_outputs.destroy_global_uinputs(manager, log=log)
+        runtime_outputs.destroy_global_uinputs(cast(Any, manager), log=log)
 
 
 async def release_all_devices(

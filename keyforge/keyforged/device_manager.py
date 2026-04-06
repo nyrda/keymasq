@@ -624,7 +624,7 @@ class DeviceManager:
         trigger_value: int = 1,
     ) -> JsonObject:
         return await runtime_macros.play_macro(
-            cast(Any, self),
+            self,
             macro_events,
             macro_name,
             replay_mouse_movement,
@@ -653,7 +653,7 @@ class DeviceManager:
 
     async def cancel_macro_playback(self) -> JsonObject:
         return await runtime_macros.cancel_macro_playback(
-            cast(Any, self),
+            self,
             asyncio_mod=cast(Any, asyncio),
             evdev_mod=evdev,
             contextlib_mod=contextlib,
@@ -661,7 +661,7 @@ class DeviceManager:
         )
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:
-        return runtime_macros.complete_macro_exec_wait(cast(Any, self), wait_id, returncode)
+        return runtime_macros.complete_macro_exec_wait(self, wait_id, returncode)
 
     def begin_combo_capture(
         self,

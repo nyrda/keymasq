@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
-from typing import Any, ClassVar, Protocol
+from typing import ClassVar, Final, Protocol
 
 from keyforge.common.ipc import CommandType
 
@@ -66,6 +66,20 @@ class _CommandTypeEnum(Protocol):
     ACTION_TRIGGER: ClassVar[CommandType]
 
 
+class _Ecodes(Protocol):
+    EV_KEY: Final[int]
+    EV_REL: Final[int]
+    EV_ABS: Final[int]
+    EV_SYN: Final[int]
+    REL_X: Final[int]
+    REL_Y: Final[int]
+
+
+class _EvdevModule(Protocol):
+    @property
+    def ecodes(self) -> _Ecodes: ...
+
+
 class _AsyncioLoop(Protocol):
     def create_future(self) -> asyncio.Future[int]: ...
 
@@ -125,7 +139,7 @@ async def play_macro(
     *,
     asyncio_mod: _AsyncioModule,
     contextlib_mod: _ContextlibModule,
-    evdev_mod: Any,
+    evdev_mod: _EvdevModule,
     log: logging.Logger,
     int_value_fn: IntValueFn,
     str_value_fn: StrValueFn,
@@ -241,7 +255,7 @@ async def cancel_macro_playback(
     *,
     asyncio_mod: _AsyncioModule,
     contextlib_mod: _ContextlibModule,
-    evdev_mod: Any,
+    evdev_mod: _EvdevModule,
     uinput_writer: UInputWriter,
 ) -> dict[str, object]:
     running_ids = running_macro_instance_ids(manager)
@@ -295,7 +309,7 @@ async def cancel_macro_instances(
     *,
     asyncio_mod: _AsyncioModule,
     contextlib_mod: _ContextlibModule,
-    evdev_mod: Any,
+    evdev_mod: _EvdevModule,
     uinput_writer: UInputWriter,
 ) -> int:
     unique_ids = list(dict.fromkeys(int(i) for i in instance_ids))
@@ -360,7 +374,7 @@ async def play_macro_task(
     block_mouse_movement: bool,
     *,
     asyncio_mod: _AsyncioModule,
-    evdev_mod: Any,
+    evdev_mod: _EvdevModule,
     log: logging.Logger,
     int_value_fn: IntValueFn,
     str_value_fn: StrValueFn,
@@ -568,7 +582,7 @@ def release_macro_held_for_instance(
     manager: _MacroManager,
     instance_id: int,
     *,
-    evdev_mod: Any,
+    evdev_mod: _EvdevModule,
     uinput_writer: UInputWriter,
 ) -> None:
     held = manager.macro_state.instance_held.pop(instance_id, set())
@@ -624,7 +638,12 @@ def release_macro_mouse_inhibit(manager: _MacroManager) -> None:
 
 
 def emit_absolute_mouse_move(
-    manager: _MacroManager, x: int, y: int, *, evdev_mod: Any, uinput_writer: UInputWriter
+    manager: _MacroManager,
+    x: int,
+    y: int,
+    *,
+    evdev_mod: _EvdevModule,
+    uinput_writer: UInputWriter,
 ) -> None:
     mouse_uinput = uinput_writer(manager.output_state.mouse_uinput)
     if mouse_uinput is None:

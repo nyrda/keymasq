@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Protocol, cast
 
 from keyforge.common.ipc import (
     Command,
@@ -14,6 +14,7 @@ from keyforge.common.ipc import (
 from keyforge.common.security import PeerCredentials, get_peer_credentials
 
 log = logging.getLogger("keyforged.socket")
+type JsonObject = dict[str, object]
 
 
 @dataclass
@@ -25,14 +26,42 @@ class ClientContext:
     client_class: str
 
 
+class CurrentCommandHandler(Protocol):
+    async def __call__(
+        self,
+        command_type: CommandType,
+        data: JsonObject,
+        client: ClientContext,
+    ) -> JsonObject: ...
+
+
+class LegacyCommandHandler(Protocol):
+    async def __call__(
+        self,
+        command_type: CommandType,
+        data: JsonObject,
+    ) -> JsonObject: ...
+
+
+type CommandHandler = CurrentCommandHandler | LegacyCommandHandler
+
+
+class DisconnectHandler(Protocol):
+    async def __call__(self) -> None: ...
+
+
+class PeerValidator(Protocol):
+    def __call__(self, peer: PeerCredentials) -> tuple[bool, str, str]: ...
+
+
 class SocketServer:
     def __init__(
         self,
         socket_path: str,
-        command_handler: Any,
-        disconnect_handler: Any | None = None,
+        command_handler: CommandHandler,
+        disconnect_handler: DisconnectHandler | None = None,
         socket_mode: int = 0o660,
-        peer_validator: Any | None = None,
+        peer_validator: PeerValidator | None = None,
         single_owner: bool = False,
         broadcast_drain_timeout_s: float = 0.25,
         close_timeout_s: float = 0.25,
@@ -199,12 +228,22 @@ class SocketServer:
             log.info(f"Client disconnected: {addr}")
             await self._drop_client(writer)
 
+    async def _invoke_command_handler(
+        self,
+        command: CommandType,
+        data: JsonObject,
+        context: ClientContext,
+    ) -> JsonObject:
+        try:
+            handler = cast(CurrentCommandHandler, self.command_handler)
+            return await handler(command, data, context)
+        except TypeError:
+            handler = cast(LegacyCommandHandler, self.command_handler)
+            return await handler(command, data)
+
     async def _process_command(self, cmd: Command, context: ClientContext) -> Response:
         try:
-            try:
-                result = await self.command_handler(cmd.command, cmd.data, context)
-            except TypeError:
-                result = await self.command_handler(cmd.command, cmd.data)
+            result = await self._invoke_command_handler(cmd.command, cmd.data, context)
             return Response(
                 status="ok",
                 data=result,
@@ -225,7 +264,7 @@ class SocketServer:
     async def broadcast_event(
         self,
         event_type: CommandType,
-        data: dict[str, object],
+        data: JsonObject,
     ) -> None:
         cmd = Command(command=event_type, data=data)
         encoded = encode_response(

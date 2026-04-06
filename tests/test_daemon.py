@@ -4,11 +4,14 @@ import asyncio
 from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 import keyforge.keyforged.daemon as daemon_module
+import keyforge.keyforged.daemon_capture_commands as daemon_capture_commands
+import keyforge.keyforged.daemon_macro_commands as daemon_macro_commands
 from keyforge.common.ipc import CommandType
 from keyforge.common.security import SecurityPolicy
 from keyforge.keyforged.socket_server import ClientContext
@@ -161,23 +164,27 @@ async def test_capture_commands_forward_to_capture_manager(
     expected_result: dict,
 ):
     daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
-    daemon._capture_combo = AsyncMock(
+    capture_combo = AsyncMock(
         return_value={
             "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}]
         }
-    )  # type: ignore[method-assign]
+    )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(daemon_capture_commands, "capture_combo", capture_combo)
 
     result = await daemon._handle_command(command_type, data)
 
     if command_type == CommandType.CAPTURE_COMBO:
         assert result == expected_result
-        daemon._capture_combo.assert_awaited_once_with(*expected_call)
+        capture_combo.assert_awaited_once_with(daemon, *expected_call)
+        monkeypatch.undo()
         return
     assert result == expected_result
     if expected_call is None:
         getattr(capture_manager, manager_method).assert_called_once_with()
     else:
         getattr(capture_manager, manager_method).assert_called_once_with(expected_call)
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -206,7 +213,7 @@ async def test_capture_combo_waits_on_event_not_sleep(daemon_testbed, monkeypatc
 
     monkeypatch.setattr(daemon_module.asyncio, "sleep", fail_sleep)
 
-    task = asyncio.create_task(daemon._capture_combo({"1234:5678"}, 1.0))
+    task = asyncio.create_task(daemon_capture_commands.capture_combo(daemon, {"1234:5678"}, 1.0))
 
     while "event" not in waiter:
         await original_sleep(0)
@@ -298,9 +305,14 @@ async def test_read_capture_combo_event_drains_sources_once_before_waiting(
 
     device_manager.read_combo_capture = Mock(side_effect=read_combo_capture)
     capture_manager.read_combo_nowait = Mock(return_value={"event": None})
-    monkeypatch.setattr(daemon_module.asyncio, "wait_for", fake_wait_for)
+    monkeypatch.setattr(daemon_capture_commands.asyncio, "wait_for", fake_wait_for)
 
-    event = await daemon._read_capture_combo_event("combo-token", notify_event, float("inf"))
+    event = await daemon_capture_commands.read_capture_combo_event(
+        daemon,
+        "combo-token",
+        notify_event,
+        float("inf"),
+    )
 
     assert event == {
         "evdev": "key_a",
@@ -531,7 +543,8 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
         "block_mouse_movement": True,
     }
 
-    resolved = await daemon._resolve_mapping_macros(
+    resolved = await daemon_macro_commands.resolve_mapping_macros(
+        daemon.macro_store,
         {
             "btn_side": {
                 "action": "macro",
@@ -540,7 +553,7 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
         }
     )
 
-    action = resolved["btn_side"]
+    action = cast(dict[str, object], resolved["btn_side"])
     assert action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert action["macro_loop_mode"] == "count"
     assert action["macro_loop_count"] == 3
@@ -564,7 +577,8 @@ async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_test
         "block_mouse_movement": False,
     }
 
-    resolved = await daemon._resolve_mapping_macros(
+    resolved = await daemon_macro_commands.resolve_mapping_macros(
+        daemon.macro_store,
         {
             "btn_side": {"action": "macro", "macro_name": "combo"},
             "btn_extra": {"action": "macro", "macro_name": "combo"},
@@ -572,9 +586,12 @@ async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_test
         }
     )
 
-    assert resolved["btn_side"]["macro_loop_count"] == 3
-    assert resolved["btn_extra"]["macro_loop_count"] == 3
-    assert resolved["btn_middle"]["macro_loop_count"] == 2
+    side = cast(dict[str, object], resolved["btn_side"])
+    extra = cast(dict[str, object], resolved["btn_extra"])
+    middle = cast(dict[str, object], resolved["btn_middle"])
+    assert side["macro_loop_count"] == 3
+    assert extra["macro_loop_count"] == 3
+    assert middle["macro_loop_count"] == 2
     assert macro_store.get.call_count == 2
 
 
@@ -592,7 +609,8 @@ async def test_resolve_mapping_macros_ignores_malformed_stored_macro_values(daem
         "block_mouse_movement": False,
     }
 
-    resolved = await daemon._resolve_mapping_macros(
+    resolved = await daemon_macro_commands.resolve_mapping_macros(
+        daemon.macro_store,
         {
             "btn_side": {"action": "macro", "macro_name": "broken"},
             "btn_middle": {"action": "keyboard", "target": "key_a"},
@@ -625,7 +643,10 @@ async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
         },
     )
 
-    sent_mapping = device_manager.set_mapping.await_args.kwargs["mapping"]
+    sent_mapping = cast(
+        dict[str, dict[str, object]],
+        device_manager.set_mapping.await_args.kwargs["mapping"],
+    )
     resolved = sent_mapping["btn_side"]
     assert resolved["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert resolved["macro_loop_mode"] == "count"
@@ -670,12 +691,13 @@ async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
         },
     )
 
-    sent_combos = device_manager.set_combos.await_args.args[0]
-    assert sent_combos[0]["action"]["macro_events"] == [
+    sent_combos = cast(list[dict[str, object]], device_manager.set_combos.await_args.args[0])
+    first_action = cast(dict[str, object], sent_combos[0]["action"])
+    assert first_action["macro_events"] == [
         {"type": 1, "code": 30, "value": 1, "t_us": 0}
     ]
-    assert sent_combos[0]["action"]["macro_loop_mode"] == "count"
-    assert sent_combos[0]["action"]["macro_loop_count"] == 4
+    assert first_action["macro_loop_mode"] == "count"
+    assert first_action["macro_loop_count"] == 4
 
 
 @pytest.mark.asyncio
@@ -692,7 +714,8 @@ async def test_resolve_combo_macros_deduplicates_macro_store_reads(daemon_testbe
         "block_mouse_movement": False,
     }
 
-    resolved = await daemon._resolve_combo_macros(
+    resolved = await daemon_macro_commands.resolve_combo_macros(
+        daemon.macro_store,
         [
             {
                 "id": "combo-1",
@@ -715,9 +738,12 @@ async def test_resolve_combo_macros_deduplicates_macro_store_reads(daemon_testbe
         ]
     )
 
-    assert resolved[0]["action"]["macro_loop_count"] == 4
-    assert resolved[1]["action"]["macro_loop_count"] == 4
-    assert resolved[2]["action"]["macro_loop_count"] == 1
+    first = cast(dict[str, object], resolved[0]["action"])
+    second = cast(dict[str, object], resolved[1]["action"])
+    third = cast(dict[str, object], resolved[2]["action"])
+    assert first["macro_loop_count"] == 4
+    assert second["macro_loop_count"] == 4
+    assert third["macro_loop_count"] == 1
     assert macro_store.get.call_count == 2
 
 
@@ -735,7 +761,8 @@ async def test_resolve_combo_macros_ignores_malformed_stored_macro_values(daemon
         "block_mouse_movement": False,
     }
 
-    resolved = await daemon._resolve_combo_macros(
+    resolved = await daemon_macro_commands.resolve_combo_macros(
+        daemon.macro_store,
         [
             {
                 "id": "combo-1",

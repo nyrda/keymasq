@@ -4,7 +4,11 @@ import evdev
 import pytest
 
 from keyforge.common.models import ActionType, MappingAction
-from keyforge.keyforged.device_manager import DeviceManager, GrabbedDevice
+from keyforge.keyforged.combo_engine import ComboDecision
+from keyforge.keyforged.device_manager import DeviceManager
+from keyforge.keyforged.runtime import grabbed_device as gdm
+from keyforge.keyforged.runtime import grabbed_device_events as gde
+from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 
 
 class _FakeUInput:
@@ -39,6 +43,19 @@ async def _noop_event_callback(*_args, **_kwargs) -> None:
     return
 
 
+async def _process_event(device: GrabbedDevice, event: evdev.InputEvent) -> None:
+    await gde.process_event(
+        device,
+        event,
+        evdev_mod=evdev,
+        time_mod=gde.time,
+        log=gdm.log,
+        combo_decision_cls=ComboDecision,
+        classify_event_device_type_fn=gde.classify_event_device_type,
+        action_type_enum=ActionType,
+    )
+
+
 def _build_grabbed_device(mapping_ref: dict) -> tuple[GrabbedDevice, _FakeUInput]:
     keyboard = _FakeUInput()
     passthrough = _FakeUInput()
@@ -69,11 +86,11 @@ async def test_profile_switch_defers_rebind_until_release() -> None:
     down = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
     up = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
 
-    await device._process_event(down)
+    await _process_event(device, down)
     mapping_ref["value"] = {
         "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
     }
-    await device._process_event(up)
+    await _process_event(device, up)
 
     key_a = evdev.ecodes.KEY_A
     key_b = evdev.ecodes.KEY_B
@@ -101,7 +118,7 @@ async def test_rapidfire_release_uses_original_action_after_switch() -> None:
     down = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
     up = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
 
-    await device._process_event(down)
+    await _process_event(device, down)
     await asyncio.sleep(0.04)
 
     mapping_ref["value"] = {
@@ -113,7 +130,7 @@ async def test_rapidfire_release_uses_original_action_after_switch() -> None:
             rapidfire_wait_ms=10,
         ),
     }
-    await device._process_event(up)
+    await _process_event(device, up)
     await asyncio.sleep(0.04)
 
     key_a = evdev.ecodes.KEY_A
@@ -136,21 +153,21 @@ async def test_multiple_switches_while_held_keep_original_release_and_clear_stat
     down = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
     up = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
 
-    await device._process_event(down)
+    await _process_event(device, down)
     mapping_ref["value"] = {
         "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
     }
     mapping_ref["value"] = {
         "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_c"),
     }
-    await device._process_event(up)
+    await _process_event(device, up)
 
     key_events = [e for e in keyboard.events if e[0] == evdev.ecodes.EV_KEY]
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1) in key_events
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0) in key_events
     assert all(code not in (evdev.ecodes.KEY_B, evdev.ecodes.KEY_C) for _, code, _ in key_events)
-    assert device._held_source_actions == {}
-    assert device._held_output_keys["keyboard"] == set()
+    assert device.state.held_source_actions == {}
+    assert device.state.held_output_keys["keyboard"] == set()
 
 
 @pytest.mark.asyncio
@@ -162,7 +179,7 @@ async def test_release_device_uses_grace_period_and_cleans_outputs() -> None:
     manager.active_mappings["1234:5678"] = {
         "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
     }
-    manager._desired_paths["1234:5678"] = {dummy.path}
+    manager.grab_state.desired_paths["1234:5678"] = {dummy.path}
 
     result = await manager.release_device("1234:5678", immediate=False, grace_s=0.05)
     assert result["scheduled"] is True
@@ -184,7 +201,7 @@ async def test_release_device_retries_when_source_button_is_held() -> None:
     manager.active_mappings["1234:5678"] = {
         "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
     }
-    manager._desired_paths["1234:5678"] = {dummy.path}
+    manager.grab_state.desired_paths["1234:5678"] = {dummy.path}
 
     result = await manager.release_device("1234:5678", immediate=False, grace_s=0.03)
     assert result["scheduled"] is True

@@ -7,6 +7,7 @@ import evdev
 import pytest
 
 import keyforge.common.paths as paths
+import keyforge.keyforged.device_manager as dm
 import keyforge.keyforged.recording as recording_module
 from keyforge.common.models import (
     ActionType,
@@ -15,8 +16,13 @@ from keyforge.common.models import (
     MappingAction,
     ProfileConfig,
 )
-from keyforge.keyforged.device_manager import DeviceManager, GrabbedDevice
+from keyforge.keyforged.combo_engine import ComboDecision
+from keyforge.keyforged.device_manager import DeviceManager
 from keyforge.keyforged.recording import RecordingManager
+from keyforge.keyforged.runtime import grabbed_device as gdm
+from keyforge.keyforged.runtime import grabbed_device_events as gde
+from keyforge.keyforged.runtime import macros as mdm
+from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 from keyforge.session.profiles import ProfileManager
 
 
@@ -27,6 +33,47 @@ class _FakeRecorder:
 
     def record_event(self, device_type: str, event: evdev.InputEvent) -> None:
         self.calls.append((device_type, event))
+
+
+async def _play_macro_task(manager: DeviceManager, **kwargs: object) -> None:
+    await mdm.play_macro_task(
+        manager,
+        instance_id=int(kwargs["instance_id"]),
+        macro_events=cast(list[dict[str, object]], kwargs["macro_events"]),
+        macro_name=str(kwargs["macro_name"]),
+        replay_mouse_movement=bool(kwargs["replay_mouse_movement"]),
+        replay_mouse_clicks=bool(kwargs["replay_mouse_clicks"]),
+        speed=float(kwargs["speed"]),
+        loop_mode=str(kwargs["loop_mode"]),
+        loop_count=int(kwargs["loop_count"]),
+        move_to_start=bool(kwargs["move_to_start"]),
+        start_x=int(kwargs["start_x"]),
+        start_y=int(kwargs["start_y"]),
+        block_mouse_movement=bool(kwargs["block_mouse_movement"]),
+        asyncio_mod=dm._macro_asyncio_runtime(),
+        evdev_mod=dm.evdev,
+        log=dm.log,
+        int_value_fn=dm._int_value,
+        str_value_fn=dm._str_value,
+        uinput_writer=dm._macro_uinput_writer(),
+        contextlib_mod=dm.contextlib,
+        random_mod=dm.random,
+        uuid_mod=dm.uuid,
+        command_type=dm._macro_command_type(),
+    )
+
+
+async def _process_grabbed_event(device: GrabbedDevice, event: evdev.InputEvent) -> None:
+    await gde.process_event(
+        device,
+        event,
+        evdev_mod=evdev,
+        time_mod=gde.time,
+        log=gdm.log,
+        combo_decision_cls=ComboDecision,
+        classify_event_device_type_fn=gde.classify_event_device_type,
+        action_type_enum=ActionType,
+    )
 
 
 @pytest.mark.asyncio
@@ -88,7 +135,7 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
     )
 
     start_event = evdev.InputEvent(1, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
-    await gd_start._process_event(start_event)
+    await _process_grabbed_event(gd_start, start_event)
     assert len(recorder.calls) == 0
 
     normal_mapping = {
@@ -107,7 +154,7 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
     )
 
     normal_event = evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
-    await gd_normal._process_event(normal_event)
+    await _process_grabbed_event(gd_normal, normal_event)
 
     assert len(recorder.calls) == 1
     assert recorder.calls[0][0] == "keyboard"
@@ -117,36 +164,40 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
 @pytest.mark.asyncio
 async def test_play_macro_allows_concurrent_playback() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     started: list[str] = []
     finished: list[str] = []
 
-    async def fake_play_macro_task(**kwargs) -> None:
+    async def fake_play_macro_task(_manager: DeviceManager, **kwargs) -> None:
         name = kwargs.get("macro_name", "")
         started.append(name)
         await asyncio.sleep(0.05)
         finished.append(name)
 
-    manager._play_macro_task = fake_play_macro_task  # type: ignore[assignment]
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mdm, "play_macro_task", fake_play_macro_task)
+    try:
+        await manager.play_macro(macro_events=[], macro_name="first")
+        await asyncio.sleep(0)
+        await manager.play_macro(macro_events=[], macro_name="second")
+        await asyncio.sleep(0.1)
 
-    await manager.play_macro(macro_events=[], macro_name="first")
-    await asyncio.sleep(0)
-    await manager.play_macro(macro_events=[], macro_name="second")
-    await asyncio.sleep(0.1)
-
-    assert "first" in started
-    assert "second" in started
-    assert "first" in finished
-    assert "second" in finished
+        assert "first" in started
+        assert "second" in started
+        assert "first" in finished
+        assert "second" in finished
+    finally:
+        monkeypatch.undo()
 
 
 @pytest.mark.asyncio
 async def test_play_macro_can_move_mouse_to_saved_start() -> None:
     manager = DeviceManager()
-    manager._mouse_uinput = MagicMock()
+    manager.output_state.mouse_uinput = MagicMock()
 
-    await manager._play_macro_task(
+    await _play_macro_task(
+        manager,
         instance_id=1,
         macro_events=[],
         macro_name="with_start",
@@ -161,7 +212,7 @@ async def test_play_macro_can_move_mouse_to_saved_start() -> None:
         block_mouse_movement=False,
     )
 
-    writes = manager._mouse_uinput.write.call_args_list
+    writes = manager.output_state.mouse_uinput.write.call_args_list
     assert any(c.args == (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, -2147483648) for c in writes)
     assert any(c.args == (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, -2147483648) for c in writes)
     assert any(c.args == (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 640) for c in writes)
@@ -172,10 +223,14 @@ async def test_play_macro_can_move_mouse_to_saved_start() -> None:
 async def test_play_macro_block_mouse_movement_uses_suppression_safeguard() -> None:
     manager = DeviceManager()
 
-    manager.begin_mouse_rel_suppression = MagicMock()
-    manager.end_mouse_rel_suppression = MagicMock()
+    begin_mouse_rel_suppression = MagicMock()
+    end_mouse_rel_suppression = MagicMock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
+    monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
 
-    await manager._play_macro_task(
+    await _play_macro_task(
+        manager,
         instance_id=1,
         macro_events=[],
         macro_name="blocked",
@@ -190,14 +245,15 @@ async def test_play_macro_block_mouse_movement_uses_suppression_safeguard() -> N
         block_mouse_movement=True,
     )
 
-    assert manager.begin_mouse_rel_suppression.called
-    assert manager.end_mouse_rel_suppression.called
+    assert begin_mouse_rel_suppression.called
+    assert end_mouse_rel_suppression.called
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
 async def test_cancel_macro_playback_releases_held_keys() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     await manager.play_macro(
         macro_events=[
@@ -224,17 +280,17 @@ async def test_cancel_macro_playback_releases_held_keys() -> None:
 
     assert result["status"] == "ok"
     assert result["cancelled"] is True
-    assert ("keyboard", evdev.ecodes.KEY_A) not in manager._macro_held_refcount
+    assert ("keyboard", evdev.ecodes.KEY_A) not in manager.macro_state.held_refcount
     assert any(
         c.args == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
-        for c in manager._keyboard_uinput.write.call_args_list
+        for c in manager.output_state.keyboard_uinput.write.call_args_list
     )
 
 
 @pytest.mark.asyncio
 async def test_macro_switch_interrupt_releases_held_state_for_previous_instance() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     await manager.play_macro(
         macro_events=[
@@ -272,17 +328,17 @@ async def test_macro_switch_interrupt_releases_held_state_for_previous_instance(
 
     assert result["status"] == "ok"
     assert result["cancelled"] is True
-    assert ("keyboard", evdev.ecodes.KEY_J) not in manager._macro_held_refcount
+    assert ("keyboard", evdev.ecodes.KEY_J) not in manager.macro_state.held_refcount
     assert any(
         c.args == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_J, 0)
-        for c in manager._keyboard_uinput.write.call_args_list
+        for c in manager.output_state.keyboard_uinput.write.call_args_list
     )
 
 
 @pytest.mark.asyncio
 async def test_macro_cleanup_releases_unmatched_held_keys() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     await manager.play_macro(
         macro_events=[
@@ -299,10 +355,10 @@ async def test_macro_cleanup_releases_unmatched_held_keys() -> None:
 
     await asyncio.sleep(0.01)
 
-    assert manager._macro_held_refcount == {}
+    assert manager.macro_state.held_refcount == {}
     assert any(
         c.args == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)
-        for c in manager._keyboard_uinput.write.call_args_list
+        for c in manager.output_state.keyboard_uinput.write.call_args_list
     )
 
 
@@ -310,7 +366,7 @@ async def test_macro_cleanup_releases_unmatched_held_keys() -> None:
 async def test_release_all_devices_cleans_up_macro_and_grabbed_state() -> None:
     manager = DeviceManager()
     keyboard_uinput = MagicMock()
-    manager._keyboard_uinput = keyboard_uinput
+    manager.output_state.keyboard_uinput = keyboard_uinput
 
     grabbed = MagicMock()
     grabbed.release = AsyncMock()
@@ -318,7 +374,7 @@ async def test_release_all_devices_cleans_up_macro_and_grabbed_state() -> None:
     manager.active_mappings = {
         "1234:5678": {"btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")}
     }
-    manager._desired_paths = {"1234:5678": {"/dev/input/event0"}}
+    manager.grab_state.desired_paths = {"1234:5678": {"/dev/input/event0"}}
 
     await manager.play_macro(
         macro_events=[
@@ -345,8 +401,8 @@ async def test_release_all_devices_cleans_up_macro_and_grabbed_state() -> None:
 
     assert manager.grabbed_devices == {}
     assert manager.active_mappings == {}
-    assert manager._desired_paths == {}
-    assert manager._macro_held_refcount == {}
+    assert manager.grab_state.desired_paths == {}
+    assert manager.macro_state.held_refcount == {}
     grabbed.release.assert_awaited_once()
     assert any(
         c.args == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_K, 0)
@@ -357,7 +413,7 @@ async def test_release_all_devices_cleans_up_macro_and_grabbed_state() -> None:
 @pytest.mark.asyncio
 async def test_play_macro_count_loop_repeats_events() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     await manager.play_macro(
         macro_events=[
@@ -385,12 +441,12 @@ async def test_play_macro_count_loop_repeats_events() -> None:
 
     press_calls = [
         c
-        for c in manager._keyboard_uinput.write.call_args_list
+        for c in manager.output_state.keyboard_uinput.write.call_args_list
         if c.args[2] == 1 and c.args[1] == evdev.ecodes.KEY_C
     ]
     release_calls = [
         c
-        for c in manager._keyboard_uinput.write.call_args_list
+        for c in manager.output_state.keyboard_uinput.write.call_args_list
         if c.args[2] == 0 and c.args[1] == evdev.ecodes.KEY_C
     ]
     assert len(press_calls) == 2
@@ -400,11 +456,14 @@ async def test_play_macro_count_loop_repeats_events() -> None:
 @pytest.mark.asyncio
 async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
-    manager._mouse_uinput = MagicMock()
-    manager._emit_absolute_mouse_move = MagicMock()  # type: ignore[method-assign]
+    manager.output_state.keyboard_uinput = MagicMock()
+    manager.output_state.mouse_uinput = MagicMock()
+    emit_absolute_mouse_move = MagicMock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mdm, "emit_absolute_mouse_move", emit_absolute_mouse_move)
 
-    await manager._play_macro_task(
+    await _play_macro_task(
+        manager,
         instance_id=1,
         macro_events=[
             {
@@ -484,14 +543,21 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         block_mouse_movement=False,
     )
 
-    manager._emit_absolute_mouse_move.assert_called_once_with(320, 240)
-    assert [call.args for call in manager._keyboard_uinput.write.call_args_list] == [
+    emit_absolute_mouse_move.assert_called_once_with(
+        manager,
+        320,
+        240,
+        evdev_mod=dm.evdev,
+        uinput_writer=dm._macro_uinput_writer(),
+    )
+    assert [call.args for call in manager.output_state.keyboard_uinput.write.call_args_list] == [
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 1),
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 0),
     ]
-    assert [call.args for call in manager._mouse_uinput.write.call_args_list] == [
+    assert [call.args for call in manager.output_state.mouse_uinput.write.call_args_list] == [
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 123)
     ]
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -517,7 +583,7 @@ async def test_recording_manager_start_opens_extra_devices_via_to_thread(monkeyp
 @pytest.mark.asyncio
 async def test_play_macro_hold_loop_stops_on_release_trigger() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     await manager.play_macro(
         macro_events=[
@@ -560,7 +626,7 @@ async def test_play_macro_hold_loop_stops_on_release_trigger() -> None:
 @pytest.mark.asyncio
 async def test_hold_release_cancels_even_if_release_call_loop_mode_is_none() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     await manager.play_macro(
         macro_events=[
@@ -603,7 +669,7 @@ async def test_hold_release_cancels_even_if_release_call_loop_mode_is_none() -> 
 @pytest.mark.asyncio
 async def test_cancel_macro_playback_interrupts_tight_toggle_loop() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     await manager.play_macro(
         macro_events=[
@@ -639,7 +705,7 @@ async def test_cancel_macro_playback_interrupts_tight_toggle_loop() -> None:
 @pytest.mark.asyncio
 async def test_toggle_second_press_cancels_by_source_even_if_name_differs() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     await manager.play_macro(
         macro_events=[
@@ -682,7 +748,7 @@ async def test_toggle_second_press_cancels_by_source_even_if_name_differs() -> N
 @pytest.mark.asyncio
 async def test_cancel_macro_playback_cancels_all_running_instances() -> None:
     manager = DeviceManager()
-    manager._keyboard_uinput = MagicMock()
+    manager.output_state.keyboard_uinput = MagicMock()
 
     async def start_instance(name: str, key_code: int) -> None:
         await manager.play_macro(
@@ -713,7 +779,7 @@ async def test_cancel_macro_playback_cancels_all_running_instances() -> None:
     await start_instance("b", evdev.ecodes.KEY_I)
 
     await asyncio.sleep(0.02)
-    assert len(manager._running_macro_instance_ids()) >= 2
+    assert len(mdm.running_macro_instance_ids(manager)) >= 2
 
     result = await manager.cancel_macro_playback()
     assert result["status"] == "ok"
@@ -730,7 +796,7 @@ async def test_cancel_macro_playback_releases_tracked_outputs() -> None:
 
     assert result["status"] == "ok"
     device.release_tracked_outputs.assert_called_once()
-    assert manager._running_macro_instance_ids() == []
+    assert mdm.running_macro_instance_ids(manager) == []
 
 
 def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatch) -> None:

@@ -427,10 +427,10 @@ class TestIntegration:
         await asyncio.sleep(0.08)
 
         grabbed = manager.grabbed_devices[hardware_id][0]
-        assert grabbed._held_source_actions == {}
-        assert evdev.ecodes.KEY_A not in grabbed._held_output_keys["keyboard"]
-        assert evdev.ecodes.KEY_B not in grabbed._held_output_keys["keyboard"]
-        assert grabbed._rapidfire_active.get("btn_side", False) is False
+        assert grabbed.state.held_source_actions == {}
+        assert evdev.ecodes.KEY_A not in grabbed.state.held_output_keys["keyboard"]
+        assert evdev.ecodes.KEY_B not in grabbed.state.held_output_keys["keyboard"]
+        assert grabbed.state.rapidfire_active.get("btn_side", False) is False
 
         await self._send_command(
             reader,
@@ -547,23 +547,23 @@ class TestIntegration:
             ]
         )
 
-        manager._keyboard_uinput = Mock()
+        manager.output_state.keyboard_uinput = Mock()
         grabbed = manager.grabbed_devices[hardware_id][0]
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
         await asyncio.sleep(0.08)
 
-        assert evdev.ecodes.KEY_LEFTCTRL in grabbed._held_output_keys["passthrough"]
-        assert manager._keyboard_uinput.write.call_count == 0
+        assert evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"]
+        assert manager.output_state.keyboard_uinput.write.call_count == 0
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
         virtual_keyboard.syn()
         await asyncio.sleep(0.08)
 
-        assert evdev.ecodes.KEY_LEFTCTRL in grabbed._held_output_keys["passthrough"]
-        assert evdev.ecodes.KEY_A not in grabbed._held_output_keys["passthrough"]
-        assert manager._keyboard_uinput.write.call_args_list[0].args == (
+        assert evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"]
+        assert evdev.ecodes.KEY_A not in grabbed.state.held_output_keys["passthrough"]
+        assert manager.output_state.keyboard_uinput.write.call_args_list[0].args == (
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_F13,
             1,
@@ -573,7 +573,7 @@ class TestIntegration:
         virtual_keyboard.syn()
         await asyncio.sleep(0.08)
 
-        assert manager._keyboard_uinput.write.call_args_list[1].args == (
+        assert manager.output_state.keyboard_uinput.write.call_args_list[1].args == (
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_F13,
             0,
@@ -583,7 +583,7 @@ class TestIntegration:
         virtual_keyboard.syn()
         await asyncio.sleep(0.08)
 
-        assert grabbed._held_output_keys["passthrough"] == set()
+        assert grabbed.state.held_output_keys["passthrough"] == set()
 
     async def test_combo_multi_step_timeout_starts_after_release_phase(
         self,
@@ -638,7 +638,7 @@ class TestIntegration:
             ]
         )
 
-        manager._keyboard_uinput = Mock()
+        manager.output_state.keyboard_uinput = Mock()
         grabbed = manager.grabbed_devices[hardware_id][0]
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
@@ -648,33 +648,33 @@ class TestIntegration:
         virtual_keyboard.syn()
         await asyncio.sleep(0.05)
 
-        assert manager._combo_engine.next_deadline() is None
+        assert manager.combo_state.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
         virtual_keyboard.syn()
         await asyncio.sleep(0.05)
-        assert manager._combo_engine.next_deadline() is None
+        assert manager.combo_state.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0)
         virtual_keyboard.syn()
         await asyncio.sleep(0.05)
-        assert manager._combo_engine.next_deadline() is not None
+        assert manager.combo_state.engine.next_deadline() is not None
 
         await asyncio.sleep(0.12)
-        assert manager._combo_engine.next_deadline() is None
+        assert manager.combo_state.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 1)
         virtual_keyboard.syn()
         await asyncio.sleep(0.08)
 
-        assert evdev.ecodes.KEY_1 in grabbed._held_output_keys["passthrough"]
-        assert manager._keyboard_uinput.write.call_count == 0
+        assert evdev.ecodes.KEY_1 in grabbed.state.held_output_keys["passthrough"]
+        assert manager.output_state.keyboard_uinput.write.call_count == 0
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 0)
         virtual_keyboard.syn()
         await asyncio.sleep(0.08)
 
-        assert grabbed._held_output_keys["passthrough"] == set()
+        assert grabbed.state.held_output_keys["passthrough"] == set()
 
     async def test_combo_single_step_rearms_when_modifier_stays_held(
         self,
@@ -719,7 +719,7 @@ class TestIntegration:
             ]
         )
 
-        manager._keyboard_uinput = Mock()
+        manager.output_state.keyboard_uinput = Mock()
         grabbed = manager.grabbed_devices[hardware_id][0]
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
@@ -744,17 +744,17 @@ class TestIntegration:
 
         press_release_values = [
             call.args[2]
-            for call in manager._keyboard_uinput.write.call_args_list
+            for call in manager.output_state.keyboard_uinput.write.call_args_list
             if call.args[:2] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13)
         ]
         assert press_release_values == [1, 0, 1, 0]
-        assert evdev.ecodes.KEY_LEFTCTRL in grabbed._held_output_keys["passthrough"]
+        assert evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"]
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0)
         virtual_keyboard.syn()
         await asyncio.sleep(0.08)
 
-        assert grabbed._held_output_keys["passthrough"] == set()
+        assert grabbed.state.held_output_keys["passthrough"] == set()
 
     async def test_combo_single_step_releasing_non_completing_key_stops_action(
         self,
@@ -793,7 +793,7 @@ class TestIntegration:
             ]
         )
 
-        manager._keyboard_uinput = Mock()
+        manager.output_state.keyboard_uinput = Mock()
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1)
         virtual_keyboard.syn()
@@ -809,7 +809,7 @@ class TestIntegration:
 
         press_release_values = [
             call.args[2]
-            for call in manager._keyboard_uinput.write.call_args_list
+            for call in manager.output_state.keyboard_uinput.write.call_args_list
             if call.args[:2] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13)
         ]
         assert press_release_values == [1, 0]
@@ -865,7 +865,7 @@ class TestIntegration:
             ]
         )
 
-        manager._keyboard_uinput = Mock()
+        manager.output_state.keyboard_uinput = Mock()
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
@@ -887,7 +887,7 @@ class TestIntegration:
 
         output_codes = [
             call.args[1]
-            for call in manager._keyboard_uinput.write.call_args_list
+            for call in manager.output_state.keyboard_uinput.write.call_args_list
             if call.args[0] == evdev.ecodes.EV_KEY and call.args[2] == 1
         ]
         assert evdev.ecodes.KEY_F13 in output_codes
@@ -944,7 +944,7 @@ class TestIntegration:
             ]
         )
 
-        manager._keyboard_uinput = Mock()
+        manager.output_state.keyboard_uinput = Mock()
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1)
         virtual_keyboard.syn()
@@ -960,7 +960,7 @@ class TestIntegration:
 
         output_presses = [
             call.args[1]
-            for call in manager._keyboard_uinput.write.call_args_list
+            for call in manager.output_state.keyboard_uinput.write.call_args_list
             if call.args[0] == evdev.ecodes.EV_KEY and call.args[2] == 1
         ]
         assert output_presses == [evdev.ecodes.KEY_F13, evdev.ecodes.KEY_F14]
@@ -1016,7 +1016,7 @@ class TestIntegration:
             ]
         )
 
-        manager._keyboard_uinput = Mock()
+        manager.output_state.keyboard_uinput = Mock()
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1)
         virtual_keyboard.syn()
@@ -1040,7 +1040,7 @@ class TestIntegration:
 
         writes = [
             call.args
-            for call in manager._keyboard_uinput.write.call_args_list
+            for call in manager.output_state.keyboard_uinput.write.call_args_list
             if call.args[0] == evdev.ecodes.EV_KEY
             and call.args[1] in {evdev.ecodes.KEY_F13, evdev.ecodes.KEY_F14}
         ]

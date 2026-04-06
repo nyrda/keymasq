@@ -1,0 +1,35 @@
+// Folder-specific settings
+//
+// For a full list of overridable settings, and general information on folder-specific settings,
+// see the documentation: https://zed.dev/docs/configuring-zed#settings-files
+{
+  "load_direnv": "direct",
+  "terminal": {
+    "detect_venv": "off",
+  },
+  "lsp": {
+    "basedpyright": {
+      "binary": {
+        "path": "/bin/sh",
+        "arguments": [
+          "-lc",
+          "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && exec nix develop -c basedpyright-langserver --stdio",
+        ],
+      },
+      "settings": {
+        "python": {
+          "pythonPath": ".zed/nix-python",
+        },
+      },
+    },
+    "ruff": {
+      "binary": {
+        "path": "/bin/sh",
+        "arguments": [
+          "-lc",
+          "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && exec nix develop -c ruff server",
+        ],
+      },
+    },
+  },
+}

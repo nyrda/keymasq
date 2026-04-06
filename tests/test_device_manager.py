@@ -730,7 +730,7 @@ async def _runtime_execute_grabbed_action(
         action,
         event,
         event_name,
-        asyncio_mod=asyncio,
+        asyncio_mod=cast(Any, asyncio),
         command_type=dm.CommandType,
         fire_and_observe_fn=gdm._fire_and_observe,
         action_type_enum=gdm.ActionType,
@@ -751,7 +751,7 @@ async def _runtime_wait_for_grabbed_active_key_activity(
     return await gdm.wait_for_active_key_activity(
         device,
         timeout_s,
-        asyncio_mod=asyncio,
+        asyncio_mod=cast(Any, asyncio),
         errno_mod=errno,
         log=gdm.log,
     )
@@ -760,7 +760,7 @@ async def _runtime_wait_for_grabbed_active_key_activity(
 async def _runtime_wait_for_grabbed_active_keys_to_clear(device: GrabbedDevice) -> None:
     await gdm.wait_for_active_keys_to_clear(
         device,
-        asyncio_mod=asyncio,
+        asyncio_mod=cast(Any, asyncio),
         time_mod=gdm.time,
         log=gdm.log,
         active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
@@ -805,7 +805,7 @@ async def _runtime_tap_grabbed_key(
         hold_ms,
         event_name,
         uinput_dev,
-        asyncio_mod=asyncio,
+        asyncio_mod=cast(Any, asyncio),
     )
 
 
@@ -820,7 +820,7 @@ async def _runtime_tap_grabbed_trigger(
         axis_code,
         hold_ms,
         event_name,
-        asyncio_mod=asyncio,
+        asyncio_mod=cast(Any, asyncio),
         evdev_mod=evdev,
         uinput_writer=gdm._uinput_writer,
     )
@@ -832,7 +832,7 @@ async def _runtime_tap_grabbed_move(
     event_name: str,
     hold_ms: int,
 ) -> None:
-    await gdm.tap_move(device, action, event_name, hold_ms, asyncio_mod=asyncio)
+    await gdm.tap_move(device, action, event_name, hold_ms, asyncio_mod=cast(Any, asyncio))
 
 
 async def _runtime_topology_watch_loop(manager: DeviceManager) -> None:
@@ -1338,7 +1338,7 @@ class TestRapidfireRelease:
             50,
             "btn_side",
             fake_uinput,  # type: ignore[arg-type]
-            asyncio_mod=asyncio,
+            asyncio_mod=cast(Any, asyncio),
         )
 
         assert fake_uinput.writes == [
@@ -1891,7 +1891,7 @@ class TestEventLoopRecovery:
                 action,
                 event,
                 event_name,
-                asyncio_mod=asyncio,
+                asyncio_mod=cast(Any, asyncio),
                 command_type=dm.CommandType,
                 fire_and_observe_fn=gdm._fire_and_observe,
                 action_type_enum=gdm.ActionType,
@@ -1910,7 +1910,7 @@ class TestEventLoopRecovery:
         device.device = _FakeInputDevice()  # type: ignore[assignment]
         device._running = True
 
-        await gdm.event_loop(device, asyncio_mod=asyncio, log=gdm.log)
+        await gdm.event_loop(device, asyncio_mod=cast(Any, asyncio), log=gdm.log)
 
         assert sleep_calls == [0.01]
         assert fake_uinput.writes == [

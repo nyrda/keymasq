@@ -10,10 +10,11 @@ import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol, cast
+from typing import Protocol, TypeVar, cast
 
 import evdev
 
+from keyforge.common import devices as common_devices
 from keyforge.common.devices import (
     clear_device_path_cache,
     detect_input_classes,
@@ -63,6 +64,7 @@ type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[JsonObject]]
 type RapidfireTaskFactory = Callable[[], asyncio.Task[None]]
+_T = TypeVar("_T")
 
 
 class _DeviceInfo(Protocol):
@@ -92,12 +94,44 @@ class _ManagedInputDevice(Protocol):
     def close(self) -> None: ...
 
 
-class _WritableUInput(Protocol):
-    def write(self, event_type: int, code: int, value: int) -> None: ...
+class _AsyncioRuntimeAdapter:
+    CancelledError = asyncio.CancelledError
+    TimeoutError = asyncio.TimeoutError
 
-    def syn(self) -> None: ...
+    async def sleep(self, delay: float, /) -> None:
+        await asyncio.sleep(delay)
 
-    def close(self) -> None: ...
+    def create_task(self, coro: Awaitable[_T], /) -> asyncio.Task[_T]:
+        return asyncio.ensure_future(coro)
+
+    def current_task(self) -> asyncio.Task[None] | None:
+        return cast(asyncio.Task[None] | None, asyncio.current_task())
+
+    def to_thread(
+        self,
+        func: Callable[..., _T],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> Awaitable[_T]:
+        return asyncio.to_thread(func, *args, **kwargs)
+
+    def get_running_loop(self) -> asyncio.AbstractEventLoop:
+        return asyncio.get_running_loop()
+
+    def gather(
+        self, *aws: Awaitable[object], return_exceptions: bool = False
+    ) -> Awaitable[object]:
+        return cast(
+            Awaitable[object],
+            asyncio.gather(*aws, return_exceptions=return_exceptions),
+        )
+
+    def wait_for(self, aw: Awaitable[object], timeout: float) -> Awaitable[object]:
+        return asyncio.wait_for(aw, timeout)
+
+
+ASYNCIO_RUNTIME = _AsyncioRuntimeAdapter()
 
 
 def _json_object(value: object) -> JsonObject | None:
@@ -136,30 +170,6 @@ def _device_paths() -> list[str]:
     return cast(Callable[[], list[str]], evdev.list_devices)()
 
 
-def _uinput_writer(device: evdev.UInput | None) -> _WritableUInput | None:
-    return cast(_WritableUInput | None, device)
-
-
-def _test_uinput_enabled() -> bool:
-    value = str(os.environ.get(TEST_UINPUT_ENV, "")).strip().lower()
-    return value not in {"", "0", "false", "no"}
-
-
-def _uinput_identity(
-    normal_name: str,
-    kind: str,
-    *,
-    test_name: str | None = None,
-) -> tuple[str, int | None, int | None]:
-    if not _test_uinput_enabled():
-        return normal_name, None, None
-    return (
-        f"{TEST_UINPUT_PREFIX}-{test_name or kind}",
-        TEST_UINPUT_VENDOR,
-        TEST_UINPUT_PRODUCTS[kind],
-    )
-
-
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
     task = asyncio.ensure_future(coro)
 
@@ -171,6 +181,97 @@ def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[objec
 
     task.add_done_callback(_log_task_result)
     return task
+
+
+def _topology_manager(
+    manager: "DeviceManager",
+) -> runtime_topology._TopologyManager:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_topology._TopologyManager, manager)  # pyright: ignore[reportPrivateUsage]
+
+
+def _topology_asyncio_runtime(
+) -> runtime_topology._AsyncioModule:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_topology._AsyncioModule, ASYNCIO_RUNTIME)  # pyright: ignore[reportPrivateUsage]
+
+
+def _topology_live_interface_info_factory(
+) -> runtime_topology._LiveInterfaceInfoFactory:  # pyright: ignore[reportPrivateUsage]
+    return cast(  # pyright: ignore[reportPrivateUsage]
+        runtime_topology._LiveInterfaceInfoFactory,  # pyright: ignore[reportPrivateUsage]
+        LiveInterfaceInfo,
+    )
+
+
+def _topology_device_input_fn() -> runtime_topology.DeviceInputFn:
+    return _device_input
+
+
+def _grab_lifecycle_manager(
+    manager: "DeviceManager",
+) -> runtime_grab_lifecycle._GrabManager:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_grab_lifecycle._GrabManager, manager)  # pyright: ignore[reportPrivateUsage]
+
+
+def _macro_manager(
+    manager: "DeviceManager",
+) -> runtime_macros._MacroManager:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_macros._MacroManager, manager)  # pyright: ignore[reportPrivateUsage]
+
+
+def _macro_asyncio_runtime() -> runtime_macros._AsyncioModule:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_macros._AsyncioModule, ASYNCIO_RUNTIME)  # pyright: ignore[reportPrivateUsage]
+
+
+def _macro_uinput_writer_impl(
+    device: object | None,
+) -> runtime_macros._WritableUInput | None:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_macros._WritableUInput | None, device)  # pyright: ignore[reportPrivateUsage]
+
+
+def _macro_uinput_writer() -> runtime_macros.UInputWriter:
+    return _macro_uinput_writer_impl
+
+
+def _macro_command_type() -> runtime_macros._CommandTypeEnum:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_macros._CommandTypeEnum, CommandType)  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_manager(
+    manager: "DeviceManager",
+) -> runtime_combos._ComboManager:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_combos._ComboManager, manager)  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_asyncio_runtime() -> runtime_combos._AsyncioModule:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_combos._AsyncioModule, ASYNCIO_RUNTIME)  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_evdev_runtime() -> runtime_combos._EvdevModule:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_combos._EvdevModule, evdev)  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_emit_mouse_move_fn() -> runtime_combos._EmitMouseMoveFn:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_combos._EmitMouseMoveFn, emit_mouse_move)  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_uinput_writer_impl(
+    device: object | None,
+) -> runtime_combos._WritableUInput | None:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_combos._WritableUInput | None, device)  # pyright: ignore[reportPrivateUsage]
+
+
+def _combo_uinput_writer() -> runtime_combos.UInputWriter:
+    return _combo_uinput_writer_impl
+
+
+def _combo_queue_module() -> runtime_combos._QueueModule:  # pyright: ignore[reportPrivateUsage]
+    return cast(runtime_combos._QueueModule, queue)  # pyright: ignore[reportPrivateUsage]
+
+
+def _capability_device(
+    device: _ManagedInputDevice,
+) -> common_devices._CapabilityDevice:  # pyright: ignore[reportPrivateUsage]
+    return cast(common_devices._CapabilityDevice, device)  # pyright: ignore[reportPrivateUsage]
 
 
 @dataclass(frozen=True)
@@ -286,22 +387,22 @@ class DeviceManager:
 
     async def start_topology_watcher(self) -> None:
         await runtime_topology.start_topology_watcher(
-            cast(Any, self),
-            asyncio_mod=cast(Any, asyncio),
+            _topology_manager(self),
+            asyncio_mod=_topology_asyncio_runtime(),
             cancelled_error=asyncio.CancelledError,
             log=log,
-            live_interface_info_cls=cast(Any, LiveInterfaceInfo),
+            live_interface_info_cls=_topology_live_interface_info_factory(),
             clear_device_path_cache_fn=clear_device_path_cache,
             device_paths_fn=_device_paths,
-            device_input_fn=cast(Any, _device_input),
+            device_input_fn=_topology_device_input_fn(),
             resolve_stable_path_fn=resolve_stable_path,
             get_interface_id_fn=get_interface_id,
         )
 
     async def stop_topology_watcher(self) -> None:
         await runtime_topology.stop_topology_watcher(
-            cast(Any, self),
-            asyncio_mod=cast(Any, asyncio),
+            _topology_manager(self),
+            asyncio_mod=_topology_asyncio_runtime(),
             cancelled_error=asyncio.CancelledError,
             contextlib_mod=contextlib,
         )
@@ -316,7 +417,7 @@ class DeviceManager:
     ) -> JsonObject:
         async with self._op_lock:
             return await runtime_grab_lifecycle.grab_device_unlocked(
-                cast(Any, self),
+                _grab_lifecycle_manager(self),
                 hardware_id,
                 evdev_paths,
                 button_map,
@@ -347,21 +448,21 @@ class DeviceManager:
         async with self._op_lock:
             if immediate:
                 return await runtime_grab_lifecycle.release_device_unlocked(
-                    cast(Any, self),
+                    _grab_lifecycle_manager(self),
                     hardware_id,
                     log=log,
                 )
             return runtime_grab_lifecycle.schedule_hardware_release_unlocked(
-                cast(Any, self),
+                _grab_lifecycle_manager(self),
                 hardware_id,
                 grace_s,
-                asyncio_mod=cast(Any, asyncio),
+                asyncio_mod=runtime_grab_lifecycle.ASYNCIO_RUNTIME,
                 log=log,
             )
 
     async def release_all_devices(self) -> None:
         await runtime_grab_lifecycle.release_all_devices(
-            cast(Any, self),
+            _grab_lifecycle_manager(self),
             fire_and_observe_fn=_fire_and_observe,
         )
 
@@ -371,7 +472,7 @@ class DeviceManager:
         mapping: JsonObject,
     ) -> JsonObject:
         return await runtime_grab_lifecycle.set_mapping(
-            cast(Any, self),
+            _grab_lifecycle_manager(self),
             hardware_id,
             mapping,
             json_object_fn=_json_object,
@@ -461,13 +562,13 @@ class DeviceManager:
 
             self.active_combos = parsed
             await runtime_combos.clear_combo_runtime(
-                cast(Any, self),
-                asyncio_mod=cast(Any, asyncio),
+                _combo_manager(self),
+                asyncio_mod=_combo_asyncio_runtime(),
                 contextlib_mod=contextlib,
                 mapping_action_cls=MappingAction,
-                evdev_mod=cast(Any, evdev),
-                uinput_writer=cast(Any, _uinput_writer),
-                emit_mouse_move_fn=cast(Any, emit_mouse_move),
+                evdev_mod=_combo_evdev_runtime(),
+                uinput_writer=_combo_uinput_writer(),
+                emit_mouse_move_fn=_combo_emit_mouse_move_fn(),
                 get_trigger_axis_fn=get_trigger_axis,
                 resolve_code_fn=resolve_output_code,
                 fire_and_observe_fn=_fire_and_observe,
@@ -477,19 +578,19 @@ class DeviceManager:
             )
             self.combo_state.engine.set_combos(parsed)
             runtime_combos.refresh_combo_timeout_watchdog(
-                cast(Any, self),
-                asyncio_mod=cast(Any, asyncio),
+                _combo_manager(self),
+                asyncio_mod=_combo_asyncio_runtime(),
                 time_mod=time,
                 action_type_enum=ActionType,
                 mapping_action_cls=MappingAction,
-                emit_mouse_move_fn=cast(Any, emit_mouse_move),
+                emit_mouse_move_fn=_combo_emit_mouse_move_fn(),
                 get_trigger_axis_fn=get_trigger_axis,
                 resolve_code_fn=resolve_output_code,
                 fire_and_observe_fn=_fire_and_observe,
                 command_type=CommandType,
                 contextlib_mod=contextlib,
-                evdev_mod=cast(Any, evdev),
-                uinput_writer=cast(Any, _uinput_writer),
+                evdev_mod=_combo_evdev_runtime(),
+                uinput_writer=_combo_uinput_writer(),
             )
             log.info("Updated combos (%d active)", len(parsed))
             return {"updated": True, "combo_count": len(parsed)}
@@ -603,7 +704,7 @@ class DeviceManager:
         return {"devices": devices}
 
     def _detect_device_types(self, device: _ManagedInputDevice) -> list[str]:
-        return detect_input_classes(cast(Any, device))
+        return detect_input_classes(_capability_device(device))
 
     def _detect_device_type(self, device: _ManagedInputDevice) -> DeviceType:
         return primary_input_class(self._detect_device_types(device))
@@ -626,7 +727,7 @@ class DeviceManager:
         trigger_value: int = 1,
     ) -> JsonObject:
         return await runtime_macros.play_macro(
-            self,
+            _macro_manager(self),
             macro_events,
             macro_name,
             replay_mouse_movement,
@@ -641,25 +742,25 @@ class DeviceManager:
             source_device,
             source_button,
             trigger_value,
-            asyncio_mod=cast(Any, asyncio),
+            asyncio_mod=_macro_asyncio_runtime(),
             contextlib_mod=contextlib,
             evdev_mod=evdev,
             log=log,
             int_value_fn=_int_value,
             str_value_fn=_str_value,
-            uinput_writer=cast(Any, _uinput_writer),
+            uinput_writer=_macro_uinput_writer(),
             random_mod=random,
             uuid_mod=uuid,
-            command_type=cast(Any, CommandType),
+            command_type=_macro_command_type(),
         )
 
     async def cancel_macro_playback(self) -> JsonObject:
         return await runtime_macros.cancel_macro_playback(
-            self,
-            asyncio_mod=cast(Any, asyncio),
+            _macro_manager(self),
+            asyncio_mod=_macro_asyncio_runtime(),
             evdev_mod=evdev,
             contextlib_mod=contextlib,
-            uinput_writer=cast(Any, _uinput_writer),
+            uinput_writer=_macro_uinput_writer(),
         )
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:
@@ -672,18 +773,20 @@ class DeviceManager:
         notify_event: asyncio.Event | None = None,
     ) -> JsonObject:
         return runtime_combos.begin_combo_capture(
-            cast(Any, self),
+            _combo_manager(self),
             token,
             hardware_ids,
             notify_event,
-            queue_mod=cast(Any, queue),
+            queue_mod=_combo_queue_module(),
         )
 
     def read_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.read_combo_capture(cast(Any, self), token, queue_mod=cast(Any, queue))
+        return runtime_combos.read_combo_capture(
+            _combo_manager(self), token, queue_mod=_combo_queue_module()
+        )
 
     def end_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.end_combo_capture(cast(Any, self), token)
+        return runtime_combos.end_combo_capture(_combo_manager(self), token)
 
 
 GrabbedDevice = runtime_grabbed_device.GrabbedDevice

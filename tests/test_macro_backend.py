@@ -48,16 +48,16 @@ async def _play_macro_task(manager: DeviceManager, **kwargs: object) -> None:
         start_x=int(kwargs["start_x"]),
         start_y=int(kwargs["start_y"]),
         block_mouse_movement=bool(kwargs["block_mouse_movement"]),
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=dm._macro_asyncio_runtime(),
         evdev_mod=dm.evdev,
         log=dm.log,
         int_value_fn=dm._int_value,
         str_value_fn=dm._str_value,
-        uinput_writer=dm._uinput_writer,
+        uinput_writer=dm._macro_uinput_writer(),
         contextlib_mod=dm.contextlib,
         random_mod=dm.random,
         uuid_mod=dm.uuid,
-        command_type=dm.CommandType,
+        command_type=dm._macro_command_type(),
     )
 
 
@@ -546,7 +546,7 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         320,
         240,
         evdev_mod=dm.evdev,
-        uinput_writer=dm._uinput_writer,
+        uinput_writer=dm._macro_uinput_writer(),
     )
     assert [call.args for call in manager.output_state.keyboard_uinput.write.call_args_list] == [
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 1),

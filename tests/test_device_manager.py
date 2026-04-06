@@ -4,7 +4,6 @@ import logging
 import os
 from collections import deque
 from types import SimpleNamespace
-from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import evdev
@@ -339,7 +338,7 @@ class TestListDevices:
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
-            asyncio_mod=dm.asyncio,
+            asyncio_mod=dm._topology_asyncio_runtime(),
             cancelled_error=asyncio.CancelledError,
             log=dm.log,
         )
@@ -390,7 +389,7 @@ class TestListDevices:
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
-            asyncio_mod=dm.asyncio,
+            asyncio_mod=dm._topology_asyncio_runtime(),
             cancelled_error=asyncio.CancelledError,
             log=dm.log,
         )
@@ -591,7 +590,6 @@ async def _runtime_on_device_event(
         event_value,
         stable_path,
         source,
-        evdev_mod=dm.evdev,
         resolve_stable_path_fn=dm.resolve_stable_path,
         get_interface_id_fn=dm.get_interface_id,
         combo_binding_cls=dm.RuntimeComboBinding,
@@ -601,26 +599,27 @@ async def _runtime_on_device_event(
         time_mod=dm.time,
         action_type_enum=dm.ActionType,
         mapping_action_cls=dm.MappingAction,
-        emit_mouse_move_fn=dm.emit_mouse_move,
+        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
         get_trigger_axis_fn=dm.get_trigger_axis,
         resolve_code_fn=dm.resolve_output_code,
         fire_and_observe_fn=dm._fire_and_observe,
         command_type=dm.CommandType,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=dm._combo_asyncio_runtime(),
         contextlib_mod=dm.contextlib,
-        uinput_writer=dm._uinput_writer,
+        evdev_mod=dm._combo_evdev_runtime(),
+        uinput_writer=dm._combo_uinput_writer(),
     )
 
 
 async def _runtime_clear_combo_runtime(manager: DeviceManager) -> None:
     await cdm.clear_combo_runtime(
         manager,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=dm._combo_asyncio_runtime(),
         contextlib_mod=dm.contextlib,
         mapping_action_cls=dm.MappingAction,
-        evdev_mod=dm.evdev,
-        uinput_writer=dm._uinput_writer,
-        emit_mouse_move_fn=dm.emit_mouse_move,
+        evdev_mod=dm._combo_evdev_runtime(),
+        uinput_writer=dm._combo_uinput_writer(),
+        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
         get_trigger_axis_fn=dm.get_trigger_axis,
         resolve_code_fn=dm.resolve_output_code,
         fire_and_observe_fn=dm._fire_and_observe,
@@ -637,12 +636,12 @@ async def _runtime_clear_combo_scope(
         manager,
         hardware_id,
         source,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=dm._combo_asyncio_runtime(),
         contextlib_mod=dm.contextlib,
         mapping_action_cls=dm.MappingAction,
-        evdev_mod=dm.evdev,
-        uinput_writer=dm._uinput_writer,
-        emit_mouse_move_fn=dm.emit_mouse_move,
+        evdev_mod=dm._combo_evdev_runtime(),
+        uinput_writer=dm._combo_uinput_writer(),
+        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
         get_trigger_axis_fn=dm.get_trigger_axis,
         resolve_code_fn=dm.resolve_output_code,
         fire_and_observe_fn=dm._fire_and_observe,
@@ -655,18 +654,18 @@ async def _runtime_clear_combo_scope(
 def _runtime_refresh_combo_watchdog(manager: DeviceManager) -> None:
     cdm.refresh_combo_timeout_watchdog(
         manager,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=dm._combo_asyncio_runtime(),
         time_mod=dm.time,
         action_type_enum=dm.ActionType,
         mapping_action_cls=dm.MappingAction,
-        emit_mouse_move_fn=dm.emit_mouse_move,
+        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
         get_trigger_axis_fn=dm.get_trigger_axis,
         resolve_code_fn=dm.resolve_output_code,
         fire_and_observe_fn=dm._fire_and_observe,
         command_type=dm.CommandType,
         contextlib_mod=dm.contextlib,
-        evdev_mod=dm.evdev,
-        uinput_writer=dm._uinput_writer,
+        evdev_mod=dm._combo_evdev_runtime(),
+        uinput_writer=dm._combo_uinput_writer(),
     )
 
 
@@ -674,18 +673,18 @@ async def _runtime_combo_timeout_watchdog(manager: DeviceManager, deadline: floa
     await cdm.combo_timeout_watchdog(
         manager,
         deadline,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=dm._combo_asyncio_runtime(),
         time_mod=dm.time,
         action_type_enum=dm.ActionType,
         mapping_action_cls=dm.MappingAction,
-        emit_mouse_move_fn=dm.emit_mouse_move,
+        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
         get_trigger_axis_fn=dm.get_trigger_axis,
         resolve_code_fn=dm.resolve_output_code,
         fire_and_observe_fn=dm._fire_and_observe,
         command_type=dm.CommandType,
         contextlib_mod=dm.contextlib,
-        evdev_mod=dm.evdev,
-        uinput_writer=dm._uinput_writer,
+        evdev_mod=dm._combo_evdev_runtime(),
+        uinput_writer=dm._combo_uinput_writer(),
     )
 
 
@@ -696,11 +695,11 @@ async def _runtime_run_macro_control_action(
         manager,
         ev,
         speed,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=dm._macro_asyncio_runtime(),
         contextlib_mod=dm.contextlib,
         random_mod=dm.random,
         uuid_mod=dm.uuid,
-        command_type=dm.CommandType,
+        command_type=dm._macro_command_type(),
         str_value_fn=dm._str_value,
         int_value_fn=dm._int_value,
     )
@@ -837,14 +836,14 @@ async def _runtime_tap_grabbed_move(
 
 async def _runtime_topology_watch_loop(manager: DeviceManager) -> None:
     await tdm.topology_watch_loop(
-        cast(Any, manager),
-        asyncio_mod=cast(Any, dm.asyncio),
+        dm._topology_manager(manager),
+        asyncio_mod=dm._topology_asyncio_runtime(),
         cancelled_error=asyncio.CancelledError,
         log=dm.log,
-        live_interface_info_cls=cast(Any, dm.LiveInterfaceInfo),
+        live_interface_info_cls=dm._topology_live_interface_info_factory(),
         clear_device_path_cache_fn=dm.clear_device_path_cache,
         device_paths_fn=dm._device_paths,
-        device_input_fn=cast(Any, dm._device_input),
+        device_input_fn=dm._topology_device_input_fn(),
         resolve_stable_path_fn=dm.resolve_stable_path,
         get_interface_id_fn=dm.get_interface_id,
     )
@@ -855,9 +854,9 @@ def _runtime_schedule_topology_reconcile(
     snapshot: dict[str, dm.LiveInterfaceInfo],
 ) -> None:
     tdm.schedule_topology_reconcile(
-        cast(Any, manager),
+        dm._topology_manager(manager),
         snapshot,
-        asyncio_mod=cast(Any, dm.asyncio),
+        asyncio_mod=dm._topology_asyncio_runtime(),
         cancelled_error=asyncio.CancelledError,
         log=dm.log,
     )
@@ -884,7 +883,7 @@ def _runtime_schedule_hardware_release(
         manager,
         hardware_id,
         grace_s,
-        asyncio_mod=cast(Any, dm.asyncio),
+        asyncio_mod=ldm.ASYNCIO_RUNTIME,
         log=dm.log,
     )
 
@@ -907,7 +906,7 @@ async def _runtime_delayed_interface_release(
         hardware_id,
         path,
         delay,
-        asyncio_mod=cast(Any, dm.asyncio),
+        asyncio_mod=ldm.ASYNCIO_RUNTIME,
     )
 
 
@@ -946,14 +945,14 @@ async def _runtime_start_combo_action(
         action,
         binding,
         action_type_enum=dm.ActionType,
-        asyncio_mod=dm.asyncio,
-        emit_mouse_move_fn=dm.emit_mouse_move,
+        asyncio_mod=dm._combo_asyncio_runtime(),
+        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
         get_trigger_axis_fn=dm.get_trigger_axis,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=dm._fire_and_observe,
         command_type=dm.CommandType,
-        evdev_mod=dm.evdev,
-        uinput_writer=dm._uinput_writer,
+        evdev_mod=dm._combo_evdev_runtime(),
+        uinput_writer=dm._combo_uinput_writer(),
     )
 
 
@@ -961,12 +960,12 @@ async def _runtime_stop_combo_action(manager: DeviceManager, combo_id: str) -> N
     await cdm.stop_combo_action(
         manager,
         combo_id,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=dm._combo_asyncio_runtime(),
         contextlib_mod=dm.contextlib,
         mapping_action_cls=dm.MappingAction,
-        evdev_mod=dm.evdev,
-        uinput_writer=dm._uinput_writer,
-        emit_mouse_move_fn=dm.emit_mouse_move,
+        evdev_mod=dm._combo_evdev_runtime(),
+        uinput_writer=dm._combo_uinput_writer(),
+        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
         get_trigger_axis_fn=dm.get_trigger_axis,
         resolve_code_fn=dm.resolve_output_code,
         fire_and_observe_fn=dm._fire_and_observe,

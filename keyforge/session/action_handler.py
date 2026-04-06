@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from keyforge.gui.session_client import JsonDict
+
 log = logging.getLogger("keyforge-session.actions")
 
 
@@ -8,7 +10,7 @@ class ActionHandler:
     def __init__(self) -> None:
         pass
 
-    async def handle_action(self, data: dict) -> None:
+    async def handle_action(self, data: JsonDict) -> None:
         action_type = data.get("action_type")
         source_device = data.get("source_device")
         source_button = data.get("source_button")
@@ -16,7 +18,7 @@ class ActionHandler:
 
         log.info(f"Handling action: {action_type} from {source_device}:{source_button}")
 
-        if action_type == "exec" and cmd:
+        if action_type == "exec" and isinstance(cmd, str) and cmd:
             await self.execute_command(cmd)
 
     async def execute_command(self, cmd: str) -> int:

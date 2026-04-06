@@ -1,6 +1,7 @@
 import logging
 import tomllib
 from pathlib import Path
+from typing import Any, cast
 
 import tomli_w
 
@@ -37,10 +38,11 @@ class HardwareManager:
         with open(path, "rb") as f:
             data = tomllib.load(f)
 
-        hw = data["hardware"]
+        hw = cast(dict[str, Any], data["hardware"])
 
-        evdev_devices = []
-        for dev in hw.get("evdev", {}).get("devices", []):
+        evdev_devices: list[EvdevDevice] = []
+        evdev_config = cast(dict[str, Any], hw.get("evdev", {}))
+        for dev in cast(list[dict[str, Any]], evdev_config.get("devices", [])):
             evdev_devices.append(
                 EvdevDevice(
                     path=dev["path"],
@@ -50,8 +52,9 @@ class HardwareManager:
                 )
             )
 
-        buttons = []
-        for btn in hw.get("layout", {}).get("buttons", []):
+        buttons: list[ButtonDefinition] = []
+        layout = cast(dict[str, Any], hw.get("layout", {}))
+        for btn in cast(list[dict[str, Any]], layout.get("buttons", [])):
             buttons.append(
                 ButtonDefinition(
                     id=btn["id"],
@@ -113,7 +116,7 @@ class HardwareManager:
                 btn_data["type"] = btn.type
             buttons_data.append(btn_data)
 
-        evdev_devices_data = []
+        evdev_devices_data: list[dict[str, object]] = []
         for d in config.evdev_devices:
             dev_data: dict[str, object] = {
                 "path": d.path,
@@ -136,7 +139,7 @@ class HardwareManager:
             "keyboard" if is_keyboard_layout else "gamepad" if is_gamepad_layout else "mouse"
         )
 
-        data = {
+        data: dict[str, dict[str, object]] = {
             "hardware": {
                 "name": config.name,
                 "vendor_id": config.vendor_id,

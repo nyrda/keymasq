@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from keyforge.common.ipc import (
@@ -15,14 +16,14 @@ log = logging.getLogger("keyforge-session.client")
 
 
 class KeyforgedClient:
-    def __init__(self, event_handler: Any) -> None:
+    def __init__(self, event_handler: Callable[[CommandType, Any], Awaitable[None]]) -> None:
         self.event_handler = event_handler
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
         self._buffer = b""
-        self._pending_requests: dict[str, asyncio.Future] = {}
+        self._pending_requests: dict[str, asyncio.Future[Response]] = {}
         self._request_counter = 0
-        self._listen_task: asyncio.Task | None = None
+        self._listen_task: asyncio.Task[None] | None = None
         self._disconnected_event = asyncio.Event()
 
     async def connect(self) -> None:

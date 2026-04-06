@@ -3,7 +3,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import cast
+from typing import Protocol
 
 import evdev
 
@@ -79,6 +79,14 @@ _GAMEPAD_BUTTON_LABELS = {
     "btn_dpad_left": "D-Left",
     "btn_dpad_right": "D-Right",
 }
+
+
+class _CapabilityDevice(Protocol):
+    def input_props(self) -> Iterable[int]:
+        ...
+
+    def capabilities(self) -> Mapping[int, Sequence[object]]:
+        ...
 _GAMEPAD_BUTTON_ALIASES = {
     "btn_a": "btn_south",
     "btn_b": "btn_east",
@@ -153,11 +161,15 @@ def capability_name(event_type: int, code: object) -> str | None:
 
 
 def _capability_code_int(code: object) -> int | None:
-    candidate = code[0] if isinstance(code, tuple) else code
-    try:
-        return int(cast(int, candidate))
-    except Exception:
-        return None
+    candidate = code[0] if isinstance(code, tuple) and code else code
+    if isinstance(candidate, int):
+        return candidate
+    if isinstance(candidate, str):
+        try:
+            return int(candidate)
+        except ValueError:
+            return None
+    return None
 
 
 def resolve_evdev_code(evdev_name: str | None) -> int | None:
@@ -262,9 +274,9 @@ def detect_input_classes_from_capabilities(
     return normalize_input_classes(classes)
 
 
-def detect_input_classes(device: evdev.InputDevice) -> list[str]:
+def detect_input_classes(device: _CapabilityDevice) -> list[str]:
     try:
-        input_props = device.input_props()
+        input_props = list(device.input_props())
     except Exception:
         input_props = []
     return detect_input_classes_from_capabilities(device.capabilities(), input_props)

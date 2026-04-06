@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import TypedDict, cast
 
 from keyforge.session.dbus import SessionDBus
@@ -12,6 +12,18 @@ from keyforge.session.listeners.wayland_wlr import WlrootsWaylandListener
 from keyforge.session.listeners.x11 import X11Listener
 
 log = logging.getLogger("keyforge-session.compositor")
+
+
+type CompositorProbe = Callable[[SessionDBus | None], Awaitable[bool]]
+type CompositorListener = (
+    type[CosmicListener]
+    | type[GnomeListener]
+    | type[HyprlandListener]
+    | type[KDEListener]
+    | type[WlrootsWaylandListener]
+    | type[X11Listener]
+)
+
 
 class SupportedCompositor(TypedDict):
     env: str
@@ -48,7 +60,7 @@ SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
 }
 
 
-PROBE_ORDER: list[tuple[str, type]] = [
+PROBE_ORDER: list[tuple[str, CompositorListener]] = [
     ("hyprland", HyprlandListener),
     ("kde", KDEListener),
     ("gnome", GnomeListener),
@@ -59,17 +71,19 @@ PROBE_ORDER: list[tuple[str, type]] = [
 
 
 async def _probe_compositor_session(
-    listener_class: type,
+    listener_class: CompositorListener,
     dbus: SessionDBus | None = None,
 ) -> bool:
     probe_session = getattr(listener_class, "probe_session", None)
     if callable(probe_session):
         probe = cast(Callable[[SessionDBus | None], Awaitable[bool]], probe_session)
         return bool(await probe(dbus))
-    return bool(await listener_class.probe_available(dbus))
+    probe_available = cast(CompositorProbe, listener_class.probe_available)
+    return bool(await probe_available(dbus))
 
-
-def _run_probe_sync(coro) -> bool | str | None:
+def _run_probe_sync[ProbeResult](
+    coro: Coroutine[object, object, ProbeResult],
+) -> ProbeResult | None:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
@@ -166,7 +180,7 @@ def has_capability(compositor_id: str | None, capability: str) -> bool:
     return capability in get_compositor_capabilities(compositor_id)
 
 
-def get_listener_class(compositor_id: str | None):
+def get_listener_class(compositor_id: str | None) -> CompositorListener | None:
     if compositor_id == "hyprland":
         return HyprlandListener
 

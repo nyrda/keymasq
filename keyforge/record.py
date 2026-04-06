@@ -4,6 +4,7 @@ import os
 import pwd
 import sys
 import time
+from pathlib import Path
 
 from keyforge.common.recording_guard import (
     parse_unlock_expires_at,
@@ -27,7 +28,7 @@ def _require_privileged_caller() -> None:
         raise PermissionError("keyforge-record must run as root or keyforge user")
 
 
-def _write_lease(path, expires_at: int) -> None:
+def _write_lease(path: Path, expires_at: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"{int(expires_at)}\n", encoding="utf-8")
 
@@ -40,7 +41,7 @@ def _write_lease(path, expires_at: int) -> None:
     os.chmod(path, 0o644)
 
 
-def _remove_lease(path) -> None:
+def _remove_lease(path: Path) -> None:
     try:
         path.unlink()
     except FileNotFoundError:

@@ -28,8 +28,9 @@ class SecurityPolicy:
 def _to_str_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
+    items: list[object] = value
     out: list[str] = []
-    for item in value:
+    for item in items:
         if isinstance(item, str) and item.strip():
             out.append(item.strip())
     return out
@@ -38,8 +39,9 @@ def _to_str_list(value: Any) -> list[str]:
 def _to_acl_map(value: Any) -> dict[str, list[str]]:
     if not isinstance(value, dict):
         return {}
+    raw_acl: dict[object, object] = value
     out: dict[str, list[str]] = {}
-    for client_class, commands in value.items():
+    for client_class, commands in raw_acl.items():
         if not isinstance(client_class, str):
             continue
         out[client_class] = _to_str_list(commands)
@@ -49,8 +51,11 @@ def _to_acl_map(value: Any) -> dict[str, list[str]]:
 def _to_int_list(value: Any) -> list[int]:
     if not isinstance(value, list):
         return []
+    items: list[object] = value
     out: list[int] = []
-    for item in value:
+    for item in items:
+        if not isinstance(item, int | str):
+            continue
         try:
             out.append(int(item))
         except (TypeError, ValueError):
@@ -67,7 +72,7 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
     if not config_path.exists():
         return policy
 
-    raw = tomllib.loads(config_path.read_text())
+    raw: dict[str, Any] = tomllib.loads(config_path.read_text())
 
     session_acl = _to_acl_map(raw.get("session_command_acl"))
     if session_acl:

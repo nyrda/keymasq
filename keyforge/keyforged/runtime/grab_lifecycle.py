@@ -10,8 +10,9 @@ import evdev
 from keyforge.common.ipc import CommandType
 from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged.combo_engine import ComboDecision, ComboInputEvent, RuntimeComboBinding
-from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
+from keyforge.keyforged.output_helpers import get_trigger_axis, resolve_output_code
 from keyforge.keyforged.runtime import actions as runtime_actions
+from keyforge.keyforged.runtime import adapters as runtime_adapters
 from keyforge.keyforged.runtime import combos as runtime_combos
 from keyforge.keyforged.runtime import outputs as runtime_outputs
 
@@ -141,37 +142,8 @@ class _EvdevModule(Protocol):
     def ecodes(self) -> _Ecodes: ...
 
 
-class _AsyncioRuntimeAdapter:
-    async def sleep(self, delay: float, /) -> None:
-        await asyncio.sleep(delay)
-
-    def create_task(self, coro: Coroutine[object, object, _T], /) -> asyncio.Task[_T]:
-        return asyncio.create_task(coro)
-
-    def current_task(self) -> asyncio.Task[None] | None:
-        return cast(asyncio.Task[None] | None, asyncio.current_task())
-
-
-class _ComboEcodesByType:
-    def get(self, key: int, default: dict[int, object] | None = None) -> dict[int, object]:
-        value = evdev.ecodes.bytype.get(key)
-        if isinstance(value, dict):
-            return cast(dict[int, object], value)
-        return {} if default is None else default
-
-
-class _ComboEcodes:
-    EV_KEY: Final[int] = evdev.ecodes.EV_KEY
-    EV_ABS: Final[int] = evdev.ecodes.EV_ABS
-    bytype: Final[_ComboEcodesByType] = _ComboEcodesByType()
-
-
-class _ComboEvdevAdapter:
-    ecodes: Final[_ComboEcodes] = _ComboEcodes()
-
-
-ASYNCIO_RUNTIME = _AsyncioRuntimeAdapter()
-COMBO_EVDEV_RUNTIME = _ComboEvdevAdapter()
+ASYNCIO_RUNTIME = runtime_adapters.ASYNCIO_RUNTIME
+COMBO_EVDEV_RUNTIME = runtime_adapters.COMBO_EVDEV_RUNTIME
 
 
 def _normalize_evdev_name(value: object, default: str) -> str:
@@ -181,7 +153,7 @@ def _normalize_evdev_name(value: object, default: str) -> str:
 
 
 def _identity_uinput(device: object | None) -> _WritableUInput | None:
-    return cast(_WritableUInput | None, device)
+    return cast(_WritableUInput | None, runtime_adapters.identity_uinput_writer(device))
 
 
 def _fire_and_forget(coro: Awaitable[object], _label: str) -> asyncio.Task[object]:
@@ -246,7 +218,12 @@ def _combo_emit_mouse_move(
     *,
     absolute: bool = False,
 ) -> None:
-    emit_mouse_move(cast(_WritableUInput | None, uinput_dev), move_x, move_y, absolute=absolute)
+    runtime_adapters.combo_emit_mouse_move(
+        uinput_dev,
+        move_x,
+        move_y,
+        absolute=absolute,
+    )
 
 
 async def grab_device_unlocked(

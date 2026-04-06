@@ -9,7 +9,7 @@ import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, TypeVar, cast
+from typing import Protocol, cast
 
 import evdev
 
@@ -33,9 +33,10 @@ from keyforge.keyforged.combo_engine import (
     RuntimeComboBinding,
     RuntimeComboStep,
 )
-from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
+from keyforge.keyforged.output_helpers import get_trigger_axis, resolve_output_code
 from keyforge.keyforged.recording import RecordingManager
 from keyforge.keyforged.runtime import actions as runtime_actions
+from keyforge.keyforged.runtime import adapters as runtime_adapters
 from keyforge.keyforged.runtime import combos as runtime_combos
 from keyforge.keyforged.runtime import grab_lifecycle as runtime_grab_lifecycle
 from keyforge.keyforged.runtime import grabbed_device as runtime_grabbed_device
@@ -54,7 +55,6 @@ type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[JsonObject]]
 type RapidfireTaskFactory = Callable[[], asyncio.Task[None]]
-_T = TypeVar("_T")
 
 
 class _DeviceInfo(Protocol):
@@ -84,44 +84,7 @@ class _ManagedInputDevice(Protocol):
     def close(self) -> None: ...
 
 
-class _AsyncioRuntimeAdapter:
-    CancelledError = asyncio.CancelledError
-    TimeoutError = asyncio.TimeoutError
-
-    async def sleep(self, delay: float, /) -> None:
-        await asyncio.sleep(delay)
-
-    def create_task(self, coro: Awaitable[_T], /) -> asyncio.Task[_T]:
-        return asyncio.ensure_future(coro)
-
-    def current_task(self) -> asyncio.Task[None] | None:
-        return cast(asyncio.Task[None] | None, asyncio.current_task())
-
-    def to_thread(
-        self,
-        func: Callable[..., _T],
-        /,
-        *args: object,
-        **kwargs: object,
-    ) -> Awaitable[_T]:
-        return asyncio.to_thread(func, *args, **kwargs)
-
-    def get_running_loop(self) -> asyncio.AbstractEventLoop:
-        return asyncio.get_running_loop()
-
-    def gather(
-        self, *aws: Awaitable[object], return_exceptions: bool = False
-    ) -> Awaitable[object]:
-        return cast(
-            Awaitable[object],
-            asyncio.gather(*aws, return_exceptions=return_exceptions),
-        )
-
-    def wait_for(self, aw: Awaitable[object], timeout: float) -> Awaitable[object]:
-        return asyncio.wait_for(aw, timeout)
-
-
-ASYNCIO_RUNTIME = _AsyncioRuntimeAdapter()
+ASYNCIO_RUNTIME = runtime_adapters.ASYNCIO_RUNTIME
 
 
 def _json_object(value: object) -> JsonObject | None:
@@ -215,7 +178,10 @@ def _macro_asyncio_runtime() -> runtime_macros._AsyncioModule:  # pyright: ignor
 def _macro_uinput_writer_impl(
     device: object | None,
 ) -> runtime_macros._WritableUInput | None:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_macros._WritableUInput | None, device)  # pyright: ignore[reportPrivateUsage]
+    return cast(  # pyright: ignore[reportPrivateUsage]
+        runtime_macros._WritableUInput | None,  # pyright: ignore[reportPrivateUsage]
+        runtime_adapters.identity_uinput_writer(device),
+    )
 
 
 def _macro_uinput_writer() -> runtime_macros.UInputWriter:
@@ -237,17 +203,26 @@ def _combo_asyncio_runtime() -> runtime_combos._AsyncioModule:  # pyright: ignor
 
 
 def _combo_evdev_runtime() -> runtime_combos._EvdevModule:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_combos._EvdevModule, evdev)  # pyright: ignore[reportPrivateUsage]
+    return cast(  # pyright: ignore[reportPrivateUsage]
+        runtime_combos._EvdevModule,  # pyright: ignore[reportPrivateUsage]
+        runtime_adapters.COMBO_EVDEV_RUNTIME,
+    )
 
 
 def _combo_emit_mouse_move_fn() -> runtime_combos._EmitMouseMoveFn:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_combos._EmitMouseMoveFn, emit_mouse_move)  # pyright: ignore[reportPrivateUsage]
+    return cast(  # pyright: ignore[reportPrivateUsage]
+        runtime_combos._EmitMouseMoveFn,  # pyright: ignore[reportPrivateUsage]
+        runtime_adapters.combo_emit_mouse_move,
+    )
 
 
 def _combo_uinput_writer_impl(
     device: object | None,
 ) -> runtime_combos._WritableUInput | None:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_combos._WritableUInput | None, device)  # pyright: ignore[reportPrivateUsage]
+    return cast(  # pyright: ignore[reportPrivateUsage]
+        runtime_combos._WritableUInput | None,  # pyright: ignore[reportPrivateUsage]
+        runtime_adapters.identity_uinput_writer(device),
+    )
 
 
 def _combo_uinput_writer() -> runtime_combos.UInputWriter:

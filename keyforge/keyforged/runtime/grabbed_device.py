@@ -21,6 +21,11 @@ from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged.combo_engine import ComboDecision
 from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
 from keyforge.keyforged.recording import RecordingManager
+from keyforge.keyforged.runtime.action_runner import (
+    build_action_trigger_payload,
+    build_macro_playback_request,
+    dispatch_action_trigger,
+)
 from keyforge.keyforged.runtime.outputs import uinput_identity
 from keyforge.keyforged.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keyforge.keyforged.superkey_state import SuperkeyMachine
@@ -1081,77 +1086,73 @@ async def execute_action(
                 )
 
     elif action.action_type == action_type_enum.EXEC:
-        if event.value == 1 and action.exec_ref is not None and device_runtime.broadcast_callback:
-            fire_and_observe_fn(
-                device_runtime.broadcast_callback(
-                    command_type.ACTION_TRIGGER,
-                    {
-                        "action_type": "exec",
-                        "exec_ref": action.exec_ref,
-                        "source_device": device_runtime.hardware_id,
-                        "source_button": event_name,
-                    },
+        if event.value == 1:
+            dispatch_action_trigger(
+                device_runtime.broadcast_callback,
+                build_action_trigger_payload(
+                    action,
+                    source_device=device_runtime.hardware_id,
+                    source_button=event_name,
                 ),
-                f"exec action {event_name}",
+                fire_and_observe_fn=fire_and_observe_fn,
+                command_type=command_type,
+                label=f"exec action {event_name}",
             )
 
     elif action.action_type == action_type_enum.COMPOSITOR_DISPATCH:
-        if event.value == 1 and device_runtime.broadcast_callback:
-            fire_and_observe_fn(
-                device_runtime.broadcast_callback(
-                    command_type.ACTION_TRIGGER,
-                    {
-                        "action_type": "compositor_dispatch",
-                        "compositor": action.compositor_id or "",
-                        "dispatcher": action.compositor_dispatcher or "",
-                        "args": action.compositor_args or "",
-                        "source_device": device_runtime.hardware_id,
-                        "source_button": event_name,
-                    },
+        if event.value == 1:
+            dispatch_action_trigger(
+                device_runtime.broadcast_callback,
+                build_action_trigger_payload(
+                    action,
+                    source_device=device_runtime.hardware_id,
+                    source_button=event_name,
                 ),
-                f"compositor action {event_name}",
+                fire_and_observe_fn=fire_and_observe_fn,
+                command_type=command_type,
+                label=f"compositor action {event_name}",
             )
 
     elif action.action_type == action_type_enum.START_MACRO_RECORDING:
-        if event.value == 1 and device_runtime.broadcast_callback:
-            fire_and_observe_fn(
-                device_runtime.broadcast_callback(
-                    command_type.ACTION_TRIGGER,
-                    {
-                        "action_type": "start_macro_recording",
-                        "source_device": device_runtime.hardware_id,
-                        "source_button": event_name,
-                    },
+        if event.value == 1:
+            dispatch_action_trigger(
+                device_runtime.broadcast_callback,
+                build_action_trigger_payload(
+                    action,
+                    source_device=device_runtime.hardware_id,
+                    source_button=event_name,
                 ),
-                f"start recording action {event_name}",
+                fire_and_observe_fn=fire_and_observe_fn,
+                command_type=command_type,
+                label=f"start recording action {event_name}",
             )
 
     elif action.action_type == action_type_enum.STOP_MACRO_RECORDING:
-        if event.value == 1 and device_runtime.broadcast_callback:
-            fire_and_observe_fn(
-                device_runtime.broadcast_callback(
-                    command_type.ACTION_TRIGGER,
-                    {
-                        "action_type": "stop_macro_recording",
-                        "source_device": device_runtime.hardware_id,
-                        "source_button": event_name,
-                    },
+        if event.value == 1:
+            dispatch_action_trigger(
+                device_runtime.broadcast_callback,
+                build_action_trigger_payload(
+                    action,
+                    source_device=device_runtime.hardware_id,
+                    source_button=event_name,
                 ),
-                f"stop recording action {event_name}",
+                fire_and_observe_fn=fire_and_observe_fn,
+                command_type=command_type,
+                label=f"stop recording action {event_name}",
             )
 
     elif action.action_type == action_type_enum.CANCEL_MACRO_PLAYBACK:
-        if event.value == 1 and device_runtime.broadcast_callback:
-            fire_and_observe_fn(
-                device_runtime.broadcast_callback(
-                    command_type.ACTION_TRIGGER,
-                    {
-                        "action_type": "cancel_macro_playback",
-                        "source_device": device_runtime.hardware_id,
-                        "source_button": event_name,
-                    },
+        if event.value == 1:
+            dispatch_action_trigger(
+                device_runtime.broadcast_callback,
+                build_action_trigger_payload(
+                    action,
+                    source_device=device_runtime.hardware_id,
+                    source_button=event_name,
                 ),
-                f"cancel macro action {event_name}",
+                fire_and_observe_fn=fire_and_observe_fn,
+                command_type=command_type,
+                label=f"cancel macro action {event_name}",
             )
 
     elif action.action_type in (
@@ -1159,43 +1160,29 @@ async def execute_action(
         action_type_enum.PROFILE_DISABLE,
         action_type_enum.PROFILE_TOGGLE,
     ):
-        if event.value == 1 and device_runtime.broadcast_callback:
-            fire_and_observe_fn(
-                device_runtime.broadcast_callback(
-                    command_type.ACTION_TRIGGER,
-                    {
-                        "action_type": action.action_type.value,
-                        "profile_name": action.profile_name or action.target or "",
-                        "source_device": device_runtime.hardware_id,
-                        "source_button": event_name,
-                    },
+        if event.value == 1:
+            dispatch_action_trigger(
+                device_runtime.broadcast_callback,
+                build_action_trigger_payload(
+                    action,
+                    source_device=device_runtime.hardware_id,
+                    source_button=event_name,
                 ),
-                f"profile action {event_name}",
+                fire_and_observe_fn=fire_and_observe_fn,
+                command_type=command_type,
+                label=f"profile action {event_name}",
             )
 
     elif action.action_type == action_type_enum.MACRO:
-        if (
-            event.value in (0, 1)
-            and (action.macro_events or action.macro_name)
-            and device_runtime.macro_player
-        ):
+        macro_request = build_macro_playback_request(
+            action,
+            source_device=device_runtime.hardware_id,
+            source_button=event_name,
+            trigger_value=int(event.value),
+        )
+        if event.value in (0, 1) and macro_request is not None and device_runtime.macro_player:
             fire_and_observe_fn(
-                device_runtime.macro_player(
-                    macro_events=action.macro_events or [],
-                    macro_name=action.macro_name or "",
-                    replay_mouse_movement=action.macro_replay_mouse_movement,
-                    replay_mouse_clicks=action.macro_replay_mouse_clicks,
-                    speed=action.macro_speed,
-                    loop_mode=action.macro_loop_mode,
-                    loop_count=action.macro_loop_count,
-                    move_to_start=action.macro_move_to_start,
-                    start_x=action.macro_start_x,
-                    start_y=action.macro_start_y,
-                    block_mouse_movement=action.macro_block_mouse_movement,
-                    source_device=device_runtime.hardware_id,
-                    source_button=event_name,
-                    trigger_value=int(event.value),
-                ),
+                device_runtime.macro_player(**macro_request),
                 f"macro action {event_name}",
             )
 

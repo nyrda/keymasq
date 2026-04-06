@@ -17,6 +17,12 @@ from keyforge.keyforged.combo_engine import (
     RuntimeCombo,
     RuntimeComboBinding,
 )
+from keyforge.keyforged.runtime.action_runner import (
+    build_action_trigger_payload,
+    build_macro_playback_request,
+    dispatch_action_trigger,
+    is_hold_macro_action,
+)
 
 type JsonObject = dict[str, object]
 type IntValueFn = Callable[..., int]
@@ -511,11 +517,12 @@ async def broadcast_combo_action(
     fire_and_observe_fn: FireAndObserve,
     command_type: type[CommandType],
 ) -> None:
-    if manager.broadcast_callback is None:
-        return
-    fire_and_observe_fn(
-        manager.broadcast_callback(command_type.ACTION_TRIGGER, data),
-        "combo action broadcast",
+    dispatch_action_trigger(
+        manager.broadcast_callback,
+        data,
+        fire_and_observe_fn=fire_and_observe_fn,
+        command_type=command_type,
+        label="combo action broadcast",
     )
 
 
@@ -727,24 +734,15 @@ async def start_combo_action(
         return
 
     if action.action_type == action_type_enum.MACRO:
-        if action.macro_events or action.macro_name:
-            await manager.play_macro(
-                macro_events=action.macro_events or [],
-                macro_name=action.macro_name or "",
-                replay_mouse_movement=action.macro_replay_mouse_movement,
-                replay_mouse_clicks=action.macro_replay_mouse_clicks,
-                speed=action.macro_speed,
-                loop_mode=action.macro_loop_mode,
-                loop_count=action.macro_loop_count,
-                move_to_start=action.macro_move_to_start,
-                start_x=action.macro_start_x,
-                start_y=action.macro_start_y,
-                block_mouse_movement=action.macro_block_mouse_movement,
-                source_device="combo",
-                source_button=trigger_name,
-                trigger_value=1,
-            )
-            if str(action.macro_loop_mode or "none").lower() == "hold":
+        macro_request = build_macro_playback_request(
+            action,
+            source_device="combo",
+            source_button=trigger_name,
+            trigger_value=1,
+        )
+        if macro_request is not None:
+            await manager.play_macro(**macro_request)
+            if is_hold_macro_action(action):
                 manager.combo_state.active_actions[combo_id] = ComboActionState(
                     kind="macro_hold",
                     action=action,
@@ -753,69 +751,19 @@ async def start_combo_action(
                 )
         return
 
-    if action.action_type == action_type_enum.EXEC:
+    action_payload = build_action_trigger_payload(
+        action,
+        source_device=trigger_binding.hardware_id,
+        source_button=trigger_name,
+    )
+    if action_payload is not None:
         await broadcast_combo_action(
             manager,
-            {
-                "action_type": "exec",
-                "exec_ref": action.exec_ref,
-                "source_device": trigger_binding.hardware_id,
-                "source_button": trigger_name,
-            },
+            action_payload,
             fire_and_observe_fn=fire_and_observe_fn,
             command_type=command_type,
         )
         return
-
-    if action.action_type == action_type_enum.COMPOSITOR_DISPATCH:
-        await broadcast_combo_action(
-            manager,
-            {
-                "action_type": "compositor_dispatch",
-                "compositor": action.compositor_id or "",
-                "dispatcher": action.compositor_dispatcher or "",
-                "args": action.compositor_args or "",
-                "source_device": trigger_binding.hardware_id,
-                "source_button": trigger_name,
-            },
-            fire_and_observe_fn=fire_and_observe_fn,
-            command_type=command_type,
-        )
-        return
-
-    if action.action_type in (
-        action_type_enum.START_MACRO_RECORDING,
-        action_type_enum.STOP_MACRO_RECORDING,
-        action_type_enum.CANCEL_MACRO_PLAYBACK,
-    ):
-        await broadcast_combo_action(
-            manager,
-            {
-                "action_type": action.action_type.value,
-                "source_device": trigger_binding.hardware_id,
-                "source_button": trigger_name,
-            },
-            fire_and_observe_fn=fire_and_observe_fn,
-            command_type=command_type,
-        )
-        return
-
-    if action.action_type in (
-        action_type_enum.PROFILE_ENABLE,
-        action_type_enum.PROFILE_DISABLE,
-        action_type_enum.PROFILE_TOGGLE,
-    ):
-        await broadcast_combo_action(
-            manager,
-            {
-                "action_type": action.action_type.value,
-                "profile_name": action.profile_name or action.target or "",
-                "source_device": trigger_binding.hardware_id,
-                "source_button": trigger_name,
-            },
-            fire_and_observe_fn=fire_and_observe_fn,
-            command_type=command_type,
-        )
 
 
 async def start_combo_key_action(
@@ -933,22 +881,15 @@ async def stop_combo_action(
     if kind == "macro_hold":
         action = state.action
         if isinstance(action, mapping_action_cls):
-            await manager.play_macro(
-                macro_events=[],
-                macro_name=action.macro_name or "",
-                replay_mouse_movement=action.macro_replay_mouse_movement,
-                replay_mouse_clicks=action.macro_replay_mouse_clicks,
-                speed=action.macro_speed,
-                loop_mode=action.macro_loop_mode,
-                loop_count=action.macro_loop_count,
-                move_to_start=action.macro_move_to_start,
-                start_x=action.macro_start_x,
-                start_y=action.macro_start_y,
-                block_mouse_movement=action.macro_block_mouse_movement,
+            macro_request = build_macro_playback_request(
+                action,
                 source_device=str(state.source_device or ""),
                 source_button=str(state.source_button or ""),
                 trigger_value=0,
+                include_macro_events=False,
             )
+            if macro_request is not None:
+                await manager.play_macro(**macro_request)
 
 
 async def clear_combo_runtime(

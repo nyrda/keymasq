@@ -460,12 +460,12 @@ class DeviceManager:
             self.active_combos = parsed
             await runtime_combos.clear_combo_runtime(
                 cast(Any, self),
-                asyncio_mod=asyncio,
+                asyncio_mod=cast(Any, asyncio),
                 contextlib_mod=contextlib,
                 mapping_action_cls=MappingAction,
-                evdev_mod=evdev,
+                evdev_mod=cast(Any, evdev),
                 uinput_writer=cast(Any, _uinput_writer),
-                emit_mouse_move_fn=emit_mouse_move,
+                emit_mouse_move_fn=cast(Any, emit_mouse_move),
                 get_trigger_axis_fn=get_trigger_axis,
                 resolve_code_fn=resolve_output_code,
                 fire_and_observe_fn=_fire_and_observe,
@@ -476,17 +476,17 @@ class DeviceManager:
             self.combo_state.engine.set_combos(parsed)
             runtime_combos.refresh_combo_timeout_watchdog(
                 cast(Any, self),
-                asyncio_mod=asyncio,
+                asyncio_mod=cast(Any, asyncio),
                 time_mod=time,
                 action_type_enum=ActionType,
                 mapping_action_cls=MappingAction,
-                emit_mouse_move_fn=emit_mouse_move,
+                emit_mouse_move_fn=cast(Any, emit_mouse_move),
                 get_trigger_axis_fn=get_trigger_axis,
                 resolve_code_fn=resolve_output_code,
                 fire_and_observe_fn=_fire_and_observe,
                 command_type=CommandType,
                 contextlib_mod=contextlib,
-                evdev_mod=evdev,
+                evdev_mod=cast(Any, evdev),
                 uinput_writer=cast(Any, _uinput_writer),
             )
             log.info("Updated combos (%d active)", len(parsed))
@@ -674,11 +674,11 @@ class DeviceManager:
             token,
             hardware_ids,
             notify_event,
-            queue_mod=queue,
+            queue_mod=cast(Any, queue),
         )
 
     def read_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.read_combo_capture(cast(Any, self), token, queue_mod=queue)
+        return runtime_combos.read_combo_capture(cast(Any, self), token, queue_mod=cast(Any, queue))
 
     def end_combo_capture(self, token: str) -> JsonObject:
         return runtime_combos.end_combo_capture(cast(Any, self), token)

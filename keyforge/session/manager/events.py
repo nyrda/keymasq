@@ -5,16 +5,17 @@ import logging
 from typing import TYPE_CHECKING
 
 from keyforge.common.ipc import Command, CommandType
-from keyforge.session import manager_compositor as runtime_compositor
-from keyforge.session import manager_profiles as runtime_profiles
-from keyforge.session import manager_recording as runtime_recording
-from keyforge.session.manager_common import JsonObject
-from keyforge.session.manager_common import int_value as _int_value
-from keyforge.session.manager_common import json_list as _json_list
-from keyforge.session.manager_common import str_value as _str_value
+
+from . import compositor as runtime_compositor
+from . import profiles as runtime_profiles
+from . import recording as runtime_recording
+from .common import JsonObject
+from .common import int_value as _int_value
+from .common import json_list as _json_list
+from .common import str_value as _str_value
 
 if TYPE_CHECKING:
-    from keyforge.session.manager import SessionManager
+    from .core import SessionManager
 
 log = logging.getLogger("keyforge-session")
 GRAB_RETRY_DELAY_S = 5.0

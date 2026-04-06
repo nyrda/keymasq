@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING, cast
 
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.security import PeerCredentials, command_allowed
-from keyforge.session import manager_compositor as runtime_compositor
-from keyforge.session import manager_profiles as runtime_profiles
-from keyforge.session import manager_recording as runtime_recording
-from keyforge.session.manager_common import (
+
+from . import compositor as runtime_compositor
+from . import profiles as runtime_profiles
+from . import recording as runtime_recording
+from .common import (
     JsonObject,
     float_value,
     int_value,
@@ -18,7 +19,7 @@ from keyforge.session.manager_common import (
 )
 
 if TYPE_CHECKING:
-    from keyforge.session.manager import SessionManager
+    from .core import SessionManager
 
 log = logging.getLogger("keyforge-session")
 

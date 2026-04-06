@@ -2,11 +2,12 @@ import json
 from typing import TYPE_CHECKING, cast
 
 from keyforge.common.models import MappingAction, SuperkeyAction, SuperkeyConfig
-from keyforge.session.manager_common import JsonObject, json_object
 from keyforge.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
+from .common import JsonObject, json_object
+
 if TYPE_CHECKING:
-    from keyforge.session.manager import SessionManager
+    from .core import SessionManager
 
 
 def clear_exec_refs(manager: "SessionManager", hardware_id: str) -> None:

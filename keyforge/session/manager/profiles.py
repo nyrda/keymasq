@@ -8,14 +8,15 @@ from typing import TYPE_CHECKING
 
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.models import ActionType, HardwareConfig
-from keyforge.session import manager_payloads as runtime_payloads
-from keyforge.session.manager_common import JsonObject
-from keyforge.session.manager_common import int_value as _int_value
-from keyforge.session.manager_common import json_object as _json_object
 from keyforge.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
+from . import payloads as runtime_payloads
+from .common import JsonObject
+from .common import int_value as _int_value
+from .common import json_object as _json_object
+
 if TYPE_CHECKING:
-    from keyforge.session.manager import SessionManager
+    from .core import SessionManager
 
 log = logging.getLogger("keyforge-session")
 GRAB_DEVICE_TIMEOUT_S = 330.0

@@ -1,8 +1,9 @@
 import asyncio
 from dataclasses import dataclass, field
 
-from keyforge.session.manager_common import JsonObject
 from keyforge.session.profiles import ResolvedDeviceProfile
+
+from .common import JsonObject
 
 
 def default_recording_settings() -> JsonObject:

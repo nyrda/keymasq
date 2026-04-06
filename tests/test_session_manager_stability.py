@@ -7,12 +7,13 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 
 import keyforge.session.manager as session_manager_module
-import keyforge.session.manager_compositor as session_compositor_module
-import keyforge.session.manager_events as session_events_module
-import keyforge.session.manager_payloads as session_payloads_module
-import keyforge.session.manager_profiles as session_profiles_module
-import keyforge.session.manager_recording as session_recording_module
-import keyforge.session.manager_session_commands as session_commands_module
+import keyforge.session.manager.commands as session_commands_module
+import keyforge.session.manager.compositor as session_compositor_module
+import keyforge.session.manager.core as session_manager_core_module
+import keyforge.session.manager.events as session_events_module
+import keyforge.session.manager.payloads as session_payloads_module
+import keyforge.session.manager.profiles as session_profiles_module
+import keyforge.session.manager.recording as session_recording_module
 from keyforge.common.ipc import Command, CommandType, Response
 from keyforge.common.models import (
     ActionType,
@@ -393,7 +394,7 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
     async def _unsupported(_compositor_id: str | None, _dbus=None) -> bool:
         return False
 
-    monkeypatch.setattr("keyforge.session.manager_compositor.is_compositor_supported", _unsupported)
+    monkeypatch.setattr("keyforge.session.manager.compositor.is_compositor_supported", _unsupported)
 
     await session_compositor_module.switch_compositor(manager, "wayland")
     assert manager._compositor_id == "wayland"
@@ -403,7 +404,7 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
     async def _supported(_compositor_id: str | None, _dbus=None) -> bool:
         return True
 
-    monkeypatch.setattr("keyforge.session.manager_compositor.is_compositor_supported", _supported)
+    monkeypatch.setattr("keyforge.session.manager.compositor.is_compositor_supported", _supported)
 
     async def _fail_listener_start(_manager: SessionManager) -> None:
         manager._window_listener = None
@@ -754,7 +755,7 @@ async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
     async def _instant_sleep(_delay: float) -> None:
         return
 
-    monkeypatch.setattr(session_manager_module.asyncio, "sleep", _instant_sleep)
+    monkeypatch.setattr(session_profiles_module.asyncio, "sleep", _instant_sleep)
 
     await session_events_module.handle_event(
         manager,
@@ -788,7 +789,7 @@ async def test_topology_refresh_retries_after_reevaluate_failure(
         sleep_calls.append(delay)
         return
 
-    monkeypatch.setattr(session_manager_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(session_profiles_module.asyncio, "sleep", fake_sleep)
 
     with caplog.at_level("WARNING", logger="keyforge-session"):
         session_profiles_module.schedule_topology_refresh(
@@ -987,7 +988,7 @@ async def test_session_client_drops_connection_when_buffer_exceeds_limit(
     manager._handle_session_request = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
 
     monkeypatch.setattr(
-        session_manager_module,
+        session_manager_core_module,
         "get_peer_credentials",
         lambda _sock: PeerCredentials(pid=321, uid=1000, gid=1000),
     )

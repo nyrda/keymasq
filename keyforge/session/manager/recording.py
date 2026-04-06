@@ -12,18 +12,19 @@ from keyforge.common.devices import normalize_input_classes
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.recording_guard import resolve_unlock_status
 from keyforge.common.security import PeerCredentials, SecurityPolicy
-from keyforge.session import manager_profiles as runtime_profiles
-from keyforge.session.manager_common import (
+from keyforge.session.profiles import ResolvedDeviceProfile
+
+from . import profiles as runtime_profiles
+from .common import (
     JsonObject,
     int_value,
     json_list,
     json_object,
     str_value,
 )
-from keyforge.session.profiles import ResolvedDeviceProfile
 
 if TYPE_CHECKING:
-    from keyforge.session.manager import SessionManager
+    from .core import SessionManager
 
 log = logging.getLogger("keyforge-session")
 

@@ -27,26 +27,27 @@ from keyforge.common.security import (
     load_security_policy,
     uid_allowed,
 )
-from keyforge.session import manager_compositor as runtime_compositor
-from keyforge.session import manager_events as runtime_events
-from keyforge.session import manager_profiles as runtime_profiles
-from keyforge.session import manager_recording as runtime_recording
-from keyforge.session import manager_session_commands as session_commands
 from keyforge.session.action_handler import ActionHandler
 from keyforge.session.client import KeyforgedClient
 from keyforge.session.dbus import SessionDBus
 from keyforge.session.hardware import HardwareManager
 from keyforge.session.listeners.base import WindowListener
-from keyforge.session.manager_common import JsonObject
-from keyforge.session.manager_state import (
+from keyforge.session.profiles import ProfileManager
+from keyforge.session.superkeys import SuperkeyManager
+
+from . import commands as session_commands
+from . import compositor as runtime_compositor
+from . import events as runtime_events
+from . import profiles as runtime_profiles
+from . import recording as runtime_recording
+from .common import JsonObject
+from .state import (
     CaptureRuntimeState,
     ExecRuntimeState,
     ProfileRuntimeState,
     RecordingRuntimeState,
     UnlockRuntimeState,
 )
-from keyforge.session.profiles import ProfileManager
-from keyforge.session.superkeys import SuperkeyManager
 
 log = logging.getLogger("keyforge-session")
 GRAB_DEVICE_TIMEOUT_S = 330.0

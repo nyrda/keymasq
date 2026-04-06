@@ -6,7 +6,6 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, cast
 
-from keyforge.session import manager_profiles as runtime_profiles
 from keyforge.session.compositor import (
     detect_compositor,
     get_compositor_capabilities,
@@ -15,10 +14,12 @@ from keyforge.session.compositor import (
     get_listener_class,
     is_compositor_supported,
 )
-from keyforge.session.manager_common import JsonObject, json_list, merge_support_details, str_value
+
+from . import profiles as runtime_profiles
+from .common import JsonObject, json_list, merge_support_details, str_value
 
 if TYPE_CHECKING:
-    from keyforge.session.manager import SessionManager
+    from .core import SessionManager
 
 log = logging.getLogger("keyforge-session")
 

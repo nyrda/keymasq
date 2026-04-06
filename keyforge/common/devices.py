@@ -1,9 +1,9 @@
 import os
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 import evdev
 
@@ -161,7 +161,12 @@ def capability_name(event_type: int, code: object) -> str | None:
 
 
 def _capability_code_int(code: object) -> int | None:
-    candidate = code[0] if isinstance(code, tuple) and code else code
+    candidate: object
+    if isinstance(code, tuple):
+        tuple_code = cast(tuple[object, ...], code)
+        candidate = tuple_code[0] if tuple_code else code
+    else:
+        candidate = code
     if isinstance(candidate, int):
         return candidate
     if isinstance(candidate, str):
@@ -185,7 +190,9 @@ def resolve_evdev_code(evdev_name: str | None) -> int | None:
             continue
         code = getattr(evdev.ecodes, candidate)
         if isinstance(code, tuple):
-            return int(code[0]) if code else None
+            tuple_code = cast(tuple[object, ...], code)
+            first = tuple_code[0] if tuple_code else None
+            return first if isinstance(first, int) else None
         return int(code)
 
     return None
@@ -455,7 +462,8 @@ def find_all_interfaces(vendor_id: str, product_id: str) -> list[dict[str, str]]
     vid = vendor_id.lower()
     pid = product_id.lower()
 
-    for path in evdev.list_devices():
+    list_devices = cast(Callable[[], list[str]], evdev.list_devices)
+    for path in list_devices():
         try:
             device = evdev.InputDevice(path)
             info = device.info

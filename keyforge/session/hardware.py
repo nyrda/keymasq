@@ -93,7 +93,7 @@ class HardwareManager:
 
         path = paths.HARDWARE_DIR / f"{config.hardware_id.replace(':', '_')}.toml"
 
-        buttons_data = []
+        buttons_data: list[dict[str, object]] = []
         for btn in config.buttons:
             btn_data: dict[str, object] = {
                 "id": btn.id,

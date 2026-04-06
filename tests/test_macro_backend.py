@@ -1,5 +1,6 @@
 import asyncio
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import evdev
@@ -62,9 +63,10 @@ async def test_recording_manager_drops_msc_and_syn_events() -> None:
     recorder.record_event("keyboard", key_up)
 
     result = await recorder.stop()
+    events = cast(list[dict[str, object]], result["events"])
 
     assert result["event_count"] == 2
-    assert all(e["type"] == evdev.ecodes.EV_KEY for e in result["events"])
+    assert all(event["type"] == evdev.ecodes.EV_KEY for event in events)
 
 
 @pytest.mark.asyncio

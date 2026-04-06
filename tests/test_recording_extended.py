@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import AsyncMock
 
 import evdev
@@ -30,9 +31,10 @@ async def test_recording_event_filtering_for_mouse_controls():
     recorder.record_event("keyboard", keyboard)
 
     result = await recorder.stop()
+    events = cast(list[dict[str, object]], result["events"])
 
     assert result["event_count"] == 1
-    assert result["events"][0]["type"] == evdev.ecodes.EV_KEY
+    assert events[0]["type"] == evdev.ecodes.EV_KEY
 
 
 @pytest.mark.asyncio
@@ -126,5 +128,6 @@ async def test_recording_classifies_combo_device_events_per_event_type() -> None
     )
 
     result = await recorder.stop()
+    events = cast(list[dict[str, object]], result["events"])
 
-    assert [event["device_type"] for event in result["events"]] == ["keyboard", "mouse"]
+    assert [event["device_type"] for event in events] == ["keyboard", "mouse"]

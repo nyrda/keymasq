@@ -225,7 +225,7 @@ class SocketServer:
     async def broadcast_event(
         self,
         event_type: CommandType,
-        data: dict,
+        data: dict[str, object],
     ) -> None:
         cmd = Command(command=event_type, data=data)
         encoded = encode_response(

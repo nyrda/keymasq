@@ -19,6 +19,7 @@ from keyforge.session.dbus import SessionDBus, name_has_owner
 from keyforge.session.listeners.base import WindowChangeCallback, WindowListener
 
 log = logging.getLogger("keyforge-session.listeners.kde")
+type JsonObject = dict[str, object]
 
 KDE_DBUS_INTERFACE = "keyforge.kde.Listener"
 KDE_DBUS_OBJECT_PATH = "/keyforge/KDEListener"
@@ -57,34 +58,37 @@ async def _probe_kwin_owner(dbus: SessionDBus | None = None) -> bool:
     return await name_has_owner("org.kde.KWin", dbus)
 
 
-def parse_kde_window_payload(payload: str) -> tuple[str, str] | None:
+def _parse_json_object(payload: str) -> JsonObject | None:
     try:
         data = json.loads(payload)
         if isinstance(data, str):
             data = json.loads(data)
     except Exception:
         return None
+    return cast(JsonObject, data) if isinstance(data, dict) else None
 
-    if not isinstance(data, dict):
+
+def _object_str(data: JsonObject, key: str, default: str = "") -> str:
+    value = data.get(key, default)
+    return value if isinstance(value, str) else default
+
+
+def parse_kde_window_payload(payload: str) -> tuple[str, str] | None:
+    data = _parse_json_object(payload)
+    if data is None:
         return None
 
-    window_class = str(data.get("class", "") or "")
-    window_title = str(data.get("title", "") or "")
+    window_class = _object_str(data, "class")
+    window_title = _object_str(data, "title")
     return window_class, window_title
 
 
 def parse_kde_cursor_payload(payload: str) -> tuple[str, int, int] | None:
-    try:
-        data = json.loads(payload)
-        if isinstance(data, str):
-            data = json.loads(data)
-    except Exception:
+    data = _parse_json_object(payload)
+    if data is None:
         return None
 
-    if not isinstance(data, dict):
-        return None
-
-    request_id = str(data.get("id", "") or "")
+    request_id = _object_str(data, "id")
     if not request_id:
         return None
 
@@ -103,17 +107,11 @@ def parse_kde_cursor_payload(payload: str) -> tuple[str, int, int] | None:
 
 
 def parse_kde_dispatch_payload(payload: str) -> tuple[str, bool, str] | None:
-    try:
-        data = json.loads(payload)
-        if isinstance(data, str):
-            data = json.loads(data)
-    except Exception:
+    data = _parse_json_object(payload)
+    if data is None:
         return None
 
-    if not isinstance(data, dict):
-        return None
-
-    request_id = str(data.get("id", "") or "")
+    request_id = _object_str(data, "id")
     if not request_id:
         return None
 
@@ -121,7 +119,7 @@ def parse_kde_dispatch_payload(payload: str) -> tuple[str, bool, str] | None:
     if not isinstance(ok_raw, bool):
         return None
 
-    message = str(data.get("message", "") or "")
+    message = _object_str(data, "message")
     return request_id, ok_raw, message
 
 
@@ -132,22 +130,22 @@ class _KDEBridge(ServiceInterface):  # type: ignore[misc,valid-type]
 
     @method()
     def windowChanged(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
-        self._listener._on_window_payload(payload)
+        self._listener._on_window_payload(cast(str, payload))
 
     @method()
     def cursorPosition(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
-        self._listener._on_cursor_payload(payload)
+        self._listener._on_cursor_payload(cast(str, payload))
 
     @method()
     def dispatchResult(self, payload: "s") -> None:  # pyright: ignore[reportUndefinedVariable]
-        self._listener._on_dispatch_payload(payload)
+        self._listener._on_dispatch_payload(cast(str, payload))
 
 
 class KDEListener(WindowListener):
     def __init__(
         self,
         callback: WindowChangeCallback,
-        client=None,
+        client: object | None = None,
         dbus: SessionDBus | None = None,
     ) -> None:
         super().__init__(callback, client, dbus=dbus)
@@ -160,7 +158,7 @@ class KDEListener(WindowListener):
         self._bridge: _KDEBridge | None = None
         self._kwin_scripting = None
         self._window_script_iface = None
-        self._callback_tasks: set[asyncio.Task] = set()
+        self._callback_tasks: set[asyncio.Future[None]] = set()
         self._cursor_waiters: dict[str, asyncio.Future[tuple[int, int]]] = {}
         self._dispatch_waiters: dict[str, asyncio.Future[tuple[bool, str]]] = {}
         self._ignored_window_payloads = 0
@@ -472,7 +470,7 @@ class KDEListener(WindowListener):
             clipped_payload,
         )
 
-    def _on_callback_done(self, task: asyncio.Task) -> None:
+    def _on_callback_done(self, task: asyncio.Future[None]) -> None:
         self._callback_tasks.discard(task)
         if task.cancelled():
             return

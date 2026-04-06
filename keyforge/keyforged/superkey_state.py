@@ -4,6 +4,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import Protocol
 
 import evdev
 
@@ -45,17 +46,23 @@ class SuperkeyConfig:
     tap_hold_action: SuperkeyActionData | None = None
 
 
+class _WritableUInput(Protocol):
+    def write(self, event_type: int, code: int, value: int) -> None: ...
+
+    def syn(self) -> None: ...
+
+
 class SuperkeyMachine:
     def __init__(
         self,
         config: SuperkeyConfig,
         event_name: str,
-        keyboard_uinput: evdev.UInput,
-        mouse_uinput: evdev.UInput,
-        gamepad_uinput: evdev.UInput,
-        broadcast_callback: Callable[[dict], Awaitable[None]] | None = None,
+        keyboard_uinput: _WritableUInput,
+        mouse_uinput: _WritableUInput,
+        gamepad_uinput: _WritableUInput,
+        broadcast_callback: Callable[[dict[str, object]], Awaitable[None]] | None = None,
         key_event_tracker: Callable[[str, int, int], bool] | None = None,
-    ):
+    ) -> None:
         self.config = config
         self.event_name = event_name
         self.keyboard_uinput = keyboard_uinput
@@ -65,9 +72,9 @@ class SuperkeyMachine:
         self.key_event_tracker = key_event_tracker
 
         self.state = SuperkeyState.IDLE
-        self._hold_task: asyncio.Task | None = None
-        self._double_tap_task: asyncio.Task | None = None
-        self._rapidfire_task: asyncio.Task | None = None
+        self._hold_task: asyncio.Task[None] | None = None
+        self._double_tap_task: asyncio.Task[None] | None = None
+        self._rapidfire_task: asyncio.Task[None] | None = None
         self._rapidfire_active = False
         self._running = True
 
@@ -306,6 +313,8 @@ class SuperkeyMachine:
 
             is_trigger, axis_code = self._get_trigger_axis(action.target)
             if is_trigger:
+                if axis_code is None:
+                    return
                 uinput.write(evdev.ecodes.EV_ABS, axis_code, 255)
                 uinput.syn()
             else:
@@ -331,6 +340,8 @@ class SuperkeyMachine:
 
             is_trigger, axis_code = self._get_trigger_axis(action.target)
             if is_trigger:
+                if axis_code is None:
+                    return
                 uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
                 uinput.syn()
             else:
@@ -341,7 +352,7 @@ class SuperkeyMachine:
                     uinput.write(evdev.ecodes.EV_KEY, code, 0)
                     uinput.syn()
 
-    def _get_uinput(self, action_type: str) -> evdev.UInput | None:
+    def _get_uinput(self, action_type: str) -> _WritableUInput | None:
         if action_type == "keyboard":
             return self.keyboard_uinput
         elif action_type == "mouse":

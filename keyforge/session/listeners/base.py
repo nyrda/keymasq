@@ -2,7 +2,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from keyforge.session.dbus import SessionDBus
@@ -16,14 +16,14 @@ class WindowListener(ABC):
     def __init__(
         self,
         callback: WindowChangeCallback,
-        client=None,
+        client: Any | None = None,
         dbus: "SessionDBus | None" = None,
     ) -> None:
         self.callback = callback
         self.client = client
         self.dbus = dbus
         self.running = False
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
 
     @abstractmethod
     async def start(self) -> None:

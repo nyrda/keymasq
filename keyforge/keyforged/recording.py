@@ -1,23 +1,44 @@
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Protocol, cast
 
 import evdev
 
-from keyforge.common.devices import classify_event_device_type, normalize_input_classes
+from keyforge.common.devices import (
+    classify_event_device_type,
+    normalize_input_classes,
+)
 from keyforge.common.ipc import CommandType
+
+type RecordingEvent = dict[str, object]
+type RecordingPayload = dict[str, object]
+type RecordingDevice = dict[str, object]
+
+
+class _RecordingInputDevice(Protocol):
+    def close(self) -> None: ...
+
+    def async_read_loop(self) -> AsyncIterator[evdev.InputEvent]: ...
+
+
+def _event_time_us(event: RecordingEvent) -> int:
+    value = event.get("t_us", 0)
+    return value if isinstance(value, int) else 0
 
 
 class RecordingManager:
     def __init__(
         self,
-        broadcast_callback: Callable[[CommandType, dict], Awaitable[None]] | None = None,
+        broadcast_callback: (
+            Callable[[CommandType, RecordingPayload], Awaitable[None]] | None
+        ) = None,
     ) -> None:
         self.broadcast_callback = broadcast_callback
-        self._events: list[dict] = []
+        self._events: list[RecordingEvent] = []
         self._start_time_us: int | None = None
-        self._extra_devices: list[evdev.InputDevice] = []
-        self._monitoring_tasks: list[asyncio.Task] = []
-        self._progress_task: asyncio.Task | None = None
+        self._extra_devices: list[_RecordingInputDevice] = []
+        self._monitoring_tasks: list[asyncio.Task[None]] = []
+        self._progress_task: asyncio.Task[None] | None = None
         self._stopped = True
         self._include_mouse_movement = False
         self._include_mouse_clicks = False
@@ -28,10 +49,10 @@ class RecordingManager:
 
     async def start(
         self,
-        devices: list[dict],
+        devices: list[RecordingDevice],
         include_mouse_movement: bool = False,
         include_mouse_clicks: bool = False,
-    ) -> dict:
+    ) -> RecordingPayload:
         await self.stop()
 
         self._events = []
@@ -43,15 +64,25 @@ class RecordingManager:
         self._include_mouse_clicks = bool(include_mouse_clicks)
 
         for dev in devices:
-            path = dev.get("path")
-            if not path:
+            path_value = dev.get("path")
+            if not isinstance(path_value, str) or not path_value:
                 continue
             try:
-                input_dev = await asyncio.to_thread(evdev.InputDevice, path)
+                input_dev = cast(
+                    _RecordingInputDevice,
+                    await asyncio.to_thread(evdev.InputDevice, path_value),
+                )
                 self._extra_devices.append(input_dev)
+                raw_classes = dev.get("device_types")
+                classes = (
+                    [str(value) for value in cast(list[object], raw_classes)]
+                    if isinstance(raw_classes, list)
+                    else None
+                )
+                primary = dev.get("device_type", "other")
                 device_types = normalize_input_classes(
-                    dev.get("device_types"),
-                    dev.get("device_type", "other"),
+                    classes,
+                    primary if isinstance(primary, str) else "other",
                 )
                 task = asyncio.create_task(self._read_extra_device(input_dev, device_types))
                 self._monitoring_tasks.append(task)
@@ -93,14 +124,16 @@ class RecordingManager:
             }
         )
 
-    async def _read_extra_device(self, device: evdev.InputDevice, device_types: list[str]) -> None:
+    async def _read_extra_device(
+        self, device: _RecordingInputDevice, device_types: list[str]
+    ) -> None:
         try:
             async for event in device.async_read_loop():
                 self.record_event(classify_event_device_type(event, device_types), event)
         except Exception:
             pass
 
-    async def stop(self) -> dict:
+    async def stop(self) -> RecordingPayload:
         was_recording = not self._stopped
         self._stopped = True
 
@@ -119,10 +152,10 @@ class RecordingManager:
                 pass
         self._extra_devices = []
 
-        duration_ms = int(self._events[-1]["t_us"] / 1000) if self._events else 0
-        device_types = sorted({e["device_type"] for e in self._events})
+        duration_ms = int(_event_time_us(self._events[-1]) / 1000) if self._events else 0
+        device_types = sorted({str(event.get("device_type", "other")) for event in self._events})
 
-        payload = {
+        payload: RecordingPayload = {
             "duration_ms": duration_ms,
             "device_types": device_types,
             "events": list(self._events),
@@ -144,7 +177,7 @@ class RecordingManager:
             if self._stopped or not self.broadcast_callback:
                 continue
 
-            duration_ms = int(self._events[-1]["t_us"] / 1000) if self._events else 0
+            duration_ms = int(_event_time_us(self._events[-1]) / 1000) if self._events else 0
             await self.broadcast_callback(
                 CommandType.RECORDING_PROGRESS,
                 {

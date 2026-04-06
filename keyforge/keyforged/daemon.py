@@ -8,6 +8,7 @@ import stat
 import sys
 import time
 import uuid
+from typing import cast
 
 from keyforge.common.ipc import CommandType
 from keyforge.common.paths import (
@@ -35,6 +36,15 @@ from keyforge.keyforged.recording import RecordingManager
 from keyforge.keyforged.socket_server import ClientContext, SocketServer
 
 log = logging.getLogger("keyforged")
+
+
+def _int_like(value: object, default: int) -> int:
+    if isinstance(value, int | float | str):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    return default
 
 
 def sd_notify(state: str) -> None:
@@ -239,7 +249,10 @@ class Daemon:
             return await self.recording_manager.stop()
 
         elif command_type == CommandType.PLAY_MACRO:
-            macro_events = data.get("macro_events", [])
+            macro_events_raw = data.get("macro_events", [])
+            macro_events = (
+                cast(list[dict], macro_events_raw) if isinstance(macro_events_raw, list) else []
+            )
             macro_name = data.get("macro_name", "")
             loop_mode = str(data.get("loop_mode", "none") or "none")
             loop_count = int(data.get("loop_count", 1) or 1)
@@ -250,12 +263,15 @@ class Daemon:
 
             if macro_name and not macro_events:
                 macro_data = await asyncio.to_thread(self.macro_store.get, macro_name)
-                macro_events = macro_data.get("events", [])
+                macro_events_raw = macro_data.get("events", [])
+                macro_events = (
+                    cast(list[dict], macro_events_raw) if isinstance(macro_events_raw, list) else []
+                )
                 loop_mode = str(macro_data.get("loop_mode", loop_mode) or loop_mode)
-                loop_count = int(macro_data.get("loop_count", loop_count) or loop_count)
+                loop_count = _int_like(macro_data.get("loop_count", loop_count), loop_count)
                 move_to_start = bool(macro_data.get("move_to_start", move_to_start))
-                start_x = int(macro_data.get("start_x", start_x))
-                start_y = int(macro_data.get("start_y", start_y))
+                start_x = _int_like(macro_data.get("start_x", start_x), start_x)
+                start_y = _int_like(macro_data.get("start_y", start_y), start_y)
                 block_mouse_movement = bool(
                     macro_data.get("block_mouse_movement", block_mouse_movement)
                 )
@@ -287,7 +303,10 @@ class Daemon:
             payload = data.get("macro", {})
             if not isinstance(payload, dict):
                 raise ValueError("macro payload must be an object")
-            macro = await asyncio.to_thread(self.macro_store.create, payload)
+            macro = await asyncio.to_thread(
+                self.macro_store.create,
+                cast(dict[str, object], payload),
+            )
             return {"macro": macro}
 
         elif command_type == CommandType.MACRO_UPDATE:
@@ -297,7 +316,12 @@ class Daemon:
                 raise ValueError("macro payload must be an object")
             expected_revision = data.get("expected_revision")
             revision = int(expected_revision) if expected_revision is not None else None
-            macro = await asyncio.to_thread(self.macro_store.update, name, payload, revision)
+            macro = await asyncio.to_thread(
+                self.macro_store.update,
+                name,
+                cast(dict[str, object], payload),
+                revision,
+            )
             return {"macro": macro}
 
         elif command_type == CommandType.MACRO_RENAME:
@@ -318,17 +342,20 @@ class Daemon:
         elif command_type == CommandType.MACRO_PLAY_BY_NAME:
             name = str(data.get("name", ""))
             macro_data = await asyncio.to_thread(self.macro_store.get, name)
+            macro_events_raw = macro_data.get("events", [])
             return await self.device_manager.play_macro(
-                macro_events=macro_data.get("events", []),
+                macro_events=(
+                    cast(list[dict], macro_events_raw) if isinstance(macro_events_raw, list) else []
+                ),
                 macro_name=name,
                 replay_mouse_movement=bool(data.get("replay_mouse_movement", True)),
                 replay_mouse_clicks=bool(data.get("replay_mouse_clicks", True)),
                 speed=float(data.get("speed", 1.0)),
                 loop_mode=str(macro_data.get("loop_mode", "none") or "none"),
-                loop_count=int(macro_data.get("loop_count", 1) or 1),
+                loop_count=_int_like(macro_data.get("loop_count", 1), 1),
                 move_to_start=bool(macro_data.get("move_to_start", False)),
-                start_x=int(macro_data.get("start_x", 0)),
-                start_y=int(macro_data.get("start_y", 0)),
+                start_x=_int_like(macro_data.get("start_x", 0), 0),
+                start_y=_int_like(macro_data.get("start_y", 0), 0),
                 block_mouse_movement=bool(macro_data.get("block_mouse_movement", False)),
             )
 

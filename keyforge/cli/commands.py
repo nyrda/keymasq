@@ -2,6 +2,7 @@ import asyncio
 import json
 import socket
 import sys
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 import evdev
@@ -14,7 +15,8 @@ JsonObject = dict[str, Any]
 async def list_devices(verbose: bool = False) -> None:
     print("Available input devices:\n")
 
-    devices = evdev.list_devices()
+    list_devices = cast(Callable[[], list[str]], evdev.list_devices)
+    devices = list_devices()
 
     for path in sorted(devices):
         try:
@@ -30,13 +32,20 @@ async def list_devices(verbose: bool = False) -> None:
                 print("  Capabilities:")
                 for ev_type, codes in caps.items():
                     type_name = evdev.ecodes.EV.get(ev_type, f"UNKNOWN({ev_type})")
-                    code_names = []
+                    type_codes = cast(dict[int, str], evdev.ecodes.bytype[ev_type])
+                    code_names: list[str] = []
                     for code in codes:
                         if isinstance(code, tuple):
-                            code_name = evdev.ecodes.bytype[ev_type].get(code[0], str(code[0]))
-                            code_names.append(f"{code_name}[{code[1]}]")
+                            tuple_code = cast(tuple[object, ...], code)
+                            first = tuple_code[0] if tuple_code else None
+                            second = tuple_code[1] if len(tuple_code) > 1 else None
+                            if isinstance(first, int):
+                                code_name = type_codes.get(first, str(first))
+                            else:
+                                code_name = str(first)
+                            code_names.append(f"{code_name}[{second}]")
                         else:
-                            code_name = evdev.ecodes.bytype[ev_type].get(code, str(code))
+                            code_name = type_codes.get(code, str(code))
                             code_names.append(code_name)
                     print(f"    {type_name}: {', '.join(str(c) for c in code_names[:10])}")
                     if len(code_names) > 10:
@@ -65,7 +74,8 @@ async def test_device(device_path: str) -> None:
         loop = asyncio.get_event_loop()
 
         def _read_events() -> list[evdev.InputEvent]:
-            return list(device.read())
+            read = cast(Callable[[], Iterable[evdev.InputEvent]], device.read)
+            return list(read())
 
         while True:
             events = await loop.run_in_executor(None, _read_events)
@@ -169,8 +179,9 @@ def set_diagnostics_cli(enabled: bool, interval: float = 5.0) -> None:
         print(f"Error: {result.get('message', 'Session unavailable')}")
         sys.exit(1)
 
-    data = result.get("data") or {}
-    state = "enabled" if data.get("enabled", enabled) else "disabled"
+    raw_data = result.get("data")
+    data = cast(JsonObject, raw_data) if isinstance(raw_data, dict) else {}
+    state = "enabled" if bool(data.get("enabled", enabled)) else "disabled"
     print(f"Diagnostics {state} (interval={float(data.get('interval', interval)):.2f}s)")
 
 

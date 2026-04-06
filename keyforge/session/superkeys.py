@@ -1,6 +1,7 @@
 import logging
 import tomllib
 from pathlib import Path
+from typing import cast
 
 import tomli_w
 
@@ -12,6 +13,26 @@ from keyforge.common.models import (
 )
 
 log = logging.getLogger("keyforge-session.superkeys")
+type TomlDict = dict[str, object]
+
+
+def _as_toml_dict(value: object) -> TomlDict | None:
+    return cast(TomlDict, value) if isinstance(value, dict) else None
+
+
+def _toml_str(data: TomlDict, key: str, default: str | None = None) -> str | None:
+    value = data.get(key, default)
+    return value if isinstance(value, str) else default
+
+
+def _toml_bool(data: TomlDict, key: str, default: bool) -> bool:
+    value = data.get(key, default)
+    return value if isinstance(value, bool) else default
+
+
+def _toml_int(data: TomlDict, key: str, default: int) -> int:
+    value = data.get(key, default)
+    return value if isinstance(value, int) else default
 
 
 class SuperkeyManager:
@@ -36,31 +57,33 @@ class SuperkeyManager:
 
     def _load_superkey(self, path: Path) -> SuperkeyConfig | None:
         with open(path, "rb") as f:
-            data = tomllib.load(f)
+            data = cast(TomlDict, tomllib.load(f))
 
-        name = data.get("name", path.stem)
+        name = _toml_str(data, "name", path.stem) or path.stem
 
-        timing = data.get("timing", {})
+        timing = _as_toml_dict(data.get("timing")) or {}
 
-        actions_data = data.get("actions", {})
+        actions_data = _as_toml_dict(data.get("actions")) or {}
 
         return SuperkeyConfig(
             name=name,
-            description=data.get("description"),
-            tap_action=self._parse_superkey_action(actions_data.get("tap")),
-            double_tap_action=self._parse_superkey_action(actions_data.get("double_tap")),
-            hold_action=self._parse_superkey_action(actions_data.get("hold")),
-            tap_hold_action=self._parse_superkey_action(actions_data.get("tap_hold")),
-            tap_timeout_ms=timing.get("tap_timeout_ms", 200),
-            double_tap_window_ms=timing.get("double_tap_window_ms", 300),
-            hold_threshold_ms=timing.get("hold_threshold_ms", 300),
+            description=_toml_str(data, "description"),
+            tap_action=self._parse_superkey_action(_as_toml_dict(actions_data.get("tap"))),
+            double_tap_action=self._parse_superkey_action(
+                _as_toml_dict(actions_data.get("double_tap"))
+            ),
+            hold_action=self._parse_superkey_action(_as_toml_dict(actions_data.get("hold"))),
+            tap_hold_action=self._parse_superkey_action(_as_toml_dict(actions_data.get("tap_hold"))),
+            tap_timeout_ms=_toml_int(timing, "tap_timeout_ms", 200),
+            double_tap_window_ms=_toml_int(timing, "double_tap_window_ms", 300),
+            hold_threshold_ms=_toml_int(timing, "hold_threshold_ms", 300),
         )
 
-    def _parse_superkey_action(self, data: dict | None) -> SuperkeyAction | None:
+    def _parse_superkey_action(self, data: TomlDict | None) -> SuperkeyAction | None:
         if not data:
             return None
 
-        action_type_str = data.get("action", "passthrough")
+        action_type_str = _toml_str(data, "action", "passthrough") or "passthrough"
 
         try:
             action_type = ActionType(action_type_str)
@@ -80,15 +103,15 @@ class SuperkeyManager:
 
         return SuperkeyAction(
             action_type=action_type,
-            target=data.get("target"),
-            cmd=data.get("cmd"),
+            target=_toml_str(data, "target"),
+            cmd=_toml_str(data, "cmd"),
             macro_name=(
-                data.get("macro_name")
-                or (data.get("target") if action_type == ActionType.MACRO else None)
+                _toml_str(data, "macro_name")
+                or (_toml_str(data, "target") if action_type == ActionType.MACRO else None)
             ),
-            rapidfire_enabled=data.get("rapidfire_enabled", False),
-            rapidfire_hold_ms=data.get("rapidfire_hold_ms", 20),
-            rapidfire_wait_ms=data.get("rapidfire_wait_ms", 20),
+            rapidfire_enabled=_toml_bool(data, "rapidfire_enabled", False),
+            rapidfire_hold_ms=_toml_int(data, "rapidfire_hold_ms", 20),
+            rapidfire_wait_ms=_toml_int(data, "rapidfire_wait_ms", 20),
         )
 
     def get_superkey(self, name: str) -> SuperkeyConfig | None:
@@ -141,7 +164,7 @@ class SuperkeyManager:
         self._superkeys[config.name] = config
         log.info(f"Saved superkey: {config.name}")
 
-    def _serialize_action(self, action: SuperkeyAction) -> dict:
+    def _serialize_action(self, action: SuperkeyAction) -> TomlDict:
         data: dict[str, object] = {"action": action.action_type.value}
 
         if action.target:

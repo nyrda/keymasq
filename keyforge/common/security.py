@@ -3,7 +3,7 @@ import struct
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass
@@ -28,7 +28,7 @@ class SecurityPolicy:
 def _to_str_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
-    items: list[object] = value
+    items = cast(list[object], value)
     out: list[str] = []
     for item in items:
         if isinstance(item, str) and item.strip():
@@ -39,7 +39,7 @@ def _to_str_list(value: Any) -> list[str]:
 def _to_acl_map(value: Any) -> dict[str, list[str]]:
     if not isinstance(value, dict):
         return {}
-    raw_acl: dict[object, object] = value
+    raw_acl = cast(dict[object, object], value)
     out: dict[str, list[str]] = {}
     for client_class, commands in raw_acl.items():
         if not isinstance(client_class, str):
@@ -51,7 +51,7 @@ def _to_acl_map(value: Any) -> dict[str, list[str]]:
 def _to_int_list(value: Any) -> list[int]:
     if not isinstance(value, list):
         return []
-    items: list[object] = value
+    items = cast(list[object], value)
     out: list[int] = []
     for item in items:
         if not isinstance(item, int | str):
@@ -87,7 +87,8 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
 
     macro_cfg = raw.get("macro")
     if isinstance(macro_cfg, dict):
-        timeout_max = macro_cfg.get("exec_timeout_max_ms", policy.macro_exec_timeout_max_ms)
+        macro_settings = cast(dict[str, Any], macro_cfg)
+        timeout_max = macro_settings.get("exec_timeout_max_ms", policy.macro_exec_timeout_max_ms)
         try:
             policy.macro_exec_timeout_max_ms = max(1, int(timeout_max))
         except (TypeError, ValueError):
@@ -95,17 +96,19 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
 
     recording_guard_cfg = raw.get("recording_guard")
     if isinstance(recording_guard_cfg, dict):
+        recording_guard = cast(dict[str, Any], recording_guard_cfg)
         policy.recording_unlock_required = bool(
-            recording_guard_cfg.get("unlock_required", policy.recording_unlock_required)
+            recording_guard.get("unlock_required", policy.recording_unlock_required)
         )
         policy.macro_edit_requires_unlock = bool(
-            recording_guard_cfg.get("macro_edit_requires_unlock", policy.macro_edit_requires_unlock)
+            recording_guard.get("macro_edit_requires_unlock", policy.macro_edit_requires_unlock)
         )
 
     gui_cfg = raw.get("gui")
     if isinstance(gui_cfg, dict):
+        gui_settings = cast(dict[str, Any], gui_cfg)
         policy.gui_allow_left_right_click_remap = bool(
-            gui_cfg.get(
+            gui_settings.get(
                 "allow_left_right_click_remap",
                 policy.gui_allow_left_right_click_remap,
             )
@@ -132,7 +135,7 @@ def get_peer_credentials(transport_socket: Any) -> PeerCredentials | None:
 
 
 def command_allowed(command: str, acl: dict[str, list[str]], client_class: str) -> bool:
-    entries = acl.get(client_class)
+    entries: list[str] | None = acl.get(client_class)
     if entries is None:
         entries = []
         for value in acl.values():

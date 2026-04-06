@@ -18,6 +18,9 @@ from keyforge.common.models import (
     ProfileConfig,
 )
 
+TEST_UINPUT_ENV = "KEYFORGE_TEST_UINPUT"
+TEST_UINPUT_PREFIX = "keyforge-test"
+
 
 def _create_virtual_uinput(
     *,
@@ -42,6 +45,11 @@ def _create_virtual_uinput(
         pytest.skip("Virtual uinput device path unavailable")
 
     return device
+
+
+@pytest.fixture(autouse=True)
+def enable_test_uinput_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(TEST_UINPUT_ENV, "1")
 
 
 @pytest.fixture
@@ -94,7 +102,7 @@ def virtual_mouse():
 
     device = _create_virtual_uinput(
         capabilities=capabilities,
-        name="Test Virtual Mouse",
+        name=f"{TEST_UINPUT_PREFIX}-source-mouse",
         vendor=0x1234,
         product=0x5678,
     )
@@ -123,7 +131,7 @@ def virtual_keyboard():
 
     device = _create_virtual_uinput(
         capabilities=capabilities,
-        name="Test Virtual Keyboard",
+        name=f"{TEST_UINPUT_PREFIX}-source-keyboard",
         vendor=0xABCD,
         product=0xEF01,
     )
@@ -191,3 +199,44 @@ def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
+
+
+_CATEGORY_BY_FILE = {
+    "test_capture_manager.py": "keyforged",
+    "test_combo_engine.py": "keyforged",
+    "test_daemon.py": "keyforged",
+    "test_device_manager.py": "keyforged",
+    "test_grabbed_device.py": "keyforged",
+    "test_integration.py": "keyforged",
+    "test_keyforged_client.py": "keyforged",
+    "test_macro_backend.py": "keyforged",
+    "test_macro_store.py": "keyforged",
+    "test_macro_store_internal.py": "keyforged",
+    "test_output_helpers.py": "keyforged",
+    "test_recording_extended.py": "keyforged",
+    "test_socket_server.py": "keyforged",
+    "test_superkey_state.py": "keyforged",
+    "test_compositor.py": "session",
+    "test_gnome_listener.py": "session",
+    "test_kde_listener.py": "session",
+    "test_profile_handoff.py": "session",
+    "test_session_clients.py": "session",
+    "test_session_hardware.py": "session",
+    "test_session_manager_stability.py": "session",
+    "test_session_support.py": "session",
+    "test_wayland_ext_client.py": "session",
+    "test_wayland_protocol_trackers.py": "session",
+    "test_wayland_wlr_client.py": "session",
+    "test_wayland_wlr_listener.py": "session",
+    "test_x11_listener.py": "session",
+    "test_gui.py": "gui",
+    "test_macro_editor_dialog.py": "gui",
+}
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    del config
+    for item in items:
+        category = _CATEGORY_BY_FILE.get(Path(str(item.fspath)).name)
+        if category is not None:
+            item.add_marker(getattr(pytest.mark, category))

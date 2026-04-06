@@ -56,13 +56,30 @@ systemctl --user stop keyforge-session
 Run the full standard validation with:
 
 ```bash
-./scripts/check.sh
+./scripts/check.sh full
 ```
 
-This is the recommended way to run tests locally. `ruff` and `basedpyright` run
-in the dev shell, and the full pytest suite runs in the Nix VM test harness
-instead of directly on the host because many tests require `uinput` and other
-system integration.
+For fast local validation, run the narrowest category that matches the code you
+changed:
+
+```bash
+./scripts/check.sh keyforged
+./scripts/check.sh session
+./scripts/check.sh gui
+```
+
+`./scripts/check.sh` runs `ruff`, `basedpyright`, and the selected pytest
+subset from the dev shell. Use `full` for multi-area changes, shared code, or
+before handing off a broad refactor.
+
+If the host does not have usable `uinput` access, or if you want the selected
+pytest category to run in the VM backend instead of the host backend, add
+`--vm`:
+
+```bash
+./scripts/check.sh --vm keyforged
+./scripts/check.sh --vm full
+```
 
 Run individual tools from the dev shell when needed:
 
@@ -70,6 +87,22 @@ Run individual tools from the dev shell when needed:
 nix develop -c ruff check keyforge tests
 nix develop -c basedpyright
 ```
+
+## Local Test Input Suppression
+
+Some host-side `keyforged` tests create real `uinput` devices so the remap
+runtime can be exercised end to end. Install the local test rule if you want
+those devices to stay out of libinput-based desktop sessions such as Hyprland
+while the tests still read and write them through evdev/uinput:
+
+```bash
+sudo install -Dm644 udev/92-keyforge-test-input.rules /etc/udev/rules.d/92-keyforge-test-input.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=input --action=add
+```
+
+The rule ignores test devices named `keyforge-test-*`, which is the identity
+used by the host-side pytest fixtures and test-mode output devices.
 
 ## Notes
 

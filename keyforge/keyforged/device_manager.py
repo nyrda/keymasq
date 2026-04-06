@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import errno
 import logging
+import os
 import queue
 import random
 import time
@@ -56,6 +57,15 @@ ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
 TOPOLOGY_POLL_INTERVAL_S = 0.5
 TOPOLOGY_DEBOUNCE_S = 0.5
+TEST_UINPUT_ENV = "KEYFORGE_TEST_UINPUT"
+TEST_UINPUT_PREFIX = "keyforge-test"
+TEST_UINPUT_VENDOR = 0x4B46
+TEST_UINPUT_PRODUCTS = {
+    "keyboard": 0x1001,
+    "mouse": 0x1002,
+    "gamepad": 0x1003,
+    "passthrough": 0x1004,
+}
 type JsonObject = dict[str, object]
 type ComboCaptureQueue = tuple[queue.SimpleQueue[JsonObject], set[str], asyncio.Event | None]
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
@@ -138,6 +148,26 @@ def _device_paths() -> list[str]:
 
 def _uinput_writer(device: evdev.UInput | None) -> _WritableUInput | None:
     return cast(_WritableUInput | None, device)
+
+
+def _test_uinput_enabled() -> bool:
+    value = str(os.environ.get(TEST_UINPUT_ENV, "")).strip().lower()
+    return value not in {"", "0", "false", "no"}
+
+
+def _uinput_identity(
+    normal_name: str,
+    kind: str,
+    *,
+    test_name: str | None = None,
+) -> tuple[str, int | None, int | None]:
+    if not _test_uinput_enabled():
+        return normal_name, None, None
+    return (
+        f"{TEST_UINPUT_PREFIX}-{test_name or kind}",
+        TEST_UINPUT_VENDOR,
+        TEST_UINPUT_PRODUCTS[kind],
+    )
 
 
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
@@ -341,10 +371,22 @@ class DeviceManager:
                 ],
                 evdev.ecodes.EV_SYN: [],
             }
-            self._keyboard_uinput = evdev.UInput(
-                events=cast(dict[int, Sequence[int]], keyboard_caps),
-                name="keyforge-keyboard",
+            keyboard_name, keyboard_vendor, keyboard_product = _uinput_identity(
+                "keyforge-keyboard",
+                "keyboard",
             )
+            if keyboard_vendor is None or keyboard_product is None:
+                self._keyboard_uinput = evdev.UInput(
+                    events=cast(dict[int, Sequence[int]], keyboard_caps),
+                    name=keyboard_name,
+                )
+            else:
+                self._keyboard_uinput = evdev.UInput(
+                    events=cast(dict[int, Sequence[int]], keyboard_caps),
+                    name=keyboard_name,
+                    vendor=keyboard_vendor,
+                    product=keyboard_product,
+                )
 
             mouse_caps = {
                 evdev.ecodes.EV_KEY: [
@@ -364,10 +406,22 @@ class DeviceManager:
                 ],
                 evdev.ecodes.EV_SYN: [],
             }
-            self._mouse_uinput = evdev.UInput(
-                events=cast(dict[int, Sequence[int]], mouse_caps),
-                name="keyforge-mouse",
+            mouse_name, mouse_vendor, mouse_product = _uinput_identity(
+                "keyforge-mouse",
+                "mouse",
             )
+            if mouse_vendor is None or mouse_product is None:
+                self._mouse_uinput = evdev.UInput(
+                    events=cast(dict[int, Sequence[int]], mouse_caps),
+                    name=mouse_name,
+                )
+            else:
+                self._mouse_uinput = evdev.UInput(
+                    events=cast(dict[int, Sequence[int]], mouse_caps),
+                    name=mouse_name,
+                    vendor=mouse_vendor,
+                    product=mouse_product,
+                )
 
             gamepad_caps = {
                 evdev.ecodes.EV_KEY: [
@@ -401,11 +455,15 @@ class DeviceManager:
                 ],
                 evdev.ecodes.EV_SYN: [],
             }
+            gamepad_name, gamepad_vendor, gamepad_product = _uinput_identity(
+                "Microsoft X-Box 360 pad",
+                "gamepad",
+            )
             self._gamepad_uinput = evdev.UInput(
                 events=cast(dict[int, Sequence[int]], gamepad_caps),
-                name="Microsoft X-Box 360 pad",
-                vendor=0x045E,
-                product=0x028E,
+                name=gamepad_name,
+                vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
+                product=0x028E if gamepad_product is None else gamepad_product,
                 version=0x0110,
                 bustype=0x0003,
             )
@@ -2541,10 +2599,23 @@ class GrabbedDevice:
         caps = self.device.capabilities()
         caps.pop(evdev.ecodes.EV_SYN, None)
 
-        self.uinput = evdev.UInput(
-            events=cast(dict[int, Sequence[int]], caps),
-            name=f"keyforge-{self.hardware_id}",
+        passthrough_name, passthrough_vendor, passthrough_product = _uinput_identity(
+            f"keyforge-{self.hardware_id}",
+            "passthrough",
+            test_name=f"passthrough-{self.hardware_id}",
         )
+        if passthrough_vendor is None or passthrough_product is None:
+            self.uinput = evdev.UInput(
+                events=cast(dict[int, Sequence[int]], caps),
+                name=passthrough_name,
+            )
+        else:
+            self.uinput = evdev.UInput(
+                events=cast(dict[int, Sequence[int]], caps),
+                name=passthrough_name,
+                vendor=passthrough_vendor,
+                product=passthrough_product,
+            )
 
         try:
             await self._wait_for_active_keys_to_clear()

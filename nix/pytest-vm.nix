@@ -141,12 +141,19 @@ in
         };
 
       testScript = ''
+        import os
         import re
         import shlex
         import time
 
         pytest_output_path = "/tmp/pytest-vm-output.log"
         pytest_status_path = "/tmp/pytest-vm-exit.txt"
+        pytest_mark_expr = os.environ.get("KEYFORGE_PYTEST_MARK_EXPR", "").strip()
+        pytest_mark_args = (
+            " -m " + shlex.quote(pytest_mark_expr)
+            if pytest_mark_expr
+            else ""
+        )
 
         def as_user(cmd: str) -> str:
             return "${userCommand "{cmd}"}".replace("{cmd}", cmd)
@@ -221,7 +228,9 @@ in
                 "cd ${worktreeDir} && "
                 "rm -f /tmp/pytest-vm-output.log /tmp/pytest-vm-exit.txt && "
                 "set +e; "
-                "${pytestRunner}/bin/keyforge-pytest-vm tests/ -q -ra > /tmp/pytest-vm-output.log 2>&1; "
+                "${pytestRunner}/bin/keyforge-pytest-vm tests/ -q -ra"
+                + pytest_mark_args
+                + " > /tmp/pytest-vm-output.log 2>&1; "
                 "status=$?; "
                 "echo \"$status\" > /tmp/pytest-vm-exit.txt; "
                 "exit 0"

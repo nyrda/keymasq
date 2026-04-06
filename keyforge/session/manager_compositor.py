@@ -6,6 +6,7 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, cast
 
+from keyforge.session import manager_profiles as runtime_profiles
 from keyforge.session.compositor import (
     detect_compositor,
     get_compositor_capabilities,
@@ -385,7 +386,7 @@ async def on_window_change(
         )
 
     manager._current_window = cast(JsonObject, window_info)
-    await manager._reevaluate_profiles()
+    await runtime_profiles.reevaluate_profiles(manager)
 
 
 def compositor_dispatch_available(manager: "SessionManager") -> bool:

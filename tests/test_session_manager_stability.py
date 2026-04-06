@@ -8,6 +8,8 @@ import pytest
 
 import keyforge.session.manager as session_manager_module
 import keyforge.session.manager_compositor as session_compositor_module
+import keyforge.session.manager_payloads as session_payloads_module
+import keyforge.session.manager_profiles as session_profiles_module
 import keyforge.session.manager_recording as session_recording_module
 import keyforge.session.manager_session_commands as session_commands_module
 from keyforge.common.ipc import Command, CommandType, Response
@@ -80,8 +82,8 @@ async def test_connect_loop_reconnect_reapplies_profiles_after_restart() -> None
     manager.client = _FakeKeyforgedClient()
     manager.running = True
     manager._retry_event.set()
-    manager._grabbed_devices = {"1234:5678"}
-    manager._active_profile_names = ["base"]
+    manager.profile_state.grabbed_devices = {"1234:5678"}
+    manager.profile_state.active_profile_names = ["base"]
 
     activations: list[str] = []
     status_events: list[bool] = []
@@ -91,15 +93,23 @@ async def test_connect_loop_reconnect_reapplies_profiles_after_restart() -> None
         if len(activations) >= 2:
             manager.running = False
 
-    manager._activate_initial_profiles = _activate_initial_profiles  # type: ignore[assignment]
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_profiles_module,
+        "activate_initial_profiles",
+        lambda _manager: _activate_initial_profiles(),
+    )
     manager._broadcast_keyforged_status = lambda connected: status_events.append(connected)  # type: ignore[assignment]
 
-    await manager._connect_loop()
+    try:
+        await manager._connect_loop()
+    finally:
+        monkeypatch.undo()
 
     assert activations == ["apply", "apply"]
     assert status_events[:4] == [True, False, True, False]
-    assert manager._grabbed_devices == set()
-    assert manager._active_profile_names == []
+    assert manager.profile_state.grabbed_devices == set()
+    assert manager.profile_state.active_profile_names == []
 
 
 @pytest.mark.asyncio
@@ -152,41 +162,39 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
 
     actions: list[tuple[str, str]] = []
 
-    async def _apply_resolved_device_profile(hwid: str, resolved: ResolvedDeviceProfile) -> None:
+    async def _apply_resolved_device_profile(
+        _manager: SessionManager,
+        hwid: str,
+        resolved: ResolvedDeviceProfile,
+    ) -> None:
         actions.append(
             (
                 "activate",
                 resolved.active_profile_names[-1] if resolved.active_profile_names else "",
             )
         )
-        manager._resolved_devices[hwid] = resolved
+        manager.profile_state.resolved_devices[hwid] = resolved
 
-    async def _deactivate_profile(hwid: str, immediate: bool = False) -> None:
-        _ = immediate
-        actions.append(
-            (
-                "deactivate",
-                ", ".join(
-                    manager._resolved_devices.get(
-                        hwid, ResolvedDeviceProfile(hwid)
-                    ).active_profile_names
-                ),
-            )
-        )
-        manager._resolved_devices.pop(hwid, None)
-
-    manager._apply_resolved_device_profile = _apply_resolved_device_profile  # type: ignore[assignment]
-    manager._deactivate_profile = _deactivate_profile  # type: ignore[assignment]
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_profiles_module,
+        "apply_resolved_device_profile",
+        _apply_resolved_device_profile,
+    )
+    monkeypatch.setattr(session_profiles_module, "update_combos", AsyncMock())
     manager._send_notification = lambda _title, _message: None  # type: ignore[assignment]
 
-    await manager.on_window_change("app", "game", [])
-    await manager.on_window_change("app", "browser", [])
+    try:
+        await manager.on_window_change("app", "game", [])
+        await manager.on_window_change("app", "browser", [])
+    finally:
+        monkeypatch.undo()
 
     assert actions == [
         ("activate", "Game"),
         ("activate", "Base"),
     ]
-    assert manager._resolved_devices[hardware_id].active_profile_names == ["Base"]
+    assert manager.profile_state.resolved_devices[hardware_id].active_profile_names == ["Base"]
 
 
 @pytest.mark.asyncio
@@ -685,7 +693,7 @@ async def test_handle_event_compositor_dispatch_uses_listener() -> None:
 @pytest.mark.asyncio
 async def test_handle_event_exec_ref_runs_command_once() -> None:
     manager = SessionManager()
-    manager._exec_refs[7] = "echo once"
+    manager.exec_state.exec_refs[7] = "echo once"
     manager.action_handler.execute_command = AsyncMock(return_value=0)
 
     await manager._handle_event(
@@ -730,14 +738,14 @@ async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
     manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
         name="Test Mouse"
     )
-    manager._grabbed_devices = {"1234:5678"}
-    manager._grabbed_interfaces = {"1234:5678": {"mouse": "/dev/input/event10"}}
-    manager._last_sent_mapping_signatures = {"1234:5678": "sig"}
-    manager._last_sent_combo_signature = "combo"
-    manager._device_exec_refs = {"1234:5678": {7}}
-    manager._combo_exec_refs = {8}
-    manager._exec_refs = {7: "echo device", 8: "echo combo"}
-    manager._reevaluate_profiles = AsyncMock()  # type: ignore[assignment]
+    manager.profile_state.grabbed_devices = {"1234:5678"}
+    manager.profile_state.grabbed_interfaces = {"1234:5678": {"mouse": "/dev/input/event10"}}
+    manager.profile_state.last_sent_mapping_signatures = {"1234:5678": "sig"}
+    manager.profile_state.last_sent_combo_signature = "combo"
+    manager.exec_state.device_exec_refs = {"1234:5678": {7}}
+    manager.exec_state.combo_exec_refs = {8}
+    manager.exec_state.exec_refs = {7: "echo device", 8: "echo combo"}
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", AsyncMock())
 
     async def _instant_sleep(_delay: float) -> None:
         return
@@ -749,16 +757,16 @@ async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
         {"hardware_id": "1234:5678", "vendor_id": "1234", "product_id": "5678"},
     )
 
-    task = manager._topology_refresh_task
+    task = manager.profile_state.topology_refresh_task
     assert task is not None
     await task
 
-    assert manager._grabbed_devices == set()
-    assert manager._grabbed_interfaces == {}
-    assert manager._last_sent_mapping_signatures == {}
-    assert manager._last_sent_combo_signature == ""
-    assert manager._exec_refs == {}
-    manager._reevaluate_profiles.assert_awaited_once()
+    assert manager.profile_state.grabbed_devices == set()
+    assert manager.profile_state.grabbed_interfaces == {}
+    assert manager.profile_state.last_sent_mapping_signatures == {}
+    assert manager.profile_state.last_sent_combo_signature == ""
+    assert manager.exec_state.exec_refs == {}
+    session_profiles_module.reevaluate_profiles.assert_awaited_once()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -768,7 +776,8 @@ async def test_topology_refresh_retries_after_reevaluate_failure(
 ) -> None:
     manager = SessionManager()
     sleep_calls: list[float] = []
-    manager._reevaluate_profiles = AsyncMock(side_effect=[RuntimeError("refresh boom"), None])  # type: ignore[assignment]
+    reevaluate_profiles = AsyncMock(side_effect=[RuntimeError("refresh boom"), None])
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
 
     async def fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
@@ -778,7 +787,7 @@ async def test_topology_refresh_retries_after_reevaluate_failure(
 
     with caplog.at_level("WARNING", logger="keyforge-session"):
         manager._schedule_topology_refresh()
-        task = manager._topology_refresh_task
+        task = manager.profile_state.topology_refresh_task
         assert task is not None
         await task
 
@@ -787,8 +796,8 @@ async def test_topology_refresh_retries_after_reevaluate_failure(
         session_manager_module.TOPOLOGY_REFRESH_RETRY_S,
     ]
     assert "Topology refresh failed: refresh boom" in caplog.text
-    assert manager._reevaluate_profiles.await_count == 2
-    assert manager._topology_refresh_task is None
+    assert reevaluate_profiles.await_count == 2
+    assert manager.profile_state.topology_refresh_task is None
 
 
 @pytest.mark.asyncio
@@ -1029,7 +1038,7 @@ def test_handle_device_grab_status_waiting_notifies_once_and_broadcasts() -> Non
         call({"event": "device_grab_status", **event}),
         call({"event": "device_grab_status", **event}),
     ]
-    assert manager._grab_waiting_devices == {"1234:5678"}
+    assert manager.profile_state.grab_waiting_devices == {"1234:5678"}
 
 
 def test_handle_device_grab_status_timeout_notifies_and_schedules_retry() -> None:
@@ -1040,7 +1049,7 @@ def test_handle_device_grab_status_timeout_notifies_and_schedules_retry() -> Non
     manager._send_notification = Mock()
     manager._broadcast_to_session_clients = Mock()
     manager._schedule_grab_retry = Mock()  # type: ignore[assignment]
-    manager._grab_waiting_devices.add("1234:5678")
+    manager.profile_state.grab_waiting_devices.add("1234:5678")
 
     event = {
         "hardware_id": "1234:5678",
@@ -1059,7 +1068,7 @@ def test_handle_device_grab_status_timeout_notifies_and_schedules_retry() -> Non
     manager._broadcast_to_session_clients.assert_called_once_with(
         {"event": "device_grab_status", **event}
     )
-    assert manager._grab_waiting_devices == set()
+    assert manager.profile_state.grab_waiting_devices == set()
 
 
 @pytest.mark.asyncio
@@ -1230,7 +1239,7 @@ async def test_reevaluate_profiles_sends_combo_payload_and_forces_combo_grab() -
         ]
     )
 
-    await manager._reevaluate_profiles()
+    await session_profiles_module.reevaluate_profiles(manager)
 
     sent = manager.client.send_command.await_args_list
     assert [call.args[0].command for call in sent] == [
@@ -1306,8 +1315,8 @@ async def test_reevaluate_profiles_skips_unchanged_mapping_and_combos() -> None:
         ]
     )
 
-    await manager._reevaluate_profiles()
-    await manager._reevaluate_profiles()
+    await session_profiles_module.reevaluate_profiles(manager)
+    await session_profiles_module.reevaluate_profiles(manager)
 
     sent = manager.client.send_command.await_args_list
     assert [call.args[0].command for call in sent] == [
@@ -1341,7 +1350,7 @@ async def test_apply_resolved_device_profile_uses_extended_grab_timeout() -> Non
         ]
     )
 
-    await manager._apply_resolved_device_profile(hardware_id, resolved)
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     sent = manager.client.send_command.await_args_list
     assert sent[0].args[0].command == CommandType.GRAB_DEVICE
@@ -1367,9 +1376,14 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout() -> Non
     )
     manager.client.send_command = AsyncMock(side_effect=TimeoutError())
     manager._send_notification = Mock()
-    manager._schedule_grab_retry = Mock()  # type: ignore[assignment]
+    schedule_grab_retry = Mock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_profiles_module, "schedule_grab_retry", schedule_grab_retry)
 
-    await manager._apply_resolved_device_profile(hardware_id, resolved)
+    try:
+        await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+    finally:
+        monkeypatch.undo()
 
     manager._send_notification.assert_called_once_with(
         "Keyforge: Grab Timed Out",
@@ -1378,7 +1392,11 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout() -> Non
             "Retrying automatically."
         ),
     )
-    manager._schedule_grab_retry.assert_called_once_with(hardware_id)
+    schedule_grab_retry.assert_called_once_with(
+        manager,
+        hardware_id,
+        delay_s=session_profiles_module.GRAB_RETRY_DELAY_S,
+    )
 
 
 @pytest.mark.asyncio
@@ -1402,12 +1420,12 @@ async def test_apply_resolved_device_profile_waits_when_daemon_reports_no_live_i
         return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
     )
 
-    await manager._apply_resolved_device_profile(hardware_id, resolved)
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     manager.client.send_command.assert_awaited_once()
-    assert hardware_id not in manager._grabbed_devices
-    assert hardware_id not in manager._grabbed_interfaces
-    assert manager._last_sent_mapping_signatures == {}
+    assert hardware_id not in manager.profile_state.grabbed_devices
+    assert hardware_id not in manager.profile_state.grabbed_interfaces
+    assert manager.profile_state.last_sent_mapping_signatures == {}
 
 
 @pytest.mark.asyncio
@@ -1429,25 +1447,39 @@ async def test_apply_resolved_device_profile_skips_same_interface_noop_without_m
         evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/event10")],
         buttons=[SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse")],
     )
-    manager._resolved_devices[hardware_id] = ResolvedDeviceProfile(
+    manager.profile_state.resolved_devices[hardware_id] = ResolvedDeviceProfile(
         hardware_id=hardware_id,
         active_profile_names=["Desktop"],
         mappings=dict(resolved.mappings),
     )
-    manager._grabbed_devices.add(hardware_id)
-    manager._grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
-    manager._last_sent_mapping_signatures[hardware_id] = manager._resolved_mapping_signature(
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
+    manager.profile_state.last_sent_mapping_signatures[
+        hardware_id
+    ] = session_payloads_module.resolved_mapping_signature(
+        manager,
         resolved,
         hardware_id,
     )
-    manager._update_mapping = AsyncMock(return_value=True)  # type: ignore[assignment]
-    manager._maybe_notify_profile_activation = Mock()  # type: ignore[assignment]
+    update_mapping = AsyncMock(return_value=True)
+    maybe_notify = Mock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_profiles_module, "update_mapping", update_mapping)
+    monkeypatch.setattr(session_profiles_module, "maybe_notify_profile_activation", maybe_notify)
 
-    with caplog.at_level("INFO", logger="keyforge-session"):
-        await manager._apply_resolved_device_profile(hardware_id, resolved)
+    try:
+        with caplog.at_level("INFO", logger="keyforge-session"):
+            await session_profiles_module.apply_resolved_device_profile(
+                manager,
+                hardware_id,
+                resolved,
+            )
+    finally:
+        monkeypatch.undo()
 
-    manager._update_mapping.assert_not_awaited()
-    manager._maybe_notify_profile_activation.assert_called_once_with(
+    update_mapping.assert_not_awaited()
+    maybe_notify.assert_called_once_with(
+        manager,
         "Test Mouse",
         ["Desktop"],
         resolved,
@@ -1475,25 +1507,39 @@ async def test_apply_resolved_device_profile_skips_profile_only_change_without_m
         evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/event10")],
         buttons=[SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse")],
     )
-    manager._resolved_devices[hardware_id] = ResolvedDeviceProfile(
+    manager.profile_state.resolved_devices[hardware_id] = ResolvedDeviceProfile(
         hardware_id=hardware_id,
         active_profile_names=["Desktop"],
         mappings=dict(resolved.mappings),
     )
-    manager._grabbed_devices.add(hardware_id)
-    manager._grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
-    manager._last_sent_mapping_signatures[hardware_id] = manager._resolved_mapping_signature(
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
+    manager.profile_state.last_sent_mapping_signatures[
+        hardware_id
+    ] = session_payloads_module.resolved_mapping_signature(
+        manager,
         resolved,
         hardware_id,
     )
-    manager._update_mapping = AsyncMock(return_value=True)  # type: ignore[assignment]
-    manager._maybe_notify_profile_activation = Mock()  # type: ignore[assignment]
+    update_mapping = AsyncMock(return_value=True)
+    maybe_notify = Mock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_profiles_module, "update_mapping", update_mapping)
+    monkeypatch.setattr(session_profiles_module, "maybe_notify_profile_activation", maybe_notify)
 
-    with caplog.at_level("INFO", logger="keyforge-session"):
-        await manager._apply_resolved_device_profile(hardware_id, resolved)
+    try:
+        with caplog.at_level("INFO", logger="keyforge-session"):
+            await session_profiles_module.apply_resolved_device_profile(
+                manager,
+                hardware_id,
+                resolved,
+            )
+    finally:
+        monkeypatch.undo()
 
-    manager._update_mapping.assert_not_awaited()
-    manager._maybe_notify_profile_activation.assert_called_once_with(
+    update_mapping.assert_not_awaited()
+    maybe_notify.assert_called_once_with(
+        manager,
         "Test Mouse",
         ["Desktop"],
         resolved,

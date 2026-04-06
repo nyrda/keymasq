@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.security import PeerCredentials, command_allowed
 from keyforge.session import manager_compositor as runtime_compositor
+from keyforge.session import manager_profiles as runtime_profiles
 from keyforge.session import manager_recording as runtime_recording
 from keyforge.session.manager_common import (
     JsonObject,
@@ -80,10 +81,10 @@ async def _handle_profile_commands(
     request: JsonObject,
 ) -> JsonObject | None:
     if command == "get_active_profiles":
-        return manager._build_active_profiles_payload()
+        return runtime_profiles.build_active_profiles_payload(manager)
 
     if command == "list_profiles":
-        return manager._build_profile_overview()
+        return runtime_profiles.build_profile_overview(manager)
 
     if command in {"enable_profile", "disable_profile", "toggle_profile"}:
         profile_name = str_value(request.get("profile_name"), "")
@@ -96,7 +97,7 @@ async def _handle_profile_commands(
         elif command == "disable_profile":
             enabled = False
 
-        return await manager._set_profile_enabled(profile_name, enabled)
+        return await runtime_profiles.set_profile_enabled(manager, profile_name, enabled)
 
     if command == "reload":
         await manager._reload_profiles()
@@ -105,7 +106,7 @@ async def _handle_profile_commands(
     if command in {"reevaluate_profiles", "reevaluate_hardware"}:
         log.info("Global profile reevaluate requested")
         await asyncio.to_thread(manager._reload_config_from_disk)
-        await manager._reevaluate_profiles()
+        await runtime_profiles.reevaluate_profiles(manager)
         return {"status": "ok"}
 
     if command == "ping":
@@ -152,7 +153,7 @@ async def _handle_compositor_commands(
             "listener_active": compositor_status["listener_active"],
             "listener_name": compositor_status["listener_name"],
             "compositor_dispatch_available": compositor_status["compositor_dispatch_available"],
-            "active_profiles": list(manager._active_profile_names),
+            "active_profiles": list(manager.profile_state.active_profile_names),
             "recording_active": manager.recording_state.active,
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
             "gui_allow_left_right_click_remap": bool(policy.gui_allow_left_right_click_remap),

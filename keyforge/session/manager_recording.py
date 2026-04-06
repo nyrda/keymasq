@@ -12,6 +12,7 @@ from keyforge.common.devices import normalize_input_classes
 from keyforge.common.ipc import Command, CommandType
 from keyforge.common.recording_guard import resolve_unlock_status
 from keyforge.common.security import PeerCredentials, SecurityPolicy
+from keyforge.session import manager_profiles as runtime_profiles
 from keyforge.session.manager_common import (
     JsonObject,
     int_value,
@@ -400,7 +401,7 @@ async def _begin_capture(
     manager.capture_state.locks.add(hardware_id)
 
     current_profiles = list(
-        manager._resolved_devices.get(
+        manager.profile_state.resolved_devices.get(
             hardware_id,
             ResolvedDeviceProfile(hardware_id),
         ).active_profile_names
@@ -408,8 +409,8 @@ async def _begin_capture(
     manager.capture_state.resume_profiles[hardware_id] = current_profiles
 
     released = False
-    if hardware_id in manager._grabbed_devices:
-        await manager._deactivate_profile(hardware_id, immediate=True)
+    if hardware_id in manager.profile_state.grabbed_devices:
+        await runtime_profiles.deactivate_profile(manager, hardware_id, immediate=True)
         released = True
 
     return {
@@ -489,9 +490,9 @@ async def _end_capture(manager: "SessionManager", hardware_id: str) -> JsonObjec
     if not was_locked:
         return {"status": "ok", "hardware_id": hardware_id, "resumed": False}
 
-    await manager._reevaluate_profiles()
+    await runtime_profiles.reevaluate_profiles(manager)
     active_names = list(
-        manager._resolved_devices.get(
+        manager.profile_state.resolved_devices.get(
             hardware_id,
             ResolvedDeviceProfile(hardware_id),
         ).active_profile_names
@@ -897,7 +898,9 @@ async def get_devices_for_recording(
         return []
 
     grabbed_paths = {
-        p for interface_map in manager._grabbed_interfaces.values() for p in interface_map.values()
+        path
+        for interface_map in manager.profile_state.grabbed_interfaces.values()
+        for path in interface_map.values()
     }
 
     devices: list[JsonObject] = []

@@ -25,6 +25,7 @@ from keyforge.common.models import (
 )
 from keyforge.gui.icons import device_icon_names, image_from_icon_names
 from keyforge.gui.session_client import (
+    JsonDict,
     session_request_async,
 )
 from keyforge.gui.widgets.action_labels import describe_mapping_action_compact
@@ -197,7 +198,7 @@ class DeviceTab(ProfileManagedTab):
         btn_box.set_margin_top(8)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda b: dialog.close())
+        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
         btn_box.append(cancel_btn)
 
         delete_btn = Gtk.Button(label="Delete")
@@ -563,7 +564,7 @@ class DeviceTab(ProfileManagedTab):
     def _append_other_buttons_section(
         self,
         parent: Gtk.Box,
-        extras: list,
+        extras: list[ButtonDefinition],
         *,
         title: str = "Extra Keys",
         expanded: bool = False,
@@ -645,7 +646,15 @@ class DeviceTab(ProfileManagedTab):
 
         return box
 
-    def _on_button_clicked(self, click, n_press, x, y, button, protected: bool) -> None:
+    def _on_button_clicked(
+        self,
+        click,
+        n_press,
+        x,
+        y,
+        button: ButtonDefinition,
+        protected: bool,
+    ) -> None:
         if click.get_current_button() != Gdk.BUTTON_PRIMARY:
             return
 
@@ -676,7 +685,9 @@ class DeviceTab(ProfileManagedTab):
 
         return False
 
-    def _on_action_label_right_clicked(self, click, n_press, x, y, button) -> None:
+    def _on_action_label_right_clicked(
+        self, click, n_press, x, y, button: ButtonDefinition
+    ) -> None:
         if n_press != 1:
             return
         layer = self._selected_layer()
@@ -686,19 +697,21 @@ class DeviceTab(ProfileManagedTab):
         mapping = layer.mappings.get(button.id) if layer else None
         if not mapping or mapping.action_type != ActionType.MACRO or not mapping.macro_name:
             return
+        macro_name = mapping.macro_name
+
+        def on_macro_loaded(result: JsonDict | None) -> bool:
+            return self._on_macro_lookup(result, macro_name, button)
 
         session_request_async(
-            {"command": "get_macro", "name": mapping.macro_name},
-            lambda result, macro_name=mapping.macro_name, source_button=button: (
-                self._on_macro_lookup(result, macro_name, source_button)
-            ),
+            {"command": "get_macro", "name": macro_name},
+            on_macro_loaded,
         )
 
     def _on_macro_lookup(
         self,
-        result: dict | None,
+        result: JsonDict | None,
         macro_name: str,
-        button,
+        button: ButtonDefinition,
     ) -> bool:
         macro = (result or {}).get("macro")
         if (result or {}).get("status") != "ok" or not isinstance(macro, dict):
@@ -711,12 +724,12 @@ class DeviceTab(ProfileManagedTab):
         dialog.present(self.get_root())
         return False
 
-    def _on_name_label_right_clicked(self, click, n_press, x, y, button) -> None:
+    def _on_name_label_right_clicked(self, click, n_press, x, y, button: ButtonDefinition) -> None:
         if n_press != 1 or self.demo_mode:
             return
         self._show_relabel_dialog(button)
 
-    def _show_relabel_dialog(self, button) -> None:
+    def _show_relabel_dialog(self, button: ButtonDefinition) -> None:
         dialog = Adw.Dialog(title="Rename Key", content_width=420, content_height=-1)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_top(16)
@@ -736,7 +749,7 @@ class DeviceTab(ProfileManagedTab):
         btn_row.set_halign(Gtk.Align.END)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: dialog.close())
+        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
         btn_row.append(cancel_btn)
 
         save_btn = Gtk.Button(label="Save")
@@ -779,7 +792,7 @@ class DeviceTab(ProfileManagedTab):
         dialog.add_response("ok", "OK")
         dialog.present(self.get_root())
 
-    def _show_protected_remap_warning_dialog(self, button) -> None:
+    def _show_protected_remap_warning_dialog(self, button: ButtonDefinition) -> None:
         dialog = Adw.AlertDialog(
             heading="Remap Critical Mouse Button?",
             body=(
@@ -793,13 +806,17 @@ class DeviceTab(ProfileManagedTab):
         dialog.add_response("continue", "Continue")
         dialog.set_response_appearance("continue", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
-        dialog.connect(
-            "response",
-            lambda _dialog, response, source_button=button: (
-                self._show_function_editor(source_button) if response == "continue" else None
-            ),
-        )
+        dialog.connect("response", self._on_protected_remap_response, button)
         dialog.present(self.get_root())
+
+    def _on_protected_remap_response(
+        self,
+        _dialog: Adw.AlertDialog,
+        response: str,
+        button: ButtonDefinition,
+    ) -> None:
+        if response == "continue":
+            self._show_function_editor(button)
 
     def _show_no_profile_dialog(self) -> None:
         dialog = Adw.AlertDialog(
@@ -817,7 +834,7 @@ class DeviceTab(ProfileManagedTab):
         dialog.add_response("ok", "OK")
         dialog.present(self.get_root())
 
-    def _show_function_editor(self, button) -> None:
+    def _show_function_editor(self, button: ButtonDefinition) -> None:
         current_action = None
         layer = self._selected_layer()
         if layer:
@@ -1093,7 +1110,7 @@ class DeviceTab(ProfileManagedTab):
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row.set_halign(Gtk.Align.END)
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: dialog.close())
+        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
         btn_row.append(cancel_btn)
 
         start_btn = Gtk.Button(label="Start Capture")
@@ -1122,12 +1139,15 @@ class DeviceTab(ProfileManagedTab):
         pid = self.device.product_id
         self._capture_active_hardware_id = f"{vid}:{pid}"
         self._add_keys_pending_ids = [f"key_added_{i + 1}" for i in range(count)]
+        def on_capture_begun(result: JsonDict | None) -> bool:
+            return self._on_add_keys_capture_begun(result, status_label, parent_dialog)
+
         session_request_async(
             {
                 "command": "begin_capture",
                 "hardware_id": self._capture_active_hardware_id,
             },
-            lambda result: self._on_add_keys_capture_begun(result, status_label, parent_dialog),
+            on_capture_begun,
         )
 
     def _on_add_keys_capture_begun(
@@ -1152,12 +1172,15 @@ class DeviceTab(ProfileManagedTab):
             return True
 
         self._add_keys_poll_inflight = True
+        def on_capture_read(result: JsonDict | None) -> bool:
+            return self._on_add_keys_capture_read(result, status_label, parent_dialog)
+
         session_request_async(
             {
                 "command": "capture_read",
                 "hardware_id": self._capture_active_hardware_id,
             },
-            lambda result: self._on_add_keys_capture_read(result, status_label, parent_dialog),
+            on_capture_read,
         )
         return True
 
@@ -1236,9 +1259,15 @@ class DeviceTab(ProfileManagedTab):
                     "command": "end_capture",
                     "hardware_id": self._capture_active_hardware_id,
                 },
-                lambda _response: False,
+                self._ignore_session_response,
             )
             self._capture_active_hardware_id = None
+
+    def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
+        dialog.close()
+
+    def _ignore_session_response(self, _response: JsonDict | None) -> bool:
+        return False
 
     def _label_from_evdev(self, evdev_name: str) -> str:
         gamepad_label = gamepad_button_label(evdev_name)

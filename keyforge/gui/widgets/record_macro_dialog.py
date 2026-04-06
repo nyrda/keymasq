@@ -176,7 +176,7 @@ class RecordMacroDialog(Adw.Dialog):
         footer.append(self._unlock_status)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
+        cancel_btn.connect("clicked", self._on_cancel_clicked)
         footer.append(cancel_btn)
 
         self._save_btn = Gtk.Button(label="Save Settings")
@@ -188,6 +188,9 @@ class RecordMacroDialog(Adw.Dialog):
         frame.set_child(inner)
         main_box.append(frame)
         self.set_child(main_box)
+
+    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
 
     def _load_initial_state_async(self) -> None:
         self._loading_label.set_visible(True)

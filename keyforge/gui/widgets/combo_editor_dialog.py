@@ -81,6 +81,10 @@ def combo_step_event_key(event: ComboEvent) -> str:
     return normalize_combo_evdev(event.evdev)
 
 
+def combo_event_sort_key(event: ComboEvent) -> str:
+    return sort_combo_keys([event.evdev])[0]
+
+
 def combo_event_signature(event: ComboEvent) -> tuple[str, str, str]:
     return (
         str(event.hardware_id or "").lower(),
@@ -198,7 +202,7 @@ class ComboEditorDialog(Adw.Dialog):
         header_bar.set_show_start_title_buttons(False)
 
         cancel_button = Gtk.Button(label="Cancel")
-        cancel_button.connect("clicked", lambda _btn: self.close())
+        cancel_button.connect("clicked", self._on_cancel_clicked)
         header_bar.pack_start(cancel_button)
 
         self.save_button = Gtk.Button(label="Save")
@@ -551,7 +555,7 @@ class ComboEditorDialog(Adw.Dialog):
             self._update_capture_controls()
             return False
 
-        events.sort(key=lambda event: sort_combo_keys([event.evdev])[0])
+        events.sort(key=combo_event_sort_key)
         step = ComboStep(
             events=events,
             timeout_ms=None if not self._draft.steps else DEFAULT_STEP_TIMEOUT_MS,
@@ -573,6 +577,9 @@ class ComboEditorDialog(Adw.Dialog):
 
     def _on_closed(self, _dialog: Adw.Dialog) -> None:
         self._capture_inflight = False
+
+    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
 
     def _is_recording_locked(self, result: dict) -> bool:
         if result.get("error_code") == "recording_locked":

@@ -363,7 +363,7 @@ class ProfileManagedTab(Gtk.Box):
         btn_box.set_margin_top(8)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _btn: dialog.close())
+        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
         btn_box.append(cancel_btn)
 
         delete_btn = Gtk.Button(label="Delete")
@@ -492,7 +492,7 @@ class ProfileManagedTab(Gtk.Box):
         btn_box.set_halign(Gtk.Align.END)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _btn: self._current_rules_dialog.close())
+        cancel_btn.connect("clicked", self._on_close_current_rules_dialog_clicked)
         btn_box.append(cancel_btn)
 
         apply_btn = Gtk.Button(label="Apply")
@@ -717,9 +717,18 @@ class ProfileManagedTab(Gtk.Box):
             self._update_rule_row_title(row_box)
 
         field_dropdown.connect("notify::selected", on_field_changed)
-        pattern_entry.connect("changed", lambda _entry: self._update_rule_row_title(row_box))
+        pattern_entry.connect("changed", self._on_rule_pattern_changed, row_box)
         self._update_rule_row_title(row_box)
         return row_box
+
+    def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
+        dialog.close()
+
+    def _on_close_current_rules_dialog_clicked(self, _button: Gtk.Button) -> None:
+        self._current_rules_dialog.close()
+
+    def _on_rule_pattern_changed(self, _entry: Gtk.Entry, row_box: Gtk.Box) -> None:
+        self._update_rule_row_title(row_box)
 
     def _update_rule_row_title(self, row: Gtk.Box) -> None:
         if not hasattr(row, "_title_label") or not hasattr(row, "_field_dropdown"):

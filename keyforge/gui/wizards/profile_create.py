@@ -37,7 +37,7 @@ class ProfileCreateDialog(Adw.Window):
         header = Adw.HeaderBar()
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
+        cancel_btn.connect("clicked", self._on_cancel_clicked)
         header.pack_start(cancel_btn)
 
         save_btn = Gtk.Button(label="Create")
@@ -72,6 +72,9 @@ class ProfileCreateDialog(Adw.Window):
         toolbar.set_content(box)
 
         self.set_content(toolbar)
+
+    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
 
     def _show_error_dialog(self, message: str) -> None:
         dialog = Adw.AlertDialog(

@@ -204,12 +204,15 @@ class SuperkeyDialog(Adw.Dialog):
         bottom_row.set_halign(Gtk.Align.END)
 
         close_btn = Gtk.Button(label="Close")
-        close_btn.connect("clicked", lambda _: self.close())
+        close_btn.connect("clicked", self._on_close_clicked)
         bottom_row.append(close_btn)
 
         btn_box.append(bottom_row)
 
         self.right_box.append(btn_box)
+
+    def _on_close_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
 
         return self.right_box
 

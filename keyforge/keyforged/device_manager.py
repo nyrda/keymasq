@@ -608,12 +608,16 @@ class DeviceManager:
                         created_global_uinputs = True
                     detected_types = self._detect_device_types(raw_device)
                     detected_type = primary_input_class(detected_types)
+
+                    def mapping_getter(hid: str = hardware_id) -> dict:
+                        return self.active_mappings.get(hid, {})
+
                     device = GrabbedDevice(
                         path=path,
                         hardware_id=hardware_id,
                         button_map=button_map,
                         button_codes=resolved_button_codes,
-                        mapping_getter=lambda hid=hardware_id: self.active_mappings.get(hid, {}),
+                        mapping_getter=mapping_getter,
                         event_callback=self._on_device_event,
                         device_type=detected_type,
                         device_types=detected_types,

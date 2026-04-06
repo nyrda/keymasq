@@ -1,6 +1,6 @@
 import re
 import subprocess
-from typing import cast
+from typing import Any, cast
 
 import evdev
 import gi
@@ -29,6 +29,10 @@ from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, Ha
 from keyforge.gui.session_client import run_gui_task, session_request, session_request_async
 from keyforge.session.hardware import HardwareManager
 
+DetectedDevice = dict[str, Any]
+DetectedInterface = dict[str, Any]
+DetectedButton = dict[str, Any]
+
 
 class HardwareSetupDialog(Adw.Window):
     __gsignals__ = {
@@ -45,10 +49,10 @@ class HardwareSetupDialog(Adw.Window):
         )
 
         self.hardware_manager = hardware_manager
-        self.detected_devices: dict[str, dict] = {}
-        self.selected_device: dict | None = None
-        self.discovered_interfaces: dict[str, dict] = {}
-        self.button_definitions: list[dict] = []
+        self.detected_devices: dict[str, DetectedDevice] = {}
+        self.selected_device: DetectedDevice | None = None
+        self.discovered_interfaces: dict[str, DetectedInterface] = {}
+        self.button_definitions: list[DetectedButton] = []
         self.current_button_index = 0
         self._configure_mode: str = "mouse"
         self._configure_mode_values: list[str] = ["mouse"]
@@ -77,7 +81,7 @@ class HardwareSetupDialog(Adw.Window):
         header.pack_start(self.back_btn)
 
         self.cancel_btn = Gtk.Button(label="Cancel")
-        self.cancel_btn.connect("clicked", lambda _: self.close())
+        self.cancel_btn.connect("clicked", self._on_cancel_clicked)
         header.pack_start(self.cancel_btn)
 
         self.next_btn = Gtk.Button(label="Next")
@@ -116,7 +120,7 @@ class HardwareSetupDialog(Adw.Window):
         box.append(scrolled)
 
         refresh_btn = Gtk.Button(label="Refresh")
-        refresh_btn.connect("clicked", lambda _: self._detect_devices())
+        refresh_btn.connect("clicked", self._on_refresh_clicked)
         box.append(refresh_btn)
 
         self.stack.add_titled(box, "select", "Select Device")
@@ -314,7 +318,7 @@ class HardwareSetupDialog(Adw.Window):
     def _on_detected_devices_done(self) -> None:
         self._detect_devices_inflight = False
 
-    def _on_detected_devices_ready(self, detected_devices: dict[str, dict]) -> bool:
+    def _on_detected_devices_ready(self, detected_devices: dict[str, DetectedDevice]) -> bool:
         while row := self.device_list.get_row_at_index(0):
             self.device_list.remove(row)
         self.detected_devices = detected_devices
@@ -396,6 +400,12 @@ class HardwareSetupDialog(Adw.Window):
             row.set_child(row_box)
             self.device_list.append(row)
         return False
+
+    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
+
+    def _on_refresh_clicked(self, _button: Gtk.Button) -> None:
+        self._detect_devices()
 
     def _detect_devices_locally(
         self,

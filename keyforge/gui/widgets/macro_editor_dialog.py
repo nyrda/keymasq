@@ -7,18 +7,26 @@ import copy
 import math
 import re
 from dataclasses import dataclass
+from typing import Any
 
 import evdev
 from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.slurp import get_slurp_capture
-from keyforge.gui.session_client import run_gui_task, session_request, session_request_async
+from keyforge.gui.session_client import (
+    JsonDict,
+    run_gui_task,
+    session_request,
+    session_request_async,
+)
 from keyforge.gui.session_reload import notify_session_reload_async
 from keyforge.session.compositor import detect_compositor_sync
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+MacroEvent = dict[str, Any]
 
 
 def _get_key_name(code: int) -> str:
@@ -39,7 +47,7 @@ def _get_event_name(event_type: int, code: int) -> str:
     return str(name)
 
 
-def _passthrough_track(ev: dict) -> str:
+def _passthrough_track(ev: MacroEvent) -> str:
     """Map a passthrough event to the track where it should be visualized."""
     ev_type = int(ev.get("type", -1))
     device_type = str(ev.get("device_type", "") or "")
@@ -52,7 +60,7 @@ def _passthrough_track(ev: dict) -> str:
     return "movement"
 
 
-def _describe_passthrough_event(ev: dict) -> tuple[str, str]:
+def _describe_passthrough_event(ev: MacroEvent) -> tuple[str, str]:
     """Return a title and detail string for a raw passthrough event."""
     ev_type = int(ev.get("type", -1))
     code = int(ev.get("code", 0))
@@ -162,7 +170,15 @@ class EditableControl:
     inhibit_mouse: bool = False
 
 
-def parse_events(raw_events: list) -> tuple[list, list, list, list, list]:
+def parse_events(
+    raw_events: list[MacroEvent],
+) -> tuple[
+    list[EditableEvent],
+    list[MacroEvent],
+    list[MacroEvent],
+    list[EditableMove],
+    list[EditableControl],
+]:
     """
     Split raw event dicts into (editable_events, rel_events, passthrough_events, editable_moves).
 
@@ -178,12 +194,12 @@ def parse_events(raw_events: list) -> tuple[list, list, list, list, list]:
     rel_y = evdev.ecodes.REL_Y
 
     editable: list[EditableEvent] = []
-    rel_events: list[dict] = []
-    passthrough_events: list[dict] = []
+    rel_events: list[MacroEvent] = []
+    passthrough_events: list[MacroEvent] = []
     editable_moves: list[EditableMove] = []
     control_events: list[EditableControl] = []
     open_presses: dict[tuple, list[int]] = {}  # (device_type, code) -> press_t_us stack
-    synthetic_rel_by_move_id: dict[str, list[dict]] = {}
+    synthetic_rel_by_move_id: dict[str, list[MacroEvent]] = {}
 
     for ev in raw_events:
         macro_action = str(ev.get("macro_action", "") or "")
@@ -286,18 +302,18 @@ def parse_events(raw_events: list) -> tuple[list, list, list, list, list]:
 
 
 def reconstruct_events(
-    editable: list,
-    rel_events: list,
-    passthrough_events: list,
-    editable_moves: list,
-    control_events: list,
-) -> list:
+    editable: list[EditableEvent],
+    rel_events: list[MacroEvent],
+    passthrough_events: list[MacroEvent],
+    editable_moves: list[EditableMove],
+    control_events: list[EditableControl],
+) -> list[MacroEvent]:
     """Reconstruct raw event list from editable, REL and passthrough events."""
     ev_key = evdev.ecodes.EV_KEY
     ev_rel = evdev.ecodes.EV_REL
     rel_x = evdev.ecodes.REL_X
     rel_y = evdev.ecodes.REL_Y
-    raw: list[dict] = []
+    raw: list[MacroEvent] = []
 
     for ev in editable:
         raw.append(
@@ -426,7 +442,7 @@ def reconstruct_events(
     return raw
 
 
-def _assign_lanes(events: list, device_type: str) -> tuple[dict, int]:
+def _assign_lanes(events: list[EditableEvent], device_type: str) -> tuple[dict[int, int], int]:
     """
     Greedy interval scheduling: assign vertical lane indices to events of
     a given device_type so that overlapping events occupy different lanes.
@@ -842,7 +858,7 @@ class TimelineWidget(Gtk.DrawingArea):
             sel_border_rgba=(1.00, 0.85, 0.40, 1.0),
         )
 
-    def _draw_movement_track(self, cr, width: int, rel_events: list) -> None:
+    def _draw_movement_track(self, cr, width: int, rel_events: list[MacroEvent]) -> None:
         y_top = self._wave_y
         track_h = self.TRACK_HEIGHT
 
@@ -1614,8 +1630,8 @@ class MacroEditorDialog(Adw.Dialog):
         self._macro_name = macro_name
         self._macro_data: dict = {}
         self._events: list[EditableEvent] = []
-        self._rel_events: list[dict] = []
-        self._passthrough_events: list[dict] = []
+        self._rel_events: list[MacroEvent] = []
+        self._passthrough_events: list[MacroEvent] = []
         self._synthetic_moves: list[EditableMove] = []
         self._control_events: list[EditableControl] = []
         self._duration_us: int = 0
@@ -2480,7 +2496,7 @@ class MacroEditorDialog(Adw.Dialog):
         footer.set_margin_end(8)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
+        cancel_btn.connect("clicked", self._on_close_clicked)
         footer.append(cancel_btn)
 
         copy_btn = Gtk.Button(label="Save as Copy…")
@@ -3111,7 +3127,10 @@ class MacroEditorDialog(Adw.Dialog):
     # Property panel updates
     # ------------------------------------------------------------------
 
-    def _on_selection_changed(self, selected_obj) -> None:
+    def _on_selection_changed(
+        self,
+        selected_obj: object | None,
+    ) -> None:
         if selected_obj is None:
             self._revealer.set_reveal_child(False)
             return
@@ -3266,7 +3285,7 @@ class MacroEditorDialog(Adw.Dialog):
         self._timeline.queue_draw()
         self._on_selection_changed(ev)
 
-    def _refresh_after_passthrough_timing_change(self, ev: dict) -> None:
+    def _refresh_after_passthrough_timing_change(self, ev: MacroEvent) -> None:
         self._passthrough_events.sort(key=lambda e: int(e.get("t_us", 0)))
         self._recompute_duration()
         self._update_stats()
@@ -3654,7 +3673,7 @@ class MacroEditorDialog(Adw.Dialog):
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row.set_halign(Gtk.Align.END)
         cancel = Gtk.Button(label="Cancel")
-        cancel.connect("clicked", lambda _btn: popover.popdown())
+        cancel.connect("clicked", self._on_popover_cancel_clicked, popover)
         btn_row.append(cancel)
 
         insert = Gtk.Button(label="Insert")
@@ -3751,7 +3770,7 @@ class MacroEditorDialog(Adw.Dialog):
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row.set_halign(Gtk.Align.END)
         cancel = Gtk.Button(label="Cancel")
-        cancel.connect("clicked", lambda _: popover.popdown())
+        cancel.connect("clicked", self._on_popover_cancel_clicked, popover)
         btn_row.append(cancel)
         add = Gtk.Button(label="Add")
         add.add_css_class("suggested-action")
@@ -3917,7 +3936,7 @@ class MacroEditorDialog(Adw.Dialog):
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         footer.set_halign(Gtk.Align.END)
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _b: popover.popdown())
+        cancel_btn.connect("clicked", self._on_popover_cancel_clicked, popover)
         footer.append(cancel_btn)
 
         add_btn = Gtk.Button(label="Insert")
@@ -3969,13 +3988,20 @@ class MacroEditorDialog(Adw.Dialog):
         )
         dialog.connect(
             "key-selected",
-            lambda picker, action, at_us=default_t_us: self._on_key_selected_for_insert(
-                picker, action, at_us
-            ),
+            self._on_insert_key_selected,
+            default_t_us,
         )
         dialog.present(self._parent)
 
-    def _on_key_selected_for_insert(self, dialog, action, default_t_us: int) -> None:
+    def _on_insert_key_selected(
+        self,
+        picker: Gtk.Widget,
+        action,
+        default_t_us: int,
+    ) -> None:
+        self._on_key_selected_for_insert(picker, action, default_t_us)
+
+    def _on_key_selected_for_insert(self, dialog: Gtk.Widget, action, default_t_us: int) -> None:
         from keyforge.common.models import ActionType
 
         if action is None or action.action_type != ActionType.KEYBOARD:
@@ -4072,7 +4098,7 @@ class MacroEditorDialog(Adw.Dialog):
         footer.set_halign(Gtk.Align.END)
 
         cancel = Gtk.Button(label="Cancel")
-        cancel.connect("clicked", lambda _: popover.popdown())
+        cancel.connect("clicked", self._on_popover_cancel_clicked, popover)
         footer.append(cancel)
 
         add = Gtk.Button(label="Add")
@@ -4114,11 +4140,24 @@ class MacroEditorDialog(Adw.Dialog):
 
         macro_payload = self._build_macro_payload(new_name)
         revision = int(self._macro_data.get("revision", 1))
+
+        def save_request() -> JsonDict | None:
+            return self._save_macro_request(new_name, macro_payload, revision)
+
+        def on_save_finished(result: JsonDict | None) -> bool:
+            return self._on_save_finished(result, new_name)
+
+        def on_save_start() -> None:
+            btn.set_sensitive(False)
+
+        def on_save_done() -> None:
+            btn.set_sensitive(True)
+
         run_gui_task(
-            lambda: self._save_macro_request(new_name, macro_payload, revision),
-            lambda result, requested_name=new_name: self._on_save_finished(result, requested_name),
-            on_start=lambda: btn.set_sensitive(False),
-            on_done=lambda: btn.set_sensitive(True),
+            save_request,
+            on_save_finished,
+            on_start=on_save_start,
+            on_done=on_save_done,
         )
 
     def _save_macro_request(
@@ -4126,7 +4165,7 @@ class MacroEditorDialog(Adw.Dialog):
         new_name: str,
         macro_payload: dict,
         revision: int,
-    ) -> dict | None:
+    ) -> JsonDict | None:
         if not self._macro_exists:
             return session_request({"command": "create_macro", "macro": macro_payload}) or {}
 
@@ -4157,7 +4196,7 @@ class MacroEditorDialog(Adw.Dialog):
             or {}
         )
 
-    def _on_save_finished(self, result: dict | None, requested_name: str) -> bool:
+    def _on_save_finished(self, result: JsonDict | None, requested_name: str) -> bool:
         if (result or {}).get("status") != "ok":
             self._show_name_conflict(requested_name)
             return False
@@ -4195,7 +4234,7 @@ class MacroEditorDialog(Adw.Dialog):
         btn_row.set_halign(Gtk.Align.END)
 
         cancel = Gtk.Button(label="Cancel")
-        cancel.connect("clicked", lambda _: dialog.close())
+        cancel.connect("clicked", self._on_close_dialog_clicked, dialog)
         btn_row.append(cancel)
 
         save = Gtk.Button(label="Save Copy")
@@ -4212,16 +4251,29 @@ class MacroEditorDialog(Adw.Dialog):
                 error_lbl.set_visible(True)
                 return
             copy_payload = self._build_macro_payload(name)
-            run_gui_task(
-                lambda: session_request({"command": "create_macro", "macro": copy_payload}) or {},
-                lambda result, requested_name=name: self._on_save_copy_finished(
+
+            def create_copy_request() -> JsonDict | None:
+                return session_request({"command": "create_macro", "macro": copy_payload}) or {}
+
+            def on_copy_finished(result: JsonDict | None) -> bool:
+                return self._on_save_copy_finished(
                     result,
-                    requested_name,
+                    name,
                     error_lbl,
                     dialog,
-                ),
-                on_start=lambda: save.set_sensitive(False),
-                on_done=lambda: save.set_sensitive(True),
+                )
+
+            def on_copy_start() -> None:
+                save.set_sensitive(False)
+
+            def on_copy_done() -> None:
+                save.set_sensitive(True)
+
+            run_gui_task(
+                create_copy_request,
+                on_copy_finished,
+                on_start=on_copy_start,
+                on_done=on_copy_done,
             )
 
         save.connect("clicked", on_save_copy)
@@ -4231,6 +4283,15 @@ class MacroEditorDialog(Adw.Dialog):
 
         dialog.set_child(box)
         dialog.present(self._parent)
+
+    def _on_close_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
+
+    def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
+        dialog.close()
+
+    def _on_popover_cancel_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
+        popover.popdown()
 
     def _on_save_copy_finished(
         self,

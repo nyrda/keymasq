@@ -10,6 +10,7 @@ import evdev
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.gui.session_client import (
+    JsonDict,
     run_gui_task,
     session_request,
     session_request_async,
@@ -42,7 +43,7 @@ class MacroManagerDialog(Adw.Dialog):
     def __init__(self, parent: Gtk.Window):
         super().__init__(title="Macros", content_width=560)
         self._parent = parent
-        self._macros: list[dict] = []
+        self._macros: list[JsonDict] = []
         self._recording_active: bool = False
         self._recording_unlocked: bool = False
         self._record_btn: Gtk.Button | None = None
@@ -154,7 +155,7 @@ class MacroManagerDialog(Adw.Dialog):
         close_wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         close_wrap.set_halign(Gtk.Align.END)
         close_btn = Gtk.Button(label="Close")
-        close_btn.connect("clicked", lambda _: self.close())
+        close_btn.connect("clicked", self._on_close_clicked)
         close_wrap.append(close_btn)
         utility_row.append(close_wrap)
 
@@ -169,7 +170,7 @@ class MacroManagerDialog(Adw.Dialog):
         run_gui_task(self._fetch_initial_state, self._on_initial_state_loaded)
         return False
 
-    def _fetch_initial_state(self) -> tuple[dict | None, dict | None]:
+    def _fetch_initial_state(self) -> tuple[JsonDict | None, JsonDict | None]:
         from keyforge.gui.session_client import session_request
 
         return (
@@ -177,7 +178,7 @@ class MacroManagerDialog(Adw.Dialog):
             session_request({"command": "list_macros"}) or {},
         )
 
-    def _on_initial_state_loaded(self, result: tuple[dict | None, dict | None]) -> bool:
+    def _on_initial_state_loaded(self, result: tuple[JsonDict | None, JsonDict | None]) -> bool:
         status, macros = result
         status = status or {}
         self._recording_active = bool(status.get("recording_active", False))
@@ -194,7 +195,7 @@ class MacroManagerDialog(Adw.Dialog):
         session_request_async({"command": "list_macros"}, self._on_macros_loaded)
         return False
 
-    def _on_macros_loaded(self, result: dict | None) -> bool:
+    def _on_macros_loaded(self, result: JsonDict | None) -> bool:
         self._macros = (result or {}).get("macros", [])
         self._populate_list()
         return False
@@ -212,7 +213,7 @@ class MacroManagerDialog(Adw.Dialog):
         for macro in self._macros:
             self._listbox.append(self._build_macro_row(macro))
 
-    def _build_macro_row(self, macro: dict) -> Gtk.ListBoxRow:
+    def _build_macro_row(self, macro: JsonDict) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row.set_selectable(False)
 
@@ -293,7 +294,7 @@ class MacroManagerDialog(Adw.Dialog):
         from keyforge.gui.widgets.macro_editor_dialog import MacroEditorDialog
 
         dialog = MacroEditorDialog(self._parent, name)
-        dialog.connect("closed", lambda _: self._load_macros())
+        dialog.connect("closed", self._on_editor_closed)
         dialog.present(self._parent)
 
     def _on_duplicate_clicked(
@@ -302,14 +303,23 @@ class MacroManagerDialog(Adw.Dialog):
         name: str,
         duplicate_btn: Gtk.Button,
     ) -> None:
+        def request_duplicate() -> JsonDict | None:
+            return self._duplicate_macro_request(name)
+
+        def on_duplicate_start() -> None:
+            duplicate_btn.set_sensitive(False)
+
+        def on_duplicate_done() -> None:
+            duplicate_btn.set_sensitive(True)
+
         run_gui_task(
-            lambda: self._duplicate_macro_request(name),
+            request_duplicate,
             self._on_duplicate_finished,
-            on_start=lambda: duplicate_btn.set_sensitive(False),
-            on_done=lambda: duplicate_btn.set_sensitive(True),
+            on_start=on_duplicate_start,
+            on_done=on_duplicate_done,
         )
 
-    def _duplicate_macro_request(self, name: str) -> dict | None:
+    def _duplicate_macro_request(self, name: str) -> JsonDict | None:
         response = session_request({"command": "get_macro", "name": name}) or {}
         macro = response.get("macro")
         if response.get("status") != "ok" or not isinstance(macro, dict):
@@ -326,7 +336,7 @@ class MacroManagerDialog(Adw.Dialog):
         duplicate_macro["name"] = duplicate_name
         return session_request({"command": "create_macro", "macro": duplicate_macro}) or {}
 
-    def _on_duplicate_finished(self, result: dict | None) -> bool:
+    def _on_duplicate_finished(self, result: JsonDict | None) -> bool:
         result = result or {}
         if result.get("status") == "ok":
             self._load_macros()
@@ -342,7 +352,7 @@ class MacroManagerDialog(Adw.Dialog):
     def _on_create_empty_macro(self, _btn: Gtk.Button) -> None:
         session_request_async({"command": "list_macros"}, self._on_empty_macro_names_loaded)
 
-    def _on_empty_macro_names_loaded(self, result: dict | None) -> bool:
+    def _on_empty_macro_names_loaded(self, result: JsonDict | None) -> bool:
         existing_names = {
             str(m.get("name", ""))
             for m in (result or {}).get("macros", [])
@@ -355,19 +365,23 @@ class MacroManagerDialog(Adw.Dialog):
         from keyforge.gui.widgets.macro_editor_dialog import MacroEditorDialog
 
         dialog = MacroEditorDialog(self._parent, name)
-        dialog.connect("closed", lambda _: self._load_macros())
+        dialog.connect("closed", self._on_editor_closed)
         dialog.present(self._parent)
 
     def _on_play_clicked(self, btn: Gtk.Button, name: str, play_btn: Gtk.Button) -> None:
         play_btn.set_sensitive(False)
+
+        def on_play_requested(result: JsonDict | None) -> bool:
+            return self._on_play_requested(result, play_btn)
+
         session_request_with_hooks(
             {"command": "play_macro", "name": name},
-            lambda result, button=play_btn: self._on_play_requested(result, button),
+            on_play_requested,
         )
 
     def _on_play_requested(
         self,
-        result: dict | None,
+        result: JsonDict | None,
         play_btn: Gtk.Button,
     ) -> bool:
         if not result or result.get("status") != "ok":
@@ -401,9 +415,12 @@ class MacroManagerDialog(Adw.Dialog):
 
     def _on_delete_response(self, dialog, response: str, name: str) -> None:
         if response == "delete":
+            def on_delete_finished(_result: JsonDict | None) -> bool:
+                return self._load_macros()
+
             session_request_with_hooks(
                 {"command": "delete_macro", "name": name},
-                lambda _result: self._load_macros(),
+                on_delete_finished,
             )
 
     def _on_record_new(self, btn: Gtk.Button) -> None:
@@ -417,13 +434,20 @@ class MacroManagerDialog(Adw.Dialog):
 
         btn.set_sensitive(False)
         command = "stop_recording" if self._recording_active else "start_recording"
+
+        def on_record_request(result: JsonDict | None) -> bool:
+            return self._on_record_request_finished(result, command)
+
+        def on_record_done() -> None:
+            btn.set_sensitive(True)
+
         session_request_with_hooks(
             {"command": command},
-            lambda result, cmd=command: self._on_record_request_finished(result, cmd),
-            on_done=lambda: btn.set_sensitive(True),
+            on_record_request,
+            on_done=on_record_done,
         )
 
-    def _on_record_request_finished(self, result: dict | None, command: str) -> bool:
+    def _on_record_request_finished(self, result: JsonDict | None, command: str) -> bool:
         result = result or {}
         log.debug("macro recording request finished: command=%s result=%r", command, result)
         is_stop_success = command == "stop_recording" and self._is_stop_recording_success(result)
@@ -611,7 +635,7 @@ class TypeMacroDialog(Adw.Dialog):
         btn_row.set_halign(Gtk.Align.END)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
+        cancel_btn.connect("clicked", self._on_close_clicked)
         btn_row.append(cancel_btn)
 
         self._create_btn = Gtk.Button(label="Create")
@@ -658,14 +682,21 @@ class TypeMacroDialog(Adw.Dialog):
             "device_types": ["keyboard"],
             "events": events,
         }
+
+        def on_create_start() -> None:
+            self._create_btn.set_sensitive(False)
+
+        def on_create_done() -> None:
+            self._create_btn.set_sensitive(True)
+
         session_request_with_hooks(
             {"command": "create_macro", "macro": data},
             self._on_create_finished,
-            on_start=lambda: self._create_btn.set_sensitive(False),
-            on_done=lambda: self._create_btn.set_sensitive(True),
+            on_start=on_create_start,
+            on_done=on_create_done,
         )
 
-    def _on_create_finished(self, result: dict | None) -> bool:
+    def _on_create_finished(self, result: JsonDict | None) -> bool:
         result = result or {}
         if result.get("status") != "ok":
             self._show_error(result.get("message", "Failed to create macro"))
@@ -675,6 +706,12 @@ class TypeMacroDialog(Adw.Dialog):
             self._on_created()
         self.close()
         return False
+
+    def _on_close_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
+
+    def _on_editor_closed(self, _dialog: Adw.Dialog) -> None:
+        self._load_macros()
 
     def _show_error(self, message: str) -> None:
         self.error_label.set_label(message)

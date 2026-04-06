@@ -112,8 +112,11 @@ class Application(Adw.Application):
         window = self.window
         dialog = MacroManagerDialog(window)
         window.set_macro_manager_dialog(dialog)
-        dialog.connect("closed", lambda _d: window.set_macro_manager_dialog(None))
+        dialog.connect("closed", self._on_macro_manager_closed, window)
         dialog.present(window)
+
+    def _on_macro_manager_closed(self, _dialog: Adw.Dialog, window: MainWindow) -> None:
+        window.set_macro_manager_dialog(None)
 
     def _on_record_macro(self, action, param) -> None:
         if not self.window:

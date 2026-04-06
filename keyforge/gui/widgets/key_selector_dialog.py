@@ -412,7 +412,7 @@ class KeySelectorDialog(Adw.Dialog):
         footer.append(self.map_btn)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
+        cancel_btn.connect("clicked", self._on_cancel_clicked)
         footer.append(cancel_btn)
         inner.append(footer)
 
@@ -422,6 +422,9 @@ class KeySelectorDialog(Adw.Dialog):
 
         self.stack.connect("notify::visible-child", self._on_tab_changed)
         self._on_tab_changed(self.stack, None)
+
+    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
 
     def _build_special_tab(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -1628,7 +1631,7 @@ class SuperkeyActionDialog(Adw.Dialog):
         btn_box.append(clear_btn)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
+        cancel_btn.connect("clicked", self._on_cancel_clicked)
         btn_box.append(cancel_btn)
 
         inner.append(btn_box)
@@ -1638,6 +1641,9 @@ class SuperkeyActionDialog(Adw.Dialog):
         self.set_child(main_box)
 
         GLib.idle_add(self._load_superkey_macro_list)
+
+    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
 
     def _build_options_box(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)

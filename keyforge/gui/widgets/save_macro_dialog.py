@@ -259,9 +259,12 @@ class SaveMacroDialog(Adw.Dialog):
         session_request_with_hooks(
             payload,
             self._on_save_finished,
-            on_start=lambda: self._save_btn.set_sensitive(False),
+            on_start=self._on_save_request_start,
             on_done=self._on_save_request_done,
         )
+
+    def _on_save_request_start(self) -> None:
+        self._save_btn.set_sensitive(False)
 
     def _on_save_request_done(self) -> None:
         if not self._saved:

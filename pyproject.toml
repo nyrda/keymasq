@@ -100,10 +100,9 @@ reportUnknownParameterType = "none"
 reportMissingParameterType = "none"
 reportMissingTypeArgument = "none"
 reportPrivateUsage = "none"
-reportUnknownLambdaType = "none"
 reportUntypedBaseClass = "none"
 executionEnvironments = [
-    { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none" },
+    { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none", reportUnknownLambdaType = "none" },
 ]
 
 [tool.mypy]

@@ -10,6 +10,8 @@ from keyforge.common.paths import SESSION_SOCKET_PATH
 
 log = logging.getLogger("keyforge.gui.session_client")
 
+JsonDict = dict[str, Any]
+
 
 class _PersistentSessionConnection:
     def __init__(self) -> None:
@@ -18,10 +20,10 @@ class _PersistentSessionConnection:
         self._buffer = b""
         self._state_lock = threading.Lock()
         self._request_lock = threading.Lock()
-        self._response_queue: queue.Queue | None = None
-        self._callbacks: dict[str, list[Callable[[dict], bool | None]]] = {}
+        self._response_queue: queue.Queue[JsonDict | None] | None = None
+        self._callbacks: dict[str, list[Callable[[JsonDict], bool | None]]] = {}
 
-    def request(self, payload: dict, timeout: float = 5.0) -> dict | None:
+    def request(self, payload: JsonDict, timeout: float = 5.0) -> JsonDict | None:
         if not self._ensure_connected(timeout=timeout):
             return None
 
@@ -29,7 +31,7 @@ class _PersistentSessionConnection:
             if not self._ensure_connected(timeout=timeout):
                 return None
 
-            response_queue: queue.Queue = queue.Queue(maxsize=1)
+            response_queue: queue.Queue[JsonDict | None] = queue.Queue(maxsize=1)
             with self._state_lock:
                 self._response_queue = response_queue
 
@@ -53,12 +55,12 @@ class _PersistentSessionConnection:
                     if self._response_queue is response_queue:
                         self._response_queue = None
 
-    def register_callback(self, event: str, callback: Callable[[dict], bool | None]) -> None:
+    def register_callback(self, event: str, callback: Callable[[JsonDict], bool | None]) -> None:
         with self._state_lock:
             self._callbacks.setdefault(event, []).append(callback)
         self._ensure_connected(timeout=1.0)
 
-    def unregister_callback(self, event: str, callback: Callable[[dict], bool | None]) -> None:
+    def unregister_callback(self, event: str, callback: Callable[[JsonDict], bool | None]) -> None:
         with self._state_lock:
             callbacks = self._callbacks.get(event, [])
             try:
@@ -130,7 +132,7 @@ class _PersistentSessionConnection:
                 self._close_connection()
                 return
 
-    def _dispatch_event(self, message: dict) -> None:
+    def _dispatch_event(self, message: JsonDict) -> None:
         event = message.get("event")
         if not isinstance(event, str):
             return
@@ -175,21 +177,24 @@ class _PersistentSessionConnection:
 _PERSISTENT_SESSION = _PersistentSessionConnection()
 
 
-def session_request(payload: dict, timeout: float = 5.0) -> dict | None:
+def session_request(payload: JsonDict, timeout: float = 5.0) -> JsonDict | None:
     return _PERSISTENT_SESSION.request(payload, timeout=timeout)
 
 
-def get_active_window(timeout: float = 5.0) -> dict | None:
+def get_active_window(timeout: float = 5.0) -> JsonDict | None:
     return session_request({"command": "get_active_window"}, timeout=timeout)
 
 
 def session_request_async(
-    payload: dict,
-    callback: Callable[[dict | None], bool | None],
+    payload: JsonDict,
+    callback: Callable[[JsonDict | None], bool | None],
     timeout: float = 5.0,
 ) -> None:
+    def _request() -> JsonDict | None:
+        return session_request(payload, timeout=timeout)
+
     run_gui_task(
-        lambda: session_request(payload, timeout=timeout),
+        _request,
         callback,
     )
 
@@ -223,15 +228,18 @@ def run_gui_task(
 
 
 def session_request_with_hooks(
-    payload: dict,
-    callback: Callable[[dict | None], bool | None],
+    payload: JsonDict,
+    callback: Callable[[JsonDict | None], bool | None],
     *,
     timeout: float = 5.0,
     on_start: Callable[[], None] | None = None,
     on_done: Callable[[], None] | None = None,
 ) -> None:
+    def _request() -> JsonDict | None:
+        return session_request(payload, timeout=timeout)
+
     run_gui_task(
-        lambda: session_request(payload, timeout=timeout),
+        _request,
         callback,
         on_start=on_start,
         on_done=on_done,
@@ -239,15 +247,21 @@ def session_request_with_hooks(
 
 
 def get_active_window_async(
-    callback: Callable[[dict | None], bool | None],
+    callback: Callable[[JsonDict | None], bool | None],
     timeout: float = 5.0,
 ) -> None:
     session_request_async({"command": "get_active_window"}, callback, timeout=timeout)
 
 
-def register_session_event_callback(event: str, callback: Callable[[dict], bool | None]) -> None:
+def register_session_event_callback(
+    event: str,
+    callback: Callable[[JsonDict], bool | None],
+) -> None:
     _PERSISTENT_SESSION.register_callback(event, callback)
 
 
-def unregister_session_event_callback(event: str, callback: Callable[[dict], bool | None]) -> None:
+def unregister_session_event_callback(
+    event: str,
+    callback: Callable[[JsonDict], bool | None],
+) -> None:
     _PERSISTENT_SESSION.unregister_callback(event, callback)

@@ -492,12 +492,12 @@ class MainWindow(Adw.ApplicationWindow):
             btn_row.set_halign(Gtk.Align.END)
 
             quit_btn = Gtk.Button(label="Quit")
-            quit_btn.connect("clicked", lambda _: self.get_application().quit())
+            quit_btn.connect("clicked", self._on_quit_clicked)
             btn_row.append(quit_btn)
 
             retry_btn = Gtk.Button(label="Retry")
             retry_btn.add_css_class("suggested-action")
-            retry_btn.connect("clicked", lambda _: self._retry_connection_check())
+            retry_btn.connect("clicked", self._on_retry_connection_clicked)
             btn_row.append(retry_btn)
 
             box.append(btn_row)
@@ -896,7 +896,7 @@ class MainWindow(Adw.ApplicationWindow):
         button_row.set_halign(Gtk.Align.END)
 
         cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _b: dialog.close())
+        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
         button_row.append(cancel_btn)
 
         unlock_btn = Gtk.Button(label="Unlock")
@@ -916,6 +916,15 @@ class MainWindow(Adw.ApplicationWindow):
         box.append(button_row)
         dialog.set_child(box)
         dialog.present(self)
+
+    def _on_quit_clicked(self, _button: Gtk.Button) -> None:
+        self.get_application().quit()
+
+    def _on_retry_connection_clicked(self, _button: Gtk.Button) -> None:
+        self._retry_connection_check()
+
+    def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
+        dialog.close()
 
     def _on_confirm_unlock_clicked(
         self,

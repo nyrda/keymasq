@@ -355,7 +355,7 @@ class DeviceManager:
                 cast(Any, self),
                 hardware_id,
                 grace_s,
-                asyncio_mod=asyncio,
+                asyncio_mod=cast(Any, asyncio),
                 log=log,
             )
 

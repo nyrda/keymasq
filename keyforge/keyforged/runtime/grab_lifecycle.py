@@ -2,8 +2,8 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Protocol, cast
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any, Final, Protocol, cast
 
 import evdev
 
@@ -113,6 +113,36 @@ class _GrabManager(Protocol):
     def _record_diagnostic(self, label: str, duration_us: float) -> None: ...
 
 
+class _ErrnoModule(Protocol):
+    EBUSY: Final[int]
+    ENOENT: Final[int]
+    ENODEV: Final[int]
+
+
+class _AsyncioModule(Protocol):
+    async def sleep(self, delay: float, /) -> None: ...
+
+    def create_task(self, coro: object, /) -> asyncio.Task[None]: ...
+
+    def current_task(self) -> asyncio.Task[object] | None: ...
+
+
+class _Ecodes(Protocol):
+    EV_SYN: Final[int]
+    bytype: Final[Mapping[int, Mapping[int, object]]]
+
+
+class _EvdevModule(Protocol):
+    @property
+    def ecodes(self) -> _Ecodes: ...
+
+
+def _normalize_evdev_name(value: object, default: str) -> str:
+    if isinstance(value, (tuple, list)):
+        return default if not value else str(cast(object, value[0]))
+    return str(value)
+
+
 def _identity_uinput(device: object | None) -> _WritableUInput | None:
     return cast(_WritableUInput | None, device)
 
@@ -169,7 +199,7 @@ async def grab_device_unlocked(
     int_or_none_fn: IntOrNoneFn,
     float_value_fn: FloatValueFn,
     fire_and_observe_fn: FireAndObserve,
-    errno_mod: Any,
+    errno_mod: _ErrnoModule,
 ) -> dict[str, object]:
     clear_device_path_cache_fn()
     cancel_pending_hardware_release(manager, hardware_id)
@@ -215,7 +245,13 @@ async def grab_device_unlocked(
             cancel_pending_interface_release(manager, hardware_id, path)
 
     for path in sorted(existing_by_path.keys() - requested_paths):
-        schedule_interface_release(manager, hardware_id, path, asyncio_mod=asyncio, log=log)
+        schedule_interface_release(
+            manager,
+            hardware_id,
+            path,
+            asyncio_mod=cast(Any, asyncio),
+            log=log,
+        )
 
     async def event_callback(
         callback_hardware_id: str,
@@ -333,7 +369,7 @@ async def grab_device_unlocked(
                 await grab_with_retry(
                     device,
                     path,
-                    asyncio_mod=asyncio,
+                    asyncio_mod=cast(Any, asyncio),
                     log=log,
                     errno_mod=errno_mod,
                 )
@@ -409,9 +445,9 @@ async def grab_with_retry(
     device: _ManagedGrabbedDevice,
     path: str,
     *,
-    asyncio_mod: Any,
+    asyncio_mod: _AsyncioModule,
     log: logging.Logger,
-    errno_mod: Any,
+    errno_mod: _ErrnoModule,
 ) -> None:
     delays = [0.05, 0.10, 0.20, 0.40, 0.80]
     last_error: Exception | None = None
@@ -446,7 +482,7 @@ def device_has_mapped_buttons(
     mapped_evdev_names: set[str],
     mapped_codes: set[int] | None,
     *,
-    evdev_mod: Any,
+    evdev_mod: _EvdevModule,
 ) -> bool:
     mapped_code_set = {int(code) for code in (mapped_codes or set())}
     for ev_type, codes in caps.items():
@@ -466,9 +502,10 @@ def device_has_mapped_buttons(
                 return True
 
             try:
-                code_name = evdev_mod.ecodes.bytype[ev_type].get(code_val, str(code_val))
-                if isinstance(code_name, (tuple, list)):
-                    code_name = code_name[0] if code_name else str(code_val)
+                code_name = _normalize_evdev_name(
+                    evdev_mod.ecodes.bytype[ev_type].get(code_val, str(code_val)),
+                    str(code_val),
+                )
                 if code_name.lower() in mapped_evdev_names:
                     return True
             except Exception:
@@ -516,7 +553,7 @@ def schedule_hardware_release_unlocked(
     hardware_id: str,
     grace_s: float | None,
     *,
-    asyncio_mod: Any,
+    asyncio_mod: _AsyncioModule,
     log: logging.Logger,
 ) -> dict[str, object]:
     devices = manager.grabbed_devices.get(hardware_id, [])
@@ -551,7 +588,7 @@ async def delayed_hardware_release(
     hardware_id: str,
     delay: float,
     *,
-    asyncio_mod: Any,
+    asyncio_mod: _AsyncioModule,
     log: logging.Logger,
 ) -> None:
     next_delay = float(delay)
@@ -574,7 +611,7 @@ async def delayed_hardware_release(
                     continue
                 await release_device_unlocked(manager, hardware_id, log=log)
                 return
-    except asyncio_mod.CancelledError:
+    except asyncio.CancelledError:
         pass
     finally:
         task = manager.grab_state.pending_hardware_release.get(hardware_id)
@@ -617,7 +654,7 @@ def schedule_interface_release(
     hardware_id: str,
     path: str,
     *,
-    asyncio_mod: Any,
+    asyncio_mod: _AsyncioModule,
     log: logging.Logger,
 ) -> None:
     cancel_pending_interface_release(manager, hardware_id, path)
@@ -629,7 +666,12 @@ def schedule_interface_release(
 
 
 async def delayed_interface_release(
-    manager: _GrabManager, hardware_id: str, path: str, delay: float, *, asyncio_mod: Any
+    manager: _GrabManager,
+    hardware_id: str,
+    path: str,
+    delay: float,
+    *,
+    asyncio_mod: _AsyncioModule,
 ) -> None:
     key = (hardware_id, path)
     try:
@@ -641,7 +683,7 @@ async def delayed_interface_release(
             if path in manager.grab_state.desired_paths.get(hardware_id, set()):
                 return
             await release_interface_unlocked(manager, hardware_id, path)
-    except asyncio_mod.CancelledError:
+    except asyncio.CancelledError:
         pass
     finally:
         task = manager.grab_state.pending_interface_release.get(key)

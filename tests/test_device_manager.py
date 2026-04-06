@@ -884,7 +884,7 @@ def _runtime_schedule_hardware_release(
         manager,
         hardware_id,
         grace_s,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=cast(Any, dm.asyncio),
         log=dm.log,
     )
 
@@ -907,7 +907,7 @@ async def _runtime_delayed_interface_release(
         hardware_id,
         path,
         delay,
-        asyncio_mod=dm.asyncio,
+        asyncio_mod=cast(Any, dm.asyncio),
     )
 
 

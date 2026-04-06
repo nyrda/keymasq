@@ -1,6 +1,17 @@
 import logging
+import os
 from collections.abc import Callable, Mapping, Sequence
 from typing import Final, Protocol, cast
+
+TEST_UINPUT_ENV = "KEYFORGE_TEST_UINPUT"
+TEST_UINPUT_PREFIX = "keyforge-test"
+TEST_UINPUT_VENDOR = 0x4B46
+TEST_UINPUT_PRODUCTS = {
+    "keyboard": 0x1001,
+    "mouse": 0x1002,
+    "gamepad": 0x1003,
+    "passthrough": 0x1004,
+}
 
 
 class _ClosableUInput(Protocol):
@@ -203,6 +214,26 @@ class _EvdevModule(Protocol):
     AbsInfo: Final[_AbsInfoFactory]
 
 
+def _test_uinput_enabled() -> bool:
+    value = str(os.environ.get(TEST_UINPUT_ENV, "")).strip().lower()
+    return value not in {"", "0", "false", "no"}
+
+
+def uinput_identity(
+    normal_name: str,
+    kind: str,
+    *,
+    test_name: str | None = None,
+) -> tuple[str, int | None, int | None]:
+    if not _test_uinput_enabled():
+        return normal_name, None, None
+    return (
+        f"{TEST_UINPUT_PREFIX}-{test_name or kind}",
+        TEST_UINPUT_VENDOR,
+        TEST_UINPUT_PRODUCTS[kind],
+    )
+
+
 def create_global_uinputs(
     manager: _OutputManager,
     *,
@@ -326,10 +357,22 @@ def create_global_uinputs(
             ],
             evdev_mod.ecodes.EV_SYN: [],
         }
-        manager.output_state.keyboard_uinput = evdev_mod.UInput(
-            events=cast(dict[int, Sequence[int]], keyboard_caps),
-            name="keyforge-keyboard",
+        keyboard_name, keyboard_vendor, keyboard_product = uinput_identity(
+            "keyforge-keyboard",
+            "keyboard",
         )
+        if keyboard_vendor is None or keyboard_product is None:
+            manager.output_state.keyboard_uinput = evdev_mod.UInput(
+                events=cast(dict[int, Sequence[int]], keyboard_caps),
+                name=keyboard_name,
+            )
+        else:
+            manager.output_state.keyboard_uinput = evdev_mod.UInput(
+                events=cast(dict[int, Sequence[int]], keyboard_caps),
+                name=keyboard_name,
+                vendor=keyboard_vendor,
+                product=keyboard_product,
+            )
 
         mouse_caps = {
             evdev_mod.ecodes.EV_KEY: [
@@ -349,10 +392,22 @@ def create_global_uinputs(
             ],
             evdev_mod.ecodes.EV_SYN: [],
         }
-        manager.output_state.mouse_uinput = evdev_mod.UInput(
-            events=cast(dict[int, Sequence[int]], mouse_caps),
-            name="keyforge-mouse",
+        mouse_name, mouse_vendor, mouse_product = uinput_identity(
+            "keyforge-mouse",
+            "mouse",
         )
+        if mouse_vendor is None or mouse_product is None:
+            manager.output_state.mouse_uinput = evdev_mod.UInput(
+                events=cast(dict[int, Sequence[int]], mouse_caps),
+                name=mouse_name,
+            )
+        else:
+            manager.output_state.mouse_uinput = evdev_mod.UInput(
+                events=cast(dict[int, Sequence[int]], mouse_caps),
+                name=mouse_name,
+                vendor=mouse_vendor,
+                product=mouse_product,
+            )
 
         gamepad_caps = {
             evdev_mod.ecodes.EV_KEY: [
@@ -386,11 +441,15 @@ def create_global_uinputs(
             ],
             evdev_mod.ecodes.EV_SYN: [],
         }
+        gamepad_name, gamepad_vendor, gamepad_product = uinput_identity(
+            "Microsoft X-Box 360 pad",
+            "gamepad",
+        )
         manager.output_state.gamepad_uinput = evdev_mod.UInput(
             events=cast(dict[int, Sequence[int]], gamepad_caps),
-            name="Microsoft X-Box 360 pad",
-            vendor=0x045E,
-            product=0x028E,
+            name=gamepad_name,
+            vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
+            product=0x028E if gamepad_product is None else gamepad_product,
             version=0x0110,
             bustype=0x0003,
         )

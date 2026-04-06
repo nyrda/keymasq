@@ -21,6 +21,7 @@ from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged.combo_engine import ComboDecision
 from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
 from keyforge.keyforged.recording import RecordingManager
+from keyforge.keyforged.runtime.outputs import uinput_identity
 from keyforge.keyforged.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keyforge.keyforged.superkey_state import SuperkeyMachine
 
@@ -1962,10 +1963,23 @@ class GrabbedDevice:
         caps = self.device.capabilities()
         caps.pop(evdev.ecodes.EV_SYN, None)
 
-        self.uinput = evdev.UInput(
-            events=cast(dict[int, Sequence[int]], caps),
-            name=f"keyforge-{self.hardware_id}",
+        passthrough_name, passthrough_vendor, passthrough_product = uinput_identity(
+            f"keyforge-{self.hardware_id}",
+            "passthrough",
+            test_name=f"passthrough-{self.hardware_id}",
         )
+        if passthrough_vendor is None or passthrough_product is None:
+            self.uinput = evdev.UInput(
+                events=cast(dict[int, Sequence[int]], caps),
+                name=passthrough_name,
+            )
+        else:
+            self.uinput = evdev.UInput(
+                events=cast(dict[int, Sequence[int]], caps),
+                name=passthrough_name,
+                vendor=passthrough_vendor,
+                product=passthrough_product,
+            )
 
         try:
             await wait_for_active_keys_to_clear(

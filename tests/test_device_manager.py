@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import errno
 import logging
 import os
@@ -534,6 +535,8 @@ class TestReleaseScheduling:
 
 class _FakeUInput:
     def __init__(self, *args, **kwargs) -> None:
+        self.args = args
+        self.kwargs = kwargs
         self.writes: list[tuple[int, int, int]] = []
 
     def write(self, event_type: int, code: int, value: int) -> None:
@@ -1303,6 +1306,68 @@ class TestRapidfireRelease:
         assert len(created_uinputs) == 1
         assert created_uinputs[0].close_calls == 1
         assert device.uinput is None
+
+    @pytest.mark.asyncio
+    async def test_grab_uses_explicit_passthrough_test_uinput_identity(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("KEYFORGE_TEST_UINPUT", "1")
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        class _FakeInputDevice:
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_L],
+                    evdev.ecodes.EV_SYN: [],
+                }
+
+            def active_keys(self) -> list[int]:
+                return []
+
+            def grab(self) -> None:
+                return
+
+        created_tasks: list[asyncio.Task[None]] = []
+        original_create_task = asyncio.create_task
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        def fake_create_task(coro):
+            coro.close()
+            task = original_create_task(asyncio.sleep(0))
+            created_tasks.append(task)
+            return task
+
+        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(gdm.evdev, "UInput", _FakeUInput)
+        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+        )
+
+        await device.grab()
+        await asyncio.sleep(0)
+
+        assert isinstance(device.uinput, _FakeUInput)
+        assert device.uinput.kwargs["name"] == "keyforge-test-passthrough-1234:5678"
+        assert device.uinput.kwargs["vendor"] == 0x4B46
+        assert device.uinput.kwargs["product"] == 0x1004
+
+        for task in created_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     @pytest.mark.asyncio
     async def test_rapidfire_key_releases_before_exiting_when_stopped_during_hold(
@@ -2883,6 +2948,49 @@ class TestRuntimeFailureCleanup:
 
 
 class TestDeviceManagerHelpers:
+    def test_create_global_uinputs_uses_explicit_test_identities(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("KEYFORGE_TEST_UINPUT", "1")
+        manager = SimpleNamespace(
+            output_state=SimpleNamespace(
+                device_count=0,
+                keyboard_uinput=None,
+                mouse_uinput=None,
+                gamepad_uinput=None,
+            )
+        )
+        created: list[_FakeUInput] = []
+
+        def fake_uinput(**kwargs) -> _FakeUInput:
+            device = _FakeUInput(**kwargs)
+            created.append(device)
+            return device
+
+        ldm.runtime_outputs.create_global_uinputs(
+            manager,
+            evdev_mod=SimpleNamespace(
+                ecodes=evdev.ecodes,
+                UInput=fake_uinput,
+                AbsInfo=evdev.AbsInfo,
+            ),
+            log=logging.getLogger("test"),
+            uinput_writer=lambda device: device,
+        )
+
+        assert manager.output_state.device_count == 1
+        assert len(created) == 3
+        assert created[0].kwargs["name"] == "keyforge-test-keyboard"
+        assert created[0].kwargs["vendor"] == 0x4B46
+        assert created[0].kwargs["product"] == 0x1001
+        assert created[1].kwargs["name"] == "keyforge-test-mouse"
+        assert created[1].kwargs["vendor"] == 0x4B46
+        assert created[1].kwargs["product"] == 0x1002
+        assert created[2].kwargs["name"] == "keyforge-test-gamepad"
+        assert created[2].kwargs["vendor"] == 0x4B46
+        assert created[2].kwargs["product"] == 0x1003
+
     @pytest.mark.asyncio
     async def test_grab_and_release_device_orchestrates_existing_and_removed_paths(
         self,

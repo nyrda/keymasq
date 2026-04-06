@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import errno
 import logging
-import os
 import queue
 import random
 import time
@@ -49,15 +48,6 @@ ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
 TOPOLOGY_POLL_INTERVAL_S = 0.5
 TOPOLOGY_DEBOUNCE_S = 0.5
-TEST_UINPUT_ENV = "KEYFORGE_TEST_UINPUT"
-TEST_UINPUT_PREFIX = "keyforge-test"
-TEST_UINPUT_VENDOR = 0x4B46
-TEST_UINPUT_PRODUCTS = {
-    "keyboard": 0x1001,
-    "mouse": 0x1002,
-    "gamepad": 0x1003,
-    "passthrough": 0x1004,
-}
 type JsonObject = dict[str, object]
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
 type MappingGetter = Callable[[], dict[str, MappingAction]]

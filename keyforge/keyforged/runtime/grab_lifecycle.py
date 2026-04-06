@@ -1,5 +1,29 @@
-from collections.abc import Sequence
+import asyncio
+import contextlib
+import logging
+import time
+from collections.abc import Awaitable, Sequence
 from typing import Any
+
+import evdev
+
+from keyforge.common.ipc import CommandType
+from keyforge.common.models import ActionType, MappingAction
+from keyforge.keyforged.combo_engine import ComboInputEvent, RuntimeComboBinding
+from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
+from keyforge.keyforged.runtime import actions as runtime_actions
+from keyforge.keyforged.runtime import combos as runtime_combos
+from keyforge.keyforged.runtime import outputs as runtime_outputs
+
+log = logging.getLogger("keyforged.devices")
+
+
+def _identity_uinput(device: Any) -> Any:
+    return device
+
+
+def _fire_and_forget(coro: Awaitable[Any], _label: str) -> asyncio.Task[Any]:
+    return asyncio.ensure_future(coro)
 
 
 async def grab_device_unlocked(
@@ -11,15 +35,22 @@ async def grab_device_unlocked(
     force_grab_unmapped: bool,
     *,
     update_desired: bool,
+    desired_grab_config_cls: Any,
     clear_device_path_cache_fn: Any,
     resolve_stable_path_fn: Any,
     primary_input_class_fn: Any,
     grabbed_device_cls: Any,
-    log: Any,
+    get_interface_id_fn: Any,
+    str_value_fn: Any,
+    optional_str_fn: Any,
+    int_value_fn: Any,
+    int_or_none_fn: Any,
+    float_value_fn: Any,
+    fire_and_observe_fn: Any,
     errno_mod: Any,
 ) -> dict[str, object]:
     clear_device_path_cache_fn()
-    manager._cancel_pending_hardware_release(hardware_id)
+    cancel_pending_hardware_release(manager, hardware_id)
 
     requested_paths = {
         resolve_stable_path_fn(str(path)) for path in evdev_paths if str(path or "").strip()
@@ -31,7 +62,7 @@ async def grab_device_unlocked(
     mapped_codes = set(resolved_button_codes.values())
     if update_desired:
         manager._desired_paths[hardware_id] = set(requested_paths)
-        manager._desired_grabs[hardware_id] = manager._desired_grab_config_cls(
+        manager._desired_grabs[hardware_id] = desired_grab_config_cls(
             paths=set(requested_paths),
             button_map=dict(button_map),
             button_codes=dict(resolved_button_codes),
@@ -59,10 +90,70 @@ async def grab_device_unlocked(
 
     for path in existing_by_path:
         if path in requested_paths:
-            manager._cancel_pending_interface_release(hardware_id, path)
+            cancel_pending_interface_release(manager, hardware_id, path)
 
     for path in sorted(existing_by_path.keys() - requested_paths):
-        manager._schedule_interface_release(hardware_id, path)
+        schedule_interface_release(manager, hardware_id, path, asyncio_mod=asyncio, log=log)
+
+    async def event_callback(
+        callback_hardware_id: str,
+        evdev_path: str,
+        event_type: int,
+        event_code: int,
+        event_value: int,
+        stable_path: str | None = None,
+        source: str | None = None,
+    ) -> Any:
+        return await runtime_combos.on_device_event(
+            manager,
+            callback_hardware_id,
+            evdev_path,
+            event_type,
+            event_code,
+            event_value,
+            stable_path,
+            source,
+            evdev_mod=evdev,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+            get_interface_id_fn=get_interface_id_fn,
+            combo_binding_cls=RuntimeComboBinding,
+            combo_input_event_cls=ComboInputEvent,
+            int_value_fn=int_value_fn,
+            str_value_fn=str_value_fn,
+            time_mod=time,
+            action_type_enum=ActionType,
+            mapping_action_cls=MappingAction,
+            emit_mouse_move_fn=emit_mouse_move,
+            get_trigger_axis_fn=get_trigger_axis,
+            resolve_code_fn=resolve_output_code,
+            fire_and_observe_fn=fire_and_observe_fn,
+            command_type=CommandType,
+            asyncio_mod=asyncio,
+            contextlib_mod=contextlib,
+            uinput_writer=_identity_uinput,
+        )
+
+    async def runtime_cleanup_callback(
+        cleanup_hardware_id: str,
+        cleanup_source: str | None,
+    ) -> None:
+        await runtime_combos.clear_combo_runtime_for_binding_scope(
+            manager,
+            cleanup_hardware_id,
+            cleanup_source,
+            asyncio_mod=asyncio,
+            contextlib_mod=contextlib,
+            mapping_action_cls=MappingAction,
+            evdev_mod=evdev,
+            uinput_writer=_identity_uinput,
+            emit_mouse_move_fn=emit_mouse_move,
+            get_trigger_axis_fn=get_trigger_axis,
+            resolve_code_fn=resolve_output_code,
+            fire_and_observe_fn=fire_and_observe_fn,
+            command_type=CommandType,
+            action_type_enum=ActionType,
+            time_mod=time,
+        )
 
     for path in sorted(requested_paths):
         if path in existing_by_path:
@@ -71,15 +162,21 @@ async def grab_device_unlocked(
             raw_device = manager._device_input(path)
             available_count += 1
             caps = raw_device.capabilities()
-            has_mapped_buttons = manager._device_has_mapped_buttons(
+            has_mapped_buttons = device_has_mapped_buttons(
                 caps,
                 mapped_evdev_names,
                 mapped_codes,
+                evdev_mod=evdev,
             )
 
             if has_mapped_buttons or force_grab_unmapped:
                 if hardware_id not in manager.grabbed_devices and not created_global_uinputs:
-                    manager._create_global_uinputs()
+                    runtime_outputs.create_global_uinputs(
+                        manager,
+                        evdev_mod=evdev,
+                        log=log,
+                        uinput_writer=_identity_uinput,
+                    )
                     created_global_uinputs = True
                 detected_types = manager._detect_device_types(raw_device)
                 detected_type = primary_input_class_fn(detected_types)
@@ -93,7 +190,7 @@ async def grab_device_unlocked(
                     button_map=button_map,
                     button_codes=resolved_button_codes,
                     mapping_getter=mapping_getter,
-                    event_callback=manager._on_device_event,
+                    event_callback=event_callback,
                     device_type=detected_type,
                     device_types=detected_types,
                     verbosity=manager.verbosity,
@@ -104,11 +201,17 @@ async def grab_device_unlocked(
                     recording_manager=manager.recording_manager,
                     macro_player=manager.play_macro,
                     suppress_rel_getter=lambda: manager._mouse_rel_suppressed,
-                    mouse_rel_suppression_start_callback=manager.begin_mouse_rel_suppression,
+                    mouse_rel_suppression_start_callback=lambda: None,
                     diagnostics_recorder=manager._record_diagnostic,
-                    runtime_cleanup_callback=manager._clear_combo_runtime_for_binding_scope,
+                    runtime_cleanup_callback=runtime_cleanup_callback,
                 )
-                await manager._grab_with_retry(device, path)
+                await grab_with_retry(
+                    device,
+                    path,
+                    asyncio_mod=asyncio,
+                    log=log,
+                    errno_mod=errno_mod,
+                )
                 devices.append(device)
                 grabbed_count += 1
                 if manager.verbosity >= 1:
@@ -118,8 +221,6 @@ async def grab_device_unlocked(
                 skipped_count += 1
                 if manager.verbosity >= 1:
                     log.debug("  %s - skipped (no matching mapped button names/codes)", path)
-                if manager.verbosity >= 1:
-                    log.debug("  %s - skipped (no mapped buttons)", path)
         except OSError as exc:
             if exc.errno in {errno_mod.ENOENT, errno_mod.ENODEV}:
                 log.info("Skipping unavailable interface for %s: %s", hardware_id, path)
@@ -130,7 +231,7 @@ async def grab_device_unlocked(
                     continue
                 await device.release()
             if created_global_uinputs:
-                manager._destroy_global_uinputs()
+                runtime_outputs.destroy_global_uinputs(manager, log=log)
             raise
         except Exception as exc:
             log.error("Failed to grab %s: %s", path, exc)
@@ -139,7 +240,7 @@ async def grab_device_unlocked(
                     continue
                 await device.release()
             if created_global_uinputs:
-                manager._destroy_global_uinputs()
+                runtime_outputs.destroy_global_uinputs(manager, log=log)
             raise
 
     waiting_for_device = bool(requested_paths and available_count == 0 and not devices)
@@ -151,7 +252,7 @@ async def grab_device_unlocked(
         and grabbed_count == 0
     ):
         if created_global_uinputs:
-            manager._destroy_global_uinputs()
+            runtime_outputs.destroy_global_uinputs(manager, log=log)
         raise ValueError(
             f"No interfaces for {hardware_id} matched mapped buttons "
             f"(paths={len(requested_paths)}, mapped_names={len(mapped_evdev_names)}, "
@@ -180,7 +281,12 @@ async def grab_device_unlocked(
 
 
 async def grab_with_retry(
-    manager: Any, device: Any, path: str, *, asyncio_mod: Any, log: Any, errno_mod: Any
+    device: Any,
+    path: str,
+    *,
+    asyncio_mod: Any,
+    log: Any,
+    errno_mod: Any,
 ) -> None:
     delays = [0.05, 0.10, 0.20, 0.40, 0.80]
     last_error: Exception | None = None
@@ -221,7 +327,6 @@ def device_has_mapped_buttons(
     for ev_type, codes in caps.items():
         if ev_type == evdev_mod.ecodes.EV_SYN:
             continue
-
         for code in codes:
             if isinstance(code, tuple):
                 if not code or not isinstance(code[0], int):
@@ -243,21 +348,36 @@ def device_has_mapped_buttons(
                     return True
             except Exception:
                 pass
-
     return False
 
 
 async def release_device_unlocked(manager: Any, hardware_id: str, *, log: Any) -> dict[str, object]:
-    manager._cancel_pending_hardware_release(hardware_id)
-    manager._cancel_pending_interface_releases_for_hardware(hardware_id)
-    await manager._clear_combo_runtime_for_binding_scope(hardware_id)
+    cancel_pending_hardware_release(manager, hardware_id)
+    cancel_pending_interface_releases_for_hardware(manager, hardware_id)
+    await runtime_combos.clear_combo_runtime_for_binding_scope(
+        manager,
+        hardware_id,
+        None,
+        asyncio_mod=asyncio,
+        contextlib_mod=contextlib,
+        mapping_action_cls=MappingAction,
+        evdev_mod=evdev,
+        uinput_writer=_identity_uinput,
+        emit_mouse_move_fn=emit_mouse_move,
+        get_trigger_axis_fn=get_trigger_axis,
+        resolve_code_fn=resolve_output_code,
+        fire_and_observe_fn=_fire_and_forget,
+        command_type=CommandType,
+        action_type_enum=ActionType,
+        time_mod=time,
+    )
     manager._desired_grabs.pop(hardware_id, None)
     devices = manager.grabbed_devices.pop(hardware_id, [])
 
     for device in devices:
         await device.release()
 
-    manager._destroy_global_uinputs()
+    runtime_outputs.destroy_global_uinputs(manager, log=log)
     manager.active_mappings.pop(hardware_id, None)
     manager._desired_paths.pop(hardware_id, None)
     log.info("Released device %s", hardware_id)
@@ -278,9 +398,9 @@ def schedule_hardware_release_unlocked(
     manager._desired_paths[hardware_id] = set()
 
     delay = max(0.01, float(manager._release_grace_s if grace_s is None else grace_s))
-    manager._cancel_pending_hardware_release(hardware_id)
+    cancel_pending_hardware_release(manager, hardware_id)
     manager._pending_hardware_release[hardware_id] = asyncio_mod.create_task(
-        manager._delayed_hardware_release(hardware_id, delay)
+        delayed_hardware_release(manager, hardware_id, delay, asyncio_mod=asyncio_mod, log=log)
     )
     log.info("Scheduled hardware release for %s in %.1fs", hardware_id, delay)
     return {
@@ -304,7 +424,7 @@ async def delayed_hardware_release(
                     return
                 if manager._desired_paths.get(hardware_id):
                     return
-                if manager._hardware_has_held_inputs(hardware_id):
+                if hardware_has_held_inputs(manager, hardware_id):
                     next_delay = manager._held_release_retry_s
                     log.info(
                         "Deferred release for %s: source button still held, retrying in %.1fs",
@@ -312,7 +432,7 @@ async def delayed_hardware_release(
                         next_delay,
                     )
                     continue
-                await manager._release_device_unlocked(hardware_id)
+                await release_device_unlocked(manager, hardware_id, log=log)
                 return
     except asyncio_mod.CancelledError:
         pass
@@ -323,10 +443,9 @@ async def delayed_hardware_release(
 
 
 def hardware_has_held_inputs(manager: Any, hardware_id: str) -> bool:
-    for device in manager.grabbed_devices.get(hardware_id, []):
-        if device.has_held_source_inputs():
-            return True
-    return False
+    return any(
+        device.has_held_source_inputs() for device in manager.grabbed_devices.get(hardware_id, [])
+    )
 
 
 def cancel_pending_hardware_release(manager: Any, hardware_id: str) -> None:
@@ -354,10 +473,10 @@ def cancel_pending_interface_releases_for_hardware(manager: Any, hardware_id: st
 def schedule_interface_release(
     manager: Any, hardware_id: str, path: str, *, asyncio_mod: Any, log: Any
 ) -> None:
-    manager._cancel_pending_interface_release(hardware_id, path)
+    cancel_pending_interface_release(manager, hardware_id, path)
     delay = manager._release_grace_s
     manager._pending_interface_release[(hardware_id, path)] = asyncio_mod.create_task(
-        manager._delayed_interface_release(hardware_id, path, delay)
+        delayed_interface_release(manager, hardware_id, path, delay, asyncio_mod=asyncio_mod)
     )
     log.info("Scheduled interface release for %s (%s) in %.1fs", hardware_id, path, delay)
 
@@ -374,7 +493,7 @@ async def delayed_interface_release(
                 return
             if path in manager._desired_paths.get(hardware_id, set()):
                 return
-            await manager._release_interface_unlocked(hardware_id, path)
+            await release_interface_unlocked(manager, hardware_id, path)
     except asyncio_mod.CancelledError:
         pass
     finally:
@@ -396,9 +515,22 @@ async def release_interface_unlocked(manager: Any, hardware_id: str, path: str) 
     if removed is None:
         return
 
-    await manager._clear_combo_runtime_for_binding_scope(
+    await runtime_combos.clear_combo_runtime_for_binding_scope(
+        manager,
         hardware_id,
         str(getattr(removed, "interface_id", "") or "").lower(),
+        asyncio_mod=asyncio,
+        contextlib_mod=contextlib,
+        mapping_action_cls=MappingAction,
+        evdev_mod=evdev,
+        uinput_writer=_identity_uinput,
+        emit_mouse_move_fn=emit_mouse_move,
+        get_trigger_axis_fn=get_trigger_axis,
+        resolve_code_fn=resolve_output_code,
+        fire_and_observe_fn=_fire_and_forget,
+        command_type=CommandType,
+        action_type_enum=ActionType,
+        time_mod=time,
     )
     removed.release_tracked_outputs()
     await removed.release()
@@ -411,23 +543,47 @@ async def release_interface_unlocked(manager: Any, hardware_id: str, path: str) 
             manager.active_mappings.pop(hardware_id, None)
             manager._desired_paths.pop(hardware_id, None)
             manager._desired_grabs.pop(hardware_id, None)
-        manager._destroy_global_uinputs()
+        runtime_outputs.destroy_global_uinputs(manager, log=log)
 
 
-async def release_all_devices(manager: Any) -> None:
+async def release_all_devices(manager: Any, *, fire_and_observe_fn: Any) -> None:
     async with manager._op_lock:
         await manager.cancel_macro_playback()
-        await manager._clear_combo_runtime()
+        await runtime_combos.clear_combo_runtime(
+            manager,
+            asyncio_mod=asyncio,
+            contextlib_mod=contextlib,
+            mapping_action_cls=MappingAction,
+            evdev_mod=evdev,
+            uinput_writer=_identity_uinput,
+            emit_mouse_move_fn=emit_mouse_move,
+            get_trigger_axis_fn=get_trigger_axis,
+            resolve_code_fn=resolve_output_code,
+            fire_and_observe_fn=fire_and_observe_fn,
+            command_type=CommandType,
+            action_type_enum=ActionType,
+            time_mod=time,
+        )
         hardware_ids = set(manager.grabbed_devices) | set(manager._desired_grabs)
         for hardware_id in list(hardware_ids):
-            await manager._release_device_unlocked(hardware_id)
+            await release_device_unlocked(manager, hardware_id, log=log)
 
 
 async def set_mapping(
-    manager: Any, hardware_id: str, mapping: dict[str, object], *, json_object_fn: Any, log: Any
+    manager: Any,
+    hardware_id: str,
+    mapping: dict[str, object],
+    *,
+    json_object_fn: Any,
+    str_value_fn: Any,
+    optional_str_fn: Any,
+    int_value_fn: Any,
+    int_or_none_fn: Any,
+    float_value_fn: Any,
+    log: Any,
 ) -> dict[str, object]:
     async with manager._op_lock:
-        manager._cancel_pending_hardware_release(hardware_id)
+        cancel_pending_hardware_release(manager, hardware_id)
         if hardware_id not in manager.grabbed_devices:
             raise ValueError(f"Device {hardware_id} not grabbed")
 
@@ -435,9 +591,25 @@ async def set_mapping(
         for button_id, action_data in mapping.items():
             action_dict = json_object_fn(action_data)
             if isinstance(action_data, str):
-                parsed_mapping[button_id] = manager._parse_action(action_data)
+                parsed_mapping[button_id] = runtime_actions.parse_action(
+                    manager,
+                    action_data,
+                    str_value=str_value_fn,
+                    optional_str=optional_str_fn,
+                    int_value=int_value_fn,
+                    int_or_none=int_or_none_fn,
+                    float_value=float_value_fn,
+                )
             elif action_dict is not None:
-                parsed_mapping[button_id] = manager._parse_action(action_dict)
+                parsed_mapping[button_id] = runtime_actions.parse_action(
+                    manager,
+                    action_dict,
+                    str_value=str_value_fn,
+                    optional_str=optional_str_fn,
+                    int_value=int_value_fn,
+                    int_or_none=int_or_none_fn,
+                    float_value=float_value_fn,
+                )
 
         manager.active_mappings[hardware_id] = parsed_mapping
         for device in manager.grabbed_devices.get(hardware_id, []):

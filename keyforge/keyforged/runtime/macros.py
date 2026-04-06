@@ -19,6 +19,15 @@ async def play_macro(
     trigger_value: int,
     *,
     asyncio_mod: Any,
+    contextlib_mod: Any,
+    evdev_mod: Any,
+    log: Any,
+    int_value_fn: Any,
+    str_value_fn: Any,
+    uinput_writer: Any,
+    random_mod: Any,
+    uuid_mod: Any,
+    command_type: Any,
 ) -> dict[str, object]:
     if not (manager._keyboard_uinput or manager._mouse_uinput or manager._gamepad_uinput):
         return {"status": "error", "message": "No output uinput devices available"}
@@ -27,16 +36,23 @@ async def play_macro(
     if normalized_loop not in {"none", "count", "hold", "toggle"}:
         normalized_loop = "none"
     count = max(1, int(loop_count or 1))
-
     source_key = (str(source_device), str(source_button))
 
     if int(trigger_value) == 0:
-        hold_instances = manager._find_matching_macro_instances(
+        hold_instances = find_matching_macro_instances(
+            manager,
             loop_mode="hold",
             source_key=source_key,
         )
         if hold_instances:
-            cancelled = await manager._cancel_macro_instances(hold_instances)
+            cancelled = await cancel_macro_instances(
+                manager,
+                hold_instances,
+                asyncio_mod=asyncio_mod,
+                contextlib_mod=contextlib_mod,
+                evdev_mod=evdev_mod,
+                uinput_writer=uinput_writer,
+            )
             return {"status": "ok", "cancelled": cancelled > 0}
         return {"status": "ok", "cancelled": False}
 
@@ -44,16 +60,25 @@ async def play_macro(
         return {"status": "ok"}
 
     if normalized_loop == "toggle":
-        toggle_instances = manager._find_matching_macro_instances(
+        toggle_instances = find_matching_macro_instances(
+            manager,
             loop_mode="toggle",
             source_key=source_key,
         )
         if toggle_instances:
-            cancelled = await manager._cancel_macro_instances(toggle_instances)
+            cancelled = await cancel_macro_instances(
+                manager,
+                toggle_instances,
+                asyncio_mod=asyncio_mod,
+                contextlib_mod=contextlib_mod,
+                evdev_mod=evdev_mod,
+                uinput_writer=uinput_writer,
+            )
             return {"status": "ok", "cancelled": cancelled > 0}
 
     if normalized_loop == "hold":
-        hold_instances = manager._find_matching_macro_instances(
+        hold_instances = find_matching_macro_instances(
+            manager,
             loop_mode="hold",
             source_key=source_key,
         )
@@ -72,7 +97,8 @@ async def play_macro(
     }
 
     task = asyncio_mod.create_task(
-        manager._play_macro_task(
+        play_macro_task(
+            manager,
             instance_id=instance_id,
             macro_events=macro_events,
             macro_name=macro_name,
@@ -85,21 +111,45 @@ async def play_macro(
             start_x=int(start_x),
             start_y=int(start_y),
             block_mouse_movement=block_mouse_movement,
+            asyncio_mod=asyncio_mod,
+            evdev_mod=evdev_mod,
+            log=log,
+            int_value_fn=int_value_fn,
+            str_value_fn=str_value_fn,
+            uinput_writer=uinput_writer,
+            contextlib_mod=contextlib_mod,
+            random_mod=random_mod,
+            uuid_mod=uuid_mod,
+            command_type=command_type,
         )
     )
     manager._macro_tasks[instance_id] = task
     return {"status": "ok"}
 
 
-async def cancel_macro_playback(manager: Any) -> dict[str, object]:
-    running_ids = manager._running_macro_instance_ids()
-    cancelled = await manager._cancel_macro_instances(running_ids)
+async def cancel_macro_playback(
+    manager: Any,
+    *,
+    asyncio_mod: Any,
+    contextlib_mod: Any,
+    evdev_mod: Any,
+    uinput_writer: Any,
+) -> dict[str, object]:
+    running_ids = running_macro_instance_ids(manager)
+    cancelled = await cancel_macro_instances(
+        manager,
+        running_ids,
+        asyncio_mod=asyncio_mod,
+        contextlib_mod=contextlib_mod,
+        evdev_mod=evdev_mod,
+        uinput_writer=uinput_writer,
+    )
     for devices in manager.grabbed_devices.values():
         for device in devices:
             device.release_tracked_outputs()
-    manager._complete_all_macro_exec_waiters(-1)
+    complete_all_macro_exec_waiters(manager, -1)
     manager._macro_mouse_inhibit_count = 0
-    manager.end_mouse_rel_suppression()
+    end_mouse_rel_suppression(manager)
     return {"status": "ok", "cancelled": cancelled > 0}
 
 
@@ -134,6 +184,8 @@ async def cancel_macro_instances(
     *,
     asyncio_mod: Any,
     contextlib_mod: Any,
+    evdev_mod: Any,
+    uinput_writer: Any,
 ) -> int:
     unique_ids = list(dict.fromkeys(int(i) for i in instance_ids))
     if not unique_ids:
@@ -143,7 +195,12 @@ async def cancel_macro_instances(
         manager._macro_cancel_instance_ids.add(instance_id)
 
     for instance_id in unique_ids:
-        manager._release_macro_held_for_instance(instance_id)
+        release_macro_held_for_instance(
+            manager,
+            instance_id,
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
+        )
 
     tasks = [
         task
@@ -197,6 +254,10 @@ async def play_macro_task(
     int_value_fn: Any,
     str_value_fn: Any,
     uinput_writer: Any,
+    contextlib_mod: Any,
+    random_mod: Any,
+    uuid_mod: Any,
+    command_type: Any,
 ) -> None:
     mouse_btn_codes = frozenset(range(0x110, 0x118))
     pending_abs_moves: dict[str, dict[str, int]] = {}
@@ -210,7 +271,11 @@ async def play_macro_task(
     suppression_timeout_s = max(2.0, (macro_duration_us / max(speed, 0.01)) / 1_000_000.0 + 1.0)
     try:
         if block_mouse_movement:
-            manager._acquire_macro_mouse_inhibit(timeout_s=suppression_timeout_s)
+            acquire_macro_mouse_inhibit(
+                manager,
+                timeout_s=suppression_timeout_s,
+                asyncio_mod=asyncio_mod,
+            )
 
         iterations = 0
         while True:
@@ -219,7 +284,13 @@ async def play_macro_task(
             iterations += 1
             pending_abs_moves.clear()
             if move_to_start:
-                manager._emit_absolute_mouse_move(int(start_x), int(start_y))
+                emit_absolute_mouse_move(
+                    manager,
+                    int(start_x),
+                    int(start_y),
+                    evdev_mod=evdev_mod,
+                    uinput_writer=uinput_writer,
+                )
 
             prev_t_us = 0
             for idx, ev in enumerate(macro_events):
@@ -237,7 +308,18 @@ async def play_macro_task(
 
                 action_type = str(ev.get("macro_action", "") or "")
                 if action_type:
-                    await manager._run_macro_control_action(ev, speed)
+                    await run_macro_control_action(
+                        manager,
+                        ev,
+                        speed,
+                        asyncio_mod=asyncio_mod,
+                        contextlib_mod=contextlib_mod,
+                        random_mod=random_mod,
+                        uuid_mod=uuid_mod,
+                        command_type=command_type,
+                        str_value_fn=str_value_fn,
+                        int_value_fn=int_value_fn,
+                    )
                     continue
 
                 event_type = int_value_fn(ev.get("type"), 0)
@@ -259,7 +341,13 @@ async def play_macro_task(
                             elif event_code == evdev_mod.ecodes.REL_Y:
                                 slot["y"] = event_value
                             if "x" in slot and "y" in slot:
-                                manager._emit_absolute_mouse_move(slot["x"], slot["y"])
+                                emit_absolute_mouse_move(
+                                    manager,
+                                    slot["x"],
+                                    slot["y"],
+                                    evdev_mod=evdev_mod,
+                                    uinput_writer=uinput_writer,
+                                )
                                 pending_abs_moves.pop(move_id, None)
                     continue
 
@@ -303,9 +391,9 @@ async def play_macro_task(
                 output.syn()
                 if event_type == evdev_mod.ecodes.EV_KEY:
                     if event_value == 1:
-                        manager._track_macro_key_press(instance_id, output_class, event_code)
+                        track_macro_key_press(manager, instance_id, output_class, event_code)
                     elif event_value == 0:
-                        manager._track_macro_key_release(instance_id, output_class, event_code)
+                        track_macro_key_release(manager, instance_id, output_class, event_code)
 
             if not macro_events and loop_mode in {"hold", "toggle"}:
                 await asyncio_mod.sleep(0.01)
@@ -323,11 +411,16 @@ async def play_macro_task(
         log.warning("Macro playback aborted: %s", exc)
     finally:
         manager._macro_cancel_instance_ids.discard(instance_id)
-        manager._release_macro_held_for_instance(instance_id)
+        release_macro_held_for_instance(
+            manager,
+            instance_id,
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
+        )
         manager._macro_tasks.pop(instance_id, None)
         manager._macro_instance_meta.pop(instance_id, None)
         if block_mouse_movement:
-            manager._release_macro_mouse_inhibit()
+            release_macro_mouse_inhibit(manager)
         if manager.verbosity >= 1:
             log.debug("Macro playback finished: %s", macro_name or "<unnamed>")
 
@@ -398,16 +491,16 @@ def release_macro_held_for_instance(
             pass
 
 
-def acquire_macro_mouse_inhibit(manager: Any, timeout_s: float) -> None:
+def acquire_macro_mouse_inhibit(manager: Any, timeout_s: float, *, asyncio_mod: Any) -> None:
     manager._macro_mouse_inhibit_count += 1
-    manager.begin_mouse_rel_suppression(timeout_s=max(0.1, timeout_s))
+    begin_mouse_rel_suppression(manager, timeout_s=max(0.1, timeout_s), asyncio_mod=asyncio_mod)
 
 
 def release_macro_mouse_inhibit(manager: Any) -> None:
     if manager._macro_mouse_inhibit_count > 0:
         manager._macro_mouse_inhibit_count -= 1
     if manager._macro_mouse_inhibit_count == 0:
-        manager.end_mouse_rel_suppression()
+        end_mouse_rel_suppression(manager)
 
 
 def emit_absolute_mouse_move(
@@ -480,7 +573,11 @@ async def run_macro_control_action(
         timeout_ms = max(1, int_value_fn(ev.get("timeout_ms"), 30000))
         inhibit_mouse = bool(ev.get("inhibit_mouse", False))
         if inhibit_mouse:
-            manager._acquire_macro_mouse_inhibit(timeout_s=max(1.0, timeout_ms / 1000.0 + 1.0))
+            acquire_macro_mouse_inhibit(
+                manager,
+                timeout_s=max(1.0, timeout_ms / 1000.0 + 1.0),
+                asyncio_mod=asyncio_mod,
+            )
 
         wait_id = uuid_mod.uuid4().hex
         try:
@@ -502,7 +599,7 @@ async def run_macro_control_action(
         finally:
             manager._macro_exec_waiters.pop(wait_id, None)
             if inhibit_mouse:
-                manager._release_macro_mouse_inhibit()
+                release_macro_mouse_inhibit(manager)
 
 
 def complete_macro_exec_wait(manager: Any, wait_id: str, returncode: int) -> dict[str, object]:
@@ -525,7 +622,7 @@ def begin_mouse_rel_suppression(manager: Any, timeout_s: float, *, asyncio_mod: 
     ):
         manager._mouse_rel_suppression_watchdog_task.cancel()
     manager._mouse_rel_suppression_watchdog_task = asyncio_mod.create_task(
-        manager._mouse_rel_suppression_watchdog(timeout_s)
+        mouse_rel_suppression_watchdog(manager, timeout_s, asyncio_mod=asyncio_mod)
     )
 
 

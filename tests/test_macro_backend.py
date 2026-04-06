@@ -7,6 +7,7 @@ import evdev
 import pytest
 
 import keyforge.common.paths as paths
+import keyforge.keyforged.device_manager as dm
 import keyforge.keyforged.recording as recording_module
 from keyforge.common.models import (
     ActionType,
@@ -17,6 +18,7 @@ from keyforge.common.models import (
 )
 from keyforge.keyforged.device_manager import DeviceManager
 from keyforge.keyforged.recording import RecordingManager
+from keyforge.keyforged.runtime import macros as mdm
 from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
 from keyforge.session.profiles import ProfileManager
 
@@ -28,6 +30,34 @@ class _FakeRecorder:
 
     def record_event(self, device_type: str, event: evdev.InputEvent) -> None:
         self.calls.append((device_type, event))
+
+
+async def _play_macro_task(manager: DeviceManager, **kwargs: object) -> None:
+    await mdm.play_macro_task(
+        manager,
+        instance_id=int(kwargs["instance_id"]),
+        macro_events=cast(list[dict[str, object]], kwargs["macro_events"]),
+        macro_name=str(kwargs["macro_name"]),
+        replay_mouse_movement=bool(kwargs["replay_mouse_movement"]),
+        replay_mouse_clicks=bool(kwargs["replay_mouse_clicks"]),
+        speed=float(kwargs["speed"]),
+        loop_mode=str(kwargs["loop_mode"]),
+        loop_count=int(kwargs["loop_count"]),
+        move_to_start=bool(kwargs["move_to_start"]),
+        start_x=int(kwargs["start_x"]),
+        start_y=int(kwargs["start_y"]),
+        block_mouse_movement=bool(kwargs["block_mouse_movement"]),
+        asyncio_mod=dm.asyncio,
+        evdev_mod=dm.evdev,
+        log=dm.log,
+        int_value_fn=dm._int_value,
+        str_value_fn=dm._str_value,
+        uinput_writer=dm._uinput_writer,
+        contextlib_mod=dm.contextlib,
+        random_mod=dm.random,
+        uuid_mod=dm.uuid,
+        command_type=dm.CommandType,
+    )
 
 
 @pytest.mark.asyncio
@@ -123,23 +153,26 @@ async def test_play_macro_allows_concurrent_playback() -> None:
     started: list[str] = []
     finished: list[str] = []
 
-    async def fake_play_macro_task(**kwargs) -> None:
+    async def fake_play_macro_task(_manager: DeviceManager, **kwargs) -> None:
         name = kwargs.get("macro_name", "")
         started.append(name)
         await asyncio.sleep(0.05)
         finished.append(name)
 
-    manager._play_macro_task = fake_play_macro_task  # type: ignore[assignment]
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mdm, "play_macro_task", fake_play_macro_task)
+    try:
+        await manager.play_macro(macro_events=[], macro_name="first")
+        await asyncio.sleep(0)
+        await manager.play_macro(macro_events=[], macro_name="second")
+        await asyncio.sleep(0.1)
 
-    await manager.play_macro(macro_events=[], macro_name="first")
-    await asyncio.sleep(0)
-    await manager.play_macro(macro_events=[], macro_name="second")
-    await asyncio.sleep(0.1)
-
-    assert "first" in started
-    assert "second" in started
-    assert "first" in finished
-    assert "second" in finished
+        assert "first" in started
+        assert "second" in started
+        assert "first" in finished
+        assert "second" in finished
+    finally:
+        monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -147,7 +180,8 @@ async def test_play_macro_can_move_mouse_to_saved_start() -> None:
     manager = DeviceManager()
     manager._mouse_uinput = MagicMock()
 
-    await manager._play_macro_task(
+    await _play_macro_task(
+        manager,
         instance_id=1,
         macro_events=[],
         macro_name="with_start",
@@ -173,10 +207,14 @@ async def test_play_macro_can_move_mouse_to_saved_start() -> None:
 async def test_play_macro_block_mouse_movement_uses_suppression_safeguard() -> None:
     manager = DeviceManager()
 
-    manager.begin_mouse_rel_suppression = MagicMock()
-    manager.end_mouse_rel_suppression = MagicMock()
+    begin_mouse_rel_suppression = MagicMock()
+    end_mouse_rel_suppression = MagicMock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
+    monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
 
-    await manager._play_macro_task(
+    await _play_macro_task(
+        manager,
         instance_id=1,
         macro_events=[],
         macro_name="blocked",
@@ -191,8 +229,9 @@ async def test_play_macro_block_mouse_movement_uses_suppression_safeguard() -> N
         block_mouse_movement=True,
     )
 
-    assert manager.begin_mouse_rel_suppression.called
-    assert manager.end_mouse_rel_suppression.called
+    assert begin_mouse_rel_suppression.called
+    assert end_mouse_rel_suppression.called
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -403,9 +442,12 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
     manager = DeviceManager()
     manager._keyboard_uinput = MagicMock()
     manager._mouse_uinput = MagicMock()
-    manager._emit_absolute_mouse_move = MagicMock()  # type: ignore[method-assign]
+    emit_absolute_mouse_move = MagicMock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mdm, "emit_absolute_mouse_move", emit_absolute_mouse_move)
 
-    await manager._play_macro_task(
+    await _play_macro_task(
+        manager,
         instance_id=1,
         macro_events=[
             {
@@ -485,7 +527,13 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         block_mouse_movement=False,
     )
 
-    manager._emit_absolute_mouse_move.assert_called_once_with(320, 240)
+    emit_absolute_mouse_move.assert_called_once_with(
+        manager,
+        320,
+        240,
+        evdev_mod=dm.evdev,
+        uinput_writer=dm._uinput_writer,
+    )
     assert [call.args for call in manager._keyboard_uinput.write.call_args_list] == [
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 1),
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 0),
@@ -493,6 +541,7 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
     assert [call.args for call in manager._mouse_uinput.write.call_args_list] == [
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 123)
     ]
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -714,7 +763,7 @@ async def test_cancel_macro_playback_cancels_all_running_instances() -> None:
     await start_instance("b", evdev.ecodes.KEY_I)
 
     await asyncio.sleep(0.02)
-    assert len(manager._running_macro_instance_ids()) >= 2
+    assert len(mdm.running_macro_instance_ids(manager)) >= 2
 
     result = await manager.cancel_macro_playback()
     assert result["status"] == "ok"
@@ -731,7 +780,7 @@ async def test_cancel_macro_playback_releases_tracked_outputs() -> None:
 
     assert result["status"] == "ok"
     device.release_tracked_outputs.assert_called_once()
-    assert manager._running_macro_instance_ids() == []
+    assert mdm.running_macro_instance_ids(manager) == []
 
 
 def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatch) -> None:

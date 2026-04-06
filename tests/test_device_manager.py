@@ -12,10 +12,16 @@ import pytest
 from keyforge.common.ipc import CommandType
 from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged import device_manager as dm
-from keyforge.keyforged.combo_engine import ComboDecision
+from keyforge.keyforged.combo_engine import ComboDecision, ComboInputEvent
 from keyforge.keyforged.device_manager import DesiredGrabConfig, DeviceManager
+from keyforge.keyforged.runtime import actions as adm
+from keyforge.keyforged.runtime import combos as cdm
+from keyforge.keyforged.runtime import grab_lifecycle as ldm
 from keyforge.keyforged.runtime import grabbed_device as gdm
+from keyforge.keyforged.runtime import macros as mdm
+from keyforge.keyforged.runtime import topology as tdm
 from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
+from keyforge.keyforged.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
@@ -54,14 +60,16 @@ class TestDeviceManager:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
-        manager._create_global_uinputs = Mock()
-        manager._destroy_global_uinputs = Mock()
+        create_global_uinputs = Mock()
+        destroy_global_uinputs = Mock()
 
         def _missing_input_device(_path: str):
             raise FileNotFoundError(errno.ENOENT, "missing")
 
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm.evdev, "InputDevice", _missing_input_device)
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", create_global_uinputs)
+        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
 
         result = await manager.grab_device(
             hardware_id="1234:5678",
@@ -83,7 +91,7 @@ class TestDeviceManager:
             button_map={"btn_side": "btn_side"},
             force_grab_unmapped=False,
         )
-        manager._create_global_uinputs.assert_not_called()
+        create_global_uinputs.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_grab_device_still_errors_when_present_interfaces_match_no_buttons(
@@ -308,7 +316,7 @@ class TestListDevices:
         }
         manager._live_topology_snapshot = dict(snapshot)
         manager._reconciled_topology_snapshot = {}
-        manager._schedule_topology_reconcile = Mock()  # type: ignore[assignment]
+        schedule_topology_reconcile = Mock()
         sleep_calls = 0
 
         async def fake_sleep(_delay: float) -> None:
@@ -318,16 +326,21 @@ class TestListDevices:
                 raise asyncio.CancelledError()
 
         async def fake_to_thread(func, /, *args, **kwargs):
-            assert kwargs == {}
             return snapshot
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(tdm, "schedule_topology_reconcile", schedule_topology_reconcile)
 
         with pytest.raises(asyncio.CancelledError):
-            await manager._topology_watch_loop()
+            await _runtime_topology_watch_loop(manager)
 
-        manager._schedule_topology_reconcile.assert_called_once_with(snapshot)
+        schedule_topology_reconcile.assert_called_once_with(
+            manager,
+            snapshot,
+            asyncio_mod=dm.asyncio,
+            log=dm.log,
+        )
 
     @pytest.mark.asyncio
     async def test_topology_watch_loop_logs_scan_failures_and_keeps_running(
@@ -346,7 +359,7 @@ class TestListDevices:
                 interface_id="mouse",
             )
         }
-        manager._schedule_topology_reconcile = Mock()  # type: ignore[assignment]
+        schedule_topology_reconcile = Mock()
         sleep_calls = 0
         scan_calls = 0
 
@@ -358,7 +371,6 @@ class TestListDevices:
 
         async def fake_to_thread(func, /, *args, **kwargs):
             nonlocal scan_calls
-            assert kwargs == {}
             scan_calls += 1
             if scan_calls == 1:
                 raise RuntimeError("scan boom")
@@ -366,13 +378,19 @@ class TestListDevices:
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(tdm, "schedule_topology_reconcile", schedule_topology_reconcile)
 
         with caplog.at_level(logging.WARNING, logger="keyforged.devices"):
             with pytest.raises(asyncio.CancelledError):
-                await manager._topology_watch_loop()
+                await _runtime_topology_watch_loop(manager)
 
         assert "Topology scan failed: scan boom" in caplog.text
-        manager._schedule_topology_reconcile.assert_called_once_with(snapshot)
+        schedule_topology_reconcile.assert_called_once_with(
+            manager,
+            snapshot,
+            asyncio_mod=dm.asyncio,
+            log=dm.log,
+        )
 
 
 class TestMacroControlActions:
@@ -387,9 +405,10 @@ class TestMacroControlActions:
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
 
-        await manager._run_macro_control_action(
+        await _runtime_run_macro_control_action(
+            manager,
             {"macro_action": "wait_fixed", "duration_ms": 20},
-            speed=2.0,
+            2.0,
         )
 
         assert sleep_calls == [0.01]
@@ -405,9 +424,10 @@ class TestMacroControlActions:
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.random, "randint", lambda _minimum, _maximum: 50)
 
-        await manager._run_macro_control_action(
+        await _runtime_run_macro_control_action(
+            manager,
             {"macro_action": "wait_random", "min_ms": 10, "max_ms": 80},
-            speed=10.0,
+            10.0,
         )
 
         assert sleep_calls == [0.005]
@@ -423,12 +443,13 @@ class TestMacroControlActions:
 
         manager.broadcast_callback = cb
 
-        await manager._run_macro_control_action(
+        await _runtime_run_macro_control_action(
+            manager,
             {
                 "macro_action": "exec_async",
                 "command": "echo hi",
             },
-            speed=1.0,
+            1.0,
         )
 
         callback.assert_awaited_once()
@@ -446,8 +467,8 @@ class TestMacroControlActions:
             await callback(command, data)
 
         manager.broadcast_callback = cb
-        manager.begin_mouse_rel_suppression = Mock()
-        manager.end_mouse_rel_suppression = Mock()
+        begin_mouse_rel_suppression = Mock()
+        end_mouse_rel_suppression = Mock()
 
         async def fake_sleep(duration: float) -> None:
             return None
@@ -457,19 +478,22 @@ class TestMacroControlActions:
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.asyncio, "wait_for", fake_wait_for)
+        monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
+        monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
 
-        await manager._run_macro_control_action(
+        await _runtime_run_macro_control_action(
+            manager,
             {
                 "macro_action": "exec_sync",
                 "command": "echo hi",
                 "inhibit_mouse": True,
                 "timeout_ms": 100,
             },
-            speed=1.0,
+            1.0,
         )
 
-        assert manager.begin_mouse_rel_suppression.called is True
-        assert manager.end_mouse_rel_suppression.called is True
+        assert begin_mouse_rel_suppression.called is True
+        assert end_mouse_rel_suppression.called is True
         assert manager._macro_exec_waiters == {}
         callback.assert_awaited_once()
         assert callback.await_args.args[0] == CommandType.ACTION_TRIGGER
@@ -491,14 +515,16 @@ class TestReleaseScheduling:
         manager.grabbed_devices = {"hw": [fake_device]}
         fake_device.has_held_source_inputs = has_held
 
-        async def release_device(_hardware_id: str) -> None:
+        async def release_device(_manager, _hardware_id: str, *, log) -> None:
             await fake_device.release()
 
-        manager._release_device_unlocked = release_device
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(ldm, "release_device_unlocked", release_device)
 
-        manager._schedule_hardware_release_unlocked("hw", 0.001)
+        _runtime_schedule_hardware_release(manager, "hw", 0.001)
         task = manager._pending_hardware_release["hw"]
         await task
+        monkeypatch.undo()
 
         assert fake_device.release.await_count == 1
         assert holds["count"] >= 2
@@ -540,6 +566,278 @@ def _make_grabbed_device(
         mouse_uinput=mouse_uinput,  # type: ignore[arg-type]
         gamepad_uinput=gamepad_uinput,  # type: ignore[arg-type]
         **kwargs,
+    )
+
+
+async def _runtime_on_device_event(
+    manager: DeviceManager,
+    hardware_id: str,
+    evdev_path: str,
+    event_type: int,
+    event_code: int,
+    event_value: int,
+    stable_path: str | None = None,
+    source: str | None = None,
+):
+    return await cdm.on_device_event(
+        manager,
+        hardware_id,
+        evdev_path,
+        event_type,
+        event_code,
+        event_value,
+        stable_path,
+        source,
+        evdev_mod=dm.evdev,
+        resolve_stable_path_fn=dm.resolve_stable_path,
+        get_interface_id_fn=dm.get_interface_id,
+        combo_binding_cls=dm.RuntimeComboBinding,
+        combo_input_event_cls=ComboInputEvent,
+        int_value_fn=dm._int_value,
+        str_value_fn=dm._str_value,
+        time_mod=dm.time,
+        action_type_enum=dm.ActionType,
+        mapping_action_cls=dm.MappingAction,
+        emit_mouse_move_fn=dm.emit_mouse_move,
+        get_trigger_axis_fn=dm.get_trigger_axis,
+        resolve_code_fn=dm.resolve_output_code,
+        fire_and_observe_fn=dm._fire_and_observe,
+        command_type=dm.CommandType,
+        asyncio_mod=dm.asyncio,
+        contextlib_mod=dm.contextlib,
+        uinput_writer=dm._uinput_writer,
+    )
+
+
+async def _runtime_clear_combo_runtime(manager: DeviceManager) -> None:
+    await cdm.clear_combo_runtime(
+        manager,
+        asyncio_mod=dm.asyncio,
+        contextlib_mod=dm.contextlib,
+        mapping_action_cls=dm.MappingAction,
+        evdev_mod=dm.evdev,
+        uinput_writer=dm._uinput_writer,
+        emit_mouse_move_fn=dm.emit_mouse_move,
+        get_trigger_axis_fn=dm.get_trigger_axis,
+        resolve_code_fn=dm.resolve_output_code,
+        fire_and_observe_fn=dm._fire_and_observe,
+        command_type=dm.CommandType,
+        action_type_enum=dm.ActionType,
+        time_mod=dm.time,
+    )
+
+
+async def _runtime_clear_combo_scope(
+    manager: DeviceManager, hardware_id: str, source: str | None = None
+) -> None:
+    await cdm.clear_combo_runtime_for_binding_scope(
+        manager,
+        hardware_id,
+        source,
+        asyncio_mod=dm.asyncio,
+        contextlib_mod=dm.contextlib,
+        mapping_action_cls=dm.MappingAction,
+        evdev_mod=dm.evdev,
+        uinput_writer=dm._uinput_writer,
+        emit_mouse_move_fn=dm.emit_mouse_move,
+        get_trigger_axis_fn=dm.get_trigger_axis,
+        resolve_code_fn=dm.resolve_output_code,
+        fire_and_observe_fn=dm._fire_and_observe,
+        command_type=dm.CommandType,
+        action_type_enum=dm.ActionType,
+        time_mod=dm.time,
+    )
+
+
+def _runtime_refresh_combo_watchdog(manager: DeviceManager) -> None:
+    cdm.refresh_combo_timeout_watchdog(
+        manager,
+        asyncio_mod=dm.asyncio,
+        time_mod=dm.time,
+        action_type_enum=dm.ActionType,
+        mapping_action_cls=dm.MappingAction,
+        emit_mouse_move_fn=dm.emit_mouse_move,
+        get_trigger_axis_fn=dm.get_trigger_axis,
+        resolve_code_fn=dm.resolve_output_code,
+        fire_and_observe_fn=dm._fire_and_observe,
+        command_type=dm.CommandType,
+        contextlib_mod=dm.contextlib,
+        evdev_mod=dm.evdev,
+        uinput_writer=dm._uinput_writer,
+    )
+
+
+async def _runtime_combo_timeout_watchdog(manager: DeviceManager, deadline: float) -> None:
+    await cdm.combo_timeout_watchdog(
+        manager,
+        deadline,
+        asyncio_mod=dm.asyncio,
+        time_mod=dm.time,
+        action_type_enum=dm.ActionType,
+        mapping_action_cls=dm.MappingAction,
+        emit_mouse_move_fn=dm.emit_mouse_move,
+        get_trigger_axis_fn=dm.get_trigger_axis,
+        resolve_code_fn=dm.resolve_output_code,
+        fire_and_observe_fn=dm._fire_and_observe,
+        command_type=dm.CommandType,
+        contextlib_mod=dm.contextlib,
+        evdev_mod=dm.evdev,
+        uinput_writer=dm._uinput_writer,
+    )
+
+
+async def _runtime_run_macro_control_action(
+    manager: DeviceManager, ev: dict[str, object], speed: float
+) -> None:
+    await mdm.run_macro_control_action(
+        manager,
+        ev,
+        speed,
+        asyncio_mod=dm.asyncio,
+        contextlib_mod=dm.contextlib,
+        random_mod=dm.random,
+        uuid_mod=dm.uuid,
+        command_type=dm.CommandType,
+        str_value_fn=dm._str_value,
+        int_value_fn=dm._int_value,
+    )
+
+
+async def _runtime_topology_watch_loop(manager: DeviceManager) -> None:
+    await tdm.topology_watch_loop(
+        manager,
+        asyncio_mod=dm.asyncio,
+        log=dm.log,
+        live_interface_info_cls=dm.LiveInterfaceInfo,
+        clear_device_path_cache_fn=dm.clear_device_path_cache,
+        device_paths_fn=dm._device_paths,
+        device_input_fn=dm._device_input,
+        resolve_stable_path_fn=dm.resolve_stable_path,
+        get_interface_id_fn=dm.get_interface_id,
+    )
+
+
+def _runtime_schedule_topology_reconcile(
+    manager: DeviceManager,
+    snapshot: dict[str, dm.LiveInterfaceInfo],
+) -> None:
+    tdm.schedule_topology_reconcile(
+        manager,
+        snapshot,
+        asyncio_mod=dm.asyncio,
+        log=dm.log,
+    )
+
+
+def _runtime_parse_action(manager: DeviceManager, action: object) -> MappingAction:
+    return adm.parse_action(
+        manager,
+        action,
+        str_value=dm._str_value,
+        optional_str=dm._optional_str,
+        int_value=dm._int_value,
+        int_or_none=dm._int_or_none,
+        float_value=dm._float_value,
+    )
+
+
+def _runtime_schedule_hardware_release(
+    manager: DeviceManager,
+    hardware_id: str,
+    grace_s: float | None,
+) -> dict[str, object]:
+    return ldm.schedule_hardware_release_unlocked(
+        manager,
+        hardware_id,
+        grace_s,
+        asyncio_mod=dm.asyncio,
+        log=dm.log,
+    )
+
+
+async def _runtime_release_device_unlocked(
+    manager: DeviceManager,
+    hardware_id: str,
+) -> dict[str, object]:
+    return await ldm.release_device_unlocked(manager, hardware_id, log=dm.log)
+
+
+async def _runtime_delayed_interface_release(
+    manager: DeviceManager,
+    hardware_id: str,
+    path: str,
+    delay: float,
+) -> None:
+    await ldm.delayed_interface_release(
+        manager,
+        hardware_id,
+        path,
+        delay,
+        asyncio_mod=dm.asyncio,
+    )
+
+
+async def _runtime_release_interface_unlocked(
+    manager: DeviceManager,
+    hardware_id: str,
+    path: str,
+) -> None:
+    await ldm.release_interface_unlocked(manager, hardware_id, path)
+
+
+def _runtime_device_has_mapped_buttons(
+    caps: dict[int, object],
+    mapped_evdev_names: set[str],
+    mapped_codes: set[int] | None,
+) -> bool:
+    return ldm.device_has_mapped_buttons(
+        caps,
+        mapped_evdev_names,
+        mapped_codes,
+        evdev_mod=dm.evdev,
+    )
+
+
+async def _runtime_start_combo_action(
+    manager: DeviceManager,
+    combo_id: str,
+    action: MappingAction,
+    binding: dm.RuntimeComboBinding,
+    *,
+    resolve_code_fn: object = dm.resolve_output_code,
+) -> None:
+    await cdm.start_combo_action(
+        manager,
+        combo_id,
+        action,
+        binding,
+        action_type_enum=dm.ActionType,
+        asyncio_mod=dm.asyncio,
+        emit_mouse_move_fn=dm.emit_mouse_move,
+        get_trigger_axis_fn=dm.get_trigger_axis,
+        resolve_code_fn=resolve_code_fn,
+        fire_and_observe_fn=dm._fire_and_observe,
+        command_type=dm.CommandType,
+        evdev_mod=dm.evdev,
+        uinput_writer=dm._uinput_writer,
+    )
+
+
+async def _runtime_stop_combo_action(manager: DeviceManager, combo_id: str) -> None:
+    await cdm.stop_combo_action(
+        manager,
+        combo_id,
+        asyncio_mod=dm.asyncio,
+        contextlib_mod=dm.contextlib,
+        mapping_action_cls=dm.MappingAction,
+        evdev_mod=dm.evdev,
+        uinput_writer=dm._uinput_writer,
+        emit_mouse_move_fn=dm.emit_mouse_move,
+        get_trigger_axis_fn=dm.get_trigger_axis,
+        resolve_code_fn=dm.resolve_output_code,
+        fire_and_observe_fn=dm._fire_and_observe,
+        command_type=dm.CommandType,
+        action_type_enum=dm.ActionType,
     )
 
 
@@ -1295,17 +1593,19 @@ class TestRapidfireRelease:
         manager = DeviceManager(release_grace_s=0.001)
         fake_device = type("Device", (), {})()
         fake_device.release = AsyncMock()
+        monkeypatch = pytest.MonkeyPatch()
 
         async def release_interface(_hardware_id: str, _path: str) -> None:
             await fake_device.release()
 
         manager.grabbed_devices = {"hw": []}
         manager._desired_paths["hw"] = {"/dev/input/event0"}
-        manager._release_interface_unlocked = release_interface
+        monkeypatch.setattr(ldm, "release_interface_unlocked", release_interface)
 
-        await manager._delayed_interface_release("hw", "/dev/input/event0", 0.001)
+        await _runtime_delayed_interface_release(manager, "hw", "/dev/input/event0", 0.001)
 
         fake_device.release.assert_not_awaited()
+        monkeypatch.undo()
 
     @pytest.mark.asyncio
     async def test_release_interface_clears_scoped_combo_runtime_before_device_teardown(
@@ -1319,13 +1619,17 @@ class TestRapidfireRelease:
             release=AsyncMock(),
         )
         manager.grabbed_devices = {"hw": [fake_device]}
-        manager._clear_combo_runtime_for_binding_scope = AsyncMock()  # type: ignore[method-assign]
-        manager._clear_combo_runtime = AsyncMock()  # type: ignore[method-assign]
+        clear_combo_scope = AsyncMock()
+        clear_combo_runtime = AsyncMock()
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
+        monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
 
-        await manager._release_interface_unlocked("hw", "/dev/input/event0")
+        await _runtime_release_interface_unlocked(manager, "hw", "/dev/input/event0")
+        monkeypatch.undo()
 
-        manager._clear_combo_runtime_for_binding_scope.assert_awaited_once_with("hw", "mouse")
-        manager._clear_combo_runtime.assert_not_awaited()
+        clear_combo_scope.assert_awaited_once()
+        clear_combo_runtime.assert_not_awaited()
         fake_device.release_tracked_outputs.assert_called_once()
         fake_device.release.assert_awaited_once()
 
@@ -1348,9 +1652,11 @@ class TestRapidfireRelease:
             paths={"/dev/input/event0"},
             button_map={"btn_side": "btn_side"},
         )
-        manager._clear_combo_runtime_for_binding_scope = AsyncMock()  # type: ignore[method-assign]
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", AsyncMock())
 
-        await manager._release_interface_unlocked("hw", "/dev/input/event0")
+        await _runtime_release_interface_unlocked(manager, "hw", "/dev/input/event0")
+        monkeypatch.undo()
 
         assert manager.grabbed_devices == {}
         assert manager.active_mappings["hw"] == {"btn_side": action}
@@ -1364,15 +1670,20 @@ class TestRapidfireRelease:
         manager = DeviceManager()
         fake_device = SimpleNamespace(release=AsyncMock())
         manager.grabbed_devices = {"hw": [fake_device]}
-        manager._clear_combo_runtime_for_binding_scope = AsyncMock()  # type: ignore[method-assign]
-        manager._clear_combo_runtime = AsyncMock()  # type: ignore[method-assign]
-        manager._destroy_global_uinputs = Mock()
+        clear_combo_scope = AsyncMock()
+        clear_combo_runtime = AsyncMock()
+        destroy_global_uinputs = Mock()
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
+        monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
+        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
 
-        result = await manager._release_device_unlocked("hw")
+        result = await _runtime_release_device_unlocked(manager, "hw")
+        monkeypatch.undo()
 
         assert result == {"released": True, "hardware_id": "hw"}
-        manager._clear_combo_runtime_for_binding_scope.assert_awaited_once_with("hw")
-        manager._clear_combo_runtime.assert_not_awaited()
+        clear_combo_scope.assert_awaited_once()
+        clear_combo_runtime.assert_not_awaited()
         fake_device.release.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -1383,17 +1694,21 @@ class TestRapidfireRelease:
         manager._combo_engine.drop_candidates_for_binding_scope = Mock(  # type: ignore[method-assign]
             return_value={"combo-1"}
         )
-        manager.stop_combo_action = AsyncMock()  # type: ignore[method-assign]
-        manager._refresh_combo_timeout_watchdog = Mock()  # type: ignore[method-assign]
+        stop_combo_action = AsyncMock()
+        refresh_combo_timeout_watchdog = Mock()
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cdm, "stop_combo_action", stop_combo_action)
+        monkeypatch.setattr(cdm, "refresh_combo_timeout_watchdog", refresh_combo_timeout_watchdog)
 
-        await manager._clear_combo_runtime_for_binding_scope("1234:5678", "mouse")
+        await _runtime_clear_combo_scope(manager, "1234:5678", "mouse")
+        monkeypatch.undo()
 
         manager._combo_engine.drop_candidates_for_binding_scope.assert_called_once_with(
             "1234:5678",
             "mouse",
         )
-        manager.stop_combo_action.assert_awaited_once_with("combo-1")
-        manager._refresh_combo_timeout_watchdog.assert_called_once()
+        stop_combo_action.assert_awaited_once()
+        refresh_combo_timeout_watchdog.assert_called_once()
 
 
 class TestEventLoopRecovery:
@@ -1493,7 +1808,9 @@ class TestCombos:
             hardware_id="1234:5678",
             button_map={"key_f13": "key_f13"},
             mapping_getter=lambda: {},
-            event_callback=manager._on_device_event,
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
             device_type=DeviceType.KEYBOARD,
         )
 
@@ -1580,14 +1897,16 @@ class TestCombos:
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
 
-        pressed = await manager._on_device_event(
+        pressed = await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.BTN_SIDE,
             1,
         )
-        released = await manager._on_device_event(
+        released = await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
             evdev.ecodes.EV_KEY,
@@ -1638,7 +1957,8 @@ class TestCombos:
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
 
         result = await asyncio.wait_for(
-            manager._on_device_event(
+            _runtime_on_device_event(
+                manager,
                 "1234:5678",
                 "/dev/input/by-id/test-mouse",
                 evdev.ecodes.EV_KEY,
@@ -1681,14 +2001,16 @@ class TestCombos:
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
 
-        pressed = await manager._on_device_event(
+        pressed = await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_F13,
             1,
         )
-        released = await manager._on_device_event(
+        released = await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
@@ -1743,7 +2065,8 @@ class TestCombos:
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
 
-        pressed = await manager._on_device_event(
+        pressed = await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
@@ -1751,7 +2074,7 @@ class TestCombos:
             1,
         )
         await asyncio.sleep(0)
-        await manager._clear_combo_runtime()
+        await _runtime_clear_combo_runtime(manager)
 
         assert pressed is not None and pressed.consume_current_event is True
         assert manager._keyboard_uinput.writes == [
@@ -1793,7 +2116,8 @@ class TestCombos:
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
 
-        pressed = await manager._on_device_event(
+        pressed = await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
             evdev.ecodes.EV_KEY,
@@ -1801,7 +2125,7 @@ class TestCombos:
             1,
         )
         await asyncio.sleep(0)
-        await manager._clear_combo_runtime()
+        await _runtime_clear_combo_runtime(manager)
 
         assert pressed is not None and pressed.consume_current_event is True
         assert manager._gamepad_uinput.writes == [
@@ -1849,14 +2173,16 @@ class TestCombos:
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
 
-        await manager._on_device_event(
+        await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_A,
             1,
         )
-        await manager._on_device_event(
+        await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
@@ -1906,14 +2232,16 @@ class TestCombos:
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
 
-        await manager._on_device_event(
+        await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_LEFTALT,
             1,
         )
-        await manager._on_device_event(
+        await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
@@ -1969,7 +2297,9 @@ class TestCombos:
                 "key_1": "key_1",
             },
             mapping_getter=lambda: {},
-            event_callback=manager._on_device_event,
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
             device_type=DeviceType.KEYBOARD,
             keyboard_uinput=manager._keyboard_uinput,  # type: ignore[arg-type]
             mouse_uinput=_FakeUInput(),  # type: ignore[arg-type]
@@ -2035,14 +2365,16 @@ class TestCombos:
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
 
-        await manager._on_device_event(
+        await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_F13,
             1,
         )
-        await manager._on_device_event(
+        await _runtime_on_device_event(
+            manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
             evdev.ecodes.EV_KEY,
@@ -2138,9 +2470,9 @@ class TestSuperkeys:
         mapping_state = {
             "btn_side": dm.MappingAction(
                 action_type=ActionType.SUPERKEY,
-                superkey_config=dm.SuperkeyConfig(
+                superkey_config=SuperkeyConfig(
                     name="test",
-                    tap_action=dm.SuperkeyActionData(action_type="keyboard", target="key_a"),
+                    tap_action=SuperkeyActionData(action_type="keyboard", target="key_a"),
                 ),
             )
         }
@@ -2185,10 +2517,10 @@ class TestSuperkeys:
         monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
 
-        shared_config = dm.SuperkeyConfig(
+        shared_config = SuperkeyConfig(
             name="shared",
             hold_threshold_ms=0,
-            hold_action=dm.SuperkeyActionData(action_type="keyboard", target="key_a"),
+            hold_action=SuperkeyActionData(action_type="keyboard", target="key_a"),
         )
         mapping_state = {
             "btn_side": dm.MappingAction(
@@ -2315,9 +2647,9 @@ class TestSuperkeys:
         mapping_state = {
             "btn_side": dm.MappingAction(
                 action_type=ActionType.SUPERKEY,
-                superkey_config=dm.SuperkeyConfig(
+                superkey_config=SuperkeyConfig(
                     name="test",
-                    tap_action=dm.SuperkeyActionData(action_type="exec", exec_ref=7),
+                    tap_action=SuperkeyActionData(action_type="exec", exec_ref=7),
                 ),
             )
         }
@@ -2436,15 +2768,22 @@ class TestDeviceManagerHelpers:
                 return False
 
         manager = DeviceManager()
-        manager._create_global_uinputs = Mock()
-        manager._destroy_global_uinputs = Mock()
-        manager._schedule_interface_release = Mock()
-        manager._cancel_pending_interface_release = Mock()
-        manager._clear_combo_runtime_for_binding_scope = AsyncMock()  # type: ignore[method-assign]
+        create_global_uinputs = Mock()
+        destroy_global_uinputs = Mock()
+        schedule_interface_release = Mock()
+        cancel_pending_interface_release = Mock()
 
         monkeypatch.setattr(dm.evdev, "InputDevice", _RawInputDevice)
         monkeypatch.setattr(dm, "GrabbedDevice", _FakeManagedDevice)
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", create_global_uinputs)
+        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
+        monkeypatch.setattr(ldm, "schedule_interface_release", schedule_interface_release)
+        monkeypatch.setattr(
+            ldm,
+            "cancel_pending_interface_release",
+            cancel_pending_interface_release,
+        )
 
         first = await manager.grab_device(
             "1234:5678",
@@ -2466,14 +2805,16 @@ class TestDeviceManagerHelpers:
             "waiting_for_device": False,
         }
         assert second["grabbed_count"] == 2
-        manager._create_global_uinputs.assert_called_once()
-        manager._cancel_pending_interface_release.assert_called_once_with(
-            "1234:5678",
-            "/dev/input/event1",
+        create_global_uinputs.assert_called_once()
+        cancel_pending_interface_release.assert_called_once_with(
+            manager, "1234:5678", "/dev/input/event1"
         )
-        manager._schedule_interface_release.assert_called_once_with(
+        schedule_interface_release.assert_called_once_with(
+            manager,
             "1234:5678",
             "/dev/input/event0",
+            asyncio_mod=dm.asyncio,
+            log=ldm.log,
         )
         assert created["/dev/input/event1"].button_map_updates == [{"right": "btn_side"}]
         assert created["/dev/input/event1"].button_code_updates == [{}]
@@ -2483,14 +2824,15 @@ class TestDeviceManagerHelpers:
         assert manager.grabbed_devices == {}
         assert manager.active_mappings == {}
         assert manager._desired_paths == {}
-        manager._destroy_global_uinputs.assert_called_once()
+        destroy_global_uinputs.assert_called_once()
 
     def test_parse_action_supports_string_and_hyprland_dispatch_alias(self) -> None:
         manager = DeviceManager()
 
-        string_action = manager._parse_action("key_a")
-        dispatch_action = manager._parse_action(
-            {"action": "hyprland_dispatch", "dispatcher": "workspace", "args": "2"}
+        string_action = _runtime_parse_action(manager, "key_a")
+        dispatch_action = _runtime_parse_action(
+            manager,
+            {"action": "hyprland_dispatch", "dispatcher": "workspace", "args": "2"},
         )
 
         assert string_action.action_type == ActionType.KEYBOARD
@@ -2503,8 +2845,11 @@ class TestDeviceManagerHelpers:
     @pytest.mark.asyncio
     async def test_set_combos_skips_malformed_entries_and_parses_timeout(self) -> None:
         manager = DeviceManager()
-        manager._clear_combo_runtime = AsyncMock()  # type: ignore[method-assign]
-        manager._refresh_combo_timeout_watchdog = Mock()  # type: ignore[method-assign]
+        clear_combo_runtime = AsyncMock()
+        refresh_combo_timeout_watchdog = Mock()
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
+        monkeypatch.setattr(cdm, "refresh_combo_timeout_watchdog", refresh_combo_timeout_watchdog)
 
         result = await manager.set_combos(
             [
@@ -2535,8 +2880,9 @@ class TestDeviceManagerHelpers:
         assert result == {"updated": True, "combo_count": 1}
         assert len(manager.active_combos) == 1
         assert manager.active_combos[0].steps[0].timeout_ms == 250
-        manager._clear_combo_runtime.assert_awaited_once()
-        manager._refresh_combo_timeout_watchdog.assert_called_once()
+        clear_combo_runtime.assert_awaited_once()
+        refresh_combo_timeout_watchdog.assert_called_once()
+        monkeypatch.undo()
 
     @pytest.mark.asyncio
     async def test_schedule_topology_reconcile_logs_failures_and_clears_task(
@@ -2550,11 +2896,12 @@ class TestDeviceManagerHelpers:
         async def fake_sleep(_delay: float) -> None:
             return
 
-        manager._reconcile_topology = AsyncMock(side_effect=RuntimeError("reconcile boom"))  # type: ignore[assignment]
+        reconcile_topology = AsyncMock(side_effect=RuntimeError("reconcile boom"))
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(tdm, "reconcile_topology", reconcile_topology)
 
         with caplog.at_level(logging.WARNING, logger="keyforged.devices"):
-            manager._schedule_topology_reconcile(snapshot)
+            _runtime_schedule_topology_reconcile(manager, snapshot)
             task = manager._topology_reconcile_task
             assert task is not None
             await task
@@ -2586,7 +2933,7 @@ class TestDeviceManagerHelpers:
         manager._combo_timeout_task = previous
         manager._combo_engine.next_deadline = Mock(return_value=None)  # type: ignore[method-assign]
 
-        manager._refresh_combo_timeout_watchdog()
+        _runtime_refresh_combo_watchdog(manager)
         await asyncio.sleep(0)
 
         assert previous.cancelled() is True
@@ -2595,16 +2942,19 @@ class TestDeviceManagerHelpers:
         replacement = asyncio.create_task(asyncio.sleep(60))
         manager._combo_timeout_task = replacement
         manager._combo_engine.next_deadline = Mock(return_value=42.0)  # type: ignore[method-assign]
-        manager._combo_timeout_watchdog = AsyncMock()  # type: ignore[method-assign]
+        combo_timeout_watchdog = AsyncMock()
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cdm, "combo_timeout_watchdog", combo_timeout_watchdog)
 
-        manager._refresh_combo_timeout_watchdog()
+        _runtime_refresh_combo_watchdog(manager)
         await asyncio.sleep(0)
 
         assert replacement.cancelled() is True
-        manager._combo_timeout_watchdog.assert_awaited_once_with(42.0)
+        combo_timeout_watchdog.assert_awaited_once()
         manager._combo_timeout_task.cancel()
         await asyncio.sleep(0)
         assert manager._combo_timeout_task.done() is True
+        monkeypatch.undo()
 
     @pytest.mark.asyncio
     async def test_combo_timeout_watchdog_expires_and_clears_current_task(
@@ -2614,14 +2964,16 @@ class TestDeviceManagerHelpers:
         manager = DeviceManager()
         manager._combo_engine.expire_timeouts = Mock()  # type: ignore[method-assign]
         refreshes: list[str] = []
-        manager._refresh_combo_timeout_watchdog = Mock(  # type: ignore[method-assign]
-            side_effect=lambda: refreshes.append("refresh")
+        monkeypatch.setattr(
+            cdm,
+            "refresh_combo_timeout_watchdog",
+            Mock(side_effect=lambda *args, **kwargs: refreshes.append("refresh")),
         )
 
         monkeypatch.setattr(dm.time, "monotonic", lambda: 10.0)
         monkeypatch.setattr(dm.asyncio, "sleep", AsyncMock())
 
-        task = asyncio.create_task(manager._combo_timeout_watchdog(10.5))
+        task = asyncio.create_task(_runtime_combo_timeout_watchdog(manager, 10.5))
         manager._combo_timeout_task = task
         await task
 
@@ -2652,12 +3004,11 @@ class TestGrabbedDeviceHelpers:
         assert device._find_action_for_event(event, mapping) == mapping["south"]
 
     def test_device_has_mapped_buttons_matches_by_code_when_names_differ(self) -> None:
-        manager = DeviceManager()
         caps = {
             evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
         }
 
-        assert manager._device_has_mapped_buttons(
+        assert _runtime_device_has_mapped_buttons(
             caps,
             {"btn_south"},
             {evdev.ecodes.BTN_SOUTH},
@@ -3037,7 +3388,7 @@ class TestGrabbedDeviceHelpers:
         device = _make_grabbed_device(monkeypatch)
         move_calls: list[tuple[str, int]] = []
         fake_machine = SimpleNamespace(on_down=AsyncMock(), on_up=AsyncMock())
-        created_configs: list[dm.SuperkeyConfig] = []
+        created_configs: list[SuperkeyConfig] = []
 
         monkeypatch.setattr(
             gdm,
@@ -3061,9 +3412,9 @@ class TestGrabbedDeviceHelpers:
 
         superkey_action = dm.MappingAction(
             action_type=ActionType.SUPERKEY,
-            superkey_config=dm.SuperkeyConfig(
+            superkey_config=SuperkeyConfig(
                 name="super",
-                tap_action=dm.SuperkeyActionData(action_type="exec", exec_ref=4),
+                tap_action=SuperkeyActionData(action_type="exec", exec_ref=4),
             ),
         )
         tap_move_action = dm.MappingAction(
@@ -3092,20 +3443,27 @@ class TestComboActionDispatch:
         manager._mouse_uinput = _FakeUInput()
         manager._gamepad_uinput = _FakeUInput()
         manager.play_macro = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
-        manager._broadcast_combo_action = AsyncMock()  # type: ignore[method-assign]
-        manager._emit_combo_mouse_move = Mock()  # type: ignore[method-assign]
-        manager._resolve_code = Mock(return_value=evdev.ecodes.BTN_SOUTH)  # type: ignore[method-assign]
-        manager._combo_tap_trigger = AsyncMock()  # type: ignore[method-assign]
-        manager._combo_rapidfire_trigger = AsyncMock()  # type: ignore[method-assign]
+        broadcast_combo_action = AsyncMock()
+        emit_combo_mouse_move = Mock()
+        resolve_code = Mock(return_value=evdev.ecodes.BTN_SOUTH)
+        combo_tap_trigger = AsyncMock()
+        combo_rapidfire_trigger = AsyncMock()
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cdm, "broadcast_combo_action", broadcast_combo_action)
+        monkeypatch.setattr(cdm, "emit_combo_mouse_move", emit_combo_mouse_move)
+        monkeypatch.setattr(cdm, "combo_tap_trigger", combo_tap_trigger)
+        monkeypatch.setattr(cdm, "combo_rapidfire_trigger", combo_rapidfire_trigger)
 
         binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="mouse", evdev="btn_side")
 
-        await manager.start_combo_action(
+        await _runtime_start_combo_action(
+            manager,
             "mouse-move",
             dm.MappingAction(action_type=ActionType.MOUSE_MOVE_REL, move_x=3, move_y=-1),
             binding,
         )
-        await manager.start_combo_action(
+        await _runtime_start_combo_action(
+            manager,
             "macro",
             dm.MappingAction(
                 action_type=ActionType.MACRO,
@@ -3114,12 +3472,14 @@ class TestComboActionDispatch:
             ),
             binding,
         )
-        await manager.start_combo_action(
+        await _runtime_start_combo_action(
+            manager,
             "exec",
             dm.MappingAction(action_type=ActionType.EXEC, exec_ref=9),
             binding,
         )
-        await manager.start_combo_action(
+        await _runtime_start_combo_action(
+            manager,
             "dispatch",
             dm.MappingAction(
                 action_type=ActionType.COMPOSITOR_DISPATCH,
@@ -3128,23 +3488,28 @@ class TestComboActionDispatch:
             ),
             binding,
         )
-        await manager.start_combo_action(
+        await _runtime_start_combo_action(
+            manager,
             "record",
             dm.MappingAction(action_type=ActionType.START_MACRO_RECORDING),
             binding,
         )
-        await manager.start_combo_action(
+        await _runtime_start_combo_action(
+            manager,
             "profile",
             dm.MappingAction(action_type=ActionType.PROFILE_ENABLE, profile_name="Gaming"),
             binding,
         )
-        await manager.start_combo_action(
+        await _runtime_start_combo_action(
+            manager,
             "trigger",
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt"),
             binding,
+            resolve_code_fn=resolve_code,
         )
-        await manager.stop_combo_action("trigger")
-        await manager.start_combo_action(
+        await _runtime_stop_combo_action(manager, "trigger")
+        await _runtime_start_combo_action(
+            manager,
             "tap-trigger",
             dm.MappingAction(
                 action_type=ActionType.GAMEPAD,
@@ -3153,9 +3518,11 @@ class TestComboActionDispatch:
                 tap_hold_ms=25,
             ),
             binding,
+            resolve_code_fn=resolve_code,
         )
-        await manager.stop_combo_action("tap-trigger")
-        await manager.start_combo_action(
+        await _runtime_stop_combo_action(manager, "tap-trigger")
+        await _runtime_start_combo_action(
+            manager,
             "rapid-trigger",
             dm.MappingAction(
                 action_type=ActionType.GAMEPAD,
@@ -3165,16 +3532,18 @@ class TestComboActionDispatch:
                 rapidfire_wait_ms=10,
             ),
             binding,
+            resolve_code_fn=resolve_code,
         )
-        await manager.stop_combo_action("rapid-trigger")
-        await manager.stop_combo_action("macro")
+        await _runtime_stop_combo_action(manager, "rapid-trigger")
+        await _runtime_stop_combo_action(manager, "macro")
 
-        manager._emit_combo_mouse_move.assert_called_once()
+        emit_combo_mouse_move.assert_called_once()
         assert manager.play_macro.await_count == 2
         assert manager.play_macro.await_args_list[0].kwargs["trigger_value"] == 1
         assert manager.play_macro.await_args_list[1].kwargs["trigger_value"] == 0
-        assert manager._broadcast_combo_action.await_count == 4
+        assert broadcast_combo_action.await_count == 4
         assert manager._gamepad_uinput.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
         ]
+        monkeypatch.undo()

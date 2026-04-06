@@ -1,13 +1,47 @@
 from typing import Any
 
+from keyforge.keyforged.runtime import grab_lifecycle
 
-async def start_topology_watcher(manager: Any, *, asyncio_mod: Any) -> None:
+
+async def start_topology_watcher(
+    manager: Any,
+    *,
+    asyncio_mod: Any,
+    log: Any,
+    live_interface_info_cls: Any,
+    clear_device_path_cache_fn: Any,
+    device_paths_fn: Any,
+    device_input_fn: Any,
+    resolve_stable_path_fn: Any,
+    get_interface_id_fn: Any,
+) -> None:
     if manager._topology_task is not None and not manager._topology_task.done():
         return
-    snapshot = await asyncio_mod.to_thread(manager._scan_live_interfaces_sync)
+    snapshot = await asyncio_mod.to_thread(
+        scan_live_interfaces_sync,
+        live_interface_info_cls=live_interface_info_cls,
+        clear_device_path_cache_fn=clear_device_path_cache_fn,
+        device_paths_fn=device_paths_fn,
+        device_input_fn=device_input_fn,
+        resolve_stable_path_fn=resolve_stable_path_fn,
+        get_interface_id_fn=get_interface_id_fn,
+        log=log,
+    )
     manager._live_topology_snapshot = dict(snapshot)
     manager._reconciled_topology_snapshot = dict(snapshot)
-    manager._topology_task = asyncio_mod.create_task(manager._topology_watch_loop())
+    manager._topology_task = asyncio_mod.create_task(
+        topology_watch_loop(
+            manager,
+            asyncio_mod=asyncio_mod,
+            log=log,
+            live_interface_info_cls=live_interface_info_cls,
+            clear_device_path_cache_fn=clear_device_path_cache_fn,
+            device_paths_fn=device_paths_fn,
+            device_input_fn=device_input_fn,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+            get_interface_id_fn=get_interface_id_fn,
+        )
+    )
 
 
 async def stop_topology_watcher(manager: Any, *, asyncio_mod: Any, contextlib_mod: Any) -> None:
@@ -26,12 +60,32 @@ async def stop_topology_watcher(manager: Any, *, asyncio_mod: Any, contextlib_mo
             await reconcile_task
 
 
-async def topology_watch_loop(manager: Any, *, asyncio_mod: Any, log: Any) -> None:
+async def topology_watch_loop(
+    manager: Any,
+    *,
+    asyncio_mod: Any,
+    log: Any,
+    live_interface_info_cls: Any,
+    clear_device_path_cache_fn: Any,
+    device_paths_fn: Any,
+    device_input_fn: Any,
+    resolve_stable_path_fn: Any,
+    get_interface_id_fn: Any,
+) -> None:
     try:
         while True:
             await asyncio_mod.sleep(manager._topology_poll_s)
             try:
-                snapshot = await asyncio_mod.to_thread(manager._scan_live_interfaces_sync)
+                snapshot = await asyncio_mod.to_thread(
+                    scan_live_interfaces_sync,
+                    live_interface_info_cls=live_interface_info_cls,
+                    clear_device_path_cache_fn=clear_device_path_cache_fn,
+                    device_paths_fn=device_paths_fn,
+                    device_input_fn=device_input_fn,
+                    resolve_stable_path_fn=resolve_stable_path_fn,
+                    get_interface_id_fn=get_interface_id_fn,
+                    log=log,
+                )
             except asyncio_mod.CancelledError:
                 raise
             except Exception as exc:
@@ -40,13 +94,13 @@ async def topology_watch_loop(manager: Any, *, asyncio_mod: Any, log: Any) -> No
 
             if snapshot != manager._live_topology_snapshot:
                 manager._live_topology_snapshot = dict(snapshot)
-                manager._schedule_topology_reconcile(snapshot)
+                schedule_topology_reconcile(manager, snapshot, asyncio_mod=asyncio_mod, log=log)
                 continue
 
             if snapshot != manager._reconciled_topology_snapshot and (
                 manager._topology_reconcile_task is None or manager._topology_reconcile_task.done()
             ):
-                manager._schedule_topology_reconcile(snapshot)
+                schedule_topology_reconcile(manager, snapshot, asyncio_mod=asyncio_mod, log=log)
     except asyncio_mod.CancelledError:
         raise
 
@@ -65,7 +119,7 @@ def schedule_topology_reconcile(
     async def _run() -> None:
         try:
             await asyncio_mod.sleep(manager._topology_debounce_s)
-            await manager._reconcile_topology(snapshot)
+            await reconcile_topology(manager, snapshot, log=log)
         except asyncio_mod.CancelledError:
             raise
         except Exception as exc:
@@ -82,8 +136,8 @@ async def reconcile_topology(manager: Any, snapshot: dict[str, Any], *, log: Any
     async with manager._op_lock:
         previous = dict(manager._reconciled_topology_snapshot)
         desired_hardware_ids = set(manager._desired_grabs)
-        events = manager._build_topology_events(previous, snapshot, desired_hardware_ids)
-        await manager._reconcile_topology_unlocked(snapshot)
+        events = build_topology_events(manager, previous, snapshot, desired_hardware_ids)
+        await reconcile_topology_unlocked(manager, snapshot)
         manager._reconciled_topology_snapshot = dict(snapshot)
 
     for event_type, payload in events:
@@ -106,7 +160,7 @@ async def reconcile_topology_unlocked(manager: Any, snapshot: dict[str, Any]) ->
                 removed.append((hardware_id, device.path))
 
     for hardware_id, path in removed:
-        await manager._release_interface_unlocked(hardware_id, path)
+        await grab_lifecycle.release_interface_unlocked(manager, hardware_id, path)
 
 
 def build_topology_events(
@@ -121,17 +175,13 @@ def build_topology_events(
         info = previous[stable_path]
         if info.hardware_id not in desired_hardware_ids:
             continue
-        events.append(
-            (manager._command_type.DEVICE_DISCONNECTED, manager._live_interface_payload(info))
-        )
+        events.append((manager._command_type.DEVICE_DISCONNECTED, live_interface_payload(info)))
 
     for stable_path in sorted(current.keys() - previous.keys()):
         info = current[stable_path]
         if info.hardware_id not in desired_hardware_ids:
             continue
-        events.append(
-            (manager._command_type.DEVICE_CONNECTED, manager._live_interface_payload(info))
-        )
+        events.append((manager._command_type.DEVICE_CONNECTED, live_interface_payload(info)))
 
     return events
 

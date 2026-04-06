@@ -1,5 +1,3 @@
-# pyright: reportPrivateUsage=false
-
 import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
@@ -32,7 +30,7 @@ async def handle_session_request(
     writer: asyncio.StreamWriter,
 ) -> JsonObject:
     command = str_value(request.get("command"), "")
-    policy = manager._security_policy
+    policy = manager.security_policy
 
     if not command_allowed(command, policy.session_command_acl, client_class):
         return {
@@ -101,12 +99,12 @@ async def _handle_profile_commands(
         return await runtime_profiles.set_profile_enabled(manager, profile_name, enabled)
 
     if command == "reload":
-        await manager._reload_profiles()
+        await manager.reload_profiles()
         return {"status": "ok"}
 
     if command in {"reevaluate_profiles", "reevaluate_hardware"}:
         log.info("Global profile reevaluate requested")
-        await asyncio.to_thread(manager._reload_config_from_disk)
+        await asyncio.to_thread(manager.reload_config_from_disk)
         await runtime_profiles.reevaluate_profiles(manager)
         return {"status": "ok"}
 
@@ -143,10 +141,10 @@ async def _handle_compositor_commands(
         unlock_status = await runtime_recording.resolve_unlock_status_async(manager, peer.uid)
         compositor_status = await runtime_compositor.build_compositor_payload(manager)
         compositor_details = cast(dict[str, object], compositor_status["details"])
-        policy = manager._security_policy
+        policy = manager.security_policy
         return {
             "status": "ok",
-            "keyforged_connected": manager._connected,
+            "keyforged_connected": manager.connected,
             "compositor_id": compositor_status["compositor_id"],
             "compositor_name": compositor_status["compositor_name"],
             "compositor_supported": bool(compositor_status["supported"]),
@@ -277,7 +275,7 @@ async def _handle_macro_commands(
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             created = json_object(result_data.get("macro")) or {}
-            manager._broadcast_to_session_clients(
+            manager.broadcast_to_session_clients(
                 {"event": "macro_saved", "name": str_value(created.get("name"), "")}
             )
             return {"status": "ok", "macro": created}
@@ -300,7 +298,7 @@ async def _handle_macro_commands(
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             updated = json_object(result_data.get("macro")) or {}
-            manager._broadcast_to_session_clients(
+            manager.broadcast_to_session_clients(
                 {"event": "macro_saved", "name": str_value(updated.get("name"), name)}
             )
             return {"status": "ok", "macro": updated}
@@ -319,7 +317,7 @@ async def _handle_macro_commands(
             return {"status": "error", "message": "Daemon unavailable"}
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to delete macro"}
-        await manager._reload_profiles()
+        await manager.reload_profiles()
         return {"status": "ok"}
 
     if command == "rename_macro":
@@ -337,7 +335,7 @@ async def _handle_macro_commands(
             return {"status": "error", "message": "Daemon unavailable"}
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to rename macro"}
-        await manager._reload_profiles()
+        await manager.reload_profiles()
         result_data = json_object(result.data)
         if result_data is not None:
             return {"status": "ok", "macro": result_data.get("macro")}

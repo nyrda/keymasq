@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 
+from keyforge.session.listeners.base import WindowListener
 from keyforge.session.profiles import ResolvedDeviceProfile
 
 from .common import JsonObject
@@ -64,3 +65,22 @@ class ExecRuntimeState:
     combo_exec_refs: set[int] = field(default_factory=set)
     superkey_exec_refs: dict[int, tuple[str, str]] = field(default_factory=dict)
     next_superkey_exec_ref: int = 10000
+
+
+@dataclass
+class CompositorRuntimeState:
+    current_window: JsonObject = field(default_factory=dict)
+    window_listener: WindowListener | None = None
+    compositor_id: str | None = None
+    compositor_capabilities: list[str] = field(default_factory=list)
+    supervisor_task: asyncio.Task[None] | None = None
+    candidate: str | None = None
+    candidate_hits: int = 0
+    probe_fast_s: float = 1.0
+    probe_slow_s: float = 5.0
+    listener_retry_after: dict[str, float] = field(default_factory=dict)
+    listener_last_error: dict[str, str] = field(default_factory=dict)
+    listener_last_log_at: dict[str, float] = field(default_factory=dict)
+    listener_retry_interval_s: float = 30.0
+    listener_log_interval_s: float = 60.0
+    last_listener_start_error: str = ""

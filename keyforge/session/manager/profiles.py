@@ -1,5 +1,3 @@
-# pyright: reportPrivateUsage=false
-
 import asyncio
 import logging
 import traceback
@@ -40,7 +38,7 @@ async def set_profile_enabled(
         enabled,
     )
     if profile is None:
-        manager._send_notification(
+        manager.send_notification(
             "Keyforge: Profile Not Found",
             f"Profile '{profile_name}' was not found.",
         )
@@ -70,7 +68,7 @@ def build_active_profiles_payload(manager: "SessionManager") -> JsonObject:
             }
             for hardware_id, resolved in sorted(manager.profile_state.resolved_devices.items())
         },
-        "window": manager._current_window,
+        "window": manager.compositor_state.current_window,
     }
 
 
@@ -204,8 +202,8 @@ def schedule_topology_refresh(
 async def reevaluate_profiles(manager: "SessionManager") -> None:
     hardware_ids = manager.hardware.list_hardware_ids()
     resolved = manager.profiles.resolve_active_profiles(
-        manager._current_window,
-        manager._compositor_capabilities,
+        manager.compositor_state.current_window,
+        manager.compositor_state.compositor_capabilities,
         hardware_ids=hardware_ids,
     )
     manager.profile_state.active_profile_names = [
@@ -232,7 +230,7 @@ async def reevaluate_profiles(manager: "SessionManager") -> None:
         manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
 
     await update_combos(manager, resolved.combos)
-    manager._broadcast_to_session_clients(
+    manager.broadcast_to_session_clients(
         {"event": "profiles_changed", **build_active_profiles_payload(manager)}
     )
 
@@ -319,7 +317,7 @@ async def apply_resolved_device_profile(
                     "hardware_id": hardware_id,
                     "evdev_paths": list(new_interfaces.values()),
                     "button_map": {b.id: b.evdev for b in hardware_config.buttons},
-                    "button_codes": manager._resolved_button_codes(hardware_config.buttons),
+                    "button_codes": manager.resolved_button_codes(hardware_config.buttons),
                     "button_sources": {b.id: b.source for b in hardware_config.buttons if b.source},
                     "force_grab_unmapped": bool(resolved.combo_event_count),
                 },
@@ -367,7 +365,7 @@ async def apply_resolved_device_profile(
         )
         traceback.print_exc()
         if isinstance(e, TimeoutError):
-            manager._send_notification(
+            manager.send_notification(
                 "Keyforge: Grab Timed Out",
                 (
                     f"{device_name_for_hardware(manager, hardware_id)}: grab timed out while "
@@ -565,7 +563,7 @@ def maybe_notify_profile_activation(
     if not resolved.notify_profiles:
         return
     profile_list = ", ".join(resolved.active_profile_names) or "passthrough"
-    manager._send_notification("Profile Activated", f"{device_name}: {profile_list}")
+    manager.send_notification("Profile Activated", f"{device_name}: {profile_list}")
 
 
 def device_name_for_hardware(manager: "SessionManager", hardware_id: str) -> str:

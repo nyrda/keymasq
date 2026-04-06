@@ -31,7 +31,6 @@ from keyforge.session.action_handler import ActionHandler
 from keyforge.session.client import KeyforgedClient
 from keyforge.session.dbus import SessionDBus
 from keyforge.session.hardware import HardwareManager
-from keyforge.session.listeners.base import WindowListener
 from keyforge.session.profiles import ProfileManager
 from keyforge.session.superkeys import SuperkeyManager
 
@@ -43,6 +42,7 @@ from . import recording as runtime_recording
 from .common import JsonObject
 from .state import (
     CaptureRuntimeState,
+    CompositorRuntimeState,
     ExecRuntimeState,
     ProfileRuntimeState,
     RecordingRuntimeState,
@@ -57,8 +57,10 @@ TOPOLOGY_REFRESH_RETRY_S = 1.0
 
 
 class SessionManager:
-    _RECORDING_SETTINGS_PATH = CONFIG_DIR / "recording_settings.json"
-    _MAX_SESSION_CLIENT_BUFFER_BYTES = 16 * 1024 * 1024
+    RECORDING_SETTINGS_PATH = CONFIG_DIR / "recording_settings.json"
+    _RECORDING_SETTINGS_PATH = RECORDING_SETTINGS_PATH
+    MAX_SESSION_CLIENT_BUFFER_BYTES = 16 * 1024 * 1024
+    _MAX_SESSION_CLIENT_BUFFER_BYTES = MAX_SESSION_CLIENT_BUFFER_BYTES
 
     def __init__(self, verbosity: int = 0) -> None:
         async def _client_event_handler(event_type: CommandType, data: JsonObject) -> None:
@@ -72,41 +74,203 @@ class SessionManager:
         self.running = False
         self._shutdown_event = asyncio.Event()
         self._retry_event = asyncio.Event()
-        self._connected = False
-        self._reload_task: asyncio.Task[None] | None = None
-        self._reload_pending = False
+        self.connected = False
+        self.reload_task: asyncio.Task[None] | None = None
+        self.reload_pending = False
         self.verbosity = verbosity
 
         self.profile_state = ProfileRuntimeState()
-        self._current_window: JsonObject = {}
-        self._window_listener: WindowListener | None = None
-        self._compositor_id: str | None = None
-        self._compositor_capabilities: list[str] = []
-        self._compositor_supervisor_task: asyncio.Task[None] | None = None
-        self._connect_task: asyncio.Task[None] | None = None
-        self._compositor_candidate: str | None = None
-        self._compositor_candidate_hits: int = 0
-        self._compositor_probe_fast_s: float = 1.0
-        self._compositor_probe_slow_s: float = 5.0
-        self._listener_retry_after: dict[str, float] = {}
-        self._listener_last_error: dict[str, str] = {}
-        self._listener_last_log_at: dict[str, float] = {}
-        self._listener_retry_interval_s: float = 30.0
-        self._listener_log_interval_s: float = 60.0
-        self._last_listener_start_error: str = ""
-        self._session_server: asyncio.Server | None = None
-        self._session_clients: set[asyncio.StreamWriter] = set()
-        self._session_client_peers: dict[asyncio.StreamWriter, PeerCredentials] = {}
+        self.compositor_state = CompositorRuntimeState()
+        self.connect_task: asyncio.Task[None] | None = None
+        self.session_server: asyncio.Server | None = None
+        self.session_clients: set[asyncio.StreamWriter] = set()
+        self.session_client_peers: dict[asyncio.StreamWriter, PeerCredentials] = {}
         self.capture_state = CaptureRuntimeState()
 
         self.exec_state = ExecRuntimeState()
         self.recording_state = RecordingRuntimeState()
         self.unlock_state = UnlockRuntimeState()
         runtime_recording.load_recording_settings_from_disk(self)
-        self._security_policy: SecurityPolicy = load_security_policy(SECURITY_POLICY_PATH)
+        self.security_policy: SecurityPolicy = load_security_policy(SECURITY_POLICY_PATH)
         self.dbus = SessionDBus()
 
         self.action_handler = ActionHandler()
+
+    @property
+    def _security_policy(self) -> SecurityPolicy:
+        return self.security_policy
+
+    @_security_policy.setter
+    def _security_policy(self, value: SecurityPolicy) -> None:
+        self.security_policy = value
+
+    @property
+    def _connected(self) -> bool:
+        return self.connected
+
+    @_connected.setter
+    def _connected(self, value: bool) -> None:
+        self.connected = value
+
+    @property
+    def _reload_task(self) -> asyncio.Task[None] | None:
+        return self.reload_task
+
+    @_reload_task.setter
+    def _reload_task(self, value: asyncio.Task[None] | None) -> None:
+        self.reload_task = value
+
+    @property
+    def _reload_pending(self) -> bool:
+        return self.reload_pending
+
+    @_reload_pending.setter
+    def _reload_pending(self, value: bool) -> None:
+        self.reload_pending = value
+
+    @property
+    def _connect_task(self) -> asyncio.Task[None] | None:
+        return self.connect_task
+
+    @_connect_task.setter
+    def _connect_task(self, value: asyncio.Task[None] | None) -> None:
+        self.connect_task = value
+
+    @property
+    def _session_server(self) -> asyncio.Server | None:
+        return self.session_server
+
+    @_session_server.setter
+    def _session_server(self, value: asyncio.Server | None) -> None:
+        self.session_server = value
+
+    @property
+    def _session_clients(self) -> set[asyncio.StreamWriter]:
+        return self.session_clients
+
+    @_session_clients.setter
+    def _session_clients(self, value: set[asyncio.StreamWriter]) -> None:
+        self.session_clients = value
+
+    @property
+    def _session_client_peers(self) -> dict[asyncio.StreamWriter, PeerCredentials]:
+        return self.session_client_peers
+
+    @_session_client_peers.setter
+    def _session_client_peers(self, value: dict[asyncio.StreamWriter, PeerCredentials]) -> None:
+        self.session_client_peers = value
+
+    @property
+    def _window_listener(self):  # type: ignore[reportUnknownParameterType,reportMissingParameterType]
+        return self.compositor_state.window_listener
+
+    @_window_listener.setter
+    def _window_listener(self, value) -> None:  # type: ignore[reportUnknownParameterType,reportMissingParameterType]
+        self.compositor_state.window_listener = value
+
+    @property
+    def _current_window(self) -> JsonObject:
+        return self.compositor_state.current_window
+
+    @_current_window.setter
+    def _current_window(self, value: JsonObject) -> None:
+        self.compositor_state.current_window = value
+
+    @property
+    def _compositor_id(self) -> str | None:
+        return self.compositor_state.compositor_id
+
+    @_compositor_id.setter
+    def _compositor_id(self, value: str | None) -> None:
+        self.compositor_state.compositor_id = value
+
+    @property
+    def _compositor_capabilities(self) -> list[str]:
+        return self.compositor_state.compositor_capabilities
+
+    @_compositor_capabilities.setter
+    def _compositor_capabilities(self, value: list[str]) -> None:
+        self.compositor_state.compositor_capabilities = value
+
+    @property
+    def _compositor_candidate(self) -> str | None:
+        return self.compositor_state.candidate
+
+    @_compositor_candidate.setter
+    def _compositor_candidate(self, value: str | None) -> None:
+        self.compositor_state.candidate = value
+
+    @property
+    def _compositor_candidate_hits(self) -> int:
+        return self.compositor_state.candidate_hits
+
+    @_compositor_candidate_hits.setter
+    def _compositor_candidate_hits(self, value: int) -> None:
+        self.compositor_state.candidate_hits = value
+
+    @property
+    def _compositor_probe_fast_s(self) -> float:
+        return self.compositor_state.probe_fast_s
+
+    @_compositor_probe_fast_s.setter
+    def _compositor_probe_fast_s(self, value: float) -> None:
+        self.compositor_state.probe_fast_s = value
+
+    @property
+    def _compositor_probe_slow_s(self) -> float:
+        return self.compositor_state.probe_slow_s
+
+    @_compositor_probe_slow_s.setter
+    def _compositor_probe_slow_s(self, value: float) -> None:
+        self.compositor_state.probe_slow_s = value
+
+    @property
+    def _listener_retry_after(self) -> dict[str, float]:
+        return self.compositor_state.listener_retry_after
+
+    @_listener_retry_after.setter
+    def _listener_retry_after(self, value: dict[str, float]) -> None:
+        self.compositor_state.listener_retry_after = value
+
+    @property
+    def _listener_last_error(self) -> dict[str, str]:
+        return self.compositor_state.listener_last_error
+
+    @_listener_last_error.setter
+    def _listener_last_error(self, value: dict[str, str]) -> None:
+        self.compositor_state.listener_last_error = value
+
+    @property
+    def _listener_last_log_at(self) -> dict[str, float]:
+        return self.compositor_state.listener_last_log_at
+
+    @_listener_last_log_at.setter
+    def _listener_last_log_at(self, value: dict[str, float]) -> None:
+        self.compositor_state.listener_last_log_at = value
+
+    @property
+    def _listener_retry_interval_s(self) -> float:
+        return self.compositor_state.listener_retry_interval_s
+
+    @_listener_retry_interval_s.setter
+    def _listener_retry_interval_s(self, value: float) -> None:
+        self.compositor_state.listener_retry_interval_s = value
+
+    @property
+    def _listener_log_interval_s(self) -> float:
+        return self.compositor_state.listener_log_interval_s
+
+    @_listener_log_interval_s.setter
+    def _listener_log_interval_s(self, value: float) -> None:
+        self.compositor_state.listener_log_interval_s = value
+
+    @property
+    def _last_listener_start_error(self) -> str:
+        return self.compositor_state.last_listener_start_error
+
+    @_last_listener_start_error.setter
+    def _last_listener_start_error(self, value: str) -> None:
+        self.compositor_state.last_listener_start_error = value
 
     def _resolved_button_codes(self, buttons: list[ButtonDefinition]) -> dict[str, int]:
         resolved: dict[str, int] = {}
@@ -122,6 +286,9 @@ class SessionManager:
             resolved[button_id] = int(code)
         return resolved
 
+    def resolved_button_codes(self, buttons: list[ButtonDefinition]) -> dict[str, int]:
+        return self._resolved_button_codes(buttons)
+
     async def start(self) -> None:
         self.running = True
 
@@ -135,8 +302,8 @@ class SessionManager:
 
         await self._start_session_server()
 
-        self._connect_task = asyncio.create_task(self._connect_loop())
-        self._compositor_supervisor_task = asyncio.create_task(
+        self.connect_task = asyncio.create_task(self.connect_loop())
+        self.compositor_state.supervisor_task = asyncio.create_task(
             runtime_compositor.compositor_supervisor_loop(self)
         )
 
@@ -154,11 +321,11 @@ class SessionManager:
 
         self._shutdown_event.set()
 
-        if self._compositor_supervisor_task:
-            self._compositor_supervisor_task.cancel()
+        if self.compositor_state.supervisor_task:
+            self.compositor_state.supervisor_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._compositor_supervisor_task
-            self._compositor_supervisor_task = None
+                await self.compositor_state.supervisor_task
+            self.compositor_state.supervisor_task = None
 
         topology_task = self.profile_state.topology_refresh_task
         if topology_task:
@@ -176,11 +343,11 @@ class SessionManager:
         await runtime_compositor.stop_window_listener(self)
         await self.dbus.disconnect()
 
-        if self._session_server:
-            self._session_server.close()
-            await self._session_server.wait_closed()
+        if self.session_server:
+            self.session_server.close()
+            await self.session_server.wait_closed()
 
-        for writer in list(self._session_clients):
+        for writer in list(self.session_clients):
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -199,11 +366,11 @@ class SessionManager:
 
         await self.client.disconnect()
 
-        if self._connect_task:
-            self._connect_task.cancel()
+        if self.connect_task:
+            self.connect_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._connect_task
-            self._connect_task = None
+                await self.connect_task
+            self.connect_task = None
 
         if SESSION_SOCKET_PATH.exists():
             try:
@@ -220,7 +387,7 @@ class SessionManager:
             except Exception:
                 pass
 
-        self._session_server = await asyncio.start_unix_server(
+        self.session_server = await asyncio.start_unix_server(
             self._handle_session_client,
             path=str(SESSION_SOCKET_PATH),
         )
@@ -247,7 +414,7 @@ class SessionManager:
             await writer.wait_closed()
             return
 
-        if not uid_allowed(peer.uid, self._security_policy.session_allowed_uids):
+        if not uid_allowed(peer.uid, self.security_policy.session_allowed_uids):
             log.warning(
                 "Denied session client pid=%s uid=%s reason=%s",
                 peer.pid,
@@ -266,8 +433,8 @@ class SessionManager:
             peer.uid,
             client_class,
         )
-        self._session_clients.add(writer)
-        self._session_client_peers[writer] = peer
+        self.session_clients.add(writer)
+        self.session_client_peers[writer] = peer
         buffer = b""
 
         try:
@@ -277,7 +444,7 @@ class SessionManager:
                     break
 
                 buffer += data
-                if len(buffer) > self._MAX_SESSION_CLIENT_BUFFER_BYTES:
+                if len(buffer) > self.MAX_SESSION_CLIENT_BUFFER_BYTES:
                     log.warning(
                         "Session client exceeded max buffered request size pid=%s uid=%s bytes=%s",
                         peer.pid,
@@ -308,8 +475,8 @@ class SessionManager:
             log.debug(f"Session client error: {e}")
         finally:
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
-            self._session_clients.discard(writer)
-            self._session_client_peers.pop(writer, None)
+            self.session_clients.discard(writer)
+            self.session_client_peers.pop(writer, None)
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -336,21 +503,24 @@ class SessionManager:
             "event": "keyforged_status",
             "connected": connected,
         }
-        self._broadcast_to_session_clients(cast(JsonObject, message))
+        self.broadcast_to_session_clients(cast(JsonObject, message))
+
+    def broadcast_to_session_clients(self, message: JsonObject) -> None:
+        self._broadcast_to_session_clients(message)
 
     def _broadcast_to_session_clients(self, message: JsonObject) -> None:
-        for writer in list(self._session_clients):
+        for writer in list(self.session_clients):
             try:
                 writer.write(json.dumps(message).encode() + b"\n")
                 asyncio.create_task(self._drain_session_writer(writer))
             except Exception:
-                self._session_clients.discard(writer)
+                self.session_clients.discard(writer)
 
     async def _drain_session_writer(self, writer: asyncio.StreamWriter) -> None:
         try:
             await writer.drain()
         except Exception:
-            self._session_clients.discard(writer)
+            self.session_clients.discard(writer)
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -363,40 +533,43 @@ class SessionManager:
         self._retry_event.set()
 
     async def _wait_for_session_clients_to_close(self, timeout_s: float = 1.0) -> None:
-        if not self._session_clients:
+        if not self.session_clients:
             return
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + max(0.05, float(timeout_s))
-        while self._session_clients and loop.time() < deadline:
+        while self.session_clients and loop.time() < deadline:
             await asyncio.sleep(0.01)
 
-        if self._session_clients:
+        if self.session_clients:
             log.debug(
                 "Timed out waiting for %s session client(s) to close",
-                len(self._session_clients),
+                len(self.session_clients),
             )
 
     def _reload_handler(self) -> None:
-        if self._reload_pending:
+        if self.reload_pending:
             log.debug("Reload already pending, skipping")
             return
 
-        self._reload_pending = True
+        self.reload_pending = True
 
-        if self._reload_task and not self._reload_task.done():
+        if self.reload_task and not self.reload_task.done():
             log.debug("Reload task still running, will retry after")
             return
 
         log.info("Received reload signal (SIGHUP)")
-        self._reload_task = asyncio.create_task(self._reload_profiles())
+        self.reload_task = asyncio.create_task(self.reload_profiles())
+
+    async def reload_profiles(self) -> None:
+        await self._reload_profiles()
 
     async def _reload_profiles(self) -> None:
         await asyncio.sleep(0.05)
 
-        self._reload_pending = False
+        self.reload_pending = False
 
-        await asyncio.to_thread(self._reload_config_from_disk)
+        await asyncio.to_thread(self.reload_config_from_disk)
         log.info("Reloaded all superkeys, profiles and hardware configs")
 
         configured_ids = set(self.hardware.list_hardware_ids())
@@ -412,11 +585,17 @@ class SessionManager:
 
         await runtime_profiles.reevaluate_profiles(self)
 
+    def reload_config_from_disk(self) -> None:
+        self._reload_config_from_disk()
+
     def _reload_config_from_disk(self) -> None:
-        self._security_policy = load_security_policy(SECURITY_POLICY_PATH)
+        self.security_policy = load_security_policy(SECURITY_POLICY_PATH)
         self.superkeys.reload()
         self.profiles.reload()
         self.hardware.reload()
+
+    async def connect_loop(self) -> None:
+        await self._connect_loop()
 
     async def _connect_loop(self) -> None:
         retry_delay = 1.0
@@ -426,7 +605,7 @@ class SessionManager:
             try:
                 log.info(f"Connecting to keyforged at {SOCKET_PATH}")
                 await self.client.connect()
-                self._connected = True
+                self.connected = True
                 retry_delay = 1.0
                 log.info("Connected to keyforged")
                 self._broadcast_keyforged_status(True)
@@ -441,8 +620,8 @@ class SessionManager:
 
             except Exception as e:
                 log.warning(f"Connection failed: {e}")
-                was_connected = self._connected
-                self._connected = False
+                was_connected = self.connected
+                self.connected = False
                 self.profile_state.grabbed_devices.clear()
                 self.profile_state.grabbed_interfaces.clear()
                 self.profile_state.grab_waiting_devices.clear()
@@ -470,6 +649,9 @@ class SessionManager:
         self, window_class: str, window_title: str, window_tags: list[str]
     ) -> None:
         await runtime_compositor.on_window_change(self, window_class, window_title, window_tags)
+
+    def send_notification(self, title: str, message: str) -> None:
+        self._send_notification(title, message)
 
     def _send_notification(self, title: str, message: str) -> None:
         log.info("Notification: %s: %s", title, message)

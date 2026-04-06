@@ -1,5 +1,3 @@
-# pyright: reportPrivateUsage=false
-
 import asyncio
 import json
 import logging
@@ -35,7 +33,7 @@ def is_sensitive_session_command(
     policy: SecurityPolicy | None = None,
 ) -> bool:
     if policy is None:
-        policy = manager._security_policy
+        policy = manager.security_policy
 
     if command == "lock_recording_unlock":
         return True
@@ -79,7 +77,7 @@ def serialize_recording_unlock_state(
     *,
     refresh_owner: bool,
 ) -> dict[str, bool | int | str]:
-    unlock_required = bool(manager._security_policy.recording_unlock_required)
+    unlock_required = bool(manager.security_policy.recording_unlock_required)
     raw_unlocked = bool(unlock_status.get("unlocked", False))
     return {
         "recording_unlock_required": unlock_required,
@@ -111,7 +109,7 @@ def _has_other_session_client_for_uid(
     *,
     excluding: asyncio.StreamWriter | None = None,
 ) -> bool:
-    for current_writer, peer in manager._session_client_peers.items():
+    for current_writer, peer in manager.session_client_peers.items():
         if current_writer is excluding:
             continue
         if int(peer.uid) == int(uid):
@@ -645,7 +643,7 @@ def sanitize_macro_for_policy(manager: "SessionManager", macro: JsonObject) -> J
     if not events:
         return cloned
 
-    max_timeout = max(1, int(manager._security_policy.macro_exec_timeout_max_ms))
+    max_timeout = max(1, int(manager.security_policy.macro_exec_timeout_max_ms))
     sanitized: list[JsonObject] = []
     for ev in events:
         event_data = json_object(ev)
@@ -709,9 +707,9 @@ async def flush_recording_settings_saves(manager: "SessionManager") -> None:
 
 def load_recording_settings_from_disk(manager: "SessionManager") -> None:
     try:
-        if not manager._RECORDING_SETTINGS_PATH.exists():
+        if not manager.RECORDING_SETTINGS_PATH.exists():
             return
-        data = json_object(json.loads(manager._RECORDING_SETTINGS_PATH.read_text()))
+        data = json_object(json.loads(manager.RECORDING_SETTINGS_PATH.read_text()))
         if data is None:
             return
         settings = manager.recording_state.settings
@@ -737,8 +735,8 @@ def save_recording_settings_to_disk(
     settings = settings or manager.recording_state.settings
     try:
         existing: JsonObject = {}
-        if manager._RECORDING_SETTINGS_PATH.exists():
-            loaded = json_object(json.loads(manager._RECORDING_SETTINGS_PATH.read_text()))
+        if manager.RECORDING_SETTINGS_PATH.exists():
+            loaded = json_object(json.loads(manager.RECORDING_SETTINGS_PATH.read_text()))
             if loaded is not None:
                 existing = dict(loaded)
 
@@ -746,8 +744,8 @@ def save_recording_settings_to_disk(
         existing["include_mouse_clicks"] = bool(settings.get("include_mouse_clicks", False))
         existing["record_start_position"] = bool(settings.get("record_start_position", False))
 
-        manager._RECORDING_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        manager._RECORDING_SETTINGS_PATH.write_text(json.dumps(existing))
+        manager.RECORDING_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        manager.RECORDING_SETTINGS_PATH.write_text(json.dumps(existing))
     except Exception:
         pass
 
@@ -818,9 +816,9 @@ async def start_recording(
     start_x, start_y = 0, 0
     manager.recording_state.start_cursor = None
     if record_start_position:
-        if manager._window_listener:
+        if manager.compositor_state.window_listener:
             try:
-                pos = await manager._window_listener.get_cursor_position()
+                pos = await manager.compositor_state.window_listener.get_cursor_position()
                 if pos:
                     start_x, start_y = int(pos[0]), int(pos[1])
                     manager.recording_state.start_cursor = (start_x, start_y)
@@ -976,7 +974,7 @@ async def save_recording(
             created_name = str(created.get("name", safe_name))
 
     manager.recording_state.pending_data = None
-    manager._broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
+    manager.broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
     return {"status": "ok", "name": created_name}
 
 
@@ -995,7 +993,7 @@ def notify_recording_unlock_required(
     if not is_recording_locked_error(result):
         return
 
-    manager._send_notification(
+    manager.send_notification(
         "Keyforge: Recording Locked",
         "Recording/capture requires unlock in Keyforge GUI.",
     )

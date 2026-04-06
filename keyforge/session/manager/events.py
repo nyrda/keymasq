@@ -1,5 +1,3 @@
-# pyright: reportPrivateUsage=false
-
 import asyncio
 import logging
 from typing import TYPE_CHECKING
@@ -93,7 +91,7 @@ async def handle_event(
 
     if event_type == CommandType.RECORDING_STARTED:
         manager.recording_state.active = True
-        manager._broadcast_to_session_clients({"event": "recording_started", **data})
+        manager.broadcast_to_session_clients({"event": "recording_started", **data})
         return
 
     if event_type == CommandType.RECORDING_STOPPED:
@@ -105,7 +103,7 @@ async def handle_event(
             recording_data["move_to_start"] = True
         manager.recording_state.pending_data = recording_data
         manager.recording_state.start_cursor = None
-        manager._broadcast_to_session_clients(
+        manager.broadcast_to_session_clients(
             {
                 "event": "recording_stopped",
                 "duration_ms": recording_data.get("duration_ms", 0),
@@ -119,7 +117,7 @@ async def handle_event(
         return
 
     if event_type == CommandType.RECORDING_PROGRESS:
-        manager._broadcast_to_session_clients({"event": "recording_progress", **data})
+        manager.broadcast_to_session_clients({"event": "recording_progress", **data})
 
 
 async def handle_start_macro_trigger(manager: "SessionManager") -> None:
@@ -129,17 +127,17 @@ async def handle_start_macro_trigger(manager: "SessionManager") -> None:
 
     if not runtime_recording.has_active_gui_recording_owner(manager):
         log.info("Ignored start_macro_recording trigger: no active GUI recording owner")
-        manager._send_notification(
+        manager.send_notification(
             "Keyforge: Recording Unavailable",
             "Macro recording from triggers requires Keyforge GUI to be open.",
         )
-        manager._broadcast_to_session_clients({"event": "recording_auth_requested"})
+        manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
         return
 
     result = await runtime_recording.start_recording(manager, reset_if_active=False)
     if result.get("status") != "ok":
         runtime_recording.notify_recording_unlock_required(manager, result)
-        manager._broadcast_to_session_clients({"event": "recording_auth_requested"})
+        manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
 
 
 async def handle_stop_macro_trigger(manager: "SessionManager") -> None:
@@ -220,7 +218,7 @@ def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject)
     active_keys = [str(key) for key in _json_list(data.get("active_keys")) if str(key)]
     summary = ", ".join(active_keys) if active_keys else "unknown keys"
 
-    manager._broadcast_to_session_clients({"event": "device_grab_status", **data})
+    manager.broadcast_to_session_clients({"event": "device_grab_status", **data})
 
     if not hardware_id:
         return
@@ -230,7 +228,7 @@ def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject)
         if hardware_id in manager.profile_state.grab_waiting_devices:
             return
         manager.profile_state.grab_waiting_devices.add(hardware_id)
-        manager._send_notification(
+        manager.send_notification(
             "Keyforge: Grab Pending",
             f"{device_name}: waiting for keys to be released ({summary}).",
         )
@@ -242,7 +240,7 @@ def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject)
 
     if state == "timed_out":
         manager.profile_state.grab_waiting_devices.discard(hardware_id)
-        manager._send_notification(
+        manager.send_notification(
             "Keyforge: Grab Timed Out",
             f"{device_name}: keys stayed down too long ({summary}). Retrying automatically.",
         )

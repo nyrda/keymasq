@@ -1,5 +1,3 @@
-# pyright: reportPrivateUsage=false
-
 import asyncio
 import contextlib
 import inspect
@@ -30,19 +28,19 @@ def get_compositor_payload(manager: "SessionManager") -> JsonObject:
 
 async def build_compositor_payload(manager: "SessionManager") -> JsonObject:
     details = merge_support_details(
-        await get_compositor_support_details(manager._compositor_id, manager.dbus),
-        manager._window_listener,
+        await get_compositor_support_details(manager.compositor_state.compositor_id, manager.dbus),
+        manager.compositor_state.window_listener,
     )
     return {
-        "compositor_id": manager._compositor_id,
-        "compositor_name": get_compositor_name(manager._compositor_id),
+        "compositor_id": manager.compositor_state.compositor_id,
+        "compositor_name": get_compositor_name(manager.compositor_state.compositor_id),
         "supported": bool(details.get("supported", False)),
-        "capabilities": get_compositor_capabilities(manager._compositor_id),
+        "capabilities": get_compositor_capabilities(manager.compositor_state.compositor_id),
         "details": details,
-        "listener_active": manager._window_listener is not None,
+        "listener_active": manager.compositor_state.window_listener is not None,
         "listener_name": (
-            getattr(manager._window_listener, "name", "")
-            if manager._window_listener is not None
+            getattr(manager.compositor_state.window_listener, "name", "")
+            if manager.compositor_state.window_listener is not None
             else ""
         ),
         "compositor_dispatch_available": compositor_dispatch_available(manager),
@@ -50,25 +48,28 @@ async def build_compositor_payload(manager: "SessionManager") -> JsonObject:
 
 
 async def get_active_window_payload(manager: "SessionManager") -> JsonObject:
-    if manager._window_listener is not None:
+    if manager.compositor_state.window_listener is not None:
         try:
             window_class, window_title, window_tags = (
-                await manager._window_listener.get_active_window()
+                await manager.compositor_state.window_listener.get_active_window()
             )
             window_info = normalize_window_info(window_class, window_title, window_tags)
             if window_info["class"] or window_info["title"] or window_info["tags"]:
-                manager._current_window = cast(JsonObject, window_info)
+                manager.compositor_state.current_window = cast(JsonObject, window_info)
                 return {"status": "ok", **window_info}
         except Exception as e:
             log.debug(
                 "Active window query failed (compositor_id=%s listener=%s): %s",
-                manager._compositor_id,
-                getattr(manager._window_listener, "name", "unknown"),
+                manager.compositor_state.compositor_id,
+                getattr(manager.compositor_state.window_listener, "name", "unknown"),
                 e,
             )
 
-    if manager._current_window:
-        return {"status": "ok", **normalize_window_info_from_dict(manager._current_window)}
+    if manager.compositor_state.current_window:
+        return {
+            "status": "ok",
+            **normalize_window_info_from_dict(manager.compositor_state.current_window),
+        }
 
     return {
         "status": "error",
@@ -101,7 +102,7 @@ def normalize_window_info_from_dict(
 async def activate_title(manager: "SessionManager", title: str) -> JsonObject:
     if not title:
         return {"status": "error", "message": "title parameter required"}
-    listener = manager._window_listener
+    listener = manager.compositor_state.window_listener
     activate_window_by_title = (
         getattr(listener, "activate_window_by_title", None) if listener is not None else None
     )
@@ -132,14 +133,14 @@ async def activate_title(manager: "SessionManager", title: str) -> JsonObject:
 async def get_cursor_position_payload(manager: "SessionManager") -> JsonObject:
     pos = None
 
-    if manager._window_listener:
+    if manager.compositor_state.window_listener:
         try:
-            pos = await manager._window_listener.get_cursor_position()
+            pos = await manager.compositor_state.window_listener.get_cursor_position()
         except Exception as e:
             log.debug(
                 "Cursor query failed (compositor_id=%s listener=%s): %s",
-                manager._compositor_id,
-                getattr(manager._window_listener, "name", "unknown"),
+                manager.compositor_state.compositor_id,
+                getattr(manager.compositor_state.window_listener, "name", "unknown"),
                 e,
             )
 
@@ -161,62 +162,72 @@ async def compositor_supervisor_loop(manager: "SessionManager") -> None:
             log.debug("Compositor supervisor error: %s", e)
 
         stable = (
-            manager._window_listener is not None
-            and manager._compositor_id is not None
-            and manager._compositor_candidate == manager._compositor_id
-            and manager._compositor_candidate_hits >= 2
+            manager.compositor_state.window_listener is not None
+            and manager.compositor_state.compositor_id is not None
+            and manager.compositor_state.candidate == manager.compositor_state.compositor_id
+            and manager.compositor_state.candidate_hits >= 2
         )
         await asyncio.sleep(
-            manager._compositor_probe_slow_s if stable else manager._compositor_probe_fast_s
+            manager.compositor_state.probe_slow_s
+            if stable
+            else manager.compositor_state.probe_fast_s
         )
 
 
 async def ensure_compositor_listener(manager: "SessionManager") -> None:
     detected = await detect_compositor(manager.dbus)
 
-    if detected == manager._compositor_candidate:
-        manager._compositor_candidate_hits += 1
+    if detected == manager.compositor_state.candidate:
+        manager.compositor_state.candidate_hits += 1
     else:
-        manager._compositor_candidate = detected
-        manager._compositor_candidate_hits = 1
+        manager.compositor_state.candidate = detected
+        manager.compositor_state.candidate_hits = 1
 
     current_healthy = False
-    if manager._window_listener is not None:
+    if manager.compositor_state.window_listener is not None:
         with contextlib.suppress(Exception):
-            current_healthy = await manager._window_listener.health_check()
+            current_healthy = await manager.compositor_state.window_listener.health_check()
 
-    if manager._window_listener is not None and not current_healthy:
+    if manager.compositor_state.window_listener is not None and not current_healthy:
         log.warning("Window listener became unhealthy, restarting compositor binding")
         await stop_window_listener(manager)
-        manager._compositor_id = None
+        manager.compositor_state.compositor_id = None
 
-    if manager._compositor_candidate_hits < 2:
+    if manager.compositor_state.candidate_hits < 2:
         return
 
-    target = manager._compositor_candidate
-    if target == manager._compositor_id and manager._window_listener is not None:
+    target = manager.compositor_state.candidate
+    if (
+        target == manager.compositor_state.compositor_id
+        and manager.compositor_state.window_listener is not None
+    ):
         return
 
     await switch_compositor(manager, target)
 
 
 async def switch_compositor(manager: "SessionManager", compositor_id: str | None) -> None:
-    if compositor_id == manager._compositor_id and manager._window_listener is not None:
+    if (
+        compositor_id == manager.compositor_state.compositor_id
+        and manager.compositor_state.window_listener is not None
+    ):
         return
 
     if (
         compositor_id
-        and compositor_id == manager._compositor_id
-        and manager._window_listener is None
+        and compositor_id == manager.compositor_state.compositor_id
+        and manager.compositor_state.window_listener is None
     ):
         if not listener_retry_ready(manager, compositor_id):
             return
 
-    previous = manager._compositor_id
+    previous = manager.compositor_state.compositor_id
     await stop_window_listener(manager)
 
-    manager._compositor_id = compositor_id
-    manager._compositor_capabilities = get_compositor_capabilities(manager._compositor_id)
+    manager.compositor_state.compositor_id = compositor_id
+    manager.compositor_state.compositor_capabilities = get_compositor_capabilities(
+        manager.compositor_state.compositor_id
+    )
 
     if compositor_id is None:
         if previous is not None:
@@ -242,13 +253,17 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
         return
 
     await start_window_listener(manager)
-    if manager._window_listener is None:
-        note_listener_failure(manager, compositor_id, manager._last_listener_start_error)
+    if manager.compositor_state.window_listener is None:
+        note_listener_failure(
+            manager,
+            compositor_id,
+            manager.compositor_state.last_listener_start_error,
+        )
         return
 
-    manager._listener_retry_after.pop(compositor_id, None)
-    manager._listener_last_error.pop(compositor_id, None)
-    manager._listener_last_log_at.pop(compositor_id, None)
+    manager.compositor_state.listener_retry_after.pop(compositor_id, None)
+    manager.compositor_state.listener_last_error.pop(compositor_id, None)
+    manager.compositor_state.listener_last_log_at.pop(compositor_id, None)
 
     if previous != compositor_id:
         log.info("Compositor transitioned %s -> %s", previous or "none", compositor_id)
@@ -257,18 +272,18 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
 
 
 async def stop_window_listener(manager: "SessionManager") -> None:
-    if manager._window_listener is None:
+    if manager.compositor_state.window_listener is None:
         return
     try:
-        await manager._window_listener.stop()
+        await manager.compositor_state.window_listener.stop()
     except Exception as e:
         log.debug("Error stopping window listener: %s", e)
-    manager._window_listener = None
+    manager.compositor_state.window_listener = None
 
 
 def listener_retry_ready(manager: "SessionManager", compositor_id: str) -> bool:
     now = asyncio.get_running_loop().time()
-    return now >= float(manager._listener_retry_after.get(compositor_id, 0.0))
+    return now >= float(manager.compositor_state.listener_retry_after.get(compositor_id, 0.0))
 
 
 def note_listener_failure(
@@ -279,10 +294,11 @@ def note_listener_failure(
     now = asyncio.get_running_loop().time()
     error_text = (error or "listener startup failed").strip()
 
-    previous_error = manager._listener_last_error.get(compositor_id)
-    last_log_at = float(manager._listener_last_log_at.get(compositor_id, 0.0))
+    previous_error = manager.compositor_state.listener_last_error.get(compositor_id)
+    last_log_at = float(manager.compositor_state.listener_last_log_at.get(compositor_id, 0.0))
     should_log = (
-        previous_error != error_text or (now - last_log_at) >= manager._listener_log_interval_s
+        previous_error != error_text
+        or (now - last_log_at) >= manager.compositor_state.listener_log_interval_s
     )
 
     if should_log:
@@ -292,37 +308,49 @@ def note_listener_failure(
             compositor_id,
             error_text,
         )
-        manager._listener_last_log_at[compositor_id] = now
+        manager.compositor_state.listener_last_log_at[compositor_id] = now
 
-    manager._listener_last_error[compositor_id] = error_text
-    manager._listener_retry_after[compositor_id] = now + manager._listener_retry_interval_s
+    manager.compositor_state.listener_last_error[compositor_id] = error_text
+    manager.compositor_state.listener_retry_after[compositor_id] = (
+        now + manager.compositor_state.listener_retry_interval_s
+    )
 
 
 async def start_window_listener(manager: "SessionManager") -> None:
-    listener_class = get_listener_class(manager._compositor_id)
-    log.debug("Window listener class for %s: %s", manager._compositor_id, listener_class)
+    listener_class = get_listener_class(manager.compositor_state.compositor_id)
+    log.debug(
+        "Window listener class for %s: %s",
+        manager.compositor_state.compositor_id,
+        listener_class,
+    )
     if not listener_class:
-        log.debug("No window listener available for compositor: %s", manager._compositor_id)
-        manager._last_listener_start_error = "no listener class available"
+        log.debug(
+            "No window listener available for compositor: %s",
+            manager.compositor_state.compositor_id,
+        )
+        manager.compositor_state.last_listener_start_error = "no listener class available"
         return
 
     try:
-        manager._window_listener = listener_class(
+        manager.compositor_state.window_listener = listener_class(
             manager.on_window_change,
             manager.client,
             manager.dbus,
         )
-        log.debug("Window listener instance created: %s", manager._window_listener)
-        await manager._window_listener.start()
-        log.info("Started %s window listener", manager._window_listener.name)
-        manager._last_listener_start_error = ""
+        log.debug(
+            "Window listener instance created: %s",
+            manager.compositor_state.window_listener,
+        )
+        await manager.compositor_state.window_listener.start()
+        log.info("Started %s window listener", manager.compositor_state.window_listener.name)
+        manager.compositor_state.last_listener_start_error = ""
     except NotImplementedError as e:
-        manager._last_listener_start_error = str(e)
-        manager._window_listener = None
+        manager.compositor_state.last_listener_start_error = str(e)
+        manager.compositor_state.window_listener = None
     except Exception as e:
-        manager._last_listener_start_error = str(e)
+        manager.compositor_state.last_listener_start_error = str(e)
         log.debug("Failed to start window listener: %s", e)
-        manager._window_listener = None
+        manager.compositor_state.window_listener = None
 
 
 async def handle_compositor_dispatch_trigger(
@@ -335,7 +363,7 @@ async def handle_compositor_dispatch_trigger(
     if not dispatcher:
         return
 
-    current_compositor = str(manager._compositor_id or "").strip()
+    current_compositor = str(manager.compositor_state.compositor_id or "").strip()
     if target_compositor and target_compositor != current_compositor:
         log.warning(
             (
@@ -348,7 +376,7 @@ async def handle_compositor_dispatch_trigger(
         )
         return
 
-    listener = manager._window_listener
+    listener = manager.compositor_state.window_listener
     if listener is None:
         log.warning(
             (
@@ -356,7 +384,7 @@ async def handle_compositor_dispatch_trigger(
                 "dispatcher=%s compositor=%s"
             ),
             dispatcher,
-            manager._compositor_id or "none",
+            manager.compositor_state.compositor_id or "none",
         )
         return
 
@@ -386,12 +414,12 @@ async def on_window_change(
             window_tags,
         )
 
-    manager._current_window = cast(JsonObject, window_info)
+    manager.compositor_state.current_window = cast(JsonObject, window_info)
     await runtime_profiles.reevaluate_profiles(manager)
 
 
 def compositor_dispatch_available(manager: "SessionManager") -> bool:
-    listener = manager._window_listener
+    listener = manager.compositor_state.window_listener
     if listener is None:
         return False
     available = getattr(listener, "compositor_dispatch_available", None)

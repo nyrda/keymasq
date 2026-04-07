@@ -27,6 +27,7 @@ on:
       - "scripts/build-packages.sh"
       - "scripts/build-source-tarball.sh"
       - "scripts/nfpm-*.sh"
+      - "scripts/publish-repos.sh"
       - "systemd/**"
       - "sysusers.d/**"
       - "tests/**"
@@ -56,6 +57,7 @@ on:
       - "scripts/build-packages.sh"
       - "scripts/build-source-tarball.sh"
       - "scripts/nfpm-*.sh"
+      - "scripts/publish-repos.sh"
       - "systemd/**"
       - "sysusers.d/**"
       - "tests/**"
@@ -722,6 +724,41 @@ jobs:
             dist/*.tar.gz
             dist/rpm-signing-key.asc
             dist/SHA256SUMS
+
+  publish-repos:
+    needs:
+      - release
+    if: startsWith(github.ref, 'refs/tags/v') && vars.ENABLE_REPO_PUBLISH == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: publish-repos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install repo tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnupg dpkg-dev apt-utils createrepo-c
+
+      - name: Download Debian package
+        uses: actions/download-artifact@v8
+        with:
+          name: debian-package
+          path: dist/
+
+      - name: Download signed RPM packages
+        uses: actions/download-artifact@v8
+        with:
+          name: rpm-signed-packages
+          path: dist/
+
+      - name: Publish to repository server
+        env:
+          RPM_SIGNING_KEY_PRIVATE_ASC: ${{ secrets.RPM_SIGNING_KEY_PRIVATE_ASC }}
+          REPO_UPLOAD_URL: ${{ vars.REPO_UPLOAD_URL }}
+          REPO_UPLOAD_TOKEN: ${{ secrets.REPO_UPLOAD_TOKEN }}
+        run: bash scripts/publish-repos.sh
 
   publish-aur:
     needs:

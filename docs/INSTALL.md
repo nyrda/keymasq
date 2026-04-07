@@ -32,46 +32,67 @@ systemctl --user enable --now keyforge-session
 
 ### Debian / Ubuntu / Linux Mint
 
-Download the current `.deb` from the GitHub release, then install it:
+Add the Keyforge repository and install:
 
 ```bash
+curl -fsSL https://repo.keyforge.tools/gpg-key.asc \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/keyforge.gpg
+echo "deb [signed-by=/etc/apt/keyrings/keyforge.gpg arch=all] https://repo.keyforge.tools/debian stable main" \
+  | sudo tee /etc/apt/sources.list.d/keyforge.list
 sudo apt update
-sudo apt install ./keyforge_*_all.deb
+sudo apt install keyforge
 sudo systemctl enable --now keyforged
 systemctl --user enable --now keyforge-session
 ```
 
+Alternatively, download the `.deb` from the
+[GitHub release](https://github.com/nyrda/keyforge/releases) and install it
+directly with `sudo apt install ./keyforge_*_all.deb`.
+
 ### Fedora
 
-Import the Keyforge RPM signing key once, verify the fingerprint, then install
-the current Fedora RPM from the GitHub release:
+Add the Keyforge repository and install:
 
 ```bash
-curl -fsSLO https://keyforge.tools/keys/keyforge-rpm-signing-key.asc
-gpg --show-keys --fingerprint keyforge-rpm-signing-key.asc
-sudo rpm --import keyforge-rpm-signing-key.asc
-rpm --checksig ./keyforge-*.fedora.*.rpm
-sudo dnf install ./keyforge-*.fedora.*.rpm
+sudo tee /etc/yum.repos.d/keyforge.repo << 'EOF'
+[keyforge]
+name=Keyforge
+baseurl=https://repo.keyforge.tools/fedora
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.keyforge.tools/gpg-key.asc
+EOF
+sudo dnf install keyforge
 sudo systemctl enable --now keyforged
 systemctl --user enable --now keyforge-session
+```
+
+Alternatively, import the signing key and install the RPM from the
+[GitHub release](https://github.com/nyrda/keyforge/releases) directly:
+
+```bash
+sudo rpm --import https://repo.keyforge.tools/gpg-key.asc
+sudo dnf install ./keyforge-*.fedora.*.rpm
 ```
 
 ### openSUSE Tumbleweed / Leap
 
-Import the Keyforge RPM signing key once, verify the fingerprint, then install
-the current openSUSE RPM from the GitHub release:
+Add the Keyforge repository and install:
 
 ```bash
-curl -fsSLO https://keyforge.tools/keys/keyforge-rpm-signing-key.asc
-gpg --show-keys --fingerprint keyforge-rpm-signing-key.asc
-sudo rpm --import keyforge-rpm-signing-key.asc
-rpm --checksig ./keyforge-*.opensuse.*.rpm
-sudo zypper install ./keyforge-*.opensuse.*.rpm
+sudo rpm --import https://repo.keyforge.tools/gpg-key.asc
+sudo zypper addrepo --gpgcheck https://repo.keyforge.tools/opensuse keyforge
+sudo zypper install keyforge
 sudo systemctl enable --now keyforged
 systemctl --user enable --now keyforge-session
 ```
 
-The current RPM signing key fingerprint is:
+Alternatively, download the RPM from the
+[GitHub release](https://github.com/nyrda/keyforge/releases) and install it
+directly with `sudo zypper install ./keyforge-*.opensuse.*.rpm`.
+
+The signing key used for repository metadata and RPM packages is available at
+`https://repo.keyforge.tools/gpg-key.asc`. The current fingerprint is:
 
 ```text
 733B FA24 A526 857B 06E7  A5D9 E002 1F70 BA1C 66DE
@@ -234,8 +255,17 @@ keyforge diagnostics off
 
 ### Upgrade
 
-Upgrade packaged installs using the normal package manager flow for your
-distribution, or install a newer GitHub release package over the existing one:
+If you installed from the Keyforge repository, upgrade with your package
+manager:
+
+```bash
+sudo apt update && sudo apt upgrade keyforge
+sudo dnf upgrade keyforge
+sudo zypper update keyforge
+```
+
+For manual GitHub release installs, download the newer package and install it
+over the existing one:
 
 ```bash
 sudo apt install ./keyforge_*_all.deb

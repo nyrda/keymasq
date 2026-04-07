@@ -16,7 +16,7 @@ SLURP_INVISIBLE_COLORS = {
     "selection": "#00000000",
 }
 
-SLURP_COMPATIBLE_COMPOSITORS = {"hyprland", "wayland-wlr", "kde", "cosmic"}
+SLURP_COMPATIBLE_COMPOSITORS = {"hyprland", "wayland-wlr", "kde", "cosmic", "niri"}
 
 
 class SlurpMode(Enum):

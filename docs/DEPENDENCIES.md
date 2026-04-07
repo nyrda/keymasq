@@ -101,7 +101,7 @@ differentiator is the compositor/session environment itself.
 ### Pointer capture helpers
 
 - `slurp` is used only on compatible compositors:
-  `hyprland`, `wayland-wlr`, `kde`, and `cosmic`
+  `hyprland`, `wayland-wlr`, `kde`, `cosmic`, and `niri`
 - On `wayland-wlr` and `cosmic`, `slurp` is the cursor-acquisition
   path used by the listener for recording start-position capture and similar
   pointer reads

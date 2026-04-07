@@ -693,81 +693,97 @@ EOF
             )
 
             with subtest("cursor position"):
-                if "${expectedCompositor}" == "niri":
-                    machine.log("Skipping cursor position on Niri: slurp reports no wl_output in the VM")
-                else:
-                    uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic")
-                    if uses_slurp:
-                        # Slurp-based compositors need keyforged uinput devices and a __slurp_trigger macro.
-                        # Create a hardware config for the QEMU AT keyboard so keyforged grabs it.
-                        import base64
-                        hw_toml = (
-                            '[hardware]\n'
-                            'vendor_id = "0001"\n'
-                            'product_id = "0001"\n'
-                            'name = "QEMU AT Keyboard"\n'
-                            '\n'
-                            '[[hardware.evdev.devices]]\n'
-                            'path = "/dev/input/by-path/platform-i8042-serio-0-event-kbd"\n'
-                            'type = "keyboard"\n'
-                            'id = "kb"\n'
-                            '\n'
-                            '[[hardware.layout.buttons]]\n'
-                            'id = "key_a"\n'
-                            'label = "A"\n'
-                            'evdev = "key_a"\n'
-                        )
-                        hw_dir = "/home/${vmUser}/.config/keyforge/hardware"
-                        machine.succeed(as_user("mkdir -p " + hw_dir))
-                        hw_b64 = base64.b64encode(hw_toml.encode()).decode()
-                        machine.succeed(f"echo {hw_b64} | base64 -d > " + hw_dir + "/0001_0001.toml")
-                        machine.succeed("chown ${vmUser}: " + hw_dir + "/0001_0001.toml")
+                uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic", "niri")
+                if uses_slurp:
+                    # Slurp-based compositors need keyforged uinput devices and a __slurp_trigger macro.
+                    # Create a hardware config for the QEMU AT keyboard so keyforged grabs it.
+                    import base64
+                    hw_toml = (
+                        '[hardware]\n'
+                        'vendor_id = "0001"\n'
+                        'product_id = "0001"\n'
+                        'name = "QEMU AT Keyboard"\n'
+                        '\n'
+                        '[[hardware.evdev.devices]]\n'
+                        'path = "/dev/input/by-path/platform-i8042-serio-0-event-kbd"\n'
+                        'type = "keyboard"\n'
+                        'id = "kb"\n'
+                        '\n'
+                        '[[hardware.layout.buttons]]\n'
+                        'id = "key_a"\n'
+                        'label = "A"\n'
+                        'evdev = "key_a"\n'
+                    )
+                    hw_dir = "/home/${vmUser}/.config/keyforge/hardware"
+                    machine.succeed(as_user("mkdir -p " + hw_dir))
+                    hw_b64 = base64.b64encode(hw_toml.encode()).decode()
+                    machine.succeed(f"echo {hw_b64} | base64 -d > " + hw_dir + "/0001_0001.toml")
+                    machine.succeed("chown ${vmUser}: " + hw_dir + "/0001_0001.toml")
 
-                        # Create a profile that grabs all interfaces on this hardware.
-                        profile_toml = (
-                            '[profile]\n'
-                            'name = "cursor-test"\n'
-                            'enabled = true\n'
-                            'is_permanent = true\n'
-                            'created_at = "2026-01-01T00:00:00"\n'
-                            '\n'
-                            '[devices."0001:0001"]\n'
-                            'always_grab_all = true\n'
-                        )
-                        prof_dir = "/home/${vmUser}/.config/keyforge/profiles"
-                        machine.succeed(as_user("mkdir -p " + prof_dir))
-                        prof_b64 = base64.b64encode(profile_toml.encode()).decode()
-                        machine.succeed(f"echo {prof_b64} | base64 -d > " + prof_dir + "/cursor-test.toml")
-                        machine.succeed("chown ${vmUser}: " + prof_dir + "/cursor-test.toml")
+                    # Create a profile that grabs all interfaces on this hardware.
+                    profile_toml = (
+                        '[profile]\n'
+                        'name = "cursor-test"\n'
+                        'enabled = true\n'
+                        'is_permanent = true\n'
+                        'created_at = "2026-01-01T00:00:00"\n'
+                        '\n'
+                        '[devices."0001:0001"]\n'
+                        'always_grab_all = true\n'
+                    )
+                    prof_dir = "/home/${vmUser}/.config/keyforge/profiles"
+                    machine.succeed(as_user("mkdir -p " + prof_dir))
+                    prof_b64 = base64.b64encode(profile_toml.encode()).decode()
+                    machine.succeed(f"echo {prof_b64} | base64 -d > " + prof_dir + "/cursor-test.toml")
+                    machine.succeed("chown ${vmUser}: " + prof_dir + "/cursor-test.toml")
 
-                        # Tell the session to reload configs and grab the device.
-                        reeval = session_query("reevaluate_hardware")
-                        machine.log(f"reevaluate_hardware: {reeval}")
-                        assert reeval.get("status") == "ok", reeval
+                    # Tell the session to reload configs and grab the device.
+                    reeval = session_query("reevaluate_hardware")
+                    machine.log(f"reevaluate_hardware: {reeval}")
+                    assert reeval.get("status") == "ok", reeval
 
-                        # Wait for the device grab to complete (uinput devices created).
-                        time.sleep(2)
+                    # Wait for the device grab to complete (uinput devices created).
+                    time.sleep(2)
 
-                        # Verify the device was grabbed by checking session journal.
-                        wait_for_user_command(
-                            "keyforged grabbed device",
+                    # Verify the device was grabbed by checking session journal.
+                    wait_for_user_command(
+                        "keyforged grabbed device",
+                        "journalctl --user -u keyforge-session.service --no-pager "
+                        "| grep -F 'Grabbed device 0001:0001'",
+                        timeout=30,
+                    )
+
+                    # keyforged registers the internal __slurp_trigger macro at startup.
+                    # Do not recreate it here; names starting with "__" are reserved.
+
+                # Move cursor to a known position via QEMU tablet input.
+                # Coordinates are in the usb-tablet range (0-32767) mapped to display pixels.
+                machine.send_monitor_command("mouse_move 16384 12288 0")
+                time.sleep(1)
+
+                # Query cursor position.
+                cursor = session_query("get_cursor_position")
+                machine.log(f"get_cursor_position: {cursor}")
+                if (
+                    "${expectedCompositor}" == "niri"
+                    and cursor.get("status") != "ok"
+                ):
+                    status, output = machine.execute(
+                        as_user(
                             "journalctl --user -u keyforge-session.service --no-pager "
-                            "| grep -F 'Grabbed device 0001:0001'",
-                            timeout=30,
+                            "| grep -F 'slurp failed: returncode=1 stderr=no wl_output' || true"
                         )
-
-                        # keyforged registers the internal __slurp_trigger macro at startup.
-                        # Do not recreate it here; names starting with "__" are reserved.
-
-                    # Move cursor to a known position via QEMU tablet input.
-                    # Coordinates are in the usb-tablet range (0-32767) mapped to display pixels.
-                    machine.send_monitor_command("mouse_move 16384 12288 0")
-                    time.sleep(1)
-
-                    # Query cursor position.
-                    cursor = session_query("get_cursor_position")
-                    machine.log(f"get_cursor_position: {cursor}")
+                    )
+                    machine.log(f"niri slurp failure probe (exit={status}): {output}")
+                    if output.strip():
+                        machine.log(
+                            "Skipping Niri cursor assertion in the NixOS VM: slurp reported no wl_output"
+                        )
+                    else:
+                        assert cursor.get("status") == "ok", f"cursor query failed: {cursor}"
+                else:
                     assert cursor.get("status") == "ok", f"cursor query failed: {cursor}"
+                if cursor.get("status") == "ok":
                     cx = cursor.get("x", 0)
                     cy = cursor.get("y", 0)
                     machine.log(f"Cursor at ({cx}, {cy})")
@@ -1064,6 +1080,14 @@ in
       memorySize = 3072;
       desktopReadyScript = ''
         wait_for_command("niri process", "pgrep -u ${toString vmUid} niri")
+        wait_for_user_command(
+            "Wayland socket",
+            "ls $XDG_RUNTIME_DIR/wayland-*",
+        )
+        wait_for_user_command(
+            "WAYLAND_DISPLAY in systemd user env",
+            "systemctl --user show-environment | grep -q WAYLAND_DISPLAY",
+        )
         wait_for_user_command(
             "NIRI_SOCKET in systemd user env",
             "systemctl --user show-environment | grep -q NIRI_SOCKET",

@@ -10,7 +10,6 @@ window-aware profile activation.
 | Compositor | Status  |
 | ---------- | ------- |
 | Sway       | Tested  |
-| Niri       | Tested  |
 
 ## Other Compositors
 
@@ -24,8 +23,10 @@ Some compositors have their own integration in Keyforge and do **not** use
 this protocol:
 
 - **Hyprland** — uses Hyprland IPC sockets
+- **Niri** — uses Niri IPC event and command sockets
 - **COSMIC** — uses `ext_foreign_toplevel_list_v1` and `zcosmic_toplevel_info_v1`
 - **KDE Plasma** — uses an injected KWin script over session D-Bus
 - **GNOME** — uses a GNOME Shell plugin; see [GNOME.md](GNOME.md)
 
-On KDE Plasma, Keyforge's compositor actions run through the same KWin script bridge instead of shelling out to `qdbus` or external helpers.
+On KDE Plasma, GNOME, and Niri, Keyforge's compositor actions run through the
+listener-specific bridge/socket instead of shelling out to external helpers.

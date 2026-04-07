@@ -208,6 +208,7 @@ EOF
 
       testScript = ''
         import json
+        import shlex
         import time
 
         runtime_dir = "/run/user/${toString vmUid}"
@@ -239,6 +240,25 @@ EOF
                 )
             )
             return json.loads(raw)
+
+        def session_activate_title(title: str, timeout: int = 30) -> None:
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                try:
+                    raw = machine.succeed(
+                        as_user(
+                            f"keyforge-session-query --socket {runtime_dir}/keyforge/session.sock "
+                            f"--command activate_title --field title={title}"
+                        )
+                    )
+                    result = json.loads(raw)
+                    machine.log(f"session_activate_title({title!r}): {result}")
+                    if result.get("status") == "ok":
+                        return
+                except Exception as e:
+                    machine.log(f"session_activate_title({title!r}) attempt failed: {e}")
+                time.sleep(1)
+            raise Exception(f"Failed to activate window {title!r} through keyforge-session")
 
         def gnome_activate_title(title: str, timeout: int = 30) -> None:
             """Ask the GNOME bridge extension to activate a window by title."""
@@ -287,6 +307,73 @@ EOF
                 f" XDG_RUNTIME_DIR={runtime_dir}"
                 f' swaymsg "[title={title}] focus"'
             )
+
+        def niri_activate_title(title: str, timeout: int = 30) -> None:
+            """Use niri msg to focus a window by title on Niri."""
+            escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
+            sock = machine.succeed(as_user(
+                "systemctl --user show-environment"
+                " | sed -n 's/^NIRI_SOCKET=//p'"
+            )).strip()
+            machine.log(f"niri_activate_title({title!r}): sock={sock!r}")
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                try:
+                    window_id = machine.succeed(
+                        f"runuser -u ${vmUser} -- env"
+                        f" NIRI_SOCKET={sock}"
+                        f" XDG_RUNTIME_DIR={runtime_dir}"
+                        " sh -lc "
+                        + shlex.quote(
+                            "niri msg --json windows "
+                            f'| jq -r --arg title "{escaped_title}" '
+                            '".[] | select(.title == \\$title) | .id" '
+                            "| head -n1"
+                        )
+                    ).strip()
+                    if window_id:
+                        machine.succeed(
+                            f"runuser -u ${vmUser} -- env"
+                            f" NIRI_SOCKET={sock}"
+                            f" XDG_RUNTIME_DIR={runtime_dir}"
+                            f" niri msg action focus-window --id {window_id}"
+                        )
+                        return
+                except Exception as e:
+                    machine.log(f"niri_activate_title({title!r}) attempt failed: {e}")
+                time.sleep(1)
+            raise Exception(f"Failed to activate Niri window {title!r}")
+
+        def niri_focused_window() -> dict | None:
+            sock = machine.succeed(as_user(
+                "systemctl --user show-environment"
+                " | sed -n 's/^NIRI_SOCKET=//p'"
+            )).strip()
+            raw = machine.succeed(
+                f"runuser -u ${vmUser} -- env"
+                f" NIRI_SOCKET={sock}"
+                f" XDG_RUNTIME_DIR={runtime_dir}"
+                " niri msg --json focused-window"
+            ).strip()
+            if not raw or raw == "null":
+                return None
+            return json.loads(raw)
+
+        def niri_windows() -> list[dict]:
+            sock = machine.succeed(as_user(
+                "systemctl --user show-environment"
+                " | sed -n 's/^NIRI_SOCKET=//p'"
+            )).strip()
+            raw = machine.succeed(
+                f"runuser -u ${vmUser} -- env"
+                f" NIRI_SOCKET={sock}"
+                f" XDG_RUNTIME_DIR={runtime_dir}"
+                " niri msg --json windows"
+            ).strip()
+            return json.loads(raw or "[]")
+
+        def niri_window_by_title(title: str) -> dict | None:
+            return next((window for window in niri_windows() if window.get("title") == title), None)
 
         def log_command_output(label: str, cmd: str) -> None:
             status, output = machine.execute(cmd)
@@ -511,6 +598,12 @@ EOF
                     time.sleep(1)
                     gnome_activate_title("Alpha")
                     wait_for_any_active_window()
+                elif "${activationMethod}" == "niri":
+                    session_activate_title("Alpha")
+                    machine.log(f"niri windows after Alpha activate: {niri_windows()}")
+                    machine.log(
+                        f"niri focused window after Alpha activate: {niri_focused_window()}"
+                    )
                 alpha = wait_for_active_title("Alpha")
                 assert alpha.get("class"), alpha
 
@@ -523,6 +616,8 @@ EOF
                 if "${activationMethod}" == "gnome":
                     time.sleep(1)
                     gnome_activate_title("Beta")
+                elif "${activationMethod}" == "niri":
+                    session_activate_title("Beta")
                 beta = wait_for_active_title("Beta")
                 assert beta.get("class") == alpha.get("class"), (alpha, beta)
 
@@ -530,6 +625,8 @@ EOF
                     gnome_activate_title("Alpha")
                 elif "${activationMethod}" == "hyprland":
                     hyprland_activate_title("Alpha")
+                elif "${activationMethod}" == "niri":
+                    session_activate_title("Alpha")
                 elif "${activationMethod}" == "sway":
                     sway_activate_title("Alpha")
                 else:
@@ -555,12 +652,48 @@ EOF
             )
             wait_for_active_title("Beta")
 
+            if "${expectedCompositor}" == "niri":
+                before = niri_window_by_title("Beta")
+                assert before is not None, before
+                assert before.get("title") == "Beta", before
+                machine.log(f"niri Beta window before dispatch: {before}")
+
+                dispatch = session_query_json(
+                    "dispatch_compositor",
+                    {
+                        "compositor": "niri",
+                        "dispatcher": "toggle_window_floating",
+                        "args": "",
+                    },
+                )
+                machine.log(f"dispatch_compositor: {dispatch}")
+                assert dispatch.get("status") == "ok", dispatch
+
+                deadline = time.time() + 30
+                after = None
+                while time.time() < deadline:
+                    after = niri_window_by_title("Beta")
+                    if after is not None and after.get("title") == "Beta":
+                        before_floating = bool(before.get("is_floating"))
+                        after_floating = bool(after.get("is_floating"))
+                        if before_floating != after_floating:
+                            break
+                    time.sleep(1)
+
+                assert after is not None, after
+                machine.log(f"niri Beta window after dispatch: {after}")
+                assert after.get("title") == "Beta", after
+                assert bool(before.get("is_floating")) != bool(after.get("is_floating")), (
+                    before,
+                    after,
+                )
+
             machine.succeed(
                 as_user(f"keyforge-listener-window-labctl --socket {listener_socket} quit")
             )
 
             with subtest("cursor position"):
-                uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic")
+                uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic", "niri")
                 if uses_slurp:
                     # Slurp-based compositors need keyforged uinput devices and a __slurp_trigger macro.
                     # Create a hardware config for the QEMU AT keyboard so keyforged grabs it.
@@ -717,6 +850,25 @@ EOF
       wayland.enable = true;
     };
     programs.sway.enable = true;
+  };
+
+  niriModule = {
+    services.displayManager.defaultSession = "niri";
+    services.displayManager.sddm = {
+      enable = true;
+      wayland.enable = true;
+    };
+    programs.niri.enable = true;
+    environment.etc."niri/config.kdl".text = ''
+      input {
+          focus-follows-mouse
+          warp-mouse-to-focus mode="center-xy-always"
+      }
+
+      debug {
+          honor-xdg-activation-with-invalid-serial
+      }
+    '';
   };
 
 in
@@ -897,6 +1049,25 @@ in
         wait_for_user_command(
             "SWAYSOCK in systemd user env",
             "systemctl --user show-environment | grep -q SWAYSOCK",
+        )
+      '';
+    };
+
+    listener-vm-niri = mkDesktopTest {
+      name = "listener-vm-niri";
+      expectedCompositor = "niri";
+      activationMethod = "niri";
+      extraModule = niriModule;
+      memorySize = 3072;
+      desktopReadyScript = ''
+        wait_for_command("niri process", "pgrep -u ${toString vmUid} niri")
+        wait_for_user_command(
+            "NIRI_SOCKET in systemd user env",
+            "systemctl --user show-environment | grep -q NIRI_SOCKET",
+        )
+        wait_for_user_command(
+            "niri socket",
+            'test -S "$(systemctl --user show-environment | sed -n "s/^NIRI_SOCKET=//p")"',
         )
       '';
     };

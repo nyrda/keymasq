@@ -12,6 +12,7 @@ def _set_probes(
     monkeypatch,
     *,
     hyprland: bool,
+    niri: bool,
     kde: bool,
     gnome: bool,
     gnome_supported: bool | None = None,
@@ -22,6 +23,10 @@ def _set_probes(
     monkeypatch.setattr(
         "keyforge.session.compositor.HyprlandListener.probe_available",
         _probe_result(hyprland),
+    )
+    monkeypatch.setattr(
+        "keyforge.session.compositor.NiriListener.probe_available",
+        _probe_result(niri),
     )
     monkeypatch.setattr(
         "keyforge.session.compositor.KDEListener.probe_available",
@@ -51,35 +56,84 @@ def _set_probes(
 
 def test_detect_priority_hyprland(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=True, kde=True, gnome=True, cosmic=True, wayland=True, x11=True
+        monkeypatch,
+        hyprland=True,
+        niri=True,
+        kde=True,
+        gnome=True,
+        cosmic=True,
+        wayland=True,
+        x11=True,
     )
     assert detect_compositor_sync() == "hyprland"
 
 
+def test_detect_priority_niri_over_kde_and_wayland(monkeypatch) -> None:
+    _set_probes(
+        monkeypatch,
+        hyprland=False,
+        niri=True,
+        kde=True,
+        gnome=True,
+        cosmic=True,
+        wayland=True,
+        x11=True,
+    )
+    assert detect_compositor_sync() == "niri"
+
+
 def test_detect_priority_kde(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=False, kde=True, gnome=True, cosmic=True, wayland=True, x11=True
+        monkeypatch,
+        hyprland=False,
+        niri=False,
+        kde=True,
+        gnome=True,
+        cosmic=True,
+        wayland=True,
+        x11=True,
     )
     assert detect_compositor_sync() == "kde"
 
 
 def test_detect_priority_gnome_over_cosmic(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=False, kde=False, gnome=True, cosmic=True, wayland=True, x11=True
+        monkeypatch,
+        hyprland=False,
+        niri=False,
+        kde=False,
+        gnome=True,
+        cosmic=True,
+        wayland=True,
+        x11=True,
     )
     assert detect_compositor_sync() == "gnome"
 
 
 def test_detect_priority_cosmic_over_wayland_and_x11(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=False, kde=False, gnome=False, cosmic=True, wayland=True, x11=True
+        monkeypatch,
+        hyprland=False,
+        niri=False,
+        kde=False,
+        gnome=False,
+        cosmic=True,
+        wayland=True,
+        x11=True,
     )
     assert detect_compositor_sync() == "cosmic"
 
 
 def test_detect_priority_gnome_over_wayland_and_x11(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=False, kde=False, gnome=True, cosmic=False, wayland=True, x11=True
+        monkeypatch,
+        hyprland=False,
+        niri=False,
+        kde=False,
+        gnome=True,
+        cosmic=False,
+        wayland=True,
+        x11=True,
     )
     assert detect_compositor_sync() == "gnome"
 
@@ -88,6 +142,7 @@ def test_detect_gnome_even_when_bridge_support_is_unavailable(monkeypatch) -> No
     _set_probes(
         monkeypatch,
         hyprland=False,
+        niri=False,
         kde=False,
         gnome=True,
         gnome_supported=False,
@@ -101,28 +156,56 @@ def test_detect_gnome_even_when_bridge_support_is_unavailable(monkeypatch) -> No
 
 def test_detect_priority_wayland_over_x11(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=False, kde=False, gnome=False, cosmic=False, wayland=True, x11=True
+        monkeypatch,
+        hyprland=False,
+        niri=False,
+        kde=False,
+        gnome=False,
+        cosmic=False,
+        wayland=True,
+        x11=True,
     )
     assert detect_compositor_sync() == "wayland"
 
 
 def test_detect_x11(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=False, kde=False, gnome=False, cosmic=False, wayland=False, x11=True
+        monkeypatch,
+        hyprland=False,
+        niri=False,
+        kde=False,
+        gnome=False,
+        cosmic=False,
+        wayland=False,
+        x11=True,
     )
     assert detect_compositor_sync() == "x11"
 
 
 def test_detect_none(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=False, kde=False, gnome=False, cosmic=False, wayland=False, x11=False
+        monkeypatch,
+        hyprland=False,
+        niri=False,
+        kde=False,
+        gnome=False,
+        cosmic=False,
+        wayland=False,
+        x11=False,
     )
     assert detect_compositor_sync() is None
 
 
 def test_support_gates(monkeypatch) -> None:
     _set_probes(
-        monkeypatch, hyprland=False, kde=False, gnome=True, cosmic=True, wayland=True, x11=True
+        monkeypatch,
+        hyprland=False,
+        niri=False,
+        kde=False,
+        gnome=True,
+        cosmic=True,
+        wayland=True,
+        x11=True,
     )
     assert is_compositor_supported_sync("x11") is True
     assert is_compositor_supported_sync("wayland") is True
@@ -130,3 +213,4 @@ def test_support_gates(monkeypatch) -> None:
     assert is_compositor_supported_sync("cosmic") is True
     assert is_compositor_supported_sync("gnome") is True
     assert is_compositor_supported_sync("hyprland") is False
+    assert is_compositor_supported_sync("niri") is False

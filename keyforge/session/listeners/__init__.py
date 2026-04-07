@@ -3,6 +3,7 @@ from keyforge.session.listeners.cosmic import CosmicListener
 from keyforge.session.listeners.gnome import GnomeListener
 from keyforge.session.listeners.hyprland import HyprlandListener
 from keyforge.session.listeners.kde import KDEListener
+from keyforge.session.listeners.niri import NiriListener
 from keyforge.session.listeners.wayland_wlr import WlrootsWaylandListener
 from keyforge.session.listeners.x11 import X11Listener
 
@@ -15,4 +16,5 @@ __all__ = [
     "GnomeListener",
     "X11Listener",
     "KDEListener",
+    "NiriListener",
 ]

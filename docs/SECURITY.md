@@ -161,6 +161,7 @@ Compositor dispatch actions are routed through the active window-listener implem
 - No shell fallback is used for compositor dispatch
 - KDE Plasma dispatch is restricted to a fixed whitelist of supported KWin actions
 - Hyprland dispatch is sent through the Hyprland IPC command socket
+- Niri dispatch is sent through the Niri IPC command socket with a fixed allowlist
 
 This keeps compositor-specific control inside the listener boundary instead of treating it as unrestricted command execution.
 

@@ -40,6 +40,7 @@ COMMON_METADATA = {
     ],
     "optdepends": [
         "hyprland: for Hyprland window rule support",
+        "niri: for Niri window rule support",
     ],
 }
 

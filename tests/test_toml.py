@@ -147,6 +147,36 @@ class TestProfileTOML:
         assert action.compositor_dispatcher == "workspace"
         assert action.compositor_args == "e+1"
 
+    def test_profile_niri_compositor_dispatch_roundtrip(self, temp_config_dir):
+        original = ProfileConfig(
+            name="Niri Profile",
+            enabled=True,
+            device_layers={
+                "1234:5678": DeviceProfileLayer(
+                    hardware_id="1234:5678",
+                    mappings={
+                        "btn_back": MappingAction(
+                            action_type=ActionType.COMPOSITOR_DISPATCH,
+                            compositor_id="niri",
+                            compositor_dispatcher="focus_workspace",
+                            compositor_args="name:web",
+                        )
+                    },
+                )
+            },
+        )
+
+        manager = ProfileManager()
+        manager.save_profile(original)
+
+        loaded = manager.list_profiles()[0].config
+        action = loaded.device_layers["1234:5678"].mappings["btn_back"]
+
+        assert action.action_type == ActionType.COMPOSITOR_DISPATCH
+        assert action.compositor_id == "niri"
+        assert action.compositor_dispatcher == "focus_workspace"
+        assert action.compositor_args == "name:web"
+
     def test_profile_with_window_rules(self, temp_config_dir):
         profile = ProfileConfig(
             name="Game Profile",

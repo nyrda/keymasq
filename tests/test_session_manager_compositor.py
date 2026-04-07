@@ -44,6 +44,28 @@ async def test_compositor_dispatch_ignores_mismatched_target_compositor() -> Non
 
 
 @pytest.mark.asyncio
+async def test_run_compositor_dispatch_returns_listener_result() -> None:
+    manager = SessionManager()
+    listener = SimpleNamespace(
+        supports_compositor_dispatch=True,
+        dispatch=AsyncMock(return_value=(True, "ok")),
+    )
+    manager.compositor_state.window_listener = listener
+    manager.compositor_state.compositor_id = "niri"
+
+    ok, message = await session_compositor_module.run_compositor_dispatch(
+        manager,
+        "niri",
+        "toggle_window_floating",
+        "",
+    )
+
+    assert ok is True
+    assert message == "ok"
+    listener.dispatch.assert_awaited_once_with("toggle_window_floating", "")
+
+
+@pytest.mark.asyncio
 async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

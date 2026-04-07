@@ -134,6 +134,15 @@ async def _handle_compositor_commands(
             str_value(request.get("title"), "").strip(),
         )
 
+    if command == "dispatch_compositor":
+        ok, message = await runtime_compositor.run_compositor_dispatch(
+            manager,
+            str_value(request.get("compositor"), "").strip(),
+            str_value(request.get("dispatcher"), "").strip(),
+            str_value(request.get("args"), "").strip(),
+        )
+        return {"status": "ok" if ok else "error", "message": message}
+
     if command == "get_cursor_position":
         return await runtime_compositor.get_cursor_position_payload(manager)
 

@@ -163,6 +163,7 @@ Choose from a preset dropdown of supported Niri actions.
 | Close Window | Close the focused window. |
 | Fullscreen / Fake Fullscreen | Toggle fullscreen or windowed fullscreen on the focused window. |
 | Toggle Floating | Toggle floating mode for the focused window. |
+| Previous Window / Next Window | Cycle horizontally through Niri's scrolling window strip. |
 | Focus Left / Right / Up / Down | Move focus between columns and windows. |
 | Move Column Left / Right | Move the focused column horizontally. |
 | Move Window Up / Down | Reorder the focused window inside its column. |
@@ -173,6 +174,8 @@ Choose from a preset dropdown of supported Niri actions.
 
 Niri compositor actions are restricted to Keyforge's supported Niri action IDs.
 Unlike Hyprland dispatchers, arbitrary custom actions are not supported.
+The "Previous Window" and "Next Window" presets follow Niri's scrolling model
+and loop across the horizontal column strip.
 
 ### KDE Plasma
 

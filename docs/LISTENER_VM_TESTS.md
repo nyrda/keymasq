@@ -55,10 +55,10 @@ Each desktop test validates:
 4. **Focus switching** — a second window is opened, then focus moves back to the first; the listener tracks each change.
 5. **Title change** — an existing window is retitled; the listener picks up the new title.
 6. **Window close** — a window is closed; the listener reports focus moving to the remaining window.
-7. **Cursor position** — the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
+7. **Cursor position** — where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
 8. **Listener-scoped dispatch** — compositor-specific tests can trigger a compositor dispatch through Keyforge and verify the observable result.
 
-The shared desktop harness includes the cursor-position check for every full listener VM test: GNOME, KDE, Hyprland, Niri, XFCE/X11, COSMIC, and Sway. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
+The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, and Sway. Niri currently skips that assertion because the VM environment does not expose a usable `wl_output` to `slurp`. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
 
 ## Running A Desktop VM Test
 
@@ -144,9 +144,11 @@ The Hyprland test uses the Hyprland listener which connects to `.socket2.sock` f
 
 The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` directly. As with the upstream Niri IPC design, Keyforge uses two separate connections: one event-stream socket for focused-window tracking and one command socket for compositor actions.
 
-**Focus switching**: The test uses `niri msg action focus-window --id <window-id>` after resolving the target id from `niri msg --json windows`.
+**Focus switching**: The test activates windows through Keyforge's Niri listener path (`activate_title`) so the listener's cached focused-window state stays coherent even when the VM seat does not report a focused Niri window.
 
-**Dispatch path**: The test installs a Keyforge profile that maps `key_a` to the Niri `toggle_window_floating` dispatcher, sends a synthetic `A` key from QEMU, and verifies that the focused window's `is_floating` state changes through `niri msg --json focused-window`.
+**Dispatch path**: The test sends `dispatch_compositor` through the session socket for the Niri `toggle_window_floating` dispatcher and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
+
+**Cursor position**: The Niri VM currently skips the generic `slurp` cursor assertion. In the VM environment, `slurp` fails with `no wl_output`, so Keyforge does not currently advertise Niri as a slurp-backed cursor compositor.
 
 ### COSMIC
 
@@ -171,7 +173,7 @@ The XFCE test uses the X11 listener backed by `python-xlib`. The listener reads 
 | GNOME | no | bridge `activate_title` → `meta_window.activate()` |
 | KDE | yes | GTK activation; listener events come from injected KWin script over D-Bus |
 | Hyprland | no | `hyprctl dispatch focuswindow title:<name>` |
-| Niri | no | `niri msg action focus-window --id <id>` |
+| Niri | no | Keyforge `activate_title` -> Niri `FocusWindow { id }` |
 | COSMIC | yes | GTK `window.present()` |
 | Sway | no | `swaymsg "[title=<name>] focus"` |
 | X11/XFCE | yes | GTK `window.present()` |

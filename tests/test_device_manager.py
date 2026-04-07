@@ -12,7 +12,7 @@ import evdev
 import pytest
 
 from keyforge.common.ipc import CommandType
-from keyforge.common.models import ActionType, DeviceType, MappingAction
+from keyforge.common.models import ActionType, DeviceType, MappingAction, SuperkeyMode
 from keyforge.keyforged import device_manager as dm
 from keyforge.keyforged.combo_engine import ComboDecision, ComboInputEvent
 from keyforge.keyforged.device_manager import DesiredGrabConfig, DeviceManager
@@ -2698,7 +2698,7 @@ class TestSuperkeys:
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="test",
-                    tap_action=SuperkeyActionData(action_type="keyboard", target="key_a"),
+                    tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
                 ),
             )
         }
@@ -2746,7 +2746,7 @@ class TestSuperkeys:
         shared_config = SuperkeyConfig(
             name="shared",
             hold_threshold_ms=0,
-            hold_action=SuperkeyActionData(action_type="keyboard", target="key_a"),
+            hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
         )
         mapping_state = {
             "btn_side": dm.MappingAction(
@@ -2824,6 +2824,129 @@ class TestSuperkeys:
         assert device.state.held_output_keys["keyboard"] == set()
 
     @pytest.mark.asyncio
+    async def test_overload_superkey_fans_out_press_repeat_and_release(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        mapping_state = {
+            "key_f13": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=SuperkeyConfig(
+                    name="overload",
+                    mode=SuperkeyMode.OVERLOAD,
+                    overload_actions=[
+                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                    ],
+                ),
+            )
+        }
+
+        keyboard_uinput = _FakeUInput()
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={"key_f13": "key_f13"},
+            mapping_getter=lambda: mapping_state,
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+        )
+        device._running = True
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=2),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+        )
+
+        assert device.state.superkey_machines == {}
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 2),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 2),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_overload_superkey_refcounts_shared_outputs_across_two_inputs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
+
+        shared_config = SuperkeyConfig(
+            name="overload_shared",
+            mode=SuperkeyMode.OVERLOAD,
+            overload_actions=[
+                dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            ],
+        )
+        mapping_state = {
+            "btn_side": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=shared_config,
+            ),
+            "btn_extra": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=shared_config,
+            ),
+        }
+
+        keyboard_uinput = _FakeUInput()
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={"btn_side": "btn_side", "btn_extra": "btn_extra"},
+            mapping_getter=lambda: mapping_state,
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.MOUSE,
+            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+        )
+        device._running = True
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
+        )
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        ]
+        assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=0),
+        )
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+
+    @pytest.mark.asyncio
     async def test_reset_mapping_runtime_state_seeds_startup_held_action_and_releases_output(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -2875,7 +2998,7 @@ class TestSuperkeys:
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="test",
-                    tap_action=SuperkeyActionData(action_type="exec", exec_ref=7),
+                    tap_actions=[SuperkeyActionData(action_type="exec", exec_ref=7)],
                 ),
             )
         }
@@ -3732,7 +3855,7 @@ class TestGrabbedDeviceHelpers:
             action_type=ActionType.SUPERKEY,
             superkey_config=SuperkeyConfig(
                 name="super",
-                tap_action=SuperkeyActionData(action_type="exec", exec_ref=4),
+                tap_actions=[SuperkeyActionData(action_type="exec", exec_ref=4)],
             ),
         )
         tap_move_action = dm.MappingAction(

@@ -2,12 +2,13 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Protocol
+from typing import Protocol, cast
 
 import evdev
 
+from keyforge.common.models import MappingAction, SuperkeyMode
 from keyforge.keyforged.output_helpers import get_trigger_axis, resolve_output_code
 
 log = logging.getLogger("keyforged.superkey")
@@ -37,13 +38,47 @@ class SuperkeyActionData:
 @dataclass
 class SuperkeyConfig:
     name: str
+    mode: SuperkeyMode = SuperkeyMode.PATTERN
     tap_timeout_ms: int = 200
     double_tap_window_ms: int = 300
     hold_threshold_ms: int = 300
-    tap_action: SuperkeyActionData | None = None
-    double_tap_action: SuperkeyActionData | None = None
-    hold_action: SuperkeyActionData | None = None
-    tap_hold_action: SuperkeyActionData | None = None
+    tap_actions: list[SuperkeyActionData] = field(default_factory=list)
+    double_tap_actions: list[SuperkeyActionData] = field(default_factory=list)
+    hold_actions: list[SuperkeyActionData] = field(default_factory=list)
+    tap_hold_actions: list[SuperkeyActionData] = field(default_factory=list)
+    overload_actions: list[MappingAction] = field(default_factory=list)
+
+    @property
+    def tap_action(self) -> SuperkeyActionData | None:
+        return self.tap_actions[0] if self.tap_actions else None
+
+    @tap_action.setter
+    def tap_action(self, value: SuperkeyActionData | None) -> None:
+        self.tap_actions = [value] if value is not None else []
+
+    @property
+    def double_tap_action(self) -> SuperkeyActionData | None:
+        return self.double_tap_actions[0] if self.double_tap_actions else None
+
+    @double_tap_action.setter
+    def double_tap_action(self, value: SuperkeyActionData | None) -> None:
+        self.double_tap_actions = [value] if value is not None else []
+
+    @property
+    def hold_action(self) -> SuperkeyActionData | None:
+        return self.hold_actions[0] if self.hold_actions else None
+
+    @hold_action.setter
+    def hold_action(self, value: SuperkeyActionData | None) -> None:
+        self.hold_actions = [value] if value is not None else []
+
+    @property
+    def tap_hold_action(self) -> SuperkeyActionData | None:
+        return self.tap_hold_actions[0] if self.tap_hold_actions else None
+
+    @tap_hold_action.setter
+    def tap_hold_action(self, value: SuperkeyActionData | None) -> None:
+        self.tap_hold_actions = [value] if value is not None else []
 
 
 class _WritableUInput(Protocol):
@@ -74,7 +109,7 @@ class SuperkeyMachine:
         self.state = SuperkeyState.IDLE
         self._hold_task: asyncio.Task[None] | None = None
         self._double_tap_task: asyncio.Task[None] | None = None
-        self._rapidfire_task: asyncio.Task[None] | None = None
+        self._rapidfire_tasks: list[asyncio.Task[None]] = []
         self._rapidfire_active = False
         self._running = True
 
@@ -88,14 +123,12 @@ class SuperkeyMachine:
             self._double_tap_task.cancel()
             self._double_tap_task = None
 
-        rapidfire_stopped = await self._stop_rapidfire_task()
+        await self._stop_rapidfire_tasks()
 
         if self.state == SuperkeyState.HOLDING:
-            if not rapidfire_stopped:
-                await self._emit_hold_up()
+            await self._emit_hold_up()
         elif self.state == SuperkeyState.TAP_HOLDING:
-            if not rapidfire_stopped:
-                await self._emit_tap_hold_up()
+            await self._emit_tap_hold_up()
         self.state = SuperkeyState.IDLE
 
     async def on_down(self) -> None:
@@ -117,7 +150,7 @@ class SuperkeyMachine:
     async def _transition_to_down_wait(self) -> None:
         self.state = SuperkeyState.DOWN_WAIT
 
-        if self.config.hold_action:
+        if self.config.hold_actions:
             self._hold_task = asyncio.create_task(self._hold_timeout())
 
     async def _hold_timeout(self) -> None:
@@ -148,10 +181,10 @@ class SuperkeyMachine:
             self._hold_task.cancel()
             self._hold_task = None
 
-        if self.config.double_tap_action:
+        if self.config.double_tap_actions:
             self.state = SuperkeyState.UP_WAIT
             self._double_tap_task = asyncio.create_task(self._double_tap_timeout())
-        elif self.config.tap_action:
+        elif self.config.tap_actions:
             await self._emit_tap()
             self.state = SuperkeyState.IDLE
         else:
@@ -165,7 +198,7 @@ class SuperkeyMachine:
                 return
 
             if self.state == SuperkeyState.UP_WAIT:
-                if self.config.tap_action:
+                if self.config.tap_actions:
                     await self._emit_tap()
                 self.state = SuperkeyState.IDLE
 
@@ -179,7 +212,7 @@ class SuperkeyMachine:
 
         self.state = SuperkeyState.DOWN_WAIT_2
 
-        if self.config.tap_hold_action:
+        if self.config.tap_hold_actions:
             self._hold_task = asyncio.create_task(self._hold_timeout())
 
     async def _on_second_up(self) -> None:
@@ -187,62 +220,48 @@ class SuperkeyMachine:
             self._hold_task.cancel()
             self._hold_task = None
 
-        if self.config.double_tap_action:
+        if self.config.double_tap_actions:
             await self._emit_double_tap()
-        elif self.config.tap_action:
+        elif self.config.tap_actions:
             await self._emit_tap()
 
         self.state = SuperkeyState.IDLE
 
     async def _on_hold_release(self) -> None:
         self._rapidfire_active = False
-        rapidfire_stopped = await self._stop_rapidfire_task()
-        if not rapidfire_stopped:
-            await self._emit_hold_up()
+        await self._stop_rapidfire_tasks()
+        await self._emit_hold_up()
         self.state = SuperkeyState.IDLE
 
     async def _on_tap_hold_release(self) -> None:
         self._rapidfire_active = False
-        rapidfire_stopped = await self._stop_rapidfire_task()
-        if not rapidfire_stopped:
-            await self._emit_tap_hold_up()
+        await self._stop_rapidfire_tasks()
+        await self._emit_tap_hold_up()
         self.state = SuperkeyState.IDLE
 
     async def _emit_tap(self) -> None:
-        if self.config.tap_action:
-            await self._execute_action(self.config.tap_action, tap=True)
+        if self.config.tap_actions:
+            await self._execute_actions_tap(self.config.tap_actions)
 
     async def _emit_double_tap(self) -> None:
-        if self.config.double_tap_action:
-            await self._execute_action(self.config.double_tap_action, tap=True)
+        if self.config.double_tap_actions:
+            await self._execute_actions_tap(self.config.double_tap_actions)
 
     async def _emit_hold_down(self) -> None:
-        if self.config.hold_action:
-            if self.config.hold_action.rapidfire_enabled:
-                self._rapidfire_active = True
-                self._rapidfire_task = asyncio.create_task(
-                    self._rapidfire_loop(self.config.hold_action)
-                )
-            else:
-                await self._execute_action_down(self.config.hold_action)
+        if self.config.hold_actions:
+            await self._execute_actions_down(self.config.hold_actions)
 
     async def _emit_hold_up(self) -> None:
-        if self.config.hold_action:
-            await self._execute_action_up(self.config.hold_action)
+        if self.config.hold_actions:
+            await self._execute_actions_up(self.config.hold_actions)
 
     async def _emit_tap_hold_down(self) -> None:
-        if self.config.tap_hold_action:
-            if self.config.tap_hold_action.rapidfire_enabled:
-                self._rapidfire_active = True
-                self._rapidfire_task = asyncio.create_task(
-                    self._rapidfire_loop(self.config.tap_hold_action)
-                )
-            else:
-                await self._execute_action_down(self.config.tap_hold_action)
+        if self.config.tap_hold_actions:
+            await self._execute_actions_down(self.config.tap_hold_actions)
 
     async def _emit_tap_hold_up(self) -> None:
-        if self.config.tap_hold_action:
-            await self._execute_action_up(self.config.tap_hold_action)
+        if self.config.tap_hold_actions:
+            await self._execute_actions_up(self.config.tap_hold_actions)
 
     async def _rapidfire_loop(self, action: SuperkeyActionData) -> None:
         hold = action.rapidfire_hold_ms / 1000.0
@@ -261,25 +280,52 @@ class SuperkeyMachine:
         except Exception:
             pass
         finally:
-            self._rapidfire_task = None
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                with contextlib.suppress(ValueError):
+                    self._rapidfire_tasks.remove(cast(asyncio.Task[None], current_task))
             await self._execute_action_up(action)
 
+    async def _stop_rapidfire_tasks(self) -> None:
+        if not self._rapidfire_tasks:
+            return
+
+        tasks = list(self._rapidfire_tasks)
+        self._rapidfire_tasks.clear()
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
     async def _stop_rapidfire_task(self) -> bool:
-        if self._rapidfire_task is None:
-            return False
+        had_tasks = bool(self._rapidfire_tasks)
+        await self._stop_rapidfire_tasks()
+        return had_tasks
 
-        self._rapidfire_task.cancel()
-        task = self._rapidfire_task
-        self._rapidfire_task = None
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-        return True
+    async def _execute_actions_tap(self, actions: list[SuperkeyActionData]) -> None:
+        for action in actions:
+            await self._execute_action_down(action)
+        await asyncio.sleep(0.01)
+        for action in reversed(actions):
+            await self._execute_action_up(action)
 
-    async def _execute_action(self, action: SuperkeyActionData, tap: bool = False) -> None:
-        await self._execute_action_down(action)
-        if tap:
-            await asyncio.sleep(0.01)
-        await self._execute_action_up(action)
+    async def _execute_actions_down(self, actions: list[SuperkeyActionData]) -> None:
+        rapidfire_actions = [action for action in actions if action.rapidfire_enabled]
+        self._rapidfire_active = bool(rapidfire_actions)
+
+        for action in actions:
+            if action.rapidfire_enabled:
+                task = asyncio.create_task(self._rapidfire_loop(action))
+                self._rapidfire_tasks.append(task)
+            else:
+                await self._execute_action_down(action)
+
+    async def _execute_actions_up(self, actions: list[SuperkeyActionData]) -> None:
+        for action in reversed(actions):
+            if action.rapidfire_enabled:
+                continue
+            await self._execute_action_up(action)
 
     async def _execute_action_down(self, action: SuperkeyActionData) -> None:
         if action.action_type == "exec":

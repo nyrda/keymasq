@@ -162,8 +162,7 @@ class HardwareSetupDialog(Adw.Window):
 
         self.mouse_mode_info = Gtk.Label(
             label=(
-                "Mouse template creates a standard 5-button mouse profile with vertical and "
-                "horizontal scroll directions."
+                "Mouse template creates a standard 5-button mouse profile."
             )
         )
         self.mouse_mode_info.add_css_class("dim-label")
@@ -174,7 +173,7 @@ class HardwareSetupDialog(Adw.Window):
         self.mouse_keyboard_mode_info = Gtk.Label(
             label=(
                 "Mouse + Keyboard template creates a full standard keyboard profile plus a "
-                "standard 5-button mouse with vertical and horizontal scroll directions."
+                "standard 5-button mouse."
             )
         )
         self.mouse_keyboard_mode_info.add_css_class("dim-label")
@@ -772,13 +771,8 @@ class HardwareSetupDialog(Adw.Window):
 
     def _calculate_total_buttons(self) -> int:
         main = int(self.main_buttons_spin.get_value())
-
-        wheel_selected = self.wheel_combo.get_selected()
-        wheel = 0 if wheel_selected == 0 else (2 if wheel_selected == 1 else 4)
-
         extra = int(self.extra_buttons_spin.get_value())
-
-        return main + wheel + extra
+        return main + extra
 
     def _build_button_list(self) -> list[dict]:
         buttons = []
@@ -816,37 +810,6 @@ class HardwareSetupDialog(Adw.Window):
                     "label": main_names[i] if i < len(main_names) else f"Button {i + 1}",
                     "type": "button",
                 }
-            )
-
-        wheel_selected = self.wheel_combo.get_selected()
-        if wheel_selected >= 1:
-            buttons.extend(
-                [
-                    {"id": "wheel_up", "label": "Scroll Up", "type": "wheel", "evdev_value": 1},
-                    {
-                        "id": "wheel_down",
-                        "label": "Scroll Down",
-                        "type": "wheel",
-                        "evdev_value": -1,
-                    },
-                ]
-            )
-        if wheel_selected >= 2:
-            buttons.extend(
-                [
-                    {
-                        "id": "wheel_left",
-                        "label": "Scroll Left",
-                        "type": "wheel_h",
-                        "evdev_value": -1,
-                    },
-                    {
-                        "id": "wheel_right",
-                        "label": "Scroll Right",
-                        "type": "wheel_h",
-                        "evdev_value": 1,
-                    },
-                ]
             )
 
         extra_count = int(self.extra_buttons_spin.get_value())
@@ -1346,42 +1309,6 @@ class HardwareSetupDialog(Adw.Window):
                 source=source_id or None,
                 type="button",
                 zone="thumb",
-            ),
-            ButtonDefinition(
-                id="wheel_up",
-                label="Scroll Up",
-                evdev="rel_wheel",
-                evdev_value=1,
-                source=source_id or None,
-                type="wheel",
-                zone="wheel",
-            ),
-            ButtonDefinition(
-                id="wheel_down",
-                label="Scroll Down",
-                evdev="rel_wheel",
-                evdev_value=-1,
-                source=source_id or None,
-                type="wheel",
-                zone="wheel",
-            ),
-            ButtonDefinition(
-                id="wheel_left",
-                label="Scroll Left",
-                evdev="rel_hwheel",
-                evdev_value=-1,
-                source=source_id or None,
-                type="wheel_h",
-                zone="wheel",
-            ),
-            ButtonDefinition(
-                id="wheel_right",
-                label="Scroll Right",
-                evdev="rel_hwheel",
-                evdev_value=1,
-                source=source_id or None,
-                type="wheel_h",
-                zone="wheel",
             ),
         ]
 

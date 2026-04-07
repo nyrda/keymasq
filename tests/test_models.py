@@ -410,6 +410,42 @@ created_at = "not-a-date"
         assert 'created_at = "' in content
         assert 'created_at = "not-a-date"' not in content
 
+    def test_remove_device_button_mappings_clears_matching_profile_entries(self, temp_config_dir):
+        manager = ProfileManager()
+        profile = ProfileConfig(
+            name="Test Profile",
+            enabled=True,
+            device_layers={
+                "1234:5678": DeviceProfileLayer(
+                    hardware_id="1234:5678",
+                    mappings={
+                        "btn_back": MappingAction(action_type=ActionType.KEYBOARD, target="key_1"),
+                        "btn_forward": MappingAction(
+                            action_type=ActionType.KEYBOARD,
+                            target="key_2",
+                        ),
+                    },
+                ),
+                "9999:0001": DeviceProfileLayer(
+                    hardware_id="9999:0001",
+                    mappings={
+                        "btn_back": MappingAction(action_type=ActionType.KEYBOARD, target="key_3")
+                    },
+                ),
+            },
+        )
+        manager.save_profile(profile)
+
+        updated = manager.remove_device_button_mappings("1234:5678", "btn_back")
+
+        assert updated == 1
+        reloaded = ProfileManager()
+        saved = reloaded.get_profile("Test Profile")
+        assert saved is not None
+        assert "btn_back" not in saved.config.device_layers["1234:5678"].mappings
+        assert "btn_forward" in saved.config.device_layers["1234:5678"].mappings
+        assert "btn_back" in saved.config.device_layers["9999:0001"].mappings
+
 
 class TestMappingAction:
     def test_keyboard_action(self):

@@ -9,9 +9,10 @@ import evdev
 
 from keyforge.common.models import DeviceType
 
-INPUT_CLASS_ORDER = ("mouse", "keyboard", "gamepad", "pointstick", "other")
+INPUT_CLASS_ORDER = ("mouse", "touchpad", "keyboard", "gamepad", "pointstick", "other")
 INPUT_CLASS_LABELS = {
     "mouse": "Mouse",
+    "touchpad": "Touchpad",
     "keyboard": "Keyboard",
     "gamepad": "Gamepad",
     "pointstick": "Pointstick",
@@ -39,6 +40,12 @@ _GAMEPAD_BUTTON_CODES = frozenset(
         evdev.ecodes.BTN_EAST,
         evdev.ecodes.BTN_NORTH,
         evdev.ecodes.BTN_WEST,
+    }
+)
+_TOUCHPAD_MT_ABS_CODES = frozenset(
+    {
+        evdev.ecodes.ABS_MT_POSITION_X,
+        evdev.ecodes.ABS_MT_POSITION_Y,
     }
 )
 GAMEPAD_BUTTON_ORDER = (
@@ -260,17 +267,29 @@ def detect_input_classes_from_capabilities(
     props = {int(prop) for prop in (input_props or [])}
 
     classes: list[str] = []
+    has_touchpad_axes = bool(abs_codes & _TOUCHPAD_MT_ABS_CODES) or (
+        evdev.ecodes.ABS_X in abs_codes and evdev.ecodes.ABS_Y in abs_codes
+    )
+    has_touchpad_contact = evdev.ecodes.BTN_TOOL_FINGER in key_codes or (
+        evdev.ecodes.INPUT_PROP_POINTER in props and evdev.ecodes.BTN_TOUCH in key_codes
+    )
+    is_touchpad = evdev.ecodes.INPUT_PROP_BUTTONPAD in props or (
+        has_touchpad_axes and has_touchpad_contact
+    )
 
     has_gamepad_axes = bool(abs_codes & _GAMEPAD_ABS_CODES)
     has_gamepad_buttons = bool(key_codes & _GAMEPAD_BUTTON_CODES)
     if has_gamepad_axes and has_gamepad_buttons:
         classes.append("gamepad")
 
+    if is_touchpad:
+        classes.append("touchpad")
+
     has_mouse_motion = evdev.ecodes.REL_X in rel_codes and evdev.ecodes.REL_Y in rel_codes
     has_mouse_buttons = any(
         evdev.ecodes.BTN_MOUSE <= code < evdev.ecodes.BTN_JOYSTICK for code in key_codes
     )
-    if has_mouse_motion or has_mouse_buttons:
+    if not is_touchpad and (has_mouse_motion or has_mouse_buttons):
         classes.append("mouse")
 
     if any(code < evdev.ecodes.BTN_MISC for code in key_codes):
@@ -312,6 +331,8 @@ def classify_event_device_type(
     if event_type == evdev.ecodes.EV_KEY:
         if event_code < evdev.ecodes.BTN_MISC and "keyboard" in normalized:
             return "keyboard"
+        if "touchpad" in normalized:
+            return "touchpad"
         if (
             evdev.ecodes.BTN_MOUSE <= event_code < evdev.ecodes.BTN_JOYSTICK
             and {"mouse", "pointstick"} & normalized
@@ -331,12 +352,14 @@ def classify_event_device_type(
     if event_type == evdev.ecodes.EV_ABS:
         if "gamepad" in normalized and event_code in _GAMEPAD_ABS_CODES:
             return "gamepad"
+        if "touchpad" in normalized:
+            return "touchpad"
         if {"mouse", "pointstick"} & normalized:
             return "mouse"
         if "gamepad" in normalized:
             return "gamepad"
 
-    for label in ("keyboard", "mouse", "gamepad"):
+    for label in ("keyboard", "touchpad", "mouse", "gamepad"):
         if label in normalized:
             return label
     return "other"

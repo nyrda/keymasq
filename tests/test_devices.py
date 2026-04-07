@@ -166,6 +166,30 @@ def test_detect_input_classes_reports_combo_keyboard_mouse_pointstick() -> None:
     assert primary_input_class(classes) == DeviceType.MOUSE
 
 
+def test_detect_input_classes_reports_touchpad_without_mouse() -> None:
+    caps = {
+        evdev.ecodes.EV_KEY: [
+            evdev.ecodes.BTN_LEFT,
+            evdev.ecodes.BTN_TOUCH,
+            evdev.ecodes.BTN_TOOL_FINGER,
+        ],
+        evdev.ecodes.EV_ABS: [
+            evdev.ecodes.ABS_X,
+            evdev.ecodes.ABS_Y,
+            evdev.ecodes.ABS_MT_POSITION_X,
+            evdev.ecodes.ABS_MT_POSITION_Y,
+        ],
+    }
+
+    classes = detect_input_classes_from_capabilities(
+        caps,
+        [evdev.ecodes.INPUT_PROP_POINTER, evdev.ecodes.INPUT_PROP_BUTTONPAD],
+    )
+
+    assert classes == ["touchpad"]
+    assert primary_input_class(classes) == DeviceType.OTHER
+
+
 def test_classify_event_device_type_uses_event_shape_for_combo_devices() -> None:
     device_types = ["mouse", "keyboard", "pointstick"]
 
@@ -189,4 +213,14 @@ def test_classify_event_device_type_uses_event_shape_for_combo_devices() -> None
             device_types,
         )
         == "mouse"
+    )
+
+
+def test_classify_event_device_type_reports_touchpad() -> None:
+    assert (
+        classify_event_device_type(
+            evdev.InputEvent(1, 1, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_MT_POSITION_X, 100),
+            ["touchpad"],
+        )
+        == "touchpad"
     )

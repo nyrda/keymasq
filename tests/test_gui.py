@@ -1110,6 +1110,77 @@ class TestHardwareSetupDialog:
             }
         }
 
+    def test_detect_devices_via_session_skips_touchpads_but_keeps_other_interfaces(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.common.models import DeviceType
+        from keyforge.gui.wizards import hardware_setup as hardware_setup_mod
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        session_devices = [
+            {
+                "path": "/dev/input/event20",
+                "name": "Integrated Touchpad",
+                "phys": "i2c-ELAN1200:00",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "device_type": "other",
+                "device_types": ["touchpad"],
+            },
+            {
+                "path": "/dev/input/event21",
+                "name": "Integrated Keyboard",
+                "phys": "isa0060/serio0/input0",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+            },
+            {
+                "path": "/dev/input/event22",
+                "name": "Standalone Touchpad",
+                "phys": "i2c-SYNA2393:00",
+                "vendor_id": "9999",
+                "product_id": "0001",
+                "device_type": "other",
+                "device_types": ["touchpad"],
+            },
+        ]
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": list(session_devices),
+            },
+        )
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+        assert detected_devices == {
+            "1234:5678": {
+                "name": "Integrated Keyboard",
+                "display_name": "Integrated Keyboard",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "paths": ["/dev/input/event21"],
+                "interfaces": [
+                    {
+                        "path": "/dev/input/event21",
+                        "name": "Integrated Keyboard",
+                        "device_type": DeviceType.KEYBOARD,
+                        "device_types": ["keyboard"],
+                    }
+                ],
+            }
+        }
+
     def test_save_gamepad_config_builds_buttons_from_capabilities(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         import evdev

@@ -828,6 +828,37 @@ class TestHardwareSetupDialog:
         assert dialog._configure_mode == "gamepad"
         assert dialog.describe_subtitle.get_label() == "Review the detected controller controls"
 
+    def test_refresh_configure_modes_prefers_mouse_keyboard_template(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog.selected_device = {
+            "interfaces": [
+                {
+                    "device_type": "mouse",
+                    "device_types": ["mouse"],
+                },
+                {
+                    "device_type": "keyboard",
+                    "device_types": ["keyboard"],
+                },
+            ]
+        }
+
+        dialog._refresh_configure_modes()
+
+        assert dialog._configure_mode_values == ["mouse_keyboard", "mouse", "keyboard"]
+        assert dialog._configure_mode == "mouse_keyboard"
+        assert (
+            dialog.describe_subtitle.get_label()
+            == "Create a standard keyboard and mouse profile"
+        )
+
     def test_detect_devices_via_session_skips_virtual_uinput_devices(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
@@ -959,6 +990,89 @@ class TestHardwareSetupDialog:
             evdev.ecodes.BTN_SOUTH,
         ]
         assert all(button.type == "gamepad" for button in saved.buttons)
+        assert emitted == [("device-created", saved)]
+
+    def test_save_mouse_keyboard_config_builds_standard_template(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.common.models import DeviceType
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved = []
+
+            def save_hardware(self, config) -> None:
+                self.saved.append(config)
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        hardware_manager = _HardwareManager()
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "5678",
+            "name": "Combo Device",
+        }
+        dialog.discovered_interfaces = {
+            "mouse": {
+                "id": "mouse",
+                "stable_path": "/dev/input/by-id/test-mouse",
+                "path": "/dev/input/event10",
+                "name": "Combo Mouse",
+                "device_type": DeviceType.MOUSE,
+                "device_types": ["mouse"],
+                "capabilities": ["btn_left", "btn_right", "btn_middle", "btn_side", "btn_extra"],
+            },
+            "kbd": {
+                "id": "kbd",
+                "stable_path": "/dev/input/by-id/test-kbd",
+                "path": "/dev/input/event11",
+                "name": "Combo Keyboard",
+                "device_type": DeviceType.KEYBOARD,
+                "device_types": ["keyboard"],
+                "capabilities": ["key_a", "key_b"],
+            },
+        }
+        emitted = []
+        dialog.emit = lambda signal, config: emitted.append((signal, config))
+        dialog.close = lambda: None
+
+        dialog._save_mouse_keyboard_config()
+
+        assert len(hardware_manager.saved) == 1
+        saved = hardware_manager.saved[0]
+        assert [device.id for device in saved.evdev_devices] == ["mouse", "kbd"]
+        assert [device.device_type for device in saved.evdev_devices] == [
+            DeviceType.MOUSE,
+            DeviceType.KEYBOARD,
+        ]
+        assert [button.id for button in saved.buttons[:9]] == [
+            "btn_left",
+            "btn_right",
+            "btn_middle",
+            "btn_back",
+            "btn_forward",
+            "wheel_up",
+            "wheel_down",
+            "wheel_left",
+            "wheel_right",
+        ]
+        assert [button.evdev for button in saved.buttons[:9]] == [
+            "btn_left",
+            "btn_right",
+            "btn_middle",
+            "btn_side",
+            "btn_extra",
+            "rel_wheel",
+            "rel_wheel",
+            "rel_hwheel",
+            "rel_hwheel",
+        ]
+        assert all(button.source == "mouse" for button in saved.buttons[:9])
+        assert saved.buttons[9].source == "kbd"
+        assert saved.buttons[9].id == "key_esc"
         assert emitted == [("device-created", saved)]
 
 

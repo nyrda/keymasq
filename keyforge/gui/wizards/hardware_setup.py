@@ -54,7 +54,7 @@ class HardwareSetupDialog(Adw.Window):
         self.discovered_interfaces: dict[str, DetectedInterface] = {}
         self.button_definitions: list[DetectedButton] = []
         self.current_button_index = 0
-        self._configure_mode: str = "mouse"
+        self._configure_mode: str = ""
         self._configure_mode_values: list[str] = ["mouse"]
         self._capturing = False
         self._capture_poll_id = None
@@ -71,7 +71,6 @@ class HardwareSetupDialog(Adw.Window):
 
         self._setup_page_select()
         self._setup_page_describe()
-        self._setup_page_capture()
 
         header = Adw.HeaderBar()
 
@@ -154,12 +153,34 @@ class HardwareSetupDialog(Adw.Window):
         self.mode_row = mode_row
 
         self.keyboard_mode_info = Gtk.Label(
-            label="Keyboard profile uses standard key mapping and skips button capture."
+            label="Keyboard template creates a full standard keyboard hardware profile."
         )
         self.keyboard_mode_info.add_css_class("dim-label")
         self.keyboard_mode_info.set_wrap(True)
         self.keyboard_mode_info.set_halign(Gtk.Align.START)
         box.append(self.keyboard_mode_info)
+
+        self.mouse_mode_info = Gtk.Label(
+            label=(
+                "Mouse template creates a standard 5-button mouse profile with vertical and "
+                "horizontal scroll directions."
+            )
+        )
+        self.mouse_mode_info.add_css_class("dim-label")
+        self.mouse_mode_info.set_wrap(True)
+        self.mouse_mode_info.set_halign(Gtk.Align.START)
+        box.append(self.mouse_mode_info)
+
+        self.mouse_keyboard_mode_info = Gtk.Label(
+            label=(
+                "Mouse + Keyboard template creates a full standard keyboard profile plus a "
+                "standard 5-button mouse with vertical and horizontal scroll directions."
+            )
+        )
+        self.mouse_keyboard_mode_info.add_css_class("dim-label")
+        self.mouse_keyboard_mode_info.set_wrap(True)
+        self.mouse_keyboard_mode_info.set_halign(Gtk.Align.START)
+        box.append(self.mouse_keyboard_mode_info)
 
         self.gamepad_mode_info = Gtk.Label(
             label=(
@@ -171,69 +192,6 @@ class HardwareSetupDialog(Adw.Window):
         self.gamepad_mode_info.set_wrap(True)
         self.gamepad_mode_info.set_halign(Gtk.Align.START)
         box.append(self.gamepad_mode_info)
-
-        grid = Gtk.Grid()
-        grid.set_column_spacing(12)
-        grid.set_row_spacing(12)
-        grid.set_margin_top(12)
-
-        row = 0
-
-        label = Gtk.Label(label="Main mouse buttons:")
-        label.set_halign(Gtk.Align.START)
-        grid.attach(label, 0, row, 1, 1)
-
-        main_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-
-        self.main_buttons_spin = Gtk.SpinButton.new_with_range(0, 10, 1)
-        self.main_buttons_spin.set_value(3)
-        self.main_buttons_spin.set_hexpand(True)
-        main_btn_box.append(self.main_buttons_spin)
-
-        grid.attach(main_btn_box, 1, row, 1, 1)
-        row += 1
-
-        label = Gtk.Label(label="Mouse wheel:")
-        label.set_halign(Gtk.Align.START)
-        grid.attach(label, 0, row, 1, 1)
-
-        self.wheel_combo = Gtk.DropDown()
-        wheel_options = Gtk.StringList()
-        wheel_options.append("None")
-        wheel_options.append("Up/Down")
-        wheel_options.append("Up/Down + Left/Right")
-        self.wheel_combo.set_model(wheel_options)
-        self.wheel_combo.set_selected(1)
-        self.wheel_combo.set_hexpand(True)
-        grid.attach(self.wheel_combo, 1, row, 1, 1)
-        row += 1
-
-        label = Gtk.Label(label="Extra/side buttons:")
-        label.set_halign(Gtk.Align.START)
-        grid.attach(label, 0, row, 1, 1)
-
-        extra_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-
-        self.extra_buttons_spin = Gtk.SpinButton.new_with_range(0, 20, 1)
-        self.extra_buttons_spin.set_value(0)
-        self.extra_buttons_spin.set_hexpand(True)
-        extra_btn_box.append(self.extra_buttons_spin)
-
-        grid.attach(extra_btn_box, 1, row, 1, 1)
-        row += 1
-
-        box.append(grid)
-
-        self.total_label = Gtk.Label()
-        self.total_label.add_css_class("dim-label")
-        self.total_label.set_margin_top(12)
-        box.append(self.total_label)
-
-        self.main_buttons_spin.connect("value-changed", self._update_total)
-        self.wheel_combo.connect("notify::selected", self._update_total)
-        self.extra_buttons_spin.connect("value-changed", self._update_total)
-
-        self.mouse_config_grid = grid
 
         self.stack.add_titled(box, "describe", "Describe Device")
 
@@ -608,6 +566,9 @@ class HardwareSetupDialog(Adw.Window):
         if has_gamepad:
             self.mode_combo_model.append("Gamepad")
             self._configure_mode_values.append("gamepad")
+        if has_mouse and has_keyboard:
+            self.mode_combo_model.append("Mouse + Keyboard")
+            self._configure_mode_values.append("mouse_keyboard")
         if has_mouse:
             self.mode_combo_model.append("Mouse")
             self._configure_mode_values.append("mouse")
@@ -629,6 +590,8 @@ class HardwareSetupDialog(Adw.Window):
             return self._configure_mode
         if "gamepad" in self._configure_mode_values:
             return "gamepad"
+        if "mouse_keyboard" in self._configure_mode_values:
+            return "mouse_keyboard"
         if "mouse" in self._configure_mode_values:
             return "mouse"
         if "keyboard" in self._configure_mode_values:
@@ -644,20 +607,24 @@ class HardwareSetupDialog(Adw.Window):
 
     def _update_describe_mode_ui(self) -> None:
         is_keyboard = self._configure_mode == "keyboard"
+        is_mouse = self._configure_mode == "mouse"
+        is_mouse_keyboard = self._configure_mode == "mouse_keyboard"
         is_gamepad = self._configure_mode == "gamepad"
-        self.mouse_config_grid.set_visible(not is_keyboard and not is_gamepad)
-        self.total_label.set_visible(not is_keyboard and not is_gamepad)
         self.keyboard_mode_info.set_visible(is_keyboard)
+        self.mouse_mode_info.set_visible(is_mouse)
+        self.mouse_keyboard_mode_info.set_visible(is_mouse_keyboard)
         self.gamepad_mode_info.set_visible(is_gamepad)
         if is_gamepad:
             self.describe_subtitle.set_label("Review the detected controller controls")
+        elif is_mouse_keyboard:
+            self.describe_subtitle.set_label("Create a standard keyboard and mouse profile")
         elif is_keyboard:
-            self.describe_subtitle.set_label("Set up the keyboard profile")
+            self.describe_subtitle.set_label("Create a standard keyboard profile")
         else:
-            self.describe_subtitle.set_label("Describe your device's buttons")
+            self.describe_subtitle.set_label("Create a standard mouse profile")
 
         if self.stack.get_visible_child_name() == "describe":
-            self.next_btn.set_label("Save" if is_keyboard or is_gamepad else "Next")
+            self.next_btn.set_label("Save")
 
     def _device_type_sort_order(self, device_type: DeviceType) -> int:
         order = {
@@ -894,12 +861,11 @@ class HardwareSetupDialog(Adw.Window):
             self._configure_mode = self._preferred_configure_mode()
             self.mode_combo.set_selected(self._configure_mode_values.index(self._configure_mode))
             self.describe_title.set_label(f"Configure {selected_device['name']}")
-            self._update_total()
             self._update_describe_mode_ui()
             self.stack.set_visible_child_name("describe")
             self.back_btn.set_visible(True)
             self.cancel_btn.set_visible(False)
-            self.next_btn.set_label("Save" if self._configure_mode == "keyboard" else "Next")
+            self.next_btn.set_label("Save")
 
         elif visible_page == "describe":
             if self._configure_mode == "keyboard":
@@ -908,13 +874,10 @@ class HardwareSetupDialog(Adw.Window):
             if self._configure_mode == "gamepad":
                 self._save_gamepad_config()
                 return
-
-            self.button_definitions = self._build_button_list()
-            self.current_button_index = 0
-            self._clear_captured_list()
-            self._update_capture_ui()
-            self.stack.set_visible_child_name("capture")
-            self.next_btn.set_visible(False)
+            if self._configure_mode == "mouse_keyboard":
+                self._save_mouse_keyboard_config()
+                return
+            self._save_mouse_config()
 
     def _on_back(self, button: Gtk.Button) -> None:
         visible_page = self.stack.get_visible_child_name()
@@ -924,12 +887,6 @@ class HardwareSetupDialog(Adw.Window):
             self.back_btn.set_visible(False)
             self.cancel_btn.set_visible(True)
             self.next_btn.set_sensitive(True)
-
-        elif visible_page == "capture":
-            self._stop_capture()
-            self.stack.set_visible_child_name("describe")
-            self.next_btn.set_visible(True)
-            self.next_btn.set_label("Next")
 
     def _update_capture_ui(self) -> None:
         if self.current_button_index >= len(self.button_definitions):
@@ -1196,32 +1153,13 @@ class HardwareSetupDialog(Adw.Window):
         if selected_device is None:
             return
 
-        keyboard_interfaces = [
-            iface
-            for iface in self.discovered_interfaces.values()
-            if self._interface_has_role(iface, "keyboard")
-        ]
-        if not keyboard_interfaces:
-            keyboard_interfaces = list(self.discovered_interfaces.values())
+        keyboard_interfaces = self._interfaces_for_roles({"keyboard"})
 
         primary_keyboard_source = ""
         if keyboard_interfaces:
             primary_keyboard_source = str(keyboard_interfaces[0].get("id", "") or "")
 
-        evdev_devices = []
-        for iface in self.discovered_interfaces.values():
-            stable_path = str(iface.get("stable_path", "") or "")
-            iface_id = str(iface.get("id", "") or "")
-            if not stable_path or not iface_id:
-                continue
-            dev_type = primary_input_class(iface.get("device_types"))
-            evdev_devices.append(
-                EvdevDevice(
-                    path=stable_path,
-                    device_type=dev_type,
-                    id=iface_id,
-                )
-            )
+        evdev_devices = self._build_evdev_devices(keyboard_interfaces)
 
         buttons = self._build_standard_keyboard_buttons(primary_keyboard_source)
 
@@ -1230,6 +1168,60 @@ class HardwareSetupDialog(Adw.Window):
             product_id=selected_device["product_id"],
             name=selected_device["name"],
             evdev_devices=evdev_devices,
+            buttons=buttons,
+        )
+
+        self.hardware_manager.save_hardware(config)
+        self.emit("device-created", config)
+        self.close()
+
+    def _save_mouse_config(self) -> None:
+        selected_device = self.selected_device
+        if selected_device is None:
+            return
+
+        mouse_interfaces = self._interfaces_for_roles({"mouse", "pointstick"})
+        primary_mouse_source = ""
+        if mouse_interfaces:
+            primary_mouse_source = str(mouse_interfaces[0].get("id", "") or "")
+
+        config = HardwareConfig(
+            vendor_id=selected_device["vendor_id"],
+            product_id=selected_device["product_id"],
+            name=selected_device["name"],
+            evdev_devices=self._build_evdev_devices(mouse_interfaces),
+            buttons=self._build_standard_mouse_buttons(primary_mouse_source),
+        )
+
+        self.hardware_manager.save_hardware(config)
+        self.emit("device-created", config)
+        self.close()
+
+    def _save_mouse_keyboard_config(self) -> None:
+        selected_device = self.selected_device
+        if selected_device is None:
+            return
+
+        keyboard_interfaces = self._interfaces_for_roles({"keyboard"})
+        mouse_interfaces = self._interfaces_for_roles({"mouse", "pointstick"})
+
+        primary_keyboard_source = ""
+        if keyboard_interfaces:
+            primary_keyboard_source = str(keyboard_interfaces[0].get("id", "") or "")
+
+        primary_mouse_source = ""
+        if mouse_interfaces:
+            primary_mouse_source = str(mouse_interfaces[0].get("id", "") or "")
+
+        interfaces = self._merge_interface_lists(mouse_interfaces, keyboard_interfaces)
+        buttons = self._build_standard_mouse_buttons(primary_mouse_source)
+        buttons.extend(self._build_standard_keyboard_buttons(primary_keyboard_source))
+
+        config = HardwareConfig(
+            vendor_id=selected_device["vendor_id"],
+            product_id=selected_device["product_id"],
+            name=selected_device["name"],
+            evdev_devices=self._build_evdev_devices(interfaces),
             buttons=buttons,
         )
 
@@ -1262,12 +1254,126 @@ class HardwareSetupDialog(Adw.Window):
         return (capability_names_from_capabilities(raw_capabilities), raw_capabilities)
 
     def _gamepad_interfaces(self) -> list[dict]:
+        return self._interfaces_for_roles({"gamepad"})
+
+    def _interfaces_for_roles(self, roles: set[str]) -> list[dict]:
         interfaces = [
             iface
             for iface in self.discovered_interfaces.values()
-            if self._interface_has_role(iface, "gamepad")
+            if any(self._interface_has_role(iface, role) for role in roles)
         ]
         return interfaces or list(self.discovered_interfaces.values())
+
+    def _merge_interface_lists(self, *interface_lists: list[dict]) -> list[dict]:
+        merged: list[dict] = []
+        seen_keys: set[tuple[str, str]] = set()
+        for interface_list in interface_lists:
+            for iface in interface_list:
+                iface_id = str(iface.get("id", "") or "")
+                stable_path = str(iface.get("stable_path", "") or "")
+                key = (iface_id, stable_path)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                merged.append(iface)
+        return merged
+
+    def _build_evdev_devices(self, interfaces: list[dict]) -> list[EvdevDevice]:
+        evdev_devices = []
+        for iface in interfaces:
+            stable_path = str(iface.get("stable_path", "") or "")
+            iface_id = str(iface.get("id", "") or "")
+            if not stable_path or not iface_id:
+                continue
+            evdev_devices.append(
+                EvdevDevice(
+                    path=stable_path,
+                    device_type=primary_input_class(iface.get("device_types")),
+                    id=iface_id,
+                    capabilities=list(iface.get("capabilities", [])),
+                )
+            )
+        return evdev_devices
+
+    def _build_standard_mouse_buttons(self, source_id: str) -> list[ButtonDefinition]:
+        return [
+            ButtonDefinition(
+                id="btn_left",
+                label="Left Click",
+                evdev="btn_left",
+                source=source_id or None,
+                type="button",
+                zone="left",
+            ),
+            ButtonDefinition(
+                id="btn_right",
+                label="Right Click",
+                evdev="btn_right",
+                source=source_id or None,
+                type="button",
+                zone="right",
+            ),
+            ButtonDefinition(
+                id="btn_middle",
+                label="Middle Click",
+                evdev="btn_middle",
+                source=source_id or None,
+                type="button",
+                zone="wheel",
+            ),
+            ButtonDefinition(
+                id="btn_back",
+                label="Back",
+                evdev="btn_side",
+                source=source_id or None,
+                type="button",
+                zone="thumb",
+            ),
+            ButtonDefinition(
+                id="btn_forward",
+                label="Forward",
+                evdev="btn_extra",
+                source=source_id or None,
+                type="button",
+                zone="thumb",
+            ),
+            ButtonDefinition(
+                id="wheel_up",
+                label="Scroll Up",
+                evdev="rel_wheel",
+                evdev_value=1,
+                source=source_id or None,
+                type="wheel",
+                zone="wheel",
+            ),
+            ButtonDefinition(
+                id="wheel_down",
+                label="Scroll Down",
+                evdev="rel_wheel",
+                evdev_value=-1,
+                source=source_id or None,
+                type="wheel",
+                zone="wheel",
+            ),
+            ButtonDefinition(
+                id="wheel_left",
+                label="Scroll Left",
+                evdev="rel_hwheel",
+                evdev_value=-1,
+                source=source_id or None,
+                type="wheel_h",
+                zone="wheel",
+            ),
+            ButtonDefinition(
+                id="wheel_right",
+                label="Scroll Right",
+                evdev="rel_hwheel",
+                evdev_value=1,
+                source=source_id or None,
+                type="wheel_h",
+                zone="wheel",
+            ),
+        ]
 
     def _build_gamepad_buttons(self, interfaces: list[dict]) -> list[ButtonDefinition]:
         button_specs: dict[str, tuple[int, str | None]] = {}
@@ -1477,5 +1583,4 @@ class HardwareSetupDialog(Adw.Window):
         return token.replace("_", " ").strip().title()
 
     def do_close_request(self) -> bool:
-        self._stop_capture()
         return False

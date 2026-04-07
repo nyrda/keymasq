@@ -128,7 +128,7 @@ class Application(Adw.Application):
             dialog = Adw.AboutDialog()
             dialog.set_application_name("Keyforge")
             dialog.set_application_icon("keyforge")
-            dialog.set_version("0.1.0")
+            dialog.set_version("0.2")
             dialog.set_comments("A key remapping tool for Linux")
             dialog.set_developer_name("Keyforge Team")
             dialog.set_license_type(Gtk.License.MIT_X11)
@@ -151,7 +151,7 @@ def main() -> None:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 0.1.0",
+        version="%(prog)s 0.2",
     )
 
     args, _ = parser.parse_known_args()

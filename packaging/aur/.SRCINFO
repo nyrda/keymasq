@@ -1,6 +1,6 @@
 pkgbase = keyforge
 	pkgdesc = A key remapping tool for Linux using evdev and uinput
-	pkgver = 0.1.0
+	pkgver = 0.2
 	pkgrel = 1
 	url = https://github.com/nyrda/keyforge
 	arch = any
@@ -22,7 +22,7 @@ pkgbase = keyforge
 	depends = polkit
 	depends = systemd
 	optdepends = hyprland: for Hyprland window rule support
-	source = keyforge-0.1.0.tar.gz::https://github.com/nyrda/keyforge/releases/download/v0.1.0/keyforge-0.1.0.tar.gz
+	source = keyforge-0.2.tar.gz::https://github.com/nyrda/keyforge/releases/download/v0.2/keyforge-0.2.tar.gz
 	sha256sums = SKIP
 	install = keyforge.install
 

@@ -837,35 +837,48 @@ class TestHardwareSetupDialog:
         from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        session_devices = [
+            {
+                "path": "/dev/input/event22",
+                "name": "Microsoft X-Box 360 pad",
+                "phys": "py-evdev-uinput",
+                "vendor_id": "045e",
+                "product_id": "028e",
+                "device_type": "gamepad",
+                "device_types": ["gamepad"],
+            },
+            {
+                "path": "/dev/input/event10",
+                "name": "Real USB Mouse",
+                "phys": "usb-0000:00:14.0-1/input0",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "device_type": "mouse",
+                "device_types": ["mouse"],
+            },
+            {
+                "path": "/dev/input/event11",
+                "name": "Configured Keyboard",
+                "phys": "usb-0000:00:14.0-2/input0",
+                "vendor_id": "9999",
+                "product_id": "0001",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+            },
+        ]
         monkeypatch.setattr(
             hardware_setup_mod,
             "session_request",
             lambda _payload, timeout=3.0: {
                 "status": "ok",
-                "devices": [
-                    {
-                        "path": "/dev/input/event22",
-                        "name": "Microsoft X-Box 360 pad",
-                        "phys": "py-evdev-uinput",
-                        "vendor_id": "045e",
-                        "product_id": "028e",
-                        "device_type": "gamepad",
-                        "device_types": ["gamepad"],
-                    },
-                    {
-                        "path": "/dev/input/event10",
-                        "name": "Real USB Mouse",
-                        "phys": "usb-0000:00:14.0-1/input0",
-                        "vendor_id": "1234",
-                        "product_id": "5678",
-                        "device_type": "mouse",
-                        "device_types": ["mouse"],
-                    },
-                ],
+                "devices": list(session_devices),
             },
         )
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        hardware_manager = SimpleNamespace(
+            get_hardware=lambda hardware_id: object() if hardware_id == "9999:0001" else None
+        )
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True

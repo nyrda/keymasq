@@ -421,6 +421,8 @@ class HardwareSetupDialog(Adw.Window):
                     continue
                 info = device.info
                 vid_pid = f"{info.vendor:04x}:{info.product:04x}"
+                if self._hardware_config_exists(vid_pid):
+                    continue
                 device_types = detect_input_classes(device)
                 device_type = primary_input_class(device_types)
                 lsusb_entry = lsusb_map.get(vid_pid)
@@ -483,6 +485,8 @@ class HardwareSetupDialog(Adw.Window):
                 continue
 
             vid_pid = f"{vendor_id}:{product_id}"
+            if self._hardware_config_exists(vid_pid):
+                continue
             path = str(dev.get("path", "") or "")
             name = str(dev.get("name", "") or path or vid_pid)
             dtype_raw = str(dev.get("device_type", "other") or "other")
@@ -539,6 +543,19 @@ class HardwareSetupDialog(Adw.Window):
 
         if phys == "py-evdev-uinput":
             return True
+
+        return False
+
+    def _hardware_config_exists(self, hardware_id: str) -> bool:
+        getter = getattr(self.hardware_manager, "get_hardware", None)
+        if callable(getter):
+            return getter(hardware_id) is not None
+
+        list_ids = getattr(self.hardware_manager, "list_hardware_ids", None)
+        if callable(list_ids):
+            configured_ids = list_ids()
+            if isinstance(configured_ids, list):
+                return hardware_id in [str(item) for item in configured_ids]
 
         return False
 

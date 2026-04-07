@@ -1,3 +1,10 @@
+keyforge (0.2-1) unstable; urgency=medium
+
+  * Seed a default editable profile on first startup.
+  * Refine first-run device setup UX.
+
+ -- nyrda <nyrda@keyforge.tools>  Tue, 07 Apr 2026 00:00:00 +0000
+
 keyforge (0.1.0-1) unstable; urgency=medium
 
   * Initial Debian packaging.

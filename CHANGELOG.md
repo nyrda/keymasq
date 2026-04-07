@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2] - 2026-04-07
+
+### Changed
+
+- Seed a permanent editable `Default` profile on first startup so newly added
+  devices can be remapped immediately.
+- Hide unsupported touchpads from the Add Device flow.
+- Stop offering wheel-only pseudo inputs during device setup and clean up
+  deleted button mappings more predictably.
+
 ## [0.1.0] - 2026-03-28
 
 ### Added

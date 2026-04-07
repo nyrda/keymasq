@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 from __future__ import annotations
 
 import argparse
@@ -6,7 +7,6 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 

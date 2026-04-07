@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import tomllib
-
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"

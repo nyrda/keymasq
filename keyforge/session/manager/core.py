@@ -66,7 +66,10 @@ class SessionManager:
 
         self.client = KeyforgedClient(_client_event_handler)
         self.superkeys = SuperkeyManager()
-        self.profiles = ProfileManager(superkey_manager=self.superkeys)
+        self.profiles = ProfileManager(
+            superkey_manager=self.superkeys,
+            auto_create_default_if_empty=True,
+        )
         self.hardware = HardwareManager()
         self.action_handler: ActionHandler | None = None
         self.running = False

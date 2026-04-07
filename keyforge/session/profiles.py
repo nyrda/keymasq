@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import io
 import logging
 import re
 import tomllib
@@ -26,6 +27,7 @@ from keyforge.common.models import (
 log = logging.getLogger("keyforge-session.profiles")
 
 MAX_PROFILE_PATH_ATTEMPTS = 10000
+DEFAULT_PROFILE_NAME = "Default"
 type TomlDict = dict[str, object]
 type _IntLike = int | float | str | bytes
 type _FloatLike = int | float | str | bytes
@@ -93,12 +95,18 @@ if TYPE_CHECKING:
 
 
 class ProfileManager:
-    def __init__(self, superkey_manager: "SuperkeyManager | None" = None) -> None:
+    def __init__(
+        self,
+        superkey_manager: "SuperkeyManager | None" = None,
+        auto_create_default_if_empty: bool = False,
+    ) -> None:
         paths.ensure_config_dirs()
         self._superkey_manager = superkey_manager
+        self._auto_create_default_if_empty = auto_create_default_if_empty
         self._profiles: dict[str, ProfileInfo] = {}
         self._pending_repairs: set[asyncio.Task[None]] = set()
         self._load_all()
+        self._ensure_default_profile_exists()
 
     def _load_all(self) -> None:
         self._profiles.clear()
@@ -115,6 +123,35 @@ class ProfileManager:
 
     def reload(self) -> None:
         self._load_all()
+        self._ensure_default_profile_exists()
+
+    def _ensure_default_profile_exists(self) -> None:
+        if not self._auto_create_default_if_empty or self._profiles:
+            return
+
+        config = ProfileConfig(
+            name=DEFAULT_PROFILE_NAME,
+            enabled=True,
+            is_permanent=True,
+            priority=0,
+            notify_on_activation=False,
+            created_at=datetime.now(),
+        )
+        path = paths.PROFILES_DIR / f"{self._sanitize_profile_storage_stem(config.name)}.toml"
+
+        try:
+            self._write_profile_file(
+                config,
+                path,
+                validate_window_rules=False,
+                exclusive=True,
+            )
+        except FileExistsError:
+            self._load_all()
+            return
+
+        self._profiles[config.name] = ProfileInfo(path=path, config=config)
+        log.info("Created default profile: %s", path)
 
     def _load_profile(self, path: Path) -> ProfileConfig:
         with open(path, "rb") as f:
@@ -667,6 +704,7 @@ class ProfileManager:
         config: ProfileConfig,
         path: Path,
         validate_window_rules: bool = True,
+        exclusive: bool = False,
     ) -> None:
         if validate_window_rules:
             self.validate_window_rules(config.window_rules)
@@ -735,6 +773,13 @@ class ProfileManager:
                 }
                 for combo in config.combos
             ]
+
+        if exclusive:
+            buffer = io.BytesIO()
+            tomli_w.dump(data, buffer)
+            with open(path, "xb") as f:
+                f.write(buffer.getvalue())
+            return
 
         with open(path, "wb") as f:
             tomli_w.dump(data, f)

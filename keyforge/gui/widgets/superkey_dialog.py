@@ -210,11 +210,10 @@ class SuperkeyDialog(Adw.Dialog):
         btn_box.append(bottom_row)
 
         self.right_box.append(btn_box)
+        return self.right_box
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
         self.close()
-
-        return self.right_box
 
     def _build_timing_row(
         self,

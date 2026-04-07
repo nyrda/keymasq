@@ -81,12 +81,19 @@ class DeviceTab(ProfileManagedTab):
         return self._selected_profile.config.get_layer(self.device.hardware_id)
 
     def _append_profile_settings_rows(self, settings_grid: Gtk.Grid, row: int) -> int:
+        iface_count = len(self.device.evdev_devices)
+        device_name = self.device.name
+
         grab_label = Gtk.Label(label="Grab Mode")
         grab_label.set_halign(Gtk.Align.START)
         grab_label.set_valign(Gtk.Align.CENTER)
         settings_grid.attach(grab_label, 0, row, 1, 1)
 
-        self.always_grab_check = Gtk.CheckButton(label="Always grab all interfaces")
+        if iface_count > 1:
+            grab_text = f"Always grab all {iface_count} interfaces of {device_name}"
+        else:
+            grab_text = f"Always grab {device_name}"
+        self.always_grab_check = Gtk.CheckButton(label=grab_text)
         self.always_grab_check.set_active(False)
         self.always_grab_check.set_tooltip_text(
             "Grab all device interfaces even if not all are used. "

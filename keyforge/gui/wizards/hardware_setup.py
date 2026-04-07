@@ -347,7 +347,10 @@ class HardwareSetupDialog(Adw.Window):
             row_box.append(label)
 
             hint = Gtk.Label(
-                label="Ensure keyforged is running and has access to /dev/input/event*"
+                label=(
+                    "Ensure keyforged is running and has access to /dev/input/event*. "
+                    "Touchpads are detected but not supported in Add Device yet."
+                )
             )
             hint.add_css_class("dim-label")
             hint.add_css_class("caption")
@@ -382,6 +385,8 @@ class HardwareSetupDialog(Adw.Window):
                 if self._hardware_config_exists(vid_pid):
                     continue
                 device_types = detect_input_classes(device)
+                if not self._should_include_detected_interface(device_types):
+                    continue
                 device_type = primary_input_class(device_types)
                 lsusb_entry = lsusb_map.get(vid_pid)
                 display_name = (
@@ -450,6 +455,8 @@ class HardwareSetupDialog(Adw.Window):
             dtype_raw = str(dev.get("device_type", "other") or "other")
             dtype = primary_input_class(dev.get("device_types") or [dtype_raw])
             device_types = normalize_input_classes(dev.get("device_types"), dtype_raw)
+            if not self._should_include_detected_interface(device_types):
+                continue
 
             if vid_pid not in seen_ids:
                 seen_ids.add(vid_pid)
@@ -503,6 +510,9 @@ class HardwareSetupDialog(Adw.Window):
             return True
 
         return False
+
+    def _should_include_detected_interface(self, device_types: list[str]) -> bool:
+        return "touchpad" not in normalize_input_classes(device_types)
 
     def _hardware_config_exists(self, hardware_id: str) -> bool:
         getter = getattr(self.hardware_manager, "get_hardware", None)

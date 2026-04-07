@@ -197,6 +197,14 @@ systemctl --user daemon-reload
 systemctl --user restart keyforge-session
 ```
 
+### Touchpad does not appear in Add Device
+
+Current behavior:
+
+- touchpads are detected but intentionally hidden from the Add Device flow
+- Keyforge does not support touchpad remapping yet, so the GUI will not offer a
+  touchpad as addable hardware
+
 ### Polkit or recording unlock problems
 
 Symptoms:

@@ -58,7 +58,7 @@ Each desktop test validates:
 7. **Cursor position** — where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
 8. **Listener-scoped dispatch** — compositor-specific tests can trigger a compositor dispatch through Keyforge and verify the observable result.
 
-The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, and Sway. Niri support is enabled in Keyforge again, and the VM harness attempts the same cursor query there, but it still tolerates the known NixOS VM-specific `slurp` failure mode where the session logs `stderr=no wl_output`. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
+The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, and Sway. The Niri listener VM currently skips that cursor assertion. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
 
 ## Running A Desktop VM Test
 
@@ -148,7 +148,7 @@ The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` 
 
 **Dispatch path**: The test sends `dispatch_compositor` through the session socket for the Niri `toggle_window_floating` dispatcher and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
 
-**Cursor position**: Keyforge now advertises the normal `slurp`-backed cursor path for Niri again. The VM harness waits for `WAYLAND_DISPLAY` and `NIRI_SOCKET` in the systemd user environment before restarting `keyforge-session`, but the current NixOS listener VM can still hit a `slurp` failure with `stderr=no wl_output`. When that exact failure is observed in the service journal, the test logs it and continues rather than failing the whole Niri matrix job.
+**Cursor position**: Keyforge still advertises the normal `slurp`-backed cursor path for Niri, but the NixOS listener VM does not currently enforce that path. The Niri matrix job skips the cursor-capture assertion and leaves that behavior documented rather than failing the entire integration test on the current VM setup.
 
 ### COSMIC
 

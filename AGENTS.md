@@ -2,7 +2,7 @@
 
 Use this file as a quick project map. Keep deeper behavior details in `docs/`, not here.
 
-## What Keyforge Is
+## Architecture
 
 Keyforge is a Linux input remapper built around three processes:
 
@@ -23,46 +23,30 @@ Keyforge is a Linux input remapper built around three processes:
 ## High-Value Files
 
 - `keyforge/common/models.py` - `ActionType`, `MappingAction`, profile and combo models
-- `keyforge/common/ipc.py` - daemon/session protocol
-- `keyforge/common/recording_guard.py` - recording/combo-capture unlock helpers
-- `keyforge/keyforged/device_manager.py` - remap runtime, combo runtime, uinput output
-- `keyforge/keyforged/combo_engine.py` - combo matcher and timeout handling
-- `keyforge/keyforged/daemon.py` - privileged command dispatch
-- `keyforge/session/manager.py` - session socket, daemon sync, recording/capture/compositor dispatch
+- `keyforge/common/ipc.py` - daemon/session protocol and command types
+- `keyforge/keyforged/daemon.py` - privileged command server, ACL checks, and runtime manager wiring
+- `keyforge/keyforged/device_manager.py` - daemon-side runtime coordinator for grabs, mappings, combos, and macro playback
+- `keyforge/session/manager/core.py` - session socket lifecycle, daemon connection loop, and runtime state
+- `keyforge/session/manager/commands.py` - GUI/session command dispatch and policy gating
 - `keyforge/session/profiles.py` - profile load/save and active-profile/combo resolution
-- `keyforge/gui/widgets/device_tab.py` - per-device mapping UI
-- `keyforge/gui/widgets/key_selector_dialog.py` - mapping action chooser
+- `keyforge/gui/window.py` - main window, device/combo tab setup, and shared profile selection sync
 
-## Project Rules That Are Easy To Break
+## Gotchas
 
 - Profiles are global, not per-device. Per-device mappings live in profile device layers keyed by `hardware_id`.
 - Active profile ordering matters. Later profiles win.
 - Prefix-shadowing between combos is valid runtime behavior. The GUI only rejects exact duplicates within one profile.
 - `COMPOSITOR_DISPATCH` is generic backend behavior. Compositor-specific UI belongs under `gui/widgets/compositor_actions/`.
-- Xbox triggers are analog output (`ABS_Z`, `ABS_RZ`), not normal digital buttons.
-
-## GUI Notes
-
-- `MainWindow` hosts both device tabs and a separate `ComboTab`.
-- Profile selection is window-level and syncs between device tabs and combo tab.
-- `KeySelectorDialog` is shared by device mappings and combo actions.
-- Compositor-specific action pages should stay modular; do not hardcode compositor UI into `key_selector_dialog.py`.
+- `MainWindow` owns profile selection. Device tabs and `ComboTab` must stay in sync with the window-level selection.
+- `KeySelectorDialog` is shared by device mappings and combo actions. Do not hardcode compositor-specific UI into it.
 - In GTK code, create dependent attributes before connecting signals that may fire immediately.
-
-## Working Style
-
-- Prefer small, local changes over cross-cutting rewrites unless the task requires structure changes.
-- Keep compositor-specific code modular so more compositors can be added later.
-- When adding behavior, update the relevant `docs/*.md` if the change affects user-visible semantics or security.
+- Xbox triggers are analog output (`ABS_Z`, `ABS_RZ`), not normal digital buttons.
 
 ## Coding Style
 
-- Use Python type hints consistently.
 - Keep new code async-friendly. Do not add blocking I/O or long synchronous waits.
-- Follow existing GTK4 patterns in the surrounding file instead of introducing a new style.
-- Keep comments sparse and only add them when they clarify non-obvious logic.
-- Prefer small helper functions over deeply nested UI or runtime logic.
-- Put compositor-specific behavior in dedicated modules, not in generic dialog/runtime code.
+- Match the surrounding Python and GTK4 patterns.
+- When adding behavior, update the relevant `docs/*.md` if the change affects user-visible semantics or security.
 
 ## Commands
 
@@ -76,5 +60,3 @@ Run `./scripts/check.sh <category>` after Python code changes:
 - `full` for multi-category edits, shared-code edits (`keyforge/common/`, CLI, packaging-affecting changes), or before handing off a broad refactor
 
 `./scripts/check.sh` without an argument defaults to `full`. Skip checks for doc-only, config-only, or non-code changes.
-
-Use `./scripts/check.sh --vm <category>` when the host does not have usable `uinput` access or when you need the same category to run in the VM backend instead of the host backend. The host backend remains the default.

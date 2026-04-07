@@ -515,7 +515,10 @@ class TestDeviceTabWidget:
 
         assert selected_calls == ["btn_back"]
 
-    def test_device_tab_listen_toggle_and_reload_ui_remove_key_controller(self, temp_config_dir):
+    def test_device_tab_add_button_is_unified_and_dialog_defaults_to_one(self, temp_config_dir):
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gtk
+
         from keyforge.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
@@ -526,17 +529,6 @@ class TestDeviceTabWidget:
         )
         from keyforge.gui.widgets.device_tab import DeviceTab
         from keyforge.session.profiles import ProfileManager
-
-        class _Root:
-            def __init__(self) -> None:
-                self.added: list[object] = []
-                self.removed: list[object] = []
-
-            def add_controller(self, controller: object) -> None:
-                self.added.append(controller)
-
-            def remove_controller(self, controller: object) -> None:
-                self.removed.append(controller)
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -565,33 +557,44 @@ class TestDeviceTabWidget:
         )
 
         tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=False)
-        root = _Root()
-        tab.get_root = lambda: root  # type: ignore[method-assign]
+        presented: list[Adw.Dialog] = []
 
-        tab.listen_btn.set_active(True)
-        tab._on_listen_toggled(tab.listen_btn)
-        controller = tab._listen_controller
+        def monkeypatch_present(self, root) -> None:
+            presented.append(self)
 
-        assert tab.listen_btn.get_label() == "Listening..."
-        assert controller is not None
-        assert root.added == [controller]
+        original_present = Adw.Dialog.present
+        Adw.Dialog.present = monkeypatch_present  # type: ignore[method-assign]
+        try:
+            tab.get_root = lambda: Gtk.Window()  # type: ignore[method-assign]
+            tab._on_add_keys_clicked(tab.add_keys_btn)
+        finally:
+            Adw.Dialog.present = original_present  # type: ignore[method-assign]
 
-        tab.listen_btn.set_active(False)
-        tab._on_listen_toggled(tab.listen_btn)
+        assert tab.add_keys_btn.get_label() == "Add..."
+        assert not hasattr(tab, "listen_btn")
+        assert len(presented) == 1
 
-        assert tab._listen_controller is None
-        assert root.removed == [controller]
+        dialog = presented[0]
+        content = dialog.get_child()
+        assert isinstance(content, Gtk.Box)
+        dialog_children = []
+        child = content.get_first_child()
+        while child is not None:
+            dialog_children.append(child)
+            child = child.get_next_sibling()
 
-        tab.listen_btn.set_active(True)
-        tab._on_listen_toggled(tab.listen_btn)
-        controller = tab._listen_controller
+        count_row = dialog_children[1]
+        assert isinstance(count_row, Gtk.Box)
+        row_children = []
+        child = count_row.get_first_child()
+        while child is not None:
+            row_children.append(child)
+            child = child.get_next_sibling()
 
-        tab._reload_ui()
-
-        assert controller is not None
-        assert controller in root.removed
-        assert tab._listening_keys is False
-        assert not hasattr(tab, "listen_btn") or tab.listen_btn.get_label() == "Listen Keys"
+        assert isinstance(row_children[0], Gtk.Label)
+        assert row_children[0].get_label() == "Number of inputs:"
+        assert isinstance(row_children[1], Gtk.SpinButton)
+        assert int(row_children[1].get_value()) == 1
 
     def test_device_tab_add_keys_capture_read_handles_duplicates_and_finishes(
         self, temp_config_dir
@@ -667,6 +670,182 @@ class TestDeviceTabWidget:
         assert tab.device.evdev_devices[-1].path == "/dev/input/by-id/test-mouse"
         assert tab.device.evdev_devices[-1].device_type == DeviceType.MOUSE
         assert status.get_text() == "Captured btn_side (0 remaining)"
+
+    def test_device_tab_duplicate_key_esc_cancels_capture(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Keyboard",
+            evdev_devices=[EvdevDevice(path="/dev/input/event0", device_type=DeviceType.KEYBOARD)],
+            buttons=[ButtonDefinition(id="key_esc", label="Esc", evdev="key_esc")]
+            + [
+                ButtonDefinition(id=f"key_{index}", label=f"Key {index}", evdev=f"key_{index}")
+                for index in range(40)
+            ],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+        status = Gtk.Label()
+        dialog = Adw.Dialog()
+        stopped: list[str] = []
+        closed: list[str] = []
+        tab._stop_add_keys_capture = lambda: stopped.append("stopped")
+        dialog.close = lambda: closed.append("closed")  # type: ignore[method-assign]
+        tab._add_keys_capturing = True
+        tab._capture_active_hardware_id = "1234:5678"
+        tab._add_keys_pending_ids = ["key_added_1"]
+
+        duplicate_esc = {"status": "ok", "captured": {"evdev": "key_esc", "source": "kbd"}}
+        assert tab._on_add_keys_capture_read(duplicate_esc, status, dialog) is False
+
+        assert stopped == ["stopped"]
+        assert closed == ["closed"]
+        assert "already exists" in status.get_text()
+
+    def test_mouse_device_tab_add_inputs_accepts_keyboard_keys(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[EvdevDevice(path="/dev/input/event0", device_type=DeviceType.MOUSE)],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=_HardwareManager(),
+            demo_mode=True,
+        )
+        status = Gtk.Label()
+        dialog = Adw.Dialog()
+        finished: list[str] = []
+        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
+        tab._add_keys_capturing = True
+        tab._capture_active_hardware_id = "1234:5678"
+        tab._add_keys_pending_ids = ["input_added_1"]
+
+        captured = {
+            "status": "ok",
+            "captured": {
+                "evdev": "key_space",
+                "source": "kbd-if1",
+                "stable_path": "/dev/input/by-id/test-kbd",
+            },
+        }
+        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+
+        assert finished == ["finished"]
+        assert tab.device.buttons[-1].id == "key_space"
+        assert tab.device.buttons[-1].type == "key"
+        assert tab.device.evdev_devices[-1].path == "/dev/input/by-id/test-kbd"
+        assert tab.device.evdev_devices[-1].device_type == DeviceType.KEYBOARD
+        assert status.get_text() == "Captured key_space (0 remaining)"
+
+    def test_device_tab_add_inputs_escape_closes_dialog_and_stops_capture(self, temp_config_dir):
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gdk, Gtk
+
+        from keyforge.common.models import ButtonDefinition, HardwareConfig
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+        dialog = Adw.Dialog()
+        closed: list[str] = []
+        stopped: list[str] = []
+        dialog.close = lambda: closed.append("closed")  # type: ignore[method-assign]
+        tab._stop_add_keys_capture = lambda: stopped.append("stopped")
+
+        assert (
+            tab._on_add_inputs_key_pressed(
+                Gtk.EventControllerKey(),
+                Gdk.KEY_Escape,
+                0,
+                Gdk.ModifierType(0),
+                dialog,
+            )
+            is True
+        )
+
+        assert stopped == ["stopped"]
+        assert closed == ["closed"]
+
+    def test_device_tab_add_inputs_dialog_closed_stops_capture_and_removes_controller(
+        self, temp_config_dir
+    ):
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gtk
+
+        from keyforge.common.models import ButtonDefinition, HardwareConfig
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+        root = Gtk.Window()
+        added: list[object] = []
+        removed: list[object] = []
+
+        original_add_controller = root.add_controller
+        original_remove_controller = root.remove_controller
+
+        def add_controller(controller: object) -> None:
+            added.append(controller)
+            original_add_controller(controller)
+
+        def remove_controller(controller: object) -> None:
+            removed.append(controller)
+            original_remove_controller(controller)
+
+        root.add_controller = add_controller  # type: ignore[method-assign]
+        root.remove_controller = remove_controller  # type: ignore[method-assign]
+        tab.get_root = lambda: root  # type: ignore[method-assign]
+        dialog = Adw.Dialog()
+        stopped: list[str] = []
+        tab._stop_add_keys_capture = lambda: stopped.append("stopped")
+
+        tab._install_add_inputs_escape_controller(dialog)
+        tab._add_inputs_dialog = dialog
+        controller = tab._add_inputs_escape_controller
+
+        tab._on_add_inputs_dialog_closed(dialog)
+
+        assert controller is not None
+        assert added == [controller]
+        assert removed == [controller]
+        assert stopped == ["stopped"]
+        assert tab._add_inputs_dialog is None
 
     def test_gamepad_device_tab_add_buttons_capture_sets_gamepad_type(self, temp_config_dir):
         from gi.repository import Adw, Gtk

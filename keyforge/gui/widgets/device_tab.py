@@ -1,6 +1,5 @@
 from typing import cast
 
-import evdev
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -57,13 +56,14 @@ class DeviceTab(ProfileManagedTab):
         self._user_interacting = False
         self._keyboard_layout_mode = False
         self._highlight_timeout_ids: list[int] = []
-        self._listening_keys = False
         self._add_keys_poll_id = None
         self._add_keys_poll_inflight = False
         self._add_keys_capturing = False
         self._add_keys_pending_ids: list[str] = []
         self._capture_active_hardware_id: str | None = None
-        self._listen_controller: Gtk.EventControllerKey | None = None
+        self._add_inputs_dialog: Adw.Dialog | None = None
+        self._add_inputs_escape_controller: Gtk.EventControllerKey | None = None
+        self._add_inputs_escape_root: Gtk.Widget | None = None
         self._setup_header()
         self._setup_profile_selector()
         self._setup_button_grid()
@@ -161,16 +161,10 @@ class DeviceTab(ProfileManagedTab):
         header_box.set_hexpand(True)
 
         if not self.demo_mode:
-            self.add_keys_btn = Gtk.Button(label=self._add_input_button_label())
+            self.add_keys_btn = Gtk.Button(label="Add...")
             self.add_keys_btn.add_css_class("flat")
             self.add_keys_btn.connect("clicked", self._on_add_keys_clicked)
             header_box.append(self.add_keys_btn)
-
-            if self.is_keyboard_hardware():
-                self.listen_btn = Gtk.ToggleButton(label="Listen Keys")
-                self.listen_btn.add_css_class("flat")
-                self.listen_btn.connect("toggled", self._on_listen_toggled)
-                header_box.append(self.listen_btn)
 
         self.append(header_box)
 
@@ -390,7 +384,13 @@ class DeviceTab(ProfileManagedTab):
 
             extras = [b for b in self.device.buttons if b.id not in used_ids]
             if extras:
-                self._append_other_buttons_section(content, extras)
+                self._append_other_buttons_section(
+                    content,
+                    extras,
+                    title="Extra Buttons",
+                    expanded=True,
+                    prepend=True,
+                )
 
             scrolled.set_child(content)
             self.append(scrolled)
@@ -506,9 +506,6 @@ class DeviceTab(ProfileManagedTab):
         if self.is_gamepad_hardware():
             return "gamepad"
         return "mouse"
-
-    def _add_input_button_label(self) -> str:
-        return "Add Keys..." if self.is_keyboard_hardware() else "Add Buttons..."
 
     def _append_keyboard_section(
         self,
@@ -970,119 +967,15 @@ class DeviceTab(ProfileManagedTab):
             else:
                 widget.set_tooltip_text(None)
 
-    def _on_listen_toggled(self, btn: Gtk.ToggleButton) -> None:
-        self._listening_keys = btn.get_active()
-        root = self.get_root()
-        if self._listening_keys:
-            btn.set_label("Listening...")
-            if root and self._listen_controller is None:
-                listen_controller = Gtk.EventControllerKey()
-                listen_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-                listen_controller.connect("key-pressed", self._on_key_pressed)
-                root.add_controller(listen_controller)
-                self._listen_controller = listen_controller
-        else:
-            btn.set_label("Listen Keys")
-            if root and self._listen_controller is not None:
-                root.remove_controller(self._listen_controller)
-                self._listen_controller = None
-
-    def _on_key_pressed(self, controller, keyval, keycode, state) -> bool:
-        if not self._listening_keys or not self._keyboard_layout_mode:
-            return False
-
-        button_id = self._keycode_to_button_id(keycode) or self._keyval_to_button_id(keyval)
-        if button_id:
-            self._highlight_button(button_id)
-            if hasattr(self, "listen_btn"):
-                self.listen_btn.set_label(f"Listening: {button_id}")
-        return False
-
-    def _keycode_to_button_id(self, keycode: int) -> str | None:
-        if keycode <= 0:
-            return None
-
-        evdev_code = keycode - 8
-        if evdev_code <= 0:
-            return None
-
-        key_name = evdev.ecodes.KEY.get(evdev_code)
-        if isinstance(key_name, str) and key_name.startswith("KEY_"):
-            return key_name.lower()
-        return None
-
-    def _keyval_to_button_id(self, keyval: int) -> str | None:
-        name = (Gdk.keyval_name(keyval) or "").lower()
-        if not name:
-            return None
-
-        special = {
-            "escape": "key_esc",
-            "tab": "key_tab",
-            "return": "key_enter",
-            "backspace": "key_backspace",
-            "space": "key_space",
-            "shift_l": "key_leftshift",
-            "shift_r": "key_rightshift",
-            "control_l": "key_leftctrl",
-            "control_r": "key_rightctrl",
-            "alt_l": "key_leftalt",
-            "alt_r": "key_rightalt",
-            "super_l": "key_leftmeta",
-            "super_r": "key_rightmeta",
-            "menu": "key_menu",
-            "left": "key_left",
-            "right": "key_right",
-            "up": "key_up",
-            "down": "key_down",
-            "insert": "key_insert",
-            "delete": "key_delete",
-            "home": "key_home",
-            "end": "key_end",
-            "page_up": "key_pageup",
-            "page_down": "key_pagedown",
-            "minus": "key_minus",
-            "equal": "key_equal",
-            "bracketleft": "key_leftbrace",
-            "bracketright": "key_rightbrace",
-            "backslash": "key_backslash",
-            "semicolon": "key_semicolon",
-            "apostrophe": "key_apostrophe",
-            "comma": "key_comma",
-            "period": "key_dot",
-            "slash": "key_slash",
-        }
-        if name in special:
-            return special[name]
-
-        if len(name) == 1 and name.isalpha():
-            return f"key_{name}"
-        if name.isdigit():
-            return f"key_{name}"
-        if name.startswith("f") and name[1:].isdigit():
-            return f"key_{name}"
-        return None
-
-    def _highlight_button(self, button_id: str) -> None:
-        widget = self._button_widgets.get(button_id)
-        if not widget:
-            return
-
-        widget._name_label.add_css_class("success")
-
-        def clear() -> bool:
-            widget._name_label.remove_css_class("success")
-            return False
-
-        tid = GLib.timeout_add(220, clear)
-        self._highlight_timeout_ids.append(tid)
-
     def _on_add_keys_clicked(self, btn: Gtk.Button) -> None:
         dialog = Adw.Dialog(
-            title=self._add_input_dialog_title(),
+            title="Add Inputs",
             content_width=420,
             content_height=-1,
         )
+        dialog.connect("closed", self._on_add_inputs_dialog_closed)
+        self._add_inputs_dialog = dialog
+        self._install_add_inputs_escape_controller(dialog)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_top(16)
         box.set_margin_bottom(16)
@@ -1097,7 +990,7 @@ class DeviceTab(ProfileManagedTab):
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row.append(Gtk.Label(label=self._add_input_count_label()))
         spin = Gtk.SpinButton()
-        spin.set_adjustment(Gtk.Adjustment(value=4, lower=1, upper=64, step_increment=1))
+        spin.set_adjustment(Gtk.Adjustment(value=1, lower=1, upper=64, step_increment=1))
         spin.set_digits(0)
         row.append(spin)
         box.append(row)
@@ -1122,7 +1015,6 @@ class DeviceTab(ProfileManagedTab):
             count = int(spin.get_value())
             status.set_text(self._capture_waiting_label())
             start_btn.set_sensitive(False)
-            cancel_btn.set_sensitive(False)
             self._start_add_keys_capture(count, status, dialog)
 
         start_btn.connect("clicked", on_start)
@@ -1211,6 +1103,8 @@ class DeviceTab(ProfileManagedTab):
 
         if self._button_already_exists(evdev_name, captured_code):
             status_label.set_text(f"{evdev_name} already exists, press another input")
+            if evdev_name == "key_esc":
+                self._cancel_add_inputs(parent_dialog)
             return False
 
         source = captured.get("source")
@@ -1266,6 +1160,48 @@ class DeviceTab(ProfileManagedTab):
     def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
         dialog.close()
 
+    def _on_add_inputs_dialog_closed(self, dialog: Adw.Dialog) -> None:
+        self._stop_add_keys_capture()
+        self._remove_add_inputs_escape_controller()
+        if self._add_inputs_dialog is dialog:
+            self._add_inputs_dialog = None
+
+    def _install_add_inputs_escape_controller(self, dialog: Adw.Dialog) -> None:
+        self._remove_add_inputs_escape_controller()
+        root = self.get_root()
+        if not isinstance(root, Gtk.Widget):
+            return
+
+        controller = Gtk.EventControllerKey()
+        controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        controller.connect("key-pressed", self._on_add_inputs_key_pressed, dialog)
+        root.add_controller(controller)
+        self._add_inputs_escape_controller = controller
+        self._add_inputs_escape_root = root
+
+    def _remove_add_inputs_escape_controller(self) -> None:
+        if self._add_inputs_escape_root and self._add_inputs_escape_controller:
+            self._add_inputs_escape_root.remove_controller(self._add_inputs_escape_controller)
+        self._add_inputs_escape_controller = None
+        self._add_inputs_escape_root = None
+
+    def _on_add_inputs_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+        dialog: Adw.Dialog,
+    ) -> bool:
+        if keyval != Gdk.KEY_Escape:
+            return False
+        self._cancel_add_inputs(dialog)
+        return True
+
+    def _cancel_add_inputs(self, dialog: Adw.Dialog) -> None:
+        self._stop_add_keys_capture()
+        dialog.close()
+
     def _ignore_session_response(self, _response: JsonDict | None) -> bool:
         return False
 
@@ -1302,13 +1238,11 @@ class DeviceTab(ProfileManagedTab):
     def _is_supported_added_input(self, evdev_name: str) -> bool:
         if self.is_gamepad_hardware():
             return evdev_name.startswith("btn_")
-        if self.is_keyboard_hardware():
-            return (
-                evdev_name.startswith("key_")
-                or evdev_name.startswith("btn_")
-                or evdev_name in {"rel_wheel", "rel_hwheel"}
-            )
-        return evdev_name.startswith("btn_") or evdev_name in {"rel_wheel", "rel_hwheel"}
+        return (
+            evdev_name.startswith("key_")
+            or evdev_name.startswith("btn_")
+            or evdev_name in {"rel_wheel", "rel_hwheel"}
+        )
 
     def _button_already_exists(self, evdev_name: str, evdev_code: object | None) -> bool:
         try:
@@ -1354,36 +1288,24 @@ class DeviceTab(ProfileManagedTab):
             EvdevDevice(path=stable_path, device_type=dtype, id=source)
         )
 
-    def _add_input_dialog_title(self) -> str:
-        return "Add Keys" if self.is_keyboard_hardware() else "Add Buttons"
-
     def _add_input_summary_text(self) -> str:
         if self.is_gamepad_hardware():
             return (
                 "Add additional digital gamepad buttons to this config.\n"
                 "Press each requested button when prompted."
             )
-        if self.is_keyboard_hardware():
-            return (
-                "Add additional keyboard keys or extra buttons to this config.\n"
-                "Press each requested input when prompted."
-            )
         return (
-            "Add additional mouse buttons or wheel inputs to this config.\n"
+            "Add additional keys, mouse buttons, or wheel inputs to this config.\n"
             "Press each requested input when prompted."
         )
 
     def _add_input_count_label(self) -> str:
-        if self.is_keyboard_hardware():
-            return "Number of inputs:"
-        return "Number of buttons:"
+        return "Number of inputs:"
 
     def _capture_waiting_label(self) -> str:
         if self.is_gamepad_hardware():
             return "Waiting for button presses..."
-        if self.is_keyboard_hardware():
-            return "Waiting for key presses..."
-        return "Waiting for button presses..."
+        return "Waiting for inputs..."
 
     def _added_input_button_type(self, evdev_name: str, source: str | None) -> str:
         if evdev_name.startswith("key_"):
@@ -1420,12 +1342,6 @@ class DeviceTab(ProfileManagedTab):
     def _reload_ui(self) -> None:
         selected_name = self._selected_profile.config.name if self._selected_profile else None
         selected_name = self._window_selected_profile_name() or selected_name
-        if self._listening_keys:
-            self._listening_keys = False
-            root = self.get_root()
-            if root and self._listen_controller is not None:
-                root.remove_controller(self._listen_controller)
-            self._listen_controller = None
         assert self.profile_manager is not None
         self.profiles = self.profile_manager.list_profiles()
         while child := self.get_first_child():

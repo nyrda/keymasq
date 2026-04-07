@@ -1480,7 +1480,6 @@ class HardwareSetupDialog(Adw.Window):
             "KEY_LEFTBRACE",
             "KEY_RIGHTBRACE",
             "KEY_BACKSLASH",
-            "KEY_102ND",
             "KEY_CAPSLOCK",
             "KEY_A",
             "KEY_S",

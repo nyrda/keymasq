@@ -216,6 +216,7 @@ In the GUI:
 - button mapping offers both `Explicit Passthrough` and `No Override`
 - `Explicit Passthrough` stores `action = "passthrough"` and masks lower-profile remaps
 - `No Override` removes the mapping from the current profile so lower profiles can still apply one
+- deleting a button from the device tab removes it from the hardware config and clears saved mappings for that button across profiles
 
 Deleting a hardware definition does not delete global profiles. Any layers for that hardware remain in the profile file and stay dormant until that hardware exists again.
 

@@ -750,7 +750,16 @@ class DeviceTab(ProfileManagedTab):
         box.append(entry)
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_row.set_halign(Gtk.Align.END)
+        btn_row.set_halign(Gtk.Align.FILL)
+
+        delete_btn = Gtk.Button(label="Delete")
+        delete_btn.add_css_class("destructive-action")
+        delete_btn.connect("clicked", self._on_delete_button_clicked, dialog, button)
+        btn_row.append(delete_btn)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        btn_row.append(spacer)
 
         cancel_btn = Gtk.Button(label="Cancel")
         cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
@@ -781,6 +790,33 @@ class DeviceTab(ProfileManagedTab):
         box.append(btn_row)
         dialog.set_child(box)
         dialog.present(self.get_root())
+
+    def _on_delete_button_clicked(
+        self,
+        _button: Gtk.Button,
+        dialog: Adw.Dialog,
+        button: ButtonDefinition,
+    ) -> None:
+        self._delete_button(button, dialog)
+
+    def _delete_button(self, button: ButtonDefinition, dialog: Adw.Dialog) -> None:
+        original_count = len(self.device.buttons)
+        self.device.buttons = [
+            existing for existing in self.device.buttons if existing.id != button.id
+        ]
+        if len(self.device.buttons) == original_count:
+            dialog.close()
+            return
+
+        if self.profile_manager is not None:
+            self.profile_manager.remove_device_button_mappings(self.device.hardware_id, button.id)
+
+        assert self.hardware_manager is not None
+        self.hardware_manager.save_hardware(self.device)
+        session_request_async({"command": "reload"}, lambda _result: False)
+        dialog.close()
+        if self.profile_manager is not None:
+            self._reload_ui()
 
     def _show_protected_dialog(self, button) -> None:
         dialog = Adw.AlertDialog(
@@ -1248,7 +1284,6 @@ class DeviceTab(ProfileManagedTab):
         return (
             evdev_name.startswith("key_")
             or evdev_name.startswith("btn_")
-            or evdev_name in {"rel_wheel", "rel_hwheel"}
         )
 
     def _button_already_exists(self, evdev_name: str, evdev_code: object | None) -> bool:
@@ -1302,7 +1337,7 @@ class DeviceTab(ProfileManagedTab):
                 "Press each requested button when prompted."
             )
         return (
-            "Add additional keys, mouse buttons, or wheel inputs to this config.\n"
+            "Add additional keys and mouse buttons to this config.\n"
             "Press each requested input when prompted."
         )
 

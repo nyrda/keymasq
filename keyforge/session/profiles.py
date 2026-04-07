@@ -826,3 +826,14 @@ class ProfileManager:
             self.save_profile(info.config)
             updated += 1
         return updated
+
+    def remove_device_button_mappings(self, hardware_id: str, button_id: str) -> int:
+        updated = 0
+        for info in self.list_profiles():
+            layer = info.config.get_layer(hardware_id)
+            if layer is None or button_id not in layer.mappings:
+                continue
+            layer.mappings.pop(button_id, None)
+            self.save_profile(info.config)
+            updated += 1
+        return updated

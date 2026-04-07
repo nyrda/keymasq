@@ -415,6 +415,75 @@ class TestDeviceTabWidget:
         assert root.checked == 1
         assert closed == [True]
 
+    def test_device_tab_delete_button_updates_hardware_profiles_and_ui(
+        self, temp_config_dir, monkeypatch
+    ):
+        from gi.repository import Adw
+
+        from keyforge.common.models import ButtonDefinition, HardwareConfig
+        from keyforge.gui.widgets import device_tab as device_tab_module
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        class _ProfileManager:
+            def __init__(self) -> None:
+                self.removed: list[tuple[str, str]] = []
+
+            def list_profiles(self) -> list[object]:
+                return []
+
+            def remove_device_button_mappings(self, hardware_id: str, button_id: str) -> None:
+                self.removed.append((hardware_id, button_id))
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[
+                ButtonDefinition(id="btn_back", label="Back", evdev="btn_side"),
+                ButtonDefinition(id="btn_forward", label="Forward", evdev="btn_extra"),
+            ],
+        )
+
+        hardware_manager = _HardwareManager()
+        profile_manager = _ProfileManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=profile_manager,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        reloaded: list[bool] = []
+        tab._reload_ui = lambda: reloaded.append(True)  # type: ignore[method-assign]
+
+        dialog = Adw.Dialog()
+        closed: list[bool] = []
+        dialog.close = lambda: closed.append(True)  # type: ignore[method-assign]
+
+        tab._delete_button(device.buttons[0], dialog)
+
+        assert [button.id for button in tab.device.buttons] == ["btn_forward"]
+        assert hardware_manager.saved[-1].buttons == tab.device.buttons
+        assert profile_manager.removed == [("1234:5678", "btn_back")]
+        assert reload_requests == [{"command": "reload"}]
+        assert reloaded == [True]
+        assert closed == [True]
+
     def test_device_tab_button_click_routes_protected_profileless_and_edit_paths(
         self, temp_config_dir
     ):
@@ -670,6 +739,41 @@ class TestDeviceTabWidget:
         assert tab.device.evdev_devices[-1].path == "/dev/input/by-id/test-mouse"
         assert tab.device.evdev_devices[-1].device_type == DeviceType.MOUSE
         assert status.get_text() == "Captured btn_side (0 remaining)"
+
+    def test_device_tab_add_keys_capture_read_rejects_wheel_input(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        from keyforge.common.models import ButtonDefinition, HardwareConfig
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+        status = Gtk.Label()
+        dialog = Adw.Dialog()
+        tab._add_keys_capturing = True
+        tab._capture_active_hardware_id = "1234:5678"
+        tab._add_keys_pending_ids = ["added_1"]
+
+        captured = {
+            "status": "ok",
+            "captured": {
+                "evdev": "rel_wheel",
+                "direction": "down",
+                "value": -1,
+                "source": "mouse",
+            },
+        }
+        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+
+        assert len(tab.device.buttons) == 1
+        assert "Unsupported input" in status.get_text()
 
     def test_device_tab_duplicate_key_esc_cancels_capture(self, temp_config_dir):
         from gi.repository import Adw, Gtk
@@ -1298,31 +1402,23 @@ class TestHardwareSetupDialog:
             DeviceType.MOUSE,
             DeviceType.KEYBOARD,
         ]
-        assert [button.id for button in saved.buttons[:9]] == [
+        assert [button.id for button in saved.buttons[:5]] == [
             "btn_left",
             "btn_right",
             "btn_middle",
             "btn_back",
             "btn_forward",
-            "wheel_up",
-            "wheel_down",
-            "wheel_left",
-            "wheel_right",
         ]
-        assert [button.evdev for button in saved.buttons[:9]] == [
+        assert [button.evdev for button in saved.buttons[:5]] == [
             "btn_left",
             "btn_right",
             "btn_middle",
             "btn_side",
             "btn_extra",
-            "rel_wheel",
-            "rel_wheel",
-            "rel_hwheel",
-            "rel_hwheel",
         ]
-        assert all(button.source == "mouse" for button in saved.buttons[:9])
-        assert saved.buttons[9].source == "kbd"
-        assert saved.buttons[9].id == "key_esc"
+        assert all(button.source == "mouse" for button in saved.buttons[:5])
+        assert saved.buttons[5].source == "kbd"
+        assert saved.buttons[5].id == "key_esc"
         assert emitted == [("device-created", saved)]
 
     def test_keyboard_template_excludes_key_102nd(self, monkeypatch):
@@ -3194,22 +3290,6 @@ class TestButtonWidget:
         assert button.label == "Left Click"
         assert button.evdev == "btn_left"
         assert button.zone == "left"
-
-    def test_button_widget_wheel(self):
-        from keyforge.common.models import ButtonDefinition
-
-        button = ButtonDefinition(
-            id="wheel_up",
-            label="Scroll Up",
-            evdev="rel_wheel",
-            evdev_value=1,
-            type="wheel",
-        )
-
-        assert button.id == "wheel_up"
-        assert button.evdev_value == 1
-        assert button.type == "wheel"
-
 
 class TestProfileActions:
     def test_action_types(self):

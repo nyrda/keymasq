@@ -8,6 +8,7 @@ from keyforge.session.listeners.cosmic import CosmicListener
 from keyforge.session.listeners.gnome import GnomeListener
 from keyforge.session.listeners.hyprland import HyprlandListener
 from keyforge.session.listeners.kde import KDEListener
+from keyforge.session.listeners.niri import NiriListener
 from keyforge.session.listeners.wayland_wlr import WlrootsWaylandListener
 from keyforge.session.listeners.x11 import X11Listener
 
@@ -20,6 +21,7 @@ type CompositorListener = (
     | type[GnomeListener]
     | type[HyprlandListener]
     | type[KDEListener]
+    | type[NiriListener]
     | type[WlrootsWaylandListener]
     | type[X11Listener]
 )
@@ -36,6 +38,11 @@ SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
         "env": "HYPRLAND_INSTANCE_SIGNATURE",
         "name": "Hyprland",
         "capabilities": ["window_tags"],
+    },
+    "niri": {
+        "env": "NIRI_SOCKET",
+        "name": "Niri",
+        "capabilities": [],
     },
     "x11": {
         "env": "DISPLAY",
@@ -62,6 +69,7 @@ SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
 
 PROBE_ORDER: list[tuple[str, CompositorListener]] = [
     ("hyprland", HyprlandListener),
+    ("niri", NiriListener),
     ("kde", KDEListener),
     ("gnome", GnomeListener),
     ("cosmic", CosmicListener),
@@ -117,6 +125,7 @@ def get_compositor_name(compositor_id: str | None) -> str:
         "kde": "KDE Plasma",
         "cosmic": "COSMIC",
         "gnome": "GNOME",
+        "niri": "Niri",
         "x11": "X11",
         "wayland": "Wayland",
     }
@@ -144,6 +153,8 @@ async def is_compositor_supported(
         return await CosmicListener.probe_available(dbus)
     if compositor_id == "gnome":
         return await GnomeListener.probe_available(dbus)
+    if compositor_id == "niri":
+        return await NiriListener.probe_available(dbus)
     if compositor_id == "hyprland":
         return await HyprlandListener.probe_available(dbus)
     return compositor_id in SUPPORTED_COMPOSITORS
@@ -186,6 +197,9 @@ def get_listener_class(compositor_id: str | None) -> CompositorListener | None:
 
     if compositor_id == "kde":
         return KDEListener
+
+    if compositor_id == "niri":
+        return NiriListener
 
     if compositor_id == "x11":
         return X11Listener

@@ -85,6 +85,7 @@ related feature will be unavailable or degraded.
 ### Compositor and desktop support
 
 - Hyprland: supported with the base install when running under Hyprland
+- Niri: supported with the base install when running under Niri
 - Generic wlroots Wayland: supported with the base install on compositors that
   expose the required foreign-toplevel protocol
 - KDE Plasma Wayland: supported with the base install
@@ -93,16 +94,17 @@ related feature will be unavailable or degraded.
   `gnome-extension/`
 - X11: requires `python-xlib`, which is part of the base Python dependency set
 
-No extra Python package is currently required specifically for Hyprland, KDE,
-COSMIC, wlroots Wayland, or GNOME beyond the base runtime set. The differentiator
-is the compositor/session environment itself.
+No extra Python package is currently required specifically for Hyprland, Niri,
+KDE, COSMIC, wlroots Wayland, or GNOME beyond the base runtime set. The
+differentiator is the compositor/session environment itself.
 
 ### Pointer capture helpers
 
 - `slurp` is used only on compatible compositors:
-  `hyprland`, `wayland-wlr`, `kde`, and `cosmic`
-- On `wayland-wlr` and `cosmic`, `slurp` is the cursor-acquisition path used by
-  the listener for recording start-position capture and similar pointer reads
+  `hyprland`, `niri`, `wayland-wlr`, `kde`, and `cosmic`
+- On `niri`, `wayland-wlr`, and `cosmic`, `slurp` is the cursor-acquisition
+  path used by the listener for recording start-position capture and similar
+  pointer reads
 - On unsupported compositors, `slurp` is not used
 
 So `slurp` is not a universal base runtime dependency, but it is a real
@@ -162,6 +164,7 @@ Defined in `PKGBUILD` under `depends`:
 Defined in `PKGBUILD` under `optdepends`:
 
 - `hyprland` for Hyprland-specific window integration
+- `niri` for Niri-specific window integration
 
 ### Debian package
 

@@ -188,6 +188,32 @@ async def test_handle_session_request_get_compositor_reports_compositor_dispatch
 
 
 @pytest.mark.asyncio
+async def test_handle_session_request_dispatch_compositor_uses_runtime_dispatch() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    listener = AsyncMock()
+    listener.dispatch = AsyncMock(return_value=(True, "ok"))
+    manager.compositor_state.window_listener = listener
+    manager.compositor_state.compositor_id = "niri"
+
+    result = await manager._handle_session_request(
+        {
+            "command": "dispatch_compositor",
+            "compositor": "niri",
+            "dispatcher": "toggle_window_floating",
+            "args": "",
+        },
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok", "message": "ok"}
+    listener.dispatch.assert_awaited_once_with("toggle_window_floating", "")
+
+
+@pytest.mark.asyncio
 async def test_handle_session_request_get_compositor_merges_listener_runtime_warning() -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)

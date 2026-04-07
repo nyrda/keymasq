@@ -2085,6 +2085,48 @@ def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_li
     )
     assert hidden_dialog.stack.get_child_by_name("hyprland") is None
 
+
+def test_key_selector_dialog_only_shows_niri_dispatch_for_active_niri_listener():
+    from gi.repository import Gtk
+
+    from keyforge.common.models import ActionType, MappingAction
+    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    active_dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        compositor_action_status={
+            "listener_name": "niri",
+            "compositor_dispatch_available": True,
+        },
+    )
+    assert active_dialog.stack.get_child_by_name("niri") is not None
+    assert active_dialog.stack.get_child_by_name("hyprland") is None
+    page = active_dialog.stack.get_child_by_name("niri")
+    assert page is not None
+    assert page._preset_dropdown.get_selected() == 0
+    assert page._dispatcher_entry.get_text() == "close_window"
+    assert page._args_entry.get_text() == ""
+    assert page._dispatcher_entry.get_editable() is False
+    assert page._args_entry.get_editable() is False
+
+    hidden_dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="niri",
+            compositor_dispatcher="focus_workspace",
+            compositor_args="2",
+        ),
+        compositor_action_status={
+            "listener_name": "x11",
+            "compositor_dispatch_available": False,
+        },
+    )
+    assert hidden_dialog.stack.get_child_by_name("niri") is None
+
+
 def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
     from gi.repository import Gtk
 
@@ -2204,6 +2246,30 @@ def test_compositor_action_helpers_resolve_kde_actions() -> None:
         },
     ) == "kde"
     assert describe_compositor_action(action) == "KDE Plasma → tile_left"
+
+
+def test_compositor_action_helpers_resolve_niri_actions() -> None:
+    from keyforge.common.models import ActionType, MappingAction
+    from keyforge.gui.widgets.compositor_actions import (
+        compositor_action_tab_name,
+        describe_compositor_action,
+    )
+
+    action = MappingAction(
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_id="niri",
+        compositor_dispatcher="focus_workspace",
+        compositor_args="2",
+    )
+
+    assert compositor_action_tab_name(
+        action,
+        {
+            "listener_name": "niri",
+            "compositor_dispatch_available": True,
+        },
+    ) == "niri"
+    assert describe_compositor_action(action) == "Niri → focus_workspace 2"
 
 
 def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):

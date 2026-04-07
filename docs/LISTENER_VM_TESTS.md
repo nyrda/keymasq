@@ -9,6 +9,7 @@ Keyforge includes a NixOS VM matrix for listener integration tests.
 - GNOME
 - KDE Plasma
 - Hyprland
+- Niri
 - COSMIC
 - Generic Wayland via `zwlr_foreign_toplevel_manager_v1` (tested with Sway)
 - X11
@@ -18,7 +19,6 @@ Keyforge includes a NixOS VM matrix for listener integration tests.
 These environments rely on supported listener paths, but do not currently have
 dedicated listener VM coverage in this matrix:
 
-- niri
 - river
 - treeland
 - wayfire
@@ -40,6 +40,7 @@ dedicated listener VM coverage in this matrix:
 | `listener-vm-gnome` | gnome | GNOME (full listener) | ✓ passing |
 | `listener-vm-kde` | kde | KDE Plasma 6 | ✓ passing |
 | `listener-vm-hyprland` | hyprland | Hyprland | ✓ passing |
+| `listener-vm-niri` | niri | Niri | ✓ passing |
 | `listener-vm-xfce` | x11 | XFCE | ✓ passing |
 | `listener-vm-cosmic` | cosmic | COSMIC | ✓ passing |
 | `listener-vm-sway` | wayland | Sway (wlroots fallback) | ✓ passing |
@@ -55,8 +56,9 @@ Each desktop test validates:
 5. **Title change** — an existing window is retitled; the listener picks up the new title.
 6. **Window close** — a window is closed; the listener reports focus moving to the remaining window.
 7. **Cursor position** — the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
+8. **Listener-scoped dispatch** — compositor-specific tests can trigger a compositor dispatch through Keyforge and verify the observable result.
 
-The shared desktop harness includes the cursor-position check for every full listener VM test: GNOME, KDE, Hyprland, XFCE/X11, COSMIC, and Sway. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
+The shared desktop harness includes the cursor-position check for every full listener VM test: GNOME, KDE, Hyprland, Niri, XFCE/X11, COSMIC, and Sway. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
 
 ## Running A Desktop VM Test
 
@@ -65,6 +67,7 @@ nix build 'path:.#checks.x86_64-linux.listener-vm-gnome-bridge'
 nix build 'path:.#checks.x86_64-linux.listener-vm-gnome'
 nix build 'path:.#checks.x86_64-linux.listener-vm-kde'
 nix build 'path:.#checks.x86_64-linux.listener-vm-hyprland'
+nix build 'path:.#checks.x86_64-linux.listener-vm-niri'
 nix build 'path:.#checks.x86_64-linux.listener-vm-xfce'
 nix build 'path:.#checks.x86_64-linux.listener-vm-cosmic'
 nix build 'path:.#checks.x86_64-linux.listener-vm-sway'
@@ -137,6 +140,14 @@ The Hyprland test uses the Hyprland listener which connects to `.socket2.sock` f
 
 **Window tags**: Hyprland is the only compositor in the matrix that supports window tags. The test verifies that `get_active_window` returns a `tags` field (currently `[]` for the test windows).
 
+### Niri
+
+The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` directly. As with the upstream Niri IPC design, Keyforge uses two separate connections: one event-stream socket for focused-window tracking and one command socket for compositor actions.
+
+**Focus switching**: The test uses `niri msg action focus-window --id <window-id>` after resolving the target id from `niri msg --json windows`.
+
+**Dispatch path**: The test installs a Keyforge profile that maps `key_a` to the Niri `toggle_window_floating` dispatcher, sends a synthetic `A` key from QEMU, and verifies that the focused window's `is_floating` state changes through `niri msg --json focused-window`.
+
 ### COSMIC
 
 The COSMIC test uses the COSMIC listener backed by `ext_foreign_toplevel_list_v1` and `zcosmic_toplevel_info_v1` Wayland protocols. The compositor (`cosmic-comp`) is Smithay-based and implements the `xdg-activation-v1` protocol, so GTK's `window.present()` works for focus switching without compositor-specific helpers.
@@ -160,6 +171,7 @@ The XFCE test uses the X11 listener backed by `python-xlib`. The listener reads 
 | GNOME | no | bridge `activate_title` → `meta_window.activate()` |
 | KDE | yes | GTK activation; listener events come from injected KWin script over D-Bus |
 | Hyprland | no | `hyprctl dispatch focuswindow title:<name>` |
+| Niri | no | `niri msg action focus-window --id <id>` |
 | COSMIC | yes | GTK `window.present()` |
 | Sway | no | `swaymsg "[title=<name>] focus"` |
 | X11/XFCE | yes | GTK `window.present()` |
@@ -173,4 +185,3 @@ The matrix is designed to be extended with:
 - Hyprland window tag assertions beyond the empty default
 - richer GNOME bridge assertions beyond startup and focus propagation
 - COSMIC initial-setup suppression for cleaner test output
-- niri tests

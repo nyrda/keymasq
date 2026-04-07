@@ -127,7 +127,7 @@ Map to a gamepad button or trigger. Available inputs include:
 ## Compositor
 
 Send a command to your window compositor. Currently Keyforge supports
-Hyprland and KDE Plasma.
+Hyprland, Niri, KDE Plasma, and GNOME.
 
 ### Hyprland
 
@@ -151,6 +151,28 @@ For custom dispatchers, enter the dispatcher name and any arguments in the
 text fields.
 
 ![Hyprland tab — preset dropdown and custom dispatcher fields](../assets/screenshots/keyforge_key_action_hyprland.png)
+
+### Niri
+
+Choose from a preset dropdown of supported Niri actions.
+
+**Preset examples:**
+
+| Preset | What it does |
+|---|---|
+| Close Window | Close the focused window. |
+| Fullscreen / Fake Fullscreen | Toggle fullscreen or windowed fullscreen on the focused window. |
+| Toggle Floating | Toggle floating mode for the focused window. |
+| Focus Left / Right / Up / Down | Move focus between columns and windows. |
+| Move Column Left / Right | Move the focused column horizontally. |
+| Move Window Up / Down | Reorder the focused window inside its column. |
+| Workspace Up / Down / Previous | Switch between workspaces. |
+| Workspace 1 / 2 | Focus a specific workspace by index. |
+| Move To Workspace 1 / 2 | Move the focused window to a workspace and follow it. |
+| Send To Workspace 1 / 2 | Move the focused window to a workspace without following it. |
+
+Niri compositor actions are restricted to Keyforge's supported Niri action IDs.
+Unlike Hyprland dispatchers, arbitrary custom actions are not supported.
 
 ### KDE Plasma
 

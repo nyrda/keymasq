@@ -22,6 +22,7 @@ pkgbase = keyforge
 	depends = polkit
 	depends = systemd
 	optdepends = hyprland: for Hyprland window rule support
+	optdepends = niri: for Niri window rule support
 	source = keyforge-0.2.tar.gz::https://github.com/nyrda/keyforge/releases/download/v0.2/keyforge-0.2.tar.gz
 	sha256sums = SKIP
 	install = keyforge.install

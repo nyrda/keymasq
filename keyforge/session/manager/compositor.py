@@ -357,45 +357,57 @@ async def handle_compositor_dispatch_trigger(
     manager: "SessionManager",
     data: JsonObject,
 ) -> None:
-    target_compositor = str_value(data.get("compositor"), "").strip()
-    dispatcher = str_value(data.get("dispatcher"), "").strip()
-    args = str_value(data.get("args"), "").strip()
+    ok, message = await run_compositor_dispatch(
+        manager,
+        str_value(data.get("compositor"), "").strip(),
+        str_value(data.get("dispatcher"), "").strip(),
+        str_value(data.get("args"), "").strip(),
+    )
+    if not ok and message:
+        log.warning("%s", message)
+
+
+async def run_compositor_dispatch(
+    manager: "SessionManager",
+    target_compositor: str,
+    dispatcher: str,
+    args: str = "",
+) -> tuple[bool, str]:
+    target_compositor = str(target_compositor or "").strip()
+    dispatcher = str(dispatcher or "").strip()
+    args = str(args or "").strip()
     if not dispatcher:
-        return
+        return False, "dispatcher parameter required"
 
     current_compositor = str(manager.compositor_state.compositor_id or "").strip()
     if target_compositor and target_compositor != current_compositor:
-        log.warning(
+        return (
+            False,
             (
                 "Ignored compositor dispatch for mismatched target: "
-                "target=%s current=%s dispatcher=%s"
+                f"target={target_compositor} current={current_compositor or 'none'} "
+                f"dispatcher={dispatcher}"
             ),
-            target_compositor,
-            current_compositor or "none",
-            dispatcher,
         )
-        return
 
     listener = manager.compositor_state.window_listener
     if listener is None:
-        log.warning(
+        current_name = manager.compositor_state.compositor_id or "none"
+        return (
+            False,
             (
                 "Ignored compositor dispatch trigger while listener inactive: "
-                "dispatcher=%s compositor=%s"
+                f"dispatcher={dispatcher} compositor={current_name}"
             ),
-            dispatcher,
-            manager.compositor_state.compositor_id or "none",
         )
-        return
 
     ok, message = await listener.dispatch(dispatcher, args)
     if not ok:
-        log.warning(
-            "Compositor dispatch failed: dispatcher=%s args=%s message=%s",
-            dispatcher,
-            args,
-            message,
+        return (
+            False,
+            f"Compositor dispatch failed: dispatcher={dispatcher} args={args} message={message}",
         )
+    return True, message or "ok"
 
 
 async def on_window_change(

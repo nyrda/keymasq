@@ -72,6 +72,15 @@ def test_slurp_available_caches_success_result() -> None:
     assert capture.available is True
 
 
+def test_slurp_capture_available_with_niri() -> None:
+    capture = SlurpCapture()
+    capture._slurp_path = "/usr/bin/slurp"
+    capture._available = None
+    capture.set_compositor("niri")
+
+    assert capture.available is True
+
+
 def test_slurp_get_unavailable_reason_without_binary() -> None:
     capture = SlurpCapture()
     capture._slurp_path = None

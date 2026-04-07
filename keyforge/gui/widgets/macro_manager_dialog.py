@@ -166,6 +166,9 @@ class MacroManagerDialog(Adw.Dialog):
         main_box.append(frame)
         self.set_child(main_box)
 
+    def _on_close_clicked(self, _button: Gtk.Button) -> None:
+        self.close()
+
     def _load_initial_state(self) -> bool:
         run_gui_task(self._fetch_initial_state, self._on_initial_state_loaded)
         return False

@@ -101,6 +101,32 @@ class TestRecordMacroDialog:
         assert dialog._unlock_status.get_label() == "Unlock active"
 
 
+class TestDialogConstruction:
+    def test_superkey_dialog_constructs_without_missing_right_panel(self, temp_config_dir):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        dialog = SuperkeyDialog(Gtk.Window())
+
+        assert dialog.get_child() is not None
+        assert dialog.right_box.get_parent() is not None
+
+    def test_macro_manager_dialog_constructs_with_close_handler(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keyforge.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        dialog = MacroManagerDialog(Gtk.Window())
+
+        assert dialog.get_child() is not None
+        assert callable(dialog._on_close_clicked)
+
+
 class TestDeviceTabWidget:
     def test_device_tab_creation(self):
         from keyforge.common.models import ButtonDefinition, HardwareConfig

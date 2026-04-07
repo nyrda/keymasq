@@ -871,7 +871,7 @@ class TestHardwareSetupDialog:
         session_devices = [
             {
                 "path": "/dev/input/event22",
-                "name": "Microsoft X-Box 360 pad",
+                "name": "keyforge-gamepad",
                 "phys": "py-evdev-uinput",
                 "vendor_id": "045e",
                 "product_id": "028e",
@@ -1074,6 +1074,133 @@ class TestHardwareSetupDialog:
         assert saved.buttons[9].source == "kbd"
         assert saved.buttons[9].id == "key_esc"
         assert emitted == [("device-created", saved)]
+
+    def test_keyboard_template_excludes_key_102nd(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        buttons = dialog._build_standard_keyboard_buttons("kbd")
+
+        assert "key_102nd" not in [button.id for button in buttons]
+
+
+def test_keyboard_device_tab_prepends_extra_buttons_section():
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+    from keyforge.gui.widgets.device_tab import DeviceTab
+
+    def child_widgets(widget):
+        items = []
+        child = widget.get_first_child()
+        while child is not None:
+            items.append(child)
+            child = child.get_next_sibling()
+        return items
+
+    template_buttons = [
+        "key_esc",
+        "key_1",
+        "key_2",
+        "key_3",
+        "key_4",
+        "key_5",
+        "key_6",
+        "key_7",
+        "key_8",
+        "key_9",
+        "key_0",
+        "key_minus",
+        "key_equal",
+        "key_backspace",
+        "key_tab",
+        "key_q",
+        "key_w",
+        "key_e",
+        "key_r",
+        "key_t",
+        "key_y",
+        "key_u",
+        "key_i",
+        "key_o",
+        "key_p",
+        "key_leftbrace",
+        "key_rightbrace",
+        "key_backslash",
+        "key_capslock",
+        "key_a",
+        "key_s",
+        "key_d",
+        "key_f",
+        "key_g",
+        "key_h",
+        "key_j",
+        "key_k",
+        "key_l",
+        "key_semicolon",
+        "key_apostrophe",
+        "key_enter",
+        "key_leftshift",
+        "key_z",
+        "key_x",
+        "key_c",
+        "key_v",
+        "key_b",
+        "key_n",
+        "key_m",
+        "key_comma",
+        "key_dot",
+        "key_slash",
+        "key_rightshift",
+        "key_leftctrl",
+        "key_leftmeta",
+        "key_leftalt",
+        "key_space",
+        "key_rightalt",
+        "key_rightctrl",
+        "key_rightmeta",
+    ]
+
+    buttons = [
+        ButtonDefinition(id=key_id, label=key_id.upper(), evdev=key_id, source="kbd")
+        for key_id in template_buttons
+    ]
+    buttons = [
+        ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left", source="mouse"),
+        ButtonDefinition(id="btn_back", label="Back", evdev="btn_side", source="mouse"),
+        *buttons,
+    ]
+
+    tab = DeviceTab(
+        HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Combo Device",
+            evdev_devices=[
+                EvdevDevice(path="/dev/input/event10", device_type=DeviceType.MOUSE, id="mouse"),
+                EvdevDevice(path="/dev/input/event11", device_type=DeviceType.KEYBOARD, id="kbd"),
+            ],
+            buttons=buttons,
+        ),
+        profile_manager=None,
+        demo_mode=True,
+    )
+
+    scrolled = child_widgets(tab)[-1]
+    content = scrolled.get_child()
+    if not isinstance(content, Gtk.Box):
+        content = content.get_child()
+    first_section = child_widgets(content)[0]
+
+    assert isinstance(first_section, Gtk.Expander)
+    assert first_section.get_label() == "Extra Buttons (2)"
+    assert first_section.get_expanded() is True
 
 
 def test_notify_session_reload_returns_false_without_shell_fallback(monkeypatch):

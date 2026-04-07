@@ -442,7 +442,7 @@ def create_global_uinputs(
             evdev_mod.ecodes.EV_SYN: [],
         }
         gamepad_name, gamepad_vendor, gamepad_product = uinput_identity(
-            "Microsoft X-Box 360 pad",
+            "keyforge-gamepad",
             "gamepad",
         )
         manager.output_state.gamepad_uinput = evdev_mod.UInput(

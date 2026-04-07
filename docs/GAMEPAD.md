@@ -143,9 +143,9 @@ The virtual gamepad appears as a standard Linux gamepad. Most games detect it au
 
 ### Virtual Device Created
 
-Keyforge creates a uinput device that appears as an Xbox 360 controller:
+Keyforge creates a uinput device with Xbox 360 hardware IDs for maximum compatibility:
 
-- **Name**: `Microsoft X-Box 360 pad`
+- **Name**: `keyforge-gamepad`
 - **Vendor ID**: `0x045e` (Microsoft)
 - **Product ID**: `0x028e` (Xbox 360 controller)
 - **Capabilities**:

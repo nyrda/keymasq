@@ -30,8 +30,10 @@ echo "Using GPG key: $FINGERPRINT"
 
 # -- Download current repo state --
 
+REPO_UPLOAD_URL="${REPO_UPLOAD_URL%/}"
+
 echo "Downloading current repo snapshot..."
-snapshot_code=$(curl -sS -w '%{http_code}' -o "$WORK_DIR/snapshot.tar.gz" \
+snapshot_code=$(curl -sS -L -w '%{http_code}' -o "$WORK_DIR/snapshot.tar.gz" \
     -H "Authorization: Bearer $REPO_UPLOAD_TOKEN" \
     "$REPO_UPLOAD_URL/api/snapshot")
 
@@ -133,7 +135,8 @@ echo "Creating sync tarball..."
 tar -czf "$WORK_DIR/sync.tar.gz" -C "$REPO_DIR" .
 
 echo "Uploading to repo server..."
-sync_code=$(curl -sS -w '%{http_code}' -o "$WORK_DIR/sync-response.json" \
+sync_code=$(curl -sS -L --post301 --post302 --post303 \
+    -w '%{http_code}' -o "$WORK_DIR/sync-response.json" \
     -X POST "$REPO_UPLOAD_URL/api/sync" \
     -H "Authorization: Bearer $REPO_UPLOAD_TOKEN" \
     -H "Content-Type: application/gzip" \

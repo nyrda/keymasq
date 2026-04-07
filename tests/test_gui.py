@@ -828,6 +828,65 @@ class TestHardwareSetupDialog:
         assert dialog._configure_mode == "gamepad"
         assert dialog.describe_subtitle.get_label() == "Review the detected controller controls"
 
+    def test_detect_devices_via_session_skips_virtual_uinput_devices(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.common.models import DeviceType
+        from keyforge.gui.wizards import hardware_setup as hardware_setup_mod
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event22",
+                        "name": "Microsoft X-Box 360 pad",
+                        "phys": "py-evdev-uinput",
+                        "vendor_id": "045e",
+                        "product_id": "028e",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                    {
+                        "path": "/dev/input/event10",
+                        "name": "Real USB Mouse",
+                        "phys": "usb-0000:00:14.0-1/input0",
+                        "vendor_id": "1234",
+                        "product_id": "5678",
+                        "device_type": "mouse",
+                        "device_types": ["mouse"],
+                    },
+                ],
+            },
+        )
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+        assert detected_devices == {
+            "1234:5678": {
+                "name": "Real USB Mouse",
+                "display_name": "Real USB Mouse",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "paths": ["/dev/input/event10"],
+                "interfaces": [
+                    {
+                        "path": "/dev/input/event10",
+                        "name": "Real USB Mouse",
+                        "device_type": DeviceType.MOUSE,
+                        "device_types": ["mouse"],
+                    }
+                ],
+            }
+        }
+
     def test_save_gamepad_config_builds_buttons_from_capabilities(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         import evdev

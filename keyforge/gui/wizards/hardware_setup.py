@@ -474,6 +474,9 @@ class HardwareSetupDialog(Adw.Window):
             if not isinstance(dev, dict):
                 continue
 
+            if self._should_skip_detected_device_info(dev):
+                continue
+
             vendor_id = str(dev.get("vendor_id", "") or "").lower()
             product_id = str(dev.get("product_id", "") or "").lower()
             if not vendor_id or not product_id:
@@ -520,11 +523,21 @@ class HardwareSetupDialog(Adw.Window):
         return bool(detected_devices)
 
     def _should_skip_detected_device(self, device: evdev.InputDevice) -> bool:
-        name = (device.name or "").strip().lower()
-        if not name:
-            return False
+        return self._should_skip_detected_device_info(
+            {
+                "name": device.name,
+                "phys": getattr(device, "phys", None),
+            }
+        )
+
+    def _should_skip_detected_device_info(self, device_info: dict[str, Any]) -> bool:
+        name = str(device_info.get("name", "") or "").strip().lower()
+        phys = str(device_info.get("phys", "") or "").strip().lower()
 
         if "keyforge" in name:
+            return True
+
+        if phys == "py-evdev-uinput":
             return True
 
         return False

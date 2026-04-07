@@ -656,6 +656,8 @@ class DeviceManager:
                     {
                         "path": path,
                         "name": device.name,
+                        "phys": _optional_str(getattr(device, "phys", None)),
+                        "uniq": _optional_str(getattr(device, "uniq", None)),
                         "vendor_id": f"{info.vendor:04x}",
                         "product_id": f"{info.product:04x}",
                         "capabilities": capabilities,

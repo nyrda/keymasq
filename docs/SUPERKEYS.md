@@ -2,214 +2,238 @@
 
 ## Overview
 
-A super key turns a single physical key or button into up to four different
-actions, depending on how you press it:
+A super key turns one physical key or button into either:
+
+- A **pattern** key that reacts differently to Tap, Double Tap, Hold, and
+  Tap + Hold.
+- An **overload** key that fans one input out to multiple normal actions using
+  the source key's usual down, repeat, and up cycle.
+
+These two modes are exclusive. A single super key uses one mode or the other.
+
+Super keys are saved separately from profiles and can be reused across
+multiple profiles and devices.
+
+## Modes
+
+### Pattern
+
+Pattern mode is the original super key behavior. Keyforge watches how you
+press the source key and chooses one of four slots:
 
 | Interaction | What it means |
 |---|---|
 | **Tap** | Quick press and release. |
 | **Double Tap** | Two quick taps in a row. |
-| **Hold** | Press and hold down. |
+| **Hold** | Press and hold past the threshold. |
 | **Tap + Hold** | Tap once, then press and hold a second time. |
 
-Each of those four slots can trigger a different action — a keyboard key, a
-mouse button, a gamepad input, a shell command, or a macro. You don't have
-to fill every slot; leave any you don't need empty.
+Each slot now accepts an **ordered list of actions**, not just one action.
+When a slot fires:
 
-Super keys are saved separately from profiles and can be reused across
-multiple profiles and devices.
+- Actions press in list order.
+- Hold-style releases happen in reverse order.
+- Tap-style releases also happen in reverse order after the short tap pulse.
 
-## Quick Start: Your First Super Key
+That makes bundles like `Ctrl` then `C`, or `Shift` then `Tab`, behave
+correctly.
 
-1. Open the Keyforge GUI and go to **Manage Super Keys** (from the menu or
-   toolbar).
-2. Click **New** in the left panel.
-3. Give it a name — for example, `side_button_actions`.
-4. In the **Actions** section, click **Edit** next to **Tap** and pick the
-   action you want for a quick press (say, Ctrl+C).
-5. Click **Edit** next to **Hold** and pick a different action (say, Ctrl+V).
-6. Click **Save**.
-7. Go to the **Device** tab for your device, pick a key, and set its action
-   to **Super Key**. Choose the one you just created.
-8. Try it — tap the key for one action, hold it for the other.
+### Overload
 
-![A super key selected in the Manage Super Keys dialog](../assets/screenshots/keyforge_superkey_selected.png)
+Overload mode does not do gesture recognition. Instead, it treats the source
+key like a normal mapped key and forwards that key's lifecycle to an ordered
+list of child actions.
 
-![Caps Lock bound to a super key](../assets/screenshots/keyforge_capslock_bound.png)
+Examples:
 
-## Creating and Editing Super Keys
+- One mouse side button presses both `key_leftctrl` and `key_c`
+- One keyboard key presses two gamepad buttons
+- One button triggers a key press plus a profile toggle
+
+Overload actions use the same runtime rules as normal mappings:
+
+- Key and button outputs receive down, repeat, and up.
+- Exec, macro, profile, and compositor actions fire on press, just like
+  ordinary mappings.
+- Nested superkeys are not allowed.
+
+## Creating And Editing Super Keys
 
 Open **Manage Super Keys** from the GUI. The dialog has two panels:
 
-- **Left panel** — lists all your saved super keys. Use **New** to create one
-  or **Delete** to remove one.
-- **Right panel** — edit the selected super key's name, description, actions,
-  and timing.
+- **Left panel**: lists all saved super keys. Use **New** to create one or
+  **Delete** to remove one.
+- **Right panel**: edit the selected super key's name, description, mode,
+  actions, and timing.
 
-### Setting Actions
+### Editing Pattern Slots
 
-Each of the four action slots (Tap, Double Tap, Hold, Tap + Hold) has an
-**Edit** button that opens the action chooser. From there, pick one of:
+In pattern mode, each slot has its own ordered action list:
+
+- **Tap**
+- **Double Tap**
+- **Hold**
+- **Tap + Hold**
+
+Click **Edit** on a slot to manage its list. Inside the slot editor you can:
+
+- Add actions
+- Edit an existing action
+- Move actions up or down
+- Remove actions
+
+Pattern-slot actions can be:
 
 | Action type | What it does |
 |---|---|
-| **Keyboard** | Send a keyboard key (selected from a visual layout). |
-| **Mouse** | Send a mouse button (left, right, middle, side buttons, etc.). |
-| **Gamepad** | Send a gamepad button or analog trigger. |
-| **Macro** | Play a saved macro by name. |
+| **Keyboard** | Send a keyboard key. |
+| **Mouse** | Send a mouse button. |
+| **Gamepad** | Send a gamepad button or trigger. |
+| **Macro** | Play a saved macro. |
 | **Command** | Run a shell command. |
 
-Use the **Clear** button on any row to remove that slot's action.
+### Editing Overload Actions
 
-### Rapidfire
+In overload mode, the editor shows one ordered list: **Overload Actions**.
+Those children use the normal mapping action picker, so overload keys can mix
+the same kinds of actions that regular mappings can use, except:
 
-Hold and Tap + Hold actions have an optional **rapidfire** mode. When enabled,
-the action repeats automatically for as long as you hold the key — like
-holding down a fire button in a game.
+- **No Override** is not available
+- **Passthrough** is not available
+- **Suppress** is not available
+- **Super Key** is not available
 
-Rapidfire settings:
+## Rapidfire
 
-| Setting | What it controls | Default |
-|---|---|---|
-| **Hold (ms)** | How long each pulse is held down. | 20 ms |
-| **Wait (ms)** | Pause between pulses. | 20 ms |
+Rapidfire still belongs to hold-style pattern actions:
 
-### Timing
+- **Hold**
+- **Tap + Hold**
 
-The **Timing** section controls how Keyforge distinguishes between a tap, a
-hold, and a double tap. All values are in milliseconds.
+If a hold-style slot contains multiple actions, rapidfire is configured per
+action. Non-rapidfire actions stay held normally while rapidfire actions pulse
+for as long as the slot is active.
+
+## Timing
+
+The **Timing** section only matters in pattern mode.
 
 | Setting | What it controls | Default | Range |
 |---|---|---|---|
-| **Tap Timeout** | How quickly you must release for a tap to register. | 200 ms | 50–1000 ms |
-| **Double Tap Window** | How long Keyforge waits after a tap for a possible second tap. | 300 ms | 50–1000 ms |
-| **Hold Threshold** | How long you must hold before the hold action triggers. | 300 ms | 50–2000 ms |
+| **Tap Timeout** | Maximum time for a tap. | 200 ms | 50-1000 ms |
+| **Double Tap Window** | Time between taps for a double tap. | 300 ms | 50-1000 ms |
+| **Hold Threshold** | Time before Hold or Tap + Hold activates. | 300 ms | 50-2000 ms |
 
-**Tips for tuning:**
+Overload mode ignores these timing values because it does not do gesture
+recognition.
 
-- If taps feel unresponsive, increase the **Tap Timeout**.
-- If double taps fire accidentally, shorten the **Double Tap Window**.
-- If holds trigger too early, increase the **Hold Threshold**.
-- If you only use Tap and Hold (no Double Tap), the Tap Timeout and Hold
-  Threshold are the main settings that matter.
+## Runtime Behavior
 
-## How Super Keys Work at Runtime
+### Pattern Flow
 
-When you press a key mapped to a super key, Keyforge watches what you do next
-to decide which action to fire. Here's the decision flow:
+Pattern mode still uses the same decision flow:
 
-```
+```text
 Press key
- ├─ Release quickly? → Tap
+ ├─ Release quickly? -> Tap
  │   └─ Press again quickly?
- │       ├─ Release quickly? → Double Tap
- │       └─ Keep holding? → Tap + Hold
- └─ Keep holding past threshold? → Hold
+ │       ├─ Release quickly? -> Double Tap
+ │       └─ Keep holding? -> Tap + Hold
+ └─ Keep holding past threshold? -> Hold
 ```
 
-Because Keyforge has to wait and see what you do, there is a small built-in
-delay before a tap fires. This is normal — the timing settings control how
-long that wait is.
-
-**What happens when a slot is empty:**
-
-- If you double-tap but no Double Tap action is set, Keyforge fires the Tap
-  action instead.
-- If you hold but no Hold action is set, nothing extra happens.
-- If no Tap action is set, a quick press does nothing.
-
-## Using Super Keys
-
-### Assigning to a Key
-
-Once a super key is saved, assign it to a physical key from the **Device**
-tab:
-
-1. Pick a key or button on your device.
-2. Set the action to **Super Key**.
-3. Choose the super key by name.
-
-The same super key can be assigned to different keys on different devices.
-
-### Reusing Across Profiles
-
-Super keys are saved globally, not inside profiles. Any profile can reference
-any super key by name. If you update a super key's actions or timing, the
-change applies everywhere it's used.
-
-### Deleting a Super Key
-
-Click **Delete** in the Manage Super Keys dialog. If the super key is
-currently used in any profiles, Keyforge will warn you and list which profiles
-are affected.
-
-Deleting a super key replaces all references to it with **Suppress** (the key
-does nothing) in affected profiles. This is automatic — you won't have broken
-references.
+The difference is that the chosen slot now runs a bundle instead of a single
+action.
 
 ### Concurrency
 
-The same super key can be assigned to multiple keys at once — even on
-different devices. Each key gets its own independent state machine, so
-pressing one doesn't interfere with the other. You can tap one key while
-holding another, and both will behave correctly according to the super key's
-timing and actions.
+The same super key can still be assigned to multiple inputs at once. Keyforge
+keeps the outputs stable when two source keys share the same super key and
+both hold the same child output.
+
+That applies to:
+
+- Pattern-mode held outputs
+- Overload-mode held key and button outputs
+
+## Using Super Keys
+
+Assign a saved super key from the **Device** tab:
+
+1. Pick a key or button on your device.
+2. Set the action to **Super Key**.
+3. Choose the saved super key by name.
+
+The same super key can be reused on different devices and in different
+profiles.
+
+## Deleting A Super Key
+
+Deleting a super key replaces all profile references to it with **Suppress**.
+You will not be left with broken references.
 
 ## Storage
 
-Super keys are stored as individual TOML files in your user configuration
-directory:
+Super keys live in:
 
-```
+```text
 ~/.config/keyforge/superkeys/
 ```
 
-Each file contains the super key's name, description, timing overrides (only
-non-default values are written), and configured actions. Here's an example of
-what a file looks like:
+### Pattern Example
 
 ```toml
-name = "caps_superkey"
-description = "Tap for Escape, hold for Ctrl"
+name = "copy_stack"
+mode = "pattern"
+description = "Tap for copy, hold for paste"
 
 [timing]
 hold_threshold_ms = 250
 
-[actions.tap]
-action = "keyboard"
-target = "key_esc"
-
-[actions.hold]
-action = "keyboard"
-target = "key_leftctrl"
+[actions]
+tap = [
+    { action = "keyboard", target = "key_leftctrl" },
+    { action = "keyboard", target = "key_c" },
+]
+hold = [
+    { action = "keyboard", target = "key_leftctrl" },
+    { action = "keyboard", target = "key_v" },
+]
 ```
 
-While the files are human-readable, prefer using the GUI to create and edit
-super keys. Manual edits are not validated and can cause load errors if the
-format is wrong.
+### Overload Example
+
+```toml
+name = "ctrl_click_pair"
+mode = "overload"
+
+[actions]
+overload = [
+    { action = "keyboard", target = "key_leftctrl" },
+    { action = "mouse", target = "btn_left" },
+]
+```
+
+Legacy single-action pattern files still load. Keyforge treats the old
+single-table slot form as a one-item action bundle.
 
 ## Security Notes
 
-- **Command actions** run shell commands inside your user session (delegated
-  to keyforge-session, not the privileged daemon). They still execute
-  automatically on a key press, so be mindful of what you put in them.
-- **Compositor dispatcher actions** can send commands to your compositor
-  (e.g. Hyprland). These interact with your desktop environment directly, so
-  review what they do before assigning them to a super key.
+- **Command actions** run inside your user session, not inside the privileged
+  daemon, but they still execute automatically on a key press.
+- **Compositor actions** interact directly with your desktop environment.
+  Review them before putting them into overload lists.
 
 ## Best Practices
 
-- **Name super keys by purpose**, not by the key they're on. A name like
-  `copy_paste_toggle` is more useful than `side_button_1` — it makes sense
-  even when reused on a different device.
-- **Start with two slots.** Tap + Hold is the most natural combination. Add
-  Double Tap and Tap + Hold only if you actually need four actions on one key.
-- **Test your timing.** The defaults work for most people, but if you have a
-  fast or slow pressing style, adjust the timing to match.
+- Name super keys by purpose, not by the hardware key they are bound to.
+- Use pattern mode when timing matters and overload mode when you want plain
+  one-to-many remapping.
+- Keep bundled actions in the exact order you want them pressed.
+- Prefer testing chords with a text editor or game input viewer after changes.
 
 ## See Also
 
-- [Macros](MACROS.md) — record or build input sequences that super keys can
-  trigger.
-- [Combos](COMBOS.md) — trigger actions from multi-key combinations instead
-  of single-key interactions.
+- [Actions](ACTIONS.md)
+- [Macros](MACROS.md)
+- [Combos](COMBOS.md)

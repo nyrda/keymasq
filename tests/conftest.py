@@ -228,6 +228,7 @@ _CATEGORY_BY_FILE = {
     "test_session_manager_events.py": "session",
     "test_session_manager_profiles.py": "session",
     "test_session_manager_recording.py": "session",
+    "test_superkeys.py": "session",
     "test_session_support.py": "session",
     "test_wayland_ext_client.py": "session",
     "test_wayland_protocol_trackers.py": "session",

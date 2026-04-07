@@ -22,8 +22,8 @@ async def test_double_tap_action_fires_on_second_tap() -> None:
         tap_timeout_ms=200,
         double_tap_window_ms=300,
         hold_threshold_ms=300,
-        tap_action=SuperkeyActionData(action_type="keyboard", target="key_a"),
-        double_tap_action=SuperkeyActionData(action_type="keyboard", target="key_b"),
+        tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+        double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
     )
 
     machine = SuperkeyMachine(
@@ -57,7 +57,7 @@ async def test_superkey_macro_action_broadcasts_macro_trigger() -> None:
 
     config = SuperkeyConfig(
         name="macro_test",
-        tap_action=SuperkeyActionData(action_type="macro", macro_name="demo_macro"),
+        tap_actions=[SuperkeyActionData(action_type="macro", macro_name="demo_macro")],
     )
 
     machine = SuperkeyMachine(
@@ -87,7 +87,7 @@ async def test_gamepad_trigger_action_writes_absolute_axis() -> None:
 
     config = SuperkeyConfig(
         name="trigger_test",
-        hold_action=SuperkeyActionData(action_type="gamepad", target="btn_tl2"),
+        hold_actions=[SuperkeyActionData(action_type="gamepad", target="btn_tl2")],
     )
 
     machine = SuperkeyMachine(
@@ -120,7 +120,8 @@ async def test_exec_action_broadcasts_via_callback() -> None:
 
     machine = SuperkeyMachine(
         config=SuperkeyConfig(
-            name="exec_test", hold_action=SuperkeyActionData(action_type="exec", exec_ref=77)
+            name="exec_test",
+            hold_actions=[SuperkeyActionData(action_type="exec", exec_ref=77)],
         ),
         event_name="btn_side",
         keyboard_uinput=MagicMock(),
@@ -129,7 +130,7 @@ async def test_exec_action_broadcasts_via_callback() -> None:
         broadcast_callback=broadcast,
     )
 
-    await machine._execute_action_down(machine.config.hold_action)
+    await machine._execute_action_down(machine.config.hold_actions[0])
 
     assert len(callback) == 1
     payload = callback[0]
@@ -146,7 +147,7 @@ async def test_stop_releases_active_hold_action() -> None:
     machine = SuperkeyMachine(
         config=SuperkeyConfig(
             name="hold_stop_test",
-            hold_action=SuperkeyActionData(action_type="keyboard", target="key_a"),
+            hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
         ),
         event_name="btn_side",
         keyboard_uinput=keyboard_uinput,
@@ -173,7 +174,7 @@ async def test_stop_releases_active_tap_hold_action() -> None:
     machine = SuperkeyMachine(
         config=SuperkeyConfig(
             name="tap_hold_stop_test",
-            tap_hold_action=SuperkeyActionData(action_type="keyboard", target="key_b"),
+            tap_hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
         ),
         event_name="btn_side",
         keyboard_uinput=keyboard_uinput,
@@ -200,13 +201,15 @@ async def test_stop_cancels_rapidfire_task_without_extra_writes() -> None:
     machine = SuperkeyMachine(
         config=SuperkeyConfig(
             name="rapidfire_stop_test",
-            hold_action=SuperkeyActionData(
-                action_type="keyboard",
-                target="key_c",
-                rapidfire_enabled=True,
-                rapidfire_hold_ms=100,
-                rapidfire_wait_ms=100,
-            ),
+            hold_actions=[
+                SuperkeyActionData(
+                    action_type="keyboard",
+                    target="key_c",
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=100,
+                    rapidfire_wait_ms=100,
+                )
+            ],
         ),
         event_name="btn_side",
         keyboard_uinput=keyboard_uinput,
@@ -222,7 +225,7 @@ async def test_stop_cancels_rapidfire_task_without_extra_writes() -> None:
 
     await asyncio.sleep(0.15)
 
-    assert machine._rapidfire_task is None
+    assert machine._rapidfire_tasks == []
     assert [tuple(call.args) for call in keyboard_uinput.write.call_args_list] == writes_after_stop
     assert writes_after_stop == [
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1),
@@ -239,13 +242,15 @@ async def test_rapidfire_hold_release_emits_single_key_up() -> None:
     machine = SuperkeyMachine(
         config=SuperkeyConfig(
             name="rapidfire_release_test",
-            hold_action=SuperkeyActionData(
-                action_type="keyboard",
-                target="key_d",
-                rapidfire_enabled=True,
-                rapidfire_hold_ms=100,
-                rapidfire_wait_ms=100,
-            ),
+            hold_actions=[
+                SuperkeyActionData(
+                    action_type="keyboard",
+                    target="key_d",
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=100,
+                    rapidfire_wait_ms=100,
+                )
+            ],
         ),
         event_name="btn_side",
         keyboard_uinput=keyboard_uinput,
@@ -261,7 +266,7 @@ async def test_rapidfire_hold_release_emits_single_key_up() -> None:
 
     await asyncio.sleep(0.15)
 
-    assert machine._rapidfire_task is None
+    assert machine._rapidfire_tasks == []
     final_writes = [tuple(call.args) for call in keyboard_uinput.write.call_args_list]
     assert final_writes == writes_after_release
     assert writes_after_release == [
@@ -279,8 +284,8 @@ async def test_tap_action_fires_after_double_tap_window_expires() -> None:
     machine = SuperkeyMachine(
         config=SuperkeyConfig(
             name="tap_timeout_test",
-            tap_action=SuperkeyActionData(action_type="keyboard", target="key_e"),
-            double_tap_action=SuperkeyActionData(action_type="keyboard", target="key_f"),
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_e")],
+            double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_f")],
             double_tap_window_ms=10,
         ),
         event_name="btn_side",
@@ -296,6 +301,69 @@ async def test_tap_action_fires_after_double_tap_window_expires() -> None:
     writes = [tuple(call.args) for call in keyboard_uinput.write.call_args_list]
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 1) in writes
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F, 1) not in writes
+
+
+@pytest.mark.asyncio
+async def test_tap_bundle_emits_keys_in_order_and_releases_in_reverse() -> None:
+    keyboard_uinput = MagicMock()
+    keyboard_uinput.write = MagicMock()
+    keyboard_uinput.syn = MagicMock()
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="tap_bundle_test",
+            tap_actions=[
+                SuperkeyActionData(action_type="keyboard", target="key_leftctrl"),
+                SuperkeyActionData(action_type="keyboard", target="key_c"),
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine._emit_tap()
+
+    writes = [tuple(call.args) for call in keyboard_uinput.write.call_args_list]
+    assert writes == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 0),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hold_bundle_releases_in_reverse_order() -> None:
+    keyboard_uinput = MagicMock()
+    keyboard_uinput.write = MagicMock()
+    keyboard_uinput.syn = MagicMock()
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="hold_bundle_test",
+            hold_actions=[
+                SuperkeyActionData(action_type="keyboard", target="key_leftctrl"),
+                SuperkeyActionData(action_type="keyboard", target="key_v"),
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine._emit_hold_down()
+    await machine._emit_hold_up()
+
+    writes = [tuple(call.args) for call in keyboard_uinput.write.call_args_list]
+    assert writes == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_V, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_V, 0),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
+    ]
 
 
 @pytest.mark.asyncio

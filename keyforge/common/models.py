@@ -25,6 +25,11 @@ class ActionType(Enum):
     PROFILE_TOGGLE = "profile_toggle"
 
 
+class SuperkeyMode(Enum):
+    PATTERN = "pattern"
+    OVERLOAD = "overload"
+
+
 SUPERKEY_ACTION_TYPES = frozenset(
     {
         ActionType.KEYBOARD,
@@ -155,25 +160,65 @@ class SuperkeyAction:
 class SuperkeyConfig:
     name: str
     description: str | None = None
+    mode: SuperkeyMode = SuperkeyMode.PATTERN
 
-    tap_action: SuperkeyAction | None = None
-    double_tap_action: SuperkeyAction | None = None
-    hold_action: SuperkeyAction | None = None
-    tap_hold_action: SuperkeyAction | None = None
+    tap_actions: list[SuperkeyAction] = field(default_factory=list)
+    double_tap_actions: list[SuperkeyAction] = field(default_factory=list)
+    hold_actions: list[SuperkeyAction] = field(default_factory=list)
+    tap_hold_actions: list[SuperkeyAction] = field(default_factory=list)
+    overload_actions: list[MappingAction] = field(default_factory=list)
 
     tap_timeout_ms: int = 200
     double_tap_window_ms: int = 300
     hold_threshold_ms: int = 300
 
-    def has_any_action(self) -> bool:
+    def has_pattern_actions(self) -> bool:
         return any(
-            [
-                self.tap_action,
-                self.double_tap_action,
-                self.hold_action,
-                self.tap_hold_action,
-            ]
+            (
+                self.tap_actions,
+                self.double_tap_actions,
+                self.hold_actions,
+                self.tap_hold_actions,
+            )
         )
+
+    def has_overload_actions(self) -> bool:
+        return bool(self.overload_actions)
+
+    def has_any_action(self) -> bool:
+        return self.has_pattern_actions() or self.has_overload_actions()
+
+    @property
+    def tap_action(self) -> SuperkeyAction | None:
+        return self.tap_actions[0] if self.tap_actions else None
+
+    @tap_action.setter
+    def tap_action(self, value: SuperkeyAction | None) -> None:
+        self.tap_actions = [value] if value is not None else []
+
+    @property
+    def double_tap_action(self) -> SuperkeyAction | None:
+        return self.double_tap_actions[0] if self.double_tap_actions else None
+
+    @double_tap_action.setter
+    def double_tap_action(self, value: SuperkeyAction | None) -> None:
+        self.double_tap_actions = [value] if value is not None else []
+
+    @property
+    def hold_action(self) -> SuperkeyAction | None:
+        return self.hold_actions[0] if self.hold_actions else None
+
+    @hold_action.setter
+    def hold_action(self, value: SuperkeyAction | None) -> None:
+        self.hold_actions = [value] if value is not None else []
+
+    @property
+    def tap_hold_action(self) -> SuperkeyAction | None:
+        return self.tap_hold_actions[0] if self.tap_hold_actions else None
+
+    @tap_hold_action.setter
+    def tap_hold_action(self, value: SuperkeyAction | None) -> None:
+        self.tap_hold_actions = [value] if value is not None else []
 
 
 @dataclass

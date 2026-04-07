@@ -8,16 +8,24 @@ import tomli_w
 from keyforge.common import paths
 from keyforge.common.models import (
     ActionType,
+    MappingAction,
     SuperkeyAction,
     SuperkeyConfig,
+    SuperkeyMode,
 )
 
 log = logging.getLogger("keyforge-session.superkeys")
 type TomlDict = dict[str, object]
+type _IntLike = int | float | str | bytes
+type _FloatLike = int | float | str | bytes
 
 
 def _as_toml_dict(value: object) -> TomlDict | None:
     return cast(TomlDict, value) if isinstance(value, dict) else None
+
+
+def _as_toml_list(value: object) -> list[object]:
+    return cast(list[object], value) if isinstance(value, list) else []
 
 
 def _toml_str(data: TomlDict, key: str, default: str | None = None) -> str | None:
@@ -33,6 +41,23 @@ def _toml_bool(data: TomlDict, key: str, default: bool) -> bool:
 def _toml_int(data: TomlDict, key: str, default: int) -> int:
     value = data.get(key, default)
     return value if isinstance(value, int) else default
+
+
+def _int_value(value: object, default: int) -> int:
+    return default if value is None else int(cast(_IntLike, value))
+
+
+def _float_value(value: object, default: float) -> float:
+    return default if value is None else float(cast(_FloatLike, value))
+
+
+def _parse_superkey_mode(value: object, default: SuperkeyMode) -> SuperkeyMode:
+    if isinstance(value, str):
+        try:
+            return SuperkeyMode(value)
+        except ValueError:
+            log.warning("Unknown superkey mode '%s', defaulting to %s", value, default.value)
+    return default
 
 
 class SuperkeyManager:
@@ -60,24 +85,94 @@ class SuperkeyManager:
             data = cast(TomlDict, tomllib.load(f))
 
         name = _toml_str(data, "name", path.stem) or path.stem
-
         timing = _as_toml_dict(data.get("timing")) or {}
-
         actions_data = _as_toml_dict(data.get("actions")) or {}
 
-        return SuperkeyConfig(
+        tap_actions = self._parse_superkey_action_bundle(actions_data.get("tap"))
+        double_tap_actions = self._parse_superkey_action_bundle(actions_data.get("double_tap"))
+        hold_actions = self._parse_superkey_action_bundle(actions_data.get("hold"))
+        tap_hold_actions = self._parse_superkey_action_bundle(actions_data.get("tap_hold"))
+        overload_actions = self._parse_overload_action_bundle(actions_data.get("overload"))
+
+        mode_default = SuperkeyMode.OVERLOAD if overload_actions else SuperkeyMode.PATTERN
+        mode = _parse_superkey_mode(data.get("mode"), mode_default)
+
+        config = SuperkeyConfig(
             name=name,
             description=_toml_str(data, "description"),
-            tap_action=self._parse_superkey_action(_as_toml_dict(actions_data.get("tap"))),
-            double_tap_action=self._parse_superkey_action(
-                _as_toml_dict(actions_data.get("double_tap"))
-            ),
-            hold_action=self._parse_superkey_action(_as_toml_dict(actions_data.get("hold"))),
-            tap_hold_action=self._parse_superkey_action(_as_toml_dict(actions_data.get("tap_hold"))),
+            mode=mode,
+            tap_actions=tap_actions,
+            double_tap_actions=double_tap_actions,
+            hold_actions=hold_actions,
+            tap_hold_actions=tap_hold_actions,
+            overload_actions=overload_actions,
             tap_timeout_ms=_toml_int(timing, "tap_timeout_ms", 200),
             double_tap_window_ms=_toml_int(timing, "double_tap_window_ms", 300),
             hold_threshold_ms=_toml_int(timing, "hold_threshold_ms", 300),
         )
+        return self._sanitize_loaded_config(config)
+
+    def _sanitize_loaded_config(self, config: SuperkeyConfig) -> SuperkeyConfig:
+        if config.mode == SuperkeyMode.OVERLOAD:
+            if config.has_pattern_actions():
+                log.warning(
+                    "Overload superkey '%s' had pattern actions; dropping them",
+                    config.name,
+                )
+                config.tap_actions.clear()
+                config.double_tap_actions.clear()
+                config.hold_actions.clear()
+                config.tap_hold_actions.clear()
+            config.overload_actions = [
+                action
+                for action in config.overload_actions
+                if self._is_valid_overload_action(config.name, action)
+            ]
+            return config
+
+        if config.has_overload_actions():
+            log.warning(
+                "Pattern superkey '%s' had overload actions; dropping them",
+                config.name,
+            )
+            config.overload_actions.clear()
+
+        bundles = (
+            ("tap", config.tap_actions),
+            ("double_tap", config.double_tap_actions),
+            ("hold", config.hold_actions),
+            ("tap_hold", config.tap_hold_actions),
+        )
+        for slot_name, actions in bundles:
+            filtered = [action for action in actions if action.is_valid()]
+            if len(filtered) != len(actions):
+                log.warning(
+                    "Pattern superkey '%s' had invalid actions in %s; dropping them",
+                    config.name,
+                    slot_name,
+                )
+            actions[:] = filtered
+        return config
+
+    def _parse_superkey_action_bundle(self, data: object) -> list[SuperkeyAction]:
+        if data is None:
+            return []
+
+        actions: list[SuperkeyAction] = []
+        if isinstance(data, dict):
+            parsed = self._parse_superkey_action(cast(TomlDict, data))
+            if parsed is not None:
+                actions.append(parsed)
+            return actions
+
+        for item in _as_toml_list(data):
+            action_data = _as_toml_dict(item)
+            if action_data is None:
+                continue
+            parsed = self._parse_superkey_action(action_data)
+            if parsed is not None:
+                actions.append(parsed)
+        return actions
 
     def _parse_superkey_action(self, data: TomlDict | None) -> SuperkeyAction | None:
         if not data:
@@ -88,7 +183,7 @@ class SuperkeyManager:
         try:
             action_type = ActionType(action_type_str)
         except ValueError:
-            log.warning(f"Unknown action type '{action_type_str}'")
+            log.warning("Unknown superkey action type '%s'", action_type_str)
             return None
 
         if action_type not in (
@@ -98,7 +193,7 @@ class SuperkeyManager:
             ActionType.EXEC,
             ActionType.MACRO,
         ):
-            log.warning(f"Invalid superkey action type '{action_type_str}'")
+            log.warning("Invalid pattern superkey action type '%s'", action_type_str)
             return None
 
         return SuperkeyAction(
@@ -114,6 +209,123 @@ class SuperkeyManager:
             rapidfire_wait_ms=_toml_int(data, "rapidfire_wait_ms", 20),
         )
 
+    def _parse_overload_action_bundle(self, data: object) -> list[MappingAction]:
+        if data is None:
+            return []
+
+        actions: list[MappingAction] = []
+        if isinstance(data, dict):
+            parsed = self._parse_mapping_action(cast(TomlDict, data))
+            if parsed is not None:
+                actions.append(parsed)
+            return actions
+
+        for item in _as_toml_list(data):
+            action_data = _as_toml_dict(item)
+            if action_data is None:
+                continue
+            parsed = self._parse_mapping_action(action_data)
+            if parsed is not None:
+                actions.append(parsed)
+        return actions
+
+    def _parse_mapping_action(self, action_data: TomlDict) -> MappingAction | None:
+        action_type_str = str(action_data.get("action", "passthrough"))
+        if action_type_str == "hyprland_dispatch":
+            action_data = dict(action_data)
+            action_data.setdefault("compositor", "hyprland")
+            action_type_str = "compositor_dispatch"
+        if action_type_str == "rapidfire":
+            action_type_str = "keyboard"
+            action_data = dict(action_data)
+            action_data["rapidfire_enabled"] = True
+            action_data["action"] = "keyboard"
+
+        try:
+            action_type = ActionType(action_type_str)
+        except ValueError:
+            log.warning("Unknown overload action type '%s'", action_type_str)
+            return None
+
+        if action_type == ActionType.SUPERKEY:
+            log.warning("Nested superkeys are not allowed inside overload superkeys")
+            return None
+
+        if action_type == ActionType.MACRO:
+            return MappingAction(
+                action_type=ActionType.MACRO,
+                macro_name=str(action_data.get("target", "") or "")
+                or str(action_data.get("macro_name", "") or ""),
+                macro_replay_mouse_movement=bool(action_data.get("replay_mouse_movement", True)),
+                macro_replay_mouse_clicks=bool(action_data.get("replay_mouse_clicks", True)),
+                macro_speed=_float_value(action_data.get("speed"), 1.0),
+                macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
+                macro_loop_count=_int_value(action_data.get("loop_count"), 1),
+            )
+
+        if action_type in (
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.CANCEL_MACRO_PLAYBACK,
+        ):
+            return MappingAction(action_type=action_type)
+
+        if action_type in (
+            ActionType.PROFILE_ENABLE,
+            ActionType.PROFILE_DISABLE,
+            ActionType.PROFILE_TOGGLE,
+        ):
+            profile_name = str(action_data.get("profile_name", "") or "")
+            if not profile_name:
+                profile_name = str(action_data.get("target", "") or "")
+            return MappingAction(
+                action_type=action_type,
+                profile_name=profile_name,
+            )
+
+        if action_type == ActionType.COMPOSITOR_DISPATCH:
+            return MappingAction(
+                action_type=action_type,
+                compositor_id=str(action_data.get("compositor", "") or "") or None,
+                compositor_dispatcher=str(action_data.get("dispatcher", "") or ""),
+                compositor_args=str(action_data.get("args", "") or ""),
+            )
+
+        if action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+            return MappingAction(
+                action_type=action_type,
+                move_x=_int_value(action_data.get("x"), 0),
+                move_y=_int_value(action_data.get("y"), 0),
+                rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
+                rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 20),
+                rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 20),
+                tap_enabled=bool(action_data.get("tap_enabled", False)),
+                tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
+            )
+
+        target = action_data.get("target")
+        cmd = action_data.get("cmd")
+        return MappingAction(
+            action_type=action_type,
+            target=str(target) if target is not None else None,
+            keys=cast(list[str] | None, action_data.get("keys")),
+            cmd=str(cmd) if cmd is not None else None,
+            rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
+            rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 20),
+            rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 20),
+            tap_enabled=bool(action_data.get("tap_enabled", False)),
+            tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
+        )
+
+    def _is_valid_overload_action(self, config_name: str, action: MappingAction) -> bool:
+        if action.action_type == ActionType.SUPERKEY:
+            log.warning(
+                "Nested superkeys are not allowed in overload superkey '%s'",
+                config_name,
+            )
+            return False
+        return action.action_type not in (ActionType.PASSTHROUGH,)
+
     def get_superkey(self, name: str) -> SuperkeyConfig | None:
         return self._superkeys.get(name)
 
@@ -125,12 +337,14 @@ class SuperkeyManager:
 
     def save_superkey(self, config: SuperkeyConfig) -> None:
         paths.ensure_config_dirs()
+        self._validate_before_save(config)
 
         safe_name = self._sanitize_name(config.name)
         path = paths.SUPERKEYS_DIR / f"{safe_name}.toml"
 
         data: dict[str, object] = {
             "name": config.name,
+            "mode": config.mode.value,
         }
 
         if config.description:
@@ -147,14 +361,27 @@ class SuperkeyManager:
             data["timing"] = timing
 
         actions: dict[str, object] = {}
-        if config.tap_action:
-            actions["tap"] = self._serialize_action(config.tap_action)
-        if config.double_tap_action:
-            actions["double_tap"] = self._serialize_action(config.double_tap_action)
-        if config.hold_action:
-            actions["hold"] = self._serialize_action(config.hold_action)
-        if config.tap_hold_action:
-            actions["tap_hold"] = self._serialize_action(config.tap_hold_action)
+        if config.mode == SuperkeyMode.PATTERN:
+            if config.tap_actions:
+                actions["tap"] = [
+                    self._serialize_pattern_action(action) for action in config.tap_actions
+                ]
+            if config.double_tap_actions:
+                actions["double_tap"] = [
+                    self._serialize_pattern_action(action) for action in config.double_tap_actions
+                ]
+            if config.hold_actions:
+                actions["hold"] = [
+                    self._serialize_pattern_action(action) for action in config.hold_actions
+                ]
+            if config.tap_hold_actions:
+                actions["tap_hold"] = [
+                    self._serialize_pattern_action(action) for action in config.tap_hold_actions
+                ]
+        elif config.overload_actions:
+            actions["overload"] = [
+                self._serialize_mapping_action(action) for action in config.overload_actions
+            ]
         if actions:
             data["actions"] = actions
 
@@ -162,9 +389,33 @@ class SuperkeyManager:
             tomli_w.dump(data, f)
 
         self._superkeys[config.name] = config
-        log.info(f"Saved superkey: {config.name}")
+        log.info("Saved superkey: %s", config.name)
 
-    def _serialize_action(self, action: SuperkeyAction) -> TomlDict:
+    def _validate_before_save(self, config: SuperkeyConfig) -> None:
+        if config.mode == SuperkeyMode.OVERLOAD:
+            if config.has_pattern_actions():
+                raise ValueError("overload superkeys cannot define pattern slots")
+            for action in config.overload_actions:
+                if not self._is_valid_overload_action(config.name, action):
+                    raise ValueError("invalid overload action")
+            return
+
+        if config.has_overload_actions():
+            raise ValueError("pattern superkeys cannot define overload actions")
+        for actions in (
+            config.tap_actions,
+            config.double_tap_actions,
+            config.hold_actions,
+            config.tap_hold_actions,
+        ):
+            for action in actions:
+                if not action.is_valid():
+                    raise ValueError(
+                        "invalid pattern superkey action type: "
+                        f"{action.action_type.value}"
+                    )
+
+    def _serialize_pattern_action(self, action: SuperkeyAction) -> TomlDict:
         data: dict[str, object] = {"action": action.action_type.value}
 
         if action.target:
@@ -181,6 +432,46 @@ class SuperkeyManager:
 
         return data
 
+    def _serialize_mapping_action(self, action: MappingAction) -> TomlDict:
+        action_data: dict[str, object] = {"action": action.action_type.value}
+        if action.target:
+            action_data["target"] = action.target
+        if action.keys:
+            action_data["keys"] = action.keys
+        if action.cmd:
+            action_data["cmd"] = action.cmd
+        if action.action_type == ActionType.MACRO:
+            action_data["target"] = action.macro_name or ""
+            action_data["macro_name"] = action.macro_name or ""
+            action_data["replay_mouse_movement"] = action.macro_replay_mouse_movement
+            action_data["replay_mouse_clicks"] = action.macro_replay_mouse_clicks
+            action_data["speed"] = action.macro_speed
+            action_data["loop_mode"] = action.macro_loop_mode
+            action_data["loop_count"] = int(action.macro_loop_count)
+        if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+            action_data["x"] = int(action.move_x)
+            action_data["y"] = int(action.move_y)
+        if action.action_type in (
+            ActionType.PROFILE_ENABLE,
+            ActionType.PROFILE_DISABLE,
+            ActionType.PROFILE_TOGGLE,
+        ):
+            action_data["target"] = action.profile_name or ""
+            action_data["profile_name"] = action.profile_name or ""
+        if action.action_type == ActionType.COMPOSITOR_DISPATCH:
+            if action.compositor_id:
+                action_data["compositor"] = action.compositor_id
+            action_data["dispatcher"] = action.compositor_dispatcher or ""
+            action_data["args"] = action.compositor_args or ""
+        if action.rapidfire_enabled:
+            action_data["rapidfire_enabled"] = True
+            action_data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
+            action_data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
+        if action.tap_enabled:
+            action_data["tap_enabled"] = True
+            action_data["tap_hold_ms"] = action.tap_hold_ms
+        return action_data
+
     def delete_superkey(self, name: str) -> bool:
         if name not in self._superkeys:
             return False
@@ -193,7 +484,7 @@ class SuperkeyManager:
             path.unlink()
 
         del self._superkeys[name]
-        log.info(f"Deleted superkey: {name}")
+        log.info("Deleted superkey: %s", name)
         return True
 
     def rename_superkey(self, old_name: str, new_name: str) -> bool:
@@ -201,7 +492,7 @@ class SuperkeyManager:
             return False
 
         if new_name in self._superkeys and new_name != old_name:
-            log.warning(f"Superkey '{new_name}' already exists")
+            log.warning("Superkey '%s' already exists", new_name)
             return False
 
         config = self._superkeys[old_name]
@@ -215,7 +506,7 @@ class SuperkeyManager:
 
         del self._superkeys[old_name]
 
-        log.info(f"Renamed superkey: {old_name} -> {new_name}")
+        log.info("Renamed superkey: %s -> %s", old_name, new_name)
         return True
 
     def _sanitize_name(self, name: str) -> str:

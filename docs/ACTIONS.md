@@ -56,8 +56,14 @@ Enter the command text and click **Map**.
 ### Super Key
 
 Assign a [super key](SUPERKEYS.md) to this button. Select one from the
-dropdown — the super key's tap, hold, double-tap, and tap+hold actions take
-over from there.
+dropdown.
+
+Super keys now have two modes:
+
+- **Pattern**: Tap, Double Tap, Hold, and Tap + Hold choose one slot, and each
+  slot can run an ordered bundle of actions.
+- **Overload**: the source key behaves like a one-to-many normal mapping and
+  forwards its down, repeat, and up cycle to multiple child actions.
 
 ![Special tab — Passthrough, No Override, Suppress, Super Keys, and Execute Shell Command](../assets/screenshots/keyforge_key_action_special.png)
 

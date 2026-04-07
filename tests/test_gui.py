@@ -2272,6 +2272,29 @@ def test_shared_navigation_picker_builds_dropdown():
 
 
 class TestMainWindow:
+    def test_main_window_seeds_default_profile_for_first_device(self, temp_config_dir):
+        from keyforge.common.models import ButtonDefinition, HardwareConfig
+        from keyforge.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        window._add_device_tab(device)
+
+        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+
+        assert window.profile_manager.get_profile("Default") is not None
+        assert tab._selected_profile is not None
+        assert tab._selected_profile.config.name == "Default"
+        assert tab.settings_frame.get_sensitive() is True
+
     def test_main_window_demo_mode(self, temp_config_dir):
         from keyforge.common.models import (
             ButtonDefinition,

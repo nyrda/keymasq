@@ -53,6 +53,19 @@ class TestHardwareManager:
 
 
 class TestProfileManager:
+    def test_auto_create_default_profile_seeds_editable_startup_profile(self, temp_config_dir):
+        manager = ProfileManager(auto_create_default_if_empty=True)
+
+        profiles = manager.list_profiles()
+
+        assert len(profiles) == 1
+        assert profiles[0].config.name == "Default"
+        assert profiles[0].config.enabled is True
+        assert profiles[0].config.is_permanent is True
+        assert profiles[0].config.notify_on_activation is False
+        assert profiles[0].path == temp_config_dir / "profiles" / "Default.toml"
+        assert profiles[0].path.exists()
+
     def test_save_and_load_profile(self, temp_config_dir, sample_profile_config):
         manager = ProfileManager()
         manager.save_profile(sample_profile_config)

@@ -47,7 +47,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.demo_mode = demo_mode
         self.hardware_manager = HardwareManager()
-        self.profile_manager = ProfileManager()
+        self.profile_manager = ProfileManager(auto_create_default_if_empty=True)
         self._session_connected: bool | None = None
         self._keyforged_via_session: bool | None = None
         self._compositor_id: str | None = None

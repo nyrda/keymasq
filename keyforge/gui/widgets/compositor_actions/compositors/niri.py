@@ -38,6 +38,18 @@ NIRI_DISPATCH_PRESETS = (
         hint="Center the focused floating window.",
     ),
     CompositorActionPreset(
+        label="Previous Window",
+        dispatcher="focus_previous_window",
+        args="",
+        hint="Focus the previous window in Niri's scrolling order, looping to the end.",
+    ),
+    CompositorActionPreset(
+        label="Next Window",
+        dispatcher="focus_next_window",
+        args="",
+        hint="Focus the next window in Niri's scrolling order, looping to the start.",
+    ),
+    CompositorActionPreset(
         label="Focus Left",
         dispatcher="focus_column_left",
         args="",

@@ -82,6 +82,18 @@ def test_no_arg_dispatcher_rejects_args() -> None:
     assert action is None
 
 
+def test_window_cycle_dispatchers_map_to_scrolling_focus_actions() -> None:
+    ok, message, action = NIRI_DISPATCH_BUILDERS["focus_previous_window"]("")
+    assert ok is True
+    assert message == ""
+    assert action == {"FocusColumnLeftOrLast": {}}
+
+    ok, message, action = NIRI_DISPATCH_BUILDERS["focus_next_window"]("")
+    assert ok is True
+    assert message == ""
+    assert action == {"FocusColumnRightOrFirst": {}}
+
+
 def test_probe_available_requires_socket_env(monkeypatch) -> None:
     monkeypatch.delenv("NIRI_SOCKET", raising=False)
     assert asyncio.run(NiriListener.probe_available()) is False

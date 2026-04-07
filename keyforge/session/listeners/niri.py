@@ -102,6 +102,8 @@ NIRI_DISPATCH_BUILDERS: dict[str, NiriDispatchBuilder] = {
     ),
     "toggle_window_floating": _focused_window_optional_id_action("ToggleWindowFloating"),
     "center_window": _focused_window_optional_id_action("CenterWindow"),
+    "focus_previous_window": _no_arg_action("FocusColumnLeftOrLast"),
+    "focus_next_window": _no_arg_action("FocusColumnRightOrFirst"),
     "focus_column_left": _no_arg_action("FocusColumnLeft"),
     "focus_column_right": _no_arg_action("FocusColumnRight"),
     "focus_window_up": _no_arg_action("FocusWindowUp"),

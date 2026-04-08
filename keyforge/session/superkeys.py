@@ -24,10 +24,6 @@ def _as_toml_dict(value: object) -> TomlDict | None:
     return cast(TomlDict, value) if isinstance(value, dict) else None
 
 
-def _as_toml_list(value: object) -> list[object]:
-    return cast(list[object], value) if isinstance(value, list) else []
-
-
 def _toml_str(data: TomlDict, key: str, default: str | None = None) -> str | None:
     value = data.get(key, default)
     return value if isinstance(value, str) else default
@@ -51,13 +47,13 @@ def _float_value(value: object, default: float) -> float:
     return default if value is None else float(cast(_FloatLike, value))
 
 
-def _parse_superkey_mode(value: object, default: SuperkeyMode) -> SuperkeyMode:
-    if isinstance(value, str):
-        try:
-            return SuperkeyMode(value)
-        except ValueError:
-            log.warning("Unknown superkey mode '%s', defaulting to %s", value, default.value)
-    return default
+def _parse_superkey_mode(value: object) -> SuperkeyMode:
+    if not isinstance(value, str):
+        raise ValueError("superkey mode must be set to 'pattern' or 'overload'")
+    try:
+        return SuperkeyMode(value)
+    except ValueError as exc:
+        raise ValueError(f"unknown superkey mode '{value}'") from exc
 
 
 class SuperkeyManager:
@@ -94,8 +90,7 @@ class SuperkeyManager:
         tap_hold_actions = self._parse_superkey_action_bundle(actions_data.get("tap_hold"))
         overload_actions = self._parse_overload_action_bundle(actions_data.get("overload"))
 
-        mode_default = SuperkeyMode.OVERLOAD if overload_actions else SuperkeyMode.PATTERN
-        mode = _parse_superkey_mode(data.get("mode"), mode_default)
+        mode = _parse_superkey_mode(data.get("mode"))
 
         config = SuperkeyConfig(
             name=name,
@@ -110,81 +105,33 @@ class SuperkeyManager:
             double_tap_window_ms=_toml_int(timing, "double_tap_window_ms", 300),
             hold_threshold_ms=_toml_int(timing, "hold_threshold_ms", 300),
         )
-        return self._sanitize_loaded_config(config)
-
-    def _sanitize_loaded_config(self, config: SuperkeyConfig) -> SuperkeyConfig:
-        if config.mode == SuperkeyMode.OVERLOAD:
-            if config.has_pattern_actions():
-                log.warning(
-                    "Overload superkey '%s' had pattern actions; dropping them",
-                    config.name,
-                )
-                config.tap_actions.clear()
-                config.double_tap_actions.clear()
-                config.hold_actions.clear()
-                config.tap_hold_actions.clear()
-            config.overload_actions = [
-                action
-                for action in config.overload_actions
-                if self._is_valid_overload_action(config.name, action)
-            ]
-            return config
-
-        if config.has_overload_actions():
-            log.warning(
-                "Pattern superkey '%s' had overload actions; dropping them",
-                config.name,
-            )
-            config.overload_actions.clear()
-
-        bundles = (
-            ("tap", config.tap_actions),
-            ("double_tap", config.double_tap_actions),
-            ("hold", config.hold_actions),
-            ("tap_hold", config.tap_hold_actions),
-        )
-        for slot_name, actions in bundles:
-            filtered = [action for action in actions if action.is_valid()]
-            if len(filtered) != len(actions):
-                log.warning(
-                    "Pattern superkey '%s' had invalid actions in %s; dropping them",
-                    config.name,
-                    slot_name,
-                )
-            actions[:] = filtered
+        self._validate_before_save(config)
         return config
 
     def _parse_superkey_action_bundle(self, data: object) -> list[SuperkeyAction]:
         if data is None:
             return []
+        if not isinstance(data, list):
+            raise ValueError("pattern action bundles must be TOML arrays")
 
         actions: list[SuperkeyAction] = []
-        if isinstance(data, dict):
-            parsed = self._parse_superkey_action(cast(TomlDict, data))
-            if parsed is not None:
-                actions.append(parsed)
-            return actions
-
-        for item in _as_toml_list(data):
+        for item in cast(list[object], data):
             action_data = _as_toml_dict(item)
             if action_data is None:
-                continue
-            parsed = self._parse_superkey_action(action_data)
-            if parsed is not None:
-                actions.append(parsed)
+                raise ValueError("pattern action bundle items must be TOML tables")
+            actions.append(self._parse_superkey_action(action_data))
         return actions
 
-    def _parse_superkey_action(self, data: TomlDict | None) -> SuperkeyAction | None:
+    def _parse_superkey_action(self, data: TomlDict | None) -> SuperkeyAction:
         if not data:
-            return None
+            raise ValueError("pattern action must be a TOML table")
 
         action_type_str = _toml_str(data, "action", "passthrough") or "passthrough"
 
         try:
             action_type = ActionType(action_type_str)
-        except ValueError:
-            log.warning("Unknown superkey action type '%s'", action_type_str)
-            return None
+        except ValueError as exc:
+            raise ValueError(f"unknown pattern superkey action type '{action_type_str}'") from exc
 
         if action_type not in (
             ActionType.KEYBOARD,
@@ -193,8 +140,7 @@ class SuperkeyManager:
             ActionType.EXEC,
             ActionType.MACRO,
         ):
-            log.warning("Invalid pattern superkey action type '%s'", action_type_str)
-            return None
+            raise ValueError(f"invalid pattern superkey action type '{action_type_str}'")
 
         return SuperkeyAction(
             action_type=action_type,
@@ -212,24 +158,18 @@ class SuperkeyManager:
     def _parse_overload_action_bundle(self, data: object) -> list[MappingAction]:
         if data is None:
             return []
+        if not isinstance(data, list):
+            raise ValueError("overload actions must be a TOML array")
 
         actions: list[MappingAction] = []
-        if isinstance(data, dict):
-            parsed = self._parse_mapping_action(cast(TomlDict, data))
-            if parsed is not None:
-                actions.append(parsed)
-            return actions
-
-        for item in _as_toml_list(data):
+        for item in cast(list[object], data):
             action_data = _as_toml_dict(item)
             if action_data is None:
-                continue
-            parsed = self._parse_mapping_action(action_data)
-            if parsed is not None:
-                actions.append(parsed)
+                raise ValueError("overload action items must be TOML tables")
+            actions.append(self._parse_mapping_action(action_data))
         return actions
 
-    def _parse_mapping_action(self, action_data: TomlDict) -> MappingAction | None:
+    def _parse_mapping_action(self, action_data: TomlDict) -> MappingAction:
         action_type_str = str(action_data.get("action", "passthrough"))
         if action_type_str == "hyprland_dispatch":
             action_data = dict(action_data)
@@ -243,13 +183,11 @@ class SuperkeyManager:
 
         try:
             action_type = ActionType(action_type_str)
-        except ValueError:
-            log.warning("Unknown overload action type '%s'", action_type_str)
-            return None
+        except ValueError as exc:
+            raise ValueError(f"unknown overload action type '{action_type_str}'") from exc
 
         if action_type == ActionType.SUPERKEY:
-            log.warning("Nested superkeys are not allowed inside overload superkeys")
-            return None
+            raise ValueError("nested superkeys are not allowed inside overload superkeys")
 
         if action_type == ActionType.MACRO:
             return MappingAction(

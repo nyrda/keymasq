@@ -6,7 +6,7 @@ Status: complete
 
 - [x] Create tracking file and implementation checklist.
 - [x] Add shared model support for pattern bundles and overload-mode superkeys.
-- [x] Add backward-compatible TOML load/save for the new superkey schema.
+- [x] Add strict TOML load/save for the new superkey schema.
 - [x] Update session payload/signature serialization for bundled and overload superkeys.
 - [x] Update daemon/runtime payload parsing for bundled and overload superkeys.
 - [x] Implement bundled pattern-slot execution in the superkey state machine.
@@ -25,7 +25,7 @@ Status: complete
 - Pattern-mode bundle presses run in list order and releases run in reverse order.
 - Overload mode stores one ordered action list and fans out the source event to each child action.
 - Overload children cannot be nested superkeys.
-- Existing single-action superkey files remain valid and load as one-item bundles.
+- Superkey files must use explicit `mode` and list-based action bundles.
 
 ## Progress Notes
 
@@ -33,8 +33,8 @@ Status: complete
 - Added `pattern` vs `overload` superkey modes to the shared model.
 - Pattern slots now store ordered action bundles; overload mode stores ordered
   `MappingAction` children.
-- Session superkey TOML now round-trips both bundle syntax and overload child
-  mappings while still accepting the old single-action slot format.
+- Session superkey TOML now round-trips bundle syntax and overload child
+  mappings with one strict schema.
 - Runtime payloads now serialize and parse both new modes, including overload
   `exec` references.
 - The pattern state machine now executes bundles in order and releases them in
@@ -43,6 +43,6 @@ Status: complete
   held outputs across multiple source keys.
 - The GTK superkey editor now exposes a mode selector and ordered list editors
   for both pattern slots and overload actions.
-- Added targeted tests for legacy TOML loading, bundle ordering, overload
+- Added targeted tests for strict schema loading, bundle ordering, overload
   payload parsing, overload fanout, and shared-output refcount behavior.
 - Final verification passed via `./scripts/check.sh full`.

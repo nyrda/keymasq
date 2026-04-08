@@ -637,6 +637,9 @@ class SuperkeyDialog(Adw.Dialog):
     ) -> None:
         row._action_items = list(actions)
         row._action_label.set_label(self._describe_action_list(row._action_items, row._row_mode))
+        tooltip = self._describe_action_tooltip(row._action_items, row._row_mode)
+        row.set_tooltip_text(tooltip)
+        row._action_label.set_tooltip_text(tooltip)
 
     def _describe_action_list(self, actions: Sequence[object], row_mode: str) -> str:
         if not actions:
@@ -658,6 +661,24 @@ class SuperkeyDialog(Adw.Dialog):
         suffix = ", ".join(labels)
         noun = "action" if len(actions) == 1 else "actions"
         return f"{len(actions)} {noun}: {suffix}"
+
+    def _describe_action_tooltip(self, actions: Sequence[object], row_mode: str) -> str:
+        if not actions:
+            return "(none)"
+
+        lines: list[str] = []
+        for index, action in enumerate(actions, start=1):
+            if row_mode == "pattern":
+                description = self._describe_pattern_action(action)
+            else:
+                description = (
+                    describe_mapping_action_verbose(action)
+                    if isinstance(action, MappingAction)
+                    else "Unknown action"
+                )
+                description = self._append_state_markers(description, action)
+            lines.append(f"{index}. {description}")
+        return "\n".join(lines)
 
     def _describe_pattern_action(self, action: object) -> str:
         if not isinstance(action, SuperkeyAction):
@@ -811,11 +832,16 @@ class SuperkeyDialog(Adw.Dialog):
     def _on_actions_selected(self, _dialog, actions: list[object], row: Adw.ActionRow) -> None:
         row._action_items = list(actions)
         row._action_label.set_label(self._describe_action_list(row._action_items, row._row_mode))
+        tooltip = self._describe_action_tooltip(row._action_items, row._row_mode)
+        row.set_tooltip_text(tooltip)
+        row._action_label.set_tooltip_text(tooltip)
         self._on_modified()
 
     def _on_clear_action_clicked(self, _button, row: Adw.ActionRow) -> None:
         row._action_items = []
         row._action_label.set_label("(none)")
+        row.set_tooltip_text("(none)")
+        row._action_label.set_tooltip_text("(none)")
         self._on_modified()
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:

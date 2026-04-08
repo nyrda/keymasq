@@ -666,7 +666,17 @@ class SuperkeyDialog(Adw.Dialog):
             return "(none)"
 
         if row_mode == "pattern":
-            labels = [self._describe_pattern_action(action) for action in actions[:2]]
+            labels = [
+                _describe_pattern_superkey_action(
+                    action,
+                    exec_limit=20,
+                    exec_prefix="exec ",
+                    macro_prefix="macro ",
+                    target_separator=" ",
+                    title_case_target_type=False,
+                )
+                for action in actions[:2]
+            ]
         else:
             labels = [
                 describe_mapping_action_verbose(action)

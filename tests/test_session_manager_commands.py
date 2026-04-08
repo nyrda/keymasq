@@ -201,7 +201,7 @@ async def test_handle_session_request_dispatch_compositor_uses_runtime_dispatch(
         {
             "command": "dispatch_compositor",
             "compositor": "niri",
-            "dispatcher": "toggle_window_floating",
+            "dispatcher": "toggle-window-floating",
             "args": "",
         },
         "client",
@@ -210,7 +210,7 @@ async def test_handle_session_request_dispatch_compositor_uses_runtime_dispatch(
     )
 
     assert result == {"status": "ok", "message": "ok"}
-    listener.dispatch.assert_awaited_once_with("toggle_window_floating", "")
+    listener.dispatch.assert_awaited_once_with("toggle-window-floating", "")
 
 
 @pytest.mark.asyncio

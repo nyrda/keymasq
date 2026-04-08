@@ -662,7 +662,7 @@ EOF
                     "dispatch_compositor",
                     {
                         "compositor": "niri",
-                        "dispatcher": "toggle_window_floating",
+                        "dispatcher": "toggle-window-floating",
                         "args": "",
                     },
                 )

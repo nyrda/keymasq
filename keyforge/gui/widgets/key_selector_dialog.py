@@ -248,11 +248,20 @@ class KeySelectorDialog(Adw.Dialog):
         button_label: str,
         current_action: MappingAction | None = None,
         compositor_action_status: dict[str, object] | None = None,
+        *,
+        allow_passthrough: bool = True,
+        allow_clear_mapping: bool = True,
+        allow_suppress: bool = True,
+        allow_superkey: bool = True,
     ):
         super().__init__(title=f"Map: {button_label}", content_width=650, content_height=620)
         self._parent = parent
         self._button_label = button_label
         self._current_action = current_action
+        self._allow_passthrough = allow_passthrough
+        self._allow_clear_mapping = allow_clear_mapping
+        self._allow_suppress = allow_suppress
+        self._allow_superkey = allow_superkey
         self._compositor_action_status = self._resolve_compositor_action_status(
             compositor_action_status
         )
@@ -434,53 +443,64 @@ class KeySelectorDialog(Adw.Dialog):
         box.set_margin_end(16)
         box.set_valign(Gtk.Align.CENTER)
 
-        passthrough_btn = self._create_key_button("Passthrough", "passthrough", large=True)
-        passthrough_btn.connect("clicked", self._on_special_clicked, "explicit_passthrough")
-        passthrough_btn.set_tooltip_text(
-            "Explicitly mask lower-priority remaps and send the original input through"
-        )
-        box.append(passthrough_btn)
+        special_buttons_added = False
 
-        clear_btn = self._create_key_button("No Override", "clear_mapping", large=True)
-        clear_btn.connect("clicked", self._on_special_clicked, "clear_mapping")
-        clear_btn.set_tooltip_text(
-            "Do not store a mapping here, so lower-priority profiles can still apply one"
-        )
-        box.append(clear_btn)
+        if self._allow_passthrough:
+            passthrough_btn = self._create_key_button("Passthrough", "passthrough", large=True)
+            passthrough_btn.connect("clicked", self._on_special_clicked, "explicit_passthrough")
+            passthrough_btn.set_tooltip_text(
+                "Explicitly mask lower-priority remaps and send the original input through"
+            )
+            box.append(passthrough_btn)
+            special_buttons_added = True
 
-        suppress_btn = self._create_key_button("Suppress", "suppress", large=True)
-        suppress_btn.connect("clicked", self._on_special_clicked, "suppress")
-        suppress_btn.set_tooltip_text("Block the button press entirely — nothing is sent")
-        box.append(suppress_btn)
+        if self._allow_clear_mapping:
+            clear_btn = self._create_key_button("No Override", "clear_mapping", large=True)
+            clear_btn.connect("clicked", self._on_special_clicked, "clear_mapping")
+            clear_btn.set_tooltip_text(
+                "Do not store a mapping here, so lower-priority profiles can still apply one"
+            )
+            box.append(clear_btn)
+            special_buttons_added = True
 
-        box.append(Gtk.Separator())
+        if self._allow_suppress:
+            suppress_btn = self._create_key_button("Suppress", "suppress", large=True)
+            suppress_btn.connect("clicked", self._on_special_clicked, "suppress")
+            suppress_btn.set_tooltip_text("Block the button press entirely — nothing is sent")
+            box.append(suppress_btn)
+            special_buttons_added = True
 
-        superkey_label = Gtk.Label(label="Super Keys")
-        superkey_label.add_css_class("dim-label")
-        box.append(superkey_label)
+        if special_buttons_added and self._allow_superkey:
+            box.append(Gtk.Separator())
 
-        superkey_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        superkey_box.set_halign(Gtk.Align.CENTER)
+        if self._allow_superkey:
+            superkey_label = Gtk.Label(label="Super Keys")
+            superkey_label.add_css_class("dim-label")
+            box.append(superkey_label)
 
-        self.superkey_dropdown = Gtk.DropDown()
-        superkey_model = Gtk.StringList()
+            superkey_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            superkey_box.set_halign(Gtk.Align.CENTER)
 
-        manager = SuperkeyManager()
-        self._superkey_names = manager.list_superkeys()
-        for name in self._superkey_names:
-            superkey_model.append(name)
-        self.superkey_dropdown.set_model(superkey_model)
-        self.superkey_dropdown.set_size_request(200, -1)
-        superkey_box.append(self.superkey_dropdown)
+            self.superkey_dropdown = Gtk.DropDown()
+            superkey_model = Gtk.StringList()
 
-        superkey_btn = Gtk.Button(label="Map")
-        superkey_btn.add_css_class("suggested-action")
-        superkey_btn.connect("clicked", self._on_superkey_clicked)
-        superkey_box.append(superkey_btn)
+            manager = SuperkeyManager()
+            self._superkey_names = manager.list_superkeys()
+            for name in self._superkey_names:
+                superkey_model.append(name)
+            self.superkey_dropdown.set_model(superkey_model)
+            self.superkey_dropdown.set_size_request(200, -1)
+            superkey_box.append(self.superkey_dropdown)
 
-        box.append(superkey_box)
+            superkey_btn = Gtk.Button(label="Map")
+            superkey_btn.add_css_class("suggested-action")
+            superkey_btn.connect("clicked", self._on_superkey_clicked)
+            superkey_box.append(superkey_btn)
 
-        box.append(Gtk.Separator())
+            box.append(superkey_box)
+            box.append(Gtk.Separator())
+        else:
+            self._superkey_names = []
 
         exec_label = Gtk.Label(label="Execute Shell Command")
         exec_label.add_css_class("dim-label")

@@ -25,6 +25,11 @@ class ActionType(Enum):
     PROFILE_TOGGLE = "profile_toggle"
 
 
+class SuperkeyMode(Enum):
+    PATTERN = "pattern"
+    OVERLOAD = "overload"
+
+
 SUPERKEY_ACTION_TYPES = frozenset(
     {
         ActionType.KEYBOARD,
@@ -155,25 +160,33 @@ class SuperkeyAction:
 class SuperkeyConfig:
     name: str
     description: str | None = None
+    mode: SuperkeyMode = SuperkeyMode.PATTERN
 
-    tap_action: SuperkeyAction | None = None
-    double_tap_action: SuperkeyAction | None = None
-    hold_action: SuperkeyAction | None = None
-    tap_hold_action: SuperkeyAction | None = None
+    tap_actions: list[SuperkeyAction] = field(default_factory=list)
+    double_tap_actions: list[SuperkeyAction] = field(default_factory=list)
+    hold_actions: list[SuperkeyAction] = field(default_factory=list)
+    tap_hold_actions: list[SuperkeyAction] = field(default_factory=list)
+    overload_actions: list[MappingAction] = field(default_factory=list)
 
     tap_timeout_ms: int = 200
     double_tap_window_ms: int = 300
     hold_threshold_ms: int = 300
 
-    def has_any_action(self) -> bool:
+    def has_pattern_actions(self) -> bool:
         return any(
-            [
-                self.tap_action,
-                self.double_tap_action,
-                self.hold_action,
-                self.tap_hold_action,
-            ]
+            (
+                self.tap_actions,
+                self.double_tap_actions,
+                self.hold_actions,
+                self.tap_hold_actions,
+            )
         )
+
+    def has_overload_actions(self) -> bool:
+        return bool(self.overload_actions)
+
+    def has_any_action(self) -> bool:
+        return self.has_pattern_actions() or self.has_overload_actions()
 
 
 @dataclass

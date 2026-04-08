@@ -206,6 +206,34 @@ def resolve_evdev_code(evdev_name: str | None) -> int | None:
     return None
 
 
+def resolve_evdev_event_type(evdev_name: str | None) -> int | None:
+    if not evdev_name:
+        return None
+
+    label = str(evdev_name).strip().lower()
+    if not label:
+        return None
+
+    if label.startswith(("key_", "btn_")):
+        return evdev.ecodes.EV_KEY
+    if label.startswith("rel_"):
+        return evdev.ecodes.EV_REL
+    if label.startswith("abs_"):
+        return evdev.ecodes.EV_ABS
+    return None
+
+
+def normalize_evdev_binding_value(event_type: int, value: int | None) -> int | None:
+    if value is None:
+        return None
+    normalized = int(value)
+    if event_type == evdev.ecodes.EV_REL:
+        if normalized == 0:
+            return None
+        return 1 if normalized > 0 else -1
+    return normalized
+
+
 def capability_names_from_capabilities(caps: Mapping[int, Sequence[object]]) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()

@@ -255,14 +255,11 @@ class SuperkeyManager:
             tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
         )
 
-    def _is_valid_overload_action(self, config_name: str, action: MappingAction) -> bool:
+    def _validate_overload_action(self, action: MappingAction) -> None:
         if action.action_type == ActionType.SUPERKEY:
-            log.warning(
-                "Nested superkeys are not allowed in overload superkey '%s'",
-                config_name,
-            )
-            return False
-        return action.action_type not in (ActionType.PASSTHROUGH,)
+            raise ValueError("nested superkeys are not allowed inside overload superkeys")
+        if action.action_type == ActionType.PASSTHROUGH:
+            raise ValueError("passthrough is not allowed inside overload superkeys")
 
     def get_superkey(self, name: str) -> SuperkeyConfig | None:
         return self._superkeys.get(name)
@@ -334,8 +331,7 @@ class SuperkeyManager:
             if config.has_pattern_actions():
                 raise ValueError("overload superkeys cannot define pattern slots")
             for action in config.overload_actions:
-                if not self._is_valid_overload_action(config.name, action):
-                    raise ValueError("invalid overload action")
+                self._validate_overload_action(action)
             return
 
         if config.has_overload_actions():

@@ -396,7 +396,7 @@ async def test_keyboard_actions_notify_key_event_tracker() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stop_rapidfire_task_returns_false_without_task() -> None:
+async def test_stop_rapidfire_tasks_is_safe_without_task() -> None:
     machine = SuperkeyMachine(
         config=SuperkeyConfig(name="no_task"),
         event_name="btn_side",
@@ -405,7 +405,8 @@ async def test_stop_rapidfire_task_returns_false_without_task() -> None:
         gamepad_uinput=MagicMock(),
     )
 
-    assert await machine._stop_rapidfire_task() is False
+    await machine._stop_rapidfire_tasks()
+    assert machine._rapidfire_tasks == []
 
 
 def test_get_uinput_returns_expected_device() -> None:

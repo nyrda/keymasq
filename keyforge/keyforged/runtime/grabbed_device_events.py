@@ -7,7 +7,11 @@ from typing import cast
 
 import evdev
 
-from keyforge.common.devices import canonical_gamepad_button_name, classify_event_device_type
+from keyforge.common.devices import (
+    canonical_gamepad_button_name,
+    classify_event_device_type,
+    normalize_evdev_binding_value,
+)
 from keyforge.common.ipc import CommandType
 from keyforge.common.models import ActionType, MappingAction
 from keyforge.keyforged.combo_engine import ComboDecision
@@ -445,18 +449,35 @@ def find_action_for_event(
     mapping: dict[str, MappingAction],
 ) -> MappingAction | None:
     event_name = get_event_name(event, evdev_mod=evdev)
-    return find_action_for_code(device_runtime, int(event.code), event_name, mapping)
+    return find_action_for_code(
+        device_runtime,
+        int(event.type),
+        int(event.code),
+        int(event.value),
+        event_name,
+        mapping,
+    )
 
 
 def find_action_for_code(
     device_runtime: GrabbedDeviceRuntime,
+    event_type: int,
     event_code: int,
+    event_value: int,
     event_name: str,
     mapping: dict[str, MappingAction],
 ) -> MappingAction | None:
-    button_id = device_runtime.evdev_code_to_button.get(int(event_code))
+    normalized_value = normalize_evdev_binding_value(int(event_type), int(event_value))
+    button_id = device_runtime.event_binding_to_button.get(
+        (int(event_type), int(event_code), normalized_value)
+    )
     if button_id and button_id in mapping:
         return mapping[button_id]
+    button_id = device_runtime.event_code_to_button.get((int(event_type), int(event_code)))
+    if button_id and button_id in mapping:
+        return mapping[button_id]
+    if int(event_type) == evdev.ecodes.EV_REL:
+        return None
     return find_action_for_name(
         device_runtime,
         event_name,

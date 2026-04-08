@@ -318,6 +318,11 @@ async def apply_resolved_device_profile(
                     "evdev_paths": list(new_interfaces.values()),
                     "button_map": {b.id: b.evdev for b in hardware_config.buttons},
                     "button_codes": manager.resolved_button_codes(hardware_config.buttons),
+                    "button_values": {
+                        b.id: int(evdev_value)
+                        for b in hardware_config.buttons
+                        if (evdev_value := getattr(b, "evdev_value", None)) is not None
+                    },
                     "button_sources": {b.id: b.source for b in hardware_config.buttons if b.source},
                     "force_grab_unmapped": bool(resolved.combo_event_count),
                 },

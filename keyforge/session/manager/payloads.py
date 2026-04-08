@@ -1,7 +1,7 @@
 import json
 from typing import TYPE_CHECKING, cast
 
-from keyforge.common.models import MappingAction, SuperkeyAction, SuperkeyConfig
+from keyforge.common.models import MappingAction, SuperkeyAction, SuperkeyConfig, SuperkeyMode
 from keyforge.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
 from .common import JsonObject, json_object
@@ -409,27 +409,38 @@ def serialize_superkey(
 ) -> JsonObject:
     data: JsonObject = {
         "name": config.name,
+        "mode": config.mode.value,
         "tap_timeout_ms": config.tap_timeout_ms,
         "double_tap_window_ms": config.double_tap_window_ms,
         "hold_threshold_ms": config.hold_threshold_ms,
     }
 
-    if config.tap_action:
-        data["tap_action"] = serialize_superkey_action(manager, config.tap_action, hardware_id)
-    if config.double_tap_action:
-        data["double_tap_action"] = serialize_superkey_action(
-            manager,
-            config.double_tap_action,
-            hardware_id,
-        )
-    if config.hold_action:
-        data["hold_action"] = serialize_superkey_action(manager, config.hold_action, hardware_id)
-    if config.tap_hold_action:
-        data["tap_hold_action"] = serialize_superkey_action(
-            manager,
-            config.tap_hold_action,
-            hardware_id,
-        )
+    if config.mode == SuperkeyMode.PATTERN:
+        if config.tap_actions:
+            data["tap_actions"] = [
+                serialize_superkey_action(manager, action, hardware_id)
+                for action in config.tap_actions
+            ]
+        if config.double_tap_actions:
+            data["double_tap_actions"] = [
+                serialize_superkey_action(manager, action, hardware_id)
+                for action in config.double_tap_actions
+            ]
+        if config.hold_actions:
+            data["hold_actions"] = [
+                serialize_superkey_action(manager, action, hardware_id)
+                for action in config.hold_actions
+            ]
+        if config.tap_hold_actions:
+            data["tap_hold_actions"] = [
+                serialize_superkey_action(manager, action, hardware_id)
+                for action in config.tap_hold_actions
+            ]
+    elif config.overload_actions:
+        data["overload_actions"] = [
+            serialize_overload_action(manager, action, hardware_id)
+            for action in config.overload_actions
+        ]
 
     return data
 
@@ -441,35 +452,38 @@ def serialize_superkey_signature(
 ) -> JsonObject:
     data: JsonObject = {
         "name": config.name,
+        "mode": config.mode.value,
         "tap_timeout_ms": int(config.tap_timeout_ms),
         "double_tap_window_ms": int(config.double_tap_window_ms),
         "hold_threshold_ms": int(config.hold_threshold_ms),
     }
 
-    if config.tap_action:
-        data["tap_action"] = serialize_superkey_action_signature(
-            manager,
-            config.tap_action,
-            hardware_id,
-        )
-    if config.double_tap_action:
-        data["double_tap_action"] = serialize_superkey_action_signature(
-            manager,
-            config.double_tap_action,
-            hardware_id,
-        )
-    if config.hold_action:
-        data["hold_action"] = serialize_superkey_action_signature(
-            manager,
-            config.hold_action,
-            hardware_id,
-        )
-    if config.tap_hold_action:
-        data["tap_hold_action"] = serialize_superkey_action_signature(
-            manager,
-            config.tap_hold_action,
-            hardware_id,
-        )
+    if config.mode == SuperkeyMode.PATTERN:
+        if config.tap_actions:
+            data["tap_actions"] = [
+                serialize_superkey_action_signature(manager, action, hardware_id)
+                for action in config.tap_actions
+            ]
+        if config.double_tap_actions:
+            data["double_tap_actions"] = [
+                serialize_superkey_action_signature(manager, action, hardware_id)
+                for action in config.double_tap_actions
+            ]
+        if config.hold_actions:
+            data["hold_actions"] = [
+                serialize_superkey_action_signature(manager, action, hardware_id)
+                for action in config.hold_actions
+            ]
+        if config.tap_hold_actions:
+            data["tap_hold_actions"] = [
+                serialize_superkey_action_signature(manager, action, hardware_id)
+                for action in config.tap_hold_actions
+            ]
+    elif config.overload_actions:
+        data["overload_actions"] = [
+            action_signature_payload(manager, action, hardware_id)
+            for action in config.overload_actions
+        ]
 
     return data
 
@@ -526,6 +540,77 @@ def serialize_superkey_action_signature(
             data["superkey"] = serialize_superkey_signature(manager, superkey_config, hardware_id)
 
     return data
+
+
+def serialize_overload_action(
+    manager: "SessionManager",
+    action: MappingAction,
+    hardware_id: str,
+) -> JsonObject:
+    action_type = action.action_type.value
+    action_data: JsonObject = {"action": action_type}
+
+    if action_type in (
+        "keyboard",
+        "mouse",
+        "gamepad",
+        "mouse_move_rel",
+        "mouse_move_abs",
+    ):
+        action_data["target"] = action.target
+        if action_type in ("mouse_move_rel", "mouse_move_abs"):
+            action_data["x"] = int(action.move_x)
+            action_data["y"] = int(action.move_y)
+        if action.rapidfire_enabled:
+            action_data["rapidfire_enabled"] = True
+            action_data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
+            action_data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
+        if action.tap_enabled:
+            action_data["tap_enabled"] = True
+            action_data["tap_hold_ms"] = action.tap_hold_ms
+        return action_data
+
+    if action_type == "exec":
+        if action.cmd:
+            exec_ref = manager.exec_state.next_superkey_exec_ref
+            manager.exec_state.next_superkey_exec_ref += 1
+            manager.exec_state.superkey_exec_refs[exec_ref] = (hardware_id, action.cmd)
+            action_data["exec_ref"] = exec_ref
+        return action_data
+
+    if action_type == "compositor_dispatch":
+        if action.compositor_id:
+            action_data["compositor"] = action.compositor_id
+        action_data["dispatcher"] = action.compositor_dispatcher or ""
+        action_data["args"] = action.compositor_args or ""
+        return action_data
+
+    if action_type in (
+        "start_macro_recording",
+        "stop_macro_recording",
+        "cancel_macro_playback",
+    ):
+        return action_data
+
+    if action_type in (
+        "profile_enable",
+        "profile_disable",
+        "profile_toggle",
+    ):
+        action_data["profile_name"] = action.profile_name or action.target or ""
+        return action_data
+
+    if action_type == "macro":
+        if action.macro_name:
+            action_data["macro_name"] = action.macro_name
+            action_data["macro_replay_mouse_movement"] = action.macro_replay_mouse_movement
+            action_data["macro_replay_mouse_clicks"] = action.macro_replay_mouse_clicks
+            action_data["macro_speed"] = action.macro_speed
+            action_data["macro_loop_mode"] = action.macro_loop_mode
+            action_data["macro_loop_count"] = int(action.macro_loop_count)
+        return action_data
+
+    return action_data
 
 
 def mapping_log_view(mapping: JsonObject) -> JsonObject:

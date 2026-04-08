@@ -582,33 +582,24 @@ class MainWindow(Adw.ApplicationWindow):
         menu_box.set_margin_start(6)
         menu_box.set_margin_end(6)
 
-        add_superkey_btn = Gtk.Button(label="Add Super Key...")
-        add_superkey_btn.set_halign(Gtk.Align.FILL)
-        add_superkey_btn.connect(
-            "clicked", self._on_menu_action_clicked, "add-superkey", menu_popover
-        )
-        menu_box.append(add_superkey_btn)
+        superkeys_btn = Gtk.Button(label="Super Keys")
+        superkeys_btn.set_halign(Gtk.Align.FILL)
+        superkeys_btn.connect("clicked", self._on_menu_action_clicked, "superkeys", menu_popover)
+        menu_box.append(superkeys_btn)
 
-        manage_superkeys_btn = Gtk.Button(label="Manage Super Keys...")
-        manage_superkeys_btn.set_halign(Gtk.Align.FILL)
-        manage_superkeys_btn.connect(
-            "clicked", self._on_menu_action_clicked, "manage-superkeys", menu_popover
-        )
-        menu_box.append(manage_superkeys_btn)
-
-        menu_unlock_btn = Gtk.Button(label="Unlock Recording...")
+        menu_unlock_btn = Gtk.Button(label="Unlock Recording")
         menu_unlock_btn.set_halign(Gtk.Align.FILL)
         menu_unlock_btn.connect("clicked", self._on_menu_unlock_clicked, menu_popover)
         menu_box.append(menu_unlock_btn)
         self._menu_unlock_btn = menu_unlock_btn
 
-        menu_record_btn = Gtk.Button(label="Record New Macro...")
+        menu_record_btn = Gtk.Button(label="Record New Macro")
         menu_record_btn.set_halign(Gtk.Align.FILL)
         menu_record_btn.connect("clicked", self._on_menu_record_macro_clicked, menu_popover)
         menu_box.append(menu_record_btn)
         self._menu_record_btn = menu_record_btn
 
-        macros_btn = Gtk.Button(label="Macros...")
+        macros_btn = Gtk.Button(label="Macros")
         macros_btn.set_halign(Gtk.Align.FILL)
         macros_btn.connect("clicked", self._on_menu_action_clicked, "macros", menu_popover)
         menu_box.append(macros_btn)

@@ -2105,10 +2105,10 @@ def test_key_selector_dialog_only_shows_niri_dispatch_for_active_niri_listener()
     page = active_dialog.stack.get_child_by_name("niri")
     assert page is not None
     assert page._preset_dropdown.get_selected() == 0
-    assert page._dispatcher_entry.get_text() == "close_window"
+    assert page._dispatcher_entry.get_text() == ""
     assert page._args_entry.get_text() == ""
-    assert page._dispatcher_entry.get_editable() is False
-    assert page._args_entry.get_editable() is False
+    assert page._dispatcher_entry.get_editable() is True
+    assert page._args_entry.get_editable() is True
 
     hidden_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2116,7 +2116,7 @@ def test_key_selector_dialog_only_shows_niri_dispatch_for_active_niri_listener()
         MappingAction(
             action_type=ActionType.COMPOSITOR_DISPATCH,
             compositor_id="niri",
-            compositor_dispatcher="focus_workspace",
+            compositor_dispatcher="focus-workspace",
             compositor_args="2",
         ),
         compositor_action_status={
@@ -2258,7 +2258,7 @@ def test_compositor_action_helpers_resolve_niri_actions() -> None:
     action = MappingAction(
         action_type=ActionType.COMPOSITOR_DISPATCH,
         compositor_id="niri",
-        compositor_dispatcher="focus_workspace",
+        compositor_dispatcher="focus-workspace",
         compositor_args="2",
     )
 
@@ -2269,7 +2269,7 @@ def test_compositor_action_helpers_resolve_niri_actions() -> None:
             "compositor_dispatch_available": True,
         },
     ) == "niri"
-    assert describe_compositor_action(action) == "Niri → focus_workspace 2"
+    assert describe_compositor_action(action) == "Niri → focus-workspace 2"
 
 
 def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):

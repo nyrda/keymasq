@@ -154,7 +154,8 @@ text fields.
 
 ### Niri
 
-Choose from a preset dropdown of supported Niri actions.
+Choose from presets or enter a raw Niri action using the same syntax as
+`niri msg action`.
 
 **Preset examples:**
 
@@ -172,10 +173,12 @@ Choose from a preset dropdown of supported Niri actions.
 | Move To Workspace 1 / 2 | Move the focused window to a workspace and follow it. |
 | Send To Workspace 1 / 2 | Move the focused window to a workspace without following it. |
 
-Niri compositor actions are restricted to Keyforge's supported Niri action IDs.
-Unlike Hyprland dispatchers, arbitrary custom actions are not supported.
-The "Previous Window" and "Next Window" presets follow Niri's scrolling model
-and loop across the horizontal column strip.
+Custom Niri actions use the same action name and argument style as
+`niri msg action`. For example, use dispatcher `focus-workspace` with args `2`,
+or dispatcher `focus-window` with args `--id 17`.
+Keyforge still keeps a direct socket fast path for the common preset actions,
+and the "Previous Window" / "Next Window" presets follow Niri's scrolling
+model by using the looping horizontal focus actions.
 
 ### KDE Plasma
 

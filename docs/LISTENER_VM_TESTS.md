@@ -146,7 +146,7 @@ The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` 
 
 **Focus switching**: The test activates windows through Keyforge's Niri listener path (`activate_title`) so the listener's cached focused-window state stays coherent even when the VM seat does not report a focused Niri window.
 
-**Dispatch path**: The test sends `dispatch_compositor` through the session socket for the Niri `toggle_window_floating` dispatcher and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
+**Dispatch path**: The test sends `dispatch_compositor` through the session socket for the Niri `toggle-window-floating` action and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
 
 **Cursor position**: Keyforge still advertises the normal `slurp`-backed cursor path for Niri, but the NixOS listener VM does not currently enforce that path. The Niri matrix job skips the cursor-capture assertion and leaves that behavior documented rather than failing the entire integration test on the current VM setup.
 

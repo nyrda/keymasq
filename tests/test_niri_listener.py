@@ -5,6 +5,7 @@ import pytest
 from keyforge.session.listeners.niri import (
     NIRI_DISPATCH_BUILDERS,
     NiriListener,
+    normalize_niri_dispatcher,
     parse_niri_event,
     parse_niri_reply,
 )
@@ -55,43 +56,49 @@ def test_parse_niri_event_rejects_invalid_json() -> None:
 
 
 def test_workspace_dispatcher_accepts_index() -> None:
-    ok, message, action = NIRI_DISPATCH_BUILDERS["focus_workspace"]("2")
+    ok, message, action = NIRI_DISPATCH_BUILDERS["focus-workspace"]("2")
     assert ok is True
     assert message == ""
     assert action == {"FocusWorkspace": {"reference": {"Index": 2}}}
 
 
 def test_workspace_dispatcher_accepts_name() -> None:
-    ok, message, action = NIRI_DISPATCH_BUILDERS["focus_workspace"]("name:web")
+    ok, message, action = NIRI_DISPATCH_BUILDERS["focus-workspace"]("name:web")
     assert ok is True
     assert message == ""
     assert action == {"FocusWorkspace": {"reference": {"Name": "web"}}}
 
 
 def test_workspace_dispatcher_rejects_invalid_reference() -> None:
-    ok, message, action = NIRI_DISPATCH_BUILDERS["focus_workspace"]("web")
+    ok, message, action = NIRI_DISPATCH_BUILDERS["focus-workspace"]("web")
     assert ok is False
     assert "workspace reference" in message
     assert action is None
 
 
 def test_no_arg_dispatcher_rejects_args() -> None:
-    ok, message, action = NIRI_DISPATCH_BUILDERS["close_window"]("unexpected")
+    ok, message, action = NIRI_DISPATCH_BUILDERS["close-window"]("unexpected")
     assert ok is False
     assert message == "CloseWindow does not accept arguments"
     assert action is None
 
 
 def test_window_cycle_dispatchers_map_to_scrolling_focus_actions() -> None:
-    ok, message, action = NIRI_DISPATCH_BUILDERS["focus_previous_window"]("")
+    ok, message, action = NIRI_DISPATCH_BUILDERS["focus-column-left-or-last"]("")
     assert ok is True
     assert message == ""
     assert action == {"FocusColumnLeftOrLast": {}}
 
-    ok, message, action = NIRI_DISPATCH_BUILDERS["focus_next_window"]("")
+    ok, message, action = NIRI_DISPATCH_BUILDERS["focus-column-right-or-first"]("")
     assert ok is True
     assert message == ""
     assert action == {"FocusColumnRightOrFirst": {}}
+
+
+def test_normalize_niri_dispatcher_accepts_legacy_and_cli_formats() -> None:
+    assert normalize_niri_dispatcher("focus_workspace") == "focus-workspace"
+    assert normalize_niri_dispatcher("FocusWorkspace") == "focus-workspace"
+    assert normalize_niri_dispatcher("niri msg action focus-workspace") == "focus-workspace"
 
 
 def test_probe_available_requires_socket_env(monkeypatch) -> None:
@@ -327,14 +334,14 @@ async def test_activate_window_by_title_updates_cached_window_state(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_dispatch_rejects_unsupported_dispatcher() -> None:
+async def test_dispatch_requires_socket_for_custom_niri_actions() -> None:
     async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
         return
 
     listener = NiriListener(_cb)
-    ok, message = await listener.dispatch("unknown_action")
+    ok, message = await listener.dispatch("toggle-overview")
     assert ok is False
-    assert message == "unsupported Niri dispatcher: unknown_action"
+    assert message == "NIRI_SOCKET is not available"
 
 
 @pytest.mark.asyncio
@@ -354,7 +361,7 @@ async def test_dispatch_sends_action_request(monkeypatch) -> None:
     listener = NiriListener(_cb)
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 
-    ok, message = await listener.dispatch("focus_workspace", "2")
+    ok, message = await listener.dispatch("focus-workspace", "2")
 
     assert ok is True
     assert message == "ok"
@@ -381,10 +388,98 @@ async def test_dispatch_uses_cached_window_id_for_focused_window_actions(monkeyp
     listener._focused_window_id = 9
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 
-    ok, message = await listener.dispatch("toggle_window_floating")
+    ok, message = await listener.dispatch("toggle-window-floating")
 
     assert ok is True
     assert message == "ok"
     assert requests == [
         ({"Action": {"ToggleWindowFloating": {"id": 9}}}, 1.5)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_falls_back_to_niri_msg_action_for_custom_dispatchers(monkeypatch) -> None:
+    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        return
+
+    recorded: dict[str, object] = {}
+
+    class _FakeProcess:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"", b""
+
+    async def _create_subprocess_exec(*cmd: object, **kwargs: object) -> _FakeProcess:
+        recorded["cmd"] = cmd
+        recorded["env"] = kwargs.get("env")
+        return _FakeProcess()
+
+    listener = NiriListener(_cb)
+    listener.socket_path = "/tmp/niri.sock"
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+
+    ok, message = await listener.dispatch("toggle-overview")
+
+    assert ok is True
+    assert message == "ok"
+    assert recorded["cmd"] == ("niri", "msg", "action", "toggle-overview")
+    assert isinstance(recorded["env"], dict)
+    assert recorded["env"]["NIRI_SOCKET"] == "/tmp/niri.sock"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_accepts_prefixed_niri_msg_action_syntax(monkeypatch) -> None:
+    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        return
+
+    recorded: dict[str, object] = {}
+
+    class _FakeProcess:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"", b""
+
+    async def _create_subprocess_exec(*cmd: object, **kwargs: object) -> _FakeProcess:
+        recorded["cmd"] = cmd
+        return _FakeProcess()
+
+    listener = NiriListener(_cb)
+    listener.socket_path = "/tmp/niri.sock"
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+
+    ok, message = await listener.dispatch("niri msg action focus-window", "--id 17")
+
+    assert ok is True
+    assert message == "ok"
+    assert recorded["cmd"] == ("niri", "msg", "action", "focus-window", "--id", "17")
+
+
+@pytest.mark.asyncio
+async def test_dispatch_accepts_full_niri_msg_action_command_in_dispatcher_field(
+    monkeypatch,
+) -> None:
+    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        return
+
+    requests: list[tuple[object, float]] = []
+
+    async def _send_cmd_request(
+        request: object,
+        timeout_s: float,
+    ) -> tuple[bool, object | None]:
+        requests.append((request, timeout_s))
+        return True, "Handled"
+
+    listener = NiriListener(_cb)
+    listener.socket_path = "/tmp/niri.sock"
+    monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
+
+    ok, message = await listener.dispatch("niri msg action focus-workspace 2")
+
+    assert ok is True
+    assert message == "ok"
+    assert requests == [
+        ({"Action": {"FocusWorkspace": {"reference": {"Index": 2}}}}, 1.5)
     ]

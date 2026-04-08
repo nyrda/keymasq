@@ -56,13 +56,13 @@ async def test_run_compositor_dispatch_returns_listener_result() -> None:
     ok, message = await session_compositor_module.run_compositor_dispatch(
         manager,
         "niri",
-        "toggle_window_floating",
+        "toggle-window-floating",
         "",
     )
 
     assert ok is True
     assert message == "ok"
-    listener.dispatch.assert_awaited_once_with("toggle_window_floating", "")
+    listener.dispatch.assert_awaited_once_with("toggle-window-floating", "")
 
 
 @pytest.mark.asyncio

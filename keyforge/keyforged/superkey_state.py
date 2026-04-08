@@ -266,11 +266,6 @@ class SuperkeyMachine:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
-    async def _stop_rapidfire_task(self) -> bool:
-        had_tasks = bool(self._rapidfire_tasks)
-        await self._stop_rapidfire_tasks()
-        return had_tasks
-
     async def _execute_actions_tap(self, actions: list[SuperkeyActionData]) -> None:
         for action in actions:
             await self._execute_action_down(action)

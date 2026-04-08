@@ -214,5 +214,5 @@ def test_superkey_manager_rejects_nested_overload_superkeys(
         ],
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="nested superkeys are not allowed"):
         manager.save_superkey(config)

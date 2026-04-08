@@ -7,7 +7,12 @@ from typing import Final, TypeVar, cast
 import evdev
 
 from keyforge.common.combos import normalize_combo_evdev
-from keyforge.common.devices import get_interface_id, resolve_stable_path
+from keyforge.common.devices import (
+    get_interface_id,
+    normalize_evdev_binding_value,
+    resolve_evdev_event_type,
+    resolve_stable_path,
+)
 from keyforge.common.models import DeviceType
 from keyforge.keyforged.output_helpers import resolve_output_code
 from keyforge.keyforged.recording import RecordingManager
@@ -119,6 +124,7 @@ class GrabbedDevice:
         diagnostics_recorder: Callable[[str, float], None] | None = None,
         runtime_cleanup_callback: Callable[[str, str | None], Awaitable[None]] | None = None,
         button_codes: dict[str, int] | None = None,
+        button_values: dict[str, int] | None = None,
     ) -> None:
         self.path = path
         self.hardware_id = hardware_id
@@ -126,8 +132,9 @@ class GrabbedDevice:
         self.interface_id = str(get_interface_id(self.stable_path) or "").lower()
         self.button_map: dict[str, str] = {}
         self.evdev_to_button: dict[str, str] = {}
-        self.evdev_code_to_button: dict[int, str] = {}
-        self.update_button_map(button_map, button_codes)
+        self.event_binding_to_button: dict[tuple[int, int, int | None], str] = {}
+        self.event_code_to_button: dict[tuple[int, int], str] = {}
+        self.update_button_map(button_map, button_codes, button_values)
         self.mapping_getter = mapping_getter
         self.event_callback = event_callback
         self.device_type = device_type
@@ -153,12 +160,26 @@ class GrabbedDevice:
         self,
         button_map: dict[str, str],
         button_codes: dict[str, int] | None = None,
+        button_values: dict[str, int] | None = None,
     ) -> None:
         self.button_map = dict(button_map)
         self.evdev_to_button = {v.lower(): k for k, v in button_map.items()}
-        self.evdev_code_to_button = {
-            int(code): button_id for button_id, code in (button_codes or {}).items()
+        self.event_binding_to_button = {}
+        self.event_code_to_button = {}
+        resolved_button_values = {
+            button_id: int(value) for button_id, value in (button_values or {}).items()
         }
+        for button_id, code in (button_codes or {}).items():
+            event_type = resolve_evdev_event_type(button_map.get(button_id))
+            if event_type is None:
+                continue
+            normalized_value = normalize_evdev_binding_value(
+                event_type,
+                resolved_button_values.get(button_id),
+            )
+            self.event_binding_to_button[(int(event_type), int(code), normalized_value)] = button_id
+            if normalized_value is None:
+                self.event_code_to_button[(int(event_type), int(code))] = button_id
 
     async def reset_mapping_runtime_state(self) -> None:
         for event_name in self.state.combo_passthrough_held:

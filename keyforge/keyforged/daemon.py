@@ -72,6 +72,7 @@ class _DaemonDeviceManager(Protocol):
         evdev_paths: list[str],
         button_map: dict[str, str],
         button_codes: dict[str, int] | None = None,
+        button_values: dict[str, int] | None = None,
         force_grab_unmapped: bool = False,
     ) -> JsonObject: ...
 

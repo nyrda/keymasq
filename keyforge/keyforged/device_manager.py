@@ -254,6 +254,7 @@ class DesiredGrabConfig:
     paths: set[str]
     button_map: dict[str, str]
     button_codes: dict[str, int] = field(default_factory=dict)
+    button_values: dict[str, int] = field(default_factory=dict)
     force_grab_unmapped: bool = False
 
 
@@ -378,6 +379,7 @@ class DeviceManager:
         evdev_paths: list[str],
         button_map: dict[str, str],
         button_codes: dict[str, int] | None = None,
+        button_values: dict[str, int] | None = None,
         force_grab_unmapped: bool = False,
     ) -> JsonObject:
         async with self._op_lock:
@@ -387,6 +389,7 @@ class DeviceManager:
                 evdev_paths,
                 button_map,
                 button_codes,
+                button_values,
                 force_grab_unmapped,
                 update_desired=True,
                 desired_grab_config_cls=DesiredGrabConfig,

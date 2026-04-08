@@ -564,6 +564,7 @@ def _make_grabbed_device(
     monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
     button_map = kwargs.pop("button_map", {})
     button_codes = kwargs.pop("button_codes", None)
+    button_values = kwargs.pop("button_values", None)
     keyboard_uinput = kwargs.pop("keyboard_uinput", _FakeUInput())
     mouse_uinput = kwargs.pop("mouse_uinput", _FakeUInput())
     gamepad_uinput = kwargs.pop("gamepad_uinput", _FakeUInput())
@@ -572,6 +573,7 @@ def _make_grabbed_device(
         hardware_id="1234:5678",
         button_map=button_map,
         button_codes=button_codes,
+        button_values=button_values,
         mapping_getter=lambda: {},
         event_callback=AsyncMock(return_value=None),
         keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
@@ -931,12 +933,12 @@ async def _runtime_release_interface_unlocked(
 def _runtime_device_has_mapped_buttons(
     caps: dict[int, object],
     mapped_evdev_names: set[str],
-    mapped_codes: set[int] | None,
+    mapped_bindings: set[tuple[int, int]] | None,
 ) -> bool:
     return ldm.device_has_mapped_buttons(
         caps,
         mapped_evdev_names,
-        mapped_codes,
+        mapped_bindings,
         evdev_mod=dm.evdev,
     )
 
@@ -3149,19 +3151,21 @@ class TestDeviceManagerHelpers:
                 self.reset_mapping_runtime_state = AsyncMock()
                 created[self.path] = self
 
-            def update_button_map(
-                self,
-                button_map: dict[str, str],
-                button_codes: dict[str, int] | None = None,
-            ) -> None:
-                self.button_map_updates.append(dict(button_map))
-                self.button_code_updates.append(dict(button_codes or {}))
-
             def release_tracked_outputs(self) -> None:
                 return
 
             def has_held_source_inputs(self) -> bool:
                 return False
+
+            def update_button_map(
+                self,
+                button_map: dict[str, str],
+                button_codes: dict[str, int] | None = None,
+                button_values: dict[str, int] | None = None,
+            ) -> None:
+                self.button_map_updates.append(dict(button_map))
+                self.button_code_updates.append(dict(button_codes or {}))
+                assert button_values is None or isinstance(button_values, dict)
 
         manager = DeviceManager()
         create_global_uinputs = Mock()
@@ -3407,8 +3411,86 @@ class TestGrabbedDeviceHelpers:
         assert _runtime_device_has_mapped_buttons(
             caps,
             {"btn_south"},
-            {evdev.ecodes.BTN_SOUTH},
+            {(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH)},
         )
+
+    def test_device_has_mapped_buttons_ignores_cross_type_code_collision(self) -> None:
+        caps = {
+            evdev.ecodes.EV_REL: [evdev.ecodes.REL_WHEEL],
+        }
+
+        assert not _runtime_device_has_mapped_buttons(
+            caps,
+            {"key_7"},
+            {(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_7)},
+        )
+
+    def test_find_grabbed_action_for_event_ignores_cross_type_code_collision(
+        self,
+        monkeypatch,
+    ) -> None:
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={
+                "extra_13": "key_7",
+                "wheel_up": "rel_wheel",
+                "wheel_down": "rel_wheel",
+            },
+            button_codes={
+                "extra_13": evdev.ecodes.KEY_7,
+                "wheel_up": evdev.ecodes.REL_WHEEL,
+                "wheel_down": evdev.ecodes.REL_WHEEL,
+            },
+            button_values={"wheel_up": 1, "wheel_down": -1},
+        )
+        mapping = {"extra_13": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")}
+        event = evdev.InputEvent(
+            0,
+            0,
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            -1,
+        )
+
+        assert _runtime_find_grabbed_action_for_event(device, event, mapping) is None
+
+    def test_find_grabbed_action_for_event_distinguishes_wheel_direction(self, monkeypatch) -> None:
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={
+                "wheel_up": "rel_wheel",
+                "wheel_down": "rel_wheel",
+            },
+            button_codes={
+                "wheel_up": evdev.ecodes.REL_WHEEL,
+                "wheel_down": evdev.ecodes.REL_WHEEL,
+            },
+            button_values={"wheel_up": 1, "wheel_down": -1},
+        )
+        mapping = {
+            "wheel_down": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+        }
+        down_event = evdev.InputEvent(
+            0,
+            0,
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            -1,
+        )
+        up_event = evdev.InputEvent(
+            0,
+            0,
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+
+        assert _runtime_find_grabbed_action_for_event(
+            device,
+            down_event,
+            mapping,
+        ) == mapping["wheel_down"]
+        assert _runtime_find_grabbed_action_for_event(device, up_event, mapping) is None
 
     def test_bucket_tracking_and_release_all_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         device = _make_grabbed_device(monkeypatch)

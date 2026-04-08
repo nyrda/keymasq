@@ -159,7 +159,7 @@ class ActionListDialog(Adw.Dialog):
         if self._list_mode == "pattern":
             return self._describe_pattern_action(action)
         return (
-            describe_mapping_action_verbose(action)
+            self._append_state_markers(describe_mapping_action_verbose(action), action)
             if isinstance(action, MappingAction)
             else "Unknown action"
         )
@@ -169,10 +169,16 @@ class ActionListDialog(Adw.Dialog):
             return "Unknown action"
         if action.action_type.value == "exec":
             cmd = action.cmd or ""
-            return f"Exec -> {cmd[:40] + '...' if len(cmd) > 40 else cmd}"
+            label = f"Exec -> {cmd[:40] + '...' if len(cmd) > 40 else cmd}"
+            return self._append_state_markers(label, action)
         if action.action_type.value == "macro":
-            return f"Macro -> {action.macro_name or ''}"
-        return f"{action.action_type.value.title()} -> {action.target or ''}"
+            return self._append_state_markers(f"Macro -> {action.macro_name or ''}", action)
+        label = f"{action.action_type.value.title()} -> {action.target or ''}"
+        return self._append_state_markers(label, action)
+
+    def _append_state_markers(self, label: str, action: object) -> str:
+        rapidfire_enabled = bool(getattr(action, "rapidfire_enabled", False))
+        return f"{label} ⚡" if rapidfire_enabled else label
 
     def _selected_index(self) -> int | None:
         row = self.list_box.get_selected_row()
@@ -658,10 +664,16 @@ class SuperkeyDialog(Adw.Dialog):
             return "Unknown action"
         if action.action_type.value == "exec":
             cmd = action.cmd or ""
-            return f"exec {cmd[:20] + '...' if len(cmd) > 20 else cmd}"
+            label = f"exec {cmd[:20] + '...' if len(cmd) > 20 else cmd}"
+            return self._append_state_markers(label, action)
         if action.action_type.value == "macro":
-            return f"macro {action.macro_name or ''}"
-        return f"{action.action_type.value} {action.target or ''}"
+            return self._append_state_markers(f"macro {action.macro_name or ''}", action)
+        label = f"{action.action_type.value} {action.target or ''}"
+        return self._append_state_markers(label, action)
+
+    def _append_state_markers(self, label: str, action: object) -> str:
+        rapidfire_enabled = bool(getattr(action, "rapidfire_enabled", False))
+        return f"{label} ⚡" if rapidfire_enabled else label
 
     def _on_mode_changed(self, _dropdown, _param) -> None:
         self._update_mode_visibility()

@@ -49,13 +49,9 @@ class Application(Adw.Application):
             if settings:
                 settings.set_property("gtk-icon-theme-name", "Adwaita")
 
-        add_superkey_action = Gio.SimpleAction.new("add-superkey", None)
-        add_superkey_action.connect("activate", self._on_add_superkey)
-        self.add_action(add_superkey_action)
-
-        manage_superkeys_action = Gio.SimpleAction.new("manage-superkeys", None)
-        manage_superkeys_action.connect("activate", self._on_manage_superkeys)
-        self.add_action(manage_superkeys_action)
+        superkeys_action = Gio.SimpleAction.new("superkeys", None)
+        superkeys_action.connect("activate", self._on_superkeys)
+        self.add_action(superkeys_action)
 
         macros_action = Gio.SimpleAction.new("macros", None)
         macros_action.connect("activate", self._on_macros)
@@ -82,13 +78,10 @@ class Application(Adw.Application):
 
         self.window.present()
 
-    def _on_add_superkey(self, action, param) -> None:
-        self._open_superkey_dialog(start_new=True)
+    def _on_superkeys(self, action, param) -> None:
+        self._open_superkey_dialog()
 
-    def _on_manage_superkeys(self, action, param) -> None:
-        self._open_superkey_dialog(start_new=False)
-
-    def _open_superkey_dialog(self, start_new: bool = False) -> None:
+    def _open_superkey_dialog(self) -> None:
         if not self.window:
             return
 
@@ -98,8 +91,6 @@ class Application(Adw.Application):
         dialog.connect("superkey-saved", self._on_superkey_changed)
         dialog.connect("superkey-deleted", self._on_superkey_changed)
         dialog.present()
-        if start_new:
-            dialog.start_new_superkey()
 
     def _on_superkey_changed(self, dialog, name: str) -> None:
         notify_session_reload_async()

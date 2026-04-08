@@ -22,6 +22,7 @@ class _DeviceCommandManager(Protocol):
         evdev_paths: list[str],
         button_map: dict[str, str],
         button_codes: dict[str, int] | None = None,
+        button_values: dict[str, int] | None = None,
         force_grab_unmapped: bool = False,
     ) -> JsonObject: ...
 
@@ -61,6 +62,7 @@ async def handle_device_command(
             evdev_paths=str_list(data["evdev_paths"]),
             button_map=str_dict(data.get("button_map", {})),
             button_codes=int_dict(data.get("button_codes", {})),
+            button_values=int_dict(data.get("button_values", {})),
             force_grab_unmapped=bool(data.get("force_grab_unmapped", False)),
         )
 

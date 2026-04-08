@@ -7,6 +7,7 @@ from typing import Final, Protocol, TypeVar, cast
 
 import evdev
 
+from keyforge.common.devices import resolve_evdev_event_type
 from keyforge.common.ipc import CommandType
 from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged.combo_engine import ComboDecision, ComboInputEvent, RuntimeComboBinding
@@ -55,7 +56,10 @@ class _ManagedGrabbedDevice(Protocol):
     interface_id: str
 
     def update_button_map(
-        self, button_map: dict[str, str], button_codes: dict[str, int]
+        self,
+        button_map: dict[str, str],
+        button_codes: dict[str, int],
+        button_values: dict[str, int] | None = None,
     ) -> None: ...
 
     async def grab(self) -> None: ...
@@ -232,6 +236,7 @@ async def grab_device_unlocked(
     evdev_paths: list[str],
     button_map: dict[str, str],
     button_codes: dict[str, int] | None,
+    button_values: dict[str, int] | None,
     force_grab_unmapped: bool,
     *,
     update_desired: bool,
@@ -259,28 +264,36 @@ async def grab_device_unlocked(
     resolved_button_codes = {
         button_id: int(code) for button_id, code in (button_codes or {}).items()
     }
-    mapped_codes = set(resolved_button_codes.values())
+    resolved_button_values = {
+        button_id: int(value) for button_id, value in (button_values or {}).items()
+    }
+    mapped_bindings = {
+        (int(event_type), int(code))
+        for button_id, code in resolved_button_codes.items()
+        if (event_type := resolve_evdev_event_type(button_map.get(button_id))) is not None
+    }
     if update_desired:
         manager.grab_state.desired_paths[hardware_id] = set(requested_paths)
         manager.grab_state.desired_grabs[hardware_id] = desired_grab_config_cls(
             paths=set(requested_paths),
             button_map=dict(button_map),
             button_codes=dict(resolved_button_codes),
+            button_values=dict(resolved_button_values),
             force_grab_unmapped=bool(force_grab_unmapped),
         )
     log.info(
-        "Grab request for %s: paths=%d mapped_evdev_names=%d mapped_codes=%d",
+        "Grab request for %s: paths=%d mapped_evdev_names=%d mapped_bindings=%d",
         hardware_id,
         len(requested_paths),
         len(mapped_evdev_names),
-        len(mapped_codes),
+        len(mapped_bindings),
     )
 
     existing_by_path = {
         device.path: device for device in manager.grabbed_devices.get(hardware_id, [])
     }
     for device in existing_by_path.values():
-        device.update_button_map(button_map, resolved_button_codes)
+        device.update_button_map(button_map, resolved_button_codes, resolved_button_values)
 
     devices = list(existing_by_path.values())
     grabbed_count = 0
@@ -371,7 +384,7 @@ async def grab_device_unlocked(
             has_mapped_buttons = device_has_mapped_buttons(
                 caps,
                 mapped_evdev_names,
-                mapped_codes,
+                mapped_bindings,
                 evdev_mod=evdev,
             )
 
@@ -398,6 +411,7 @@ async def grab_device_unlocked(
                     hardware_id=hardware_id,
                     button_map=button_map,
                     button_codes=resolved_button_codes,
+                    button_values=resolved_button_values,
                     mapping_getter=mapping_getter,
                     event_callback=event_callback,
                     device_type=detected_type,
@@ -457,7 +471,7 @@ async def grab_device_unlocked(
         not waiting_for_device
         and hardware_id not in manager.grabbed_devices
         and requested_paths
-        and (mapped_evdev_names or mapped_codes)
+        and (mapped_evdev_names or mapped_bindings)
         and grabbed_count == 0
     ):
         if created_global_uinputs:
@@ -465,7 +479,7 @@ async def grab_device_unlocked(
         raise ValueError(
             f"No interfaces for {hardware_id} matched mapped buttons "
             f"(paths={len(requested_paths)}, mapped_names={len(mapped_evdev_names)}, "
-            f"mapped_codes={len(mapped_codes)})"
+            f"mapped_bindings={len(mapped_bindings)})"
         )
 
     if devices:
@@ -528,11 +542,13 @@ async def grab_with_retry(
 def device_has_mapped_buttons(
     caps: dict[int, Sequence[object]],
     mapped_evdev_names: set[str],
-    mapped_codes: set[int] | None,
+    mapped_bindings: set[tuple[int, int]] | None,
     *,
     evdev_mod: _EvdevModule,
 ) -> bool:
-    mapped_code_set = {int(code) for code in (mapped_codes or set())}
+    mapped_binding_set = {
+        (int(event_type), int(code)) for event_type, code in (mapped_bindings or set())
+    }
     for ev_type, codes in caps.items():
         if ev_type == evdev_mod.ecodes.EV_SYN:
             continue
@@ -546,7 +562,7 @@ def device_has_mapped_buttons(
             else:
                 continue
 
-            if code_val in mapped_code_set:
+            if (int(ev_type), int(code_val)) in mapped_binding_set:
                 return True
 
             try:

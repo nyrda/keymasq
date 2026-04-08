@@ -274,8 +274,7 @@ class SuperkeyMachine:
             await self._execute_action_up(action)
 
     async def _execute_actions_down(self, actions: list[SuperkeyActionData]) -> None:
-        rapidfire_actions = [action for action in actions if action.rapidfire_enabled]
-        self._rapidfire_active = bool(rapidfire_actions)
+        self._rapidfire_active = any(action.rapidfire_enabled for action in actions)
 
         for action in actions:
             if action.rapidfire_enabled:

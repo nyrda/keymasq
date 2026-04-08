@@ -18,6 +18,35 @@ from keyforge.session.profiles import ProfileManager
 from keyforge.session.superkeys import SuperkeyManager
 
 
+def _append_action_state_markers(label: str, action: object) -> str:
+    rapidfire_enabled = bool(getattr(action, "rapidfire_enabled", False))
+    return f"{label} ⚡" if rapidfire_enabled else label
+
+
+def _describe_pattern_superkey_action(
+    action: object,
+    *,
+    exec_limit: int,
+    exec_prefix: str,
+    macro_prefix: str,
+    target_separator: str,
+    title_case_target_type: bool,
+) -> str:
+    if not isinstance(action, SuperkeyAction):
+        return "Unknown action"
+    if action.action_type.value == "exec":
+        cmd = action.cmd or ""
+        label = f"{exec_prefix}{cmd[:exec_limit] + '...' if len(cmd) > exec_limit else cmd}"
+        return _append_action_state_markers(label, action)
+    if action.action_type.value == "macro":
+        return _append_action_state_markers(f"{macro_prefix}{action.macro_name or ''}", action)
+    action_type = (
+        action.action_type.value.title() if title_case_target_type else action.action_type.value
+    )
+    label = f"{action_type}{target_separator}{action.target or ''}"
+    return _append_action_state_markers(label, action)
+
+
 class ActionListDialog(Adw.Dialog):
     __gsignals__ = {
         "actions-selected": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
@@ -157,28 +186,19 @@ class ActionListDialog(Adw.Dialog):
 
     def _describe_action(self, action: object) -> str:
         if self._list_mode == "pattern":
-            return self._describe_pattern_action(action)
+            return _describe_pattern_superkey_action(
+                action,
+                exec_limit=40,
+                exec_prefix="Exec -> ",
+                macro_prefix="Macro -> ",
+                target_separator=" -> ",
+                title_case_target_type=True,
+            )
         return (
-            self._append_state_markers(describe_mapping_action_verbose(action), action)
+            _append_action_state_markers(describe_mapping_action_verbose(action), action)
             if isinstance(action, MappingAction)
             else "Unknown action"
         )
-
-    def _describe_pattern_action(self, action: object) -> str:
-        if not isinstance(action, SuperkeyAction):
-            return "Unknown action"
-        if action.action_type.value == "exec":
-            cmd = action.cmd or ""
-            label = f"Exec -> {cmd[:40] + '...' if len(cmd) > 40 else cmd}"
-            return self._append_state_markers(label, action)
-        if action.action_type.value == "macro":
-            return self._append_state_markers(f"Macro -> {action.macro_name or ''}", action)
-        label = f"{action.action_type.value.title()} -> {action.target or ''}"
-        return self._append_state_markers(label, action)
-
-    def _append_state_markers(self, label: str, action: object) -> str:
-        rapidfire_enabled = bool(getattr(action, "rapidfire_enabled", False))
-        return f"{label} ⚡" if rapidfire_enabled else label
 
     def _selected_index(self) -> int | None:
         row = self.list_box.get_selected_row()
@@ -669,32 +689,23 @@ class SuperkeyDialog(Adw.Dialog):
         lines: list[str] = []
         for index, action in enumerate(actions, start=1):
             if row_mode == "pattern":
-                description = self._describe_pattern_action(action)
+                description = _describe_pattern_superkey_action(
+                    action,
+                    exec_limit=20,
+                    exec_prefix="exec ",
+                    macro_prefix="macro ",
+                    target_separator=" ",
+                    title_case_target_type=False,
+                )
             else:
                 description = (
                     describe_mapping_action_verbose(action)
                     if isinstance(action, MappingAction)
                     else "Unknown action"
                 )
-                description = self._append_state_markers(description, action)
+                description = _append_action_state_markers(description, action)
             lines.append(f"{index}. {description}")
         return "\n".join(lines)
-
-    def _describe_pattern_action(self, action: object) -> str:
-        if not isinstance(action, SuperkeyAction):
-            return "Unknown action"
-        if action.action_type.value == "exec":
-            cmd = action.cmd or ""
-            label = f"exec {cmd[:20] + '...' if len(cmd) > 20 else cmd}"
-            return self._append_state_markers(label, action)
-        if action.action_type.value == "macro":
-            return self._append_state_markers(f"macro {action.macro_name or ''}", action)
-        label = f"{action.action_type.value} {action.target or ''}"
-        return self._append_state_markers(label, action)
-
-    def _append_state_markers(self, label: str, action: object) -> str:
-        rapidfire_enabled = bool(getattr(action, "rapidfire_enabled", False))
-        return f"{label} ⚡" if rapidfire_enabled else label
 
     def _on_mode_changed(self, _dropdown, _param) -> None:
         self._update_mode_visibility()

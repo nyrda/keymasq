@@ -14,6 +14,9 @@ These two modes are exclusive. A single super key uses one mode or the other.
 Super keys are saved separately from profiles and can be reused across
 multiple profiles and devices.
 
+The file format is strict: each superkey must declare `mode`, and every
+action slot uses a TOML array even when it contains only one action.
+
 ## Modes
 
 ### Pattern
@@ -59,7 +62,7 @@ Overload actions use the same runtime rules as normal mappings:
 
 ## Creating And Editing Super Keys
 
-Open **Manage Super Keys** from the GUI. The dialog has two panels:
+Open **Super Keys** from the GUI. The dialog has two panels:
 
 - **Left panel**: lists all saved super keys. Use **New** to create one or
   **Delete** to remove one.
@@ -213,9 +216,6 @@ overload = [
     { action = "mouse", target = "btn_left" },
 ]
 ```
-
-Legacy single-action pattern files still load. Keyforge treats the old
-single-table slot form as a one-item action bundle.
 
 ## Security Notes
 

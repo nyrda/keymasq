@@ -188,38 +188,6 @@ class SuperkeyConfig:
     def has_any_action(self) -> bool:
         return self.has_pattern_actions() or self.has_overload_actions()
 
-    @property
-    def tap_action(self) -> SuperkeyAction | None:
-        return self.tap_actions[0] if self.tap_actions else None
-
-    @tap_action.setter
-    def tap_action(self, value: SuperkeyAction | None) -> None:
-        self.tap_actions = [value] if value is not None else []
-
-    @property
-    def double_tap_action(self) -> SuperkeyAction | None:
-        return self.double_tap_actions[0] if self.double_tap_actions else None
-
-    @double_tap_action.setter
-    def double_tap_action(self, value: SuperkeyAction | None) -> None:
-        self.double_tap_actions = [value] if value is not None else []
-
-    @property
-    def hold_action(self) -> SuperkeyAction | None:
-        return self.hold_actions[0] if self.hold_actions else None
-
-    @hold_action.setter
-    def hold_action(self, value: SuperkeyAction | None) -> None:
-        self.hold_actions = [value] if value is not None else []
-
-    @property
-    def tap_hold_action(self) -> SuperkeyAction | None:
-        return self.tap_hold_actions[0] if self.tap_hold_actions else None
-
-    @tap_hold_action.setter
-    def tap_hold_action(self, value: SuperkeyAction | None) -> None:
-        self.tap_hold_actions = [value] if value is not None else []
-
 
 @dataclass
 class WindowRule:

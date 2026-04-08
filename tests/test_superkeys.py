@@ -24,7 +24,7 @@ def _parse_manager() -> object:
     )
 
 
-def test_superkey_manager_loads_legacy_single_action_pattern_file(
+def test_superkey_manager_requires_explicit_mode(
     temp_config_dir,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -32,9 +32,35 @@ def test_superkey_manager_loads_legacy_single_action_pattern_file(
     superkeys_dir.mkdir()
     monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
 
-    (superkeys_dir / "legacy.toml").write_text(
+    (superkeys_dir / "invalid.toml").write_text(
         """
-name = "legacy"
+name = "invalid"
+
+[actions]
+tap = [{ action = "keyboard", target = "key_a" }]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    manager = SuperkeyManager()
+    config = manager.get_superkey("invalid")
+
+    assert config is None
+
+
+def test_superkey_manager_rejects_single_table_pattern_slots(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    (superkeys_dir / "invalid.toml").write_text(
+        """
+name = "invalid"
+mode = "pattern"
 
 [actions.tap]
 action = "keyboard"
@@ -45,11 +71,9 @@ target = "key_a"
     )
 
     manager = SuperkeyManager()
-    config = manager.get_superkey("legacy")
+    config = manager.get_superkey("invalid")
 
-    assert config is not None
-    assert config.mode == SuperkeyMode.PATTERN
-    assert [action.target for action in config.tap_actions] == ["key_a"]
+    assert config is None
 
 
 def test_superkey_manager_round_trips_pattern_bundles(temp_config_dir, monkeypatch) -> None:
@@ -143,6 +167,34 @@ def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
     ]
     assert parsed.overload_actions[1].exec_ref == 10000
     assert manager.exec_state.superkey_exec_refs[10000] == ("1234:5678", "echo demo")
+
+
+def test_superkey_runtime_payload_requires_explicit_mode() -> None:
+    with pytest.raises(TypeError, match="include a mode"):
+        parse_superkey_config(
+            _parse_manager(),
+            {"name": "missing_mode"},
+            json_object=lambda value: value if isinstance(value, dict) else None,
+            str_value=lambda value, default="": default if value is None else str(value),
+            int_value=lambda value, default=0: default if value is None else int(value),
+            parse_superkey_action=lambda *_args, **_kwargs: None,
+        )
+
+
+def test_superkey_runtime_payload_requires_bundle_lists() -> None:
+    with pytest.raises(TypeError, match="must be a list"):
+        parse_superkey_config(
+            _parse_manager(),
+            {
+                "name": "bad_bundle",
+                "mode": "pattern",
+                "tap_actions": {"action": "keyboard", "target": "key_a"},
+            },
+            json_object=lambda value: value if isinstance(value, dict) else None,
+            str_value=lambda value, default="": default if value is None else str(value),
+            int_value=lambda value, default=0: default if value is None else int(value),
+            parse_superkey_action=lambda *_args, **_kwargs: None,
+        )
 
 
 def test_superkey_manager_rejects_nested_overload_superkeys(

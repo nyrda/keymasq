@@ -116,18 +116,26 @@ def parse_superkey_config(
         int_or_none=getattr(manager, "_int_or_none", None),
         float_value=getattr(manager, "_float_value", None),
     )
-    mode = SuperkeyMode(str_value(config.get("mode"), "pattern"))
-    if mode == SuperkeyMode.PATTERN and overload_actions:
-        overload_actions = []
+    mode_value = config.get("mode")
+    if not isinstance(mode_value, str):
+        raise TypeError("superkey config must include a mode")
+    mode = SuperkeyMode(mode_value)
     if mode == SuperkeyMode.OVERLOAD:
+        if any(
+            config.get(key)
+            for key in ("tap_actions", "double_tap_actions", "hold_actions", "tap_hold_actions")
+        ):
+            raise ValueError("overload superkeys cannot define pattern slots")
         tap_actions = []
         double_tap_actions = []
         hold_actions = []
         tap_hold_actions = []
     else:
+        if overload_actions:
+            raise ValueError("pattern superkeys cannot define overload actions")
         tap_actions = parse_superkey_action_bundle(
             manager,
-            config.get("tap_actions", config.get("tap_action")),
+            config.get("tap_actions"),
             json_object=json_object,
             str_value=str_value,
             optional_str=getattr(manager, "_optional_str", None),
@@ -136,7 +144,7 @@ def parse_superkey_config(
         )
         double_tap_actions = parse_superkey_action_bundle(
             manager,
-            config.get("double_tap_actions", config.get("double_tap_action")),
+            config.get("double_tap_actions"),
             json_object=json_object,
             str_value=str_value,
             optional_str=getattr(manager, "_optional_str", None),
@@ -145,7 +153,7 @@ def parse_superkey_config(
         )
         hold_actions = parse_superkey_action_bundle(
             manager,
-            config.get("hold_actions", config.get("hold_action")),
+            config.get("hold_actions"),
             json_object=json_object,
             str_value=str_value,
             optional_str=getattr(manager, "_optional_str", None),
@@ -154,7 +162,7 @@ def parse_superkey_config(
         )
         tap_hold_actions = parse_superkey_action_bundle(
             manager,
-            config.get("tap_hold_actions", config.get("tap_hold_action")),
+            config.get("tap_hold_actions"),
             json_object=json_object,
             str_value=str_value,
             optional_str=getattr(manager, "_optional_str", None),
@@ -187,32 +195,23 @@ def parse_superkey_action_bundle(
 ) -> list[SuperkeyActionData]:
     if data is None:
         return []
-    if isinstance(data, list):
-        actions: list[SuperkeyActionData] = []
-        for item in cast(list[object], data):
-            parsed = parse_superkey_action(
-                manager,
-                item,
-                json_object=json_object,
-                str_value=str_value,
-                optional_str=optional_str,
-                int_or_none=int_or_none,
-                int_value=int_value,
-            )
-            if parsed is not None:
-                actions.append(parsed)
-        return actions
+    if not isinstance(data, list):
+        raise TypeError("superkey action bundle must be a list")
 
-    parsed = parse_superkey_action(
-        manager,
-        data,
-        json_object=json_object,
-        str_value=str_value,
-        optional_str=optional_str,
-        int_or_none=int_or_none,
-        int_value=int_value,
-    )
-    return [parsed] if parsed is not None else []
+    actions: list[SuperkeyActionData] = []
+    for item in cast(list[object], data):
+        parsed = parse_superkey_action(
+            manager,
+            item,
+            json_object=json_object,
+            str_value=str_value,
+            optional_str=optional_str,
+            int_or_none=int_or_none,
+            int_value=int_value,
+        )
+        if parsed is not None:
+            actions.append(parsed)
+    return actions
 
 
 def parse_overload_action_bundle(
@@ -241,14 +240,10 @@ def parse_overload_action_bundle(
 
         float_value = fallback_float_value
 
-    action_items: list[object]
-    if isinstance(data, list):
-        action_items = cast(list[object], data)
-    else:
-        action_items = [data]
-
     actions: list[MappingAction] = []
-    for item in action_items:
+    if not isinstance(data, list):
+        raise TypeError("overload action bundle must be a list")
+    for item in cast(list[object], data):
         payload = json_object(item) if json_object is not None else cast(JsonObject | None, item)
         if payload is None:
             raise TypeError("overload action must be an object")

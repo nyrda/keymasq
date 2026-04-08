@@ -1,4 +1,5 @@
 import contextlib
+import logging
 from collections.abc import Callable
 from typing import cast
 
@@ -39,6 +40,8 @@ from keyforge.keyforged.runtime.grabbed_device_types import (
 )
 from keyforge.keyforged.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keyforge.keyforged.superkey_state import SuperkeyMachine
+
+log = logging.getLogger("keyforged.runtime.grabbed_device_actions")
 
 
 async def execute_action(
@@ -371,6 +374,11 @@ async def _execute_overload_superkey(
 
     for index, child_action in enumerate(config.overload_actions):
         if child_action.action_type == action_type_enum.SUPERKEY:
+            log.warning(
+                "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
+                config.name,
+                index,
+            )
             continue
         child_event_name = f"{event_name}#overload#{index}"
         await execute_action(

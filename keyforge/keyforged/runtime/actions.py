@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from typing import cast
 
@@ -8,6 +9,8 @@ from keyforge.common.models import (
 from keyforge.keyforged.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 type JsonObject = dict[str, object]
+
+log = logging.getLogger("keyforged.runtime.actions")
 
 
 def _default_optional_str(value: object) -> str | None:
@@ -248,6 +251,7 @@ def parse_overload_action_bundle(
         if payload is None:
             raise TypeError("overload action must be an object")
         if str_value(payload.get("action"), "passthrough") == "superkey":
+            log.warning("Skipping unexpected nested superkey in overload action bundle")
             continue
         actions.append(
             parse_action(

@@ -48,7 +48,10 @@ def parse_action(
             action_data["superkey"],
             json_object=getattr(manager, "_json_object", None),
             str_value=str_value,
+            optional_str=optional_str,
             int_value=int_value,
+            int_or_none=int_or_none,
+            float_value=float_value,
             parse_superkey_action=parse_superkey_action,
         )
 
@@ -100,7 +103,10 @@ def parse_superkey_config(
     *,
     json_object: Callable[[object], JsonObject | None] | None,
     str_value: Callable[..., str],
+    optional_str: Callable[..., str | None] | None,
     int_value: Callable[..., int],
+    int_or_none: Callable[..., int | None] | None,
+    float_value: Callable[..., float] | None,
     parse_superkey_action: Callable[..., SuperkeyActionData | None],
 ) -> SuperkeyConfig:
     if json_object is not None:
@@ -109,15 +115,28 @@ def parse_superkey_config(
         config = cast(JsonObject | None, data if isinstance(data, dict) else None)
     if config is None:
         raise TypeError("superkey config must be an object")
+    if optional_str is None:
+        optional_str = _default_optional_str
+    if int_or_none is None:
+        def fallback_int_or_none(value: object) -> int | None:
+            return _default_int_or_none(value, int_value=int_value)
+
+        int_or_none = fallback_int_or_none
+    if float_value is None:
+        def fallback_float_value(value: object, default: float) -> float:
+            return default if value is None else float(cast(int | float | str | bytes, value))
+
+        float_value = fallback_float_value
+
     overload_actions = parse_overload_action_bundle(
         manager,
         config.get("overload_actions"),
         json_object=json_object,
         str_value=str_value,
-        optional_str=getattr(manager, "_optional_str", None),
+        optional_str=optional_str,
         int_value=int_value,
-        int_or_none=getattr(manager, "_int_or_none", None),
-        float_value=getattr(manager, "_float_value", None),
+        int_or_none=int_or_none,
+        float_value=float_value,
     )
     mode_value = config.get("mode")
     if not isinstance(mode_value, str):
@@ -141,8 +160,8 @@ def parse_superkey_config(
             config.get("tap_actions"),
             json_object=json_object,
             str_value=str_value,
-            optional_str=getattr(manager, "_optional_str", None),
-            int_or_none=getattr(manager, "_int_or_none", None),
+            optional_str=optional_str,
+            int_or_none=int_or_none,
             int_value=int_value,
         )
         double_tap_actions = parse_superkey_action_bundle(
@@ -150,8 +169,8 @@ def parse_superkey_config(
             config.get("double_tap_actions"),
             json_object=json_object,
             str_value=str_value,
-            optional_str=getattr(manager, "_optional_str", None),
-            int_or_none=getattr(manager, "_int_or_none", None),
+            optional_str=optional_str,
+            int_or_none=int_or_none,
             int_value=int_value,
         )
         hold_actions = parse_superkey_action_bundle(
@@ -159,8 +178,8 @@ def parse_superkey_config(
             config.get("hold_actions"),
             json_object=json_object,
             str_value=str_value,
-            optional_str=getattr(manager, "_optional_str", None),
-            int_or_none=getattr(manager, "_int_or_none", None),
+            optional_str=optional_str,
+            int_or_none=int_or_none,
             int_value=int_value,
         )
         tap_hold_actions = parse_superkey_action_bundle(
@@ -168,8 +187,8 @@ def parse_superkey_config(
             config.get("tap_hold_actions"),
             json_object=json_object,
             str_value=str_value,
-            optional_str=getattr(manager, "_optional_str", None),
-            int_or_none=getattr(manager, "_int_or_none", None),
+            optional_str=optional_str,
+            int_or_none=int_or_none,
             int_value=int_value,
         )
     return SuperkeyConfig(

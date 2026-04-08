@@ -156,7 +156,10 @@ def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
         payload,
         json_object=lambda value: value if isinstance(value, dict) else None,
         str_value=lambda value, default="": default if value is None else str(value),
+        optional_str=lambda value: None if value is None else str(value),
         int_value=lambda value, default=0: default if value is None else int(value),
+        int_or_none=lambda value: None if value is None else int(value),
+        float_value=lambda value, default=0.0: default if value is None else float(value),
         parse_superkey_action=lambda *_args, **_kwargs: None,
     )
 
@@ -176,7 +179,10 @@ def test_superkey_runtime_payload_requires_explicit_mode() -> None:
             {"name": "missing_mode"},
             json_object=lambda value: value if isinstance(value, dict) else None,
             str_value=lambda value, default="": default if value is None else str(value),
+            optional_str=lambda value: None if value is None else str(value),
             int_value=lambda value, default=0: default if value is None else int(value),
+            int_or_none=lambda value: None if value is None else int(value),
+            float_value=lambda value, default=0.0: default if value is None else float(value),
             parse_superkey_action=lambda *_args, **_kwargs: None,
         )
 
@@ -192,7 +198,10 @@ def test_superkey_runtime_payload_requires_bundle_lists() -> None:
             },
             json_object=lambda value: value if isinstance(value, dict) else None,
             str_value=lambda value, default="": default if value is None else str(value),
+            optional_str=lambda value: None if value is None else str(value),
             int_value=lambda value, default=0: default if value is None else int(value),
+            int_or_none=lambda value: None if value is None else int(value),
+            float_value=lambda value, default=0.0: default if value is None else float(value),
             parse_superkey_action=lambda *_args, **_kwargs: None,
         )
 

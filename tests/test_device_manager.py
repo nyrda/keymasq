@@ -2420,6 +2420,92 @@ class TestCombos:
         ]
 
     @pytest.mark.asyncio
+    async def test_combo_restore_recalls_remapped_modifier_trigger_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        hardware_id = "1234:5678"
+        passthrough = _FakeUInput()
+        keyboard = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-restore-remapped-modifier",
+                    "name": "combo-restore-remapped-modifier",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_leftctrl",
+                                },
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_x",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f13"},
+                    "recall_trigger_keys": True,
+                    "restore_trigger_keys": ["ctrl"],
+                }
+            ]
+        )
+        manager.output_state.keyboard_uinput = keyboard
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        mapping = {
+            "key_leftctrl": dm.MappingAction(
+                action_type=ActionType.KEYBOARD,
+                target="key_leftmeta",
+            ),
+        }
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id=hardware_id,
+            button_map={"key_leftctrl": "key_leftctrl", "key_x": "key_x"},
+            mapping_getter=lambda: mapping,
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+        )
+        device._running = True
+        device.uinput = passthrough  # type: ignore[assignment]
+        manager.grabbed_devices = {hardware_id: [device]}
+
+        press_ctrl = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_LEFTCTRL,
+            value=1,
+        )
+        press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
+        release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
+
+        await _runtime_process_grabbed_event(device, press_ctrl)
+        await _runtime_process_grabbed_event(device, press_x)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(device, release_x)
+        await asyncio.sleep(0)
+
+        assert passthrough.writes == []
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
+        ]
+
+    @pytest.mark.asyncio
     async def test_runtime_combo_broadcast_does_not_block_hot_path(self, monkeypatch):
         manager = DeviceManager()
         blocker = asyncio.Event()

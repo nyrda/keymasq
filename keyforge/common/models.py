@@ -261,6 +261,8 @@ class ComboConfig:
     name: str = ""
     steps: list[ComboStep] = field(default_factory=list)
     action: MappingAction | None = None
+    recall_trigger_keys: bool = False
+    restore_trigger_keys: list[str] = field(default_factory=list)
 
 
 @dataclass

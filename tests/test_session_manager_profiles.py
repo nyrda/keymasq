@@ -244,6 +244,36 @@ def test_resolved_combo_signature_changes_when_superkey_definition_changes() -> 
     assert base_signature != updated_signature
 
 
+def test_resolved_combo_signature_and_payload_include_trigger_recall_settings() -> None:
+    manager = SessionManager()
+    combos = [
+        ResolvedCombo(
+            id="combo-1",
+            name="Recall Combo",
+            steps=[
+                ComboStep(
+                    events=[
+                        ComboEvent(hardware_id="1234:5678", source="kbd", evdev="meta"),
+                        ComboEvent(hardware_id="1234:5678", source="kbd", evdev="key_c"),
+                    ]
+                )
+            ],
+            action=MappingAction(action_type=ActionType.SUPPRESS),
+            profile_name="Desktop",
+            recall_trigger_keys=True,
+            restore_trigger_keys=["meta"],
+        )
+    ]
+
+    signature = session_payloads_module.resolved_combos_signature(manager, combos)
+    payload = session_payloads_module.resolved_combos_payload(manager, combos)
+
+    assert '"recall_trigger_keys":true' in signature
+    assert '"restore_trigger_keys":["meta"]' in signature
+    assert payload[0]["recall_trigger_keys"] is True
+    assert payload[0]["restore_trigger_keys"] == ["meta"]
+
+
 @pytest.mark.asyncio
 async def test_reevaluate_profiles_skips_unchanged_mapping_and_combos() -> None:
     manager = SessionManager()

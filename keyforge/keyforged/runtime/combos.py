@@ -7,6 +7,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import ClassVar, Protocol, cast
 
+from keyforge.common.combos import normalize_combo_evdev
 from keyforge.common.ipc import CommandType
 from keyforge.common.models import (
     ActionType,
@@ -126,6 +127,12 @@ class _GrabbedComboDevice(Protocol):
 
     def emit_combo_release(self, evdev_name: str) -> None: ...
 
+    def emit_combo_press(self, evdev_name: str) -> None: ...
+
+    def combo_passthrough_binding_active(self, evdev_name: str) -> bool: ...
+
+    def combo_source_binding_held(self, evdev_name: str) -> bool: ...
+
     def combo_passthrough_held_modifiers(self) -> set[str]: ...
 
 
@@ -175,6 +182,8 @@ class ComboActionState:
     source_button: str | None = None
     child_combo_ids: list[str] = field(default_factory=list)
     machine: SuperkeyMachine | None = None
+    recalled_bindings: list[RuntimeComboBinding] = field(default_factory=list)
+    restore_bindings: list[RuntimeComboBinding] = field(default_factory=list)
 
 
 @dataclass
@@ -509,6 +518,7 @@ async def apply_combo_action_transition(
             transition.combo_id,
             transition.action,
             transition.trigger_binding,
+            transition.trigger_bindings,
             action_type_enum=action_type_enum,
             asyncio_mod=asyncio_mod,
             emit_mouse_move_fn=emit_mouse_move_fn,
@@ -597,10 +607,30 @@ def track_combo_superkey_output(
 
 
 def _combo_step_count(manager: _ComboManager, combo_id: str) -> int:
+    combo = _runtime_combo(manager, combo_id)
+    if combo is None:
+        return 1
+    return len(combo.steps)
+
+
+def _runtime_combo(manager: _ComboManager, combo_id: str) -> RuntimeCombo | None:
     for combo in manager.combo_state.active_combos:
         if combo.id == combo_id:
-            return len(combo.steps)
-    return 1
+            return combo
+    return None
+
+
+def _ordered_unique_bindings(
+    bindings: Sequence[RuntimeComboBinding],
+) -> list[RuntimeComboBinding]:
+    ordered: list[RuntimeComboBinding] = []
+    seen: set[RuntimeComboBinding] = set()
+    for binding in bindings:
+        if binding in seen:
+            continue
+        seen.add(binding)
+        ordered.append(binding)
+    return ordered
 
 
 def _combo_superkey_config(
@@ -687,6 +717,71 @@ async def _combo_superkey_machine(
     return machine
 
 
+def _combo_trigger_recall_state(
+    manager: _ComboManager,
+    combo_id: str,
+    trigger_bindings: Sequence[RuntimeComboBinding],
+) -> tuple[list[RuntimeComboBinding], list[RuntimeComboBinding]]:
+    combo = _runtime_combo(manager, combo_id)
+    if combo is None or not combo.recall_trigger_keys:
+        return ([], [])
+
+    ordered_bindings = _ordered_unique_bindings(trigger_bindings)
+    recalled_bindings: list[RuntimeComboBinding] = []
+    for binding in reversed(ordered_bindings):
+        device = find_grabbed_device_for_binding(manager, binding)
+        is_active = getattr(device, "combo_passthrough_binding_active", None)
+        if callable(is_active) and not bool(is_active(binding.evdev)):
+            continue
+        if device is not None:
+            device.emit_combo_release(binding.evdev)
+            recalled_bindings.append(binding)
+
+    restore_names = set(combo.restore_trigger_keys)
+    restore_bindings = [
+        binding
+        for binding in ordered_bindings
+        if normalize_combo_evdev(binding.evdev) in restore_names
+    ]
+    return (recalled_bindings, restore_bindings)
+
+
+def _restore_combo_trigger_bindings(
+    manager: _ComboManager,
+    restore_bindings: Sequence[RuntimeComboBinding],
+) -> None:
+    for binding in restore_bindings:
+        device = find_grabbed_device_for_binding(manager, binding)
+        if device is None:
+            continue
+        is_held = getattr(device, "combo_source_binding_held", None)
+        is_active = getattr(device, "combo_passthrough_binding_active", None)
+        if callable(is_held) and not bool(is_held(binding.evdev)):
+            continue
+        # Skip restore if passthrough state is already active again. This keeps
+        # restore idempotent when the user re-pressed the trigger key during the
+        # combo action, or when some other path has already restored it.
+        if callable(is_active) and bool(is_active(binding.evdev)):
+            continue
+        emit_press = getattr(device, "emit_combo_press", None)
+        if callable(emit_press):
+            emit_press(binding.evdev)
+
+
+def _attach_combo_trigger_recall_state(
+    manager: _ComboManager,
+    combo_id: str,
+    recalled_bindings: Sequence[RuntimeComboBinding],
+    restore_bindings: Sequence[RuntimeComboBinding],
+) -> bool:
+    state = manager.combo_state.active_actions.get(combo_id)
+    if state is None:
+        return False
+    state.recalled_bindings = list(recalled_bindings)
+    state.restore_bindings = list(restore_bindings)
+    return True
+
+
 async def combo_tap_key(
     manager: _ComboManager,
     combo_id: str,
@@ -755,6 +850,7 @@ async def start_combo_action(
     combo_id: str,
     action: MappingAction | None,
     trigger_binding: RuntimeComboBinding,
+    trigger_bindings: Sequence[RuntimeComboBinding],
     *,
     action_type_enum: type[ActionType],
     asyncio_mod: _AsyncioModule,
@@ -785,6 +881,11 @@ async def start_combo_action(
         action_type_enum=action_type_enum,
     )
     trigger_name = f"combo:{combo_id}"
+    recalled_bindings, restore_bindings = _combo_trigger_recall_state(
+        manager,
+        combo_id,
+        trigger_bindings,
+    )
 
     if action.action_type == action_type_enum.SUPERKEY:
         config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
@@ -825,6 +926,8 @@ async def start_combo_action(
             manager.combo_state.active_actions[combo_id] = ComboActionState(
                 kind="superkey_overload",
                 child_combo_ids=child_combo_ids,
+                recalled_bindings=recalled_bindings,
+                restore_bindings=restore_bindings,
             )
             return
 
@@ -841,6 +944,8 @@ async def start_combo_action(
         manager.combo_state.active_actions[combo_id] = ComboActionState(
             kind="superkey_pattern",
             machine=machine,
+            recalled_bindings=recalled_bindings,
+            restore_bindings=restore_bindings,
         )
         await machine.on_down()
         return
@@ -861,6 +966,13 @@ async def start_combo_action(
         evdev_mod=evdev_mod,
         uinput_writer=uinput_writer,
     )
+    if not _attach_combo_trigger_recall_state(
+        manager,
+        combo_id,
+        recalled_bindings,
+        restore_bindings,
+    ):
+        _restore_combo_trigger_bindings(manager, restore_bindings)
 
 
 async def _start_combo_action_instance(
@@ -1098,6 +1210,7 @@ async def stop_combo_action(
     if not state:
         return
     kind = state.kind
+    restore_bindings = state.restore_bindings
     if kind == "superkey_overload":
         for child_combo_id in reversed(state.child_combo_ids):
             await stop_combo_action(
@@ -1115,17 +1228,20 @@ async def stop_combo_action(
                 command_type=command_type,
                 action_type_enum=action_type_enum,
             )
+        _restore_combo_trigger_bindings(manager, restore_bindings)
         return
     if kind == "superkey_pattern":
         machine = state.machine
         if machine is not None:
             await machine.on_up()
+        _restore_combo_trigger_bindings(manager, restore_bindings)
         return
     if kind == "key":
         uinput_dev = state.uinput
         code = state.code
         if code is not None:
             write_combo_key(uinput_dev, code, 0, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
+        _restore_combo_trigger_bindings(manager, restore_bindings)
         return
     if kind == "trigger":
         axis_code = state.axis_code
@@ -1137,6 +1253,7 @@ async def stop_combo_action(
                 evdev_mod=evdev_mod,
                 uinput_writer=uinput_writer,
             )
+        _restore_combo_trigger_bindings(manager, restore_bindings)
         return
     if kind in {"tap_key", "tap_trigger", "rapidfire_key", "rapidfire_trigger"}:
         state.active = False
@@ -1145,6 +1262,7 @@ async def stop_combo_action(
             task.cancel()
             with contextlib_mod.suppress(asyncio_mod.CancelledError):
                 await task
+        _restore_combo_trigger_bindings(manager, restore_bindings)
         return
     if kind == "macro_hold":
         action = state.action
@@ -1158,6 +1276,9 @@ async def stop_combo_action(
             )
             if macro_request is not None:
                 await manager.play_macro(**macro_request)
+        _restore_combo_trigger_bindings(manager, restore_bindings)
+        return
+    _restore_combo_trigger_bindings(manager, restore_bindings)
 
 
 async def clear_combo_runtime(

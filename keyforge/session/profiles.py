@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, cast
 import tomli_w
 
 from keyforge.common import paths
-from keyforge.common.combos import normalize_combo_evdev
+from keyforge.common.combos import normalize_combo_evdev, normalize_combo_restore_keys
 from keyforge.common.models import (
     ActionType,
     ComboConfig,
@@ -81,6 +81,8 @@ class ResolvedCombo:
     steps: list[ComboStep] = field(default_factory=list)
     action: MappingAction | None = None
     profile_name: str = ""
+    recall_trigger_keys: bool = False
+    restore_trigger_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -457,6 +459,10 @@ class ProfileManager:
                     name=str(combo_dict.get("name", "") or ""),
                     steps=steps,
                     action=action,
+                    recall_trigger_keys=bool(combo_dict.get("recall_trigger_keys", False)),
+                    restore_trigger_keys=normalize_combo_restore_keys(
+                        _as_toml_list(combo_dict.get("restore_trigger_keys", []))
+                    ),
                 )
             )
         return combos
@@ -667,6 +673,10 @@ class ProfileManager:
                     steps=combo_steps,
                     action=copy.deepcopy(combo.action),
                     profile_name=profile.name,
+                    recall_trigger_keys=bool(combo.recall_trigger_keys),
+                    restore_trigger_keys=normalize_combo_restore_keys(
+                        copy.deepcopy(combo.restore_trigger_keys)
+                    ),
                 )
 
         return ResolvedProfiles(
@@ -768,6 +778,20 @@ class ProfileManager:
                     **(
                         {"action": self._serialize_action(combo.action)}
                         if combo.action is not None
+                        else {}
+                    ),
+                    **(
+                        {"recall_trigger_keys": True}
+                        if combo.recall_trigger_keys
+                        else {}
+                    ),
+                    **(
+                        {
+                            "restore_trigger_keys": normalize_combo_restore_keys(
+                                combo.restore_trigger_keys
+                            )
+                        }
+                        if combo.restore_trigger_keys
                         else {}
                     ),
                 }

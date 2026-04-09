@@ -236,6 +236,8 @@ class TestProfileManager:
                         ),
                     ],
                     action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+                    recall_trigger_keys=True,
+                    restore_trigger_keys=["ctrl"],
                 )
             ],
         )
@@ -246,6 +248,8 @@ class TestProfileManager:
         assert loaded is not None
         assert loaded.config.combos[0].steps[0].timeout_ms is None
         assert loaded.config.combos[0].steps[1].timeout_ms == 750
+        assert loaded.config.combos[0].recall_trigger_keys is True
+        assert loaded.config.combos[0].restore_trigger_keys == ["ctrl"]
 
     def test_disabled_profile_not_active(self, temp_config_dir):
         manager = ProfileManager()

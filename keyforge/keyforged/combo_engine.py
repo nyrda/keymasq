@@ -29,6 +29,8 @@ class RuntimeCombo:
     steps: list[RuntimeComboStep] = field(default_factory=list)
     action: MappingAction | None = None
     profile_name: str = ""
+    recall_trigger_keys: bool = False
+    restore_trigger_keys: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,7 @@ class ComboActionTransition:
     action: MappingAction | None
     kind: str
     trigger_binding: RuntimeComboBinding
+    trigger_bindings: tuple[RuntimeComboBinding, ...] = ()
 
 
 @dataclass
@@ -220,6 +223,7 @@ class ComboEngine:
                     action=winner.action,
                     kind="press",
                     trigger_binding=event.binding,
+                    trigger_bindings=self._trigger_bindings(candidate),
                 ),
             )
 
@@ -289,6 +293,7 @@ class ComboEngine:
                     action=winner.action,
                     kind="press",
                     trigger_binding=event.binding,
+                    trigger_bindings=self._trigger_bindings(candidate),
                 ),
             )
 
@@ -532,7 +537,17 @@ class ComboEngine:
                 action=winner.action,
                 kind="press",
                 trigger_binding=event.binding,
+                trigger_bindings=self._trigger_bindings(candidate),
             ),
+        )
+
+    def _trigger_bindings(self, candidate: ActiveCandidate) -> tuple[RuntimeComboBinding, ...]:
+        return tuple(
+            tracked.binding
+            for tracked in sorted(
+                candidate.tracked_presses,
+                key=lambda tracked: tracked.press_order,
+            )
         )
 
     def _recall_events(self, candidate: ActiveCandidate) -> list[ComboSyntheticEvent]:

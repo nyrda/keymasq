@@ -3237,14 +3237,6 @@ class TestComboEditorDialog:
         from keyforge.common.models import ActionType, ComboEvent, ComboStep, MappingAction
         from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
-        def child_widgets(widget):
-            children = []
-            child = widget.get_first_child()
-            while child is not None:
-                children.append(child)
-                child = child.get_next_sibling()
-            return children
-
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent)
         dialog._draft.steps.append(
@@ -3258,22 +3250,14 @@ class TestComboEditorDialog:
         dialog._normalize_restore_trigger_keys()
         dialog._refresh_trigger_display()
 
-        restore_checks = [
-            child
-            for child in child_widgets(dialog.restore_trigger_keys_box)
-            if isinstance(child, Gtk.CheckButton)
-        ]
         assert dialog.recall_trigger_keys_row.get_active() is False
-        assert [check.get_label() for check in restore_checks] == ["Ctrl", "X"]
-        assert all(not check.get_sensitive() for check in restore_checks)
+        assert dialog.restore_trigger_keys_group.get_visible() is False
+        assert dialog._restore_trigger_key_rows == []
 
         dialog.recall_trigger_keys_row.set_active(True)
-        restore_checks = [
-            child
-            for child in child_widgets(dialog.restore_trigger_keys_box)
-            if isinstance(child, Gtk.CheckButton)
-        ]
-        restore_checks[0].set_active(True)
+        assert dialog.restore_trigger_keys_group.get_visible() is True
+        assert [row.get_title() for row in dialog._restore_trigger_key_rows] == ["Ctrl", "X"]
+        dialog._restore_trigger_key_rows[0].set_active(True)
         dialog._on_action_selected(
             None,
             MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),

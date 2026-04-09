@@ -2254,6 +2254,172 @@ class TestCombos:
         ]
 
     @pytest.mark.asyncio
+    async def test_combo_restore_respects_suppress_mapping_for_trigger_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        hardware_id = "1234:5678"
+        passthrough = _FakeUInput()
+        keyboard = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-restore-suppress",
+                    "name": "combo-restore-suppress",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_capslock",
+                                },
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_x",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f13"},
+                    "recall_trigger_keys": True,
+                    "restore_trigger_keys": ["key_capslock"],
+                }
+            ]
+        )
+        manager.output_state.keyboard_uinput = keyboard
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        mapping = {
+            "key_capslock": dm.MappingAction(action_type=ActionType.SUPPRESS),
+        }
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id=hardware_id,
+            button_map={"key_capslock": "key_capslock", "key_x": "key_x"},
+            mapping_getter=lambda: mapping,
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+        )
+        device._running = True
+        device.uinput = passthrough  # type: ignore[assignment]
+        manager.grabbed_devices = {hardware_id: [device]}
+
+        press_caps = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_CAPSLOCK,
+            value=1,
+        )
+        press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
+        release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
+
+        await _runtime_process_grabbed_event(device, press_caps)
+        await _runtime_process_grabbed_event(device, press_x)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(device, release_x)
+        await asyncio.sleep(0)
+
+        assert passthrough.writes == []
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_combo_restore_replays_simple_keyboard_remap_for_trigger_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        hardware_id = "1234:5678"
+        passthrough = _FakeUInput()
+        keyboard = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-restore-remap",
+                    "name": "combo-restore-remap",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_capslock",
+                                },
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_x",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f13"},
+                    "recall_trigger_keys": True,
+                    "restore_trigger_keys": ["key_capslock"],
+                }
+            ]
+        )
+        manager.output_state.keyboard_uinput = keyboard
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        mapping = {
+            "key_capslock": dm.MappingAction(
+                action_type=ActionType.KEYBOARD,
+                target="key_leftmeta",
+            ),
+        }
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id=hardware_id,
+            button_map={"key_capslock": "key_capslock", "key_x": "key_x"},
+            mapping_getter=lambda: mapping,
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+        )
+        device._running = True
+        device.uinput = passthrough  # type: ignore[assignment]
+        manager.grabbed_devices = {hardware_id: [device]}
+
+        press_caps = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_CAPSLOCK,
+            value=1,
+        )
+        press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
+        release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
+
+        await _runtime_process_grabbed_event(device, press_caps)
+        await _runtime_process_grabbed_event(device, press_x)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(device, release_x)
+        await asyncio.sleep(0)
+
+        assert passthrough.writes == []
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
+        ]
+
+    @pytest.mark.asyncio
     async def test_runtime_combo_broadcast_does_not_block_hot_path(self, monkeypatch):
         manager = DeviceManager()
         blocker = asyncio.Event()
@@ -2932,6 +3098,37 @@ class TestSuperkeys:
         ]
         assert device.state.combo_recalled_bindings == set()
         assert device.state.combo_passthrough_held == {"key_x"}
+
+    @pytest.mark.asyncio
+    async def test_vvv_logs_raw_hardware_events_but_skips_mouse_motion(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch)
+        device.uinput = passthrough  # type: ignore[assignment]
+        device._running = True
+        device.verbosity = 3
+
+        key_event = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_X,
+            value=2,
+        )
+        rel_event = SimpleNamespace(
+            type=evdev.ecodes.EV_REL,
+            code=evdev.ecodes.REL_X,
+            value=12,
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="keyforged.devices"):
+            await _runtime_process_grabbed_event(device, key_event)
+            await _runtime_process_grabbed_event(device, rel_event)
+
+        assert "[hw 1234:5678 kbd] type=1 code=45 name=key_x value=2" in caplog.text
+        assert "REL_X" not in caplog.text
+        assert "type=2 code=0" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_superkey_release_after_reset_does_not_recreate_stale_machine(

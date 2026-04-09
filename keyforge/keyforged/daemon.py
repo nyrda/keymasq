@@ -683,7 +683,7 @@ def main() -> None:
         "--verbose",
         action="count",
         default=0,
-        help="Enable debug logging (-v) or trace logging (-vv)",
+        help="Enable debug logging (-v), trace logging (-vv), or raw hardware event tracing (-vvv)",
     )
     parser.add_argument(
         "--allow-root",
@@ -707,6 +707,8 @@ def main() -> None:
 
     if args.verbose >= 2:
         log.info("Trace logging enabled (-vv)")
+    if args.verbose >= 3:
+        log.info("Raw hardware event tracing enabled (-vvv)")
 
     if os.geteuid() == 0 and not args.allow_root:
         log.error("keyforged should not run as root. Use --allow-root to override.")

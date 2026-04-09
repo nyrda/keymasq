@@ -9,11 +9,5 @@ if [[ ! -f "${REPO_ROOT}/flake.nix" ]]; then
   exit 1
 fi
 
-if [[ -z "${IN_NIX_SHELL:-}" ]]; then
-  exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
-fi
-
-export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
-unset GTK_THEME
-
-exec python -m keyforge.gui "$@"
+OUT_PATH="$(nix build "${REPO_ROOT}#default" --no-link --print-out-paths)"
+exec "${OUT_PATH}/bin/keyforge" "$@"

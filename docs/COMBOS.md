@@ -82,9 +82,21 @@ If needed, a combo can also manage its own trigger state explicitly:
 - **Restore Trigger Keys** re-presses selected trigger keys after the combo
   action finishes, but only if those keys are still physically held.
 
+Restore is per trigger key. In the combo editor you can choose exactly which
+captured trigger keys should be re-pressed. This is useful for non-standard
+"modifier-like" setups such as using `CapsLock` as a combo leader.
+
+When a key is restored, Keyforge restores that trigger key through its normal
+mapping behavior rather than blindly sending the raw physical key. For example,
+if the trigger key is mapped to **Suppress**, restore keeps it suppressed; if
+the trigger key is remapped to another output key, restore re-presses that
+mapped output instead.
+
 While a trigger key is recalled, physical auto-repeat events for that key are
 suppressed. Restore only recreates the held-down state with a fresh key press;
-it does not replay missed repeats or preserve repeat timing across the recall.
+it does not replay missed repeats or preserve continuity of source `value=2`
+repeat events across the recall. Some compositors and toolkits may still
+continue repeating a restored key based on its held state.
 
 This is useful when a held trigger key would interfere with the combo action
 itself, for example when a held `Meta` key changes how a triggered super key or
@@ -143,6 +155,9 @@ Combos can now trigger saved **Super Keys**.
 - When the combo releases, held child actions stop again.
 - One-shot child actions like commands, profile actions, and compositor
   actions still fire once on combo completion.
+- Nested **Super Key** child actions inside an overload are not expanded again
+  from a combo-triggered overload. Keyforge skips them and logs a warning
+  instead of allowing recursive nesting.
 
 #### Pattern
 
@@ -159,6 +174,10 @@ Pattern superkeys use the combo's own activation lifecycle:
 
 For multi-step combos, the **Double Tap** and **Tap + Hold** slots are not
 used.
+
+Combos reference saved superkeys by name. If a referenced superkey is deleted
+or changed, the combo uses the current saved definition the next time runtime
+state is applied.
 
 ## Profile Resolution
 

@@ -205,7 +205,7 @@ def test_capture_point_async_returns_none_for_empty_output(monkeypatch) -> None:
     assert result is None
 
 
-def test_capture_point_async_cancels_process_and_kills_after_timeout(monkeypatch) -> None:
+def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(monkeypatch) -> None:
     capture = SlurpCapture()
     capture._available = True
     capture._slurp_path = "/usr/bin/slurp"
@@ -218,7 +218,7 @@ def test_capture_point_async_cancels_process_and_kills_after_timeout(monkeypatch
             self.killed = False
 
         async def communicate(self) -> tuple[bytes, bytes]:
-            raise asyncio.CancelledError
+            return b"", b""
 
         def terminate(self) -> None:
             self.terminated = True
@@ -241,11 +241,44 @@ def test_capture_point_async_cancels_process_and_kills_after_timeout(monkeypatch
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
     monkeypatch.setattr(asyncio, "wait_for", _wait_for)
 
+    result = asyncio.run(capture.capture_point_async())
+    assert result is None
+    assert process.terminated is True
+    assert process.killed is True
+    assert capture._process is None
+
+
+def test_capture_point_async_cancels_process_on_external_cancel(monkeypatch) -> None:
+    capture = SlurpCapture()
+    capture._available = True
+    capture._slurp_path = "/usr/bin/slurp"
+
+    class _FakeProcess:
+        returncode = 0
+
+        def __init__(self) -> None:
+            self.terminated = False
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            raise asyncio.CancelledError
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        async def wait(self) -> None:
+            return None
+
+    process = _FakeProcess()
+
+    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(capture.capture_point_async())
 
     assert process.terminated is True
-    assert process.killed is True
     assert capture._process is None
 
 

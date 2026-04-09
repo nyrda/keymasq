@@ -177,7 +177,7 @@ def describe_mapping_action(action: MappingAction | None) -> str:
     return describe_mapping_action_compact(action)
 
 
-class ComboEditorDialog(Adw.Dialog):
+class ComboEditorDialog(Adw.Window):
     __gsignals__ = {
         "combo-saved": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
     }
@@ -190,7 +190,7 @@ class ComboEditorDialog(Adw.Dialog):
         sibling_combos: list[ComboConfig] | None = None,
     ) -> None:
         title = "Edit Combo" if combo else "Add Combo"
-        super().__init__(title=title, content_width=560, content_height=520)
+        super().__init__(title=title)
         self._parent = parent
         self._draft = deepcopy(combo) if combo else new_combo_draft()
         self._profile_name = profile_name
@@ -198,6 +198,12 @@ class ComboEditorDialog(Adw.Dialog):
         self._recording_unlocked = False
         self._capture_inflight = False
         self._validation_message = ""
+        self._restore_trigger_key_rows: list[Adw.SwitchRow] = []
+        self.set_default_size(720, 760)
+        self.set_modal(True)
+        root = parent.get_root()
+        if isinstance(root, Gtk.Window):
+            self.set_transient_for(root)
 
         self._normalize_step_timeouts()
         self._normalize_restore_trigger_keys()
@@ -206,7 +212,7 @@ class ComboEditorDialog(Adw.Dialog):
         self._update_action_summary()
         self._update_save_button()
         self._refresh_authorization_state_async()
-        self.connect("closed", self._on_closed)
+        self.connect("close-request", self._on_close_request)
 
     def _setup_ui(self) -> None:
         toolbar_view = Adw.ToolbarView()
@@ -244,8 +250,11 @@ class ComboEditorDialog(Adw.Dialog):
         name_group.add(self.name_entry)
         content.append(name_group)
 
-        main_group = Adw.PreferencesGroup(title="Trigger & Action")
-        main_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        trigger_group = Adw.PreferencesGroup(
+            title="Trigger",
+            description="Define the input sequence that should activate this combo.",
+        )
+        trigger_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
         top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
@@ -261,25 +270,17 @@ class ComboEditorDialog(Adw.Dialog):
         clear_button = Gtk.Button(label="Clear")
         clear_button.add_css_class("flat")
         clear_button.connect("clicked", self._on_clear_clicked)
-        top_row.append(clear_button)
 
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         top_row.append(spacer)
 
-        self.action_summary = Gtk.Label()
-        self.action_summary.set_xalign(1)
-        top_row.append(self.action_summary)
+        top_row.append(clear_button)
 
-        select_action_button = Gtk.Button(label="Select Action")
-        select_action_button.add_css_class("suggested-action")
-        select_action_button.connect("clicked", self._on_select_action_clicked)
-        top_row.append(select_action_button)
-
-        main_inner.append(top_row)
+        trigger_inner.append(top_row)
 
         self.steps_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        main_inner.append(self.steps_box)
+        trigger_inner.append(self.steps_box)
 
         self.validation_label = Gtk.Label()
         self.validation_label.add_css_class("combo-error-label")
@@ -287,35 +288,49 @@ class ComboEditorDialog(Adw.Dialog):
         self.validation_label.set_halign(Gtk.Align.START)
         self.validation_label.set_wrap(True)
         self.validation_label.set_visible(False)
-        main_inner.append(self.validation_label)
+        trigger_inner.append(self.validation_label)
 
         self.capture_status = Gtk.Label(label="Add a step, then press the keys for that step.")
         self.capture_status.add_css_class("dim-label")
         self.capture_status.add_css_class("caption")
         self.capture_status.set_halign(Gtk.Align.START)
         self.capture_status.set_wrap(True)
-        main_inner.append(self.capture_status)
+        trigger_inner.append(self.capture_status)
 
         self.capture_privilege_status = Gtk.Label(
-            label="Original-input capture uses privileged raw events from keyforged."
+            label="Original-input capture reads raw key events before remapping."
         )
         self.capture_privilege_status.add_css_class("dim-label")
         self.capture_privilege_status.add_css_class("caption")
         self.capture_privilege_status.set_halign(Gtk.Align.START)
         self.capture_privilege_status.set_wrap(True)
-        main_inner.append(self.capture_privilege_status)
+        trigger_inner.append(self.capture_privilege_status)
 
-        main_group.add(main_inner)
-        content.append(main_group)
+        trigger_group.add(trigger_inner)
+        content.append(trigger_group)
+
+        action_group = Adw.PreferencesGroup(
+            title="Action",
+            description="Choose what should run when the combo matches.",
+        )
+        self.action_row = Adw.ActionRow(title="When Triggered")
+        self.action_row.set_subtitle("Choose the action this combo should trigger.")
+        self.select_action_button = Gtk.Button(label="Choose...")
+        self.select_action_button.add_css_class("suggested-action")
+        self.select_action_button.connect("clicked", self._on_select_action_clicked)
+        self.action_row.add_suffix(self.select_action_button)
+        self.action_row.set_activatable_widget(self.select_action_button)
+        action_group.add(self.action_row)
+        content.append(action_group)
 
         trigger_state_group = Adw.PreferencesGroup(
             title="Trigger State",
-            description="Optional recall and restore for this combo's own trigger keys.",
+            description="Optional handling for trigger keys that would otherwise stay active.",
         )
 
         self.recall_trigger_keys_row = Adw.SwitchRow(
             title="Recall Trigger Keys",
-            subtitle="Release the combo trigger keys before the combo action runs.",
+            subtitle="Release this combo's trigger keys before the action runs.",
         )
         self.recall_trigger_keys_row.set_active(self._draft.recall_trigger_keys)
         self.recall_trigger_keys_row.connect(
@@ -323,17 +338,20 @@ class ComboEditorDialog(Adw.Dialog):
             self._on_recall_trigger_keys_changed,
         )
         trigger_state_group.add(self.recall_trigger_keys_row)
-
-        self.restore_trigger_keys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.restore_trigger_keys_box.set_margin_start(12)
-        self.restore_trigger_keys_box.set_margin_end(12)
-        self.restore_trigger_keys_box.set_margin_bottom(6)
-        trigger_state_group.add(self.restore_trigger_keys_box)
         content.append(trigger_state_group)
+
+        self.restore_trigger_keys_group = Adw.PreferencesGroup(
+            title="Restore Keys",
+            description=(
+                "Re-press selected trigger keys if they are still physically held when "
+                "the combo action finishes."
+            ),
+        )
+        content.append(self.restore_trigger_keys_group)
 
         scrolled.set_child(content)
         toolbar_view.set_content(scrolled)
-        self.set_child(toolbar_view)
+        self.set_content(toolbar_view)
         self._update_capture_controls()
         self._refresh_restore_trigger_keys()
 
@@ -375,7 +393,7 @@ class ComboEditorDialog(Adw.Dialog):
     def _on_select_action_clicked(self, _button: Gtk.Button) -> None:
         dialog = KeySelectorDialog(self, "Combo Action", self._draft.action)
         dialog.connect("key-selected", self._on_action_selected)
-        dialog.present(self.get_root())
+        dialog.present(self)
 
     def _on_action_selected(self, _dialog: KeySelectorDialog, action: MappingAction | None) -> None:
         self._draft.action = deepcopy(action) if action is not None else None
@@ -464,11 +482,15 @@ class ComboEditorDialog(Adw.Dialog):
         self._update_save_button()
 
     def _update_action_summary(self) -> None:
-        self.action_summary.set_text(describe_mapping_action(self._draft.action))
         if self._draft.action is None:
-            self.action_summary.add_css_class("dim-label")
-        else:
-            self.action_summary.remove_css_class("dim-label")
+            self.action_row.set_title("When Triggered")
+            self.action_row.set_subtitle("Choose the action this combo should trigger.")
+            self.select_action_button.set_label("Choose...")
+            return
+
+        self.action_row.set_title("When Triggered")
+        self.action_row.set_subtitle(describe_mapping_action(self._draft.action))
+        self.select_action_button.set_label("Change...")
 
     def _update_save_button(self) -> None:
         self._normalize_step_timeouts()
@@ -491,37 +513,24 @@ class ComboEditorDialog(Adw.Dialog):
         ]
 
     def _refresh_restore_trigger_keys(self) -> None:
-        while child := self.restore_trigger_keys_box.get_first_child():
-            self.restore_trigger_keys_box.remove(child)
-
         options = combo_restore_key_options(self._draft.steps)
-        if not options:
-            empty = Gtk.Label(label="Add trigger steps to choose which keys should be restored.")
-            empty.add_css_class("dim-label")
-            empty.add_css_class("caption")
-            empty.set_halign(Gtk.Align.START)
-            empty.set_wrap(True)
-            self.restore_trigger_keys_box.append(empty)
+        self.restore_trigger_keys_group.set_visible(
+            self._draft.recall_trigger_keys and bool(options)
+        )
+
+        for row in self._restore_trigger_key_rows:
+            self.restore_trigger_keys_group.remove(row)
+        self._restore_trigger_key_rows.clear()
+
+        if not self._draft.recall_trigger_keys or not options:
             return
 
-        subtitle = Gtk.Label(
-            label=(
-                "Re-press selected trigger keys that are still physically held after "
-                "the combo action finishes."
-            )
-        )
-        subtitle.add_css_class("dim-label")
-        subtitle.add_css_class("caption")
-        subtitle.set_halign(Gtk.Align.START)
-        subtitle.set_wrap(True)
-        self.restore_trigger_keys_box.append(subtitle)
-
         for key in options:
-            checkbox = Gtk.CheckButton(label=combo_key_label(key))
-            checkbox.set_active(key in self._draft.restore_trigger_keys)
-            checkbox.set_sensitive(self._draft.recall_trigger_keys)
-            checkbox.connect("toggled", self._on_restore_trigger_key_toggled, key)
-            self.restore_trigger_keys_box.append(checkbox)
+            row = Adw.SwitchRow(title=combo_key_label(key))
+            row.set_active(key in self._draft.restore_trigger_keys)
+            row.connect("notify::active", self._on_restore_trigger_key_toggled, key)
+            self.restore_trigger_keys_group.add(row)
+            self._restore_trigger_key_rows.append(row)
 
     def _on_recall_trigger_keys_changed(
         self,
@@ -532,8 +541,13 @@ class ComboEditorDialog(Adw.Dialog):
         self._refresh_restore_trigger_keys()
         self._update_save_button()
 
-    def _on_restore_trigger_key_toggled(self, button: Gtk.CheckButton, key: str) -> None:
-        if button.get_active():
+    def _on_restore_trigger_key_toggled(
+        self,
+        row: Adw.SwitchRow,
+        _pspec: GObject.ParamSpec,
+        key: str,
+    ) -> None:
+        if row.get_active():
             if key not in self._draft.restore_trigger_keys:
                 self._draft.restore_trigger_keys.append(key)
         else:
@@ -680,8 +694,9 @@ class ComboEditorDialog(Adw.Dialog):
         self._update_capture_controls()
         return False
 
-    def _on_closed(self, _dialog: Adw.Dialog) -> None:
+    def _on_close_request(self, _window: Adw.Window) -> bool:
         self._capture_inflight = False
+        return False
 
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         self.close()

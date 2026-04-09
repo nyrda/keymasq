@@ -33,6 +33,21 @@ The repository currently maintains these package outputs:
 | Fedora RPM | Fedora systems | `nfpm.yaml` | `.fedora.x86_64.rpm` |
 | openSUSE RPM | openSUSE systems | `nfpm.yaml` | `.opensuse.x86_64.rpm` |
 
+## Release channels
+
+The repository uses two packaging channels:
+
+- Stable releases are created from stable `v*` tags. These are the only runs
+  that sign RPMs, publish GitHub release artifacts as the official release, and
+  optionally push AUR and external package repositories.
+- Prereleases are created manually with the `Package` workflow's
+  `workflow_dispatch` inputs. They build from an explicit ref, upload unsigned
+  artifacts to a GitHub prerelease, and do not publish to AUR or external
+  repositories.
+
+In other words, `master` does not automatically produce a published prerelease.
+When a master snapshot is needed, it is cut explicitly as a manual prerelease.
+
 ## Shared package payload
 
 Most package formats reuse the same top-level asset directories. The packaging

@@ -71,6 +71,21 @@ Multi-step combos advance one step at a time:
 next step in time, the combo is silently cancelled. You can change per-step
 timeouts in the combo editor.
 
+### Trigger Recall And Restore
+
+By default, combo trigger keys keep their current passthrough behavior.
+
+If needed, a combo can also manage its own trigger state explicitly:
+
+- **Recall Trigger Keys** releases that combo's trigger keys before the combo
+  action runs.
+- **Restore Trigger Keys** re-presses selected trigger keys after the combo
+  action finishes, but only if those keys are still physically held.
+
+This is useful when a held trigger key would interfere with the combo action
+itself, for example when a held `Meta` key changes how a triggered super key or
+synthetic shortcut is interpreted by the desktop.
+
 ## Combo Capture
 
 When you create or edit a combo's trigger, Keyforge enters capture mode and

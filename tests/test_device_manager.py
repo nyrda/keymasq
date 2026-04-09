@@ -949,6 +949,7 @@ async def _runtime_start_combo_action(
     action: MappingAction,
     binding: dm.RuntimeComboBinding,
     *,
+    trigger_bindings: tuple[dm.RuntimeComboBinding, ...] | None = None,
     resolve_code_fn: object = dm.resolve_output_code,
 ) -> None:
     await cdm.start_combo_action(
@@ -956,6 +957,7 @@ async def _runtime_start_combo_action(
         combo_id,
         action,
         binding,
+        trigger_bindings or (binding,),
         action_type_enum=dm.ActionType,
         asyncio_mod=dm._combo_asyncio_runtime(),
         emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
@@ -3328,6 +3330,43 @@ class TestDeviceManagerHelpers:
         assert manager.active_combos[0].action.superkey_config.tap_actions[0].target == "key_b"
 
     @pytest.mark.asyncio
+    async def test_set_combos_parses_trigger_recall_settings(self) -> None:
+        manager = DeviceManager()
+
+        result = await manager.set_combos(
+            [
+                {
+                    "id": "recall-combo",
+                    "name": "Recall Combo",
+                    "recall_trigger_keys": True,
+                    "restore_trigger_keys": ["meta", "key_c", "meta"],
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd",
+                                    "evdev": "meta",
+                                },
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd",
+                                    "evdev": "key_c",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "suppress"},
+                }
+            ]
+        )
+
+        assert result == {"updated": True, "combo_count": 1}
+        assert len(manager.active_combos) == 1
+        assert manager.active_combos[0].recall_trigger_keys is True
+        assert manager.active_combos[0].restore_trigger_keys == ["meta", "key_c"]
+
+    @pytest.mark.asyncio
     async def test_schedule_topology_reconcile_logs_failures_and_clears_task(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -4063,6 +4102,236 @@ class TestComboActionDispatch:
             "Skipping nested superkey child nested in combo overload combo-overload "
             "(combo-overload)" in caplog.text
         )
+
+    @pytest.mark.asyncio
+    async def test_combo_overload_restore_runs_after_child_release_for_overlapping_key(
+        self,
+    ) -> None:
+        class FakeComboDevice:
+            def __init__(self) -> None:
+                self.hardware_id = "1234:5678"
+                self.interface_id = "kbd"
+                self.active = {"key_leftmeta", "key_c"}
+                self.held = {"key_leftmeta", "key_c"}
+                self.releases: list[str] = []
+                self.presses: list[str] = []
+
+            def emit_combo_release(self, evdev_name: str) -> None:
+                self.releases.append(evdev_name)
+                self.active.discard(evdev_name)
+
+            def emit_combo_press(self, evdev_name: str) -> None:
+                self.presses.append(evdev_name)
+                self.active.add(evdev_name)
+
+            def combo_passthrough_binding_active(self, evdev_name: str) -> bool:
+                return evdev_name in self.active
+
+            def combo_source_binding_held(self, evdev_name: str) -> bool:
+                return evdev_name in self.held
+
+            def combo_passthrough_held_modifiers(self) -> set[str]:
+                return set()
+
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        fake_device = FakeComboDevice()
+        manager.grabbed_devices = {"1234:5678": [fake_device]}
+        trigger_meta = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_leftmeta",
+        )
+        trigger_c = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_c",
+        )
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-overload-overlap",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_leftmeta"),
+                ],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-overload-overlap",
+                name="combo-overload-overlap",
+                steps=[dm.RuntimeComboStep(bindings=(trigger_meta, trigger_c))],
+                action=action,
+                recall_trigger_keys=True,
+                restore_trigger_keys=["meta"],
+            )
+        ]
+
+        await _runtime_start_combo_action(
+            manager,
+            "combo-overload-overlap",
+            action,
+            trigger_c,
+            trigger_bindings=(trigger_meta, trigger_c),
+        )
+
+        fake_device.held = {"key_leftmeta"}
+        await _runtime_stop_combo_action(manager, "combo-overload-overlap")
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 0),
+        ]
+        assert fake_device.releases == ["key_c", "key_leftmeta"]
+        assert fake_device.presses == ["key_leftmeta"]
+        assert fake_device.active == {"key_leftmeta"}
+
+    @pytest.mark.asyncio
+    async def test_combo_recall_trigger_keys_restores_selected_keys_on_immediate_action_completion(
+        self,
+    ) -> None:
+        class FakeComboDevice:
+            def __init__(self) -> None:
+                self.hardware_id = "1234:5678"
+                self.interface_id = "kbd"
+                self.active = {"key_leftmeta", "key_c"}
+                self.held = {"key_leftmeta", "key_c"}
+                self.releases: list[str] = []
+                self.presses: list[str] = []
+
+            def emit_combo_release(self, evdev_name: str) -> None:
+                self.releases.append(evdev_name)
+                self.active.discard(evdev_name)
+
+            def emit_combo_press(self, evdev_name: str) -> None:
+                self.presses.append(evdev_name)
+                self.active.add(evdev_name)
+
+            def combo_passthrough_binding_active(self, evdev_name: str) -> bool:
+                return evdev_name in self.active
+
+            def combo_source_binding_held(self, evdev_name: str) -> bool:
+                return evdev_name in self.held
+
+            def combo_passthrough_held_modifiers(self) -> set[str]:
+                return set()
+
+        manager = DeviceManager()
+        fake_device = FakeComboDevice()
+        manager.grabbed_devices = {"1234:5678": [fake_device]}
+        trigger_meta = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_leftmeta",
+        )
+        trigger_c = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_c",
+        )
+        action = dm.MappingAction(action_type=ActionType.SUPPRESS)
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-recall-immediate",
+                name="combo-recall-immediate",
+                steps=[dm.RuntimeComboStep(bindings=(trigger_meta, trigger_c))],
+                action=action,
+                recall_trigger_keys=True,
+                restore_trigger_keys=["meta"],
+            )
+        ]
+
+        await _runtime_start_combo_action(
+            manager,
+            "combo-recall-immediate",
+            action,
+            trigger_c,
+            trigger_bindings=(trigger_meta, trigger_c),
+        )
+
+        assert fake_device.releases == ["key_c", "key_leftmeta"]
+        assert fake_device.presses == ["key_leftmeta"]
+        assert fake_device.active == {"key_leftmeta"}
+
+    @pytest.mark.asyncio
+    async def test_combo_recall_trigger_keys_restores_selected_keys_after_action_stop(
+        self,
+    ) -> None:
+        class FakeComboDevice:
+            def __init__(self) -> None:
+                self.hardware_id = "1234:5678"
+                self.interface_id = "kbd"
+                self.active = {"key_leftmeta", "key_c"}
+                self.held = {"key_leftmeta", "key_c"}
+                self.releases: list[str] = []
+                self.presses: list[str] = []
+
+            def emit_combo_release(self, evdev_name: str) -> None:
+                self.releases.append(evdev_name)
+                self.active.discard(evdev_name)
+
+            def emit_combo_press(self, evdev_name: str) -> None:
+                self.presses.append(evdev_name)
+                self.active.add(evdev_name)
+
+            def combo_passthrough_binding_active(self, evdev_name: str) -> bool:
+                return evdev_name in self.active
+
+            def combo_source_binding_held(self, evdev_name: str) -> bool:
+                return evdev_name in self.held
+
+            def combo_passthrough_held_modifiers(self) -> set[str]:
+                return set()
+
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        fake_device = FakeComboDevice()
+        manager.grabbed_devices = {"1234:5678": [fake_device]}
+        trigger_meta = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_leftmeta",
+        )
+        trigger_c = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_c",
+        )
+        action = dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_f5")
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-recall-hold",
+                name="combo-recall-hold",
+                steps=[dm.RuntimeComboStep(bindings=(trigger_meta, trigger_c))],
+                action=action,
+                recall_trigger_keys=True,
+                restore_trigger_keys=["meta"],
+            )
+        ]
+
+        await _runtime_start_combo_action(
+            manager,
+            "combo-recall-hold",
+            action,
+            trigger_c,
+            trigger_bindings=(trigger_meta, trigger_c),
+        )
+
+        assert fake_device.releases == ["key_c", "key_leftmeta"]
+        assert fake_device.presses == []
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1)
+        ]
+
+        fake_device.held = {"key_leftmeta"}
+        await _runtime_stop_combo_action(manager, "combo-recall-hold")
+
+        assert fake_device.presses == ["key_leftmeta"]
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
+        ]
 
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_single_step_supports_double_tap(self) -> None:

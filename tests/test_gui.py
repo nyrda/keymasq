@@ -3231,6 +3231,58 @@ class TestComboEditorDialog:
         assert dialog._draft.steps[0].timeout_ms is None
         assert dialog._draft.steps[1].timeout_ms == 850
 
+    def test_combo_editor_trigger_recall_and_restore_controls(self):
+        from gi.repository import Gtk
+
+        from keyforge.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        def child_widgets(widget):
+            children = []
+            child = widget.get_first_child()
+            while child is not None:
+                children.append(child)
+                child = child.get_next_sibling()
+            return children
+
+        parent = Gtk.Box()
+        dialog = ComboEditorDialog(parent)
+        dialog._draft.steps.append(
+            ComboStep(
+                events=[
+                    ComboEvent(evdev="key_leftctrl", hardware_id="1234:5678", source="kbd"),
+                    ComboEvent(evdev="key_x", hardware_id="1234:5678", source="kbd"),
+                ]
+            )
+        )
+        dialog._normalize_restore_trigger_keys()
+        dialog._refresh_trigger_display()
+
+        restore_checks = [
+            child
+            for child in child_widgets(dialog.restore_trigger_keys_box)
+            if isinstance(child, Gtk.CheckButton)
+        ]
+        assert dialog.recall_trigger_keys_row.get_active() is False
+        assert [check.get_label() for check in restore_checks] == ["Ctrl", "X"]
+        assert all(not check.get_sensitive() for check in restore_checks)
+
+        dialog.recall_trigger_keys_row.set_active(True)
+        restore_checks = [
+            child
+            for child in child_widgets(dialog.restore_trigger_keys_box)
+            if isinstance(child, Gtk.CheckButton)
+        ]
+        restore_checks[0].set_active(True)
+        dialog._on_action_selected(
+            None,
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+        )
+
+        assert dialog._draft.recall_trigger_keys is True
+        assert dialog._draft.restore_trigger_keys == ["ctrl"]
+        assert dialog.save_button.get_sensitive() is True
+
     def test_combo_editor_exact_duplicate_is_rejected(self):
         from gi.repository import Gtk
 

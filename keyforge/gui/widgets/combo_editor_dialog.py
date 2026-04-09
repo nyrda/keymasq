@@ -109,6 +109,18 @@ def combo_trigger_label(steps: list[ComboStep]) -> str:
     return " -> ".join(combo_step_label(step) for step in steps if step.events)
 
 
+def combo_restore_key_options(steps: list[ComboStep]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for step in steps:
+        for key in sort_combo_keys([combo_step_event_key(event) for event in step.events]):
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(key)
+    return ordered
+
+
 def combo_action_label(action: MappingAction | None) -> str:
     if action is None:
         return "Action"
@@ -188,6 +200,7 @@ class ComboEditorDialog(Adw.Dialog):
         self._validation_message = ""
 
         self._normalize_step_timeouts()
+        self._normalize_restore_trigger_keys()
         self._setup_ui()
         self._refresh_trigger_display()
         self._update_action_summary()
@@ -295,10 +308,34 @@ class ComboEditorDialog(Adw.Dialog):
         main_group.add(main_inner)
         content.append(main_group)
 
+        trigger_state_group = Adw.PreferencesGroup(
+            title="Trigger State",
+            description="Optional recall and restore for this combo's own trigger keys.",
+        )
+
+        self.recall_trigger_keys_row = Adw.SwitchRow(
+            title="Recall Trigger Keys",
+            subtitle="Release the combo trigger keys before the combo action runs.",
+        )
+        self.recall_trigger_keys_row.set_active(self._draft.recall_trigger_keys)
+        self.recall_trigger_keys_row.connect(
+            "notify::active",
+            self._on_recall_trigger_keys_changed,
+        )
+        trigger_state_group.add(self.recall_trigger_keys_row)
+
+        self.restore_trigger_keys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.restore_trigger_keys_box.set_margin_start(12)
+        self.restore_trigger_keys_box.set_margin_end(12)
+        self.restore_trigger_keys_box.set_margin_bottom(6)
+        trigger_state_group.add(self.restore_trigger_keys_box)
+        content.append(trigger_state_group)
+
         scrolled.set_child(content)
         toolbar_view.set_content(scrolled)
         self.set_child(toolbar_view)
         self._update_capture_controls()
+        self._refresh_restore_trigger_keys()
 
     def _on_name_changed(self, entry: Gtk.Entry) -> None:
         self._draft.name = entry.get_text().strip()
@@ -330,6 +367,7 @@ class ComboEditorDialog(Adw.Dialog):
     def _on_clear_clicked(self, _button: Gtk.Button) -> None:
         self._draft.steps = []
         self._normalize_step_timeouts()
+        self._normalize_restore_trigger_keys()
         self.capture_status.set_text("Trigger cleared.")
         self._refresh_trigger_display()
         self._update_save_button()
@@ -409,10 +447,13 @@ class ComboEditorDialog(Adw.Dialog):
 
             self.steps_box.append(row)
 
+        self._refresh_restore_trigger_keys()
+
     def _on_remove_step_clicked(self, _button: Gtk.Button, index: int) -> None:
         if 0 <= index < len(self._draft.steps):
             self._draft.steps.pop(index)
             self._normalize_step_timeouts()
+            self._normalize_restore_trigger_keys()
             self._refresh_trigger_display()
             self._update_save_button()
 
@@ -442,6 +483,64 @@ class ComboEditorDialog(Adw.Dialog):
                 step.timeout_ms = None
             elif step.timeout_ms is None:
                 step.timeout_ms = DEFAULT_STEP_TIMEOUT_MS
+
+    def _normalize_restore_trigger_keys(self) -> None:
+        available = set(combo_restore_key_options(self._draft.steps))
+        self._draft.restore_trigger_keys = [
+            key for key in self._draft.restore_trigger_keys if key in available
+        ]
+
+    def _refresh_restore_trigger_keys(self) -> None:
+        while child := self.restore_trigger_keys_box.get_first_child():
+            self.restore_trigger_keys_box.remove(child)
+
+        options = combo_restore_key_options(self._draft.steps)
+        if not options:
+            empty = Gtk.Label(label="Add trigger steps to choose which keys should be restored.")
+            empty.add_css_class("dim-label")
+            empty.add_css_class("caption")
+            empty.set_halign(Gtk.Align.START)
+            empty.set_wrap(True)
+            self.restore_trigger_keys_box.append(empty)
+            return
+
+        subtitle = Gtk.Label(
+            label=(
+                "Re-press selected trigger keys that are still physically held after "
+                "the combo action finishes."
+            )
+        )
+        subtitle.add_css_class("dim-label")
+        subtitle.add_css_class("caption")
+        subtitle.set_halign(Gtk.Align.START)
+        subtitle.set_wrap(True)
+        self.restore_trigger_keys_box.append(subtitle)
+
+        for key in options:
+            checkbox = Gtk.CheckButton(label=combo_key_label(key))
+            checkbox.set_active(key in self._draft.restore_trigger_keys)
+            checkbox.set_sensitive(self._draft.recall_trigger_keys)
+            checkbox.connect("toggled", self._on_restore_trigger_key_toggled, key)
+            self.restore_trigger_keys_box.append(checkbox)
+
+    def _on_recall_trigger_keys_changed(
+        self,
+        row: Adw.SwitchRow,
+        _pspec: GObject.ParamSpec,
+    ) -> None:
+        self._draft.recall_trigger_keys = bool(row.get_active())
+        self._refresh_restore_trigger_keys()
+        self._update_save_button()
+
+    def _on_restore_trigger_key_toggled(self, button: Gtk.CheckButton, key: str) -> None:
+        if button.get_active():
+            if key not in self._draft.restore_trigger_keys:
+                self._draft.restore_trigger_keys.append(key)
+        else:
+            self._draft.restore_trigger_keys = [
+                existing for existing in self._draft.restore_trigger_keys if existing != key
+            ]
+        self._update_save_button()
 
     def _validate_draft(self) -> str:
         if not self._draft.steps:
@@ -567,6 +666,7 @@ class ComboEditorDialog(Adw.Dialog):
         )
         self._draft.steps.append(step)
         self._normalize_step_timeouts()
+        self._normalize_restore_trigger_keys()
         warnings = result.get("warnings") or []
         if warnings:
             warning_text = ", ".join(str(warning) for warning in warnings)

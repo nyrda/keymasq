@@ -296,6 +296,30 @@ class GrabbedDevice:
             uinput_writer=_uinput_writer,
         )
 
+    def emit_combo_press(self, evdev_name: str) -> None:
+        if not self.uinput:
+            return
+        code = resolve_output_code(evdev_name)
+        if code is None:
+            return
+        runtime_outputs.write_key(
+            self,
+            self.uinput,
+            code,
+            1,
+            evdev_mod=evdev,
+            uinput_writer=_uinput_writer,
+        )
+
+    def combo_passthrough_binding_active(self, evdev_name: str) -> bool:
+        code = resolve_output_code(evdev_name)
+        if code is None:
+            return False
+        return int(code) in self.state.held_output_keys["passthrough"]
+
+    def combo_source_binding_held(self, evdev_name: str) -> bool:
+        return str(evdev_name or "").lower() in self.state.held_source_actions
+
     def has_held_source_inputs(self) -> bool:
         return bool(self.state.held_source_actions)
 

@@ -125,6 +125,16 @@ def resolved_combos_signature(
                 "profile_name": combo.profile_name,
                 "steps": steps,
                 "action": action_data,
+                **(
+                    {"recall_trigger_keys": True}
+                    if combo.recall_trigger_keys
+                    else {}
+                ),
+                **(
+                    {"restore_trigger_keys": list(combo.restore_trigger_keys)}
+                    if combo.restore_trigger_keys
+                    else {}
+                ),
             }
         )
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -355,6 +365,16 @@ def resolved_combos_payload(
                 "profile_name": combo.profile_name,
                 "steps": steps,
                 "action": action_data,
+                **(
+                    {"recall_trigger_keys": True}
+                    if combo.recall_trigger_keys
+                    else {}
+                ),
+                **(
+                    {"restore_trigger_keys": list(combo.restore_trigger_keys)}
+                    if combo.restore_trigger_keys
+                    else {}
+                ),
             }
         )
     return payload

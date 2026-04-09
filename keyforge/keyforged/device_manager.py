@@ -14,6 +14,7 @@ from typing import Protocol, cast
 import evdev
 
 from keyforge.common import devices as common_devices
+from keyforge.common.combos import normalize_combo_restore_keys
 from keyforge.common.devices import (
     clear_device_path_cache,
     detect_input_classes,
@@ -525,6 +526,10 @@ class DeviceManager:
                             float_value=_float_value,
                         ),
                         profile_name=_str_value(combo_dict.get("profile_name"), ""),
+                        recall_trigger_keys=bool(combo_dict.get("recall_trigger_keys", False)),
+                        restore_trigger_keys=normalize_combo_restore_keys(
+                            _json_list(combo_dict.get("restore_trigger_keys"))
+                        ),
                     )
                 )
 

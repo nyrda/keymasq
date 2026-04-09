@@ -13,7 +13,7 @@ from keyforge.common.devices import (
     resolve_evdev_event_type,
     resolve_stable_path,
 )
-from keyforge.common.models import DeviceType
+from keyforge.common.models import ActionType, DeviceType, MappingAction
 from keyforge.keyforged.output_helpers import resolve_output_code
 from keyforge.keyforged.recording import RecordingManager
 from keyforge.keyforged.runtime import grabbed_device_events as runtime_events
@@ -283,15 +283,60 @@ class GrabbedDevice:
     def release_tracked_outputs(self) -> None:
         runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
 
+    def _combo_binding_action(self, evdev_name: str) -> object | None:
+        return self.state.held_source_actions.get(str(evdev_name or "").lower())
+
+    def _combo_binding_target_uinput(self, action_type: ActionType) -> object | None:
+        if action_type == ActionType.KEYBOARD:
+            return self.keyboard_uinput
+        if action_type == ActionType.MOUSE:
+            return self.mouse_uinput
+        if action_type == ActionType.GAMEPAD:
+            return self.gamepad_uinput
+        return None
+
     def emit_combo_release(self, evdev_name: str) -> None:
-        if not self.uinput:
+        held_action = cast(MappingAction | None | object, self._combo_binding_action(evdev_name))
+        if held_action is None:
+            if not self.uinput:
+                return
+            code = resolve_output_code(evdev_name)
+            if code is None:
+                return
+            runtime_outputs.write_key(
+                self,
+                self.uinput,
+                code,
+                0,
+                evdev_mod=evdev,
+                uinput_writer=_uinput_writer,
+            )
             return
-        code = resolve_output_code(evdev_name)
-        if code is None:
+
+        if not isinstance(held_action, MappingAction):
+            return
+        if held_action.action_type in (ActionType.SUPPRESS, ActionType.PASSTHROUGH):
+            if held_action.action_type == ActionType.PASSTHROUGH and self.uinput:
+                code = resolve_output_code(evdev_name)
+                if code is not None:
+                    runtime_outputs.write_key(
+                        self,
+                        self.uinput,
+                        code,
+                        0,
+                        evdev_mod=evdev,
+                        uinput_writer=_uinput_writer,
+                    )
+            return
+        if held_action.rapidfire_enabled or held_action.tap_enabled:
+            return
+        target_uinput = self._combo_binding_target_uinput(held_action.action_type)
+        code = resolve_output_code(held_action.target or "")
+        if target_uinput is None or code is None:
             return
         runtime_outputs.write_key(
             self,
-            self.uinput,
+            target_uinput,
             code,
             0,
             evdev_mod=evdev,
@@ -299,14 +344,47 @@ class GrabbedDevice:
         )
 
     def emit_combo_press(self, evdev_name: str) -> None:
-        if not self.uinput:
+        held_action = cast(MappingAction | None | object, self._combo_binding_action(evdev_name))
+        if held_action is None:
+            if not self.uinput:
+                return
+            code = resolve_output_code(evdev_name)
+            if code is None:
+                return
+            runtime_outputs.write_key(
+                self,
+                self.uinput,
+                code,
+                1,
+                evdev_mod=evdev,
+                uinput_writer=_uinput_writer,
+            )
             return
-        code = resolve_output_code(evdev_name)
-        if code is None:
+
+        if not isinstance(held_action, MappingAction):
+            return
+        if held_action.action_type in (ActionType.SUPPRESS, ActionType.PASSTHROUGH):
+            if held_action.action_type == ActionType.PASSTHROUGH and self.uinput:
+                code = resolve_output_code(evdev_name)
+                if code is not None:
+                    runtime_outputs.write_key(
+                        self,
+                        self.uinput,
+                        code,
+                        1,
+                        evdev_mod=evdev,
+                        uinput_writer=_uinput_writer,
+                    )
+            return
+        if held_action.rapidfire_enabled or held_action.tap_enabled:
+            return
+        target_uinput = self._combo_binding_target_uinput(held_action.action_type)
+        code = resolve_output_code(held_action.target or "")
+        if target_uinput is None or code is None:
             return
         runtime_outputs.write_key(
             self,
-            self.uinput,
+            target_uinput,
             code,
             1,
             evdev_mod=evdev,

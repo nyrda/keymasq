@@ -1,5 +1,10 @@
 import argparse
+import os
 from importlib import resources
+
+# Libadwaita applications should not inherit a forced GTK theme override.
+# Let Adw.StyleManager and the session settings drive appearance instead.
+os.environ.pop("GTK_THEME", None)
 
 import gi  # pyright: ignore[reportMissingImports]
 

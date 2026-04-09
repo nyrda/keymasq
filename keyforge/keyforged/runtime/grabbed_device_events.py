@@ -71,6 +71,34 @@ def _record_diagnostics(
     )
 
 
+def _log_raw_hardware_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    evdev_mod: EvdevModule,
+    log: logging.Logger,
+) -> None:
+    if device_runtime.verbosity < 3:
+        return
+    if event.type == evdev_mod.ecodes.EV_SYN:
+        return
+    if event.type == evdev_mod.ecodes.EV_REL and event.code in (
+        evdev_mod.ecodes.REL_X,
+        evdev_mod.ecodes.REL_Y,
+    ):
+        return
+    log.debug(
+        "[hw %s %s] type=%s code=%s name=%s value=%s",
+        device_runtime.hardware_id,
+        device_runtime.interface_id,
+        event.type,
+        event.code,
+        event_name,
+        event.value,
+    )
+
+
 def _log_mapped_action(
     device_runtime: GrabbedDeviceRuntime,
     action: MappingAction | None,
@@ -278,6 +306,7 @@ async def process_event(
     suppress_recalled_release_passthrough = False
 
     event_name = get_event_name(event, evdev_mod=evdev_mod)
+    _log_raw_hardware_event(device_runtime, event, event_name, evdev_mod=evdev_mod, log=log)
     normalized_event_name = normalize_combo_evdev(event_name)
     if (
         event.type == evdev_mod.ecodes.EV_KEY

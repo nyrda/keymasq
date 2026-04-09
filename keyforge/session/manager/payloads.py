@@ -646,6 +646,9 @@ def serialize_superkey_action_signature(
         data["rapidfire_hold_ms"] = int(action.rapidfire_hold_ms)
         data["rapidfire_wait_ms"] = int(action.rapidfire_wait_ms)
 
+    # SuperkeyAction does not define ``superkey_name`` and valid superkey slots
+    # reject nested SUPERKEY actions. Keep this defensive lookup so malformed or
+    # legacy in-memory data can still serialize a stable signature if it appears.
     superkey_name = getattr(action, "superkey_name", None)
     if action.action_type.value == "superkey" and isinstance(superkey_name, str):
         superkey_config = manager.superkeys.get_superkey(superkey_name)

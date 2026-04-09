@@ -274,6 +274,7 @@ async def process_event(
     diag_label = "unknown"
     combo_consumed = False
     combo_passthrough_requested = False
+    suppress_recalled_release_passthrough = False
 
     event_name = get_event_name(event, evdev_mod=evdev_mod)
     if (
@@ -291,14 +292,7 @@ async def process_event(
         device_runtime.state.combo_recalled_bindings.discard(event_name)
         device_runtime.state.combo_passthrough_held.discard(event_name)
         if int(event.value) == 0:
-            device_runtime.state.held_source_actions.pop(event_name, None)
-            _record_diagnostics(
-                device_runtime,
-                "combo_recalled_release_suppressed",
-                started_ns,
-                time_mod=time_mod,
-            )
-            return
+            suppress_recalled_release_passthrough = True
 
     consumed = await device_runtime.event_callback(
         device_runtime.hardware_id,
@@ -325,6 +319,16 @@ async def process_event(
             combo_consumed = True
         if consumed.passthrough_current_event:
             combo_passthrough_requested = True
+
+    if suppress_recalled_release_passthrough:
+        device_runtime.state.held_source_actions.pop(event_name, None)
+        _record_diagnostics(
+            device_runtime,
+            "combo_recalled_release_suppressed",
+            started_ns,
+            time_mod=time_mod,
+        )
+        return
 
     if event.type == evdev_mod.ecodes.EV_SYN:
         _record_diagnostics(device_runtime, "syn", started_ns, time_mod=time_mod)

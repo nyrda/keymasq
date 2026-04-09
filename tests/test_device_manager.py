@@ -2150,6 +2150,110 @@ class TestCombos:
         assert sent_data["profile_name"] == "Gaming"
 
     @pytest.mark.asyncio
+    async def test_combo_recall_repeat_suppression_resumes_after_restore_via_event_loop(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        hardware_id = "1234:5678"
+        passthrough = _FakeUInput()
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-recall-repeat",
+                    "name": "combo-recall-repeat",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_x",
+                                },
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_c",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f13"},
+                    "recall_trigger_keys": True,
+                    "restore_trigger_keys": ["key_x"],
+                }
+            ]
+        )
+        manager.output_state.keyboard_uinput = _FakeUInput()
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id=hardware_id,
+            button_map={"key_x": "key_x", "key_c": "key_c"},
+            mapping_getter=lambda: {},
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
+            device_type=DeviceType.KEYBOARD,
+        )
+        device._running = True
+        device.uinput = passthrough  # type: ignore[assignment]
+        manager.grabbed_devices = {hardware_id: [device]}
+
+        press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
+        press_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=1)
+        repeat_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=2)
+        release_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=0)
+
+        await _runtime_process_grabbed_event(device, press_x)
+        await _runtime_process_grabbed_event(device, press_c)
+        await asyncio.sleep(0)
+
+        assert device.state.combo_recalled_bindings == {"key_x"}
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 0),
+        ]
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+        ]
+
+        await _runtime_process_grabbed_event(device, repeat_x)
+        await asyncio.sleep(0)
+
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 0),
+        ]
+
+        await _runtime_process_grabbed_event(device, release_c)
+        await asyncio.sleep(0)
+
+        assert device.state.combo_recalled_bindings == set()
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
+        ]
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+        ]
+
+        await _runtime_process_grabbed_event(device, repeat_x)
+        await asyncio.sleep(0)
+
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 2),
+        ]
+
+    @pytest.mark.asyncio
     async def test_runtime_combo_broadcast_does_not_block_hot_path(self, monkeypatch):
         manager = DeviceManager()
         blocker = asyncio.Event()
@@ -2690,6 +2794,20 @@ class TestSuperkeys:
         assert "key_1" not in device.state.held_source_actions
 
     @pytest.mark.asyncio
+    async def test_mapping_reset_clears_combo_recalled_suppression_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = _make_grabbed_device(monkeypatch)
+        device.state.combo_passthrough_held.add("key_x")
+        device.state.combo_recalled_bindings.add("key_x")
+
+        await device.reset_mapping_runtime_state()
+
+        assert device.state.combo_passthrough_held == set()
+        assert device.state.combo_recalled_bindings == set()
+
+    @pytest.mark.asyncio
     async def test_combo_recalled_repeat_is_suppressed_until_restore_or_new_press(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -2743,7 +2861,7 @@ class TestSuperkeys:
 
         await _runtime_process_grabbed_event(device, release_event)
 
-        assert callback.await_count == 0
+        assert callback.await_count == 1
         assert passthrough.writes == []
         assert device.state.combo_passthrough_held == set()
         assert device.state.combo_recalled_bindings == set()

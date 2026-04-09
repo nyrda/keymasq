@@ -2,7 +2,6 @@ name: Package
 
 on:
   push:
-    branches: [master]
     tags: ["v*"]
     paths:
       - ".github/workflows/package.yml"
@@ -64,31 +63,57 @@ on:
       - "tmpfiles.d/**"
       - "udev/**"
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build the prerelease from
+        required: true
+        default: master
+        type: string
+      prerelease_tag:
+        description: GitHub prerelease tag to create, for example v0.3.0-rc1
+        required: true
+        type: string
+      prerelease_version:
+        description: Package version to embed, for example 0.3.0rc1
+        required: true
+        type: string
 
 concurrency:
   group: package-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  KEYFORGE_CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
 jobs:
   version-metadata:
     runs-on: ubuntu-24.04
     outputs:
-      is_master: ${{ steps.meta.outputs.is_master }}
+      checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
+      checkout_sha: ${{ steps.meta.outputs.checkout_sha }}
+      is_manual_prerelease: ${{ steps.meta.outputs.is_manual_prerelease }}
+      is_stable_release: ${{ steps.meta.outputs.is_stable_release }}
       python_version: ${{ steps.meta.outputs.python_version }}
       debian_version: ${{ steps.meta.outputs.debian_version }}
       rpm_version: ${{ steps.meta.outputs.rpm_version }}
       pkgver: ${{ steps.meta.outputs.pkgver }}
       source_version: ${{ steps.meta.outputs.source_version }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.KEYFORGE_CHECKOUT_REF }}
 
       - name: Compute build version metadata
         id: meta
         env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_REF: ${{ github.ref }}
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
-          GITHUB_SHA: ${{ github.sha }}
+          CHECKOUT_REF: ${{ env.KEYFORGE_CHECKOUT_REF }}
+          PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
+          PRERELEASE_VERSION: ${{ inputs.prerelease_version }}
         run: |
           set -euo pipefail
           base_version="$(python3 - <<'PY'
@@ -99,31 +124,74 @@ jobs:
           print(data["project"]["version"])
           PY
           )"
-          short_sha="${GITHUB_SHA:0:7}"
+          checkout_ref="$CHECKOUT_REF"
+          checkout_sha="$(git rev-parse HEAD)"
+          is_manual_prerelease=false
+          is_stable_release=false
+          release_tag=""
+          release_name=""
 
-          if [[ "$GITHUB_REF" == "refs/heads/master" ]]; then
-            python_version="${base_version}.dev${GITHUB_RUN_NUMBER}"
-            debian_version="${base_version}~master.${GITHUB_RUN_NUMBER}+g${short_sha}-1"
-            rpm_version="${base_version}~master.${GITHUB_RUN_NUMBER}+g${short_sha}"
-            pkgver="${base_version}+r${GITHUB_RUN_NUMBER}+g${short_sha}"
-            source_version="$pkgver"
-            is_master=true
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ -z "$PRERELEASE_TAG" || -z "$PRERELEASE_VERSION" ]]; then
+              echo "workflow_dispatch requires prerelease_tag and prerelease_version" >&2
+              exit 1
+            fi
+            if [[ "$PRERELEASE_TAG" != v* ]]; then
+              echo "prerelease_tag must start with 'v'" >&2
+              exit 1
+            fi
+
+            python_version="$PRERELEASE_VERSION"
+            debian_version="$(python3 - "$PRERELEASE_VERSION" <<'PY'
+          import re
+          import sys
+
+          version = sys.argv[1]
+          match = re.fullmatch(r"(.+?)(?:(a|b|rc)(\d+)|\.dev(\d+))", version)
+          if match is None:
+              print(version)
+          else:
+              base, prerelease_label, prerelease_number, dev_number = match.groups()
+              if dev_number is not None:
+                  print(f"{base}~dev{dev_number}")
+              else:
+                  print(f"{base}~{prerelease_label}{prerelease_number}")
+          PY
+            )"
+            rpm_version="$debian_version"
+            pkgver="$PRERELEASE_VERSION"
+            source_version="$PRERELEASE_VERSION"
+            release_tag="$PRERELEASE_TAG"
+            release_name="Keyforge prerelease ${PRERELEASE_TAG#v}"
+            is_manual_prerelease=true
+          elif [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF" != *-* ]]; then
+            python_version="$base_version"
+            debian_version=""
+            rpm_version=""
+            pkgver="$base_version"
+            source_version="$base_version"
+            release_tag="${GITHUB_REF#refs/tags/}"
+            is_stable_release=true
           else
             python_version="$base_version"
             debian_version=""
             rpm_version=""
             pkgver="$base_version"
             source_version="$base_version"
-            is_master=false
           fi
 
           {
-            printf 'is_master=%s\n' "$is_master"
+            printf 'checkout_ref=%s\n' "$checkout_ref"
+            printf 'checkout_sha=%s\n' "$checkout_sha"
+            printf 'is_manual_prerelease=%s\n' "$is_manual_prerelease"
+            printf 'is_stable_release=%s\n' "$is_stable_release"
             printf 'python_version=%s\n' "$python_version"
             printf 'debian_version=%s\n' "$debian_version"
             printf 'rpm_version=%s\n' "$rpm_version"
             printf 'pkgver=%s\n' "$pkgver"
             printf 'source_version=%s\n' "$source_version"
+            printf 'release_tag=%s\n' "$release_tag"
+            printf 'release_name=%s\n' "$release_name"
           } >> "$GITHUB_OUTPUT"
 
   build-source-tarball:
@@ -134,16 +202,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
-      - name: Apply master Python version
-        if: needs.version-metadata.outputs.is_master == 'true'
+      - name: Apply prerelease Python version
+        if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
         run: |
           python3 scripts/rewrite-build-metadata.py \
             --python-version "${{ needs.version-metadata.outputs.python_version }}"
 
-      - name: Build release source tarball
+      - name: Build source tarball
         run: |
-          if [[ "${{ needs.version-metadata.outputs.is_master }}" == "true" ]]; then
+          if [[ "${{ needs.version-metadata.outputs.is_manual_prerelease }}" == "true" ]]; then
             bash scripts/build-source-tarball.sh "${{ needs.version-metadata.outputs.source_version }}"
           else
             bash scripts/build-source-tarball.sh
@@ -167,6 +237,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Download source tarball
         if: ${{ !env.ACT }}
@@ -204,13 +276,17 @@ jobs:
           if-no-files-found: error
 
   test-pacman-arch:
-    needs: build-pacman-arch
+    needs:
+      - version-metadata
+      - build-pacman-arch
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Download Arch package
         if: ${{ !env.ACT }}
@@ -239,9 +315,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
-      - name: Apply master Debian build metadata
-        if: needs.version-metadata.outputs.is_master == 'true'
+      - name: Apply prerelease Debian build metadata
+        if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
         run: |
           python3 scripts/rewrite-build-metadata.py \
             --python-version "${{ needs.version-metadata.outputs.python_version }}" \
@@ -283,13 +361,17 @@ jobs:
           if-no-files-found: error
 
   test-deb:
-    needs: build-deb
+    needs:
+      - version-metadata
+      - build-deb
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Download Debian artifacts
         if: ${{ !env.ACT }}
@@ -318,9 +400,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
-      - name: Apply master RPM build metadata
-        if: needs.version-metadata.outputs.is_master == 'true'
+      - name: Apply prerelease RPM build metadata
+        if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
         run: |
           python3 scripts/rewrite-build-metadata.py \
             --python-version "${{ needs.version-metadata.outputs.python_version }}" \
@@ -356,14 +440,18 @@ jobs:
           if-no-files-found: error
 
   test-rpm-fedora:
-    needs: build-rpm-fedora
-    if: github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - version-metadata
+      - build-rpm-fedora
+    if: needs.version-metadata.outputs.is_stable_release != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Download Fedora RPM
         if: ${{ !env.ACT }}
@@ -399,9 +487,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
-      - name: Apply master RPM build metadata
-        if: needs.version-metadata.outputs.is_master == 'true'
+      - name: Apply prerelease RPM build metadata
+        if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
         run: |
           python3 scripts/rewrite-build-metadata.py \
             --python-version "${{ needs.version-metadata.outputs.python_version }}" \
@@ -438,14 +528,18 @@ jobs:
           if-no-files-found: error
 
   test-rpm-opensuse:
-    needs: build-rpm-opensuse
-    if: github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - version-metadata
+      - build-rpm-opensuse
+    if: needs.version-metadata.outputs.is_stable_release != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Download openSUSE RPM
         if: ${{ !env.ACT }}
@@ -476,15 +570,18 @@ jobs:
 
   sign-rpm-packages:
     needs:
+      - version-metadata
       - build-rpm-fedora
       - build-rpm-opensuse
-    if: (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) && github.actor != 'nektos/act'
+    if: needs.version-metadata.outputs.is_stable_release == 'true' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Install RPM signing tools
         run: |
@@ -521,14 +618,18 @@ jobs:
           if-no-files-found: error
 
   test-rpm-fedora-signed:
-    needs: sign-rpm-packages
-    if: (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) && github.actor != 'nektos/act'
+    needs:
+      - version-metadata
+      - sign-rpm-packages
+    if: needs.sign-rpm-packages.result == 'success' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Download signed RPM artifacts
         uses: actions/download-artifact@v8
@@ -551,14 +652,18 @@ jobs:
             '
 
   test-rpm-opensuse-signed:
-    needs: sign-rpm-packages
-    if: (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) && github.actor != 'nektos/act'
+    needs:
+      - version-metadata
+      - sign-rpm-packages
+    if: needs.sign-rpm-packages.result == 'success' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Download signed RPM artifacts
         uses: actions/download-artifact@v8
@@ -583,6 +688,7 @@ jobs:
 
   release:
     needs:
+      - version-metadata
       - build-source-tarball
       - build-pacman-arch
       - test-pacman-arch
@@ -591,7 +697,7 @@ jobs:
       - sign-rpm-packages
       - test-rpm-fedora-signed
       - test-rpm-opensuse-signed
-    if: startsWith(github.ref, 'refs/tags/v') && github.actor != 'nektos/act'
+    if: needs.version-metadata.outputs.is_stable_release == 'true' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     permissions:
       attestations: write
@@ -646,39 +752,24 @@ jobs:
             dist/SHA256SUMS
           generate_release_notes: true
 
-  release-master:
+  release-prerelease:
     needs:
+      - version-metadata
       - build-source-tarball
       - build-pacman-arch
       - test-pacman-arch
       - build-deb
       - test-deb
-      - sign-rpm-packages
-      - test-rpm-fedora-signed
-      - test-rpm-opensuse-signed
-    if: github.ref == 'refs/heads/master' && github.actor != 'nektos/act'
+      - build-rpm-fedora
+      - test-rpm-fedora
+      - build-rpm-opensuse
+      - test-rpm-opensuse
+    if: needs.version-metadata.outputs.is_manual_prerelease == 'true' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
 
     steps:
-      - name: Compute master release metadata
-        id: meta
-        env:
-          GITHUB_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          stamp="$(date -u +%Y%m%d-%H%M%S)"
-          short_sha="${GITHUB_SHA:0:7}"
-          tag="master-${stamp}-${short_sha}"
-          name="Keyforge master ${stamp} (${short_sha})"
-          {
-            printf 'stamp=%s\n' "$stamp"
-            printf 'short_sha=%s\n' "$short_sha"
-            printf 'tag=%s\n' "$tag"
-            printf 'name=%s\n' "$name"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Download source tarball
         uses: actions/download-artifact@v8
         with:
@@ -691,30 +782,36 @@ jobs:
           name: debian-package
           path: dist/
 
-      - name: Download signed RPM artifacts
+      - name: Download Fedora RPM artifacts
         uses: actions/download-artifact@v8
         with:
-          name: rpm-signed-packages
+          name: rpm-fedora-package
           path: dist/
 
-      - name: Generate master release checksums
+      - name: Download openSUSE RPM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: rpm-opensuse-package
+          path: dist/
+
+      - name: Generate prerelease checksums
         run: |
           cd dist
-          sha256sum ./*.deb ./*.rpm ./*.tar.gz ./rpm-signing-key.asc > SHA256SUMS
+          sha256sum ./*.deb ./*.rpm ./*.tar.gz > SHA256SUMS
 
-      - name: Create GitHub prerelease for master
+      - name: Create GitHub prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: ${{ steps.meta.outputs.name }}
+          tag_name: ${{ needs.version-metadata.outputs.release_tag }}
+          target_commitish: ${{ needs.version-metadata.outputs.checkout_sha }}
+          name: ${{ needs.version-metadata.outputs.release_name }}
           prerelease: true
           make_latest: false
           generate_release_notes: false
           body: |
-            Automated prerelease build from `master`.
+            Manual prerelease build from `${{ needs.version-metadata.outputs.checkout_ref }}`.
 
-            Commit: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+            Commit: https://github.com/${{ github.repository }}/commit/${{ needs.version-metadata.outputs.checkout_sha }}
             Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           files: |
             dist/*.deb
@@ -722,13 +819,13 @@ jobs:
             dist/*.buildinfo
             dist/*.rpm
             dist/*.tar.gz
-            dist/rpm-signing-key.asc
             dist/SHA256SUMS
 
   publish-repos:
     needs:
+      - version-metadata
       - release
-    if: startsWith(github.ref, 'refs/tags/v') && vars.ENABLE_REPO_PUBLISH == 'true'
+    if: needs.release.result == 'success' && vars.ENABLE_REPO_PUBLISH == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     concurrency:
@@ -737,6 +834,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Install repo tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnupg dpkg-dev apt-utils createrepo-c
@@ -762,9 +861,10 @@ jobs:
 
   publish-aur:
     needs:
+      - version-metadata
       - release
       - test-pacman-arch
-    if: startsWith(github.ref, 'refs/tags/v') && vars.ENABLE_AUR_PUBLISH == 'true'
+    if: needs.release.result == 'success' && vars.ENABLE_AUR_PUBLISH == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -773,6 +873,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Download source tarball
         uses: actions/download-artifact@v8

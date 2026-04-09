@@ -1,7 +1,14 @@
 import json
 from typing import TYPE_CHECKING, cast
 
-from keyforge.common.models import MappingAction, SuperkeyAction, SuperkeyConfig, SuperkeyMode
+from keyforge.common.models import (
+    ActionType,
+    MappingAction,
+    SuperkeyAction,
+    SuperkeyConfig,
+    SuperkeyMode,
+    combo_effective_superkey_config,
+)
 from keyforge.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
 from .common import JsonObject, json_object
@@ -29,6 +36,13 @@ def clear_combo_exec_refs(manager: "SessionManager") -> None:
     manager.exec_state.combo_exec_refs.clear()
     for ref in refs:
         manager.exec_state.exec_refs.pop(ref, None)
+    # Combo-triggered superkey exec refs are tied to combo payload lifetime rather
+    # than a specific device binding, so they are only reclaimed by this bulk combo
+    # cleanup path instead of clear_exec_refs().
+    superkey_refs = list(manager.exec_state.combo_superkey_exec_refs)
+    manager.exec_state.combo_superkey_exec_refs.clear()
+    for ref in superkey_refs:
+        manager.exec_state.superkey_exec_refs.pop(ref, None)
 
 
 def clear_all_exec_refs(manager: "SessionManager") -> None:
@@ -71,7 +85,11 @@ def resolved_combos_signature(
     for combo in combos:
         if combo.action is None:
             continue
-        action_data = combo_action_signature_payload(manager, combo.action)
+        action_data = combo_action_signature_payload(
+            manager,
+            combo.action,
+            step_count=len(combo.steps),
+        )
         if action_data is None:
             continue
         steps: list[dict[str, object]] = []
@@ -192,7 +210,18 @@ def action_signature_payload(
 def combo_action_signature_payload(
     manager: "SessionManager",
     action: MappingAction,
+    *,
+    step_count: int,
 ) -> dict[str, object] | None:
+    if action.action_type == ActionType.SUPERKEY:
+        config = _resolved_combo_superkey_config(manager, action, step_count=step_count)
+        if config is None:
+            return None
+        return {
+            "action": action.action_type.value,
+            "superkey": serialize_superkey_signature(manager, config, "combo"),
+        }
+
     data = action_signature_payload(manager, action, "")
     if data.get("action") == "superkey":
         return None
@@ -292,7 +321,11 @@ def resolved_combos_payload(
     for combo in combos:
         if combo.action is None:
             continue
-        action_data = combo_action_to_payload(manager, combo.action)
+        action_data = combo_action_to_payload(
+            manager,
+            combo.action,
+            step_count=len(combo.steps),
+        )
         if action_data is None:
             continue
         steps: list[dict[str, object]] = []
@@ -330,6 +363,8 @@ def resolved_combos_payload(
 def combo_action_to_payload(
     manager: "SessionManager",
     action: MappingAction,
+    *,
+    step_count: int,
 ) -> JsonObject | None:
     action_type = action.action_type.value
     action_data: dict[str, object] = {"action": action_type}
@@ -399,13 +434,41 @@ def combo_action_to_payload(
     if action_type == "suppress":
         return action_data
 
+    if action_type == "superkey":
+        config = _resolved_combo_superkey_config(manager, action, step_count=step_count)
+        if config is None:
+            return None
+        action_data["superkey"] = serialize_superkey(
+            manager,
+            config,
+            "combo",
+            track_combo_refs=True,
+        )
+        return action_data
+
     return None
+
+
+def _resolved_combo_superkey_config(
+    manager: "SessionManager",
+    action: MappingAction,
+    *,
+    step_count: int,
+) -> SuperkeyConfig | None:
+    if not action.superkey_name:
+        return None
+    config = manager.superkeys.get_superkey(action.superkey_name)
+    if config is None:
+        return None
+    return combo_effective_superkey_config(config, step_count=step_count)
 
 
 def serialize_superkey(
     manager: "SessionManager",
     config: SuperkeyConfig,
     hardware_id: str,
+    *,
+    track_combo_refs: bool = False,
 ) -> JsonObject:
     data: JsonObject = {
         "name": config.name,
@@ -418,27 +481,52 @@ def serialize_superkey(
     if config.mode == SuperkeyMode.PATTERN:
         if config.tap_actions:
             data["tap_actions"] = [
-                serialize_superkey_action(manager, action, hardware_id)
+                serialize_superkey_action(
+                    manager,
+                    action,
+                    hardware_id,
+                    track_combo_refs=track_combo_refs,
+                )
                 for action in config.tap_actions
             ]
         if config.double_tap_actions:
             data["double_tap_actions"] = [
-                serialize_superkey_action(manager, action, hardware_id)
+                serialize_superkey_action(
+                    manager,
+                    action,
+                    hardware_id,
+                    track_combo_refs=track_combo_refs,
+                )
                 for action in config.double_tap_actions
             ]
         if config.hold_actions:
             data["hold_actions"] = [
-                serialize_superkey_action(manager, action, hardware_id)
+                serialize_superkey_action(
+                    manager,
+                    action,
+                    hardware_id,
+                    track_combo_refs=track_combo_refs,
+                )
                 for action in config.hold_actions
             ]
         if config.tap_hold_actions:
             data["tap_hold_actions"] = [
-                serialize_superkey_action(manager, action, hardware_id)
+                serialize_superkey_action(
+                    manager,
+                    action,
+                    hardware_id,
+                    track_combo_refs=track_combo_refs,
+                )
                 for action in config.tap_hold_actions
             ]
     elif config.overload_actions:
         data["overload_actions"] = [
-            serialize_overload_action(manager, action, hardware_id)
+            serialize_overload_action(
+                manager,
+                action,
+                hardware_id,
+                track_combo_refs=track_combo_refs,
+            )
             for action in config.overload_actions
         ]
 
@@ -492,6 +580,8 @@ def serialize_superkey_action(
     manager: "SessionManager",
     action: SuperkeyAction,
     hardware_id: str,
+    *,
+    track_combo_refs: bool = False,
 ) -> JsonObject:
     data: JsonObject = {"action": action.action_type.value}
 
@@ -507,9 +597,12 @@ def serialize_superkey_action(
         data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
 
     if action.action_type.value == "exec" and action.cmd:
-        exec_ref = manager.exec_state.next_superkey_exec_ref
-        manager.exec_state.next_superkey_exec_ref += 1
-        manager.exec_state.superkey_exec_refs[exec_ref] = (hardware_id, action.cmd)
+        exec_ref = _allocate_superkey_exec_ref(
+            manager,
+            hardware_id,
+            action.cmd,
+            track_combo_refs=track_combo_refs,
+        )
         data["exec_ref"] = exec_ref
 
     return data
@@ -546,6 +639,8 @@ def serialize_overload_action(
     manager: "SessionManager",
     action: MappingAction,
     hardware_id: str,
+    *,
+    track_combo_refs: bool = False,
 ) -> JsonObject:
     action_type = action.action_type.value
     action_data: JsonObject = {"action": action_type}
@@ -572,9 +667,12 @@ def serialize_overload_action(
 
     if action_type == "exec":
         if action.cmd:
-            exec_ref = manager.exec_state.next_superkey_exec_ref
-            manager.exec_state.next_superkey_exec_ref += 1
-            manager.exec_state.superkey_exec_refs[exec_ref] = (hardware_id, action.cmd)
+            exec_ref = _allocate_superkey_exec_ref(
+                manager,
+                hardware_id,
+                action.cmd,
+                track_combo_refs=track_combo_refs,
+            )
             action_data["exec_ref"] = exec_ref
         return action_data
 
@@ -611,6 +709,21 @@ def serialize_overload_action(
         return action_data
 
     return action_data
+
+
+def _allocate_superkey_exec_ref(
+    manager: "SessionManager",
+    hardware_id: str,
+    cmd: str,
+    *,
+    track_combo_refs: bool,
+) -> int:
+    exec_ref = manager.exec_state.next_superkey_exec_ref
+    manager.exec_state.next_superkey_exec_ref += 1
+    manager.exec_state.superkey_exec_refs[exec_ref] = (hardware_id, cmd)
+    if track_combo_refs:
+        manager.exec_state.combo_superkey_exec_refs.add(exec_ref)
+    return exec_ref
 
 
 def mapping_log_view(mapping: JsonObject) -> JsonObject:

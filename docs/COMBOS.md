@@ -97,6 +97,7 @@ Combos can trigger the same kinds of actions as normal key mappings:
 | **Mouse** | Send a mouse button or relative movement. |
 | **Gamepad** | Send a gamepad button or trigger. |
 | **Macro** | Play a saved macro. |
+| **Super Key** | Run a saved overload or pattern super key. |
 | **Command** | Run a shell command. |
 | **Suppress** | Block the key — do nothing. |
 | **[Profile](ACTIONS.md)** | Enable, disable, or toggle a profile. |
@@ -110,6 +111,35 @@ of the combo controls the lifecycle:
 
 One-shot actions (commands, profile toggles) fire once when the combo
 completes.
+
+### Super Key Combo Actions
+
+Combos can now trigger saved **Super Keys**.
+
+#### Overload
+
+`Overload` superkeys fit naturally into combo actions:
+
+- When the combo completes, the overload child actions start in list order.
+- When the combo releases, held child actions stop again.
+- One-shot child actions like commands, profile actions, and compositor
+  actions still fire once on combo completion.
+
+#### Pattern
+
+Pattern superkeys use the combo's own activation lifecycle:
+
+- **Single-step combos** support the full pattern flow:
+  - Tap
+  - Double Tap
+  - Hold
+  - Tap + Hold
+- **Multi-step combos** support only:
+  - Tap
+  - Hold
+
+For multi-step combos, the **Double Tap** and **Tap + Hold** slots are not
+used.
 
 ## Profile Resolution
 
@@ -141,7 +171,6 @@ The combo editor intentionally stays conservative. It blocks:
 
 - Empty triggers or actions.
 - Invalid timeout values.
-- Unsupported action types (e.g. super keys cannot be combo actions).
 - Exact duplicate triggers within the same profile.
 
 It does **not** try to detect prefix shadowing or cross-profile conflicts.

@@ -5,13 +5,23 @@ import pytest
 from keyforge.common import paths
 from keyforge.common.models import (
     ActionType,
+    ComboConfig,
+    ComboEvent,
+    ComboStep,
     MappingAction,
+    ProfileConfig,
     SuperkeyAction,
     SuperkeyConfig,
     SuperkeyMode,
 )
 from keyforge.keyforged.runtime.actions import parse_superkey_config
-from keyforge.session.manager.payloads import serialize_superkey
+from keyforge.session.manager.payloads import (
+    clear_combo_exec_refs,
+    combo_action_signature_payload,
+    combo_action_to_payload,
+    serialize_superkey,
+)
+from keyforge.session.profiles import ProfileManager
 from keyforge.session.superkeys import SuperkeyManager
 
 
@@ -138,7 +148,11 @@ def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypa
 
 def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
     manager = SimpleNamespace(
-        exec_state=SimpleNamespace(next_superkey_exec_ref=10000, superkey_exec_refs={}),
+        exec_state=SimpleNamespace(
+            next_superkey_exec_ref=10000,
+            superkey_exec_refs={},
+            combo_superkey_exec_refs=set(),
+        ),
         superkeys=SimpleNamespace(get_superkey=lambda _name: None),
     )
     config = SuperkeyConfig(
@@ -170,6 +184,96 @@ def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
     ]
     assert parsed.overload_actions[1].exec_ref == 10000
     assert manager.exec_state.superkey_exec_refs[10000] == ("1234:5678", "echo demo")
+
+
+def test_combo_superkey_payload_tracks_combo_scoped_exec_refs() -> None:
+    config = SuperkeyConfig(
+        name="combo_exec",
+        mode=SuperkeyMode.PATTERN,
+        tap_actions=[SuperkeyAction(action_type=ActionType.EXEC, cmd="echo combo")],
+    )
+    manager = SimpleNamespace(
+        exec_state=SimpleNamespace(
+            next_superkey_exec_ref=10000,
+            superkey_exec_refs={},
+            combo_superkey_exec_refs=set(),
+        ),
+        superkeys=SimpleNamespace(
+            get_superkey=lambda name: config if name == "combo_exec" else None
+        ),
+    )
+
+    payload = combo_action_to_payload(
+        manager,
+        MappingAction(action_type=ActionType.SUPERKEY, superkey_name="combo_exec"),
+        step_count=1,
+    )
+
+    assert payload is not None
+    assert payload["action"] == "superkey"
+    superkey_payload = payload["superkey"]
+    assert isinstance(superkey_payload, dict)
+    tap_actions = superkey_payload["tap_actions"]
+    assert isinstance(tap_actions, list)
+    assert tap_actions[0]["exec_ref"] == 10000
+    assert manager.exec_state.combo_superkey_exec_refs == {10000}
+    assert manager.exec_state.superkey_exec_refs[10000] == ("combo", "echo combo")
+
+
+def test_combo_superkey_multistep_payload_and_signature_strip_double_tap_slots() -> None:
+    config = SuperkeyConfig(
+        name="pattern_combo",
+        mode=SuperkeyMode.PATTERN,
+        tap_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_a")],
+        double_tap_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_b")],
+        hold_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_c")],
+        tap_hold_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_d")],
+    )
+    manager = SimpleNamespace(
+        exec_state=SimpleNamespace(
+            next_superkey_exec_ref=10000,
+            superkey_exec_refs={},
+            combo_superkey_exec_refs=set(),
+        ),
+        superkeys=SimpleNamespace(
+            get_superkey=lambda name: config if name == "pattern_combo" else None
+        ),
+    )
+    action = MappingAction(action_type=ActionType.SUPERKEY, superkey_name="pattern_combo")
+
+    payload = combo_action_to_payload(manager, action, step_count=2)
+    signature = combo_action_signature_payload(manager, action, step_count=2)
+
+    assert payload is not None
+    assert signature is not None
+    payload_superkey = payload["superkey"]
+    signature_superkey = signature["superkey"]
+    assert isinstance(payload_superkey, dict)
+    assert isinstance(signature_superkey, dict)
+    assert "double_tap_actions" not in payload_superkey
+    assert "tap_hold_actions" not in payload_superkey
+    assert "double_tap_actions" not in signature_superkey
+    assert "tap_hold_actions" not in signature_superkey
+    assert "tap_actions" in payload_superkey
+    assert "hold_actions" in payload_superkey
+
+
+def test_clear_combo_exec_refs_clears_combo_superkey_exec_refs() -> None:
+    manager = SimpleNamespace(
+        exec_state=SimpleNamespace(
+            combo_exec_refs={7},
+            combo_superkey_exec_refs={10000},
+            exec_refs={7: "echo combo"},
+            superkey_exec_refs={10000: ("combo", "echo super")},
+        )
+    )
+
+    clear_combo_exec_refs(manager)
+
+    assert manager.exec_state.combo_exec_refs == set()
+    assert manager.exec_state.combo_superkey_exec_refs == set()
+    assert manager.exec_state.exec_refs == {}
+    assert manager.exec_state.superkey_exec_refs == {}
 
 
 def test_superkey_runtime_payload_requires_explicit_mode() -> None:
@@ -225,3 +329,40 @@ def test_superkey_manager_rejects_nested_overload_superkeys(
 
     with pytest.raises(ValueError, match="nested superkeys are not allowed"):
         manager.save_superkey(config)
+
+
+def test_profile_manager_finds_and_replaces_combo_superkey_references(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profiles_dir = temp_config_dir / "profiles"
+    profiles_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(paths, "PROFILES_DIR", profiles_dir)
+
+    manager = ProfileManager()
+    profile = ProfileConfig(
+        name="Desktop",
+        combos=[
+            ComboConfig(
+                id="combo-1",
+                steps=[
+                    ComboStep(events=[ComboEvent(evdev="key_a", hardware_id="1234:5678")]),
+                ],
+                action=MappingAction(
+                    action_type=ActionType.SUPERKEY,
+                    superkey_name="combo-superkey",
+                ),
+            )
+        ],
+    )
+    manager.save_profile(profile)
+
+    assert manager.find_profiles_using_superkey("combo-superkey") == [("combo", "Desktop")]
+
+    replaced = manager.replace_superkey_with_suppress("combo-superkey")
+    updated = manager.get_profile("Desktop")
+
+    assert replaced == 1
+    assert updated is not None
+    assert updated.config.combos[0].action is not None
+    assert updated.config.combos[0].action.action_type == ActionType.SUPPRESS

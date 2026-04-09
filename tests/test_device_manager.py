@@ -3285,6 +3285,49 @@ class TestDeviceManagerHelpers:
         monkeypatch.undo()
 
     @pytest.mark.asyncio
+    async def test_set_combos_parses_superkey_combo_action(self) -> None:
+        manager = DeviceManager()
+
+        result = await manager.set_combos(
+            [
+                {
+                    "id": "superkey-combo",
+                    "name": "Superkey Combo",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd",
+                                    "evdev": "key_a",
+                                }
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "superkey",
+                        "superkey": {
+                            "name": "combo-pattern",
+                            "mode": "pattern",
+                            "tap_actions": [{"action": "keyboard", "target": "key_b"}],
+                            "double_tap_actions": [
+                                {"action": "keyboard", "target": "key_c"}
+                            ],
+                        },
+                    },
+                }
+            ]
+        )
+
+        assert result == {"updated": True, "combo_count": 1}
+        assert len(manager.active_combos) == 1
+        assert manager.active_combos[0].action is not None
+        assert manager.active_combos[0].action.action_type == ActionType.SUPERKEY
+        assert manager.active_combos[0].action.superkey_config is not None
+        assert manager.active_combos[0].action.superkey_config.mode == SuperkeyMode.PATTERN
+        assert manager.active_combos[0].action.superkey_config.tap_actions[0].target == "key_b"
+
+    @pytest.mark.asyncio
     async def test_schedule_topology_reconcile_logs_failures_and_clears_task(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -3966,6 +4009,328 @@ class TestGrabbedDeviceHelpers:
 
 
 class TestComboActionDispatch:
+    @pytest.mark.asyncio
+    async def test_combo_overload_superkey_starts_children_and_releases_in_reverse_order(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-overload",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                ],
+            ),
+        )
+
+        await _runtime_start_combo_action(manager, "combo-overload", action, binding)
+        await _runtime_stop_combo_action(manager, "combo-overload")
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_combo_overload_superkey_logs_nested_superkey_children(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-overload",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    dm.MappingAction(action_type=ActionType.SUPERKEY, superkey_name="nested"),
+                ],
+            ),
+        )
+
+        with caplog.at_level("WARNING", logger="keyforged.runtime.combos"):
+            await _runtime_start_combo_action(manager, "combo-overload", action, binding)
+
+        assert (
+            "Skipping nested superkey child nested in combo overload combo-overload "
+            "(combo-overload)" in caplog.text
+        )
+
+    @pytest.mark.asyncio
+    async def test_combo_pattern_superkey_single_step_supports_double_tap(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+                double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern",
+                name="combo-pattern",
+                steps=[dm.RuntimeComboStep(bindings=(binding,))],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(manager, "combo-pattern", action, binding)
+        await _runtime_stop_combo_action(manager, "combo-pattern")
+        await _runtime_start_combo_action(manager, "combo-pattern", action, binding)
+        await _runtime_stop_combo_action(manager, "combo-pattern")
+        await asyncio.sleep(0.02)
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_combo_pattern_superkey_single_step_supports_tap_hold(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-tap-hold",
+                mode=SuperkeyMode.PATTERN,
+                hold_threshold_ms=0,
+                tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+                double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_c")],
+                tap_hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-tap-hold",
+                name="combo-pattern-tap-hold",
+                steps=[dm.RuntimeComboStep(bindings=(binding,))],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(manager, "combo-pattern-tap-hold", action, binding)
+        await _runtime_stop_combo_action(manager, "combo-pattern-tap-hold")
+        await _runtime_start_combo_action(manager, "combo-pattern-tap-hold", action, binding)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await _runtime_stop_combo_action(manager, "combo-pattern-tap-hold")
+        await asyncio.sleep(0.02)
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_combo_pattern_superkey_multistep_ignores_double_tap_slots(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        first = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        second = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_b")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-multi",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_c")],
+                double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_d")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-multi",
+                name="combo-pattern-multi",
+                steps=[
+                    dm.RuntimeComboStep(bindings=(first,)),
+                    dm.RuntimeComboStep(bindings=(second,)),
+                ],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(manager, "combo-pattern-multi", action, second)
+        await _runtime_stop_combo_action(manager, "combo-pattern-multi")
+        await asyncio.sleep(0.02)
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_combo_pattern_superkey_multistep_supports_hold_only(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        first = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        second = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_b")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-hold",
+                mode=SuperkeyMode.PATTERN,
+                hold_threshold_ms=0,
+                hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_e")],
+                tap_hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_f")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-hold",
+                name="combo-pattern-hold",
+                steps=[
+                    dm.RuntimeComboStep(bindings=(first,)),
+                    dm.RuntimeComboStep(bindings=(second,)),
+                ],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(manager, "combo-pattern-hold", action, second)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await _runtime_stop_combo_action(manager, "combo-pattern-hold")
+        await asyncio.sleep(0.02)
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_clear_combo_runtime_releases_active_pattern_superkey_hold(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-clear",
+                mode=SuperkeyMode.PATTERN,
+                hold_threshold_ms=0,
+                hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-clear",
+                name="combo-pattern-clear",
+                steps=[dm.RuntimeComboStep(bindings=(binding,))],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(manager, "combo-pattern-clear", action, binding)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await _runtime_clear_combo_runtime(manager)
+
+        assert manager.combo_state.superkey_machines == {}
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_clear_combo_scope_stops_pending_pattern_superkey_machine(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-scope",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+                double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-scope",
+                name="combo-pattern-scope",
+                steps=[dm.RuntimeComboStep(bindings=(binding,))],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(manager, "combo-pattern-scope", action, binding)
+        await _runtime_stop_combo_action(manager, "combo-pattern-scope")
+
+        assert "combo-pattern-scope" in manager.combo_state.superkey_machines
+
+        await _runtime_clear_combo_scope(manager, "1234:5678", "kbd")
+
+        assert manager.combo_state.superkey_machines == {}
+
+    @pytest.mark.asyncio
+    async def test_combo_pattern_superkey_replaces_stale_cached_machine_when_config_changes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        old_config = SuperkeyConfig(
+            name="combo-pattern-stale",
+            mode=SuperkeyMode.PATTERN,
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+        )
+        new_config = SuperkeyConfig(
+            name="combo-pattern-stale",
+            mode=SuperkeyMode.PATTERN,
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+        )
+        old_machine = SimpleNamespace(
+            config=old_config,
+            event_name="combo:combo-pattern-stale",
+            stop=AsyncMock(),
+        )
+        created: list[object] = []
+
+        class _FakeMachine:
+            def __init__(self, **kwargs) -> None:
+                self.config = kwargs["config"]
+                self.event_name = kwargs["event_name"]
+                self.stop = AsyncMock()
+                self.on_down = AsyncMock()
+                self.on_up = AsyncMock()
+                created.append(self)
+
+        monkeypatch.setattr(cdm, "SuperkeyMachine", _FakeMachine)
+        manager.combo_state.superkey_machines["combo-pattern-stale"] = old_machine  # type: ignore[assignment]
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=new_config,
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-stale",
+                name="combo-pattern-stale",
+                steps=[dm.RuntimeComboStep(bindings=(binding,))],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(manager, "combo-pattern-stale", action, binding)
+
+        old_machine.stop.assert_awaited_once()
+        assert len(created) == 1
+        assert manager.combo_state.superkey_machines["combo-pattern-stale"] is created[0]
+
     @pytest.mark.asyncio
     async def test_start_and_stop_combo_action_cover_additional_synthetic_paths(self) -> None:
         manager = DeviceManager()

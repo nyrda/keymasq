@@ -3348,6 +3348,100 @@ class TestComboEditorDialog:
 
         assert dialog.save_button.get_sensitive() is True
 
+    def test_combo_editor_allows_saved_superkey_actions(self, temp_config_dir, monkeypatch):
+        from gi.repository import Gtk
+
+        from keyforge.common import paths
+        from keyforge.common.models import (
+            ActionType,
+            ComboEvent,
+            ComboStep,
+            MappingAction,
+            SuperkeyAction,
+            SuperkeyConfig,
+            SuperkeyMode,
+        )
+        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keyforge.session.superkeys import SuperkeyManager
+
+        superkeys_dir = temp_config_dir / "superkeys"
+        superkeys_dir.mkdir()
+        monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+        SuperkeyManager().save_superkey(
+            SuperkeyConfig(
+                name="combo_overload",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                ],
+            )
+        )
+        SuperkeyManager().save_superkey(
+            SuperkeyConfig(
+                name="combo_pattern",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_b")],
+                double_tap_actions=[
+                    SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_c")
+                ],
+                tap_hold_actions=[
+                    SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_d")
+                ],
+            )
+        )
+
+        parent = Gtk.Box()
+
+        overload_dialog = ComboEditorDialog(parent)
+        overload_dialog._draft.steps.append(
+            ComboStep(events=[ComboEvent(evdev="key_a", hardware_id="1234:5678")])
+        )
+        overload_dialog._refresh_trigger_display()
+        overload_dialog._on_action_selected(
+            None,
+            MappingAction(action_type=ActionType.SUPERKEY, superkey_name="combo_overload"),
+        )
+
+        assert overload_dialog.validation_label.get_visible() is False
+        assert overload_dialog.save_button.get_sensitive() is True
+
+        pattern_dialog = ComboEditorDialog(parent)
+        pattern_dialog._draft.steps.extend(
+            [
+                ComboStep(events=[ComboEvent(evdev="key_x", hardware_id="1234:5678")]),
+                ComboStep(events=[ComboEvent(evdev="key_y", hardware_id="1234:5678")]),
+            ]
+        )
+        pattern_dialog._refresh_trigger_display()
+        pattern_dialog._on_action_selected(
+            None,
+            MappingAction(action_type=ActionType.SUPERKEY, superkey_name="combo_pattern"),
+        )
+
+        assert pattern_dialog.validation_label.get_visible() is False
+        assert pattern_dialog.save_button.get_sensitive() is True
+
+    def test_combo_editor_rejects_missing_superkey_action(self):
+        from gi.repository import Gtk
+
+        from keyforge.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        parent = Gtk.Box()
+        dialog = ComboEditorDialog(parent)
+        dialog._draft.steps.append(
+            ComboStep(events=[ComboEvent(evdev="key_a", hardware_id="1234:5678")])
+        )
+        dialog._refresh_trigger_display()
+        dialog._on_action_selected(
+            None,
+            MappingAction(action_type=ActionType.SUPERKEY, superkey_name="missing-superkey"),
+        )
+
+        assert dialog.validation_label.get_visible() is True
+        assert "could not be loaded" in dialog.validation_label.get_text().lower()
+        assert dialog.save_button.get_sensitive() is False
+
 
 class TestProfileCreateDialog:
     def test_new_profile_defaults_to_permanent(self, temp_config_dir):

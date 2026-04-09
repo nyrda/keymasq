@@ -170,6 +170,12 @@ Assign a saved super key from the **Device** tab:
 The same super key can be reused on different devices and in different
 profiles.
 
+Combos can also trigger saved super keys:
+
+- `Overload` works for both single-step and multi-step combos.
+- `Pattern` works fully on single-step combos.
+- On multi-step combos, only the `Tap` and `Hold` slots are used.
+
 ## Deleting A Super Key
 
 Deleting a super key replaces all profile references to it with **Suppress**.

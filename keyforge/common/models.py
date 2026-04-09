@@ -1,6 +1,10 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING, Any, Protocol, cast, overload
+
+if TYPE_CHECKING:
+    from keyforge.keyforged.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 
 PROTECTED_BUTTONS = frozenset({"btn_left", "btn_right"})
 
@@ -187,6 +191,42 @@ class SuperkeyConfig:
 
     def has_any_action(self) -> bool:
         return self.has_pattern_actions() or self.has_overload_actions()
+
+
+class _ComboCompatibleSuperkeyConfig(Protocol):
+    mode: SuperkeyMode
+
+
+@overload
+def combo_effective_superkey_config(
+    config: SuperkeyConfig,
+    *,
+    step_count: int,
+) -> SuperkeyConfig: ...
+
+
+@overload
+def combo_effective_superkey_config(
+    config: "RuntimeSuperkeyConfig",
+    *,
+    step_count: int,
+) -> "RuntimeSuperkeyConfig": ...
+
+def combo_effective_superkey_config[T: _ComboCompatibleSuperkeyConfig](
+    config: T,
+    *,
+    step_count: int,
+) -> T:
+    if config.mode != SuperkeyMode.PATTERN or step_count <= 1:
+        return config
+    return cast(
+        T,
+        replace(
+            cast(Any, config),
+            double_tap_actions=[],
+            tap_hold_actions=[],
+        ),
+    )
 
 
 @dataclass

@@ -841,6 +841,15 @@ class ProfileManager:
                     ):
                         result.append((hardware_id, info.config.name))
                         break
+            for combo in info.config.combos:
+                action = combo.action
+                if (
+                    action is not None
+                    and action.action_type == ActionType.SUPERKEY
+                    and action.superkey_name == superkey_name
+                ):
+                    result.append(("combo", info.config.name))
+                    break
         return result
 
     def replace_superkey_with_suppress(self, superkey_name: str) -> int:
@@ -856,10 +865,20 @@ class ProfileManager:
                         layer.mappings[button_id] = MappingAction(action_type=ActionType.SUPPRESS)
                         modified = True
                         count += 1
+            for combo in info.config.combos:
+                action = combo.action
+                if (
+                    action is not None
+                    and action.action_type == ActionType.SUPERKEY
+                    and action.superkey_name == superkey_name
+                ):
+                    combo.action = MappingAction(action_type=ActionType.SUPPRESS)
+                    modified = True
+                    count += 1
             if modified:
                 self.save_profile(info.config)
         if count > 0:
-            log.info("Replaced superkey '%s' with suppress in %d mappings", superkey_name, count)
+            log.info("Replaced superkey '%s' with suppress in %d references", superkey_name, count)
         return count
 
     def remove_device_layers(self, hardware_id: str) -> int:

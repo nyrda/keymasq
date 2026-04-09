@@ -676,6 +676,109 @@ class TestIntegration:
 
         assert grabbed.state.held_output_keys["passthrough"] == set()
 
+    async def test_combo_multi_step_pattern_hold_starts_after_step_timeout_window(
+        self,
+        full_system,
+        virtual_keyboard,
+    ):
+        _server, manager = full_system
+        keyboard_path = virtual_keyboard.device.path
+        hardware_id = "abcd:ef01"
+
+        result = await manager.grab_device(
+            hardware_id=hardware_id,
+            evdev_paths=[keyboard_path],
+            button_map={
+                "key_leftctrl": "key_leftctrl",
+                "key_a": "key_a",
+                "key_1": "key_1",
+            },
+        )
+        assert result["grabbed"] is True
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-1",
+                    "name": "Pattern Hold",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "evdev": "key_leftctrl",
+                                },
+                                {
+                                    "hardware_id": hardware_id,
+                                    "evdev": "key_a",
+                                },
+                            ]
+                        },
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "evdev": "key_1",
+                                }
+                            ],
+                            "timeout_ms": 80,
+                        },
+                    ],
+                    "action": {
+                        "action": "superkey",
+                        "superkey": {
+                            "name": "combo-pattern",
+                            "mode": "pattern",
+                            "hold_threshold_ms": 20,
+                            "hold_actions": [{"action": "keyboard", "target": "key_f15"}],
+                            "double_tap_actions": [
+                                {"action": "keyboard", "target": "key_f16"}
+                            ],
+                            "tap_hold_actions": [
+                                {"action": "keyboard", "target": "key_f17"}
+                            ],
+                        },
+                    },
+                }
+            ]
+        )
+
+        manager.output_state.keyboard_uinput = Mock()
+
+        virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
+        virtual_keyboard.syn()
+        await asyncio.sleep(0.05)
+        virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+        virtual_keyboard.syn()
+        await asyncio.sleep(0.05)
+
+        virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
+        virtual_keyboard.syn()
+        await asyncio.sleep(0.05)
+        virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0)
+        virtual_keyboard.syn()
+        await asyncio.sleep(0.05)
+
+        virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 1)
+        virtual_keyboard.syn()
+        await asyncio.sleep(0.08)
+
+        assert manager.output_state.keyboard_uinput.write.call_args_list[0].args == (
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_F15,
+            1,
+        )
+
+        virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 0)
+        virtual_keyboard.syn()
+        await asyncio.sleep(0.08)
+
+        assert manager.output_state.keyboard_uinput.write.call_args_list[1].args == (
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_F15,
+            0,
+        )
+
     async def test_combo_single_step_rearms_when_modifier_stays_held(
         self,
         full_system,

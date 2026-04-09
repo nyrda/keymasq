@@ -63,6 +63,7 @@ class ExecRuntimeState:
     next_exec_ref: int = 1
     device_exec_refs: dict[str, set[int]] = field(default_factory=dict)
     combo_exec_refs: set[int] = field(default_factory=set)
+    combo_superkey_exec_refs: set[int] = field(default_factory=set)
     superkey_exec_refs: dict[int, tuple[str, str]] = field(default_factory=dict)
     next_superkey_exec_ref: int = 10000
 

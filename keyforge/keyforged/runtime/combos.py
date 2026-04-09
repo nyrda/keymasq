@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 import queue
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
@@ -7,7 +8,12 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Protocol, cast
 
 from keyforge.common.ipc import CommandType
-from keyforge.common.models import ActionType, MappingAction
+from keyforge.common.models import (
+    ActionType,
+    MappingAction,
+    SuperkeyMode,
+    combo_effective_superkey_config,
+)
 from keyforge.keyforged.combo_engine import (
     ComboActionTransition,
     ComboDecision,
@@ -23,6 +29,10 @@ from keyforge.keyforged.runtime.action_runner import (
     dispatch_action_trigger,
     is_hold_macro_action,
 )
+from keyforge.keyforged.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
+from keyforge.keyforged.superkey_state import SuperkeyMachine
+
+log = logging.getLogger("keyforged.runtime.combos")
 
 type JsonObject = dict[str, object]
 type IntValueFn = Callable[..., int]
@@ -163,6 +173,8 @@ class ComboActionState:
     action: MappingAction | None = None
     source_device: str | None = None
     source_button: str | None = None
+    child_combo_ids: list[str] = field(default_factory=list)
+    machine: SuperkeyMachine | None = None
 
 
 @dataclass
@@ -172,6 +184,21 @@ class ComboRuntimeState:
     engine: ComboEngine = field(default_factory=ComboEngine)
     timeout_task: asyncio.Task[None] | None = None
     active_actions: dict[str, ComboActionState] = field(default_factory=dict)
+    superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
+    held_output_keys: dict[str, set[int]] = field(
+        default_factory=lambda: {
+            "keyboard": set(),
+            "mouse": set(),
+            "gamepad": set(),
+        }
+    )
+    superkey_output_refcounts: dict[str, dict[int, int]] = field(
+        default_factory=lambda: {
+            "keyboard": {},
+            "mouse": {},
+            "gamepad": {},
+        }
+    )
 
 
 def _evdev_code_name(raw_name: object, fallback: int) -> str:
@@ -536,6 +563,130 @@ def prune_combo_action_task(
         manager.combo_state.active_actions.pop(combo_id, None)
 
 
+def track_combo_superkey_output(
+    manager: _ComboManager,
+    action_type: str,
+    code: int,
+    value: int,
+) -> bool:
+    bucket = action_type if action_type in manager.combo_state.superkey_output_refcounts else None
+    if bucket is None:
+        return True
+
+    refcounts = manager.combo_state.superkey_output_refcounts[bucket]
+    current = refcounts.get(int(code), 0)
+
+    if int(value) == 1:
+        refcounts[int(code)] = current + 1
+        manager.combo_state.held_output_keys[bucket].add(int(code))
+        return current == 0
+
+    if int(value) == 0:
+        if current <= 1:
+            # `current == 0` means this release was already balanced elsewhere, so
+            # there is no final key-up to emit. Only a 1 -> 0 transition should
+            # propagate a release event to the output layer.
+            refcounts.pop(int(code), None)
+            manager.combo_state.held_output_keys[bucket].discard(int(code))
+            return current == 1
+
+        refcounts[int(code)] = current - 1
+        return False
+
+    return True
+
+
+def _combo_step_count(manager: _ComboManager, combo_id: str) -> int:
+    for combo in manager.combo_state.active_combos:
+        if combo.id == combo_id:
+            return len(combo.steps)
+    return 1
+
+
+def _combo_superkey_config(
+    manager: _ComboManager,
+    combo_id: str,
+    action: MappingAction,
+) -> RuntimeSuperkeyConfig | None:
+    config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
+    if config is None:
+        return None
+    return combo_effective_superkey_config(
+        config,
+        step_count=_combo_step_count(manager, combo_id),
+    )
+
+
+def _combo_matches_binding_scope(
+    combo: RuntimeCombo,
+    hardware_id: str,
+    source: str | None,
+) -> bool:
+    """Return whether a combo includes a binding for this already-normalized scope.
+
+    ``hardware_id`` must already use the runtime's canonical casing, and ``source``
+    must be pre-normalized the same way or left as ``None`` to match any source.
+    This helper only coerces falsey values to ``""`` for comparison.
+    """
+    normalized_hardware_id = str(hardware_id or "")
+    normalized_source = None if source is None else str(source or "")
+    for step in combo.steps:
+        for binding in step.bindings:
+            if binding.hardware_id != normalized_hardware_id:
+                continue
+            if normalized_source is None or binding.source == normalized_source:
+                return True
+    return False
+
+
+async def _combo_superkey_machine(
+    manager: _ComboManager,
+    combo_id: str,
+    action: MappingAction,
+    trigger_binding: RuntimeComboBinding,
+    *,
+    fire_and_observe_fn: FireAndObserve,
+    command_type: type[CommandType],
+) -> SuperkeyMachine | None:
+    config = _combo_superkey_config(manager, combo_id, action)
+    if config is None:
+        return None
+
+    trigger_name = f"combo:{combo_id}"
+    existing = manager.combo_state.superkey_machines.get(combo_id)
+    if existing is not None:
+        if existing.config == config and existing.event_name == trigger_name:
+            return existing
+        await existing.stop()
+        manager.combo_state.superkey_machines.pop(combo_id, None)
+
+    async def combo_superkey_broadcast(data: dict[str, object]) -> None:
+        payload = dict(data)
+        payload.setdefault("source_device", trigger_binding.hardware_id)
+        payload.setdefault("source_button", trigger_name)
+        await broadcast_combo_action(
+            manager,
+            payload,
+            fire_and_observe_fn=fire_and_observe_fn,
+            command_type=command_type,
+        )
+
+    def combo_superkey_output_tracker(action_type: str, code: int, value: int) -> bool:
+        return track_combo_superkey_output(manager, action_type, code, value)
+
+    machine = SuperkeyMachine(
+        config=config,
+        event_name=trigger_name,
+        keyboard_uinput=cast(_WritableUInput, manager.output_state.keyboard_uinput),
+        mouse_uinput=cast(_WritableUInput, manager.output_state.mouse_uinput),
+        gamepad_uinput=cast(_WritableUInput, manager.output_state.gamepad_uinput),
+        broadcast_callback=combo_superkey_broadcast,
+        key_event_tracker=combo_superkey_output_tracker,
+    )
+    manager.combo_state.superkey_machines[combo_id] = machine
+    return machine
+
+
 async def combo_tap_key(
     manager: _ComboManager,
     combo_id: str,
@@ -636,6 +787,100 @@ async def start_combo_action(
     trigger_name = f"combo:{combo_id}"
 
     if action.action_type == action_type_enum.SUPERKEY:
+        config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
+        if config is None:
+            return
+        if config.mode == SuperkeyMode.OVERLOAD:
+            child_combo_ids: list[str] = []
+            for index, child_action in enumerate(config.overload_actions):
+                if child_action.action_type == action_type_enum.SUPERKEY:
+                    # Combo-triggered overloads intentionally stop at one superkey layer
+                    # so a saved superkey cannot recursively expand into more superkeys.
+                    log.warning(
+                        "Skipping nested superkey child %s in combo overload %s (%s)",
+                        child_action.superkey_name or "<unnamed>",
+                        combo_id,
+                        config.name,
+                    )
+                    continue
+                child_combo_id = f"{combo_id}#overload#{index}"
+                await _start_combo_action_instance(
+                    manager,
+                    child_combo_id,
+                    child_action,
+                    trigger_binding,
+                    trigger_name=f"{trigger_name}#overload#{index}",
+                    action_type_enum=action_type_enum,
+                    asyncio_mod=asyncio_mod,
+                    emit_mouse_move_fn=emit_mouse_move_fn,
+                    get_trigger_axis_fn=get_trigger_axis_fn,
+                    resolve_code_fn=resolve_code_fn,
+                    fire_and_observe_fn=fire_and_observe_fn,
+                    command_type=command_type,
+                    evdev_mod=evdev_mod,
+                    uinput_writer=uinput_writer,
+                )
+                if child_combo_id in manager.combo_state.active_actions:
+                    child_combo_ids.append(child_combo_id)
+            manager.combo_state.active_actions[combo_id] = ComboActionState(
+                kind="superkey_overload",
+                child_combo_ids=child_combo_ids,
+            )
+            return
+
+        machine = await _combo_superkey_machine(
+            manager,
+            combo_id,
+            action,
+            trigger_binding,
+            fire_and_observe_fn=fire_and_observe_fn,
+            command_type=command_type,
+        )
+        if machine is None:
+            return
+        manager.combo_state.active_actions[combo_id] = ComboActionState(
+            kind="superkey_pattern",
+            machine=machine,
+        )
+        await machine.on_down()
+        return
+
+    await _start_combo_action_instance(
+        manager,
+        combo_id,
+        action,
+        trigger_binding,
+        trigger_name=trigger_name,
+        action_type_enum=action_type_enum,
+        asyncio_mod=asyncio_mod,
+        emit_mouse_move_fn=emit_mouse_move_fn,
+        get_trigger_axis_fn=get_trigger_axis_fn,
+        resolve_code_fn=resolve_code_fn,
+        fire_and_observe_fn=fire_and_observe_fn,
+        command_type=command_type,
+        evdev_mod=evdev_mod,
+        uinput_writer=uinput_writer,
+    )
+
+
+async def _start_combo_action_instance(
+    manager: _ComboManager,
+    combo_id: str,
+    action: MappingAction | None,
+    trigger_binding: RuntimeComboBinding,
+    *,
+    trigger_name: str,
+    action_type_enum: type[ActionType],
+    asyncio_mod: _AsyncioModule,
+    emit_mouse_move_fn: _EmitMouseMoveFn,
+    get_trigger_axis_fn: TriggerAxisFn,
+    resolve_code_fn: ResolveCodeFn,
+    fire_and_observe_fn: FireAndObserve,
+    command_type: type[CommandType],
+    evdev_mod: _EvdevModule,
+    uinput_writer: UInputWriter,
+) -> None:
+    if action is None or action.action_type == action_type_enum.SUPERKEY:
         return
 
     if action.action_type == action_type_enum.KEYBOARD and action.target:
@@ -853,6 +1098,29 @@ async def stop_combo_action(
     if not state:
         return
     kind = state.kind
+    if kind == "superkey_overload":
+        for child_combo_id in reversed(state.child_combo_ids):
+            await stop_combo_action(
+                manager,
+                child_combo_id,
+                asyncio_mod=asyncio_mod,
+                contextlib_mod=contextlib_mod,
+                mapping_action_cls=mapping_action_cls,
+                evdev_mod=evdev_mod,
+                uinput_writer=uinput_writer,
+                emit_mouse_move_fn=emit_mouse_move_fn,
+                get_trigger_axis_fn=get_trigger_axis_fn,
+                resolve_code_fn=resolve_code_fn,
+                fire_and_observe_fn=fire_and_observe_fn,
+                command_type=command_type,
+                action_type_enum=action_type_enum,
+            )
+        return
+    if kind == "superkey_pattern":
+        machine = state.machine
+        if machine is not None:
+            await machine.on_up()
+        return
     if kind == "key":
         uinput_dev = state.uinput
         code = state.code
@@ -925,6 +1193,17 @@ async def clear_combo_runtime(
             command_type=command_type,
             action_type_enum=action_type_enum,
         )
+    # stop_combo_action() handles the pattern key-up transition for active combo
+    # actions. This final pass is still required to fully tear down any cached
+    # machine state and cancel timers during combo runtime reset.
+    machines = list(manager.combo_state.superkey_machines.values())
+    manager.combo_state.superkey_machines.clear()
+    for machine in machines:
+        await machine.stop()
+    for held in manager.combo_state.held_output_keys.values():
+        held.clear()
+    for refcounts in manager.combo_state.superkey_output_refcounts.values():
+        refcounts.clear()
     if manager.combo_state.timeout_task and not manager.combo_state.timeout_task.done():
         manager.combo_state.timeout_task.cancel()
         with contextlib_mod.suppress(asyncio_mod.CancelledError):
@@ -950,9 +1229,11 @@ async def clear_combo_runtime_for_binding_scope(
     action_type_enum: type[ActionType],
     time_mod: _TimeModule,
 ) -> None:
+    normalized_hardware_id = str(hardware_id or "").lower()
+    normalized_source = None if source is None else str(source or "").lower()
     active_combo_ids = manager.combo_state.engine.drop_candidates_for_binding_scope(
-        str(hardware_id or "").lower(),
-        None if source is None else str(source or "").lower(),
+        normalized_hardware_id,
+        normalized_source,
     )
     for combo_id in active_combo_ids:
         await stop_combo_action(
@@ -970,6 +1251,16 @@ async def clear_combo_runtime_for_binding_scope(
             command_type=command_type,
             action_type_enum=action_type_enum,
         )
+    matching_machine_ids = [
+        combo.id
+        for combo in manager.combo_state.active_combos
+        if combo.id in manager.combo_state.superkey_machines
+        and _combo_matches_binding_scope(combo, normalized_hardware_id, normalized_source)
+    ]
+    for combo_id in matching_machine_ids:
+        machine = manager.combo_state.superkey_machines.pop(combo_id, None)
+        if machine is not None:
+            await machine.stop()
     refresh_combo_timeout_watchdog(
         manager,
         asyncio_mod=asyncio_mod,

@@ -25,6 +25,7 @@ from keyforge.gui.widgets.key_selector_dialog import (
     EVDEV_TO_KEY,
     KeySelectorDialog,
 )
+from keyforge.session.superkeys import SuperkeyManager
 
 DEFAULT_STEP_TIMEOUT_MS = 600
 MIN_STEP_TIMEOUT_MS = 50
@@ -448,7 +449,11 @@ class ComboEditorDialog(Adw.Dialog):
         if self._draft.action is None:
             return "Select an action."
         if self._draft.action.action_type == ActionType.SUPERKEY:
-            return "Super Key actions are not supported for combos yet."
+            superkey_name = str(self._draft.action.superkey_name or "").strip()
+            if not superkey_name:
+                return "Select a saved Super Key."
+            if SuperkeyManager().get_superkey(superkey_name) is None:
+                return "The selected Super Key could not be loaded."
         for index, step in enumerate(self._draft.steps[1:], start=1):
             timeout_ms = step.timeout_ms
             if timeout_ms is None:

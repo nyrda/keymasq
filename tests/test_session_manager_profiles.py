@@ -17,6 +17,8 @@ from keyforge.common.models import (
     DeviceProfileLayer,
     MappingAction,
     ProfileConfig,
+    SuperkeyAction,
+    SuperkeyConfig,
 )
 from keyforge.session.manager import SessionManager
 from keyforge.session.profiles import ResolvedCombo, ResolvedDeviceProfile, ResolvedProfiles
@@ -208,6 +210,38 @@ async def test_reevaluate_profiles_sends_combo_payload_and_forces_combo_grab() -
     assert sent[0].args[0].data["force_grab_unmapped"] is True
     assert sent[2].args[0].data["combos"][0]["action"]["profile_name"] == "Gaming"
     assert sent[2].args[0].data["combos"][0]["steps"][0]["timeout_ms"] == 750
+
+
+def test_resolved_combo_signature_changes_when_superkey_definition_changes() -> None:
+    manager = SessionManager()
+    combo_action = MappingAction(action_type=ActionType.SUPERKEY, superkey_name="combo-superkey")
+    combos = [
+        ResolvedCombo(
+            id="combo-1",
+            name="Combo Superkey",
+            steps=[
+                ComboStep(events=[ComboEvent(hardware_id="1234:5678", source="kbd", evdev="key_a")])
+            ],
+            action=combo_action,
+            profile_name="Desktop",
+        )
+    ]
+    base_superkey = SuperkeyConfig(
+        name="combo-superkey",
+        tap_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_a")],
+    )
+    updated_superkey = SuperkeyConfig(
+        name="combo-superkey",
+        tap_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_b")],
+    )
+
+    manager.superkeys = SimpleNamespace(get_superkey=lambda _name: base_superkey)  # type: ignore[assignment]
+    base_signature = session_payloads_module.resolved_combos_signature(manager, combos)
+
+    manager.superkeys = SimpleNamespace(get_superkey=lambda _name: updated_superkey)  # type: ignore[assignment]
+    updated_signature = session_payloads_module.resolved_combos_signature(manager, combos)
+
+    assert base_signature != updated_signature
 
 
 @pytest.mark.asyncio

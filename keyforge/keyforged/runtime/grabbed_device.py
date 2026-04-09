@@ -295,45 +295,48 @@ class GrabbedDevice:
             return self.gamepad_uinput
         return None
 
-    def emit_combo_release(self, evdev_name: str) -> None:
+    def _combo_binding_output(self, evdev_name: str) -> tuple[object, int, str] | None:
         held_action = cast(MappingAction | None | object, self._combo_binding_action(evdev_name))
         if held_action is None:
             if not self.uinput:
-                return
+                return None
             code = resolve_output_code(evdev_name)
             if code is None:
-                return
-            runtime_outputs.write_key(
-                self,
-                self.uinput,
-                code,
-                0,
-                evdev_mod=evdev,
-                uinput_writer=_uinput_writer,
-            )
-            return
+                return None
+            return (self.uinput, int(code), "passthrough")
 
         if not isinstance(held_action, MappingAction):
-            return
-        if held_action.action_type in (ActionType.SUPPRESS, ActionType.PASSTHROUGH):
-            if held_action.action_type == ActionType.PASSTHROUGH and self.uinput:
-                code = resolve_output_code(evdev_name)
-                if code is not None:
-                    runtime_outputs.write_key(
-                        self,
-                        self.uinput,
-                        code,
-                        0,
-                        evdev_mod=evdev,
-                        uinput_writer=_uinput_writer,
-                    )
-            return
+            return None
+        if held_action.action_type == ActionType.SUPPRESS:
+            return None
+        if held_action.action_type == ActionType.PASSTHROUGH:
+            if not self.uinput:
+                return None
+            code = resolve_output_code(evdev_name)
+            if code is None:
+                return None
+            return (self.uinput, int(code), "passthrough")
         if held_action.rapidfire_enabled or held_action.tap_enabled:
-            return
+            return None
         target_uinput = self._combo_binding_target_uinput(held_action.action_type)
         code = resolve_output_code(held_action.target or "")
         if target_uinput is None or code is None:
+            return None
+        if held_action.action_type == ActionType.KEYBOARD:
+            bucket = "keyboard"
+        elif held_action.action_type == ActionType.MOUSE:
+            bucket = "mouse"
+        elif held_action.action_type == ActionType.GAMEPAD:
+            bucket = "gamepad"
+        else:
+            return None
+        return (target_uinput, int(code), bucket)
+
+    def emit_combo_release(self, evdev_name: str) -> None:
+        output = self._combo_binding_output(evdev_name)
+        if output is None:
             return
+        target_uinput, code, _bucket = output
         runtime_outputs.write_key(
             self,
             target_uinput,
@@ -344,44 +347,10 @@ class GrabbedDevice:
         )
 
     def emit_combo_press(self, evdev_name: str) -> None:
-        held_action = cast(MappingAction | None | object, self._combo_binding_action(evdev_name))
-        if held_action is None:
-            if not self.uinput:
-                return
-            code = resolve_output_code(evdev_name)
-            if code is None:
-                return
-            runtime_outputs.write_key(
-                self,
-                self.uinput,
-                code,
-                1,
-                evdev_mod=evdev,
-                uinput_writer=_uinput_writer,
-            )
+        output = self._combo_binding_output(evdev_name)
+        if output is None:
             return
-
-        if not isinstance(held_action, MappingAction):
-            return
-        if held_action.action_type in (ActionType.SUPPRESS, ActionType.PASSTHROUGH):
-            if held_action.action_type == ActionType.PASSTHROUGH and self.uinput:
-                code = resolve_output_code(evdev_name)
-                if code is not None:
-                    runtime_outputs.write_key(
-                        self,
-                        self.uinput,
-                        code,
-                        1,
-                        evdev_mod=evdev,
-                        uinput_writer=_uinput_writer,
-                    )
-            return
-        if held_action.rapidfire_enabled or held_action.tap_enabled:
-            return
-        target_uinput = self._combo_binding_target_uinput(held_action.action_type)
-        code = resolve_output_code(held_action.target or "")
-        if target_uinput is None or code is None:
-            return
+        target_uinput, code, _bucket = output
         runtime_outputs.write_key(
             self,
             target_uinput,
@@ -392,10 +361,11 @@ class GrabbedDevice:
         )
 
     def combo_passthrough_binding_active(self, evdev_name: str) -> bool:
-        code = resolve_output_code(evdev_name)
-        if code is None:
+        output = self._combo_binding_output(evdev_name)
+        if output is None:
             return False
-        return int(code) in self.state.held_output_keys["passthrough"]
+        _target_uinput, code, bucket = output
+        return int(code) in self.state.held_output_keys[bucket]
 
     def combo_source_binding_held(self, evdev_name: str) -> bool:
         normalized = str(evdev_name or "").lower()

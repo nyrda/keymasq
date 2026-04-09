@@ -56,13 +56,18 @@
 }
 
 .combo-step-pill {
-  background: alpha(@accent_color, 0.15);
+  background: alpha(@accent_color, 0.12);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 3px 10px;
+  font-weight: 600;
 }
 
 .combo-step-row {
-  padding: 4px 0;
+  padding: 3px 0;
+}
+
+.combo-compact-row {
+  min-height: 0;
 }
 
 .combo-warning-label {

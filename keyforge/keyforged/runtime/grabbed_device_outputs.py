@@ -211,6 +211,7 @@ def release_all_keys(
     device_runtime.state.rapidfire_active.clear()
     device_runtime.state.tap_active.clear()
     device_runtime.state.combo_passthrough_held.clear()
+    device_runtime.state.combo_recalled_bindings.clear()
     device_runtime.state.held_source_actions.clear()
 
 

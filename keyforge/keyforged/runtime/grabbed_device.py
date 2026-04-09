@@ -247,6 +247,7 @@ class GrabbedDevice:
         runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
+        self.state.combo_recalled_bindings.clear()
 
         await self.reset_superkeys()
 
@@ -319,6 +320,12 @@ class GrabbedDevice:
 
     def combo_source_binding_held(self, evdev_name: str) -> bool:
         return str(evdev_name or "").lower() in self.state.held_source_actions
+
+    def mark_combo_recalled_binding(self, evdev_name: str) -> None:
+        self.state.combo_recalled_bindings.add(normalize_combo_evdev(evdev_name))
+
+    def clear_combo_recalled_binding(self, evdev_name: str) -> None:
+        self.state.combo_recalled_bindings.discard(normalize_combo_evdev(evdev_name))
 
     def has_held_source_inputs(self) -> bool:
         return bool(self.state.held_source_actions)

@@ -276,6 +276,30 @@ async def process_event(
     combo_passthrough_requested = False
 
     event_name = get_event_name(event, evdev_mod=evdev_mod)
+    if (
+        event.type == evdev_mod.ecodes.EV_KEY
+        and event_name in device_runtime.state.combo_recalled_bindings
+    ):
+        if int(event.value) == 2:
+            _record_diagnostics(
+                device_runtime,
+                "combo_recalled_repeat_suppressed",
+                started_ns,
+                time_mod=time_mod,
+            )
+            return
+        device_runtime.state.combo_recalled_bindings.discard(event_name)
+        device_runtime.state.combo_passthrough_held.discard(event_name)
+        if int(event.value) == 0:
+            device_runtime.state.held_source_actions.pop(event_name, None)
+            _record_diagnostics(
+                device_runtime,
+                "combo_recalled_release_suppressed",
+                started_ns,
+                time_mod=time_mod,
+            )
+            return
+
     consumed = await device_runtime.event_callback(
         device_runtime.hardware_id,
         device_runtime.path,

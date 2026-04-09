@@ -82,6 +82,10 @@ If needed, a combo can also manage its own trigger state explicitly:
 - **Restore Trigger Keys** re-presses selected trigger keys after the combo
   action finishes, but only if those keys are still physically held.
 
+While a trigger key is recalled, physical auto-repeat events for that key are
+suppressed. Restore only recreates the held-down state with a fresh key press;
+it does not replay missed repeats or preserve repeat timing across the recall.
+
 This is useful when a held trigger key would interfere with the combo action
 itself, for example when a held `Meta` key changes how a triggered super key or
 synthetic shortcut is interpreted by the desktop.

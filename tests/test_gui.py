@@ -3002,6 +3002,33 @@ class TestComboTabWidget:
 
 
 class TestComboEditorDialog:
+    def test_combo_editor_window_present_and_close(self):
+        from gi.repository import GLib, Gtk
+
+        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        def flush_gtk_events() -> None:
+            context = GLib.MainContext.default()
+            while context.iteration(False):
+                pass
+
+        parent = Gtk.Window()
+        dialog = ComboEditorDialog(parent)
+
+        parent.present()
+        dialog.present()
+        flush_gtk_events()
+
+        assert dialog.get_visible() is True
+        assert dialog.get_modal() is True
+        assert dialog.get_transient_for() is parent
+
+        dialog.close()
+        flush_gtk_events()
+
+        assert dialog.get_visible() is False
+        parent.close()
+
     def test_combo_editor_capture_response_adds_step(self):
         from gi.repository import Gtk
 

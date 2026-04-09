@@ -455,6 +455,9 @@ def emit_combo_recalls(manager: _ComboManager, recall_events: list[ComboSyntheti
         device = find_grabbed_device_for_binding(manager, event.binding)
         if device is not None:
             device.emit_combo_release(event.binding.evdev)
+            mark_recalled = getattr(device, "mark_combo_recalled_binding", None)
+            if callable(mark_recalled):
+                mark_recalled(event.binding.evdev)
 
 
 def find_grabbed_device_for_binding(

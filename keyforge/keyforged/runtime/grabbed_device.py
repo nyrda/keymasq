@@ -185,6 +185,7 @@ class GrabbedDevice:
         for event_name in self.state.combo_passthrough_held:
             self.state.held_source_actions.setdefault(event_name, None)
         self.state.combo_passthrough_held.clear()
+        self.state.combo_recalled_bindings.clear()
         await self.reset_superkeys()
         runtime_grab.seed_startup_held_actions(self)
 
@@ -319,7 +320,11 @@ class GrabbedDevice:
         return int(code) in self.state.held_output_keys["passthrough"]
 
     def combo_source_binding_held(self, evdev_name: str) -> bool:
-        return str(evdev_name or "").lower() in self.state.held_source_actions
+        normalized = str(evdev_name or "").lower()
+        return (
+            normalized in self.state.held_source_actions
+            or normalized in self.state.combo_passthrough_held
+        )
 
     def mark_combo_recalled_binding(self, evdev_name: str) -> None:
         self.state.combo_recalled_bindings.add(normalize_combo_evdev(evdev_name))

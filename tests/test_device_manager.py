@@ -2839,6 +2839,36 @@ class TestSuperkeys:
         ]
 
     @pytest.mark.asyncio
+    async def test_combo_recalled_modifier_uses_normalized_name_for_suppression(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch)
+        device.uinput = passthrough  # type: ignore[assignment]
+        device._running = True
+        device.state.combo_passthrough_held.add("key_leftmeta")
+        device.mark_combo_recalled_binding("key_leftmeta")
+
+        repeat_event = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_LEFTMETA,
+            value=2,
+        )
+        release_event = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_LEFTMETA,
+            value=0,
+        )
+
+        await _runtime_process_grabbed_event(device, repeat_event)
+        await _runtime_process_grabbed_event(device, release_event)
+
+        assert passthrough.writes == []
+        assert device.state.combo_recalled_bindings == set()
+        assert device.state.combo_passthrough_held == set()
+
+    @pytest.mark.asyncio
     async def test_combo_recalled_release_clears_suppression_without_passthrough(
         self,
         monkeypatch: pytest.MonkeyPatch,

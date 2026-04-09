@@ -7,6 +7,7 @@ from typing import cast
 
 import evdev
 
+from keyforge.common.combos import normalize_combo_evdev
 from keyforge.common.devices import (
     canonical_gamepad_button_name,
     classify_event_device_type,
@@ -277,9 +278,10 @@ async def process_event(
     suppress_recalled_release_passthrough = False
 
     event_name = get_event_name(event, evdev_mod=evdev_mod)
+    normalized_event_name = normalize_combo_evdev(event_name)
     if (
         event.type == evdev_mod.ecodes.EV_KEY
-        and event_name in device_runtime.state.combo_recalled_bindings
+        and normalized_event_name in device_runtime.state.combo_recalled_bindings
     ):
         if int(event.value) == 2:
             _record_diagnostics(
@@ -289,7 +291,7 @@ async def process_event(
                 time_mod=time_mod,
             )
             return
-        device_runtime.state.combo_recalled_bindings.discard(event_name)
+        device_runtime.state.combo_recalled_bindings.discard(normalized_event_name)
         device_runtime.state.combo_passthrough_held.discard(event_name)
         if int(event.value) == 0:
             suppress_recalled_release_passthrough = True

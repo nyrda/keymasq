@@ -2690,6 +2690,102 @@ class TestSuperkeys:
         assert "key_1" not in device.state.held_source_actions
 
     @pytest.mark.asyncio
+    async def test_combo_recalled_repeat_is_suppressed_until_restore_or_new_press(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch)
+        device.uinput = passthrough  # type: ignore[assignment]
+        device._running = True
+        device.state.combo_passthrough_held.add("key_x")
+        device.mark_combo_recalled_binding("key_x")
+
+        repeat_event = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_X,
+            value=2,
+        )
+
+        await _runtime_process_grabbed_event(device, repeat_event)
+
+        assert passthrough.writes == []
+        assert device.state.combo_passthrough_held == {"key_x"}
+        assert device.state.combo_recalled_bindings == {"key_x"}
+
+        device.clear_combo_recalled_binding("key_x")
+        await _runtime_process_grabbed_event(device, repeat_event)
+
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 2),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_combo_recalled_release_clears_suppression_without_passthrough(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        callback = AsyncMock(return_value=None)
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch)
+        device.uinput = passthrough  # type: ignore[assignment]
+        device._running = True
+        device.event_callback = callback
+        device.state.combo_passthrough_held.add("key_x")
+        device.mark_combo_recalled_binding("key_x")
+        device.state.held_source_actions["key_x"] = None
+
+        release_event = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_X,
+            value=0,
+        )
+
+        await _runtime_process_grabbed_event(device, release_event)
+
+        assert callback.await_count == 0
+        assert passthrough.writes == []
+        assert device.state.combo_passthrough_held == set()
+        assert device.state.combo_recalled_bindings == set()
+        assert "key_x" not in device.state.held_source_actions
+
+    @pytest.mark.asyncio
+    async def test_combo_recalled_press_becomes_fresh_press_again(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch)
+        device.uinput = passthrough  # type: ignore[assignment]
+        device._running = True
+        device.state.combo_passthrough_held.add("key_x")
+        device.mark_combo_recalled_binding("key_x")
+
+        callback_calls = {"count": 0}
+
+        async def event_callback(*_args):
+            callback_calls["count"] += 1
+            assert device.state.combo_recalled_bindings == set()
+            assert device.state.combo_passthrough_held == set()
+            return ComboDecision(passthrough_current_event=True)
+
+        device.event_callback = event_callback
+        press_event = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_X,
+            value=1,
+        )
+
+        await _runtime_process_grabbed_event(device, press_event)
+
+        assert callback_calls["count"] == 1
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
+        ]
+        assert device.state.combo_recalled_bindings == set()
+        assert device.state.combo_passthrough_held == {"key_x"}
+
+    @pytest.mark.asyncio
     async def test_superkey_release_after_reset_does_not_recreate_stale_machine(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -3596,6 +3692,7 @@ class TestGrabbedDeviceHelpers:
         device.state.rapidfire_active["btn_side"] = True
         device.state.tap_active["btn_side"] = True
         device.state.combo_passthrough_held.add("btn_side")
+        device.state.combo_recalled_bindings.add("btn_side")
         device.state.held_source_actions["btn_side"] = None
 
         assert gdo.bucket_for_uinput(device, device.keyboard_uinput) == "keyboard"
@@ -3616,6 +3713,7 @@ class TestGrabbedDeviceHelpers:
         canceled.assert_called_once()
         assert device.state.rapidfire_tasks == {}
         assert device.state.tap_active == {}
+        assert device.state.combo_recalled_bindings == set()
         assert device.state.held_source_actions == {}
 
     @pytest.mark.asyncio
@@ -4113,6 +4211,7 @@ class TestComboActionDispatch:
                 self.interface_id = "kbd"
                 self.active = {"key_leftmeta", "key_c"}
                 self.held = {"key_leftmeta", "key_c"}
+                self.recalled: set[str] = set()
                 self.releases: list[str] = []
                 self.presses: list[str] = []
 
@@ -4129,6 +4228,12 @@ class TestComboActionDispatch:
 
             def combo_source_binding_held(self, evdev_name: str) -> bool:
                 return evdev_name in self.held
+
+            def mark_combo_recalled_binding(self, evdev_name: str) -> None:
+                self.recalled.add(evdev_name)
+
+            def clear_combo_recalled_binding(self, evdev_name: str) -> None:
+                self.recalled.discard(evdev_name)
 
             def combo_passthrough_held_modifiers(self) -> set[str]:
                 return set()
@@ -4186,6 +4291,7 @@ class TestComboActionDispatch:
         assert fake_device.releases == ["key_c", "key_leftmeta"]
         assert fake_device.presses == ["key_leftmeta"]
         assert fake_device.active == {"key_leftmeta"}
+        assert fake_device.recalled == {"key_c"}
 
     @pytest.mark.asyncio
     async def test_combo_recall_trigger_keys_restores_selected_keys_on_immediate_action_completion(
@@ -4197,6 +4303,7 @@ class TestComboActionDispatch:
                 self.interface_id = "kbd"
                 self.active = {"key_leftmeta", "key_c"}
                 self.held = {"key_leftmeta", "key_c"}
+                self.recalled: set[str] = set()
                 self.releases: list[str] = []
                 self.presses: list[str] = []
 
@@ -4213,6 +4320,12 @@ class TestComboActionDispatch:
 
             def combo_source_binding_held(self, evdev_name: str) -> bool:
                 return evdev_name in self.held
+
+            def mark_combo_recalled_binding(self, evdev_name: str) -> None:
+                self.recalled.add(evdev_name)
+
+            def clear_combo_recalled_binding(self, evdev_name: str) -> None:
+                self.recalled.discard(evdev_name)
 
             def combo_passthrough_held_modifiers(self) -> set[str]:
                 return set()
@@ -4253,6 +4366,7 @@ class TestComboActionDispatch:
         assert fake_device.releases == ["key_c", "key_leftmeta"]
         assert fake_device.presses == ["key_leftmeta"]
         assert fake_device.active == {"key_leftmeta"}
+        assert fake_device.recalled == {"key_c"}
 
     @pytest.mark.asyncio
     async def test_combo_recall_trigger_keys_restores_selected_keys_after_action_stop(
@@ -4264,6 +4378,7 @@ class TestComboActionDispatch:
                 self.interface_id = "kbd"
                 self.active = {"key_leftmeta", "key_c"}
                 self.held = {"key_leftmeta", "key_c"}
+                self.recalled: set[str] = set()
                 self.releases: list[str] = []
                 self.presses: list[str] = []
 
@@ -4280,6 +4395,12 @@ class TestComboActionDispatch:
 
             def combo_source_binding_held(self, evdev_name: str) -> bool:
                 return evdev_name in self.held
+
+            def mark_combo_recalled_binding(self, evdev_name: str) -> None:
+                self.recalled.add(evdev_name)
+
+            def clear_combo_recalled_binding(self, evdev_name: str) -> None:
+                self.recalled.discard(evdev_name)
 
             def combo_passthrough_held_modifiers(self) -> set[str]:
                 return set()
@@ -4320,6 +4441,7 @@ class TestComboActionDispatch:
 
         assert fake_device.releases == ["key_c", "key_leftmeta"]
         assert fake_device.presses == []
+        assert fake_device.recalled == {"key_c", "key_leftmeta"}
         assert manager.output_state.keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1)
         ]
@@ -4328,6 +4450,7 @@ class TestComboActionDispatch:
         await _runtime_stop_combo_action(manager, "combo-recall-hold")
 
         assert fake_device.presses == ["key_leftmeta"]
+        assert fake_device.recalled == {"key_c"}
         assert manager.output_state.keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),

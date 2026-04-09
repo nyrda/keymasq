@@ -133,6 +133,10 @@ class _GrabbedComboDevice(Protocol):
 
     def combo_source_binding_held(self, evdev_name: str) -> bool: ...
 
+    def mark_combo_recalled_binding(self, evdev_name: str) -> None: ...
+
+    def clear_combo_recalled_binding(self, evdev_name: str) -> None: ...
+
     def combo_passthrough_held_modifiers(self) -> set[str]: ...
 
 
@@ -735,6 +739,9 @@ def _combo_trigger_recall_state(
             continue
         if device is not None:
             device.emit_combo_release(binding.evdev)
+            mark_recalled = getattr(device, "mark_combo_recalled_binding", None)
+            if callable(mark_recalled):
+                mark_recalled(binding.evdev)
             recalled_bindings.append(binding)
 
     restore_names = set(combo.restore_trigger_keys)
@@ -754,18 +761,25 @@ def _restore_combo_trigger_bindings(
         device = find_grabbed_device_for_binding(manager, binding)
         if device is None:
             continue
+        clear_recalled = getattr(device, "clear_combo_recalled_binding", None)
         is_held = getattr(device, "combo_source_binding_held", None)
         is_active = getattr(device, "combo_passthrough_binding_active", None)
         if callable(is_held) and not bool(is_held(binding.evdev)):
+            if callable(clear_recalled):
+                clear_recalled(binding.evdev)
             continue
         # Skip restore if passthrough state is already active again. This keeps
         # restore idempotent when the user re-pressed the trigger key during the
         # combo action, or when some other path has already restored it.
         if callable(is_active) and bool(is_active(binding.evdev)):
+            if callable(clear_recalled):
+                clear_recalled(binding.evdev)
             continue
         emit_press = getattr(device, "emit_combo_press", None)
         if callable(emit_press):
             emit_press(binding.evdev)
+        if callable(clear_recalled):
+            clear_recalled(binding.evdev)
 
 
 def _attach_combo_trigger_recall_state(

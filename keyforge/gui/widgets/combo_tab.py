@@ -276,7 +276,7 @@ class ComboTab(ProfileManagedTab):
             sibling_combos=self._selected_combos(),
         )
         dialog.connect("combo-saved", self._on_combo_saved)
-        dialog.present()
+        dialog.present(self)
 
     def _on_combo_saved(self, _dialog: ComboEditorDialog, combo: ComboConfig) -> None:
         combos = self._selected_combos()

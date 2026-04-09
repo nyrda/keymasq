@@ -3002,7 +3002,7 @@ class TestComboTabWidget:
 
 
 class TestComboEditorDialog:
-    def test_combo_editor_window_present_and_close(self):
+    def test_combo_editor_dialog_present_and_close(self):
         from gi.repository import GLib, Gtk
 
         from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
@@ -3014,19 +3014,19 @@ class TestComboEditorDialog:
 
         parent = Gtk.Window()
         dialog = ComboEditorDialog(parent)
+        closed: list[str] = []
+        dialog.connect("closed", lambda *_args: closed.append("closed"))
 
         parent.present()
-        dialog.present()
+        dialog.present(parent)
         flush_gtk_events()
 
         assert dialog.get_visible() is True
-        assert dialog.get_modal() is True
-        assert dialog.get_transient_for() is parent
 
         dialog.close()
         flush_gtk_events()
 
-        assert dialog.get_visible() is False
+        assert closed == ["closed"]
         parent.close()
 
     def test_combo_editor_capture_response_adds_step(self):
@@ -3283,8 +3283,11 @@ class TestComboEditorDialog:
 
         dialog.recall_trigger_keys_row.set_active(True)
         assert dialog.restore_trigger_keys_group.get_visible() is True
-        assert [row.get_title() for row in dialog._restore_trigger_key_rows] == ["Ctrl", "X"]
-        dialog._restore_trigger_key_rows[0].set_active(True)
+        labels = [
+            dialog._restore_trigger_key_labels[key].get_text() for key in ("ctrl", "key_x")
+        ]
+        assert labels == ["Ctrl", "X"]
+        dialog._restore_trigger_key_buttons["ctrl"].set_active(True)
         dialog._on_action_selected(
             None,
             MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),

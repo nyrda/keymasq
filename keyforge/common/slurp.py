@@ -88,6 +88,7 @@ class SlurpCapture:
         self,
         mode: SlurpMode = SlurpMode.POINT,
         on_ready: Callable[[], Awaitable[None]] | None = None,
+        timeout: float = 5.0,
     ) -> SlurpResult | None:
         if not self.available:
             log.debug("slurp capture not available")
@@ -134,7 +135,9 @@ class SlurpCapture:
                     log.debug("slurp triggering on_ready callback")
                     await on_ready()
 
-            stdout, stderr = await self._process.communicate()
+            stdout, stderr = await asyncio.wait_for(
+                self._process.communicate(), timeout=timeout
+            )
 
             if self._process.returncode != 0:
                 stderr_text = stderr.decode().strip() if stderr else ""
@@ -154,6 +157,15 @@ class SlurpCapture:
 
             return self._parse_output(output)
 
+        except TimeoutError:
+            log.warning("slurp capture timed out after %.1fs", timeout)
+            if self._process:
+                self._process.terminate()
+                try:
+                    await asyncio.wait_for(self._process.wait(), timeout=1.0)
+                except TimeoutError:
+                    self._process.kill()
+            return None
         except asyncio.CancelledError:
             if self._process:
                 self._process.terminate()

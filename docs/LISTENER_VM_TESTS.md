@@ -58,7 +58,7 @@ Each desktop test validates:
 7. **Cursor position** — where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
 8. **Listener-scoped dispatch** — compositor-specific tests can trigger a compositor dispatch through Keyforge and verify the observable result.
 
-The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, and Sway. The Niri listener VM currently skips that cursor assertion. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
+The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, Sway, and Niri. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
 
 ## Running A Desktop VM Test
 
@@ -148,7 +148,9 @@ The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` 
 
 **Dispatch path**: The test sends `dispatch_compositor` through the session socket for the Niri `toggle-window-floating` action and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
 
-**Cursor position**: Keyforge still advertises the normal `slurp`-backed cursor path for Niri, but the NixOS listener VM does not currently enforce that path. The Niri matrix job skips the cursor-capture assertion and leaves that behavior documented rather than failing the entire integration test on the current VM setup.
+**Cursor position**: The Niri VM test uses the `slurp`-backed cursor capture path, just like Sway and COSMIC. The test grabs the QEMU AT keyboard so keyforged creates uinput devices (including `keyforge-mouse`), then verifies that `get_cursor_position` returns valid on-screen coordinates. A retry loop (up to 3 attempts) handles VM timing variance where the compositor may need extra time to register the new uinput mouse or where slurp's layer surface isn't ready before the macro click fires.
+
+**Software renderer patch**: Niri (Smithay) rejects software EGL renderers (`llvmpipe`) in `src/backend/tty.rs`, which prevents it from creating any `wl_output` in a VM without a real GPU. The test uses a patched niri (`niriPatched` in `listener-vm-matrix.nix`) that disables this check. The niri version is pinned via `niriExpectedVersion`; a Nix assertion fails evaluation if nixpkgs ships a different version, and a build-time grep guard fails the build if the patch target moves. See the `niriPatched` comments in `listener-vm-matrix.nix` for the update procedure.
 
 ### COSMIC
 

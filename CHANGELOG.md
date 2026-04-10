@@ -6,26 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Add first-class Niri compositor support, including focused-window tracking,
-  window switching actions, slurp compatibility updates, and raw
-  `niri msg action` dispatch from Keyforge actions.
-- Expand superkeys into explicit pattern and overload modes with ordered action
-  bundles across the GUI, runtime, storage, and docs.
+- Expanded superkeys with richer pattern and overload modes, so one input can
+  drive more complex tap, hold, and multi-action behaviors.
+- Added support for using superkey actions inside combos.
+- Added first-class Niri support, including window-aware profile handling and
+  Niri actions in the GUI.
 
-### Changed
+### Improved
 
-- Enforce the newer superkey schema consistently, tighten overload validation,
-  skip invalid nested superkeys during execution, and show fuller action labels
-  with rapidfire state in the GUI.
-- Make superkey bindings value-aware so the runtime can distinguish the same
-  evdev code by value or direction, including wheel-style inputs.
-- Split stable tagged releases from manual prerelease packaging so GitHub
-  releases, signing, and downstream publishing only run from stable `v*` tags.
-
-### Fixed
-
-- Restore the superkey dialog construction path and the macro manager close
-  handler.
+- Made combos more reliable, especially when restoring remapped trigger keys,
+  handling held keys, suppressing stray repeats, and resolving overlapping
+  starts.
+- Improved the combo editor flow and superkey labels so advanced mappings are
+  easier to understand and manage.
+- Made superkeys work better with value-based inputs such as wheel directions.
 
 ## [0.2] - 2026-04-07
 

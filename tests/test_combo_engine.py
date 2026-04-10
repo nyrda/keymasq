@@ -216,6 +216,105 @@ def test_unrelated_key_does_not_block_multi_step_first_step_activation():
     assert press_1.action_transition.combo_id == "combo-1"
 
 
+def test_overlapping_multi_step_combos_with_shared_first_step_progress_independently():
+    engine = ComboEngine()
+    meta = _binding("key_leftmeta")
+    key_a = _binding("key_a")
+    key_1 = _binding("key_1")
+    key_2 = _binding("key_2")
+    engine.set_combos(
+        [
+            _combo("combo-1", (meta, key_a), (key_1,)),
+            _combo(
+                "combo-2",
+                (meta, key_a),
+                (key_2,),
+                action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f6"),
+            ),
+        ]
+    )
+
+    _handle(engine, meta, 1, 0.0)
+    first_step = _handle(engine, key_a, 1, 0.1)
+    assert first_step.consume_current_event is True
+
+    _handle(engine, key_a, 0, 0.2)
+    _handle(engine, meta, 0, 0.3)
+
+    press_1 = _handle(engine, key_1, 1, 0.4)
+    assert press_1.consume_current_event is True
+    assert press_1.action_transition is not None
+    assert press_1.action_transition.combo_id == "combo-1"
+
+    release_1 = _handle(engine, key_1, 0, 0.5)
+    assert release_1.consume_current_event is True
+    assert release_1.action_transition is not None
+    assert release_1.action_transition.combo_id == "combo-1"
+    assert release_1.action_transition.kind == "release"
+
+    press_2 = _handle(engine, key_2, 1, 0.6)
+    assert press_2.consume_current_event is True
+    assert press_2.action_transition is not None
+    assert press_2.action_transition.combo_id == "combo-2"
+
+    release_2 = _handle(engine, key_2, 0, 0.7)
+    assert release_2.consume_current_event is True
+    assert release_2.action_transition is not None
+    assert release_2.action_transition.combo_id == "combo-2"
+    assert release_2.action_transition.kind == "release"
+    assert release_2.reset_candidates is True
+    assert engine._candidates == {}
+
+
+def test_overlapping_multi_step_combos_with_shared_first_step_can_hold_outputs_together():
+    engine = ComboEngine()
+    meta = _binding("key_leftmeta")
+    key_a = _binding("key_a")
+    key_1 = _binding("key_1")
+    key_2 = _binding("key_2")
+    engine.set_combos(
+        [
+            _combo("combo-1", (meta, key_a), (key_1,)),
+            _combo(
+                "combo-2",
+                (meta, key_a),
+                (key_2,),
+                action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f6"),
+            ),
+        ]
+    )
+
+    _handle(engine, meta, 1, 0.0)
+    _handle(engine, key_a, 1, 0.1)
+    _handle(engine, meta, 0, 0.2)
+    _handle(engine, key_a, 0, 0.3)
+
+    press_1 = _handle(engine, key_1, 1, 0.4)
+    assert press_1.action_transition is not None
+    assert press_1.action_transition.combo_id == "combo-1"
+
+    press_2 = _handle(engine, key_2, 1, 0.5)
+    assert press_2.consume_current_event is True
+    transitions = []
+    if press_2.action_transition is not None:
+        transitions.append(press_2.action_transition.combo_id)
+    transitions.extend(transition.combo_id for transition in press_2.extra_action_transitions)
+    assert transitions == ["combo-2"]
+
+    release_1 = _handle(engine, key_1, 0, 0.6)
+    assert release_1.consume_current_event is True
+    assert release_1.action_transition is not None
+    assert release_1.action_transition.combo_id == "combo-1"
+    assert release_1.action_transition.kind == "release"
+
+    release_2 = _handle(engine, key_2, 0, 0.7)
+    assert release_2.consume_current_event is True
+    assert release_2.action_transition is not None
+    assert release_2.action_transition.combo_id == "combo-2"
+    assert release_2.action_transition.kind == "release"
+    assert engine._candidates == {}
+
+
 def test_wrong_key_between_steps_cancels_combo_and_passes_through():
     engine = ComboEngine()
     ctrl = _binding("key_leftctrl")

@@ -151,6 +151,7 @@ class GrabbedDeviceState:
     rapidfire_outputs: dict[str, RapidfireOutputState] = field(default_factory=dict)
     tap_active: dict[str, bool] = field(default_factory=dict)
     superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
+    held_source_keys: set[str] = field(default_factory=set)
     combo_passthrough_held: set[str] = field(default_factory=set)
     combo_recalled_bindings: set[str] = field(default_factory=set)
     held_output_keys: dict[str, set[int]] = field(

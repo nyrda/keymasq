@@ -133,6 +133,8 @@ class _GrabbedComboDevice(Protocol):
 
     def combo_source_binding_held(self, evdev_name: str) -> bool: ...
 
+    def combo_binding_recalled(self, evdev_name: str) -> bool: ...
+
     def mark_combo_recalled_binding(self, evdev_name: str) -> None: ...
 
     def clear_combo_recalled_binding(self, evdev_name: str) -> None: ...
@@ -773,6 +775,10 @@ def _combo_trigger_recall_state(
     recalled_bindings: list[RuntimeComboBinding] = []
     for binding in reversed(ordered_bindings):
         device = find_grabbed_device_for_binding(manager, binding)
+        is_recalled = getattr(device, "combo_binding_recalled", None)
+        if callable(is_recalled) and bool(is_recalled(binding.evdev)):
+            recalled_bindings.append(binding)
+            continue
         is_active = getattr(device, "combo_passthrough_binding_active", None)
         if callable(is_active) and not bool(is_active(binding.evdev)):
             continue
@@ -784,10 +790,11 @@ def _combo_trigger_recall_state(
             recalled_bindings.append(binding)
 
     restore_names = set(combo.restore_trigger_keys)
+    recalled_set = set(recalled_bindings)
     restore_bindings = [
         binding
         for binding in ordered_bindings
-        if normalize_combo_evdev(binding.evdev) in restore_names
+        if binding in recalled_set and normalize_combo_evdev(binding.evdev) in restore_names
     ]
     return (recalled_bindings, restore_bindings)
 

@@ -364,6 +364,33 @@ def test_modifier_side_is_ignored_for_matching():
     assert press_x.action_transition is not None
 
 
+def test_held_bindings_for_step_respects_source_specific_and_wildcard_matching():
+    engine = ComboEngine()
+    held_aux = _binding("key_a", hardware_id="1111:2222", source="aux")
+    held_kbd = _binding("key_a", hardware_id="1111:2222", source="kbd")
+    engine.prime_held_bindings({held_aux})
+
+    exact_step = RuntimeComboStep(
+        bindings=(RuntimeComboBinding("1111:2222", "key_a", "kbd"),)
+    )
+    wildcard_step = RuntimeComboStep(
+        bindings=(RuntimeComboBinding("1111:2222", "key_a", ""),)
+    )
+
+    assert engine._held_bindings_for_step(exact_step) is None
+
+    wildcard_match = engine._held_bindings_for_step(wildcard_step)
+    assert wildcard_match == {held_aux}
+
+    engine.prime_held_bindings({held_kbd})
+    assert engine._held_bindings_for_step(exact_step) == {held_kbd}
+
+    wildcard_match = engine._held_bindings_for_step(wildcard_step)
+    assert wildcard_match is not None
+    assert len(wildcard_match) == 1
+    assert next(iter(wildcard_match)) in {held_aux, held_kbd}
+
+
 def test_repeat_events_are_ignored():
     engine = ComboEngine()
     ctrl = _binding("key_leftctrl")

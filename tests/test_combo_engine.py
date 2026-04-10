@@ -33,7 +33,7 @@ def _handle(engine: ComboEngine, binding: RuntimeComboBinding, value: int, now: 
     return engine.handle_event(ComboInputEvent(binding=binding, value=value), now)
 
 
-def test_prime_held_bindings_rebuilds_modifier_candidate_after_mismatch():
+def test_prime_held_bindings_rebuilds_modifier_seed_after_unrelated_press():
     engine = ComboEngine()
     meta = _binding("key_leftmeta")
     key_1 = _binding("key_1")
@@ -44,8 +44,9 @@ def test_prime_held_bindings_rebuilds_modifier_candidate_after_mismatch():
     assert first_meta.passthrough_current_event is True
 
     wrong = _handle(engine, key_4, 1, 0.1)
-    assert wrong.passthrough_current_event is True
-    assert wrong.reset_candidates is True
+    assert wrong.consume_current_event is False
+    assert wrong.passthrough_current_event is False
+    assert wrong.reset_candidates is False
 
     engine.prime_held_bindings({meta})
     press_1 = _handle(engine, key_1, 1, 0.2)
@@ -75,8 +76,9 @@ def test_single_step_combo_tracks_recalls_and_releases():
     assert release_x.action_transition.kind == "release"
 
     release_a = _handle(engine, key_a, 0, 0.3)
-    assert release_a.consume_current_event is True
-    assert release_a.reset_candidates is True
+    assert release_a.consume_current_event is False
+    assert release_a.action_transition is None
+    assert release_a.reset_candidates is False
 
 
 def test_single_step_combo_releases_action_when_any_step_key_is_released():
@@ -165,7 +167,7 @@ def test_multi_step_release_phase_defers_timeout_until_all_keys_up():
     assert press_1.action_transition.kind == "press"
 
 
-def test_wrong_key_before_completion_drops_candidates_but_passes_through():
+def test_wrong_key_before_completion_does_not_cancel_held_condition():
     engine = ComboEngine()
     ctrl = _binding("key_leftctrl")
     key_x = _binding("key_x")
@@ -175,8 +177,43 @@ def test_wrong_key_before_completion_drops_candidates_but_passes_through():
     _handle(engine, ctrl, 1, 0.0)
     wrong = _handle(engine, key_h, 1, 0.1)
 
-    assert wrong.passthrough_current_event is True
-    assert wrong.reset_candidates is True
+    assert wrong.consume_current_event is False
+    assert wrong.passthrough_current_event is False
+    assert wrong.reset_candidates is False
+
+    press_x = _handle(engine, key_x, 1, 0.2)
+    assert press_x.consume_current_event is True
+    assert press_x.action_transition is not None
+    assert press_x.action_transition.combo_id == "combo-1"
+
+
+def test_unrelated_key_does_not_block_multi_step_first_step_activation():
+    engine = ComboEngine()
+    alt = _binding("key_leftalt")
+    key_c = _binding("key_c")
+    key_h = _binding("key_h")
+    key_1 = _binding("key_1")
+    engine.set_combos([_combo("combo-1", (alt, key_c), (key_1,))])
+
+    _handle(engine, alt, 1, 0.0)
+    wrong = _handle(engine, key_h, 1, 0.1)
+    assert wrong.consume_current_event is False
+    assert wrong.passthrough_current_event is False
+
+    press_c = _handle(engine, key_c, 1, 0.2)
+    assert press_c.consume_current_event is True
+    assert press_c.action_transition is None
+
+    release_c = _handle(engine, key_c, 0, 0.3)
+    assert release_c.consume_current_event is True
+
+    release_alt = _handle(engine, alt, 0, 0.4)
+    assert release_alt.consume_current_event is True
+
+    press_1 = _handle(engine, key_1, 1, 0.5)
+    assert press_1.consume_current_event is True
+    assert press_1.action_transition is not None
+    assert press_1.action_transition.combo_id == "combo-1"
 
 
 def test_wrong_key_between_steps_cancels_combo_and_passes_through():
@@ -242,23 +279,31 @@ def test_double_tap_consumes_first_press_and_uses_second_press_for_action():
     assert second_down.action_transition.kind == "press"
 
 
-def test_prefix_conflict_chooses_shortest_complete_combo():
+def test_overlapping_first_step_combos_activate_independently():
     engine = ComboEngine()
-    ctrl = _binding("key_leftctrl")
-    key_x = _binding("key_x")
-    key_1 = _binding("key_1")
+    alt = _binding("key_leftalt")
+    key_c = _binding("key_c")
+    key_v = _binding("key_v")
     engine.set_combos(
         [
-            _combo("short", (ctrl, key_x)),
-            _combo("long", (ctrl, key_x), (key_1,)),
+            _combo("alt-c", (alt, key_c)),
+            _combo("alt-v", (alt, key_v)),
+            _combo("alt-c-v", (alt, key_c, key_v)),
         ]
     )
 
-    _handle(engine, ctrl, 1, 0.0)
-    press_x = _handle(engine, key_x, 1, 0.1)
+    _handle(engine, alt, 1, 0.0)
+    press_c = _handle(engine, key_c, 1, 0.1)
+    assert press_c.action_transition is not None
+    assert press_c.action_transition.combo_id == "alt-c"
 
-    assert press_x.action_transition is not None
-    assert press_x.action_transition.combo_id == "short"
+    press_v = _handle(engine, key_v, 1, 0.2)
+    transitions = []
+    if press_v.action_transition is not None:
+        transitions.append(press_v.action_transition.combo_id)
+    transitions.extend(transition.combo_id for transition in press_v.extra_action_transitions)
+    assert set(transitions) == {"alt-v", "alt-c-v"}
+    assert press_v.consume_current_event is True
 
 
 def test_multiple_concurrent_candidates_resolve_to_matching_combo():

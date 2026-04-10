@@ -54,12 +54,20 @@ If you never press `1`, `Alt` just behaves like a normal key. No combo fires.
 again, the combo fires again — you don't need to release everything and start
 over.
 
-This transparent behavior applies to all modifier-led combos using `Shift`,
-`Ctrl`, `Alt`, or `Meta`.
+Single-step combos are evaluated from the current held state of their first
+step. Unrelated extra input does not cancel them. For example, you can hold
+`Alt`, press `C`, release `C`, click the mouse or type another key, and then
+press `V` to trigger a separate `Alt+V` combo without releasing `Alt`.
+
+If multiple single-step combos are satisfied at the same time, each one
+activates independently. For example, if you define `Alt+C`, `Alt+V`, and
+`Alt+C+V`, then pressing `V` while `Alt+C` is still held will activate both
+`Alt+V` and `Alt+C+V`.
 
 ### Multi-Step Combos
 
-Multi-step combos advance one step at a time:
+Multi-step combos also use held-state matching for step 1, then advance one
+step at a time:
 
 1. Complete step 1 (e.g. press `Alt+R`).
 2. Release all keys from step 1.
@@ -189,19 +197,17 @@ The combo editor won't let you save two combos with the same trigger sequence
 in the same profile. Across profiles, if two combos share the same trigger,
 the one from the last-applied profile wins.
 
-## Silent Shadowing
+## Overlap And Conflicts
 
-Keyforge does **not** warn you at runtime when one combo makes another
-unreachable. This can happen with **prefix shadowing**:
+Combos with overlapping first steps can coexist:
 
-- You have a short combo: `Alt+R` → Suppress.
-- You have a longer combo: `Alt+R` → `1` → Move mouse.
-- When you press `Alt+R`, the short combo matches immediately and fires.
-- The longer combo never gets a chance to reach step 2.
+- `Alt+C` and `Alt+V` can both be used while `Alt` stays held.
+- `Alt+C` and `Alt+C+V` can both be active. The longer combo is not blocked by
+  the shorter one.
 
-This can also happen across profiles, not just within one. If a combo isn't
-firing, check whether a shorter combo is matching first (see
-Troubleshooting).
+The main conflict that still matters is an **exact trigger conflict** across
+profiles. If two profiles define the same combo trigger, the one from the
+later-applied profile wins.
 
 ### What the GUI Validates
 
@@ -211,7 +217,7 @@ The combo editor intentionally stays conservative. It blocks:
 - Invalid timeout values.
 - Exact duplicate triggers within the same profile.
 
-It does **not** try to detect prefix shadowing or cross-profile conflicts.
+It does **not** try to detect cross-profile exact-trigger conflicts.
 The runtime behavior is the source of truth.
 
 ## Storage
@@ -259,10 +265,11 @@ editing combos.
 
 ## Troubleshooting
 
-- **Combo doesn't fire** — check whether a shorter combo with the same
-  starting keys is matching first (prefix shadowing).
+- **Combo doesn't fire** — check that all first-step keys are still physically
+  held when you expect the combo to activate, and check that later multi-step
+  steps are being entered in the right order.
 - **Combo fires the wrong action** — check profile ordering. A later profile
-  may have a combo with the same trigger that takes priority.
+  may have a combo with the same exact trigger that takes priority.
 - **Multi-step combo times out** — increase the timeout for the step that's
   expiring. The default is 600 ms, which may be too short for complex
   sequences.
@@ -277,9 +284,9 @@ editing combos.
   naturally.
 - **Keep combos short.** One or two steps is usually enough. Longer sequences
   are harder to remember and more likely to time out.
-- **Watch for shadowing.** If you create both `Alt+R` and `Alt+R → 1`, the
-  shorter one will always win. Design your combos so shorter ones don't block
-  longer ones.
+- **Use overlap intentionally.** Overlapping first-step combos are allowed. If
+  you define `Alt+C`, `Alt+V`, and `Alt+C+V`, each one can activate when its
+  held condition becomes true.
 - **Use descriptive names.** The combo name appears in the GUI list — a name
   like `Alt+R → 1: move mouse` is easier to manage than `combo_3`.
 

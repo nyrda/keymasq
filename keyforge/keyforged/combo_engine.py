@@ -90,22 +90,40 @@ class ComboEngine:
     def __init__(self) -> None:
         self._combos: list[RuntimeCombo] = []
         self._combo_order: dict[str, int] = {}
+        self._first_step_binding_index: dict[tuple[str, str, str], list[str]] = {}
         self._candidates: dict[str, ActiveCandidate] = {}
         self._press_counter = 0
+        self._held_bindings: set[RuntimeComboBinding] = set()
+        self._held_press_order: dict[RuntimeComboBinding, int] = {}
 
     def set_combos(self, combos: list[RuntimeCombo]) -> None:
         self._combos = list(combos)
         self._combo_order = {combo.id: index for index, combo in enumerate(self._combos)}
+        self._first_step_binding_index.clear()
+        for combo in self._combos:
+            if not combo.steps:
+                continue
+            for binding in combo.steps[0].bindings:
+                key = (
+                    binding.hardware_id,
+                    normalize_combo_evdev(binding.evdev),
+                    binding.source,
+                )
+                self._first_step_binding_index.setdefault(key, []).append(combo.id)
         self.reset()
 
     def reset(self) -> None:
         self._candidates.clear()
         self._press_counter = 0
+        self._held_bindings.clear()
+        self._held_press_order.clear()
 
     def prime_held_bindings(self, held_bindings: set[RuntimeComboBinding]) -> None:
-        if self._candidates or not held_bindings:
-            return
-        self._candidates = self._build_fresh_candidates_for_held_bindings(held_bindings)
+        for binding in sorted(
+            held_bindings,
+            key=lambda binding: (binding.hardware_id, binding.source, binding.evdev),
+        ):
+            self._record_held_press(binding)
 
     def drop_candidates_for_binding_scope(
         self,
@@ -131,7 +149,17 @@ class ComboEngine:
                 active_combo_ids.add(combo_id)
 
         self._candidates = kept
-        if not self._candidates:
+        self._held_bindings = {
+            binding
+            for binding in self._held_bindings
+            if not self._binding_in_scope(binding, normalized_hardware_id, normalized_source)
+        }
+        self._held_press_order = {
+            binding: order
+            for binding, order in self._held_press_order.items()
+            if not self._binding_in_scope(binding, normalized_hardware_id, normalized_source)
+        }
+        if not self._candidates and not self._held_bindings:
             self._press_counter = 0
         return active_combo_ids
 
@@ -161,18 +189,20 @@ class ComboEngine:
     def handle_event(self, event: ComboInputEvent, now_monotonic: float) -> ComboDecision:
         decision = ComboDecision()
         expired = self.expire_timeouts(now_monotonic)
-        if int(event.value) == 2:
+        value = int(event.value)
+        if value == 2:
             if expired and not self._candidates:
                 decision.reset_candidates = True
             return decision
 
         had_candidates = bool(self._candidates)
-        if any(candidate.releasing for candidate in self._candidates.values()):
-            decision = self._handle_releasing_event(event, now_monotonic)
-        elif self._candidates:
-            decision = self._handle_candidate_event(event, now_monotonic)
+        if value == 1:
+            self._record_held_press(event.binding)
+            decision = self._handle_press_event(event, now_monotonic)
         else:
-            decision = self._handle_fresh_event(event, now_monotonic)
+            decision = self._handle_release_event(event, now_monotonic)
+            self._held_bindings.discard(event.binding)
+            self._held_press_order.pop(event.binding, None)
 
         if expired and had_candidates and not self._candidates:
             decision.reset_candidates = True
@@ -180,145 +210,106 @@ class ComboEngine:
             decision.consume_current_event or decision.passthrough_current_event
         ):
             decision.reset_candidates = True
+        if not self._candidates and not self._held_bindings:
+            self._press_counter = 0
         return decision
 
-    def _handle_fresh_event(
-        self,
-        event: ComboInputEvent,
-        _now_monotonic: float,
-    ) -> ComboDecision:
-        if int(event.value) != 1:
-            return ComboDecision()
-
-        matching = [
-            combo
-            for combo in self._combos
-            if self._step_matches_binding(combo.steps[0], event.binding)
-        ]
-        if not matching:
-            return ComboDecision()
-
-        final_complete: list[RuntimeCombo] = []
-        nonfinal_complete: list[RuntimeCombo] = []
-        incomplete: list[RuntimeCombo] = []
-        for combo in matching:
-            if len(combo.steps[0].bindings) == 1:
-                if len(combo.steps) == 1:
-                    final_complete.append(combo)
-                else:
-                    nonfinal_complete.append(combo)
-            else:
-                incomplete.append(combo)
-
-        if final_complete:
-            winner = self._choose_shortest_complete(final_complete)
-            candidate = self._new_candidate(winner)
-            self._complete_current_step(candidate, event.binding, is_final=True)
-            self._candidates = {winner.id: candidate}
-            return ComboDecision(
-                consume_current_event=True,
-                recall_events=[],
-                action_transition=ComboActionTransition(
-                    combo_id=winner.id,
-                    action=winner.action,
-                    kind="press",
-                    trigger_binding=event.binding,
-                    trigger_bindings=self._trigger_bindings(candidate),
-                ),
-            )
-
-        if nonfinal_complete:
-            kept: dict[str, ActiveCandidate] = {}
-            for combo in nonfinal_complete:
-                candidate = self._new_candidate(combo)
-                self._complete_current_step(candidate, event.binding, is_final=False)
-                kept[combo.id] = candidate
-            self._candidates = kept
-            return ComboDecision(consume_current_event=True)
-
-        kept = {}
-        for combo in incomplete:
-            candidate = self._new_candidate(combo)
-            self._track_press(candidate, event.binding, passed_through=True)
-            kept[combo.id] = candidate
-        self._candidates = kept
-        return ComboDecision(passthrough_current_event=True)
-
-    def _handle_candidate_event(
+    def _handle_press_event(
         self,
         event: ComboInputEvent,
         now_monotonic: float,
     ) -> ComboDecision:
-        if int(event.value) == 0:
-            return self._handle_release_before_completion(event)
-        if int(event.value) != 1:
+        waiting = self._handle_waiting_candidate_press(event, now_monotonic)
+        first_step = self._activate_satisfied_first_steps(event)
+        decision = self._merge_decisions(waiting, first_step)
+        if not decision.consume_current_event and not decision.passthrough_current_event:
+            if self._binding_matches_any_first_step(event.binding):
+                decision.passthrough_current_event = True
+        return decision
+
+    def _handle_waiting_candidate_press(
+        self,
+        event: ComboInputEvent,
+        now_monotonic: float,
+    ) -> ComboDecision:
+        waiting_candidates = {
+            combo_id: candidate
+            for combo_id, candidate in self._candidates.items()
+            if not candidate.releasing
+        }
+        if not waiting_candidates:
             return ComboDecision()
 
         matching_ids: list[str] = []
         repeated_ids: list[str] = []
-        for combo_id, candidate in self._candidates.items():
+        scoped_ids: list[str] = []
+        for combo_id, candidate in waiting_candidates.items():
             if event.binding in candidate.pressed_bindings:
                 repeated_ids.append(combo_id)
+                scoped_ids.append(combo_id)
                 continue
             if self._step_matches_binding(candidate.current_step(), event.binding):
                 matching_ids.append(combo_id)
+                scoped_ids.append(combo_id)
+                continue
+            if self._step_matches_scope(candidate.current_step(), event.binding):
+                scoped_ids.append(combo_id)
 
         if repeated_ids and not matching_ids:
             return ComboDecision(consume_current_event=True)
 
         if not matching_ids:
-            self._candidates.clear()
-            return ComboDecision(passthrough_current_event=True, reset_candidates=True)
+            if not scoped_ids:
+                return ComboDecision()
+            for combo_id in scoped_ids:
+                self._candidates.pop(combo_id, None)
+            return ComboDecision(
+                passthrough_current_event=True,
+                reset_candidates=not self._candidates,
+            )
 
-        complete_ids: list[str] = []
-        final_complete_ids: list[str] = []
-        for combo_id in matching_ids:
+        decision = ComboDecision()
+        transitions: list[ComboActionTransition] = []
+        recall_events: list[ComboSyntheticEvent] = []
+        partial_match = False
+        for combo_id in sorted(
+            matching_ids,
+            key=lambda combo_id: self._combo_order.get(combo_id, 0),
+        ):
             candidate = self._candidates[combo_id]
             if len(candidate.pressed_bindings) + 1 == len(candidate.current_step().bindings):
-                complete_ids.append(combo_id)
-                if candidate.step_index >= len(candidate.combo.steps) - 1:
-                    final_complete_ids.append(combo_id)
+                self._complete_current_step(
+                    candidate,
+                    event.binding,
+                    is_final=candidate.step_index >= len(candidate.combo.steps) - 1,
+                )
+                recall_events.extend(self._recall_events(candidate))
+                if candidate.action_active:
+                    transitions.append(
+                        ComboActionTransition(
+                            combo_id=candidate.combo.id,
+                            action=candidate.combo.action,
+                            kind="press",
+                            trigger_binding=event.binding,
+                            trigger_bindings=self._trigger_bindings(candidate),
+                        )
+                    )
+            else:
+                partial_match = True
+                self._track_press(candidate, event.binding, passed_through=True)
 
-        if final_complete_ids:
-            final_combos = [self._candidates[combo_id].combo for combo_id in final_complete_ids]
-            winner = self._choose_shortest_complete(final_combos)
-            candidate = self._candidates[winner.id]
-            self._complete_current_step(candidate, event.binding, is_final=True)
-            self._candidates = {winner.id: candidate}
-            return ComboDecision(
-                consume_current_event=True,
-                recall_events=self._recall_events(candidate),
-                action_transition=ComboActionTransition(
-                    combo_id=winner.id,
-                    action=winner.action,
-                    kind="press",
-                    trigger_binding=event.binding,
-                    trigger_bindings=self._trigger_bindings(candidate),
-                ),
-            )
-
-        if complete_ids:
-            kept: dict[str, ActiveCandidate] = {}
-            recall_events: list[ComboSyntheticEvent] = []
-            for index, combo_id in enumerate(complete_ids):
-                candidate = self._candidates[combo_id]
-                self._complete_current_step(candidate, event.binding, is_final=False)
-                if index == 0:
-                    recall_events = self._recall_events(candidate)
-                kept[combo_id] = candidate
-            self._candidates = kept
-            return ComboDecision(
-                consume_current_event=True,
-                recall_events=recall_events,
-            )
-
-        kept = {}
-        for combo_id in matching_ids:
-            candidate = self._candidates[combo_id]
-            self._track_press(candidate, event.binding, passed_through=True)
-            kept[combo_id] = candidate
-        self._candidates = kept
-        return ComboDecision(passthrough_current_event=True)
+        decision.consume_current_event = bool(transitions) or any(
+            self._candidates[combo_id].releasing
+            for combo_id in matching_ids
+            if combo_id in self._candidates
+        )
+        if partial_match and not decision.consume_current_event:
+            decision.passthrough_current_event = True
+        if transitions:
+            decision.action_transition = transitions[0]
+            decision.extra_action_transitions = transitions[1:]
+        decision.recall_events = self._dedupe_recall_events(recall_events)
+        return decision
 
     def _handle_release_before_completion(self, event: ComboInputEvent) -> ComboDecision:
         kept: dict[str, ActiveCandidate] = {}
@@ -346,6 +337,15 @@ class ComboEngine:
             reset_candidates=not kept,
         )
 
+    def _handle_release_event(
+        self,
+        event: ComboInputEvent,
+        now_monotonic: float,
+    ) -> ComboDecision:
+        if any(candidate.releasing for candidate in self._candidates.values()):
+            return self._handle_releasing_event(event, now_monotonic)
+        return self._handle_release_before_completion(event)
+
     def _handle_releasing_event(
         self,
         event: ComboInputEvent,
@@ -354,7 +354,6 @@ class ComboEngine:
         decision = ComboDecision()
         kept: dict[str, ActiveCandidate] = {}
         matched_step_binding = False
-        rearm_bindings: set[RuntimeComboBinding] = set()
         transitions: list[ComboActionTransition] = []
         for combo_id, candidate in self._candidates.items():
             if not candidate.releasing:
@@ -380,7 +379,6 @@ class ComboEngine:
                 candidate.pressed_bindings.discard(event.binding)
                 if candidate.pressed_bindings:
                     if candidate.step_index == 0 and len(candidate.combo.steps) == 1:
-                        rearm_bindings.update(candidate.pressed_bindings)
                         continue
                     kept[combo_id] = candidate
                     continue
@@ -401,25 +399,13 @@ class ComboEngine:
         if transitions:
             decision.action_transition = transitions[0]
             decision.extra_action_transitions = transitions[1:]
-        if rearm_bindings:
-            rebuilt = self._build_fresh_candidates_for_held_bindings(rearm_bindings)
-            rebuilt.update(kept)
-            self._candidates = rebuilt
-        else:
-            self._candidates = kept
+        self._candidates = kept
         if matched_step_binding:
             decision.consume_current_event = True
             if not self._candidates:
                 decision.reset_candidates = True
             return decision
-        if int(event.value) == 1:
-            sibling_decision = self._try_complete_single_step_from_held_releasing(
-                event,
-                kept,
-            )
-            if sibling_decision is not None:
-                return sibling_decision
-        return ComboDecision(passthrough_current_event=True)
+        return ComboDecision()
 
     def _new_candidate(self, combo: RuntimeCombo) -> ActiveCandidate:
         return ActiveCandidate(combo=combo)
@@ -460,86 +446,52 @@ class ComboEngine:
             candidate.final_completing_binding = None
             candidate.action_active = False
 
-    def _build_fresh_candidates_for_held_bindings(
-        self,
-        held_bindings: set[RuntimeComboBinding],
-    ) -> dict[str, ActiveCandidate]:
-        if not held_bindings:
-            return {}
-        candidates: dict[str, ActiveCandidate] = {}
-        for combo in self._combos:
-            first_step = combo.steps[0]
-            matching_held = {
-                binding
-                for binding in held_bindings
-                if self._step_matches_binding(first_step, binding)
-            }
-            if not matching_held or len(matching_held) >= len(first_step.bindings):
+    def _activate_satisfied_first_steps(self, event: ComboInputEvent) -> ComboDecision:
+        decision = ComboDecision()
+        transitions: list[ComboActionTransition] = []
+        recall_events: list[ComboSyntheticEvent] = []
+
+        for combo in self._candidate_first_step_combos(event.binding):
+            if combo.id in self._candidates:
+                continue
+            held_bindings = self._held_bindings_for_step(combo.steps[0])
+            if held_bindings is None:
                 continue
             candidate = self._new_candidate(combo)
-            for binding in matching_held:
-                self._track_press(candidate, binding, passed_through=False)
-            candidates[combo.id] = candidate
-        return candidates
+            ordered_bindings = sorted(
+                held_bindings,
+                key=lambda binding: self._held_press_order.get(binding, 0),
+            )
+            for binding in ordered_bindings:
+                self._track_press(candidate, binding, passed_through=binding != event.binding)
+            self._complete_current_step(candidate, event.binding, is_final=len(combo.steps) == 1)
+            self._candidates[combo.id] = candidate
+            recall_events.extend(self._recall_events(candidate))
+            if candidate.action_active:
+                transitions.append(
+                    ComboActionTransition(
+                        combo_id=combo.id,
+                        action=combo.action,
+                        kind="press",
+                        trigger_binding=event.binding,
+                        trigger_bindings=self._trigger_bindings(candidate),
+                    )
+                )
 
-    def _try_complete_single_step_from_held_releasing(
-        self,
-        event: ComboInputEvent,
-        kept: dict[str, ActiveCandidate],
-    ) -> ComboDecision | None:
-        held_bindings: set[RuntimeComboBinding] = set()
-        for candidate in kept.values():
-            if (
-                candidate.releasing
-                and candidate.step_index == 0
-                and len(candidate.combo.steps) == 1
-            ):
-                held_bindings.update(candidate.pressed_bindings)
+        if not transitions and not any(
+            combo_id in self._candidates
+            for combo_id in (
+                combo.id for combo in self._candidate_first_step_combos(event.binding)
+            )
+        ):
+            return ComboDecision()
 
-        if not held_bindings:
-            return None
-
-        eligible: list[tuple[RuntimeCombo, set[RuntimeComboBinding]]] = []
-        for combo in self._combos:
-            if len(combo.steps) != 1:
-                continue
-            first_step = combo.steps[0]
-            if not self._step_matches_binding(first_step, event.binding):
-                continue
-            matching_held = {
-                binding
-                for binding in held_bindings
-                if self._step_matches_binding(first_step, binding)
-            }
-            if event.binding in matching_held:
-                continue
-            if len(matching_held) + 1 != len(first_step.bindings):
-                continue
-            eligible.append((combo, matching_held))
-
-        if not eligible:
-            return None
-
-        winner = self._choose_shortest_complete([combo for combo, _bindings in eligible])
-        winner_bindings = next(
-            bindings for combo, bindings in eligible if combo.id == winner.id
-        )
-        candidate = self._new_candidate(winner)
-        for binding in winner_bindings:
-            self._track_press(candidate, binding, passed_through=False)
-        self._complete_current_step(candidate, event.binding, is_final=True)
-        kept[winner.id] = candidate
-        self._candidates = kept
-        return ComboDecision(
-            consume_current_event=True,
-            action_transition=ComboActionTransition(
-                combo_id=winner.id,
-                action=winner.action,
-                kind="press",
-                trigger_binding=event.binding,
-                trigger_bindings=self._trigger_bindings(candidate),
-            ),
-        )
+        decision.consume_current_event = True
+        decision.recall_events = self._dedupe_recall_events(recall_events)
+        if transitions:
+            decision.action_transition = transitions[0]
+            decision.extra_action_transitions = transitions[1:]
+        return decision
 
     def _trigger_bindings(self, candidate: ActiveCandidate) -> tuple[RuntimeComboBinding, ...]:
         return tuple(
@@ -557,8 +509,7 @@ class ComboEngine:
                 (
                     tracked
                     for tracked in candidate.tracked_presses
-                    if tracked.passed_through
-                    and tracked.binding != candidate.final_completing_binding
+                    if tracked.binding != candidate.final_completing_binding
                     and not self._binding_is_modifier(tracked.binding)
                 ),
                 key=lambda tracked: tracked.press_order,
@@ -580,16 +531,6 @@ class ComboEngine:
                 return tracked.passed_through
         return False
 
-    def _choose_shortest_complete(self, combos: list[RuntimeCombo]) -> RuntimeCombo:
-        return min(
-            combos,
-            key=lambda combo: (
-                len(combo.steps),
-                sum(len(step.bindings) for step in combo.steps),
-                self._combo_order.get(combo.id, 0),
-            ),
-        )
-
     def _step_matches_binding(
         self,
         step: RuntimeComboStep,
@@ -610,6 +551,111 @@ class ComboEngine:
             and normalize_combo_evdev(expected.evdev) == normalize_combo_evdev(actual.evdev)
             and (not expected.source or expected.source == actual.source)
         )
+
+    def _step_matches_scope(
+        self,
+        step: RuntimeComboStep,
+        binding: RuntimeComboBinding,
+    ) -> bool:
+        return any(
+            step_binding.hardware_id == binding.hardware_id
+            and (not step_binding.source or step_binding.source == binding.source)
+            for step_binding in step.bindings
+        )
+
+    def _record_held_press(self, binding: RuntimeComboBinding) -> None:
+        if binding in self._held_bindings:
+            return
+        self._press_counter += 1
+        self._held_bindings.add(binding)
+        self._held_press_order[binding] = self._press_counter
+
+    def _candidate_first_step_combos(self, binding: RuntimeComboBinding) -> list[RuntimeCombo]:
+        normalized = normalize_combo_evdev(binding.evdev)
+        combo_ids: list[str] = []
+        combo_ids.extend(
+            self._first_step_binding_index.get(
+                (binding.hardware_id, normalized, binding.source),
+                [],
+            )
+        )
+        combo_ids.extend(
+            self._first_step_binding_index.get(
+                (binding.hardware_id, normalized, ""),
+                [],
+            )
+        )
+        seen: set[str] = set()
+        combos: list[RuntimeCombo] = []
+        combo_map = {combo.id: combo for combo in self._combos}
+        for combo_id in combo_ids:
+            if combo_id in seen:
+                continue
+            seen.add(combo_id)
+            combo = combo_map.get(combo_id)
+            if combo is None:
+                continue
+            combos.append(combo)
+        return combos
+
+    def _binding_matches_any_first_step(self, binding: RuntimeComboBinding) -> bool:
+        return bool(self._candidate_first_step_combos(binding))
+
+    def _held_bindings_for_step(
+        self,
+        step: RuntimeComboStep,
+    ) -> set[RuntimeComboBinding] | None:
+        matched: set[RuntimeComboBinding] = set()
+        for expected in step.bindings:
+            actual = next(
+                (
+                    held
+                    for held in self._held_bindings
+                    if held not in matched and self._binding_matches(expected, held)
+                ),
+                None,
+            )
+            if actual is None:
+                return None
+            matched.add(actual)
+        return matched
+
+    def _dedupe_recall_events(
+        self,
+        events: list[ComboSyntheticEvent],
+    ) -> list[ComboSyntheticEvent]:
+        seen: set[RuntimeComboBinding] = set()
+        deduped: list[ComboSyntheticEvent] = []
+        for event in events:
+            if event.binding in seen:
+                continue
+            seen.add(event.binding)
+            deduped.append(event)
+        return deduped
+
+    def _merge_decisions(self, *decisions: ComboDecision) -> ComboDecision:
+        merged = ComboDecision()
+        transitions: list[ComboActionTransition] = []
+        recall_events: list[ComboSyntheticEvent] = []
+        for decision in decisions:
+            merged.consume_current_event = (
+                merged.consume_current_event or decision.consume_current_event
+            )
+            merged.passthrough_current_event = (
+                merged.passthrough_current_event or decision.passthrough_current_event
+            )
+            merged.reset_candidates = merged.reset_candidates or decision.reset_candidates
+            recall_events.extend(decision.recall_events)
+            if decision.action_transition is not None:
+                transitions.append(decision.action_transition)
+            transitions.extend(decision.extra_action_transitions)
+        merged.recall_events = self._dedupe_recall_events(recall_events)
+        if transitions:
+            merged.action_transition = transitions[0]
+            merged.extra_action_transitions = transitions[1:]
+        if merged.consume_current_event:
+            merged.passthrough_current_event = False
+        return merged
 
     def _effective_timeout_ms(self, step: RuntimeComboStep) -> int:
         if step.timeout_ms is None:

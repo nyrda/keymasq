@@ -2506,6 +2506,345 @@ class TestCombos:
         ]
 
     @pytest.mark.asyncio
+    async def test_combo_single_step_survives_unrelated_same_keyboard_actions(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        hardware_id = "1234:5678"
+        passthrough = _FakeUInput()
+        keyboard = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-c",
+                    "name": "combo-c",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_leftalt",
+                                },
+                                {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_c"},
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f13"},
+                },
+                {
+                    "id": "combo-v",
+                    "name": "combo-v",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_leftalt",
+                                },
+                                {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_v"},
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f14"},
+                },
+            ]
+        )
+        manager.output_state.keyboard_uinput = keyboard
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id=hardware_id,
+            button_map={
+                "key_leftalt": "key_leftalt",
+                "key_c": "key_c",
+                "key_v": "key_v",
+                "key_h": "key_h",
+            },
+            mapping_getter=lambda: {},
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
+            device_type=DeviceType.KEYBOARD,
+        )
+        device._running = True
+        device.uinput = passthrough  # type: ignore[assignment]
+        manager.grabbed_devices = {hardware_id: [device]}
+
+        press_alt = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_LEFTALT,
+            value=1,
+        )
+        press_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=1)
+        release_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=0)
+        press_h = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_H, value=1)
+        release_h = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_H, value=0)
+        press_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=1)
+        release_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=0)
+
+        await _runtime_process_grabbed_event(device, press_alt)
+        await _runtime_process_grabbed_event(device, press_c)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(device, release_c)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(device, press_h)
+        await _runtime_process_grabbed_event(device, release_h)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(device, press_v)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(device, release_v)
+        await asyncio.sleep(0)
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_combo_single_step_survives_unrelated_mouse_click_between_combos(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        keyboard_hw = "1234:5678"
+        mouse_hw = "1234:5678"
+        keyboard = _FakeUInput()
+        keyboard_passthrough = _FakeUInput()
+        mouse_passthrough = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-c",
+                    "name": "combo-c",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": keyboard_hw,
+                                    "source": "kbd",
+                                    "evdev": "key_leftalt",
+                                },
+                                {"hardware_id": keyboard_hw, "source": "kbd", "evdev": "key_c"},
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f13"},
+                },
+                {
+                    "id": "combo-v",
+                    "name": "combo-v",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": keyboard_hw,
+                                    "source": "kbd",
+                                    "evdev": "key_leftalt",
+                                },
+                                {"hardware_id": keyboard_hw, "source": "kbd", "evdev": "key_v"},
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f14"},
+                },
+            ]
+        )
+        manager.output_state.keyboard_uinput = keyboard
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(
+            gdm,
+            "get_interface_id",
+            lambda path: "mouse" if "mouse" in path else "kbd",
+        )
+
+        keyboard_device = GrabbedDevice(
+            path="/dev/input/event-kbd",
+            hardware_id=keyboard_hw,
+            button_map={
+                "key_leftalt": "key_leftalt",
+                "key_c": "key_c",
+                "key_v": "key_v",
+            },
+            mapping_getter=lambda: {},
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
+            device_type=DeviceType.KEYBOARD,
+        )
+        keyboard_device._running = True
+        keyboard_device.uinput = keyboard_passthrough  # type: ignore[assignment]
+
+        mouse_device = GrabbedDevice(
+            path="/dev/input/event-mouse",
+            hardware_id=mouse_hw,
+            button_map={"btn_left": "btn_left"},
+            mapping_getter=lambda: {},
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
+            device_type=DeviceType.MOUSE,
+        )
+        mouse_device._running = True
+        mouse_device.uinput = mouse_passthrough  # type: ignore[assignment]
+        manager.grabbed_devices = {keyboard_hw: [keyboard_device, mouse_device]}
+
+        press_alt = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_LEFTALT,
+            value=1,
+        )
+        press_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=1)
+        release_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=0)
+        press_mouse = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_LEFT, value=1)
+        release_mouse = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.BTN_LEFT,
+            value=0,
+        )
+        press_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=1)
+        release_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=0)
+
+        await _runtime_process_grabbed_event(keyboard_device, press_alt)
+        await _runtime_process_grabbed_event(keyboard_device, press_c)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(keyboard_device, release_c)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(mouse_device, press_mouse)
+        await _runtime_process_grabbed_event(mouse_device, release_mouse)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(keyboard_device, press_v)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(keyboard_device, release_v)
+        await asyncio.sleep(0)
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_combo_overlapping_first_step_combos_all_trigger(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        hardware_id = "1234:5678"
+        passthrough = _FakeUInput()
+        keyboard = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-c",
+                    "name": "combo-c",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_leftalt",
+                                },
+                                {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_c"},
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f13"},
+                },
+                {
+                    "id": "combo-v",
+                    "name": "combo-v",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_leftalt",
+                                },
+                                {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_v"},
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f14"},
+                },
+                {
+                    "id": "combo-c-v",
+                    "name": "combo-c-v",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": hardware_id,
+                                    "source": "kbd",
+                                    "evdev": "key_leftalt",
+                                },
+                                {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_c"},
+                                {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_v"},
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f15"},
+                },
+            ]
+        )
+        manager.output_state.keyboard_uinput = keyboard
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id=hardware_id,
+            button_map={
+                "key_leftalt": "key_leftalt",
+                "key_c": "key_c",
+                "key_v": "key_v",
+            },
+            mapping_getter=lambda: {},
+            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
+                manager, *args, **kwargs
+            ),
+            device_type=DeviceType.KEYBOARD,
+        )
+        device._running = True
+        device.uinput = passthrough  # type: ignore[assignment]
+        manager.grabbed_devices = {hardware_id: [device]}
+
+        press_alt = SimpleNamespace(
+            type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_LEFTALT,
+            value=1,
+        )
+        press_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=1)
+        press_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=1)
+
+        await _runtime_process_grabbed_event(device, press_alt)
+        await _runtime_process_grabbed_event(device, press_c)
+        await asyncio.sleep(0)
+        await _runtime_process_grabbed_event(device, press_v)
+        await asyncio.sleep(0)
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 1),
+        ]
+
+    @pytest.mark.asyncio
     async def test_runtime_combo_broadcast_does_not_block_hot_path(self, monkeypatch):
         manager = DeviceManager()
         blocker = asyncio.Event()

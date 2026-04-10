@@ -453,11 +453,15 @@ async def process_runtime_combo_event(
 def emit_combo_recalls(manager: _ComboManager, recall_events: list[ComboSyntheticEvent]) -> None:
     for event in recall_events:
         device = find_grabbed_device_for_binding(manager, event.binding)
-        if device is not None:
-            device.emit_combo_release(event.binding.evdev)
-            mark_recalled = getattr(device, "mark_combo_recalled_binding", None)
-            if callable(mark_recalled):
-                mark_recalled(event.binding.evdev)
+        if device is None:
+            continue
+        is_active = getattr(device, "combo_passthrough_binding_active", None)
+        if callable(is_active) and not bool(is_active(event.binding.evdev)):
+            continue
+        device.emit_combo_release(event.binding.evdev)
+        mark_recalled = getattr(device, "mark_combo_recalled_binding", None)
+        if callable(mark_recalled):
+            mark_recalled(event.binding.evdev)
 
 
 def find_grabbed_device_for_binding(

@@ -113,6 +113,10 @@ class ComboEngine:
         self._press_counter = 0
         self._held_bindings: set[RuntimeComboBinding] = set()
         self._held_press_order: dict[RuntimeComboBinding, int] = {}
+        self._held_binding_index: dict[tuple[str, str, str], set[RuntimeComboBinding]] = {}
+        self._held_binding_any_source_index: dict[
+            tuple[str, str], set[RuntimeComboBinding]
+        ] = {}
 
     def set_combos(self, combos: list[RuntimeCombo]) -> None:
         self._combos = list(combos)
@@ -132,6 +136,8 @@ class ComboEngine:
         self._press_counter = 0
         self._held_bindings.clear()
         self._held_press_order.clear()
+        self._held_binding_index.clear()
+        self._held_binding_any_source_index.clear()
 
     def prime_held_bindings(self, held_bindings: set[RuntimeComboBinding]) -> None:
         for binding in sorted(
@@ -175,6 +181,7 @@ class ComboEngine:
                 kept_held_press_order[binding] = order
         self._held_bindings = kept_held_bindings
         self._held_press_order = kept_held_press_order
+        self._rebuild_held_binding_indexes()
         if not self._candidates and not self._held_bindings:
             self._press_counter = 0
         return active_combo_ids
@@ -217,8 +224,7 @@ class ComboEngine:
             decision = self._handle_press_event(event, now_monotonic)
         else:
             decision = self._handle_release_event(event, now_monotonic)
-            self._held_bindings.discard(event.binding)
-            self._held_press_order.pop(event.binding, None)
+            self._remove_held_binding(event.binding)
 
         if expired and had_candidates and not self._candidates:
             decision.reset_candidates = True
@@ -587,6 +593,15 @@ class ComboEngine:
         self._press_counter += 1
         self._held_bindings.add(binding)
         self._held_press_order[binding] = self._press_counter
+        self._index_held_binding(binding)
+
+    def _remove_held_binding(self, binding: RuntimeComboBinding) -> None:
+        if binding not in self._held_bindings:
+            self._held_press_order.pop(binding, None)
+            return
+        self._held_bindings.remove(binding)
+        self._held_press_order.pop(binding, None)
+        self._deindex_held_binding(binding)
 
     def _candidate_first_step_combos(self, binding: RuntimeComboBinding) -> list[RuntimeCombo]:
         combos: list[RuntimeCombo] = []
@@ -640,8 +655,8 @@ class ComboEngine:
             actual = next(
                 (
                     held
-                    for held in self._held_bindings
-                    if held not in matched and self._binding_matches(expected, held)
+                    for held in self._held_candidates_for_binding(expected)
+                    if held not in matched
                 ),
                 None,
             )
@@ -649,6 +664,48 @@ class ComboEngine:
                 return None
             matched.add(actual)
         return matched
+
+    def _held_candidates_for_binding(
+        self,
+        expected: RuntimeComboBinding,
+    ) -> set[RuntimeComboBinding]:
+        hardware_id, normalized, source = _normalized_binding_parts(expected)
+        if source:
+            return self._held_binding_index.get((hardware_id, normalized, source), set())
+        return self._held_binding_any_source_index.get((hardware_id, normalized), set())
+
+    def _index_held_binding(self, binding: RuntimeComboBinding) -> None:
+        specific_key, generic_key = self._held_binding_index_keys(binding)
+        self._held_binding_index.setdefault(specific_key, set()).add(binding)
+        self._held_binding_any_source_index.setdefault(generic_key, set()).add(binding)
+
+    def _deindex_held_binding(self, binding: RuntimeComboBinding) -> None:
+        specific_key, generic_key = self._held_binding_index_keys(binding)
+
+        specific_bucket = self._held_binding_index.get(specific_key)
+        if specific_bucket is not None:
+            specific_bucket.discard(binding)
+            if not specific_bucket:
+                self._held_binding_index.pop(specific_key, None)
+
+        generic_bucket = self._held_binding_any_source_index.get(generic_key)
+        if generic_bucket is not None:
+            generic_bucket.discard(binding)
+            if not generic_bucket:
+                self._held_binding_any_source_index.pop(generic_key, None)
+
+    def _rebuild_held_binding_indexes(self) -> None:
+        self._held_binding_index.clear()
+        self._held_binding_any_source_index.clear()
+        for binding in self._held_bindings:
+            self._index_held_binding(binding)
+
+    def _held_binding_index_keys(
+        self,
+        binding: RuntimeComboBinding,
+    ) -> tuple[tuple[str, str, str], tuple[str, str]]:
+        hardware_id, normalized, source = _normalized_binding_parts(binding)
+        return (hardware_id, normalized, source), (hardware_id, normalized)
 
     def _dedupe_recall_events(
         self,

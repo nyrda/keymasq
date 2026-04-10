@@ -307,6 +307,11 @@ async def process_event(
 
     event_name = get_event_name(event, evdev_mod=evdev_mod)
     _log_raw_hardware_event(device_runtime, event, event_name, evdev_mod=evdev_mod, log=log)
+    if event.type == evdev_mod.ecodes.EV_KEY:
+        if int(event.value) == 1:
+            device_runtime.state.held_source_keys.add(event_name)
+        elif int(event.value) == 0:
+            device_runtime.state.held_source_keys.discard(event_name)
     normalized_event_name = normalize_combo_evdev(event_name)
     if (
         event.type == evdev_mod.ecodes.EV_KEY

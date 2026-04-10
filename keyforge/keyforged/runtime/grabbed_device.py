@@ -183,6 +183,7 @@ class GrabbedDevice:
 
     async def reset_mapping_runtime_state(self) -> None:
         for event_name in self.state.combo_passthrough_held:
+            self.state.held_source_keys.add(event_name)
             self.state.held_source_actions.setdefault(event_name, None)
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
@@ -246,6 +247,7 @@ class GrabbedDevice:
     async def release(self) -> None:
         self._running = False
         runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
+        self.state.held_source_keys.clear()
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
@@ -350,7 +352,7 @@ class GrabbedDevice:
         output = self._combo_binding_output(evdev_name)
         if output is None:
             return
-        target_uinput, code, _bucket = output
+        target_uinput, code, bucket = output
         runtime_outputs.write_key(
             self,
             target_uinput,
@@ -359,6 +361,8 @@ class GrabbedDevice:
             evdev_mod=evdev,
             uinput_writer=_uinput_writer,
         )
+        if bucket == "passthrough":
+            self.state.combo_passthrough_held.add(str(evdev_name or "").lower())
 
     def combo_passthrough_binding_active(self, evdev_name: str) -> bool:
         output = self._combo_binding_output(evdev_name)
@@ -369,10 +373,10 @@ class GrabbedDevice:
 
     def combo_source_binding_held(self, evdev_name: str) -> bool:
         normalized = str(evdev_name or "").lower()
-        return (
-            normalized in self.state.held_source_actions
-            or normalized in self.state.combo_passthrough_held
-        )
+        return normalized in self.state.held_source_keys
+
+    def combo_binding_recalled(self, evdev_name: str) -> bool:
+        return normalize_combo_evdev(evdev_name) in self.state.combo_recalled_bindings
 
     def mark_combo_recalled_binding(self, evdev_name: str) -> None:
         self.state.combo_recalled_bindings.add(normalize_combo_evdev(evdev_name))
@@ -381,14 +385,14 @@ class GrabbedDevice:
         self.state.combo_recalled_bindings.discard(normalize_combo_evdev(evdev_name))
 
     def has_held_source_inputs(self) -> bool:
-        return bool(self.state.held_source_actions)
+        return bool(self.state.held_source_keys)
 
     def combo_passthrough_held_modifiers(self) -> set[str]:
         return {
             event_name
-            for event_name in self.state.combo_passthrough_held
+            for event_name in self.state.held_source_keys
             if normalize_combo_evdev(event_name) in COMBO_HELD_REARM_MODIFIERS
         }
 
     def combo_held_source_bindings(self) -> set[str]:
-        return set(self.state.held_source_actions) | set(self.state.combo_passthrough_held)
+        return set(self.state.held_source_keys)

@@ -233,6 +233,7 @@ def seed_startup_held_actions(device_runtime: GrabbedDeviceRuntime) -> None:
         event_name = runtime_events.get_key_name(int(code), evdev_mod=evdev)
         if not event_name or event_name in device_runtime.state.held_source_actions:
             continue
+        device_runtime.state.held_source_keys.add(event_name)
         action = runtime_events.find_action_for_code(
             device_runtime,
             evdev.ecodes.EV_KEY,

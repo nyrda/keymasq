@@ -550,6 +550,10 @@ class DeviceManager:
                 time_mod=time,
             )
             self.combo_state.engine.set_combos(parsed)
+            runtime_combos.prime_combo_engine_with_held_bindings(
+                _combo_manager(self),
+                combo_binding_cls=RuntimeComboBinding,
+            )
             runtime_combos.refresh_combo_timeout_watchdog(
                 _combo_manager(self),
                 asyncio_mod=_combo_asyncio_runtime(),

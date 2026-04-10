@@ -139,6 +139,8 @@ class _GrabbedComboDevice(Protocol):
 
     def combo_passthrough_held_modifiers(self) -> set[str]: ...
 
+    def combo_held_source_bindings(self) -> set[str]: ...
+
 
 class _ComboManager(Protocol):
     @property
@@ -505,6 +507,36 @@ def held_combo_modifier_bindings_for_scope(
                 )
             )
     return held
+
+
+def prime_combo_engine_with_held_bindings(
+    manager: _ComboManager,
+    *,
+    combo_binding_cls: type[RuntimeComboBinding],
+) -> None:
+    held: set[RuntimeComboBinding] = set()
+    for devices in manager.grabbed_devices.values():
+        for device in devices:
+            held_getter = getattr(device, "combo_held_source_bindings", None)
+            if not callable(held_getter):
+                continue
+            held_names = held_getter()
+            if not isinstance(held_names, (list, tuple, set, frozenset)):
+                continue
+            held_name_values = cast(
+                list[object] | tuple[object, ...] | set[object] | frozenset[object],
+                held_names,
+            )
+            held_names_str = [name for name in held_name_values if isinstance(name, str)]
+            for evdev_name in held_names_str:
+                held.add(
+                    combo_binding_cls(
+                        hardware_id=str(device.hardware_id or "").lower(),
+                        evdev=str(evdev_name or "").lower(),
+                        source=str(device.interface_id or "").lower(),
+                    )
+                )
+    manager.combo_state.engine.prime_held_bindings(held)
 
 
 async def apply_combo_action_transition(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from keyforge.common.combos import GENERIC_MODIFIER_MAP, normalize_combo_evdev
 from keyforge.common.models import MappingAction
@@ -86,9 +87,26 @@ class ActiveCandidate:
         return self.combo.steps[self.step_index]
 
 
+@lru_cache(maxsize=512)
+def _normalized_evdev_name(evdev: str) -> str:
+    return normalize_combo_evdev(evdev)
+
+
+@lru_cache(maxsize=4096)
+def _normalized_binding_parts(
+    binding: RuntimeComboBinding,
+) -> tuple[str, str, str]:
+    return (
+        binding.hardware_id,
+        _normalized_evdev_name(binding.evdev),
+        binding.source,
+    )
+
+
 class ComboEngine:
     def __init__(self) -> None:
         self._combos: list[RuntimeCombo] = []
+        self._combo_map: dict[str, RuntimeCombo] = {}
         self._combo_order: dict[str, int] = {}
         self._first_step_binding_index: dict[tuple[str, str, str], list[str]] = {}
         self._candidates: dict[str, ActiveCandidate] = {}
@@ -98,17 +116,14 @@ class ComboEngine:
 
     def set_combos(self, combos: list[RuntimeCombo]) -> None:
         self._combos = list(combos)
+        self._combo_map = {combo.id: combo for combo in self._combos}
         self._combo_order = {combo.id: index for index, combo in enumerate(self._combos)}
         self._first_step_binding_index.clear()
         for combo in self._combos:
             if not combo.steps:
                 continue
             for binding in combo.steps[0].bindings:
-                key = (
-                    binding.hardware_id,
-                    normalize_combo_evdev(binding.evdev),
-                    binding.source,
-                )
+                key = _normalized_binding_parts(binding)
                 self._first_step_binding_index.setdefault(key, []).append(combo.id)
         self.reset()
 
@@ -149,16 +164,17 @@ class ComboEngine:
                 active_combo_ids.add(combo_id)
 
         self._candidates = kept
-        self._held_bindings = {
-            binding
-            for binding in self._held_bindings
-            if not self._binding_in_scope(binding, normalized_hardware_id, normalized_source)
-        }
-        self._held_press_order = {
-            binding: order
-            for binding, order in self._held_press_order.items()
-            if not self._binding_in_scope(binding, normalized_hardware_id, normalized_source)
-        }
+        kept_held_bindings: set[RuntimeComboBinding] = set()
+        kept_held_press_order: dict[RuntimeComboBinding, int] = {}
+        for binding in self._held_bindings:
+            if self._binding_in_scope(binding, normalized_hardware_id, normalized_source):
+                continue
+            kept_held_bindings.add(binding)
+            order = self._held_press_order.get(binding)
+            if order is not None:
+                kept_held_press_order[binding] = order
+        self._held_bindings = kept_held_bindings
+        self._held_press_order = kept_held_press_order
         if not self._candidates and not self._held_bindings:
             self._press_counter = 0
         return active_combo_ids
@@ -450,13 +466,17 @@ class ComboEngine:
         decision = ComboDecision()
         transitions: list[ComboActionTransition] = []
         recall_events: list[ComboSyntheticEvent] = []
+        first_step_combos = self._candidate_first_step_combos(event.binding)
+        matched_existing_or_activated = False
 
-        for combo in self._candidate_first_step_combos(event.binding):
+        for combo in first_step_combos:
             if combo.id in self._candidates:
+                matched_existing_or_activated = True
                 continue
             held_bindings = self._held_bindings_for_step(combo.steps[0])
             if held_bindings is None:
                 continue
+            matched_existing_or_activated = True
             candidate = self._new_candidate(combo)
             ordered_bindings = sorted(
                 held_bindings,
@@ -478,12 +498,7 @@ class ComboEngine:
                     )
                 )
 
-        if not transitions and not any(
-            combo_id in self._candidates
-            for combo_id in (
-                combo.id for combo in self._candidate_first_step_combos(event.binding)
-            )
-        ):
+        if not transitions and not matched_existing_or_activated:
             return ComboDecision()
 
         decision.consume_current_event = True
@@ -518,8 +533,7 @@ class ComboEngine:
         ]
 
     def _binding_is_modifier(self, binding: RuntimeComboBinding) -> bool:
-        normalized = normalize_combo_evdev(binding.evdev)
-        return normalized in GENERIC_MODIFIERS
+        return _normalized_binding_parts(binding)[1] in GENERIC_MODIFIERS
 
     def _binding_was_passed_through(
         self,
@@ -546,10 +560,14 @@ class ComboEngine:
         expected: RuntimeComboBinding,
         actual: RuntimeComboBinding,
     ) -> bool:
+        expected_hardware_id, expected_evdev, expected_source = _normalized_binding_parts(
+            expected
+        )
+        actual_hardware_id, actual_evdev, actual_source = _normalized_binding_parts(actual)
         return (
-            expected.hardware_id == actual.hardware_id
-            and normalize_combo_evdev(expected.evdev) == normalize_combo_evdev(actual.evdev)
-            and (not expected.source or expected.source == actual.source)
+            expected_hardware_id == actual_hardware_id
+            and expected_evdev == actual_evdev
+            and (not expected_source or expected_source == actual_source)
         )
 
     def _step_matches_scope(
@@ -571,35 +589,47 @@ class ComboEngine:
         self._held_press_order[binding] = self._press_counter
 
     def _candidate_first_step_combos(self, binding: RuntimeComboBinding) -> list[RuntimeCombo]:
-        normalized = normalize_combo_evdev(binding.evdev)
-        combo_ids: list[str] = []
-        combo_ids.extend(
-            self._first_step_binding_index.get(
-                (binding.hardware_id, normalized, binding.source),
-                [],
-            )
-        )
-        combo_ids.extend(
-            self._first_step_binding_index.get(
-                (binding.hardware_id, normalized, ""),
-                [],
-            )
-        )
-        seen: set[str] = set()
         combos: list[RuntimeCombo] = []
-        combo_map = {combo.id: combo for combo in self._combos}
-        for combo_id in combo_ids:
-            if combo_id in seen:
-                continue
-            seen.add(combo_id)
-            combo = combo_map.get(combo_id)
+        for combo_id in self._candidate_first_step_combo_ids(binding):
+            combo = self._combo_map.get(combo_id)
             if combo is None:
                 continue
             combos.append(combo)
         return combos
 
     def _binding_matches_any_first_step(self, binding: RuntimeComboBinding) -> bool:
-        return bool(self._candidate_first_step_combos(binding))
+        hardware_id, normalized, source = _normalized_binding_parts(binding)
+        return bool(
+            self._first_step_binding_index.get((hardware_id, normalized, source))
+            or (
+                source
+                and self._first_step_binding_index.get((hardware_id, normalized, ""))
+            )
+        )
+
+    def _candidate_first_step_combo_ids(
+        self,
+        binding: RuntimeComboBinding,
+    ) -> list[str]:
+        hardware_id, normalized, source = _normalized_binding_parts(binding)
+        specific = self._first_step_binding_index.get((hardware_id, normalized, source), [])
+        if not source:
+            return list(specific)
+
+        wildcard = self._first_step_binding_index.get((hardware_id, normalized, ""), [])
+        if not wildcard:
+            return list(specific)
+        if not specific:
+            return list(wildcard)
+
+        seen: set[str] = set()
+        combo_ids: list[str] = []
+        for combo_id in (*specific, *wildcard):
+            if combo_id in seen:
+                continue
+            seen.add(combo_id)
+            combo_ids.append(combo_id)
+        return combo_ids
 
     def _held_bindings_for_step(
         self,

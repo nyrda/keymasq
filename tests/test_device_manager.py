@@ -2091,6 +2091,69 @@ class TestCombos:
         assert manager.active_combos[0].action.profile_name == "Gaming"
 
     @pytest.mark.asyncio
+    async def test_set_combos_reseeds_held_bindings_after_mapping_reset(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        callback = AsyncMock()
+
+        async def cb(command, data):
+            await callback(command, data)
+
+        manager.broadcast_callback = cb
+
+        device = _make_grabbed_device(monkeypatch)
+        manager.grabbed_devices["1234:5678"] = [device]
+
+        device.state.combo_passthrough_held.add("key_leftalt")
+        await device.reset_mapping_runtime_state()
+
+        assert device.state.combo_passthrough_held == set()
+        assert device.state.held_source_actions["key_leftalt"] is None
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-browser-paste",
+                    "name": "Browser Paste",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd",
+                                    "evdev": "key_leftalt",
+                                },
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd",
+                                    "evdev": "key_v",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f13"},
+                }
+            ]
+        )
+
+        press_v = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/event-test",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_V,
+            1,
+            source="kbd",
+        )
+
+        assert press_v is not None
+        assert press_v.consume_current_event is True
+        assert press_v.action_transition is not None
+        assert press_v.action_transition.combo_id == "combo-browser-paste"
+
+    @pytest.mark.asyncio
     async def test_runtime_combo_match_consumes_events_and_broadcasts(self, monkeypatch):
         manager = DeviceManager()
         callback = AsyncMock()

@@ -389,3 +389,6 @@ class GrabbedDevice:
             for event_name in self.state.combo_passthrough_held
             if normalize_combo_evdev(event_name) in COMBO_HELD_REARM_MODIFIERS
         }
+
+    def combo_held_source_bindings(self) -> set[str]:
+        return set(self.state.held_source_actions) | set(self.state.combo_passthrough_held)

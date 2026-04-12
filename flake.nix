@@ -279,6 +279,12 @@
         in
         {
           default = pkgs.mkShell {
+            # Point gdk-pixbuf at the librsvg loaders cache so SVG icons
+            # (Adwaita theme, GTK4 assets) render correctly inside the
+            # dev shell — matches what wrapGAppsHook4 does for the
+            # installed package.
+            GDK_PIXBUF_MODULE_FILE = "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
+
             packages = [
               (devPython.withPackages (ps: with ps; [
                 build
@@ -298,6 +304,9 @@
               pkgs.gobject-introspection
               pkgs.gtk4
               pkgs.libadwaita
+              pkgs.librsvg
+              pkgs.adwaita-icon-theme
+              pkgs.hicolor-icon-theme
               pkgs.git
               pkgs.openssh
               pkgs.nfpm

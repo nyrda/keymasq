@@ -243,6 +243,15 @@ _CATEGORY_BY_FILE = {
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     del config
     for item in items:
-        category = _CATEGORY_BY_FILE.get(Path(str(item.fspath)).name)
+        item_path = Path(str(item.fspath))
+        category = None
+        if "tests" in item_path.parts:
+            tests_index = item_path.parts.index("tests")
+            if len(item_path.parts) > tests_index + 1:
+                subtree = item_path.parts[tests_index + 1]
+                if subtree in {"keyforged", "session", "gui"}:
+                    category = subtree
+        if category is None:
+            category = _CATEGORY_BY_FILE.get(item_path.name)
         if category is not None:
             item.add_marker(getattr(pytest.mark, category))

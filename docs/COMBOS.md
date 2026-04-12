@@ -153,7 +153,7 @@ completes.
 
 ### Super Key Combo Actions
 
-Combos can now trigger saved **Super Keys**.
+Combos can trigger saved **Super Keys**.
 
 #### Overload
 
@@ -296,25 +296,3 @@ editing combos.
   trigger.
 - [Super Keys](SUPERKEYS.md) — map multiple actions to a single key based on
   tap, hold, and double-tap interactions.
-
----
-
-## Roadmap
-
-The following features are planned but not yet implemented:
-
-**First-step activation policies** — currently, the first step always uses
-transparent matching (keys pass through while incomplete, and the combo fires
-the moment the last key is pressed). This works well for modifier-led combos
-like `Alt+1` but is less ideal for non-modifier chords like `F+G`, where
-you may not want `F` to go through if the combo was intended.
-
-Planned modes:
-
-| Mode | Behavior |
-|---|---|
-| **Transparent** | Current default — keys pass through until the chord completes. |
-| **Must Hold** | All keys in the first step must be held together for a configurable time before the combo fires. If released early, the original keys are replayed. |
-| **Must Tap** | All keys in the first step must be pressed and released within a configurable time. Holding too long cancels the combo and replays the keys. |
-
-These would be opt-in per combo. Transparent matching would remain the default.

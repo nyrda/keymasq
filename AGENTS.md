@@ -17,7 +17,7 @@ Keyforge is a Linux input remapper built around three processes:
 - `keyforge/session/` - profile resolution, listeners, session socket
 - `keyforge/gui/` - GTK app and widgets
 - `keyforge/cli/` - CLI
-- `tests/` - pytest suite
+- `tests/` - pytest suite, split into `tests/keyforged/`, `tests/session/`, `tests/gui/`, and `tests/common/`
 - `docs/` - behavioral docs
 
 ## High-Value Files

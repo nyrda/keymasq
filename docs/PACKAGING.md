@@ -25,7 +25,6 @@ The repository currently maintains these package outputs:
 | Package format | Audience | Source in repo | Build output |
 |--------|--------|--------|--------|
 | Nix package | Nix and NixOS users | `flake.nix` | `nix build .#default` |
-| Nix app | Nix users who want to launch the GUI directly | `flake.nix` | `nix run .#default` |
 | NixOS module | NixOS systems | `flake.nix` | `nixosModules.default` |
 | Arch local checkout package | Arch users testing/installing the current worktree | `PKGBUILD`, `keyforge.install` | `.pkg.tar.zst` |
 | Arch AUR package | AUR publication and release packaging | `packaging/aur/` | AUR Git repo contents |
@@ -44,9 +43,6 @@ The repository uses two packaging channels:
   `workflow_dispatch` inputs. They build from an explicit ref, upload unsigned
   artifacts to a GitHub prerelease, and do not publish to AUR or external
   repositories.
-
-In other words, `master` does not automatically produce a published prerelease.
-When a master snapshot is needed, it is cut explicitly as a manual prerelease.
 
 ## Shared package payload
 
@@ -119,7 +115,6 @@ The Python module path differs by package family:
 `flake.nix` exposes two important outputs:
 
 - `packages.<system>.default`: a build of the Keyforge package itself
-- `apps.<system>.default`: a runnable app target for `nix run`
 - `nixosModules.default`: a NixOS module that installs the package and wires up
   the system daemon, user session service, udev access, tmpfiles, and the
   generated `/etc/keyforge/security.toml`
@@ -137,18 +132,6 @@ Build the package with:
 ```bash
 nix build .#default
 ```
-
-Run the GUI directly with:
-
-```bash
-nix run .#default
-```
-
-This app output is mainly useful for package-level smoke testing or temporary
-launches. It does not provision the full Keyforge runtime on NixOS by itself:
-the daemon, session service, udev ACLs, tmpfiles, system user/group, and
-generated `/etc/keyforge/security.toml` are all provided by the NixOS module,
-not by `nix run`.
 
 Open the development shell with:
 
@@ -477,20 +460,6 @@ sudo apt-get install -y ../keyforge_0.1.0-1_all.deb
 sudo sh debian/tests/pkg-smoke
 sh debian/tests/installed-cli
 ```
-
-### Cross-distro VM tests
-
-For broader package validation across Debian-like and RPM-based systems, the
-repository includes VM-oriented helper scripts:
-
-- `scripts/build-packages.sh`: builds Fedora and openSUSE RPM artifacts
-- `scripts/test-vms.sh`: copies a package into test VMs, installs it, enables
-  services, runs package validation, and can also run pytest remotely
-- `scripts/vm-package-checks.sh`: the shared validation script used inside those
-  VMs
-
-This is mainly a maintainer workflow, but it is useful if you want to confirm
-that packages behave the same way across multiple distributions.
 
 ## CI and release artifacts
 

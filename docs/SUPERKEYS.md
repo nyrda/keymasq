@@ -2,27 +2,34 @@
 
 ## Overview
 
-A super key turns one physical key or button into either:
+A super key lets you do more with a single key or button. Instead of one
+key doing one thing, a super key can give that key multiple jobs depending
+on how you press it — or let it do several things at once.
 
-- A **pattern** key that reacts differently to Tap, Double Tap, Hold, and
-  Tap + Hold.
-- An **overload** key that fans one input out to multiple normal actions using
-  the source key's usual down, repeat, and up cycle.
+**Example:** you could turn your Caps Lock key into a smart Copy/Paste
+key — tap it quickly to copy, hold it down to paste. One key, two useful
+actions, no awkward finger chords.
 
-These two modes are exclusive. A single super key uses one mode or the other.
+Keyforge gives you two ways to set this up:
 
-Super keys are saved separately from profiles and can be reused across
-multiple profiles and devices.
+- **Pattern mode** — the key watches *how* you press it (tap, double tap,
+  hold, or tap-then-hold) and each gesture can trigger one action or a
+  whole sequence of them.
+- **Overload mode** — the key does multiple things every time you press it,
+  like pressing Ctrl and C together from a single button.
 
-The file format is strict: each superkey must declare `mode`, and every
-action slot uses a TOML array even when it contains only one action.
+A super key uses one mode or the other, never both.
+
+Super keys are saved on their own, separate from profiles, so you can
+reuse the same super key across different devices and profiles without
+setting it up again each time.
 
 ## Modes
 
 ### Pattern
 
-Pattern mode is the original super key behavior. Keyforge watches how you
-press the source key and chooses one of four slots:
+Keyforge watches how you press the source key and chooses one of four
+slots:
 
 | Interaction | What it means |
 |---|---|
@@ -31,8 +38,7 @@ press the source key and chooses one of four slots:
 | **Hold** | Press and hold past the threshold. |
 | **Tap + Hold** | Tap once, then press and hold a second time. |
 
-Each slot now accepts an **ordered list of actions**, not just one action.
-When a slot fires:
+Each slot can run an ordered bundle of actions. When a slot fires:
 
 - Actions press in list order.
 - Hold-style releases happen in reverse order.
@@ -43,9 +49,9 @@ correctly.
 
 ### Overload
 
-Overload mode does not do gesture recognition. Instead, it treats the source
-key like a normal mapped key and forwards that key's lifecycle to an ordered
-list of child actions.
+Overload mode does not do gesture recognition. Instead, the source key
+behaves like a one-to-many normal mapping and forwards its down, repeat,
+and up cycle to multiple child actions.
 
 Examples:
 
@@ -108,7 +114,8 @@ the same kinds of actions that regular mappings can use, except:
 
 ## Rapidfire
 
-Rapidfire still belongs to hold-style pattern actions:
+Rapidfire (see [Actions](ACTIONS.md)) only applies to hold-style pattern
+slots:
 
 - **Hold**
 - **Tap + Hold**
@@ -134,7 +141,7 @@ recognition.
 
 ### Pattern Flow
 
-Pattern mode still uses the same decision flow:
+Pattern mode uses the following decision flow:
 
 ```text
 Press key
@@ -145,8 +152,7 @@ Press key
  └─ Keep holding past threshold? -> Hold
 ```
 
-The difference is that the chosen slot now runs a bundle instead of a single
-action.
+The chosen slot then runs its action bundle.
 
 ### Concurrency
 
@@ -188,6 +194,9 @@ Super keys live in:
 ```text
 ~/.config/keyforge/superkeys/
 ```
+
+The file format is strict: each super key must declare `mode`, and every
+action slot uses a TOML array even when it contains only one action.
 
 ### Pattern Example
 

@@ -27,14 +27,18 @@ Main profile view in the GTK4 application:
 
 ## Desktop Support
 
-| Environment     | Support              | Notes                                                              |
-| --------------- | -------------------- | ------------------------------------------------------------------ |
-| Hyprland        | Supported            |                                                                    |
-| KDE Plasma      | Supported            |                                                                    |
-| COSMIC          | Supported            |                                                                    |
-| GNOME           | Supported with setup | Requires a GNOME Shell plugin; see [docs/GNOME.md](docs/GNOME.md) |
-| Generic Wayland | Supported            | See [docs/WAYLAND.md](docs/WAYLAND.md) for compositor requirements |
-| X11 desktops    | Supported            |                                                                    |
+Keyforge supports current Linux desktop environments on both Wayland and X11.
+
+- **Wayland**: supported on Hyprland, Niri, KDE Plasma, COSMIC, GNOME, and
+  wlroots-based compositors that expose `zwlr_foreign_toplevel_manager_v1`
+  (for example Sway, Wayfire, river, and labwc)
+- **X11**: supported on standard X11 desktop sessions
+- **GNOME**: requires the GNOME Shell bridge extension; see
+  [docs/GNOME.md](docs/GNOME.md)
+- **Wayland compositor details**: see [docs/WAYLAND.md](docs/WAYLAND.md)
+
+Keyforge auto-detects the current session and uses the appropriate compositor
+integration or Wayland fallback at runtime.
 
 
 ## Architecture
@@ -98,11 +102,6 @@ rules.
 | `keyforge-session` | Per-user session broker |
 | `keyforge` | GUI by default, CLI with subcommands |
 | `keyforge-record` | Privileged recording helper used by the GUI |
-
-## Runtime
-
-Keyforge targets mainstream Linux desktop systems and integrates with supported
-Wayland compositors, desktop environments, and X11 sessions.
 
 ## Security
 

@@ -1,0 +1,470 @@
+# ruff: noqa: F403, F405, I001
+from tests.gui.support import *
+
+class TestHardwareSetupDialog:
+    def test_refresh_configure_modes_offers_gamepad_first(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog.selected_device = {
+            "interfaces": [
+                {
+                    "device_type": "gamepad",
+                    "device_types": ["gamepad"],
+                },
+                {
+                    "device_type": "keyboard",
+                    "device_types": ["keyboard"],
+                },
+            ]
+        }
+
+        dialog._refresh_configure_modes()
+
+        assert dialog._configure_mode_values == ["gamepad", "keyboard"]
+        assert dialog._configure_mode == "gamepad"
+        assert dialog.describe_subtitle.get_label() == "Review the detected controller controls"
+
+    def test_refresh_configure_modes_prefers_mouse_keyboard_template(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog.selected_device = {
+            "interfaces": [
+                {
+                    "device_type": "mouse",
+                    "device_types": ["mouse"],
+                },
+                {
+                    "device_type": "keyboard",
+                    "device_types": ["keyboard"],
+                },
+            ]
+        }
+
+        dialog._refresh_configure_modes()
+
+        assert dialog._configure_mode_values == ["mouse_keyboard", "mouse", "keyboard"]
+        assert dialog._configure_mode == "mouse_keyboard"
+        assert (
+            dialog.describe_subtitle.get_label()
+            == "Create a standard keyboard and mouse profile"
+        )
+
+    def test_detect_devices_via_session_skips_virtual_uinput_devices(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.common.models import DeviceType
+        from keyforge.gui.wizards import hardware_setup as hardware_setup_mod
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        session_devices = [
+            {
+                "path": "/dev/input/event22",
+                "name": "keyforge-gamepad",
+                "phys": "py-evdev-uinput",
+                "vendor_id": "045e",
+                "product_id": "028e",
+                "device_type": "gamepad",
+                "device_types": ["gamepad"],
+            },
+            {
+                "path": "/dev/input/event10",
+                "name": "Real USB Mouse",
+                "phys": "usb-0000:00:14.0-1/input0",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "device_type": "mouse",
+                "device_types": ["mouse"],
+            },
+            {
+                "path": "/dev/input/event11",
+                "name": "Configured Keyboard",
+                "phys": "usb-0000:00:14.0-2/input0",
+                "vendor_id": "9999",
+                "product_id": "0001",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+            },
+        ]
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": list(session_devices),
+            },
+        )
+
+        hardware_manager = SimpleNamespace(
+            get_hardware=lambda hardware_id: object() if hardware_id == "9999:0001" else None
+        )
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+        assert detected_devices == {
+            "1234:5678": {
+                "name": "Real USB Mouse",
+                "display_name": "Real USB Mouse",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "paths": ["/dev/input/event10"],
+                "interfaces": [
+                    {
+                        "path": "/dev/input/event10",
+                        "name": "Real USB Mouse",
+                        "device_type": DeviceType.MOUSE,
+                        "device_types": ["mouse"],
+                    }
+                ],
+            }
+        }
+
+    def test_detect_devices_via_session_skips_touchpads_but_keeps_other_interfaces(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.common.models import DeviceType
+        from keyforge.gui.wizards import hardware_setup as hardware_setup_mod
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        session_devices = [
+            {
+                "path": "/dev/input/event20",
+                "name": "Integrated Touchpad",
+                "phys": "i2c-ELAN1200:00",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "device_type": "other",
+                "device_types": ["touchpad"],
+            },
+            {
+                "path": "/dev/input/event21",
+                "name": "Integrated Keyboard",
+                "phys": "isa0060/serio0/input0",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+            },
+            {
+                "path": "/dev/input/event22",
+                "name": "Standalone Touchpad",
+                "phys": "i2c-SYNA2393:00",
+                "vendor_id": "9999",
+                "product_id": "0001",
+                "device_type": "other",
+                "device_types": ["touchpad"],
+            },
+        ]
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": list(session_devices),
+            },
+        )
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+        assert detected_devices == {
+            "1234:5678": {
+                "name": "Integrated Keyboard",
+                "display_name": "Integrated Keyboard",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "paths": ["/dev/input/event21"],
+                "interfaces": [
+                    {
+                        "path": "/dev/input/event21",
+                        "name": "Integrated Keyboard",
+                        "device_type": DeviceType.KEYBOARD,
+                        "device_types": ["keyboard"],
+                    }
+                ],
+            }
+        }
+
+    def test_save_gamepad_config_builds_buttons_from_capabilities(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        import evdev
+        from gi.repository import Gtk
+
+        from keyforge.common.models import DeviceType
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved = []
+
+            def save_hardware(self, config) -> None:
+                self.saved.append(config)
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        hardware_manager = _HardwareManager()
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "5678",
+            "name": "Test Pad",
+        }
+        dialog.discovered_interfaces = {
+            "joystick": {
+                "id": "joystick",
+                "stable_path": "/dev/input/by-id/test-pad",
+                "path": "/dev/input/event10",
+                "name": "Test Pad",
+                "device_type": DeviceType.GAMEPAD,
+                "device_types": ["gamepad"],
+                "capabilities": ["btn_start", "btn_south", "btn_east"],
+                "raw_capabilities": {
+                    evdev.ecodes.EV_KEY: [
+                        evdev.ecodes.BTN_START,
+                        evdev.ecodes.BTN_SOUTH,
+                        evdev.ecodes.BTN_EAST,
+                    ]
+                },
+            }
+        }
+        emitted = []
+        dialog.emit = lambda signal, config: emitted.append((signal, config))
+        dialog.close = lambda: None
+
+        dialog._save_gamepad_config()
+
+        assert len(hardware_manager.saved) == 1
+        saved = hardware_manager.saved[0]
+        assert saved.evdev_devices[0].device_type == DeviceType.GAMEPAD
+        assert [button.id for button in saved.buttons] == ["btn_start", "btn_east", "btn_south"]
+        assert [button.label for button in saved.buttons] == ["Start", "B", "A"]
+        assert [button.evdev_code for button in saved.buttons] == [
+            evdev.ecodes.BTN_START,
+            evdev.ecodes.BTN_EAST,
+            evdev.ecodes.BTN_SOUTH,
+        ]
+        assert all(button.type == "gamepad" for button in saved.buttons)
+        assert emitted == [("device-created", saved)]
+
+    def test_save_mouse_keyboard_config_builds_standard_template(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.common.models import DeviceType
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved = []
+
+            def save_hardware(self, config) -> None:
+                self.saved.append(config)
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        hardware_manager = _HardwareManager()
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "5678",
+            "name": "Combo Device",
+        }
+        dialog.discovered_interfaces = {
+            "mouse": {
+                "id": "mouse",
+                "stable_path": "/dev/input/by-id/test-mouse",
+                "path": "/dev/input/event10",
+                "name": "Combo Mouse",
+                "device_type": DeviceType.MOUSE,
+                "device_types": ["mouse"],
+                "capabilities": ["btn_left", "btn_right", "btn_middle", "btn_side", "btn_extra"],
+            },
+            "kbd": {
+                "id": "kbd",
+                "stable_path": "/dev/input/by-id/test-kbd",
+                "path": "/dev/input/event11",
+                "name": "Combo Keyboard",
+                "device_type": DeviceType.KEYBOARD,
+                "device_types": ["keyboard"],
+                "capabilities": ["key_a", "key_b"],
+            },
+        }
+        emitted = []
+        dialog.emit = lambda signal, config: emitted.append((signal, config))
+        dialog.close = lambda: None
+
+        dialog._save_mouse_keyboard_config()
+
+        assert len(hardware_manager.saved) == 1
+        saved = hardware_manager.saved[0]
+        assert [device.id for device in saved.evdev_devices] == ["mouse", "kbd"]
+        assert [device.device_type for device in saved.evdev_devices] == [
+            DeviceType.MOUSE,
+            DeviceType.KEYBOARD,
+        ]
+        assert [button.id for button in saved.buttons[:5]] == [
+            "btn_left",
+            "btn_right",
+            "btn_middle",
+            "btn_back",
+            "btn_forward",
+        ]
+        assert [button.evdev for button in saved.buttons[:5]] == [
+            "btn_left",
+            "btn_right",
+            "btn_middle",
+            "btn_side",
+            "btn_extra",
+        ]
+        assert all(button.source == "mouse" for button in saved.buttons[:5])
+        assert saved.buttons[5].source == "kbd"
+        assert saved.buttons[5].id == "key_esc"
+        assert emitted == [("device-created", saved)]
+
+    def test_keyboard_template_excludes_key_102nd(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        buttons = dialog._build_standard_keyboard_buttons("kbd")
+
+        assert "key_102nd" not in [button.id for button in buttons]
+
+
+def test_keyboard_device_tab_prepends_extra_buttons_section():
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+    from keyforge.gui.widgets.device_tab import DeviceTab
+
+    def child_widgets(widget):
+        items = []
+        child = widget.get_first_child()
+        while child is not None:
+            items.append(child)
+            child = child.get_next_sibling()
+        return items
+
+    template_buttons = [
+        "key_esc",
+        "key_1",
+        "key_2",
+        "key_3",
+        "key_4",
+        "key_5",
+        "key_6",
+        "key_7",
+        "key_8",
+        "key_9",
+        "key_0",
+        "key_minus",
+        "key_equal",
+        "key_backspace",
+        "key_tab",
+        "key_q",
+        "key_w",
+        "key_e",
+        "key_r",
+        "key_t",
+        "key_y",
+        "key_u",
+        "key_i",
+        "key_o",
+        "key_p",
+        "key_leftbrace",
+        "key_rightbrace",
+        "key_backslash",
+        "key_capslock",
+        "key_a",
+        "key_s",
+        "key_d",
+        "key_f",
+        "key_g",
+        "key_h",
+        "key_j",
+        "key_k",
+        "key_l",
+        "key_semicolon",
+        "key_apostrophe",
+        "key_enter",
+        "key_leftshift",
+        "key_z",
+        "key_x",
+        "key_c",
+        "key_v",
+        "key_b",
+        "key_n",
+        "key_m",
+        "key_comma",
+        "key_dot",
+        "key_slash",
+        "key_rightshift",
+        "key_leftctrl",
+        "key_leftmeta",
+        "key_leftalt",
+        "key_space",
+        "key_rightalt",
+        "key_rightctrl",
+        "key_rightmeta",
+    ]
+
+    buttons = [
+        ButtonDefinition(id=key_id, label=key_id.upper(), evdev=key_id, source="kbd")
+        for key_id in template_buttons
+    ]
+    buttons = [
+        ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left", source="mouse"),
+        ButtonDefinition(id="btn_back", label="Back", evdev="btn_side", source="mouse"),
+        *buttons,
+    ]
+
+    tab = DeviceTab(
+        HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Combo Device",
+            evdev_devices=[
+                EvdevDevice(path="/dev/input/event10", device_type=DeviceType.MOUSE, id="mouse"),
+                EvdevDevice(path="/dev/input/event11", device_type=DeviceType.KEYBOARD, id="kbd"),
+            ],
+            buttons=buttons,
+        ),
+        profile_manager=None,
+        demo_mode=True,
+    )
+
+    scrolled = child_widgets(tab)[-1]
+    content = scrolled.get_child()
+    if not isinstance(content, Gtk.Box):
+        content = content.get_child()
+    first_section = child_widgets(content)[0]
+
+    assert isinstance(first_section, Gtk.Expander)
+    assert first_section.get_label() == "Extra Buttons (2)"
+    assert first_section.get_expanded() is True
+
+

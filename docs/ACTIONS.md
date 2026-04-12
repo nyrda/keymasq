@@ -58,7 +58,7 @@ Enter the command text and click **Map**.
 Assign a [super key](SUPERKEYS.md) to this button. Select one from the
 dropdown.
 
-Super keys now have two modes:
+Super keys have two modes:
 
 - **Pattern**: Tap, Double Tap, Hold, and Tap + Hold choose one slot, and each
   slot can run an ordered bundle of actions.
@@ -342,6 +342,5 @@ away. This prevents accidentally locking yourself out of clicking.
 ## See Also
 
 - [Macros](MACROS.md) — creating, editing, and playing back macros.
-- [Super Keys](SUPERKEYS.md) — tap, hold, and double-tap actions on a single
-  key.
+- [Super Keys](SUPERKEYS.md) — pattern and overload modes for a single key.
 - [Combos](COMBOS.md) — multi-key triggers that fire actions.

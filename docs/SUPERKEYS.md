@@ -28,8 +28,8 @@ setting it up again each time.
 
 ### Pattern
 
-Pattern mode is the original super key behavior. Keyforge watches how you
-press the source key and chooses one of four slots:
+Keyforge watches how you press the source key and chooses one of four
+slots:
 
 | Interaction | What it means |
 |---|---|
@@ -38,8 +38,7 @@ press the source key and chooses one of four slots:
 | **Hold** | Press and hold past the threshold. |
 | **Tap + Hold** | Tap once, then press and hold a second time. |
 
-Each slot now accepts an **ordered list of actions**, not just one action.
-When a slot fires:
+Each slot can run an ordered bundle of actions. When a slot fires:
 
 - Actions press in list order.
 - Hold-style releases happen in reverse order.
@@ -50,9 +49,9 @@ correctly.
 
 ### Overload
 
-Overload mode does not do gesture recognition. Instead, it treats the source
-key like a normal mapped key and forwards that key's lifecycle to an ordered
-list of child actions.
+Overload mode does not do gesture recognition. Instead, the source key
+behaves like a one-to-many normal mapping and forwards its down, repeat,
+and up cycle to multiple child actions.
 
 Examples:
 
@@ -142,7 +141,7 @@ recognition.
 
 ### Pattern Flow
 
-Pattern mode still uses the same decision flow:
+Pattern mode uses the following decision flow:
 
 ```text
 Press key
@@ -153,8 +152,7 @@ Press key
  └─ Keep holding past threshold? -> Hold
 ```
 
-The difference is that the chosen slot now runs a bundle instead of a single
-action.
+The chosen slot then runs its action bundle.
 
 ### Concurrency
 

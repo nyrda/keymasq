@@ -24,11 +24,13 @@ Keyforge is a Linux input remapper built around three processes:
 
 - `keyforge/common/models.py` - `ActionType`, `MappingAction`, profile and combo models
 - `keyforge/common/ipc.py` - daemon/session protocol and command types
-- `keyforge/keyforged/daemon.py` - privileged command server, ACL checks, and runtime manager wiring
-- `keyforge/keyforged/device_manager.py` - daemon-side runtime coordinator for grabs, mappings, combos, and macro playback
-- `keyforge/session/manager/core.py` - session socket lifecycle, daemon connection loop, and runtime state
-- `keyforge/session/manager/commands.py` - GUI/session command dispatch and policy gating
-- `keyforge/session/profiles.py` - profile load/save and active-profile/combo resolution
+- `keyforge/keyforged/daemon.py` - daemon bootstrap, socket server, ACL/recording-unlock enforcement, and dispatch into `daemon_*_commands.py`
+- `keyforge/keyforged/device_manager.py` - stateful facade over `keyforge/keyforged/runtime/*` for grabs, mappings, combos, topology, and macro playback
+- `keyforge/session/manager/core.py` - session server lifecycle, keyforged reconnect loop, and manager wiring
+- `keyforge/session/manager/commands.py` - GUI/session request dispatch and policy gating
+- `keyforge/session/manager/profiles.py` - runtime profile reevaluation, device grab/apply logic, and combo updates
+- `keyforge/session/manager/state.py` - session runtime state containers
+- `keyforge/session/profiles.py` - on-disk profile load/save and profile/combo resolution
 - `keyforge/gui/window.py` - main window, device/combo tab setup, and shared profile selection sync
 
 ## Gotchas

@@ -195,3 +195,38 @@ class TestDialogConstruction:
 
         assert dialog.get_child() is not None
         assert callable(dialog._on_close_clicked)
+
+    def test_macro_manager_edit_opens_editor_with_closed_handler(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keyforge.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
+        from keyforge.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        captured: dict[str, object] = {}
+
+        class DummyEditorDialog:
+            def __init__(self, parent, name):
+                captured["parent"] = parent
+                captured["name"] = name
+
+            def connect(self, signal_name, callback):
+                captured["signal_name"] = signal_name
+                captured["callback"] = callback
+
+            def present(self, parent):
+                captured["present_parent"] = parent
+
+        monkeypatch.setattr(macro_editor_dialog_module, "MacroEditorDialog", DummyEditorDialog)
+
+        parent = Gtk.Window()
+        dialog = MacroManagerDialog(parent)
+        dialog._on_edit_clicked(Gtk.Button(), "demo_macro")
+
+        assert captured["parent"] is parent
+        assert captured["name"] == "demo_macro"
+        assert captured["signal_name"] == "closed"
+        assert captured["callback"] == dialog._on_editor_closed
+        assert captured["present_parent"] is parent

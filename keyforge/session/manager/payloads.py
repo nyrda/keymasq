@@ -8,6 +8,7 @@ from keyforge.common.models import (
     SuperkeyConfig,
     SuperkeyMode,
     combo_effective_superkey_config,
+    superkey_action_to_mapping_action,
 )
 from keyforge.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
@@ -201,6 +202,10 @@ def action_signature_payload(
         data["macro_speed"] = float(action.macro_speed)
         data["macro_loop_mode"] = action.macro_loop_mode
         data["macro_loop_count"] = int(action.macro_loop_count)
+        data["macro_move_to_start"] = bool(action.macro_move_to_start)
+        data["macro_start_x"] = int(action.macro_start_x)
+        data["macro_start_y"] = int(action.macro_start_y)
+        data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
         return data
 
     if action_type == "superkey":
@@ -308,6 +313,12 @@ def profile_to_mapping(
                 action_data["macro_speed"] = action.macro_speed
                 action_data["macro_loop_mode"] = action.macro_loop_mode
                 action_data["macro_loop_count"] = int(action.macro_loop_count)
+                action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
+                action_data["macro_start_x"] = int(action.macro_start_x)
+                action_data["macro_start_y"] = int(action.macro_start_y)
+                action_data["macro_block_mouse_movement"] = bool(
+                    action.macro_block_mouse_movement
+                )
         elif action.action_type.value == "superkey":
             if action.superkey_name:
                 superkey_config = manager.superkeys.get_superkey(action.superkey_name)
@@ -448,6 +459,10 @@ def combo_action_to_payload(
             action_data["macro_speed"] = action.macro_speed
             action_data["macro_loop_mode"] = action.macro_loop_mode
             action_data["macro_loop_count"] = int(action.macro_loop_count)
+            action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
+            action_data["macro_start_x"] = int(action.macro_start_x)
+            action_data["macro_start_y"] = int(action.macro_start_y)
+            action_data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
             return action_data
         return None
 
@@ -603,29 +618,12 @@ def serialize_superkey_action(
     *,
     track_combo_refs: bool = False,
 ) -> JsonObject:
-    data: JsonObject = {"action": action.action_type.value}
-
-    if action.target:
-        data["target"] = action.target
-    if action.cmd:
-        data["cmd"] = action.cmd
-    if action.macro_name:
-        data["macro_name"] = action.macro_name
-    if action.rapidfire_enabled:
-        data["rapidfire_enabled"] = True
-        data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
-        data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
-
-    if action.action_type.value == "exec" and action.cmd:
-        exec_ref = _allocate_superkey_exec_ref(
-            manager,
-            hardware_id,
-            action.cmd,
-            track_combo_refs=track_combo_refs,
-        )
-        data["exec_ref"] = exec_ref
-
-    return data
+    return serialize_overload_action(
+        manager,
+        superkey_action_to_mapping_action(action),
+        hardware_id,
+        track_combo_refs=track_combo_refs,
+    )
 
 
 def serialize_superkey_action_signature(
@@ -633,29 +631,11 @@ def serialize_superkey_action_signature(
     action: SuperkeyAction,
     hardware_id: str,
 ) -> JsonObject:
-    data: JsonObject = {"action": action.action_type.value}
-
-    if action.target:
-        data["target"] = action.target
-    if action.cmd:
-        data["cmd"] = action.cmd
-    if action.macro_name:
-        data["macro_name"] = action.macro_name
-    if action.rapidfire_enabled:
-        data["rapidfire_enabled"] = True
-        data["rapidfire_hold_ms"] = int(action.rapidfire_hold_ms)
-        data["rapidfire_wait_ms"] = int(action.rapidfire_wait_ms)
-
-    # SuperkeyAction does not define ``superkey_name`` and valid superkey slots
-    # reject nested SUPERKEY actions. Keep this defensive lookup so malformed or
-    # legacy in-memory data can still serialize a stable signature if it appears.
-    superkey_name = getattr(action, "superkey_name", None)
-    if action.action_type.value == "superkey" and isinstance(superkey_name, str):
-        superkey_config = manager.superkeys.get_superkey(superkey_name)
-        if superkey_config:
-            data["superkey"] = serialize_superkey_signature(manager, superkey_config, hardware_id)
-
-    return data
+    return action_signature_payload(
+        manager,
+        superkey_action_to_mapping_action(action),
+        hardware_id,
+    )
 
 
 def serialize_overload_action(
@@ -729,6 +709,10 @@ def serialize_overload_action(
             action_data["macro_speed"] = action.macro_speed
             action_data["macro_loop_mode"] = action.macro_loop_mode
             action_data["macro_loop_count"] = int(action.macro_loop_count)
+            action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
+            action_data["macro_start_x"] = int(action.macro_start_x)
+            action_data["macro_start_y"] = int(action.macro_start_y)
+            action_data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
         return action_data
 
     return action_data

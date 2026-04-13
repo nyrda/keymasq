@@ -38,9 +38,18 @@ SUPERKEY_ACTION_TYPES = frozenset(
     {
         ActionType.KEYBOARD,
         ActionType.MOUSE,
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
         ActionType.GAMEPAD,
         ActionType.EXEC,
+        ActionType.COMPOSITOR_DISPATCH,
+        ActionType.START_MACRO_RECORDING,
+        ActionType.STOP_MACRO_RECORDING,
+        ActionType.CANCEL_MACRO_PLAYBACK,
         ActionType.MACRO,
+        ActionType.PROFILE_ENABLE,
+        ActionType.PROFILE_DISABLE,
+        ActionType.PROFILE_TOGGLE,
     }
 )
 
@@ -151,6 +160,21 @@ class SuperkeyAction:
     cmd: str | None = None
     exec_ref: int | None = None
     macro_name: str | None = None
+    macro_replay_mouse_movement: bool = True
+    macro_replay_mouse_clicks: bool = True
+    macro_speed: float = 1.0
+    macro_loop_mode: str = "none"
+    macro_loop_count: int = 1
+    macro_move_to_start: bool = False
+    macro_start_x: int = 0
+    macro_start_y: int = 0
+    macro_block_mouse_movement: bool = False
+    profile_name: str | None = None
+    compositor_id: str | None = None
+    compositor_dispatcher: str | None = None
+    compositor_args: str | None = None
+    move_x: int = 0
+    move_y: int = 0
 
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = 20
@@ -158,6 +182,55 @@ class SuperkeyAction:
 
     def is_valid(self) -> bool:
         return self.action_type in SUPERKEY_ACTION_TYPES
+
+
+SUPERKEY_ACTION_SHARED_FIELDS = (
+    "target",
+    "cmd",
+    "exec_ref",
+    "macro_name",
+    "macro_replay_mouse_movement",
+    "macro_replay_mouse_clicks",
+    "macro_speed",
+    "macro_loop_mode",
+    "macro_loop_count",
+    "macro_move_to_start",
+    "macro_start_x",
+    "macro_start_y",
+    "macro_block_mouse_movement",
+    "profile_name",
+    "compositor_id",
+    "compositor_dispatcher",
+    "compositor_args",
+    "move_x",
+    "move_y",
+    "rapidfire_enabled",
+    "rapidfire_hold_ms",
+    "rapidfire_wait_ms",
+)
+
+
+def superkey_action_shared_kwargs(action: object) -> dict[str, Any]:
+    return {
+        field_name: getattr(action, field_name)
+        for field_name in SUPERKEY_ACTION_SHARED_FIELDS
+    }
+
+
+def mapping_action_to_superkey_action(action: MappingAction) -> SuperkeyAction:
+    if action.action_type not in SUPERKEY_ACTION_TYPES:
+        raise ValueError(f"invalid pattern superkey action type: {action.action_type.value}")
+    return SuperkeyAction(
+        action_type=action.action_type,
+        **superkey_action_shared_kwargs(action),
+    )
+
+
+def superkey_action_to_mapping_action(action: SuperkeyAction) -> MappingAction:
+    return MappingAction(
+        action_type=action.action_type,
+        **superkey_action_shared_kwargs(action),
+    )
 
 
 @dataclass

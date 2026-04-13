@@ -109,6 +109,80 @@ class TestDialogConstruction:
         assert dialog.get_child() is not None
         assert dialog.right_box.get_parent() is not None
 
+    def test_pattern_superkey_actions_use_shared_key_selector_dialog(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keyforge.common.models import ActionType, SuperkeyAction
+        import keyforge.gui.widgets.key_selector_dialog as key_selector_dialog_module
+        from keyforge.gui.widgets.superkey_dialog import ActionListDialog
+
+        captured: dict[str, object] = {}
+
+        class DummyDialog:
+            def __init__(self, _parent, _label, current_action=None, **kwargs):
+                captured["current_action"] = current_action
+                captured["kwargs"] = kwargs
+
+            def connect(self, signal_name, callback, index):
+                captured["signal_name"] = signal_name
+                captured["callback"] = callback
+                captured["index"] = index
+
+            def present(self):
+                captured["presented"] = True
+
+        monkeypatch.setattr(key_selector_dialog_module, "KeySelectorDialog", DummyDialog)
+
+        dialog = ActionListDialog(Gtk.Window(), "Hold Actions", "pattern", action_key="hold")
+        dialog._open_child_editor(
+            SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
+            2,
+        )
+
+        current_action = captured["current_action"]
+        assert captured["signal_name"] == "key-selected"
+        assert captured["presented"] is True
+        assert current_action.action_type == ActionType.PROFILE_TOGGLE
+        assert current_action.profile_name == "Gaming"
+        assert captured["kwargs"] == {
+            "allow_passthrough": False,
+            "allow_clear_mapping": False,
+            "allow_suppress": False,
+            "allow_superkey": False,
+            "allow_rapidfire": True,
+            "allow_tap": False,
+            "allow_macro_options": True,
+        }
+
+    def test_pattern_superkey_action_summary_formats_without_label_rewrite(self):
+        from keyforge.common.models import ActionType, SuperkeyAction
+        from keyforge.gui.widgets.superkey_dialog import _describe_pattern_superkey_action
+
+        label = _describe_pattern_superkey_action(
+            SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
+            exec_limit=20,
+            exec_prefix="exec ",
+            macro_prefix="macro ",
+            target_separator=" -> ",
+            title_case_target_type=True,
+        )
+        lower_label = _describe_pattern_superkey_action(
+            SuperkeyAction(
+                action_type=ActionType.MOUSE_MOVE_REL,
+                move_x=12,
+                move_y=-4,
+            ),
+            exec_limit=20,
+            exec_prefix="exec ",
+            macro_prefix="macro ",
+            target_separator=" ",
+            title_case_target_type=False,
+        )
+
+        assert label == "Toggle Profile -> Gaming"
+        assert lower_label == "mouse move (rel) 12, -4"
+
     def test_macro_manager_dialog_constructs_with_close_handler(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
@@ -121,5 +195,3 @@ class TestDialogConstruction:
 
         assert dialog.get_child() is not None
         assert callable(dialog._on_close_clicked)
-
-

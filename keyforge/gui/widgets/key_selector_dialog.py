@@ -253,6 +253,9 @@ class KeySelectorDialog(Adw.Dialog):
         allow_clear_mapping: bool = True,
         allow_suppress: bool = True,
         allow_superkey: bool = True,
+        allow_rapidfire: bool = True,
+        allow_tap: bool = True,
+        allow_macro_options: bool = True,
     ):
         super().__init__(title=f"Map: {button_label}", content_width=650, content_height=620)
         self._parent = parent
@@ -262,6 +265,9 @@ class KeySelectorDialog(Adw.Dialog):
         self._allow_clear_mapping = allow_clear_mapping
         self._allow_suppress = allow_suppress
         self._allow_superkey = allow_superkey
+        self._allow_rapidfire = allow_rapidfire
+        self._allow_tap = allow_tap
+        self._allow_macro_options = allow_macro_options
         self._compositor_action_status = self._resolve_compositor_action_status(
             compositor_action_status
         )
@@ -323,6 +329,10 @@ class KeySelectorDialog(Adw.Dialog):
                 self._mouse_move_y = int(current_action.move_y)
                 if current_action.action_type == ActionType.MOUSE_MOVE_ABS:
                     self._mouse_move_mode = "abs"
+        if not self._allow_rapidfire:
+            self._rapidfire_enabled = False
+        if not self._allow_tap:
+            self._tap_enabled = False
 
         self._build_ui()
 
@@ -844,8 +854,11 @@ class KeySelectorDialog(Adw.Dialog):
         return box
 
     def _update_options_visibility(self):
-        rf_active = self.rapidfire_check.get_active()
-        tap_active = self.tap_check.get_active()
+        rf_active = self._allow_rapidfire and self.rapidfire_check.get_active()
+        tap_active = self._allow_tap and self.tap_check.get_active()
+
+        self.rapidfire_check.set_visible(self._allow_rapidfire)
+        self.tap_check.set_visible(self._allow_tap)
 
         self.hold_label.set_visible(rf_active)
         self.hold_spin.set_visible(rf_active)
@@ -884,11 +897,14 @@ class KeySelectorDialog(Adw.Dialog):
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
         is_compositor_action = child_name in self._compositor_action_page_ids
+        has_options = self._allow_rapidfire or self._allow_tap
         options_enabled = (
             not is_special and not is_macro and not is_profile and not is_compositor_action
         )
-        self.options_box.set_sensitive(options_enabled)
-        self.options_box.set_visible(not is_macro and not is_profile and not is_compositor_action)
+        self.options_box.set_sensitive(options_enabled and has_options)
+        self.options_box.set_visible(
+            has_options and not is_macro and not is_profile and not is_compositor_action
+        )
         self.map_btn.set_visible(is_macro or is_profile)
         if is_macro:
             self.map_btn.set_sensitive(self._selected_macro is not None)
@@ -898,6 +914,8 @@ class KeySelectorDialog(Adw.Dialog):
             self.map_btn.set_sensitive(False)
 
     def _on_rapidfire_toggled(self, check):
+        if not self._allow_rapidfire:
+            return
         self._rapidfire_enabled = check.get_active()
         if self._rapidfire_enabled:
             self.tap_check.set_active(False)
@@ -905,6 +923,8 @@ class KeySelectorDialog(Adw.Dialog):
         self._update_options_visibility()
 
     def _on_tap_toggled(self, check):
+        if not self._allow_tap:
+            return
         self._tap_enabled = check.get_active()
         if self._tap_enabled:
             self.rapidfire_check.set_active(False)
@@ -1411,7 +1431,7 @@ class KeySelectorDialog(Adw.Dialog):
     def _on_macro_row_selected(self, listbox, row) -> None:
         if row and hasattr(row, "_macro_name"):
             self._selected_macro = row._macro_name
-            self._macro_options_box.set_visible(True)
+            self._macro_options_box.set_visible(self._allow_macro_options)
         else:
             self._selected_macro = None
             self._macro_options_box.set_visible(False)

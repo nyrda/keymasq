@@ -607,29 +607,91 @@ async def stop_recording(
 
 
 async def play_macro_by_name(manager: "SessionManager", name: str) -> None:
+    await play_macro_trigger(manager, {"macro_name": name})
+
+
+async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> None:
     try:
-        get_result = await manager.client.send_command(
-            Command(command=CommandType.MACRO_GET, data={"name": name})
-        )
-        get_result_data = json_object(get_result.data)
-        if get_result.status != "ok" or get_result_data is None:
+        macro_name = str(data.get("macro_name", data.get("name", "")) or "").strip()
+        macro_events = json_list(data.get("macro_events"))
+
+        macro: JsonObject | None = None
+        if macro_name and not macro_events:
+            get_result = await manager.client.send_command(
+                Command(command=CommandType.MACRO_GET, data={"name": macro_name})
+            )
+            get_result_data = json_object(get_result.data)
+            if get_result.status != "ok" or get_result_data is None:
+                return
+            macro = json_object(get_result_data.get("macro"))
+            if macro is None:
+                return
+            macro = sanitize_macro_for_policy(manager, macro)
+            macro_name = str(macro.get("name", macro_name) or macro_name)
+            macro_events = json_list(macro.get("events"))
+        elif macro_events:
+            macro = sanitize_macro_for_policy(
+                manager,
+                {"events": macro_events},
+            )
+            macro_events = json_list(macro.get("events"))
+
+        if not macro_name and not macro_events:
             return
-        macro = json_object(get_result_data.get("macro"))
-        if macro is None:
-            return
-        macro = sanitize_macro_for_policy(manager, macro)
+
+        macro_speed_raw = data.get("macro_speed", data.get("speed"))
         payload = {
-            "macro_name": str(macro.get("name", name) or name),
-            "macro_events": macro.get("events", []),
-            "replay_mouse_movement": True,
-            "replay_mouse_clicks": True,
-            "speed": 1.0,
-            "loop_mode": str(macro.get("loop_mode", "none") or "none"),
-            "loop_count": int_value(macro.get("loop_count"), 1),
-            "move_to_start": bool(macro.get("move_to_start", False)),
-            "start_x": int_value(macro.get("start_x"), 0),
-            "start_y": int_value(macro.get("start_y"), 0),
-            "block_mouse_movement": bool(macro.get("block_mouse_movement", False)),
+            "macro_name": macro_name,
+            "macro_events": macro_events,
+            "replay_mouse_movement": bool(
+                data.get("macro_replay_mouse_movement", data.get("replay_mouse_movement", True))
+            ),
+            "replay_mouse_clicks": bool(
+                data.get("macro_replay_mouse_clicks", data.get("replay_mouse_clicks", True))
+            ),
+            "speed": 1.0
+            if macro_speed_raw is None
+            else float(cast(int | float | str | bytes, macro_speed_raw)),
+            "loop_mode": str(
+                data.get(
+                    "macro_loop_mode",
+                    data.get("loop_mode", (macro or {}).get("loop_mode", "none")),
+                )
+                or "none"
+            ),
+            "loop_count": int_value(
+                data.get(
+                    "macro_loop_count",
+                    data.get("loop_count", (macro or {}).get("loop_count")),
+                ),
+                1,
+            ),
+            "move_to_start": bool(
+                data.get(
+                    "macro_move_to_start",
+                    data.get("move_to_start", (macro or {}).get("move_to_start", False)),
+                )
+            ),
+            "start_x": int_value(
+                data.get("macro_start_x", data.get("start_x", (macro or {}).get("start_x"))),
+                0,
+            ),
+            "start_y": int_value(
+                data.get("macro_start_y", data.get("start_y", (macro or {}).get("start_y"))),
+                0,
+            ),
+            "block_mouse_movement": bool(
+                data.get(
+                    "macro_block_mouse_movement",
+                    data.get(
+                        "block_mouse_movement",
+                        (macro or {}).get("block_mouse_movement", False),
+                    ),
+                )
+            ),
+            "source_device": str(data.get("source_device", "") or ""),
+            "source_button": str(data.get("source_button", "") or ""),
+            "trigger_value": int_value(data.get("trigger_value"), 1),
         }
 
         await manager.client.send_command(Command(command=CommandType.PLAY_MACRO, data=payload))

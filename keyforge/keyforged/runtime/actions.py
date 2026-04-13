@@ -312,6 +312,7 @@ def parse_superkey_action(
             return _default_int_or_none(value, int_value=int_value)
 
         int_or_none = fallback_int_or_none
+    macro_speed_value = action.get("macro_speed")
 
     return SuperkeyActionData(
         action_type=str_value(action.get("action"), "keyboard"),
@@ -319,6 +320,23 @@ def parse_superkey_action(
         cmd=optional_str(action.get("cmd")),
         exec_ref=int_or_none(action.get("exec_ref")),
         macro_name=optional_str(action.get("macro_name")),
+        macro_replay_mouse_movement=bool(action.get("macro_replay_mouse_movement", True)),
+        macro_replay_mouse_clicks=bool(action.get("macro_replay_mouse_clicks", True)),
+        macro_speed=1.0
+        if macro_speed_value is None
+        else float(cast(int | float | str | bytes, macro_speed_value)),
+        macro_loop_mode=str_value(action.get("macro_loop_mode"), "none") or "none",
+        macro_loop_count=int_value(action.get("macro_loop_count"), 1),
+        macro_move_to_start=bool(action.get("macro_move_to_start", False)),
+        macro_start_x=int_value(action.get("macro_start_x"), 0),
+        macro_start_y=int_value(action.get("macro_start_y"), 0),
+        macro_block_mouse_movement=bool(action.get("macro_block_mouse_movement", False)),
+        profile_name=optional_str(action.get("profile_name")),
+        compositor_id=optional_str(action.get("compositor")),
+        compositor_dispatcher=optional_str(action.get("dispatcher")),
+        compositor_args=optional_str(action.get("args")),
+        move_x=int_value(action.get("x"), 0),
+        move_y=int_value(action.get("y"), 0),
         rapidfire_enabled=bool(action.get("rapidfire_enabled", False)),
         rapidfire_hold_ms=int_value(action.get("rapidfire_hold_ms"), 20),
         rapidfire_wait_ms=int_value(action.get("rapidfire_wait_ms"), 20),

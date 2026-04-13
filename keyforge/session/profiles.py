@@ -303,6 +303,10 @@ class ProfileManager:
                 macro_speed=_float_value(action_data.get("speed"), 1.0),
                 macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
                 macro_loop_count=_int_value(action_data.get("loop_count"), 1),
+                macro_move_to_start=bool(action_data.get("move_to_start", False)),
+                macro_start_x=_int_value(action_data.get("start_x"), 0),
+                macro_start_y=_int_value(action_data.get("start_y"), 0),
+                macro_block_mouse_movement=bool(action_data.get("block_mouse_movement", False)),
             )
 
         if action_type in (
@@ -376,6 +380,10 @@ class ProfileManager:
             action_data["speed"] = action.macro_speed
             action_data["loop_mode"] = action.macro_loop_mode
             action_data["loop_count"] = int(action.macro_loop_count)
+            action_data["move_to_start"] = bool(action.macro_move_to_start)
+            action_data["start_x"] = int(action.macro_start_x)
+            action_data["start_y"] = int(action.macro_start_y)
+            action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
         if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
             action_data["x"] = int(action.move_x)
             action_data["y"] = int(action.move_y)

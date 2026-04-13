@@ -13,6 +13,8 @@ from keyforge.common.models import (
     SuperkeyAction,
     SuperkeyConfig,
     SuperkeyMode,
+    mapping_action_to_superkey_action,
+    superkey_action_to_mapping_action,
 )
 from keyforge.keyforged.runtime.actions import parse_superkey_config
 from keyforge.session.manager.payloads import (
@@ -114,6 +116,89 @@ def test_superkey_manager_round_trips_pattern_bundles(temp_config_dir, monkeypat
     text = (superkeys_dir / "bundle.toml").read_text(encoding="utf-8")
     assert 'mode = "pattern"' in text
     assert "tap = [" in text
+
+
+def test_superkey_action_roundtrip_preserves_shared_fields() -> None:
+    action = MappingAction(
+        action_type=ActionType.MACRO,
+        macro_name="demo",
+        macro_replay_mouse_movement=False,
+        macro_replay_mouse_clicks=False,
+        macro_speed=2.5,
+        macro_loop_mode="hold",
+        macro_loop_count=3,
+        macro_move_to_start=True,
+        macro_start_x=111,
+        macro_start_y=222,
+        macro_block_mouse_movement=True,
+        rapidfire_enabled=True,
+        rapidfire_hold_ms=40,
+        rapidfire_wait_ms=60,
+    )
+
+    superkey_action = mapping_action_to_superkey_action(action)
+    round_tripped = superkey_action_to_mapping_action(superkey_action)
+
+    assert round_tripped.action_type == ActionType.MACRO
+    assert round_tripped.macro_name == "demo"
+    assert round_tripped.macro_replay_mouse_movement is False
+    assert round_tripped.macro_replay_mouse_clicks is False
+    assert round_tripped.macro_speed == 2.5
+    assert round_tripped.macro_loop_mode == "hold"
+    assert round_tripped.macro_loop_count == 3
+    assert round_tripped.macro_move_to_start is True
+    assert round_tripped.macro_start_x == 111
+    assert round_tripped.macro_start_y == 222
+    assert round_tripped.macro_block_mouse_movement is True
+    assert round_tripped.rapidfire_enabled is True
+    assert round_tripped.rapidfire_hold_ms == 40
+    assert round_tripped.rapidfire_wait_ms == 60
+
+
+def test_superkey_manager_round_trips_extended_pattern_actions(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    manager = SuperkeyManager()
+    config = SuperkeyConfig(
+        name="extended-pattern",
+        mode=SuperkeyMode.PATTERN,
+        tap_actions=[
+            SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
+        ],
+        double_tap_actions=[
+            SuperkeyAction(
+                action_type=ActionType.COMPOSITOR_DISPATCH,
+                compositor_id="hyprland",
+                compositor_dispatcher="workspace",
+                compositor_args="e+1",
+            ),
+        ],
+        hold_actions=[
+            SuperkeyAction(action_type=ActionType.MOUSE_MOVE_REL, move_x=12, move_y=-4),
+        ],
+        tap_hold_actions=[
+            SuperkeyAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK),
+        ],
+    )
+
+    manager.save_superkey(config)
+    reloaded = SuperkeyManager().get_superkey("extended-pattern")
+
+    assert reloaded is not None
+    assert reloaded.tap_actions[0].action_type == ActionType.PROFILE_TOGGLE
+    assert reloaded.tap_actions[0].profile_name == "Gaming"
+    assert reloaded.double_tap_actions[0].action_type == ActionType.COMPOSITOR_DISPATCH
+    assert reloaded.double_tap_actions[0].compositor_dispatcher == "workspace"
+    assert reloaded.double_tap_actions[0].compositor_args == "e+1"
+    assert reloaded.hold_actions[0].action_type == ActionType.MOUSE_MOVE_REL
+    assert reloaded.hold_actions[0].move_x == 12
+    assert reloaded.hold_actions[0].move_y == -4
+    assert reloaded.tap_hold_actions[0].action_type == ActionType.CANCEL_MACRO_PLAYBACK
 
 
 def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypatch) -> None:

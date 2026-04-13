@@ -168,6 +168,9 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
         start_x=start_x,
         start_y=start_y,
         block_mouse_movement=block_mouse_movement,
+        source_device=str_value(data.get("source_device", "")),
+        source_button=str_value(data.get("source_button", "")),
+        trigger_value=int_like(data.get("trigger_value", 1), 1),
     )
 
 

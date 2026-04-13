@@ -375,6 +375,9 @@ class MacroManagerDialog(Adw.Dialog):
         dialog.connect("closed", self._on_editor_closed)
         dialog.present(self._parent)
 
+    def _on_editor_closed(self, _dialog: Adw.Dialog) -> None:
+        self._load_macros()
+
     def _on_play_clicked(self, btn: Gtk.Button, name: str, play_btn: Gtk.Button) -> None:
         play_btn.set_sensitive(False)
 
@@ -716,9 +719,6 @@ class TypeMacroDialog(Adw.Dialog):
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
         self.close()
-
-    def _on_editor_closed(self, _dialog: Adw.Dialog) -> None:
-        self._load_macros()
 
     def _show_error(self, message: str) -> None:
         self.error_label.set_label(message)

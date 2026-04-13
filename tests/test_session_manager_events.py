@@ -81,6 +81,75 @@ async def test_handle_event_macro_async_exec_uses_exec_trigger_path() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_event_macro_trigger_forwards_full_playback_payload() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            SimpleNamespace(
+                status="ok",
+                data={
+                    "macro": {
+                        "name": "demo",
+                        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+                        "loop_mode": "count",
+                        "loop_count": 2,
+                        "move_to_start": False,
+                        "start_x": 0,
+                        "start_y": 0,
+                        "block_mouse_movement": False,
+                    }
+                },
+            ),
+            SimpleNamespace(status="ok", data={}),
+        ]
+    )
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.ACTION_TRIGGER,
+        {
+            "action_type": "macro",
+            "macro_name": "demo",
+            "replay_mouse_movement": False,
+            "replay_mouse_clicks": False,
+            "speed": 2.5,
+            "loop_mode": "hold",
+            "loop_count": 3,
+            "move_to_start": True,
+            "start_x": 11,
+            "start_y": 22,
+            "block_mouse_movement": True,
+            "source_device": "1234:5678",
+            "source_button": "btn_side",
+            "trigger_value": 0,
+        },
+    )
+
+    await asyncio.sleep(0)
+
+    get_call, play_call = manager.client.send_command.await_args_list
+    assert get_call.args[0].command == CommandType.MACRO_GET
+    assert get_call.args[0].data == {"name": "demo"}
+    assert play_call.args[0].command == CommandType.PLAY_MACRO
+    assert play_call.args[0].data == {
+        "macro_name": "demo",
+        "macro_events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        "replay_mouse_movement": False,
+        "replay_mouse_clicks": False,
+        "speed": 2.5,
+        "loop_mode": "hold",
+        "loop_count": 3,
+        "move_to_start": True,
+        "start_x": 11,
+        "start_y": 22,
+        "block_mouse_movement": True,
+        "source_device": "1234:5678",
+        "source_button": "btn_side",
+        "trigger_value": 0,
+    }
+
+
+@pytest.mark.asyncio
 async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

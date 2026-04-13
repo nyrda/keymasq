@@ -8,10 +8,13 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.models import (
+    ActionType,
     MappingAction,
     SuperkeyAction,
     SuperkeyConfig,
     SuperkeyMode,
+    mapping_action_to_superkey_action,
+    superkey_action_to_mapping_action,
 )
 from keyforge.gui.widgets.action_labels import describe_mapping_action_verbose
 from keyforge.session.profiles import ProfileManager
@@ -34,16 +37,52 @@ def _describe_pattern_superkey_action(
 ) -> str:
     if not isinstance(action, SuperkeyAction):
         return "Unknown action"
+
+    def type_label(text: str) -> str:
+        return text if title_case_target_type else text.lower()
+
+    label: str
     if action.action_type.value == "exec":
         cmd = action.cmd or ""
-        label = f"{exec_prefix}{cmd[:exec_limit] + '...' if len(cmd) > exec_limit else cmd}"
-        return _append_action_state_markers(label, action)
-    if action.action_type.value == "macro":
-        return _append_action_state_markers(f"{macro_prefix}{action.macro_name or ''}", action)
-    action_type = (
-        action.action_type.value.title() if title_case_target_type else action.action_type.value
-    )
-    label = f"{action_type}{target_separator}{action.target or ''}"
+        rendered = cmd[:exec_limit] + "..." if len(cmd) > exec_limit else cmd
+        label = f"{exec_prefix}{rendered}"
+    elif action.action_type.value == "macro":
+        label = f"{macro_prefix}{action.macro_name or ''}"
+    elif action.action_type == ActionType.KEYBOARD:
+        label = f"{type_label('Keyboard')}{target_separator}{action.target or ''}"
+    elif action.action_type == ActionType.MOUSE:
+        label = f"{type_label('Mouse')}{target_separator}{action.target or ''}"
+    elif action.action_type == ActionType.GAMEPAD:
+        label = f"{type_label('Gamepad')}{target_separator}{action.target or ''}"
+    elif action.action_type == ActionType.MOUSE_MOVE_REL:
+        label = (
+            f"{type_label('Mouse Move (rel)')}"
+            f"{target_separator}{action.move_x}, {action.move_y}"
+        )
+    elif action.action_type == ActionType.MOUSE_MOVE_ABS:
+        label = (
+            f"{type_label('Mouse Move (abs)')}"
+            f"{target_separator}{action.move_x}, {action.move_y}"
+        )
+    elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
+        dispatcher = action.compositor_dispatcher or "dispatch"
+        args = str(action.compositor_args or "").strip()
+        suffix = f" {args}" if args else ""
+        label = f"{type_label('Compositor')}{target_separator}{dispatcher}{suffix}"
+    elif action.action_type == ActionType.START_MACRO_RECORDING:
+        label = type_label("Toggle Macro Recording")
+    elif action.action_type == ActionType.STOP_MACRO_RECORDING:
+        label = type_label("Stop Macro Recording")
+    elif action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
+        label = type_label("Cancel Macro Playback")
+    elif action.action_type == ActionType.PROFILE_ENABLE:
+        label = f"{type_label('Enable Profile')}{target_separator}{action.profile_name or ''}"
+    elif action.action_type == ActionType.PROFILE_DISABLE:
+        label = f"{type_label('Disable Profile')}{target_separator}{action.profile_name or ''}"
+    elif action.action_type == ActionType.PROFILE_TOGGLE:
+        label = f"{type_label('Toggle Profile')}{target_separator}{action.profile_name or ''}"
+    else:
+        label = describe_mapping_action_verbose(superkey_action_to_mapping_action(action))
     return _append_action_state_markers(label, action)
 
 
@@ -223,14 +262,26 @@ class ActionListDialog(Adw.Dialog):
         index: int | None = None,
     ) -> None:
         if self._list_mode == "pattern":
-            from keyforge.gui.widgets.key_selector_dialog import SuperkeyActionDialog
+            from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
 
-            dialog = SuperkeyActionDialog(
+            allow_rapidfire = self._action_key in {"hold", "tap_hold"}
+            dialog = KeySelectorDialog(
                 self._parent,
                 self._action_key or "tap",
-                current_action if isinstance(current_action, SuperkeyAction) else None,
+                (
+                    superkey_action_to_mapping_action(current_action)
+                    if isinstance(current_action, SuperkeyAction)
+                    else None
+                ),
+                allow_passthrough=False,
+                allow_clear_mapping=False,
+                allow_suppress=False,
+                allow_superkey=False,
+                allow_rapidfire=allow_rapidfire,
+                allow_tap=False,
+                allow_macro_options=True,
             )
-            dialog.connect("action-selected", self._on_pattern_action_selected, index)
+            dialog.connect("key-selected", self._on_pattern_action_selected, index)
             dialog.present()
             return
 
@@ -289,16 +340,17 @@ class ActionListDialog(Adw.Dialog):
     def _on_pattern_action_selected(
         self,
         _dialog,
-        action: SuperkeyAction | None,
+        action: MappingAction | None,
         index: int | None,
     ) -> None:
-        if action is None:
+        converted = mapping_action_to_superkey_action(action) if action is not None else None
+        if converted is None:
             if index is not None and index < len(self._actions):
                 self._actions.pop(index)
         elif index is None:
-            self._actions.append(action)
+            self._actions.append(converted)
         else:
-            self._actions[index] = action
+            self._actions[index] = converted
         self._populate_actions()
 
     def _on_mapping_action_selected(

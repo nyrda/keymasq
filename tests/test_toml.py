@@ -1,3 +1,5 @@
+import pytest
+
 from keyforge.common.models import (
     ActionType,
     ButtonDefinition,
@@ -116,6 +118,38 @@ class TestProfileTOML:
         assert "[profile]" in content
         assert "[devices.\"1234:5678\"]" in content
         assert "mapping" in content
+
+    def test_profile_manual_unsupported_rapidfire_warns_and_strips(
+        self,
+        temp_config_dir,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        profile_path = temp_config_dir / "profiles" / "rapidfire.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Rapidfire"
+enabled = true
+
+[devices."1234:5678".mapping.btn_side]
+action = "exec"
+cmd = "echo hi"
+rapidfire_enabled = true
+rapidfire_hold_ms = 40
+rapidfire_wait_ms = 60
+""".strip(),
+            encoding="utf-8",
+        )
+
+        with caplog.at_level("WARNING", logger="keyforge-session.profiles"):
+            manager = ProfileManager()
+
+        profile = manager.get_profile("Rapidfire")
+        assert profile is not None
+        action = profile.config.device_layers["1234:5678"].mappings["btn_side"]
+        assert action.action_type == ActionType.EXEC
+        assert action.rapidfire_enabled is False
+        assert "Ignoring rapidfire for unsupported exec action in profile config" in caplog.text
 
     def test_profile_compositor_dispatch_roundtrip(self, temp_config_dir):
         original = ProfileConfig(

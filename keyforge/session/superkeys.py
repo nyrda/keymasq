@@ -12,12 +12,20 @@ from keyforge.common.models import (
     SuperkeyAction,
     SuperkeyConfig,
     SuperkeyMode,
+    mapping_action_to_superkey_action,
+    parse_rapidfire_fields,
+    resolve_rapidfire_fields,
+    superkey_action_to_mapping_action,
 )
 
 log = logging.getLogger("keyforge-session.superkeys")
 type TomlDict = dict[str, object]
 type _IntLike = int | float | str | bytes
 type _FloatLike = int | float | str | bytes
+
+
+class UnknownActionTypeError(ValueError):
+    pass
 
 
 def _as_toml_dict(value: object) -> TomlDict | None:
@@ -27,11 +35,6 @@ def _as_toml_dict(value: object) -> TomlDict | None:
 def _toml_str(data: TomlDict, key: str, default: str | None = None) -> str | None:
     value = data.get(key, default)
     return value if isinstance(value, str) else default
-
-
-def _toml_bool(data: TomlDict, key: str, default: bool) -> bool:
-    value = data.get(key, default)
-    return value if isinstance(value, bool) else default
 
 
 def _toml_int(data: TomlDict, key: str, default: int) -> int:
@@ -125,35 +128,17 @@ class SuperkeyManager:
     def _parse_superkey_action(self, data: TomlDict | None) -> SuperkeyAction:
         if not data:
             raise ValueError("pattern action must be a TOML table")
-
         action_type_str = _toml_str(data, "action", "passthrough") or "passthrough"
-
         try:
-            action_type = ActionType(action_type_str)
-        except ValueError as exc:
+            action = self._parse_mapping_action(data)
+        except UnknownActionTypeError as exc:
             raise ValueError(f"unknown pattern superkey action type '{action_type_str}'") from exc
-
-        if action_type not in (
-            ActionType.KEYBOARD,
-            ActionType.MOUSE,
-            ActionType.GAMEPAD,
-            ActionType.EXEC,
-            ActionType.MACRO,
-        ):
-            raise ValueError(f"invalid pattern superkey action type '{action_type_str}'")
-
-        return SuperkeyAction(
-            action_type=action_type,
-            target=_toml_str(data, "target"),
-            cmd=_toml_str(data, "cmd"),
-            macro_name=(
-                _toml_str(data, "macro_name")
-                or (_toml_str(data, "target") if action_type == ActionType.MACRO else None)
-            ),
-            rapidfire_enabled=_toml_bool(data, "rapidfire_enabled", False),
-            rapidfire_hold_ms=_toml_int(data, "rapidfire_hold_ms", 20),
-            rapidfire_wait_ms=_toml_int(data, "rapidfire_wait_ms", 20),
-        )
+        except ValueError:
+            raise
+        try:
+            return mapping_action_to_superkey_action(action)
+        except ValueError as exc:
+            raise ValueError(f"invalid pattern superkey action type '{action_type_str}'") from exc
 
     def _parse_overload_action_bundle(self, data: object) -> list[MappingAction]:
         if data is None:
@@ -184,10 +169,28 @@ class SuperkeyManager:
         try:
             action_type = ActionType(action_type_str)
         except ValueError as exc:
-            raise ValueError(f"unknown overload action type '{action_type_str}'") from exc
+            raise UnknownActionTypeError(f"unknown action type '{action_type_str}'") from exc
 
         if action_type == ActionType.SUPERKEY:
             raise ValueError("nested superkeys are not allowed inside overload superkeys")
+
+        (
+            rapidfire_enabled,
+            rapidfire_hold_ms,
+            rapidfire_wait_ms,
+            unsupported_rapidfire,
+        ) = parse_rapidfire_fields(
+            action_type,
+            rapidfire_enabled=action_data.get("rapidfire_enabled", False),
+            rapidfire_hold_ms=action_data.get("rapidfire_hold_ms"),
+            rapidfire_wait_ms=action_data.get("rapidfire_wait_ms"),
+            int_value=_int_value,
+        )
+        if unsupported_rapidfire:
+            log.warning(
+                "Ignoring rapidfire for unsupported %s action in superkey config",
+                action_type.value,
+            )
 
         if action_type == ActionType.MACRO:
             return MappingAction(
@@ -199,6 +202,10 @@ class SuperkeyManager:
                 macro_speed=_float_value(action_data.get("speed"), 1.0),
                 macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
                 macro_loop_count=_int_value(action_data.get("loop_count"), 1),
+                macro_move_to_start=bool(action_data.get("move_to_start", False)),
+                macro_start_x=_int_value(action_data.get("start_x"), 0),
+                macro_start_y=_int_value(action_data.get("start_y"), 0),
+                macro_block_mouse_movement=bool(action_data.get("block_mouse_movement", False)),
             )
 
         if action_type in (
@@ -234,9 +241,9 @@ class SuperkeyManager:
                 action_type=action_type,
                 move_x=_int_value(action_data.get("x"), 0),
                 move_y=_int_value(action_data.get("y"), 0),
-                rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
-                rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 20),
-                rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 20),
+                rapidfire_enabled=rapidfire_enabled,
+                rapidfire_hold_ms=rapidfire_hold_ms,
+                rapidfire_wait_ms=rapidfire_wait_ms,
                 tap_enabled=bool(action_data.get("tap_enabled", False)),
                 tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
             )
@@ -248,9 +255,9 @@ class SuperkeyManager:
             target=str(target) if target is not None else None,
             keys=cast(list[str] | None, action_data.get("keys")),
             cmd=str(cmd) if cmd is not None else None,
-            rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
-            rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 20),
-            rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 20),
+            rapidfire_enabled=rapidfire_enabled,
+            rapidfire_hold_ms=rapidfire_hold_ms,
+            rapidfire_wait_ms=rapidfire_wait_ms,
             tap_enabled=bool(action_data.get("tap_enabled", False)),
             tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
         )
@@ -350,21 +357,7 @@ class SuperkeyManager:
                     )
 
     def _serialize_pattern_action(self, action: SuperkeyAction) -> TomlDict:
-        data: dict[str, object] = {"action": action.action_type.value}
-
-        if action.target:
-            data["target"] = action.target
-        if action.cmd:
-            data["cmd"] = action.cmd
-        if action.macro_name:
-            data["macro_name"] = action.macro_name
-
-        if action.rapidfire_enabled:
-            data["rapidfire_enabled"] = True
-            data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
-            data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
-
-        return data
+        return self._serialize_mapping_action(superkey_action_to_mapping_action(action))
 
     def _serialize_mapping_action(self, action: MappingAction) -> TomlDict:
         action_data: dict[str, object] = {"action": action.action_type.value}
@@ -382,6 +375,10 @@ class SuperkeyManager:
             action_data["speed"] = action.macro_speed
             action_data["loop_mode"] = action.macro_loop_mode
             action_data["loop_count"] = int(action.macro_loop_count)
+            action_data["move_to_start"] = bool(action.macro_move_to_start)
+            action_data["start_x"] = int(action.macro_start_x)
+            action_data["start_y"] = int(action.macro_start_y)
+            action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
         if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
             action_data["x"] = int(action.move_x)
             action_data["y"] = int(action.move_y)
@@ -397,10 +394,26 @@ class SuperkeyManager:
                 action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = action.compositor_dispatcher or ""
             action_data["args"] = action.compositor_args or ""
-        if action.rapidfire_enabled:
+        (
+            rapidfire_enabled,
+            rapidfire_hold_ms,
+            rapidfire_wait_ms,
+            unsupported_rapidfire,
+        ) = resolve_rapidfire_fields(
+            action.action_type,
+            rapidfire_enabled=bool(action.rapidfire_enabled),
+            rapidfire_hold_ms=int(action.rapidfire_hold_ms),
+            rapidfire_wait_ms=int(action.rapidfire_wait_ms),
+        )
+        if unsupported_rapidfire:
+            log.warning(
+                "Dropping rapidfire for unsupported %s action while saving superkey config",
+                action.action_type.value,
+            )
+        if rapidfire_enabled:
             action_data["rapidfire_enabled"] = True
-            action_data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
-            action_data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
+            action_data["rapidfire_hold_ms"] = rapidfire_hold_ms
+            action_data["rapidfire_wait_ms"] = rapidfire_wait_ms
         if action.tap_enabled:
             action_data["tap_enabled"] = True
             action_data["tap_hold_ms"] = action.tap_hold_ms

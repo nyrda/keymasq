@@ -36,6 +36,46 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
 
 
 @pytest.mark.asyncio
+async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(daemon_testbed):
+    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+
+    macro_store.get.return_value = {
+        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        "loop_mode": "count",
+        "loop_count": 3,
+        "move_to_start": True,
+        "start_x": 111,
+        "start_y": 222,
+        "block_mouse_movement": True,
+    }
+
+    resolved = await daemon_macro_commands.resolve_mapping_macros(
+        daemon.macro_store,
+        {
+            "btn_side": {
+                "action": "superkey",
+                "superkey": {
+                    "name": "demo",
+                    "mode": "pattern",
+                    "hold_actions": [{"action": "macro", "macro_name": "combo"}],
+                },
+            }
+        },
+    )
+
+    action = cast(dict[str, object], resolved["btn_side"])
+    superkey = cast(dict[str, object], action["superkey"])
+    hold_action = cast(dict[str, object], cast(list[object], superkey["hold_actions"])[0])
+    assert hold_action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert hold_action["macro_loop_mode"] == "count"
+    assert hold_action["macro_loop_count"] == 3
+    assert hold_action["macro_move_to_start"] is True
+    assert hold_action["macro_start_x"] == 111
+    assert hold_action["macro_start_y"] == 222
+    assert hold_action["macro_block_mouse_movement"] is True
+
+
+@pytest.mark.asyncio
 async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
@@ -170,6 +210,64 @@ async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
     ]
     assert first_action["macro_loop_mode"] == "count"
     assert first_action["macro_loop_count"] == 4
+
+
+@pytest.mark.asyncio
+async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(daemon_testbed):
+    daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
+    macro_store.get.return_value = {
+        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        "loop_mode": "hold",
+        "loop_count": 5,
+        "move_to_start": True,
+        "start_x": 7,
+        "start_y": 8,
+        "block_mouse_movement": True,
+    }
+
+    await daemon._handle_command(
+        CommandType.SET_COMBOS,
+        {
+            "combos": [
+                {
+                    "id": "combo-1",
+                    "name": "Combo",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "btn_side",
+                                }
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "superkey",
+                        "superkey": {
+                            "name": "demo",
+                            "mode": "pattern",
+                            "hold_actions": [{"action": "macro", "macro_name": "combo"}],
+                        },
+                    },
+                }
+            ]
+        },
+    )
+
+    sent_combos = cast(list[dict[str, object]], device_manager.set_combos.await_args.args[0])
+    combo_action = cast(dict[str, object], sent_combos[0]["action"])
+    superkey = cast(dict[str, object], combo_action["superkey"])
+    hold_action = cast(dict[str, object], cast(list[object], superkey["hold_actions"])[0])
+    assert hold_action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert hold_action["macro_loop_mode"] == "hold"
+    assert hold_action["macro_loop_count"] == 5
+    assert hold_action["macro_move_to_start"] is True
+    assert hold_action["macro_start_x"] == 7
+    assert hold_action["macro_start_y"] == 8
+    assert hold_action["macro_block_mouse_movement"] is True
 
 
 @pytest.mark.asyncio

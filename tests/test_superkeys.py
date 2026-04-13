@@ -13,6 +13,8 @@ from keyforge.common.models import (
     SuperkeyAction,
     SuperkeyConfig,
     SuperkeyMode,
+    mapping_action_to_superkey_action,
+    superkey_action_to_mapping_action,
 )
 from keyforge.keyforged.runtime.actions import parse_superkey_config
 from keyforge.session.manager.payloads import (
@@ -116,6 +118,89 @@ def test_superkey_manager_round_trips_pattern_bundles(temp_config_dir, monkeypat
     assert "tap = [" in text
 
 
+def test_superkey_action_roundtrip_preserves_shared_fields() -> None:
+    action = MappingAction(
+        action_type=ActionType.KEYBOARD,
+        target="key_a",
+        rapidfire_enabled=True,
+        rapidfire_hold_ms=40,
+        rapidfire_wait_ms=60,
+    )
+
+    superkey_action = mapping_action_to_superkey_action(action)
+    round_tripped = superkey_action_to_mapping_action(superkey_action)
+
+    assert round_tripped.action_type == ActionType.KEYBOARD
+    assert round_tripped.target == "key_a"
+    assert round_tripped.rapidfire_enabled is True
+    assert round_tripped.rapidfire_hold_ms == 40
+    assert round_tripped.rapidfire_wait_ms == 60
+
+
+def test_superkey_action_roundtrip_strips_unsupported_rapidfire() -> None:
+    action = MappingAction(
+        action_type=ActionType.MACRO,
+        macro_name="demo",
+        rapidfire_enabled=True,
+        rapidfire_hold_ms=40,
+        rapidfire_wait_ms=60,
+    )
+
+    superkey_action = mapping_action_to_superkey_action(action)
+    round_tripped = superkey_action_to_mapping_action(superkey_action)
+
+    assert superkey_action.rapidfire_enabled is False
+    assert round_tripped.rapidfire_enabled is False
+    assert round_tripped.rapidfire_hold_ms == 20
+    assert round_tripped.rapidfire_wait_ms == 20
+
+
+def test_superkey_manager_round_trips_extended_pattern_actions(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    manager = SuperkeyManager()
+    config = SuperkeyConfig(
+        name="extended-pattern",
+        mode=SuperkeyMode.PATTERN,
+        tap_actions=[
+            SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
+        ],
+        double_tap_actions=[
+            SuperkeyAction(
+                action_type=ActionType.COMPOSITOR_DISPATCH,
+                compositor_id="hyprland",
+                compositor_dispatcher="workspace",
+                compositor_args="e+1",
+            ),
+        ],
+        hold_actions=[
+            SuperkeyAction(action_type=ActionType.MOUSE_MOVE_REL, move_x=12, move_y=-4),
+        ],
+        tap_hold_actions=[
+            SuperkeyAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK),
+        ],
+    )
+
+    manager.save_superkey(config)
+    reloaded = SuperkeyManager().get_superkey("extended-pattern")
+
+    assert reloaded is not None
+    assert reloaded.tap_actions[0].action_type == ActionType.PROFILE_TOGGLE
+    assert reloaded.tap_actions[0].profile_name == "Gaming"
+    assert reloaded.double_tap_actions[0].action_type == ActionType.COMPOSITOR_DISPATCH
+    assert reloaded.double_tap_actions[0].compositor_dispatcher == "workspace"
+    assert reloaded.double_tap_actions[0].compositor_args == "e+1"
+    assert reloaded.hold_actions[0].action_type == ActionType.MOUSE_MOVE_REL
+    assert reloaded.hold_actions[0].move_x == 12
+    assert reloaded.hold_actions[0].move_y == -4
+    assert reloaded.tap_hold_actions[0].action_type == ActionType.CANCEL_MACRO_PLAYBACK
+
+
 def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypatch) -> None:
     superkeys_dir = temp_config_dir / "superkeys"
     superkeys_dir.mkdir()
@@ -144,6 +229,37 @@ def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypa
     ]
     assert reloaded.overload_actions[1].profile_name == "Gaming"
     assert reloaded.overload_actions[2].cmd == "notify-send overload"
+
+
+def test_superkey_manager_warns_and_strips_manual_unsupported_rapidfire(
+    temp_config_dir,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+    (superkeys_dir / "warn.toml").write_text(
+        """
+name = "warn"
+mode = "pattern"
+
+[[actions.hold]]
+action = "macro"
+target = "demo"
+rapidfire_enabled = true
+rapidfire_hold_ms = 40
+rapidfire_wait_ms = 60
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("WARNING", logger="keyforge-session.superkeys"):
+        config = SuperkeyManager().get_superkey("warn")
+
+    assert config is not None
+    assert config.hold_actions[0].rapidfire_enabled is False
+    assert "Ignoring rapidfire for unsupported macro action in superkey config" in caplog.text
 
 
 def test_superkey_runtime_payload_round_trips_overload_actions() -> None:

@@ -91,15 +91,20 @@ Click **Edit** on a slot to manage its list. Inside the slot editor you can:
 - Move actions up or down
 - Remove actions
 
-Pattern-slot actions can be:
+Pattern-slot actions use the same picker as normal mappings, except nested
+superkeys and mapping-only control actions are not available. Pattern slots can be:
 
 | Action type | What it does |
 |---|---|
 | **Keyboard** | Send a keyboard key. |
 | **Mouse** | Send a mouse button. |
+| **Mouse Move** | Move the cursor relative or absolute. |
 | **Gamepad** | Send a gamepad button or trigger. |
 | **Macro** | Play a saved macro. |
 | **Command** | Run a shell command. |
+| **Compositor Dispatch** | Send a compositor-specific command. |
+| **Macro Controls** | Toggle recording, stop recording, or cancel playback. |
+| **Profile Controls** | Enable, disable, or toggle a profile. |
 
 ### Editing Overload Actions
 

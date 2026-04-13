@@ -147,7 +147,7 @@ def main() -> None:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 0.2",
+        version="%(prog)s 0.3.1",
     )
 
     args, _ = parser.parse_known_args()

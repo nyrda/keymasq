@@ -41,6 +41,11 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.1" date="2026-04-13">
+      <description>
+        <p>Fixes runtime state handling in the GUI, closes active-window leakage through profile-state payloads, and hardens session-client error handling.</p>
+      </description>
+    </release>
     <release version="0.3" date="2026-04-10">
       <description>
         <p>Adds first-class Niri support and expands superkeys with pattern/overload modes plus value-aware bindings.</p>

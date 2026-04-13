@@ -41,9 +41,9 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.3.1" date="2026-04-13">
+    <release version="0.3.2" date="2026-04-13">
       <description>
-        <p>Fixes runtime state handling in the GUI, closes active-window leakage through profile-state payloads, and hardens session-client error handling.</p>
+        <p>Expands superkey pattern actions and macro payloads, resolves nested macro refresh issues, tightens rapidfire validation, and keeps hold-macro mouse suppression in sync.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

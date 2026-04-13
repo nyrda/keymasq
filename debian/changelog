@@ -1,12 +1,13 @@
-keyforge (0.3.1-1) unstable; urgency=medium
+keyforge (0.3.2-1) unstable; urgency=medium
 
-  * Fix GUI/session runtime state handling so partial status payloads preserve
-    cached profile state.
-  * Stop leaking active window data through active-profile status and
-    reevaluation payloads.
-  * Harden GUI async error handling and session reconnect behavior.
+  * Expand superkey pattern actions and macro payloads for richer action
+    sequences.
+  * Resolve macros nested inside superkeys and refresh bindings after updates.
+  * Sync macro editor state more reliably when loading saved data.
+  * Reject unsupported rapidfire configurations on non-action superkey types.
+  * Refresh mouse suppression during hold macro playback.
 
- -- nyrda <nyrda@keyforge.tools>  Mon, 13 Apr 2026 02:46:16 +0000
+ -- nyrda <nyrda@keyforge.tools>  Mon, 13 Apr 2026 06:08:01 +0000
 
 keyforge (0.3-1) unstable; urgency=medium
 

@@ -2,15 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.1] - 2026-04-13
+## [0.3.2] - 2026-04-13
+
+### Added
+
+- Expanded superkey pattern actions and macro payloads so advanced superkey
+  flows can express richer action sequences.
 
 ### Fixed
 
-- Stopped exposing active-window data through shared active-profile payloads
-  used by `get_active_profiles` and `profiles_changed`.
-- Preserved cached GUI runtime state when partial or ACL-filtered status
-  payloads omit profile runtime keys.
-- Hardened GUI session task error handling and reconnect cleanup paths.
+- Resolved macros nested inside superkeys and refreshed bindings correctly
+  after updates.
+- Synced macro editor state more reliably when loading existing data and
+  reopening the manager dialog.
+- Rejected unsupported rapidfire configurations on non-action superkey types.
+- Refreshed mouse suppression during hold macro playback to prevent stray
+  pointer input while macros are running.
 
 ## [0.3] - 2026-04-10
 

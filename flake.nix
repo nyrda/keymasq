@@ -50,7 +50,7 @@
         in
         runtimePythonPackages.buildPythonPackage {
           pname = "keyforge";
-          version = "0.3.1";
+          version = "0.3.2";
           pyproject = true;
 
           src = mkCleanSrc pkgs;

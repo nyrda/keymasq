@@ -457,6 +457,28 @@ def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     assert tap_results[0].tap_hold_ms == 70
 
 
+def test_key_selector_dialog_warns_when_exec_ignores_rapidfire(caplog: pytest.LogCaptureFixture):
+    from gi.repository import Gtk
+
+    from keyforge.common.models import ActionType, MappingAction
+    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog.rapidfire_check.set_active(True)
+    dialog.exec_entry.set_text("echo hi")
+
+    with caplog.at_level("WARNING", logger="keyforge.gui.widgets.key_selector_dialog"):
+        dialog._on_exec_map_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.EXEC
+    assert dialog._rapidfire_enabled is False
+    assert "Ignoring rapidfire for unsupported exec action in key selector" in caplog.text
+
+
 def test_key_selector_dialog_map_code_handles_valid_and_invalid_input():
     from gi.repository import Gtk
 

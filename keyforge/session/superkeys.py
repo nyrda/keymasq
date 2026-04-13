@@ -13,6 +13,8 @@ from keyforge.common.models import (
     SuperkeyConfig,
     SuperkeyMode,
     mapping_action_to_superkey_action,
+    parse_rapidfire_fields,
+    resolve_rapidfire_fields,
     superkey_action_to_mapping_action,
 )
 
@@ -172,6 +174,24 @@ class SuperkeyManager:
         if action_type == ActionType.SUPERKEY:
             raise ValueError("nested superkeys are not allowed inside overload superkeys")
 
+        (
+            rapidfire_enabled,
+            rapidfire_hold_ms,
+            rapidfire_wait_ms,
+            unsupported_rapidfire,
+        ) = parse_rapidfire_fields(
+            action_type,
+            rapidfire_enabled=action_data.get("rapidfire_enabled", False),
+            rapidfire_hold_ms=action_data.get("rapidfire_hold_ms"),
+            rapidfire_wait_ms=action_data.get("rapidfire_wait_ms"),
+            int_value=_int_value,
+        )
+        if unsupported_rapidfire:
+            log.warning(
+                "Ignoring rapidfire for unsupported %s action in superkey config",
+                action_type.value,
+            )
+
         if action_type == ActionType.MACRO:
             return MappingAction(
                 action_type=ActionType.MACRO,
@@ -221,9 +241,9 @@ class SuperkeyManager:
                 action_type=action_type,
                 move_x=_int_value(action_data.get("x"), 0),
                 move_y=_int_value(action_data.get("y"), 0),
-                rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
-                rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 20),
-                rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 20),
+                rapidfire_enabled=rapidfire_enabled,
+                rapidfire_hold_ms=rapidfire_hold_ms,
+                rapidfire_wait_ms=rapidfire_wait_ms,
                 tap_enabled=bool(action_data.get("tap_enabled", False)),
                 tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
             )
@@ -235,9 +255,9 @@ class SuperkeyManager:
             target=str(target) if target is not None else None,
             keys=cast(list[str] | None, action_data.get("keys")),
             cmd=str(cmd) if cmd is not None else None,
-            rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
-            rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 20),
-            rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 20),
+            rapidfire_enabled=rapidfire_enabled,
+            rapidfire_hold_ms=rapidfire_hold_ms,
+            rapidfire_wait_ms=rapidfire_wait_ms,
             tap_enabled=bool(action_data.get("tap_enabled", False)),
             tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
         )
@@ -374,10 +394,26 @@ class SuperkeyManager:
                 action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = action.compositor_dispatcher or ""
             action_data["args"] = action.compositor_args or ""
-        if action.rapidfire_enabled:
+        (
+            rapidfire_enabled,
+            rapidfire_hold_ms,
+            rapidfire_wait_ms,
+            unsupported_rapidfire,
+        ) = resolve_rapidfire_fields(
+            action.action_type,
+            rapidfire_enabled=bool(action.rapidfire_enabled),
+            rapidfire_hold_ms=int(action.rapidfire_hold_ms),
+            rapidfire_wait_ms=int(action.rapidfire_wait_ms),
+        )
+        if unsupported_rapidfire:
+            log.warning(
+                "Dropping rapidfire for unsupported %s action while saving superkey config",
+                action.action_type.value,
+            )
+        if rapidfire_enabled:
             action_data["rapidfire_enabled"] = True
-            action_data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
-            action_data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
+            action_data["rapidfire_hold_ms"] = rapidfire_hold_ms
+            action_data["rapidfire_wait_ms"] = rapidfire_wait_ms
         if action.tap_enabled:
             action_data["tap_enabled"] = True
             action_data["tap_hold_ms"] = action.tap_hold_ms

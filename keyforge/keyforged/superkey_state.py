@@ -8,8 +8,17 @@ from typing import Protocol, cast
 
 import evdev
 
-from keyforge.common.models import MappingAction, SuperkeyMode
-from keyforge.keyforged.output_helpers import get_trigger_axis, resolve_output_code
+from keyforge.common.models import (
+    ActionType,
+    MappingAction,
+    SuperkeyMode,
+    superkey_action_shared_kwargs,
+)
+from keyforge.keyforged.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
+from keyforge.keyforged.runtime.action_runner import (
+    build_action_trigger_payload,
+    build_macro_playback_request,
+)
 
 log = logging.getLogger("keyforged.superkey")
 
@@ -30,6 +39,21 @@ class SuperkeyActionData:
     cmd: str | None = None
     exec_ref: int | None = None
     macro_name: str | None = None
+    macro_replay_mouse_movement: bool = True
+    macro_replay_mouse_clicks: bool = True
+    macro_speed: float = 1.0
+    macro_loop_mode: str = "none"
+    macro_loop_count: int = 1
+    macro_move_to_start: bool = False
+    macro_start_x: int = 0
+    macro_start_y: int = 0
+    macro_block_mouse_movement: bool = False
+    profile_name: str | None = None
+    compositor_id: str | None = None
+    compositor_dispatcher: str | None = None
+    compositor_args: str | None = None
+    move_x: int = 0
+    move_y: int = 0
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = 20
     rapidfire_wait_ms: int = 20
@@ -63,6 +87,7 @@ class SuperkeyMachine:
         keyboard_uinput: _WritableUInput,
         mouse_uinput: _WritableUInput,
         gamepad_uinput: _WritableUInput,
+        source_device: str = "",
         broadcast_callback: Callable[[dict[str, object]], Awaitable[None]] | None = None,
         key_event_tracker: Callable[[str, int, int], bool] | None = None,
     ) -> None:
@@ -71,6 +96,7 @@ class SuperkeyMachine:
         self.keyboard_uinput = keyboard_uinput
         self.mouse_uinput = mouse_uinput
         self.gamepad_uinput = gamepad_uinput
+        self.source_device = source_device
         self.broadcast_callback = broadcast_callback
         self.key_event_tracker = key_event_tracker
 
@@ -291,23 +317,33 @@ class SuperkeyMachine:
 
     async def _execute_action_down(self, action: SuperkeyActionData) -> None:
         if action.action_type == "exec":
-            if action.exec_ref is not None and self.broadcast_callback:
-                await self.broadcast_callback(
-                    {
-                        "action_type": "exec",
-                        "exec_ref": action.exec_ref,
-                    }
-                )
+            trigger_payload = build_action_trigger_payload(
+                self._mapping_action(action),
+                source_device=self.source_device,
+                source_button=self.event_name,
+            )
+            if trigger_payload is not None and self.broadcast_callback:
+                await self.broadcast_callback(trigger_payload)
             return
 
         if action.action_type == "macro":
-            if action.macro_name and self.broadcast_callback:
-                await self.broadcast_callback(
-                    {
-                        "action_type": "macro",
-                        "macro_name": action.macro_name,
-                    }
-                )
+            trigger_payload = self._macro_trigger_payload(action, trigger_value=1)
+            if trigger_payload is not None and self.broadcast_callback:
+                await self.broadcast_callback(trigger_payload)
+            return
+
+        if action.action_type in {"mouse_move_rel", "mouse_move_abs"}:
+            emit_mouse_move(
+                self.mouse_uinput,
+                int(action.move_x),
+                int(action.move_y),
+                absolute=action.action_type == "mouse_move_abs",
+            )
+            return
+
+        trigger_action = self._broadcast_action(action)
+        if trigger_action is not None and self.broadcast_callback:
+            await self.broadcast_callback(trigger_action)
             return
 
         if action.action_type in ("keyboard", "mouse", "gamepad"):
@@ -334,7 +370,24 @@ class SuperkeyMachine:
                     uinput.syn()
 
     async def _execute_action_up(self, action: SuperkeyActionData) -> None:
-        if action.action_type in ("exec", "macro"):
+        if action.action_type in (
+            "exec",
+            "mouse_move_rel",
+            "mouse_move_abs",
+            "compositor_dispatch",
+            "start_macro_recording",
+            "stop_macro_recording",
+            "cancel_macro_playback",
+            "profile_enable",
+            "profile_disable",
+            "profile_toggle",
+        ):
+            return
+
+        if action.action_type == "macro":
+            trigger_payload = self._macro_trigger_payload(action, trigger_value=0)
+            if trigger_payload is not None and self.broadcast_callback:
+                await self.broadcast_callback(trigger_payload)
             return
 
         if action.action_type in ("keyboard", "mouse", "gamepad"):
@@ -374,3 +427,47 @@ class SuperkeyMachine:
 
     def _get_trigger_axis(self, target: str | None) -> tuple[bool, int | None]:
         return get_trigger_axis(target)
+
+    def _mapping_action(self, action: SuperkeyActionData) -> MappingAction:
+        return MappingAction(
+            action_type=ActionType(action.action_type),
+            **superkey_action_shared_kwargs(action),
+        )
+
+    def _broadcast_action(self, action: SuperkeyActionData) -> dict[str, object] | None:
+        action_type = action.action_type
+        if action_type not in {
+            "compositor_dispatch",
+            "start_macro_recording",
+            "stop_macro_recording",
+            "cancel_macro_playback",
+            "profile_enable",
+            "profile_disable",
+            "profile_toggle",
+        }:
+            return None
+        return build_action_trigger_payload(
+            self._mapping_action(action),
+            source_device=self.source_device,
+            source_button=self.event_name,
+        )
+
+    def _macro_trigger_payload(
+        self,
+        action: SuperkeyActionData,
+        *,
+        trigger_value: int,
+    ) -> dict[str, object] | None:
+        payload = build_macro_playback_request(
+            self._mapping_action(action),
+            source_device=self.source_device,
+            source_button=self.event_name,
+            trigger_value=trigger_value,
+            include_macro_events=False,
+        )
+        if payload is None:
+            return None
+        return {
+            "action_type": "macro",
+            **payload,
+        }

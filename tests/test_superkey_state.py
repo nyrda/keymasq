@@ -74,9 +74,10 @@ async def test_superkey_macro_action_broadcasts_macro_trigger() -> None:
     await asyncio.sleep(0.02)
 
     callback.assert_called()
-    sent = callback.call_args[0][0]
+    sent = callback.call_args_list[0].args[0]
     assert sent.get("action_type") == "macro"
     assert sent.get("macro_name") == "demo_macro"
+    assert sent.get("trigger_value") == 1
 
 
 @pytest.mark.asyncio
@@ -136,6 +137,130 @@ async def test_exec_action_broadcasts_via_callback() -> None:
     payload = callback[0]
     assert payload["action_type"] == "exec"
     assert payload["exec_ref"] == 77
+
+
+@pytest.mark.asyncio
+async def test_macro_action_broadcasts_full_playback_payload_on_press_and_release() -> None:
+    callback: list[dict] = []
+
+    async def broadcast(payload: dict) -> None:
+        callback.append(payload)
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="macro_payload_test",
+            hold_actions=[
+                SuperkeyActionData(
+                    action_type="macro",
+                    macro_name="demo_macro",
+                    macro_replay_mouse_movement=False,
+                    macro_replay_mouse_clicks=False,
+                    macro_speed=2.5,
+                    macro_loop_mode="hold",
+                    macro_loop_count=3,
+                    macro_move_to_start=True,
+                    macro_start_x=11,
+                    macro_start_y=22,
+                    macro_block_mouse_movement=True,
+                )
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        source_device="1234:5678",
+        broadcast_callback=broadcast,
+    )
+
+    action = machine.config.hold_actions[0]
+    await machine._execute_action_down(action)
+    await machine._execute_action_up(action)
+
+    assert len(callback) == 2
+    press_payload, release_payload = callback
+    assert press_payload["action_type"] == "macro"
+    assert press_payload["macro_name"] == "demo_macro"
+    assert press_payload["replay_mouse_movement"] is False
+    assert press_payload["replay_mouse_clicks"] is False
+    assert press_payload["speed"] == 2.5
+    assert press_payload["loop_mode"] == "hold"
+    assert press_payload["loop_count"] == 3
+    assert press_payload["move_to_start"] is True
+    assert press_payload["start_x"] == 11
+    assert press_payload["start_y"] == 22
+    assert press_payload["block_mouse_movement"] is True
+    assert press_payload["source_device"] == "1234:5678"
+    assert press_payload["source_button"] == "btn_side"
+    assert press_payload["trigger_value"] == 1
+    assert release_payload["trigger_value"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mouse_move_action_emits_relative_motion_once() -> None:
+    mouse_uinput = MagicMock()
+    mouse_uinput.write = MagicMock()
+    mouse_uinput.syn = MagicMock()
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="move_test",
+            tap_actions=[SuperkeyActionData(action_type="mouse_move_rel", move_x=12, move_y=-7)],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=mouse_uinput,
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine._execute_action_down(machine.config.tap_actions[0])
+    await machine._execute_action_up(machine.config.tap_actions[0])
+
+    writes = [tuple(call.args) for call in mouse_uinput.write.call_args_list]
+    assert writes == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 12),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, -7),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_extended_pattern_actions_broadcast_existing_trigger_payloads() -> None:
+    callback = MagicMock()
+
+    async def broadcast(payload: dict) -> None:
+        callback(payload)
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="trigger_test",
+            tap_actions=[
+                SuperkeyActionData(action_type="profile_toggle", profile_name="Gaming"),
+                SuperkeyActionData(
+                    action_type="compositor_dispatch",
+                    compositor_id="hyprland",
+                    compositor_dispatcher="workspace",
+                    compositor_args="e+1",
+                ),
+                SuperkeyActionData(action_type="cancel_macro_playback"),
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        broadcast_callback=broadcast,
+    )
+
+    for action in machine.config.tap_actions:
+        await machine._execute_action_down(action)
+
+    assert [call.args[0]["action_type"] for call in callback.call_args_list] == [
+        "profile_toggle",
+        "compositor_dispatch",
+        "cancel_macro_playback",
+    ]
+    assert callback.call_args_list[0].args[0]["profile_name"] == "Gaming"
+    assert callback.call_args_list[1].args[0]["dispatcher"] == "workspace"
 
 
 @pytest.mark.asyncio

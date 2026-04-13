@@ -335,6 +335,7 @@ async def execute_action(
                     keyboard_uinput=cast(WritableUInput, device_runtime.keyboard_uinput),
                     mouse_uinput=cast(WritableUInput, device_runtime.mouse_uinput),
                     gamepad_uinput=cast(WritableUInput, device_runtime.gamepad_uinput),
+                    source_device=device_runtime.hardware_id,
                     broadcast_callback=superkey_broadcast,
                     key_event_tracker=superkey_key_event_tracker,
                 )

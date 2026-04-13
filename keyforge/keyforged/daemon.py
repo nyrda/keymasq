@@ -208,8 +208,7 @@ class Daemon:
             SECURITY_POLICY_PATH,
         )
 
-        if SOCKET_PATH.exists():
-            SOCKET_PATH.unlink()
+        self._cleanup_socket_path()
 
         self.socket_server = SocketServer(
             str(SOCKET_PATH),
@@ -255,8 +254,10 @@ class Daemon:
         if self.socket_server:
             await self.socket_server.stop()
 
-        if SOCKET_PATH.exists():
-            SOCKET_PATH.unlink()
+        try:
+            self._cleanup_socket_path()
+        except RuntimeError as exc:
+            log.warning("Failed to remove daemon socket path %s: %s", SOCKET_PATH, exc)
 
     def _prepare_macro_store(self) -> None:
         self.macro_store.ensure()
@@ -662,6 +663,14 @@ class Daemon:
             raise RuntimeError(
                 f"Insecure run directory permissions on {RUN_DIR}: {mode & 0o777:04o}"
             )
+
+    def _cleanup_socket_path(self) -> None:
+        try:
+            SOCKET_PATH.unlink(missing_ok=True)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Failed to remove daemon socket path {SOCKET_PATH}: {exc}"
+            ) from exc
 
     def _validate_peer(self, peer: PeerCredentials) -> tuple[bool, str, str]:
         if self.security_policy is None:

@@ -165,6 +165,7 @@ class TestMainWindow:
             ProfileConfig,
             WindowRule,
         )
+        from keyforge.gui.session_client import GuiTaskResult
         from keyforge.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
@@ -188,14 +189,16 @@ class TestMainWindow:
         )
 
         finished = window._on_startup_probe_finished(
-            (
-                {
-                    "compositor_id": "hyprland",
-                    "support_details": {"supported": True, "warning": ""},
-                    "supported": True,
-                    "capabilities": ["window_tags"],
-                },
-                [device],
+            GuiTaskResult(
+                value=(
+                    {
+                        "compositor_id": "hyprland",
+                        "support_details": {"supported": True, "warning": ""},
+                        "supported": True,
+                        "capabilities": ["window_tags"],
+                    },
+                    [device],
+                )
             )
         )
 
@@ -215,6 +218,257 @@ class TestMainWindow:
         assert window.combo_tab.status_label.get_text() == "waiting"
         assert device_tab._selected_profile is not None
         assert device_tab._selected_profile.config.name == "Desktop"
+
+    def test_main_window_profiles_changed_event_updates_tabs_without_polling(self, temp_config_dir):
+        from keyforge.common.models import (
+            ButtonDefinition,
+            DeviceProfileLayer,
+            HardwareConfig,
+            ProfileConfig,
+        )
+        from keyforge.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.profile_manager.save_profile(
+            ProfileConfig(
+                name="Desktop",
+                enabled=True,
+                is_permanent=True,
+                device_layers={"2234:6678": DeviceProfileLayer(hardware_id="2234:6678")},
+            )
+        )
+        window.profile_manager.save_profile(
+            ProfileConfig(
+                name="Gaming",
+                enabled=True,
+                is_permanent=True,
+                device_layers={"2234:6678": DeviceProfileLayer(hardware_id="2234:6678")},
+            )
+        )
+
+        device = HardwareConfig(
+            vendor_id="2234",
+            product_id="6678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        window._add_device_tab(device)
+        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        tab.profile_dropdown.set_selected(tab._profile_names.index("Gaming"))
+
+        window._handle_session_event(
+            {
+                "event": "profiles_changed",
+                "status": "ok",
+                "active_profiles": ["Gaming"],
+                "devices": {"2234:6678": {"profiles": ["Gaming"]}},
+            }
+        )
+
+        assert tab._active_profile_names == ["Gaming"]
+        assert tab.status_label.get_text() == "active"
+        assert window.combo_tab is not None
+        assert window.combo_tab._active_profile_names == ["Gaming"]
+        assert window.combo_tab.status_label.get_text() == "active"
+
+    def test_main_window_profiles_changed_event_reloads_profile_models(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keyforge.common.models import (
+            ButtonDefinition,
+            DeviceProfileLayer,
+            HardwareConfig,
+            ProfileConfig,
+        )
+        from keyforge.gui import window as window_module
+        from keyforge.gui.session_client import GuiTaskResult
+        from keyforge.gui.window import MainWindow
+        from keyforge.session.profiles import ProfileManager
+
+        monkeypatch.setattr(
+            window_module,
+            "run_gui_task",
+            lambda worker, callback, **kwargs: callback(GuiTaskResult(value=worker())),
+        )
+
+        window = MainWindow(demo_mode=True)
+        window.profile_manager.save_profile(
+            ProfileConfig(
+                name="Desktop",
+                enabled=True,
+                is_permanent=True,
+                device_layers={"2234:6678": DeviceProfileLayer(hardware_id="2234:6678")},
+            )
+        )
+
+        device = HardwareConfig(
+            vendor_id="2234",
+            product_id="6678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        window._add_device_tab(device)
+        external_profiles = ProfileManager(auto_create_default_if_empty=True)
+        external_profiles.save_profile(
+            ProfileConfig(
+                name="Gaming",
+                enabled=True,
+                is_permanent=True,
+                device_layers={"2234:6678": DeviceProfileLayer(hardware_id="2234:6678")},
+            )
+        )
+
+        window._handle_session_event(
+            {
+                "event": "profiles_changed",
+                "status": "ok",
+                "active_profiles": ["Gaming"],
+                "devices": {"2234:6678": {"profiles": ["Gaming"]}},
+            }
+        )
+
+        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        assert "Gaming" in tab._profile_names
+        assert window.combo_tab is not None
+        assert "Gaming" in window.combo_tab._profile_names
+
+    def test_main_window_destroy_removes_repeating_timeout_sources(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keyforge.gui import window as window_module
+        from keyforge.gui.window import MainWindow
+
+        removed: list[int] = []
+        registered: list[tuple[str, object]] = []
+        unregistered: list[tuple[str, object]] = []
+
+        monkeypatch.setattr(window_module, "run_gui_task", lambda worker, callback: None)
+        monkeypatch.setattr(window_module, "session_request_async", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            window_module,
+            "register_session_event_callback",
+            lambda event, callback: registered.append((event, callback)),
+        )
+        monkeypatch.setattr(
+            window_module,
+            "unregister_session_event_callback",
+            lambda event, callback: unregistered.append((event, callback)),
+        )
+        monkeypatch.setattr(window_module.GLib, "timeout_add", lambda interval, cb: 11)
+        monkeypatch.setattr(window_module.GLib, "timeout_add_seconds", lambda interval, cb: 22)
+        monkeypatch.setattr(
+            window_module.GLib,
+            "source_remove",
+            lambda source_id: removed.append(source_id),
+        )
+
+        window = MainWindow(demo_mode=False)
+        window._on_destroy()
+
+        assert registered == [("*", window._on_session_event)]
+        assert removed == [11, 22]
+        assert unregistered == [("*", window._on_session_event)]
+
+    def test_main_window_status_error_keeps_last_runtime_profile_state(self, temp_config_dir):
+        from keyforge.common.models import (
+            ButtonDefinition,
+            DeviceProfileLayer,
+            HardwareConfig,
+            ProfileConfig,
+        )
+        from keyforge.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.profile_manager.save_profile(
+            ProfileConfig(
+                name="Desktop",
+                enabled=True,
+                is_permanent=True,
+                device_layers={"2234:6678": DeviceProfileLayer(hardware_id="2234:6678")},
+            )
+        )
+
+        device = HardwareConfig(
+            vendor_id="2234",
+            product_id="6678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        window._add_device_tab(device)
+        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        tab.refresh_profiles(preferred_profile_name="Desktop")
+        window._apply_profile_runtime_state(
+            {
+                "status": "ok",
+                "active_profiles": ["Desktop"],
+                "devices": {"2234:6678": {"profiles": ["Desktop"]}},
+                "window": {},
+            }
+        )
+
+        assert tab.status_label.get_text() == "active"
+
+        window._status_query_id = 1
+        window._status_query_inflight = True
+        finished = window._on_status_response({"status": "error"}, 1)
+
+        assert finished is False
+        assert tab.status_label.get_text() == "active"
+
+    def test_main_window_partial_runtime_state_preserves_omitted_keys(self, temp_config_dir):
+        from keyforge.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window._apply_profile_runtime_state(
+            {
+                "status": "ok",
+                "active_profiles": ["Desktop"],
+                "devices": {"2234:6678": {"profiles": ["Desktop"]}},
+                "window": {"class": "steam"},
+            }
+        )
+
+        window._status_query_id = 1
+        window._status_query_inflight = True
+        finished = window._on_status_response(
+            {
+                "status": "ok",
+                "keyforged_connected": True,
+                "recording_unlocked": False,
+                "recording_unlock_required": True,
+                "recording_unlock_source": "none",
+                "recording_unlock_expires_at": 0,
+            },
+            1,
+        )
+
+        assert finished is False
+        assert window._profile_runtime_state["active_profiles"] == ["Desktop"]
+        assert window._profile_runtime_state["devices"] == {
+            "2234:6678": {"profiles": ["Desktop"]}
+        }
+        assert window._profile_runtime_state["window"] == {"class": "steam"}
+
+    def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
+        from keyforge.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window._status_query_id = 1
+        window._status_query_inflight = True
+        window._on_destroy()
+
+        finished = window._on_status_response({"status": "ok", "keyforged_connected": True}, 1)
+
+        assert finished is False
+        assert window._status_query_inflight is True
 
     def test_main_window_shows_warning_banner_even_when_compositor_supported(self):
         from keyforge.gui.window import MainWindow
@@ -301,5 +555,3 @@ class TestMainWindow:
         assert window.keyforged_status.get_label() == "keyforged: ⚪"
         assert unlock_updates[-1] is None
         assert issues[-1] == "session"
-
-

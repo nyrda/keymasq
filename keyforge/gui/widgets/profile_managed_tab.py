@@ -44,7 +44,6 @@ class ProfileManagedTab(Gtk.Box):
         self._profile_names: list[str] = []
         self._profile_items: list[ProfileInfo | None] = []
         self._active_profile_names: list[str] = []
-        self._active_query_inflight = False
         self._suspend_profile_signal = False
         self._window_rule_capture_pending = False
         self._window_rule_capture_timeout_id = 0
@@ -239,6 +238,9 @@ class ProfileManagedTab(Gtk.Box):
         return [str(name) for name in active_profiles]
 
     def _after_profile_selection_applied(self) -> None:
+        return
+
+    def _after_active_profiles_changed(self) -> None:
         return
 
     def _update_extra_profile_settings(self) -> None:
@@ -1094,37 +1096,16 @@ class ProfileManagedTab(Gtk.Box):
         if self._save_profile():
             self._update_profile_state_display()
 
-    def _check_active_profiles(self) -> bool:
-        if self.demo_mode:
-            return False
-
-        root = self.get_root()
-        if not root:
-            return True
-        if self._active_query_inflight:
-            return True
-
-        self._active_query_inflight = True
-        session_request_async(
-            {"command": "get_active_profiles"},
-            self._on_active_profile_response,
-            timeout=0.5,
-        )
-        return True
-
-    def _check_active_profile(self) -> bool:
-        return self._check_active_profiles()
-
-    def _on_active_profile_response(self, data: dict | None) -> bool:
-        self._active_query_inflight = False
-        if not data:
-            return False
-
-        active_profiles = self._active_profile_names_from_response(data)
+    def apply_active_profile_response(self, data: dict | None) -> None:
+        active_profiles = self._active_profile_names_from_response(data or {})
         if active_profiles != self._active_profile_names:
             self._active_profile_names = active_profiles
             self._refresh_profile_dropdown_states()
-            self._update_profile_state_display()
+        self._update_profile_state_display()
+        self._after_active_profiles_changed()
+
+    def _on_active_profile_response(self, data: dict | None) -> bool:
+        self.apply_active_profile_response(data)
 
         return False
 

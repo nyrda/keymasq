@@ -22,6 +22,8 @@ wheels/
 .codex/*
 .claude/*
 result
+.consult
+.consult/*
 
 # Virtual environments
 .venv/

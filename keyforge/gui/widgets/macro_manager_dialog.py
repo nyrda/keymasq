@@ -10,6 +10,7 @@ import evdev
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.gui.session_client import (
+    GuiTaskResult,
     JsonDict,
     run_gui_task,
     session_request,
@@ -181,8 +182,11 @@ class MacroManagerDialog(Adw.Dialog):
             session_request({"command": "list_macros"}) or {},
         )
 
-    def _on_initial_state_loaded(self, result: tuple[JsonDict | None, JsonDict | None]) -> bool:
-        status, macros = result
+    def _on_initial_state_loaded(
+        self,
+        result: GuiTaskResult[tuple[JsonDict | None, JsonDict | None]],
+    ) -> bool:
+        status, macros = result.value if result.ok and result.value is not None else ({}, {})
         status = status or {}
         self._recording_active = bool(status.get("recording_active", False))
         unlock_required = bool(status.get("recording_unlock_required", True))
@@ -339,15 +343,15 @@ class MacroManagerDialog(Adw.Dialog):
         duplicate_macro["name"] = duplicate_name
         return session_request({"command": "create_macro", "macro": duplicate_macro}) or {}
 
-    def _on_duplicate_finished(self, result: JsonDict | None) -> bool:
-        result = result or {}
-        if result.get("status") == "ok":
+    def _on_duplicate_finished(self, result: GuiTaskResult[JsonDict | None]) -> bool:
+        payload = result.value if result.ok and isinstance(result.value, dict) else {}
+        if payload.get("status") == "ok":
             self._load_macros()
             return False
 
         dialog = Adw.AlertDialog()
         dialog.set_heading("Duplicate Macro")
-        dialog.set_body(result.get("message", "Failed to duplicate macro"))
+        dialog.set_body(payload.get("message", "Failed to duplicate macro"))
         dialog.add_response("ok", "OK")
         dialog.present(self._parent)
         return False

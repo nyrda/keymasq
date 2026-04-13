@@ -92,3 +92,13 @@ def test_secure_run_dir_rejects_insecure_permissions(
     with pytest.raises(RuntimeError, match="Insecure run directory permissions"):
         daemon._secure_run_dir()
 
+
+def test_cleanup_socket_path_unlinks_existing_path(daemon_testbed, monkeypatch, tmp_path: Path):
+    daemon, *_rest = daemon_testbed
+    socket_path = tmp_path / "daemon.sock"
+    socket_path.write_text("not a socket")
+    monkeypatch.setattr(daemon_module, "SOCKET_PATH", socket_path)
+
+    daemon._cleanup_socket_path()
+
+    assert socket_path.exists() is False

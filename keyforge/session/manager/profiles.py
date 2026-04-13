@@ -68,7 +68,6 @@ def build_active_profiles_payload(manager: "SessionManager") -> JsonObject:
             }
             for hardware_id, resolved in sorted(manager.profile_state.resolved_devices.items())
         },
-        "window": manager.compositor_state.current_window,
     }
 
 

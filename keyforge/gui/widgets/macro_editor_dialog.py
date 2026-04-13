@@ -14,6 +14,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttribute
 
 from keyforge.common.slurp import get_slurp_capture
 from keyforge.gui.session_client import (
+    GuiTaskResult,
     JsonDict,
     run_gui_task,
     session_request,
@@ -1724,8 +1725,8 @@ class MacroEditorDialog(Adw.Dialog):
             "macro": macro,
         }
 
-    def _on_initial_state_loaded(self, result: dict[str, object] | None) -> bool:
-        payload = result or {}
+    def _on_initial_state_loaded(self, result: GuiTaskResult[dict[str, object]]) -> bool:
+        payload = result.value if result.ok and isinstance(result.value, dict) else {}
         timeout_max_raw = payload.get("timeout_max", 30000)
         timeout_max = timeout_max_raw if isinstance(timeout_max_raw, int) else 30000
         self._macro_exec_timeout_max_ms = max(1, timeout_max)
@@ -4144,7 +4145,7 @@ class MacroEditorDialog(Adw.Dialog):
         def save_request() -> JsonDict | None:
             return self._save_macro_request(new_name, macro_payload, revision)
 
-        def on_save_finished(result: JsonDict | None) -> bool:
+        def on_save_finished(result: GuiTaskResult[JsonDict | None]) -> bool:
             return self._on_save_finished(result, new_name)
 
         def on_save_start() -> None:
@@ -4196,8 +4197,13 @@ class MacroEditorDialog(Adw.Dialog):
             or {}
         )
 
-    def _on_save_finished(self, result: JsonDict | None, requested_name: str) -> bool:
-        if (result or {}).get("status") != "ok":
+    def _on_save_finished(
+        self,
+        result: GuiTaskResult[JsonDict | None],
+        requested_name: str,
+    ) -> bool:
+        payload = result.value if result.ok and isinstance(result.value, dict) else {}
+        if payload.get("status") != "ok":
             self._show_name_conflict(requested_name)
             return False
 
@@ -4255,7 +4261,7 @@ class MacroEditorDialog(Adw.Dialog):
             def create_copy_request() -> JsonDict | None:
                 return session_request({"command": "create_macro", "macro": copy_payload}) or {}
 
-            def on_copy_finished(result: JsonDict | None) -> bool:
+            def on_copy_finished(result: GuiTaskResult[JsonDict | None]) -> bool:
                 return self._on_save_copy_finished(
                     result,
                     name,
@@ -4295,14 +4301,15 @@ class MacroEditorDialog(Adw.Dialog):
 
     def _on_save_copy_finished(
         self,
-        result: dict | None,
+        result: GuiTaskResult[JsonDict | None],
         requested_name: str,
         error_label: Gtk.Label,
         dialog: Adw.Dialog,
     ) -> bool:
-        if (result or {}).get("status") != "ok":
+        payload = result.value if result.ok and isinstance(result.value, dict) else {}
+        if payload.get("status") != "ok":
             error_label.set_label(
-                (result or {}).get("message", f"'{requested_name}' already exists")
+                payload.get("message", f"'{requested_name}' already exists")
             )
             error_label.set_visible(True)
             return False

@@ -2,6 +2,17 @@
 from tests.gui.support import *
 
 class TestComboTabWidget:
+    def test_combo_tab_does_not_start_active_profile_polling(self, monkeypatch):
+        from keyforge.gui.widgets.combo_tab import ComboTab
+        from keyforge.gui.widgets import profile_managed_tab as profile_tab_module
+
+        def fail_request(*args, **kwargs):
+            raise AssertionError("ComboTab should not request active profiles during construction")
+
+        monkeypatch.setattr(profile_tab_module, "session_request_async", fail_request)
+
+        ComboTab(profile_manager=None, demo_mode=False)
+
     def test_combo_tab_syncs_with_device_tab_selection(self, temp_config_dir):
         from keyforge.common.models import (
             ButtonDefinition,
@@ -335,5 +346,3 @@ class TestComboTabWidget:
         assert tab.section_label.get_text() == "Combos"
         assert tab._selected_profile is None
         assert opened == []
-
-

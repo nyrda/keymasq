@@ -66,6 +66,37 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
+async def test_get_active_profiles_does_not_include_window_state() -> None:
+    manager = SessionManager()
+    manager.profile_state.active_profile_names = ["Gaming"]
+    manager.profile_state.resolved_devices = {
+        "1234:5678": SimpleNamespace(
+            active_profile_names=["Gaming"],
+            mapping_count=2,
+            always_grab_all=False,
+        )
+    }
+    manager.compositor_state.current_window = {
+        "class": "steam",
+        "title": "Counter-Strike 2",
+        "tags": ["game"],
+    }
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "get_active_profiles"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert result["active_profiles"] == ["Gaming"]
+    assert "devices" in result
+    assert "window" not in result
+
+
+@pytest.mark.asyncio
 async def test_get_recording_settings_uses_unlock_and_owner_state_only() -> None:
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = True

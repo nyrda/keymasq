@@ -20,6 +20,65 @@ def test_resolve_keyforge_record_helper_path(tmp_path, monkeypatch):
     assert paths.resolve_keyforge_record_helper_path() == str(helper)
 
 
+def test_run_gui_task_calls_callback_and_on_done_when_worker_raises(monkeypatch):
+    import threading
+
+    from gi.repository import GLib
+
+    from keyforge.gui import session_client
+
+    callback_results: list[object] = []
+    done = threading.Event()
+
+    monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: callback(*args))
+
+    session_client.run_gui_task(
+        lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+        lambda result: callback_results.append(result) or False,
+        on_done=done.set,
+    )
+
+    assert done.wait(1.0) is True
+    assert len(callback_results) == 1
+    assert isinstance(callback_results[0], session_client.GuiTaskResult)
+    assert callback_results[0].ok is False
+    assert isinstance(callback_results[0].error, RuntimeError)
+
+
+def test_persistent_session_connection_clears_partial_buffer_on_disconnect_and_reconnect():
+    import queue
+
+    from keyforge.gui.session_client import _PersistentSessionConnection
+
+    class _FakeSocket:
+        def __init__(self, chunks: list[bytes]) -> None:
+            self._chunks = list(chunks)
+
+        def recv(self, _size: int) -> bytes:
+            if self._chunks:
+                return self._chunks.pop(0)
+            return b""
+
+        def close(self) -> None:
+            return
+
+    connection = _PersistentSessionConnection()
+    first_queue: queue.Queue[dict | None] = queue.Queue(maxsize=1)
+    connection._sock = _FakeSocket([b'{"status":"ok"'])
+    connection._response_queue = first_queue
+    connection._reader_loop()
+
+    assert connection._buffer == b""
+    assert first_queue.get_nowait() is None
+
+    second_queue: queue.Queue[dict | None] = queue.Queue(maxsize=1)
+    connection._sock = _FakeSocket([b'{"status":"ok","value":1}\n'])
+    connection._response_queue = second_queue
+    connection._reader_loop()
+
+    assert second_queue.get_nowait() == {"status": "ok", "value": 1}
+
+
 def test_device_tab_builds_captured_window_rules():
     from keyforge.common.models import ButtonDefinition, HardwareConfig
     from keyforge.gui.widgets.device_tab import DeviceTab
@@ -787,5 +846,3 @@ def test_shared_navigation_picker_builds_dropdown():
 
     assert isinstance(widget, Gtk.Box)
     assert isinstance(owner.f_dropdown, Gtk.DropDown)
-
-

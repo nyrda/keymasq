@@ -66,6 +66,30 @@ class TestDeviceTabWidget:
         assert tab._selected_profile.config.name == "Gaming"
         assert tab.settings_frame.get_sensitive() is True
 
+    def test_device_tab_does_not_start_active_profile_polling(self, monkeypatch):
+        from keyforge.common.models import ButtonDefinition, HardwareConfig
+        from keyforge.gui.widgets import device_tab as device_tab_module
+        from keyforge.gui.widgets.device_tab import DeviceTab
+
+        def fail_timeout(*args, **kwargs):
+            raise AssertionError("DeviceTab should not schedule active profile polling")
+
+        monkeypatch.setattr(device_tab_module.GLib, "timeout_add", fail_timeout)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        DeviceTab(
+            device=device,
+            profile_manager=None,
+            demo_mode=False,
+        )
+
     def test_device_tab_refresh_profiles_picks_up_new_global_profile(self, temp_config_dir):
         from keyforge.common.models import (
             ButtonDefinition,
@@ -980,5 +1004,4 @@ class TestDeviceTabWidget:
 
         assert len(tab.device.buttons) == 1
         assert "already exists" in status.get_text()
-
 

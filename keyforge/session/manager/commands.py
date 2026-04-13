@@ -52,7 +52,14 @@ async def handle_session_request(
     if result is not None:
         return result
 
-    result = await _handle_compositor_commands(manager, command, request, peer, writer)
+    result = await _handle_compositor_commands(
+        manager,
+        command,
+        request,
+        client_class,
+        peer,
+        writer,
+    )
     if result is not None:
         return result
 
@@ -118,6 +125,7 @@ async def _handle_compositor_commands(
     manager: "SessionManager",
     command: str,
     request: JsonObject,
+    client_class: str,
     peer: PeerCredentials,
     writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
@@ -151,7 +159,8 @@ async def _handle_compositor_commands(
         compositor_status = await runtime_compositor.build_compositor_payload(manager)
         compositor_details = cast(dict[str, object], compositor_status["details"])
         policy = manager.security_policy
-        return {
+        profile_payload = runtime_profiles.build_active_profiles_payload(manager)
+        status_payload: JsonObject = {
             "status": "ok",
             "keyforged_connected": manager.connected,
             "compositor_id": compositor_status["compositor_id"],
@@ -161,7 +170,6 @@ async def _handle_compositor_commands(
             "listener_active": compositor_status["listener_active"],
             "listener_name": compositor_status["listener_name"],
             "compositor_dispatch_available": compositor_status["compositor_dispatch_available"],
-            "active_profiles": list(manager.profile_state.active_profile_names),
             "recording_active": manager.recording_state.active,
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
             "gui_allow_left_right_click_remap": bool(policy.gui_allow_left_right_click_remap),
@@ -171,6 +179,12 @@ async def _handle_compositor_commands(
                 refresh_owner=runtime_recording.is_refresh_owner_request(manager, peer, writer),
             ),
         }
+        if command_allowed("get_active_profiles", policy.session_command_acl, client_class):
+            status_payload["active_profiles"] = profile_payload["active_profiles"]
+            status_payload["devices"] = profile_payload["devices"]
+        if command_allowed("get_active_window", policy.session_command_acl, client_class):
+            status_payload["window"] = manager.compositor_state.current_window
+        return status_payload
 
     return None
 

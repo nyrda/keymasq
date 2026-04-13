@@ -44,6 +44,45 @@ The repository uses two packaging channels:
   artifacts to a GitHub prerelease, and do not publish to AUR or external
   repositories.
 
+## Version bump workflow
+
+Use `scripts/release-version.py` as the single entrypoint for release-version
+updates:
+
+```bash
+python3 scripts/release-version.py 0.3.1
+```
+
+The script updates the maintained version surfaces and regenerates the derived
+pacman packaging outputs from `packaging/pacman/templates/`. In particular it
+updates:
+
+- `pyproject.toml`
+- `flake.nix`
+- `nfpm.yaml`
+- `debian/changelog`
+- `CHANGELOG.md`
+- `keyforge/gui/application.py`
+- `assets/keyforge.metainfo.xml`
+- the generated pacman files: `PKGBUILD`, `keyforge.install`,
+  `packaging/aur/PKGBUILD`, `packaging/aur/keyforge.install`, and
+  `packaging/aur/.SRCINFO`
+
+Do not edit the rendered pacman files directly. The release helper regenerates
+them from `packaging/pacman/render.py`, and the package workflow later reruns
+that renderer with the final release tarball checksum before publishing to AUR.
+
+Before running the script for a release, update the top release notes content
+that should be preserved in place:
+
+- the top entry body in `CHANGELOG.md`
+- the top entry bullet list in `debian/changelog`
+- the top `<release>` description in `assets/keyforge.metainfo.xml`
+
+The script then stamps the requested version, updates the current release date,
+and refreshes the generated packaging files. Use `--dry-run` to preview the
+file set, or `--release-date YYYY-MM-DD` when a non-today date is required.
+
 ## Shared package payload
 
 Most package formats reuse the same top-level asset directories. The packaging

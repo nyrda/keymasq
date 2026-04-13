@@ -406,6 +406,12 @@ async def play_macro_task(
         while True:
             if instance_id in manager.macro_state.cancel_instance_ids:
                 break
+            if block_mouse_movement:
+                begin_mouse_rel_suppression(
+                    manager,
+                    timeout_s=max(0.1, suppression_timeout_s),
+                    asyncio_mod=asyncio_mod,
+                )
             iterations += 1
             pending_abs_moves.clear()
             if move_to_start:

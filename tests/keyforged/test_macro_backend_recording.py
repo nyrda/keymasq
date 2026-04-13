@@ -176,6 +176,45 @@ async def test_play_macro_block_mouse_movement_uses_suppression_safeguard() -> N
 
 
 @pytest.mark.asyncio
+async def test_hold_macro_block_mouse_movement_refreshes_suppression_until_release() -> None:
+    manager = DeviceManager()
+    manager.output_state.mouse_uinput = MagicMock()
+
+    begin_mouse_rel_suppression = MagicMock()
+    end_mouse_rel_suppression = MagicMock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
+    monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
+
+    await manager.play_macro(
+        macro_events=[],
+        macro_name="hold_blocked",
+        loop_mode="hold",
+        block_mouse_movement=True,
+        source_device="dev1",
+        source_button="btn_hold",
+        trigger_value=1,
+    )
+    await asyncio.sleep(0.05)
+
+    result = await manager.play_macro(
+        macro_events=[],
+        macro_name="hold_blocked",
+        loop_mode="hold",
+        block_mouse_movement=True,
+        source_device="dev1",
+        source_button="btn_hold",
+        trigger_value=0,
+    )
+
+    assert result["status"] == "ok"
+    assert result["cancelled"] is True
+    assert begin_mouse_rel_suppression.call_count > 1
+    assert end_mouse_rel_suppression.called
+    monkeypatch.undo()
+
+
+@pytest.mark.asyncio
 async def test_cancel_macro_playback_releases_held_keys() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()
@@ -483,4 +522,3 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 123)
     ]
     monkeypatch.undo()
-

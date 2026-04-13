@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-04-13
+
+### Fixed
+
+- Stopped exposing active-window data through shared active-profile payloads
+  used by `get_active_profiles` and `profiles_changed`.
+- Preserved cached GUI runtime state when partial or ACL-filtered status
+  payloads omit profile runtime keys.
+- Hardened GUI session task error handling and reconnect cleanup paths.
+
 ## [0.3] - 2026-04-10
 
 ### Added

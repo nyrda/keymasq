@@ -3,7 +3,7 @@
 
 # Maintainer: nyrda <nyrda@keyforge.tools>
 pkgname=keyforge
-pkgver=0.3.1
+pkgver=0.3.2
 pkgrel=1
 pkgdesc="A key remapping tool for Linux using evdev and uinput"
 arch=(

@@ -23,7 +23,7 @@ from keyforge.gui.icons import register_icon_search_path, theme_supports_core_ic
 from keyforge.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keyforge.gui.window import MainWindow  # noqa: E402
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 
 
 class Application(Adw.Application):

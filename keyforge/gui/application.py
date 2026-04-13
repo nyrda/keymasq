@@ -23,6 +23,8 @@ from keyforge.gui.icons import register_icon_search_path, theme_supports_core_ic
 from keyforge.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keyforge.gui.window import MainWindow  # noqa: E402
 
+APP_VERSION = "0.3.1"
+
 
 class Application(Adw.Application):
     def __init__(self, demo_mode: bool = False) -> None:
@@ -124,7 +126,7 @@ class Application(Adw.Application):
             dialog = Adw.AboutDialog()
             dialog.set_application_name("Keyforge")
             dialog.set_application_icon("keyforge")
-            dialog.set_version("0.2")
+            dialog.set_version(APP_VERSION)
             dialog.set_comments("A key remapping tool for Linux")
             dialog.set_developer_name("Keyforge Team")
             dialog.set_license_type(Gtk.License.MIT_X11)
@@ -147,7 +149,7 @@ def main() -> None:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 0.3.1",
+        version=f"%(prog)s {APP_VERSION}",
     )
 
     args, _ = parser.parse_known_args()

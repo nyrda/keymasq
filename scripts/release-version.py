@@ -75,8 +75,8 @@ def _build_rules(
         ),
         RewriteRule(
             root / "keyforge/gui/application.py",
-            re.compile(r'(?m)^ {8}version="%\(prog\)s [^"]+",$'),
-            f'        version="%(prog)s {version}",',
+            re.compile(r'(?m)^APP_VERSION = "[^"]+"$'),
+            f'APP_VERSION = "{version}"',
         ),
         RewriteRule(
             root / "assets/keyforge.metainfo.xml",

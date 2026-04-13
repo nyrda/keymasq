@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
@@ -53,6 +54,16 @@ SUPERKEY_ACTION_TYPES = frozenset(
     }
 )
 
+RAPIDFIRE_ACTION_TYPES = frozenset(
+    {
+        ActionType.KEYBOARD,
+        ActionType.MOUSE,
+        ActionType.GAMEPAD,
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
+    }
+)
+
 
 class DeviceType(Enum):
     MOUSE = "mouse"
@@ -78,6 +89,60 @@ class WindowFieldType(Enum):
 
 def is_protected_button(button_id: str) -> bool:
     return button_id.lower() in PROTECTED_BUTTONS
+
+
+def action_type_supports_rapidfire(action_type: ActionType) -> bool:
+    return action_type in RAPIDFIRE_ACTION_TYPES
+
+
+def normalize_rapidfire_fields(
+    action_type: ActionType,
+    *,
+    rapidfire_enabled: bool,
+    rapidfire_hold_ms: int,
+    rapidfire_wait_ms: int,
+) -> tuple[bool, int, int]:
+    if not action_type_supports_rapidfire(action_type):
+        return False, 20, 20
+    return rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms
+
+
+def resolve_rapidfire_fields(
+    action_type: ActionType,
+    *,
+    rapidfire_enabled: bool,
+    rapidfire_hold_ms: int,
+    rapidfire_wait_ms: int,
+) -> tuple[bool, int, int, bool]:
+    unsupported_requested = rapidfire_enabled and not action_type_supports_rapidfire(action_type)
+    normalized_enabled, normalized_hold_ms, normalized_wait_ms = normalize_rapidfire_fields(
+        action_type,
+        rapidfire_enabled=rapidfire_enabled,
+        rapidfire_hold_ms=rapidfire_hold_ms,
+        rapidfire_wait_ms=rapidfire_wait_ms,
+    )
+    return (
+        normalized_enabled,
+        normalized_hold_ms,
+        normalized_wait_ms,
+        unsupported_requested,
+    )
+
+
+def parse_rapidfire_fields(
+    action_type: ActionType,
+    *,
+    rapidfire_enabled: object,
+    rapidfire_hold_ms: object,
+    rapidfire_wait_ms: object,
+    int_value: Callable[[object, int], int],
+) -> tuple[bool, int, int, bool]:
+    return resolve_rapidfire_fields(
+        action_type,
+        rapidfire_enabled=bool(rapidfire_enabled),
+        rapidfire_hold_ms=int_value(rapidfire_hold_ms, 20),
+        rapidfire_wait_ms=int_value(rapidfire_wait_ms, 20),
+    )
 
 
 @dataclass
@@ -211,10 +276,21 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
 
 
 def superkey_action_shared_kwargs(action: object) -> dict[str, Any]:
-    return {
-        field_name: getattr(action, field_name)
+    typed_action = cast(MappingAction | SuperkeyAction, action)
+    kwargs = {
+        field_name: getattr(typed_action, field_name)
         for field_name in SUPERKEY_ACTION_SHARED_FIELDS
     }
+    rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
+        typed_action.action_type,
+        rapidfire_enabled=bool(kwargs["rapidfire_enabled"]),
+        rapidfire_hold_ms=int(kwargs["rapidfire_hold_ms"]),
+        rapidfire_wait_ms=int(kwargs["rapidfire_wait_ms"]),
+    )
+    kwargs["rapidfire_enabled"] = rapidfire_enabled
+    kwargs["rapidfire_hold_ms"] = rapidfire_hold_ms
+    kwargs["rapidfire_wait_ms"] = rapidfire_wait_ms
+    return kwargs
 
 
 def mapping_action_to_superkey_action(action: MappingAction) -> SuperkeyAction:

@@ -120,17 +120,8 @@ def test_superkey_manager_round_trips_pattern_bundles(temp_config_dir, monkeypat
 
 def test_superkey_action_roundtrip_preserves_shared_fields() -> None:
     action = MappingAction(
-        action_type=ActionType.MACRO,
-        macro_name="demo",
-        macro_replay_mouse_movement=False,
-        macro_replay_mouse_clicks=False,
-        macro_speed=2.5,
-        macro_loop_mode="hold",
-        macro_loop_count=3,
-        macro_move_to_start=True,
-        macro_start_x=111,
-        macro_start_y=222,
-        macro_block_mouse_movement=True,
+        action_type=ActionType.KEYBOARD,
+        target="key_a",
         rapidfire_enabled=True,
         rapidfire_hold_ms=40,
         rapidfire_wait_ms=60,
@@ -139,20 +130,29 @@ def test_superkey_action_roundtrip_preserves_shared_fields() -> None:
     superkey_action = mapping_action_to_superkey_action(action)
     round_tripped = superkey_action_to_mapping_action(superkey_action)
 
-    assert round_tripped.action_type == ActionType.MACRO
-    assert round_tripped.macro_name == "demo"
-    assert round_tripped.macro_replay_mouse_movement is False
-    assert round_tripped.macro_replay_mouse_clicks is False
-    assert round_tripped.macro_speed == 2.5
-    assert round_tripped.macro_loop_mode == "hold"
-    assert round_tripped.macro_loop_count == 3
-    assert round_tripped.macro_move_to_start is True
-    assert round_tripped.macro_start_x == 111
-    assert round_tripped.macro_start_y == 222
-    assert round_tripped.macro_block_mouse_movement is True
+    assert round_tripped.action_type == ActionType.KEYBOARD
+    assert round_tripped.target == "key_a"
     assert round_tripped.rapidfire_enabled is True
     assert round_tripped.rapidfire_hold_ms == 40
     assert round_tripped.rapidfire_wait_ms == 60
+
+
+def test_superkey_action_roundtrip_strips_unsupported_rapidfire() -> None:
+    action = MappingAction(
+        action_type=ActionType.MACRO,
+        macro_name="demo",
+        rapidfire_enabled=True,
+        rapidfire_hold_ms=40,
+        rapidfire_wait_ms=60,
+    )
+
+    superkey_action = mapping_action_to_superkey_action(action)
+    round_tripped = superkey_action_to_mapping_action(superkey_action)
+
+    assert superkey_action.rapidfire_enabled is False
+    assert round_tripped.rapidfire_enabled is False
+    assert round_tripped.rapidfire_hold_ms == 20
+    assert round_tripped.rapidfire_wait_ms == 20
 
 
 def test_superkey_manager_round_trips_extended_pattern_actions(
@@ -229,6 +229,37 @@ def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypa
     ]
     assert reloaded.overload_actions[1].profile_name == "Gaming"
     assert reloaded.overload_actions[2].cmd == "notify-send overload"
+
+
+def test_superkey_manager_warns_and_strips_manual_unsupported_rapidfire(
+    temp_config_dir,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+    (superkeys_dir / "warn.toml").write_text(
+        """
+name = "warn"
+mode = "pattern"
+
+[[actions.hold]]
+action = "macro"
+target = "demo"
+rapidfire_enabled = true
+rapidfire_hold_ms = 40
+rapidfire_wait_ms = 60
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("WARNING", logger="keyforge-session.superkeys"):
+        config = SuperkeyManager().get_superkey("warn")
+
+    assert config is not None
+    assert config.hold_actions[0].rapidfire_enabled is False
+    assert "Ignoring rapidfire for unsupported macro action in superkey config" in caplog.text
 
 
 def test_superkey_runtime_payload_round_trips_overload_actions() -> None:

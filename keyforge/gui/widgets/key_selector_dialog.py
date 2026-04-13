@@ -1,3 +1,5 @@
+import logging
+
 import evdev
 import gi
 
@@ -12,7 +14,12 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
     Gtk,  # pyright: ignore[reportAttributeAccessIssue]
 )
 
-from keyforge.common.models import ActionType, MappingAction, SuperkeyAction
+from keyforge.common.models import (
+    ActionType,
+    MappingAction,
+    SuperkeyAction,
+    action_type_supports_rapidfire,
+)
 from keyforge.common.slurp import get_slurp_capture
 from keyforge.gui.session_client import session_request_async
 from keyforge.gui.widgets.action_labels import describe_mapping_action_verbose
@@ -34,6 +41,8 @@ from keyforge.gui.widgets.input_picker_shared import (
 )
 from keyforge.session.compositor import detect_compositor_sync
 from keyforge.session.superkeys import SuperkeyManager
+
+log = logging.getLogger("keyforge.gui.widgets.key_selector_dialog")
 
 KEYBOARD_LAYOUT = [
     ["Esc", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"],
@@ -896,14 +905,23 @@ class KeySelectorDialog(Adw.Dialog):
         is_special = child_name == "special"
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
+        is_exec = child_name == "exec"
         is_compositor_action = child_name in self._compositor_action_page_ids
         has_options = self._allow_rapidfire or self._allow_tap
         options_enabled = (
-            not is_special and not is_macro and not is_profile and not is_compositor_action
+            not is_special
+            and not is_macro
+            and not is_profile
+            and not is_exec
+            and not is_compositor_action
         )
         self.options_box.set_sensitive(options_enabled and has_options)
         self.options_box.set_visible(
-            has_options and not is_macro and not is_profile and not is_compositor_action
+            has_options
+            and not is_macro
+            and not is_profile
+            and not is_exec
+            and not is_compositor_action
         )
         self.map_btn.set_visible(is_macro or is_profile)
         if is_macro:
@@ -912,6 +930,19 @@ class KeySelectorDialog(Adw.Dialog):
             self.map_btn.set_sensitive(bool(self._selected_profile_name))
         else:
             self.map_btn.set_sensitive(False)
+
+    def _warn_and_clear_unsupported_rapidfire(self, action_type: ActionType) -> None:
+        if not self._rapidfire_enabled or action_type_supports_rapidfire(action_type):
+            return
+        log.warning(
+            "Ignoring rapidfire for unsupported %s action in key selector",
+            action_type.value,
+        )
+        if self.rapidfire_check.get_active():
+            self.rapidfire_check.set_active(False)
+        else:
+            self._rapidfire_enabled = False
+            self._update_options_visibility()
 
     def _on_rapidfire_toggled(self, check):
         if not self._allow_rapidfire:
@@ -935,18 +966,23 @@ class KeySelectorDialog(Adw.Dialog):
         if action_type == "clear_mapping":
             self.emit("key-selected", None)
         elif action_type == "explicit_passthrough":
+            self._warn_and_clear_unsupported_rapidfire(ActionType.PASSTHROUGH)
             action = MappingAction(action_type=ActionType.PASSTHROUGH)
             self.emit("key-selected", action)
         elif action_type == "suppress":
+            self._warn_and_clear_unsupported_rapidfire(ActionType.SUPPRESS)
             action = MappingAction(action_type=ActionType.SUPPRESS)
             self.emit("key-selected", action)
         elif action_type == "start_macro_recording":
+            self._warn_and_clear_unsupported_rapidfire(ActionType.START_MACRO_RECORDING)
             action = MappingAction(action_type=ActionType.START_MACRO_RECORDING)
             self.emit("key-selected", action)
         elif action_type == "stop_macro_recording":
+            self._warn_and_clear_unsupported_rapidfire(ActionType.STOP_MACRO_RECORDING)
             action = MappingAction(action_type=ActionType.STOP_MACRO_RECORDING)
             self.emit("key-selected", action)
         elif action_type == "cancel_macro_playback":
+            self._warn_and_clear_unsupported_rapidfire(ActionType.CANCEL_MACRO_PLAYBACK)
             action = MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK)
             self.emit("key-selected", action)
         self.close()
@@ -958,11 +994,13 @@ class KeySelectorDialog(Adw.Dialog):
         cmd = self.exec_entry.get_text().strip()
         if not cmd:
             return
+        self._warn_and_clear_unsupported_rapidfire(ActionType.EXEC)
         action = MappingAction(action_type=ActionType.EXEC, cmd=cmd)
         self.emit("key-selected", action)
         self.close()
 
     def _on_compositor_action_selected(self, action: MappingAction) -> None:
+        self._warn_and_clear_unsupported_rapidfire(ActionType.COMPOSITOR_DISPATCH)
         self.emit("key-selected", action)
         self.close()
 
@@ -970,6 +1008,7 @@ class KeySelectorDialog(Adw.Dialog):
         idx = self.superkey_dropdown.get_selected()
         if idx < len(self._superkey_names):
             name = self._superkey_names[idx]
+            self._warn_and_clear_unsupported_rapidfire(ActionType.SUPERKEY)
             action = MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_name=name,
@@ -1448,8 +1487,10 @@ class KeySelectorDialog(Adw.Dialog):
 
     def _on_macro_special_action_clicked(self, _btn, action_name: str) -> None:
         if action_name == "toggle_recording":
+            self._warn_and_clear_unsupported_rapidfire(ActionType.START_MACRO_RECORDING)
             action = MappingAction(action_type=ActionType.START_MACRO_RECORDING)
         elif action_name == "cancel_macro_playback":
+            self._warn_and_clear_unsupported_rapidfire(ActionType.CANCEL_MACRO_PLAYBACK)
             action = MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK)
         else:
             return
@@ -1466,6 +1507,7 @@ class KeySelectorDialog(Adw.Dialog):
     def _on_macro_map_clicked(self, btn) -> None:
         if not self._selected_macro:
             return
+        self._warn_and_clear_unsupported_rapidfire(ActionType.MACRO)
         action = MappingAction(
             action_type=ActionType.MACRO,
             macro_name=self._selected_macro,
@@ -1486,6 +1528,7 @@ class KeySelectorDialog(Adw.Dialog):
         elif self._selected_profile_action == "disable":
             action_type = ActionType.PROFILE_DISABLE
 
+        self._warn_and_clear_unsupported_rapidfire(action_type)
         action = MappingAction(
             action_type=action_type,
             profile_name=self._selected_profile_name,
@@ -1748,6 +1791,19 @@ class SuperkeyActionDialog(Adw.Dialog):
         if self.rapidfire_check:
             self.options_box.set_visible(not is_exec)
 
+    def _warn_and_clear_unsupported_rapidfire(self, action_type: ActionType) -> None:
+        if not self._rapidfire_enabled or action_type_supports_rapidfire(action_type):
+            return
+        log.warning(
+            "Ignoring rapidfire for unsupported %s action in superkey action dialog",
+            action_type.value,
+        )
+        if self.rapidfire_check and self.rapidfire_check.get_active():
+            self.rapidfire_check.set_active(False)
+        else:
+            self._rapidfire_enabled = False
+            self._update_options_visibility()
+
     def _on_rapidfire_toggled(self, check):
         self._rapidfire_enabled = check.get_active()
         self._update_options_visibility()
@@ -1871,6 +1927,7 @@ class SuperkeyActionDialog(Adw.Dialog):
     def _on_superkey_macro_map_clicked(self, btn) -> None:
         if not self._superkey_selected_macro:
             return
+        self._warn_and_clear_unsupported_rapidfire(ActionType.MACRO)
         action = SuperkeyAction(
             action_type=ActionType.MACRO,
             macro_name=self._superkey_selected_macro,
@@ -1884,6 +1941,7 @@ class SuperkeyActionDialog(Adw.Dialog):
     def _on_exec_clicked(self, btn):
         cmd = self.cmd_entry.get_text().strip()
         if cmd:
+            self._warn_and_clear_unsupported_rapidfire(ActionType.EXEC)
             action = SuperkeyAction(
                 action_type=ActionType.EXEC,
                 cmd=cmd,

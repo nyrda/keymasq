@@ -2,7 +2,12 @@ import logging
 from collections.abc import Callable
 from typing import cast
 
-from keyforge.common.models import ActionType, MappingAction, SuperkeyMode
+from keyforge.common.models import (
+    ActionType,
+    MappingAction,
+    SuperkeyMode,
+    parse_rapidfire_fields,
+)
 from keyforge.common.models import (
     SuperkeyConfig as CommonSuperkeyConfig,
 )
@@ -62,6 +67,23 @@ def parse_action(
     compositor_id = action_data.get("compositor")
     compositor_dispatcher = action_data.get("dispatcher")
     compositor_args = action_data.get("args")
+    (
+        rapidfire_enabled,
+        rapidfire_hold_ms,
+        rapidfire_wait_ms,
+        unsupported_rapidfire,
+    ) = parse_rapidfire_fields(
+        action_type,
+        rapidfire_enabled=action_data.get("rapidfire_enabled", False),
+        rapidfire_hold_ms=action_data.get("rapidfire_hold_ms"),
+        rapidfire_wait_ms=action_data.get("rapidfire_wait_ms"),
+        int_value=int_value,
+    )
+    if unsupported_rapidfire:
+        log.warning(
+            "Ignoring rapidfire for unsupported %s action in runtime payload",
+            action_type.value,
+        )
 
     return MappingAction(
         action_type=action_type,
@@ -89,9 +111,9 @@ def parse_action(
         move_y=int_value(action_data.get("y"), 0),
         move_speed=float_value(action_data.get("speed"), 1.0),
         move_jitter=float_value(action_data.get("jitter"), 0.3),
-        rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
-        rapidfire_hold_ms=int_value(action_data.get("rapidfire_hold_ms"), 20),
-        rapidfire_wait_ms=int_value(action_data.get("rapidfire_wait_ms"), 20),
+        rapidfire_enabled=rapidfire_enabled,
+        rapidfire_hold_ms=rapidfire_hold_ms,
+        rapidfire_wait_ms=rapidfire_wait_ms,
         tap_enabled=bool(action_data.get("tap_enabled", False)),
         tap_hold_ms=int_value(action_data.get("tap_hold_ms"), 10),
     )
@@ -313,9 +335,27 @@ def parse_superkey_action(
 
         int_or_none = fallback_int_or_none
     macro_speed_value = action.get("macro_speed")
+    action_type = ActionType(str_value(action.get("action"), "keyboard"))
+    (
+        rapidfire_enabled,
+        rapidfire_hold_ms,
+        rapidfire_wait_ms,
+        unsupported_rapidfire,
+    ) = parse_rapidfire_fields(
+        action_type,
+        rapidfire_enabled=action.get("rapidfire_enabled", False),
+        rapidfire_hold_ms=action.get("rapidfire_hold_ms"),
+        rapidfire_wait_ms=action.get("rapidfire_wait_ms"),
+        int_value=int_value,
+    )
+    if unsupported_rapidfire:
+        log.warning(
+            "Ignoring rapidfire for unsupported %s action in superkey runtime payload",
+            action_type.value,
+        )
 
     return SuperkeyActionData(
-        action_type=str_value(action.get("action"), "keyboard"),
+        action_type=action_type.value,
         target=optional_str(action.get("target")),
         cmd=optional_str(action.get("cmd")),
         exec_ref=int_or_none(action.get("exec_ref")),
@@ -337,7 +377,7 @@ def parse_superkey_action(
         compositor_args=optional_str(action.get("args")),
         move_x=int_value(action.get("x"), 0),
         move_y=int_value(action.get("y"), 0),
-        rapidfire_enabled=bool(action.get("rapidfire_enabled", False)),
-        rapidfire_hold_ms=int_value(action.get("rapidfire_hold_ms"), 20),
-        rapidfire_wait_ms=int_value(action.get("rapidfire_wait_ms"), 20),
+        rapidfire_enabled=rapidfire_enabled,
+        rapidfire_hold_ms=rapidfire_hold_ms,
+        rapidfire_wait_ms=rapidfire_wait_ms,
     )

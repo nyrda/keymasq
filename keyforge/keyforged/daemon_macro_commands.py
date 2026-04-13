@@ -222,21 +222,95 @@ def apply_macro_definition(action_data: JsonObject, macro: JsonObject) -> JsonOb
     return updated
 
 
+def _collect_macro_names_from_action(action_data: JsonObject, macro_names: set[str]) -> None:
+    action_type = str(action_data.get("action", "") or "")
+    macro_name = str(action_data.get("macro_name", "") or "")
+    if action_type == "macro" and macro_name and not action_data.get("macro_events"):
+        macro_names.add(macro_name)
+        return
+
+    if action_type != "superkey":
+        return
+
+    superkey = action_data.get("superkey")
+    if isinstance(superkey, dict):
+        _collect_macro_names_from_superkey(cast(JsonObject, superkey), macro_names)
+
+
+def _collect_macro_names_from_superkey(superkey: JsonObject, macro_names: set[str]) -> None:
+    for key in (
+        "tap_actions",
+        "double_tap_actions",
+        "hold_actions",
+        "tap_hold_actions",
+        "overload_actions",
+    ):
+        bundle = superkey.get(key)
+        if not isinstance(bundle, list):
+            continue
+        for item in cast(list[object], bundle):
+            if isinstance(item, dict):
+                _collect_macro_names_from_action(cast(JsonObject, item), macro_names)
+
+
+def _resolve_action_macros(action_data: JsonObject, macros: dict[str, JsonObject]) -> JsonObject:
+    updated: JsonObject = dict(action_data)
+    action_type = str(updated.get("action", "") or "")
+    macro_name = str(updated.get("macro_name", "") or "")
+
+    if (
+        action_type == "macro"
+        and macro_name
+        and not updated.get("macro_events")
+        and macro_name in macros
+    ):
+        try:
+            return apply_macro_definition(updated, macros[macro_name])
+        except (TypeError, ValueError):
+            return updated
+
+    if action_type != "superkey":
+        return updated
+
+    superkey = updated.get("superkey")
+    if not isinstance(superkey, dict):
+        return updated
+
+    updated["superkey"] = _resolve_superkey_macros(cast(JsonObject, superkey), macros)
+    return updated
+
+
+def _resolve_superkey_macros(superkey: JsonObject, macros: dict[str, JsonObject]) -> JsonObject:
+    updated: JsonObject = dict(superkey)
+    for key in (
+        "tap_actions",
+        "double_tap_actions",
+        "hold_actions",
+        "tap_hold_actions",
+        "overload_actions",
+    ):
+        bundle = updated.get(key)
+        if not isinstance(bundle, list):
+            continue
+        updated[key] = [
+            (
+                _resolve_action_macros(cast(JsonObject, item), macros)
+                if isinstance(item, dict)
+                else item
+            )
+            for item in cast(list[object], bundle)
+        ]
+    return updated
+
+
 async def resolve_mapping_macros(
     macro_store: _MacroDefinitionStore,
     mapping: JsonObject,
 ) -> JsonObject:
     macro_names: set[str] = set()
     for action_raw in mapping.values():
-        if not isinstance(action_raw, dict):
-            continue
-        action_data = cast(JsonObject, action_raw)
-        if (
-            action_data.get("action") == "macro"
-            and action_data.get("macro_name")
-            and not action_data.get("macro_events")
-        ):
-            macro_names.add(str(action_data["macro_name"]))
+        if isinstance(action_raw, dict):
+            _collect_macro_names_from_action(cast(JsonObject, action_raw), macro_names)
     macros = await load_macro_definitions(macro_store, macro_names)
 
     resolved: JsonObject = {}
@@ -245,20 +319,7 @@ async def resolve_mapping_macros(
             resolved[button_id] = action_data
             continue
 
-        updated: JsonObject = dict(cast(JsonObject, action_data))
-        macro_name = str(updated.get("macro_name", "") or "")
-        if (
-            updated.get("action") == "macro"
-            and macro_name
-            and not updated.get("macro_events")
-            and macro_name in macros
-        ):
-            try:
-                updated = apply_macro_definition(updated, macros[macro_name])
-            except (TypeError, ValueError):
-                pass
-
-        resolved[button_id] = updated
+        resolved[button_id] = _resolve_action_macros(cast(JsonObject, action_data), macros)
 
     return resolved
 
@@ -270,15 +331,8 @@ async def resolve_combo_macros(
     macro_names: set[str] = set()
     for combo in combos:
         action_raw = combo.get("action")
-        if not isinstance(action_raw, dict):
-            continue
-        action_data = cast(JsonObject, action_raw)
-        if (
-            action_data.get("action") == "macro"
-            and action_data.get("macro_name")
-            and not action_data.get("macro_events")
-        ):
-            macro_names.add(str(action_data["macro_name"]))
+        if isinstance(action_raw, dict):
+            _collect_macro_names_from_action(cast(JsonObject, action_raw), macro_names)
     macros = await load_macro_definitions(macro_store, macro_names)
 
     resolved: JsonObjectList = []
@@ -289,20 +343,7 @@ async def resolve_combo_macros(
             resolved.append(updated)
             continue
 
-        action: JsonObject = dict(cast(JsonObject, action_data))
-        macro_name = str(action.get("macro_name", "") or "")
-        if (
-            action.get("action") == "macro"
-            and macro_name
-            and not action.get("macro_events")
-            and macro_name in macros
-        ):
-            try:
-                action = apply_macro_definition(action, macros[macro_name])
-            except (TypeError, ValueError):
-                pass
-
-        updated["action"] = action
+        updated["action"] = _resolve_action_macros(cast(JsonObject, action_data), macros)
         resolved.append(updated)
 
     return resolved

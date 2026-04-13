@@ -226,16 +226,60 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event() -> N
         return_value=Response(status="ok", data={"macro": {"name": "Speedrun"}})
     )
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
-
-    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
-    result = await manager._handle_session_request(
-        {"command": "create_macro", "macro": {"name": "Speedrun"}},
-        "client",
-        peer,
-        object(),
+    refresh_macro_bindings = AsyncMock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_profiles_module,
+        "refresh_macro_bindings",
+        refresh_macro_bindings,
     )
 
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    try:
+        result = await manager._handle_session_request(
+            {"command": "create_macro", "macro": {"name": "Speedrun"}},
+            "client",
+            peer,
+            object(),
+        )
+    finally:
+        monkeypatch.undo()
+
     assert result == {"status": "ok", "macro": {"name": "Speedrun"}}
+    refresh_macro_bindings.assert_awaited_once_with(manager)
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "macro_saved", "name": "Speedrun"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_session_request_update_macro_refreshes_runtime_bindings() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"macro": {"name": "Speedrun"}})
+    )
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    refresh_macro_bindings = AsyncMock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_profiles_module,
+        "refresh_macro_bindings",
+        refresh_macro_bindings,
+    )
+
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    try:
+        result = await manager._handle_session_request(
+            {"command": "update_macro", "name": "Speedrun", "macro": {"name": "Speedrun"}},
+            "client",
+            peer,
+            object(),
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert result == {"status": "ok", "macro": {"name": "Speedrun"}}
+    refresh_macro_bindings.assert_awaited_once_with(manager)
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "macro_saved", "name": "Speedrun"}
     )

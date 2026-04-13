@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 import keyforge.session.manager.compositor as session_compositor_module
+import keyforge.session.manager.profiles as session_profiles_module
 import keyforge.session.manager.recording as session_recording_module
 from keyforge.common.ipc import Response
 from keyforge.common.security import PeerCredentials, SecurityPolicy
@@ -21,6 +22,7 @@ __all__ = [
     'Mock',
     'pytest',
     'session_compositor_module',
+    'session_profiles_module',
     'session_recording_module',
     'Response',
     'PeerCredentials',

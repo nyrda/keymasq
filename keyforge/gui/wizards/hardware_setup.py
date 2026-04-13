@@ -26,7 +26,12 @@ from keyforge.common.devices import (
     resolve_stable_path,
 )
 from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-from keyforge.gui.session_client import run_gui_task, session_request, session_request_async
+from keyforge.gui.session_client import (
+    GuiTaskResult,
+    run_gui_task,
+    session_request,
+    session_request_async,
+)
 from keyforge.session.hardware import HardwareManager
 
 DetectedDevice = dict[str, Any]
@@ -275,13 +280,17 @@ class HardwareSetupDialog(Adw.Window):
     def _on_detected_devices_done(self) -> None:
         self._detect_devices_inflight = False
 
-    def _on_detected_devices_ready(self, detected_devices: dict[str, DetectedDevice]) -> bool:
+    def _on_detected_devices_ready(
+        self,
+        result: GuiTaskResult[dict[str, DetectedDevice]],
+    ) -> bool:
+        detected_devices = result.value if result.ok and result.value is not None else {}
         while row := self.device_list.get_row_at_index(0):
             self.device_list.remove(row)
         self.detected_devices = detected_devices
 
         sorted_devices = sorted(
-            detected_devices.items(),
+            self.detected_devices.items(),
             key=lambda item: (
                 self._device_type_sort_order(self._group_device_type(item[1])),
                 str(item[1].get("name", "")).lower(),

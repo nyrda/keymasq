@@ -19,6 +19,7 @@ from keyforge.gui.icons import (
     resolve_icon_name,
 )
 from keyforge.gui.session_client import (
+    GuiTaskResult,
     register_session_event_callback,
     run_gui_task,
     session_request,
@@ -87,6 +88,16 @@ class MainWindow(Adw.ApplicationWindow):
         self._startup_probe_done = False
         self._lease_claim_inflight = False
         self._placeholder_title: Gtk.Label | None = None
+        self._session_reconnect_source_id = 0
+        self._unlock_refresh_source_id = 0
+        self._profile_runtime_state: dict[str, object] = {
+            "active_profiles": [],
+            "devices": {},
+            "window": {},
+        }
+        self._profile_reload_inflight = False
+        self._profile_reload_pending = False
+        self._destroyed = False
         self.combo_tab: ComboTab | None = None
 
         self.set_title("Keyforge")
@@ -97,8 +108,10 @@ class MainWindow(Adw.ApplicationWindow):
 
         if not self.demo_mode:
             register_session_event_callback("*", self._on_session_event)
-            GLib.timeout_add(2000, self._reconnect_session)
-            GLib.timeout_add_seconds(30, self._refresh_unlock_lease)
+            self._session_reconnect_source_id = GLib.timeout_add(2000, self._reconnect_session)
+            self._unlock_refresh_source_id = GLib.timeout_add_seconds(
+                30, self._refresh_unlock_lease
+            )
             self._update_status_from_session()
 
         self.connect("destroy", self._on_destroy)
@@ -127,9 +140,12 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_startup_probe_finished(
         self,
-        result: tuple[dict[str, object], list],
+        result: GuiTaskResult[tuple[dict[str, object], list]],
     ) -> bool:
-        compositor_state, devices = result
+        if result.ok and result.value is not None:
+            compositor_state, devices = result.value
+        else:
+            compositor_state, devices = ({}, [])
         self._startup_probe_done = True
         self._apply_compositor_state(compositor_state)
         self._apply_loaded_devices(devices)
@@ -254,7 +270,8 @@ class MainWindow(Adw.ApplicationWindow):
             connected = event.get("connected", False)
             self._update_status_from_keyforged_event(connected)
         elif event_type == "profiles_changed":
-            self._refresh_device_tabs()
+            self._apply_profile_runtime_state(event)
+            self._queue_profile_reload()
         elif event_type == "recording_started":
             self._recording_overlay.set_visible(True)
             self._recording_overlay.on_started(event)
@@ -306,6 +323,8 @@ class MainWindow(Adw.ApplicationWindow):
         )
 
     def _on_status_response(self, data: dict | None, query_id: int) -> bool:
+        if self._destroyed:
+            return False
         if query_id != self._status_query_id:
             return False
 
@@ -317,6 +336,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._update_unlock_state(data if isinstance(data, dict) else None)
             self._update_compositor_dispatch_state(data if isinstance(data, dict) else None)
             if isinstance(data, dict) and data.get("status") == "ok":
+                self._apply_profile_runtime_state(data)
                 compositor_id = data.get("compositor_id")
                 if compositor_id is not None:
                     self._compositor_id = compositor_id
@@ -527,6 +547,14 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_status_from_session()
 
     def _on_destroy(self, *_args) -> None:
+        self._destroyed = True
+        self._session_reconnect_source_id = self._remove_timeout_source(
+            self._session_reconnect_source_id
+        )
+        self._unlock_refresh_source_id = self._remove_timeout_source(
+            self._unlock_refresh_source_id
+        )
+
         if self.demo_mode:
             return
 
@@ -552,6 +580,12 @@ class MainWindow(Adw.ApplicationWindow):
                 pass
 
         unregister_session_event_callback("*", self._on_session_event)
+
+    def _remove_timeout_source(self, source_id: int) -> int:
+        if source_id <= 0:
+            return 0
+        GLib.source_remove(source_id)
+        return 0
 
     def _setup_content(self) -> None:
         self.main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -803,6 +837,7 @@ class MainWindow(Adw.ApplicationWindow):
                 preferred_profile_name=self._selected_profile_name,
                 publish_selection=False,
             )
+        self._apply_profile_runtime_state_to_widget(self.combo_tab)
 
     def _add_device_tab(self, device) -> None:
         if self.combo_tab and self.combo_tab in self.stack:
@@ -824,6 +859,7 @@ class MainWindow(Adw.ApplicationWindow):
                 preferred_profile_name=self._selected_profile_name,
                 publish_selection=False,
             )
+        self._apply_profile_runtime_state_to_widget(tab)
         if self.combo_tab is not None:
             self.combo_tab.refresh_profiles(
                 preferred_profile_name=self._selected_profile_name,
@@ -834,6 +870,83 @@ class MainWindow(Adw.ApplicationWindow):
                 self.combo_tab, "combos", "Combos",
                 resolve_icon_name(*combo_icon_names()),
             )
+            self._apply_profile_runtime_state_to_widget(self.combo_tab)
+
+    def _queue_profile_reload(self) -> None:
+        if self._destroyed:
+            return
+        if self._profile_reload_inflight:
+            self._profile_reload_pending = True
+            return
+
+        self._profile_reload_inflight = True
+        run_gui_task(
+            self._load_profile_manager_snapshot,
+            self._on_profile_reload_finished,
+        )
+
+    def _load_profile_manager_snapshot(self) -> ProfileManager:
+        return ProfileManager(auto_create_default_if_empty=True)
+
+    def _on_profile_reload_finished(self, result: GuiTaskResult[ProfileManager]) -> bool:
+        self._profile_reload_inflight = False
+        rerun = self._profile_reload_pending
+        self._profile_reload_pending = False
+
+        if not self._destroyed and result.ok and isinstance(result.value, ProfileManager):
+            self._set_profile_manager(result.value)
+            self._refresh_device_tabs()
+            self._apply_profile_runtime_state(self._profile_runtime_state)
+
+        if rerun:
+            self._queue_profile_reload()
+        return False
+
+    def _set_profile_manager(self, profile_manager: ProfileManager) -> None:
+        from keyforge.gui.widgets.profile_managed_tab import ProfileManagedTab
+
+        self.profile_manager = profile_manager
+        child = self.stack.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            if isinstance(child, ProfileManagedTab):
+                child.profile_manager = profile_manager
+            child = next_child
+
+    def _normalize_profile_runtime_state(self, state: dict | None) -> dict[str, object]:
+        if not isinstance(state, dict):
+            return dict(self._profile_runtime_state)
+
+        normalized = dict(self._profile_runtime_state)
+        if "active_profiles" in state:
+            active_profiles_raw = state.get("active_profiles")
+            normalized["active_profiles"] = (
+                [str(name) for name in active_profiles_raw]
+                if isinstance(active_profiles_raw, list)
+                else []
+            )
+        if "devices" in state:
+            devices_raw = state.get("devices")
+            normalized["devices"] = devices_raw if isinstance(devices_raw, dict) else {}
+        if "window" in state:
+            window_raw = state.get("window")
+            normalized["window"] = window_raw if isinstance(window_raw, dict) else {}
+        return normalized
+
+    def _apply_profile_runtime_state_to_widget(self, widget: Gtk.Widget | None) -> None:
+        from keyforge.gui.widgets.profile_managed_tab import ProfileManagedTab
+
+        if widget is None or not isinstance(widget, ProfileManagedTab):
+            return
+        widget.apply_active_profile_response(self._profile_runtime_state)
+
+    def _apply_profile_runtime_state(self, state: dict | None) -> None:
+        self._profile_runtime_state = self._normalize_profile_runtime_state(state)
+        child = self.stack.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self._apply_profile_runtime_state_to_widget(child)
+            child = next_child
 
     def _on_add_device(self, button: Gtk.Button) -> None:
         if self.demo_mode:
@@ -986,18 +1099,30 @@ class MainWindow(Adw.ApplicationWindow):
 
             return error_msg, claim_response
 
-        run_gui_task(
-            worker,
-            lambda result: self._on_unlock_finished(
-                result[0] == "",
-                result[0],
+        def on_worker_done(result: GuiTaskResult[tuple[str, dict | None]]) -> bool:
+            success = result.ok and isinstance(result.value, tuple) and result.value[0] == ""
+            error_msg = (
+                result.value[0]
+                if result.ok and isinstance(result.value, tuple)
+                else "Authorization failed"
+            )
+            claim_response = (
+                result.value[1] if result.ok and isinstance(result.value, tuple) else None
+            )
+            return self._on_unlock_finished(
+                success,
+                error_msg,
                 dialog,
                 status_label,
                 unlock_btn,
                 cancel_btn,
                 on_success,
-                result[1],
-            ),
+                claim_response,
+            )
+
+        run_gui_task(
+            worker,
+            on_worker_done,
         )
 
     def _on_unlock_finished(

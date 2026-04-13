@@ -251,3 +251,35 @@ def test_resolved_combo_signature_and_payload_include_trigger_recall_settings() 
     assert payload[0]["restore_trigger_keys"] == ["meta"]
 
 
+@pytest.mark.asyncio
+async def test_reevaluate_profiles_broadcast_omits_window_state() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    profile = ProfileConfig(
+        name="Desktop",
+        enabled=True,
+        is_permanent=True,
+        device_layers={hardware_id: DeviceProfileLayer(hardware_id=hardware_id)},
+    )
+    manager.compositor_state.current_window = {
+        "class": "steam",
+        "title": "Counter-Strike 2",
+        "tags": ["game"],
+    }
+    manager.hardware.list_hardware_ids = lambda: []  # type: ignore[assignment]
+    manager.profiles.resolve_active_profiles = lambda *_args, **_kwargs: ResolvedProfiles(  # type: ignore[assignment]
+        active_profiles=[profile],
+        devices={},
+        combos=[],
+    )
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_profiles_module.reevaluate_profiles(manager)
+
+    manager.broadcast_to_session_clients.assert_called_once()  # type: ignore[attr-defined]
+    payload = manager.broadcast_to_session_clients.call_args.args[0]  # type: ignore[attr-defined]
+    assert payload["event"] == "profiles_changed"
+    assert payload["active_profiles"] == ["Desktop"]
+    assert "devices" in payload
+    assert "window" not in payload
+

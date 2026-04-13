@@ -69,10 +69,6 @@ class DeviceTab(ProfileManagedTab):
         self._setup_button_grid()
         self.refresh_profiles()
 
-        if not self.demo_mode:
-            self._check_active_profile()
-            GLib.timeout_add(500, self._check_active_profile)
-
     def _selected_layer(self, create: bool = False):
         if not self._selected_profile:
             return None
@@ -116,6 +112,10 @@ class DeviceTab(ProfileManagedTab):
         return list(devices.get(self.device.hardware_id, {}).get("profiles", []))
 
     def _after_profile_selection_applied(self) -> None:
+        for button_id in self._button_widgets:
+            self._update_button_display(button_id)
+
+    def _after_active_profiles_changed(self) -> None:
         for button_id in self._button_widgets:
             self._update_button_display(button_id)
 

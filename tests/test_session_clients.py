@@ -1,6 +1,7 @@
 import asyncio
 import queue
 import sys
+import threading
 import types
 from collections.abc import Callable
 from typing import Any
@@ -72,6 +73,41 @@ class _FakeSocket:
         self.closed = True
 
 
+class _BlockingSocket:
+    def __init__(self, chunk: bytes, ready: threading.Event, release: threading.Event) -> None:
+        self._chunk = chunk
+        self._ready = ready
+        self._release = release
+        self.closed = False
+        self._read = False
+
+    def recv(self, _size: int) -> bytes:
+        self._ready.set()
+        self._release.wait(1.0)
+        if self._read:
+            return b""
+        self._read = True
+        return self._chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _BlockingErrorSocket:
+    def __init__(self, ready: threading.Event, release: threading.Event) -> None:
+        self._ready = ready
+        self._release = release
+        self.closed = False
+
+    def recv(self, _size: int) -> bytes:
+        self._ready.set()
+        self._release.wait(1.0)
+        raise OSError("stale read failed")
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def _install_fake_glib(monkeypatch: pytest.MonkeyPatch) -> None:
     glib_module = types.ModuleType("GLib")
 
@@ -130,6 +166,95 @@ def test_persistent_session_reader_loop_routes_events_and_response(
     assert queued["status"] == "ok"
 
 
+def test_persistent_session_reader_thread_survives_socket_swap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_glib(monkeypatch)
+    connection = gui_session_client._PersistentSessionConnection()
+    response_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=2)
+    ready = threading.Event()
+    release = threading.Event()
+    old_sock = _BlockingSocket(b'{"status":"old"}\n', ready, release)
+    new_sock = _FakeSocket([b'{"status":"new"}\n', b""])
+
+    connection._response_queue = response_queue
+    connection._sock = old_sock
+    thread = threading.Thread(target=connection._reader_loop, daemon=True)
+    connection._reader_thread = thread
+    thread.start()
+
+    assert ready.wait(1.0) is True
+    with connection._state_lock:
+        connection._sock = new_sock
+        connection._buffer = b""
+    release.set()
+
+    queued = response_queue.get(timeout=1.0)
+    assert queued == {"status": "new"}
+    thread.join(1.0)
+    assert thread.is_alive() is False
+
+
+def test_persistent_session_reader_ignores_stale_eof_after_socket_swap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_glib(monkeypatch)
+    connection = gui_session_client._PersistentSessionConnection()
+    response_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=2)
+    ready = threading.Event()
+    release = threading.Event()
+    old_sock = _BlockingSocket(b"", ready, release)
+    new_sock = _FakeSocket([b'{"status":"new"}\n', b""])
+
+    connection._response_queue = response_queue
+    connection._sock = old_sock
+    thread = threading.Thread(target=connection._reader_loop, daemon=True)
+    connection._reader_thread = thread
+    thread.start()
+
+    assert ready.wait(1.0) is True
+    with connection._state_lock:
+        connection._sock = new_sock
+        connection._buffer = b""
+    release.set()
+
+    queued = response_queue.get(timeout=1.0)
+    assert queued == {"status": "new"}
+    assert new_sock.closed is True
+    thread.join(1.0)
+    assert thread.is_alive() is False
+
+
+def test_persistent_session_reader_ignores_stale_error_after_socket_swap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_glib(monkeypatch)
+    connection = gui_session_client._PersistentSessionConnection()
+    response_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=2)
+    ready = threading.Event()
+    release = threading.Event()
+    old_sock = _BlockingErrorSocket(ready, release)
+    new_sock = _FakeSocket([b'{"status":"new"}\n', b""])
+
+    connection._response_queue = response_queue
+    connection._sock = old_sock
+    thread = threading.Thread(target=connection._reader_loop, daemon=True)
+    connection._reader_thread = thread
+    thread.start()
+
+    assert ready.wait(1.0) is True
+    with connection._state_lock:
+        connection._sock = new_sock
+        connection._buffer = b""
+    release.set()
+
+    queued = response_queue.get(timeout=1.0)
+    assert queued == {"status": "new"}
+    assert new_sock.closed is True
+    thread.join(1.0)
+    assert thread.is_alive() is False
+
+
 def test_get_active_window_async_uses_session_request_async(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -168,7 +293,7 @@ def test_run_gui_task_invokes_hooks_and_callback(monkeypatch: pytest.MonkeyPatch
 
     assert events == [
         ("start", None),
-        ("callback", {"status": "ok"}),
+        ("callback", gui_session_client.GuiTaskResult(value={"status": "ok"})),
         ("done", None),
     ]
 
@@ -198,6 +323,69 @@ def test_session_request_with_hooks_uses_session_request(
         (
             "callback",
             {"status": "ok", "payload": {"command": "reload"}, "timeout": 2.0},
+        ),
+        ("done", None),
+    ]
+
+
+def test_session_request_async_surfaces_worker_errors_to_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_glib(monkeypatch)
+    results: list[dict[str, Any] | None] = []
+    done = threading.Event()
+
+    def _raise_request(_payload: dict[str, Any], timeout: float = 5.0) -> dict[str, Any] | None:
+        _ = timeout
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(gui_session_client, "session_request", _raise_request)
+
+    gui_session_client.session_request_async(
+        {"command": "reload"},
+        lambda result: results.append(result) or done.set(),
+    )
+
+    assert done.wait(1.0) is True
+    assert results == [
+        {
+            "status": "error",
+            "error_code": "gui_task_failed",
+            "message": "boom",
+        }
+    ]
+
+
+def test_session_request_with_hooks_surfaces_worker_errors_to_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_glib(monkeypatch)
+    calls: list[tuple[str, Any]] = []
+    done = threading.Event()
+
+    def _raise_request(_payload: dict[str, Any], timeout: float = 5.0) -> dict[str, Any] | None:
+        _ = timeout
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(gui_session_client, "session_request", _raise_request)
+
+    gui_session_client.session_request_with_hooks(
+        {"command": "reload"},
+        lambda result: calls.append(("callback", result)) or done.set(),
+        on_start=lambda: calls.append(("start", None)),
+        on_done=lambda: calls.append(("done", None)),
+    )
+
+    assert done.wait(1.0) is True
+    assert calls == [
+        ("start", None),
+        (
+            "callback",
+            {
+                "status": "error",
+                "error_code": "gui_task_failed",
+                "message": "boom",
+            },
         ),
         ("done", None),
     ]

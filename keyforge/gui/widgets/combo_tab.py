@@ -5,7 +5,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keyforge.common.models import ComboConfig
 from keyforge.gui.icons import combo_icon_names, image_from_icon_names
@@ -50,10 +50,6 @@ class ComboTab(ProfileManagedTab):
         self._setup_profile_selector()
         self._setup_combo_list()
         self.refresh_profiles()
-
-        if not self.demo_mode:
-            self._check_active_profiles()
-            GLib.timeout_add(500, self._check_active_profiles)
 
     def _setup_header(self) -> None:
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)

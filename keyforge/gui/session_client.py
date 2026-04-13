@@ -4,6 +4,7 @@ import queue
 import socket as _socket
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from keyforge.common.paths import SESSION_SOCKET_PATH
@@ -11,6 +12,25 @@ from keyforge.common.paths import SESSION_SOCKET_PATH
 log = logging.getLogger("keyforge.gui.session_client")
 
 JsonDict = dict[str, Any]
+
+
+@dataclass(frozen=True)
+class GuiTaskResult[T]:
+    value: T | None = None
+    error: Exception | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
+
+
+def _gui_task_error_payload(error: Exception) -> JsonDict:
+    message = str(error).strip() or error.__class__.__name__
+    return {
+        "status": "error",
+        "error_code": "gui_task_failed",
+        "message": message,
+    }
 
 
 class _PersistentSessionConnection:
@@ -87,6 +107,7 @@ class _PersistentSessionConnection:
 
         with self._state_lock:
             self._sock = sock
+            self._buffer = b""
             if self._reader_thread is None or not self._reader_thread.is_alive():
                 self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
                 self._reader_thread.start()
@@ -94,6 +115,7 @@ class _PersistentSessionConnection:
 
     def _reader_loop(self) -> None:
         while True:
+            sock: _socket.socket | None = None
             try:
                 with self._state_lock:
                     sock = self._sock
@@ -102,12 +124,20 @@ class _PersistentSessionConnection:
 
                 data = sock.recv(4096)
                 if not data:
-                    self._close_connection()
-                    return
+                    if self._close_connection_if_current(sock):
+                        return
+                    continue
 
-                self._buffer += data
-                while b"\n" in self._buffer:
-                    line, self._buffer = self._buffer.split(b"\n", 1)
+                with self._state_lock:
+                    if sock is not self._sock:
+                        continue
+                    self._buffer += data
+                    lines: list[bytes] = []
+                    while b"\n" in self._buffer:
+                        line, self._buffer = self._buffer.split(b"\n", 1)
+                        lines.append(line)
+
+                for line in lines:
                     if not line.strip():
                         continue
 
@@ -129,8 +159,9 @@ class _PersistentSessionConnection:
                             pass
             except Exception as e:
                 log.debug(f"persistent reader error: {e}")
-                self._close_connection()
-                return
+                if sock is not None and self._close_connection_if_current(sock):
+                    return
+                continue
 
     def _dispatch_event(self, message: JsonDict) -> None:
         event = message.get("event")
@@ -159,6 +190,7 @@ class _PersistentSessionConnection:
         with self._state_lock:
             sock = self._sock
             self._sock = None
+            self._buffer = b""
         if sock is not None:
             try:
                 sock.close()
@@ -172,6 +204,29 @@ class _PersistentSessionConnection:
                 response_queue.put_nowait(None)
             except Exception:
                 pass
+
+    def _close_connection_if_current(self, sock: _socket.socket) -> bool:
+        response_queue: queue.Queue[JsonDict | None] | None = None
+        with self._state_lock:
+            if sock is self._sock:
+                self._sock = None
+                self._buffer = b""
+                response_queue = self._response_queue
+                current = True
+            else:
+                current = False
+
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+        if current and response_queue is not None:
+            try:
+                response_queue.put_nowait(None)
+            except Exception:
+                pass
+        return current
 
 
 _PERSISTENT_SESSION = _PersistentSessionConnection()
@@ -193,15 +248,21 @@ def session_request_async(
     def _request() -> JsonDict | None:
         return session_request(payload, timeout=timeout)
 
+    def _on_done(result: GuiTaskResult[JsonDict | None]) -> bool | None:
+        if result.ok:
+            return callback(result.value)
+        error = result.error or RuntimeError("GUI task failed without an exception")
+        return callback(_gui_task_error_payload(error))
+
     run_gui_task(
         _request,
-        callback,
+        _on_done,
     )
 
 
-def run_gui_task(
-    worker: Callable[[], Any],
-    callback: Callable[[Any], bool | None],
+def run_gui_task[T](
+    worker: Callable[[], T],
+    callback: Callable[[GuiTaskResult[T]], bool | None],
     *,
     on_start: Callable[[], None] | None = None,
     on_done: Callable[[], None] | None = None,
@@ -212,11 +273,17 @@ def run_gui_task(
         on_start()
 
     def _worker() -> None:
-        result = worker()
+        try:
+            result = GuiTaskResult(value=worker())
+        except Exception as exc:
+            log.exception("GUI worker task failed")
+            result = GuiTaskResult(error=exc)
 
         def _dispatch() -> bool:
             try:
                 callback(result)
+            except Exception:
+                log.exception("GUI task callback failed")
             finally:
                 if on_done is not None:
                     on_done()
@@ -238,9 +305,15 @@ def session_request_with_hooks(
     def _request() -> JsonDict | None:
         return session_request(payload, timeout=timeout)
 
+    def _on_done(result: GuiTaskResult[JsonDict | None]) -> bool | None:
+        if result.ok:
+            return callback(result.value)
+        error = result.error or RuntimeError("GUI task failed without an exception")
+        return callback(_gui_task_error_payload(error))
+
     run_gui_task(
         _request,
-        callback,
+        _on_done,
         on_start=on_start,
         on_done=on_done,
     )

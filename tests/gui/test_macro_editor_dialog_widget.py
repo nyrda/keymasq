@@ -2,6 +2,8 @@
 from tests.gui.macro_editor_dialog_support import *
 
 def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> None:
+    from keyforge.gui.session_client import GuiTaskResult
+
     dialog = _build_macro_dialog(monkeypatch)
 
     result = {
@@ -50,7 +52,7 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
         },
     }
 
-    assert dialog._on_initial_state_loaded(result) is False
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
 
     assert dialog._macro_exists is True
     assert dialog._macro_exec_timeout_max_ms == 45000

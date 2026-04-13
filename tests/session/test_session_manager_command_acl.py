@@ -153,6 +153,41 @@ async def test_handle_session_request_get_active_window_falls_back_to_cached_win
 
 
 @pytest.mark.asyncio
+async def test_get_status_omits_acl_gated_profile_and_window_sections() -> None:
+    manager = SessionManager()
+    manager.security_policy = SecurityPolicy(
+        session_command_acl={"client": ["!get_active_profiles", "!get_active_window"]},
+        daemon_command_acl={"session": []},
+    )
+    manager.profile_state.active_profile_names = ["Gaming"]
+    manager.profile_state.resolved_devices = {
+        "1234:5678": SimpleNamespace(
+            active_profile_names=["Gaming"],
+            mapping_count=3,
+            always_grab_all=False,
+        )
+    }
+    manager.compositor_state.current_window = {
+        "class": "steam",
+        "title": "Counter-Strike 2",
+        "tags": ["game"],
+    }
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "get_status"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert "active_profiles" not in result
+    assert "devices" not in result
+    assert "window" not in result
+
+
+@pytest.mark.asyncio
 async def test_handle_session_request_get_compositor_reports_compositor_dispatch_availability(
 ) -> None:
     manager = SessionManager()

@@ -273,6 +273,30 @@ class TestDeviceManagerHelpers:
         assert dispatch_action.compositor_id == "hyprland"
         assert dispatch_action.compositor_dispatcher == "workspace"
         assert dispatch_action.compositor_args == "2"
+
+    def test_parse_action_warns_and_strips_unsupported_rapidfire(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+
+        with caplog.at_level("WARNING", logger="keyforged.runtime.actions"):
+            action = _runtime_parse_action(
+                manager,
+                {
+                    "action": "exec",
+                    "cmd": "echo hi",
+                    "rapidfire_enabled": True,
+                    "rapidfire_hold_ms": 40,
+                    "rapidfire_wait_ms": 60,
+                },
+            )
+
+        assert action.action_type == ActionType.EXEC
+        assert action.rapidfire_enabled is False
+        assert action.rapidfire_hold_ms == 20
+        assert action.rapidfire_wait_ms == 20
+        assert "Ignoring rapidfire for unsupported exec action in runtime payload" in caplog.text
     @pytest.mark.asyncio
     async def test_set_combos_skips_malformed_entries_and_parses_timeout(self) -> None:
         manager = DeviceManager()

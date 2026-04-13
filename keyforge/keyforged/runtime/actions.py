@@ -2,7 +2,12 @@ import logging
 from collections.abc import Callable
 from typing import cast
 
-from keyforge.common.models import ActionType, MappingAction, SuperkeyMode
+from keyforge.common.models import (
+    ActionType,
+    MappingAction,
+    SuperkeyMode,
+    parse_rapidfire_fields,
+)
 from keyforge.common.models import (
     SuperkeyConfig as CommonSuperkeyConfig,
 )
@@ -62,6 +67,23 @@ def parse_action(
     compositor_id = action_data.get("compositor")
     compositor_dispatcher = action_data.get("dispatcher")
     compositor_args = action_data.get("args")
+    (
+        rapidfire_enabled,
+        rapidfire_hold_ms,
+        rapidfire_wait_ms,
+        unsupported_rapidfire,
+    ) = parse_rapidfire_fields(
+        action_type,
+        rapidfire_enabled=action_data.get("rapidfire_enabled", False),
+        rapidfire_hold_ms=action_data.get("rapidfire_hold_ms"),
+        rapidfire_wait_ms=action_data.get("rapidfire_wait_ms"),
+        int_value=int_value,
+    )
+    if unsupported_rapidfire:
+        log.warning(
+            "Ignoring rapidfire for unsupported %s action in runtime payload",
+            action_type.value,
+        )
 
     return MappingAction(
         action_type=action_type,
@@ -89,9 +111,9 @@ def parse_action(
         move_y=int_value(action_data.get("y"), 0),
         move_speed=float_value(action_data.get("speed"), 1.0),
         move_jitter=float_value(action_data.get("jitter"), 0.3),
-        rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
-        rapidfire_hold_ms=int_value(action_data.get("rapidfire_hold_ms"), 20),
-        rapidfire_wait_ms=int_value(action_data.get("rapidfire_wait_ms"), 20),
+        rapidfire_enabled=rapidfire_enabled,
+        rapidfire_hold_ms=rapidfire_hold_ms,
+        rapidfire_wait_ms=rapidfire_wait_ms,
         tap_enabled=bool(action_data.get("tap_enabled", False)),
         tap_hold_ms=int_value(action_data.get("tap_hold_ms"), 10),
     )
@@ -312,14 +334,50 @@ def parse_superkey_action(
             return _default_int_or_none(value, int_value=int_value)
 
         int_or_none = fallback_int_or_none
+    macro_speed_value = action.get("macro_speed")
+    action_type = ActionType(str_value(action.get("action"), "keyboard"))
+    (
+        rapidfire_enabled,
+        rapidfire_hold_ms,
+        rapidfire_wait_ms,
+        unsupported_rapidfire,
+    ) = parse_rapidfire_fields(
+        action_type,
+        rapidfire_enabled=action.get("rapidfire_enabled", False),
+        rapidfire_hold_ms=action.get("rapidfire_hold_ms"),
+        rapidfire_wait_ms=action.get("rapidfire_wait_ms"),
+        int_value=int_value,
+    )
+    if unsupported_rapidfire:
+        log.warning(
+            "Ignoring rapidfire for unsupported %s action in superkey runtime payload",
+            action_type.value,
+        )
 
     return SuperkeyActionData(
-        action_type=str_value(action.get("action"), "keyboard"),
+        action_type=action_type.value,
         target=optional_str(action.get("target")),
         cmd=optional_str(action.get("cmd")),
         exec_ref=int_or_none(action.get("exec_ref")),
         macro_name=optional_str(action.get("macro_name")),
-        rapidfire_enabled=bool(action.get("rapidfire_enabled", False)),
-        rapidfire_hold_ms=int_value(action.get("rapidfire_hold_ms"), 20),
-        rapidfire_wait_ms=int_value(action.get("rapidfire_wait_ms"), 20),
+        macro_replay_mouse_movement=bool(action.get("macro_replay_mouse_movement", True)),
+        macro_replay_mouse_clicks=bool(action.get("macro_replay_mouse_clicks", True)),
+        macro_speed=1.0
+        if macro_speed_value is None
+        else float(cast(int | float | str | bytes, macro_speed_value)),
+        macro_loop_mode=str_value(action.get("macro_loop_mode"), "none") or "none",
+        macro_loop_count=int_value(action.get("macro_loop_count"), 1),
+        macro_move_to_start=bool(action.get("macro_move_to_start", False)),
+        macro_start_x=int_value(action.get("macro_start_x"), 0),
+        macro_start_y=int_value(action.get("macro_start_y"), 0),
+        macro_block_mouse_movement=bool(action.get("macro_block_mouse_movement", False)),
+        profile_name=optional_str(action.get("profile_name")),
+        compositor_id=optional_str(action.get("compositor")),
+        compositor_dispatcher=optional_str(action.get("dispatcher")),
+        compositor_args=optional_str(action.get("args")),
+        move_x=int_value(action.get("x"), 0),
+        move_y=int_value(action.get("y"), 0),
+        rapidfire_enabled=rapidfire_enabled,
+        rapidfire_hold_ms=rapidfire_hold_ms,
+        rapidfire_wait_ms=rapidfire_wait_ms,
     )

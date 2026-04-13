@@ -1741,6 +1741,7 @@ class MacroEditorDialog(Adw.Dialog):
         if isinstance(macro, dict):
             self._macro_exists = True
             self._apply_macro_state(macro)
+            self._sync_macro_settings_controls()
             self._initial_macro_data = copy.deepcopy(macro)
             self._refresh_loaded_macro_state()
         return False
@@ -1801,6 +1802,28 @@ class MacroEditorDialog(Adw.Dialog):
                 self._duration_us,
                 max(self._control_end_time_us(c) for c in self._control_events),
             )
+
+    def _sync_macro_settings_controls(self) -> None:
+        loop_mode = self._macro_loop_mode
+        loop_count = self._macro_loop_count
+        move_to_start = self._macro_move_to_start
+        start_x = self._macro_start_x
+        start_y = self._macro_start_y
+        block_mouse_movement = self._macro_block_mouse_movement
+        name = str(self._macro_data.get("name", self._macro_name) or self._macro_name)
+        self._name_entry.set_text(name)
+        _set_dropdown_selected_id(
+            self._macro_loop_mode_combo,
+            _LOOP_MODE_OPTIONS,
+            loop_mode,
+        )
+        self._macro_loop_count_spin.set_value(loop_count)
+        self._macro_move_to_start_check.set_active(move_to_start)
+        self._macro_start_x_spin.set_value(start_x)
+        self._macro_start_y_spin.set_value(start_y)
+        self._macro_block_mouse_check.set_active(block_mouse_movement)
+        self._update_loop_controls()
+        self._update_macro_move_start_controls()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -3573,20 +3596,8 @@ class MacroEditorDialog(Adw.Dialog):
         self._timeline._hover_x = None
         self._timeline._hover_y = None
 
-        self._name_entry.set_text(self._macro_name)
-        _set_dropdown_selected_id(
-            self._macro_loop_mode_combo,
-            _LOOP_MODE_OPTIONS,
-            self._macro_loop_mode,
-        )
-        self._macro_loop_count_spin.set_value(self._macro_loop_count)
-        self._update_loop_controls()
-        self._macro_move_to_start_check.set_active(self._macro_move_to_start)
-        self._macro_start_x_spin.set_value(self._macro_start_x)
-        self._macro_start_y_spin.set_value(self._macro_start_y)
+        self._sync_macro_settings_controls()
         self._macro_capture_delay_spin.set_value(self._capture_delay_seconds)
-        self._macro_block_mouse_check.set_active(self._macro_block_mouse_movement)
-        self._update_macro_move_start_controls()
 
         self._auto_zoom_enabled = True
         self._set_timeline_scroll(0.0)

@@ -387,6 +387,7 @@ class SessionManager:
 
         await asyncio.to_thread(self.reload_config_from_disk)
         log.info("Reloaded all superkeys, profiles and hardware configs")
+        runtime_profiles.invalidate_runtime_payload_signatures(self)
 
         configured_ids = set(self.hardware.list_hardware_ids())
         stale_ids = [

@@ -138,6 +138,25 @@ async def test_reload_handler_debounces_burst_updates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reload_profiles_invalidates_runtime_payload_signatures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.profile_state.last_sent_mapping_signatures = {"1234:5678": "sig"}
+    manager.profile_state.last_sent_combo_signature = "combo-sig"
+    reevaluate_profiles = AsyncMock()
+
+    monkeypatch.setattr(manager, "reload_config_from_disk", lambda: None)
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    await manager.reload_profiles()
+
+    assert manager.profile_state.last_sent_mapping_signatures == {}
+    assert manager.profile_state.last_sent_combo_signature == ""
+    reevaluate_profiles.assert_awaited_once_with(manager)
+
+
+@pytest.mark.asyncio
 async def test_session_client_drops_connection_when_buffer_exceeds_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

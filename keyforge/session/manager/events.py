@@ -70,9 +70,7 @@ async def handle_event(
                 runtime_compositor.handle_compositor_dispatch_trigger(manager, data)
             )
         elif action_type_str == "macro":
-            macro_name = str(data.get("macro_name", "")).strip()
-            if macro_name:
-                asyncio.create_task(runtime_recording.play_macro_by_name(manager, macro_name))
+            asyncio.create_task(runtime_recording.play_macro_trigger(manager, data))
         return
 
     if event_type == CommandType.DEVICE_CONNECTED:

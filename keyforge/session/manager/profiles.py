@@ -165,6 +165,16 @@ def invalidate_grabbed_state(manager: "SessionManager") -> None:
     manager.profile_state.last_sent_combo_signature = ""
 
 
+def invalidate_runtime_payload_signatures(manager: "SessionManager") -> None:
+    manager.profile_state.last_sent_mapping_signatures.clear()
+    manager.profile_state.last_sent_combo_signature = ""
+
+
+async def refresh_macro_bindings(manager: "SessionManager") -> None:
+    invalidate_runtime_payload_signatures(manager)
+    await reevaluate_profiles(manager)
+
+
 def schedule_topology_refresh(
     manager: "SessionManager",
     debounce_s: float,

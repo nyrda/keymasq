@@ -64,6 +64,23 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert dialog._stats_label.get_label() == "0.025s · 4 events"
     assert dialog._exec_summary_label.get_label() == "Exec actions: 1 (sync 1, async 0)"
     assert dialog._control_timeout_spin.get_adjustment().get_upper() == 45000
+    assert dialog._name_entry.get_text() == "demo_macro"
+    assert (
+        macro_editor_dialog_module._get_dropdown_selected_id(
+            dialog._macro_loop_mode_combo,
+            macro_editor_dialog_module._LOOP_MODE_OPTIONS,
+            "none",
+        )
+        == "count"
+    )
+    assert dialog._macro_loop_count_spin.get_value_as_int() == 3
+    assert dialog._macro_loop_count_spin.get_visible() is True
+    assert dialog._macro_move_to_start_check.get_active() is True
+    assert dialog._macro_start_x_spin.get_value_as_int() == 320
+    assert dialog._macro_start_y_spin.get_value_as_int() == 240
+    assert dialog._macro_start_x_spin.get_sensitive() is True
+    assert dialog._macro_start_y_spin.get_sensitive() is True
+    assert dialog._macro_block_mouse_check.get_active() is True
 
 
 def test_macro_editor_event_selection_and_timing_edits_refresh_event(monkeypatch) -> None:

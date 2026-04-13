@@ -298,6 +298,7 @@ async def _handle_macro_commands(
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             created = json_object(result_data.get("macro")) or {}
+            await runtime_profiles.refresh_macro_bindings(manager)
             manager.broadcast_to_session_clients(
                 {"event": "macro_saved", "name": str_value(created.get("name"), "")}
             )
@@ -321,6 +322,7 @@ async def _handle_macro_commands(
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             updated = json_object(result_data.get("macro")) or {}
+            await runtime_profiles.refresh_macro_bindings(manager)
             manager.broadcast_to_session_clients(
                 {"event": "macro_saved", "name": str_value(updated.get("name"), name)}
             )
@@ -340,7 +342,7 @@ async def _handle_macro_commands(
             return {"status": "error", "message": "Daemon unavailable"}
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to delete macro"}
-        await manager.reload_profiles()
+        await runtime_profiles.refresh_macro_bindings(manager)
         return {"status": "ok"}
 
     if command == "rename_macro":
@@ -358,7 +360,7 @@ async def _handle_macro_commands(
             return {"status": "error", "message": "Daemon unavailable"}
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to rename macro"}
-        await manager.reload_profiles()
+        await runtime_profiles.refresh_macro_bindings(manager)
         result_data = json_object(result.data)
         if result_data is not None:
             return {"status": "ok", "macro": result_data.get("macro")}

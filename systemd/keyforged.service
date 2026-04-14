@@ -10,6 +10,8 @@ Type=notify
 User=keyforge
 Group=keyforge
 SupplementaryGroups=input
+# Keep grabbed-input remapping responsive under CPU contention.
+Nice=-5
 ExecStartPre=+/usr/bin/setfacl -m u:keyforge:rw /dev/uinput
 ExecStartPre=+/usr/bin/sh -c 'for p in /dev/input/event*; do [ -e "$p" ] && /usr/bin/setfacl -m u:keyforge:rw "$p"; done'
 ExecStart=/usr/bin/keyforged

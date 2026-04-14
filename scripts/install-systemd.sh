@@ -95,6 +95,7 @@ Type=simple
 User=keyforge
 Group=keyforge
 SupplementaryGroups=input
+Nice=-5
 ExecStart=/usr/local/bin/keyforged-wrapper
 Restart=on-failure
 RestartSec=5

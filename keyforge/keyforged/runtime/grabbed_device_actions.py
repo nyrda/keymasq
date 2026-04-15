@@ -595,7 +595,7 @@ async def _execute_relative_mouse_action(
             )
         return
 
-    if int(event.value) == 0:
+    if int(event.value) != 1:
         return
 
     write_relative(

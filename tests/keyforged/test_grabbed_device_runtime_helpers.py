@@ -641,3 +641,79 @@ class TestGrabbedDeviceHelpers:
             write == (evdev.ecodes.EV_REL, evdev.ecodes.REL_HWHEEL, -1)
             for write in mouse.writes
         )
+
+    @pytest.mark.asyncio
+    async def test_execute_action_mouse_wheel_ignores_repeat_without_rapidfire(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        mouse = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            mouse_uinput=mouse,  # type: ignore[arg-type]
+        )
+
+        action = dm.MappingAction(
+            action_type=ActionType.MOUSE,
+            target="rel_wheel:1",
+        )
+
+        await _runtime_execute_grabbed_action(
+            device,
+            action,
+            SimpleNamespace(value=1),
+            "wheel_plain",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            action,
+            SimpleNamespace(value=2),
+            "wheel_plain",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            action,
+            SimpleNamespace(value=0),
+            "wheel_plain",
+        )
+
+        assert mouse.writes == [
+            (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_execute_action_mouse_wheel_tap_ignores_repeat(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        mouse = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            mouse_uinput=mouse,  # type: ignore[arg-type]
+        )
+
+        action = dm.MappingAction(
+            action_type=ActionType.MOUSE,
+            target="rel_wheel:-1",
+            tap_enabled=True,
+            tap_hold_ms=1,
+        )
+
+        await _runtime_execute_grabbed_action(
+            device,
+            action,
+            SimpleNamespace(value=1),
+            "wheel_tap",
+        )
+        await asyncio.sleep(0)
+        await _runtime_execute_grabbed_action(
+            device,
+            action,
+            SimpleNamespace(value=2),
+            "wheel_tap",
+        )
+        await asyncio.sleep(0.01)
+
+        assert mouse.writes == [
+            (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
+        ]

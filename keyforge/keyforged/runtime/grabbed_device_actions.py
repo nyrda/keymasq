@@ -7,7 +7,11 @@ import evdev
 
 from keyforge.common.ipc import CommandType
 from keyforge.common.models import ActionType, MappingAction, SuperkeyMode
-from keyforge.keyforged.output_helpers import get_trigger_axis, resolve_output_code
+from keyforge.keyforged.output_helpers import (
+    get_trigger_axis,
+    parse_mouse_output_target,
+    resolve_output_code,
+)
 from keyforge.keyforged.runtime.action_runner import (
     build_action_trigger_payload,
     build_macro_playback_request,
@@ -18,15 +22,18 @@ from keyforge.keyforged.runtime.grabbed_device_outputs import (
     passthrough,
     track_superkey_output,
     write_key,
+    write_relative,
 )
 from keyforge.keyforged.runtime.grabbed_device_repeat import (
     rapidfire_key,
     rapidfire_move,
+    rapidfire_relative,
     rapidfire_trigger,
     start_rapidfire_task,
     stop_rapidfire_async,
     tap_key,
     tap_move,
+    tap_relative,
     tap_trigger,
 )
 from keyforge.keyforged.runtime.grabbed_device_types import (
@@ -80,16 +87,15 @@ async def execute_action(
         )
 
     elif action.action_type == action_type_enum.MOUSE:
-        await _execute_key_action(
+        await _execute_mouse_action(
             device_runtime,
             action,
             event,
             event_name,
             asyncio_mod=asyncio_mod,
             fire_and_observe_fn=fire_and_observe_fn,
-            uinput_dev=device_runtime.mouse_uinput,
-            target_kind="key",
-            trigger_kind="key",
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
             shared_output_tracker=shared_output_tracker,
         )
 
@@ -479,6 +485,126 @@ async def _execute_key_action(
             evdev_mod=evdev,
             uinput_writer=_uinput_writer,
         )
+
+
+async def _execute_mouse_action(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    asyncio_mod: AsyncioModule,
+    fire_and_observe_fn: FireAndObserve,
+    evdev_mod: EvdevModule,
+    uinput_writer: UInputWriter,
+    shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+) -> None:
+    event_type, code, relative_value = parse_mouse_output_target(action.target)
+    if code is None:
+        return
+    if event_type == evdev_mod.ecodes.EV_REL:
+        await _execute_relative_mouse_action(
+            device_runtime,
+            action,
+            event,
+            event_name,
+            code=code,
+            relative_value=relative_value,
+            asyncio_mod=asyncio_mod,
+            fire_and_observe_fn=fire_and_observe_fn,
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
+            shared_output_tracker=shared_output_tracker,
+        )
+        return
+    await _execute_key_action(
+        device_runtime,
+        action,
+        event,
+        event_name,
+        asyncio_mod=asyncio_mod,
+        fire_and_observe_fn=fire_and_observe_fn,
+        uinput_dev=device_runtime.mouse_uinput,
+        target_kind="key",
+        trigger_kind="key",
+        shared_output_tracker=shared_output_tracker,
+    )
+
+
+async def _execute_relative_mouse_action(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    code: int,
+    relative_value: int,
+    asyncio_mod: AsyncioModule,
+    fire_and_observe_fn: FireAndObserve,
+    evdev_mod: EvdevModule,
+    uinput_writer: UInputWriter,
+    shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+) -> None:
+    del shared_output_tracker
+
+    if action.rapidfire_enabled:
+        if event.value == 1:
+            start_rapidfire_task(
+                device_runtime,
+                event_name,
+                "relative",
+                lambda: asyncio_mod.create_task(
+                    rapidfire_relative(
+                        device_runtime,
+                        code,
+                        relative_value,
+                        action.rapidfire_hold_ms,
+                        action.rapidfire_wait_ms,
+                        event_name,
+                        device_runtime.mouse_uinput,
+                        asyncio_mod=asyncio_mod,
+                    )
+                ),
+                code=code,
+                uinput=device_runtime.mouse_uinput,
+                axis_code=None,
+            )
+        elif event.value == 0:
+            await stop_rapidfire_async(
+                device_runtime,
+                event_name,
+                asyncio_mod=asyncio_mod,
+                contextlib_mod=contextlib,
+            )
+        return
+
+    if action.tap_enabled:
+        if event.value == 1 and not device_runtime.state.tap_active.get(event_name, False):
+            device_runtime.state.tap_active[event_name] = True
+            fire_and_observe_fn(
+                tap_relative(
+                    device_runtime,
+                    code,
+                    relative_value,
+                    action.tap_hold_ms,
+                    event_name,
+                    device_runtime.mouse_uinput,
+                    asyncio_mod=asyncio_mod,
+                ),
+                f"tap action {event_name}",
+            )
+        return
+
+    if int(event.value) == 0:
+        return
+
+    write_relative(
+        device_runtime.mouse_uinput,
+        code,
+        relative_value,
+        evdev_mod=evdev_mod,
+        uinput_writer=uinput_writer,
+    )
 
 
 async def _execute_move_action(

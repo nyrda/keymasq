@@ -19,6 +19,11 @@ from keyforge.keyforged.runtime.action_runner import (
     build_action_trigger_payload,
     build_macro_playback_request,
 )
+from keyforge.keyforged.runtime.mouse_actions import (
+    emit_relative_pulse,
+    rapidfire_relative_pulses,
+    resolve_mouse_output_target,
+)
 
 log = logging.getLogger("keyforged.superkey")
 
@@ -260,17 +265,35 @@ class SuperkeyMachine:
     async def _rapidfire_loop(self, action: SuperkeyActionData) -> None:
         hold = action.rapidfire_hold_ms / 1000.0
         wait = action.rapidfire_wait_ms / 1000.0
+        mouse_target = (
+            self._resolve_mouse_target(action.target) if action.action_type == "mouse" else None
+        )
+        is_relative_mouse = bool(mouse_target and mouse_target.is_relative)
 
         try:
-            while self._rapidfire_active and self._running:
-                await self._execute_action_down(action)
-                await asyncio.sleep(hold)
+            if is_relative_mouse and mouse_target is not None:
+                await rapidfire_relative_pulses(
+                    emit_pulse=lambda: emit_relative_pulse(
+                        self.mouse_uinput,
+                        mouse_target.code,
+                        mouse_target.relative_value,
+                        ev_rel_code=evdev.ecodes.EV_REL,
+                    ),
+                    is_active=lambda: self._rapidfire_active and self._running,
+                    hold_s=hold,
+                    wait_s=wait,
+                    asyncio_mod=asyncio,
+                )
+            else:
+                while self._rapidfire_active and self._running:
+                    await self._execute_action_down(action)
+                    await asyncio.sleep(hold)
 
-                if not self._rapidfire_active:
-                    break
+                    if not self._rapidfire_active:
+                        break
 
-                await self._execute_action_up(action)
-                await asyncio.sleep(wait)
+                    await self._execute_action_up(action)
+                    await asyncio.sleep(wait)
         except Exception:
             pass
         finally:
@@ -278,7 +301,8 @@ class SuperkeyMachine:
             if current_task is not None:
                 with contextlib.suppress(ValueError):
                     self._rapidfire_tasks.remove(cast(asyncio.Task[None], current_task))
-            await self._execute_action_up(action)
+            if not is_relative_mouse:
+                await self._execute_action_up(action)
 
     async def _stop_rapidfire_tasks(self) -> None:
         if not self._rapidfire_tasks:
@@ -355,6 +379,18 @@ class SuperkeyMachine:
             if uinput is None:
                 return
 
+            mouse_target = (
+                self._resolve_mouse_target(action.target) if action.action_type == "mouse" else None
+            )
+            if mouse_target is not None and mouse_target.is_relative:
+                emit_relative_pulse(
+                    uinput,
+                    mouse_target.code,
+                    mouse_target.relative_value,
+                    ev_rel_code=evdev.ecodes.EV_REL,
+                )
+                return
+
             is_trigger, axis_code = self._get_trigger_axis(action.target)
             if is_trigger:
                 if axis_code is None:
@@ -399,6 +435,12 @@ class SuperkeyMachine:
             if uinput is None:
                 return
 
+            mouse_target = (
+                self._resolve_mouse_target(action.target) if action.action_type == "mouse" else None
+            )
+            if mouse_target is not None and mouse_target.is_relative:
+                return
+
             is_trigger, axis_code = self._get_trigger_axis(action.target)
             if is_trigger:
                 if axis_code is None:
@@ -427,6 +469,9 @@ class SuperkeyMachine:
 
     def _get_trigger_axis(self, target: str | None) -> tuple[bool, int | None]:
         return get_trigger_axis(target)
+
+    def _resolve_mouse_target(self, target: str | None):
+        return resolve_mouse_output_target(target)
 
     def _mapping_action(self, action: SuperkeyActionData) -> MappingAction:
         return MappingAction(

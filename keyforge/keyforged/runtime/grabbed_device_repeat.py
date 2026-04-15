@@ -20,6 +20,11 @@ from keyforge.keyforged.runtime.grabbed_device_types import (
     WritableUInput,
     runtime_is_running,
 )
+from keyforge.keyforged.runtime.mouse_actions import (
+    rapidfire_relative_pulses,
+    tap_relative_pulse,
+    write_relative_pulse,
+)
 
 
 def start_rapidfire_task(
@@ -67,6 +72,8 @@ def stop_rapidfire(device_runtime: GrabbedDeviceRuntime, event_name: str) -> Non
                 uinput_writer=_uinput_writer,
             )
         return
+    if kind == "relative":
+        return
     if kind == "key":
         code = state.code
         uinput = state.uinput
@@ -109,6 +116,8 @@ def finish_rapidfire_task(
                 evdev_mod=evdev,
                 uinput_writer=_uinput_writer,
             )
+        return
+    if kind == "relative":
         return
     if kind == "key":
         code = state.code
@@ -277,6 +286,75 @@ async def tap_key(
             0,
             evdev_mod=evdev,
             uinput_writer=_uinput_writer,
+        )
+    except Exception:
+        pass
+    finally:
+        device_runtime.state.tap_active.pop(event_name, None)
+
+
+async def rapidfire_relative(
+    device_runtime: GrabbedDeviceRuntime,
+    code: int,
+    value: int,
+    hold_ms: int,
+    wait_ms: int,
+    event_name: str,
+    uinput_dev: object | None,
+    *,
+    asyncio_mod: AsyncioModule,
+) -> None:
+    hold = hold_ms / 1000.0
+    wait = wait_ms / 1000.0
+    task = asyncio_mod.current_task()
+
+    try:
+        await rapidfire_relative_pulses(
+            emit_pulse=lambda: write_relative_pulse(
+                uinput_dev,
+                code,
+                value,
+                ev_rel_code=evdev.ecodes.EV_REL,
+                uinput_writer=_uinput_writer,
+            ),
+            is_active=lambda: (
+                device_runtime.state.rapidfire_active.get(event_name, False)
+                and runtime_is_running(device_runtime)
+            ),
+            hold_s=hold,
+            wait_s=wait,
+            asyncio_mod=asyncio_mod,
+        )
+    except Exception:
+        pass
+    finally:
+        if task is not None:
+            finish_rapidfire_task(device_runtime, event_name, task)
+
+
+async def tap_relative(
+    device_runtime: GrabbedDeviceRuntime,
+    code: int,
+    value: int,
+    hold_ms: int,
+    event_name: str,
+    uinput_dev: object | None,
+    *,
+    asyncio_mod: AsyncioModule,
+) -> None:
+    hold = hold_ms / 1000.0
+
+    try:
+        await tap_relative_pulse(
+            emit_pulse=lambda: write_relative_pulse(
+                uinput_dev,
+                code,
+                value,
+                ev_rel_code=evdev.ecodes.EV_REL,
+                uinput_writer=_uinput_writer,
+            ),
+            hold_s=hold,
+            asyncio_mod=asyncio_mod,
         )
     except Exception:
         pass

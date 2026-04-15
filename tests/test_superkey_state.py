@@ -224,6 +224,58 @@ async def test_mouse_move_action_emits_relative_motion_once() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mouse_wheel_action_emits_relative_pulse_once() -> None:
+    mouse_uinput = MagicMock()
+    mouse_uinput.write = MagicMock()
+    mouse_uinput.syn = MagicMock()
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="wheel_test",
+            tap_actions=[SuperkeyActionData(action_type="mouse", target="rel_wheel:1")],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=mouse_uinput,
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine._emit_tap()
+
+    writes = [tuple(call.args) for call in mouse_uinput.write.call_args_list]
+    assert writes == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mouse_button_hold_action_still_presses_and_releases() -> None:
+    mouse_uinput = MagicMock()
+    mouse_uinput.write = MagicMock()
+    mouse_uinput.syn = MagicMock()
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="mouse_hold_test",
+            hold_actions=[SuperkeyActionData(action_type="mouse", target="btn_left")],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=mouse_uinput,
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine._start_holding()
+    await machine.stop()
+
+    writes = [tuple(call.args) for call in mouse_uinput.write.call_args_list]
+    assert writes == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_extended_pattern_actions_broadcast_existing_trigger_payloads() -> None:
     callback = MagicMock()
 
@@ -398,6 +450,41 @@ async def test_rapidfire_hold_release_emits_single_key_up() -> None:
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_D, 1),
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_D, 0),
     ]
+
+
+@pytest.mark.asyncio
+async def test_mouse_wheel_rapidfire_repeats_without_key_up() -> None:
+    mouse_uinput = MagicMock()
+    mouse_uinput.write = MagicMock()
+    mouse_uinput.syn = MagicMock()
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="wheel_rapidfire_test",
+            hold_actions=[
+                SuperkeyActionData(
+                    action_type="mouse",
+                    target="rel_hwheel:-1",
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=1,
+                    rapidfire_wait_ms=1,
+                )
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=mouse_uinput,
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine._start_holding()
+    await asyncio.sleep(0.01)
+    await machine.stop()
+
+    writes = [tuple(call.args) for call in mouse_uinput.write.call_args_list]
+    assert writes
+    assert all(write[:2] == (evdev.ecodes.EV_REL, evdev.ecodes.REL_HWHEEL) for write in writes)
+    assert all(write[2] == -1 for write in writes)
 
 
 @pytest.mark.asyncio

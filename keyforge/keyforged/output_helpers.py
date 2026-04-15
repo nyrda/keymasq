@@ -4,6 +4,8 @@ from typing import Protocol, cast
 
 import evdev
 
+from keyforge.common.devices import resolve_evdev_event_type
+
 
 class _WritableUInput(Protocol):
     def write(self, event_type: int, code: int, value: int) -> None: ...
@@ -26,7 +28,7 @@ def resolve_output_code(target: str | None) -> int | None:
     if not target:
         return None
 
-    key_lower = target.lower()
+    key_lower = str(target).split(":", 1)[0].lower()
 
     upper_code = _ecode_value(key_lower.upper())
     if upper_code is not None:
@@ -37,6 +39,30 @@ def resolve_output_code(target: str | None) -> int | None:
         return lower_code
 
     return None
+
+
+def parse_mouse_output_target(target: str | None) -> tuple[int | None, int | None, int]:
+    if not target:
+        return (None, None, 0)
+
+    raw_target = str(target).strip().lower()
+    if not raw_target:
+        return (None, None, 0)
+
+    base_target = raw_target
+    relative_value = 0
+    if ":" in raw_target:
+        base_target, raw_value = raw_target.split(":", 1)
+        try:
+            relative_value = int(raw_value)
+        except ValueError:
+            relative_value = 0
+
+    event_type = resolve_evdev_event_type(base_target)
+    code = resolve_output_code(base_target)
+    if event_type == evdev.ecodes.EV_REL and relative_value == 0:
+        relative_value = 1
+    return (event_type, code, relative_value)
 
 
 def get_trigger_axis(target: str | None) -> tuple[bool, int | None]:

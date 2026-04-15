@@ -59,21 +59,6 @@ def write_key(
     track_key_state(device_runtime, uinput_dev, int(code), int(value))
 
 
-def write_relative(
-    uinput_dev: object | None,
-    code: int,
-    value: int,
-    *,
-    evdev_mod: EvdevModule,
-    uinput_writer: UInputWriter,
-) -> None:
-    writer = uinput_writer(uinput_dev)
-    if writer is None:
-        return
-    writer.write(evdev_mod.ecodes.EV_REL, int(code), int(value))
-    writer.syn()
-
-
 def track_superkey_output(
     device_runtime: GrabbedDeviceRuntime, action_type: str, code: int, value: int
 ) -> bool:

@@ -9,7 +9,6 @@ from keyforge.keyforged.runtime.grabbed_device_outputs import (
     ensure_key_released,
     ensure_trigger_released,
     write_key,
-    write_relative,
 )
 from keyforge.keyforged.runtime.grabbed_device_types import (
     AsyncioModule,
@@ -20,6 +19,11 @@ from keyforge.keyforged.runtime.grabbed_device_types import (
     UInputWriter,
     WritableUInput,
     runtime_is_running,
+)
+from keyforge.keyforged.runtime.mouse_actions import (
+    rapidfire_relative_pulses,
+    tap_relative_pulse,
+    write_relative_pulse,
 )
 
 
@@ -305,23 +309,22 @@ async def rapidfire_relative(
     task = asyncio_mod.current_task()
 
     try:
-        while (
-            device_runtime.state.rapidfire_active.get(event_name, False)
-            and runtime_is_running(device_runtime)
-        ):
-            write_relative(
+        await rapidfire_relative_pulses(
+            emit_pulse=lambda: write_relative_pulse(
                 uinput_dev,
                 code,
                 value,
-                evdev_mod=evdev,
+                ev_rel_code=evdev.ecodes.EV_REL,
                 uinput_writer=_uinput_writer,
-            )
-            await asyncio_mod.sleep(hold)
-
-            if not device_runtime.state.rapidfire_active.get(event_name, False):
-                break
-
-            await asyncio_mod.sleep(wait)
+            ),
+            is_active=lambda: (
+                device_runtime.state.rapidfire_active.get(event_name, False)
+                and runtime_is_running(device_runtime)
+            ),
+            hold_s=hold,
+            wait_s=wait,
+            asyncio_mod=asyncio_mod,
+        )
     except Exception:
         pass
     finally:
@@ -342,14 +345,17 @@ async def tap_relative(
     hold = hold_ms / 1000.0
 
     try:
-        write_relative(
-            uinput_dev,
-            code,
-            value,
-            evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
+        await tap_relative_pulse(
+            emit_pulse=lambda: write_relative_pulse(
+                uinput_dev,
+                code,
+                value,
+                ev_rel_code=evdev.ecodes.EV_REL,
+                uinput_writer=_uinput_writer,
+            ),
+            hold_s=hold,
+            asyncio_mod=asyncio_mod,
         )
-        await asyncio_mod.sleep(hold)
     except Exception:
         pass
     finally:

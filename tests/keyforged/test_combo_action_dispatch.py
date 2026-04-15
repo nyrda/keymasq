@@ -594,6 +594,38 @@ class TestComboActionDispatch:
         )
         await _runtime_start_combo_action(
             manager,
+            "wheel",
+            dm.MappingAction(action_type=ActionType.MOUSE, target="rel_wheel:1"),
+            binding,
+        )
+        await _runtime_start_combo_action(
+            manager,
+            "tap-wheel",
+            dm.MappingAction(
+                action_type=ActionType.MOUSE,
+                target="rel_wheel:-1",
+                tap_enabled=True,
+                tap_hold_ms=1,
+            ),
+            binding,
+        )
+        await asyncio.sleep(0.01)
+        await _runtime_start_combo_action(
+            manager,
+            "rapid-wheel",
+            dm.MappingAction(
+                action_type=ActionType.MOUSE,
+                target="rel_hwheel:1",
+                rapidfire_enabled=True,
+                rapidfire_hold_ms=1,
+                rapidfire_wait_ms=1,
+            ),
+            binding,
+        )
+        await asyncio.sleep(0.01)
+        await _runtime_stop_combo_action(manager, "rapid-wheel")
+        await _runtime_start_combo_action(
+            manager,
             "macro",
             dm.MappingAction(
                 action_type=ActionType.MACRO,
@@ -672,6 +704,21 @@ class TestComboActionDispatch:
         assert manager.play_macro.await_args_list[0].kwargs["trigger_value"] == 1
         assert manager.play_macro.await_args_list[1].kwargs["trigger_value"] == 0
         assert broadcast_combo_action.await_count == 4
+        assert manager.output_state.mouse_uinput.writes[0] == (
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+        assert (
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            -1,
+        ) in manager.output_state.mouse_uinput.writes
+        assert (
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_HWHEEL,
+            1,
+        ) in manager.output_state.mouse_uinput.writes
         assert manager.output_state.gamepad_uinput.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),

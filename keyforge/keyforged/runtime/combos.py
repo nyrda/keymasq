@@ -30,6 +30,12 @@ from keyforge.keyforged.runtime.action_runner import (
     dispatch_action_trigger,
     is_hold_macro_action,
 )
+from keyforge.keyforged.runtime.mouse_actions import (
+    rapidfire_relative_pulses,
+    resolve_mouse_output_target,
+    tap_relative_pulse,
+    write_relative_pulse,
+)
 from keyforge.keyforged.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keyforge.keyforged.superkey_state import SuperkeyMachine
 
@@ -64,6 +70,7 @@ class _EcodesByType(Protocol):
 
 class _Ecodes(Protocol):
     EV_KEY: int
+    EV_REL: int
     EV_ABS: int
     bytype: _EcodesByType
 
@@ -1069,7 +1076,7 @@ async def _start_combo_action_instance(
         return
 
     if action.action_type == action_type_enum.MOUSE and action.target:
-        await start_combo_key_action(
+        await start_combo_mouse_action(
             manager,
             combo_id,
             action,
@@ -1250,6 +1257,85 @@ async def start_combo_key_action(
     )
 
 
+async def start_combo_mouse_action(
+    manager: _ComboManager,
+    combo_id: str,
+    action: MappingAction,
+    uinput_dev: object | None,
+    *,
+    asyncio_mod: _AsyncioModule,
+    resolve_code_fn: ResolveCodeFn,
+    evdev_mod: _EvdevModule,
+    uinput_writer: UInputWriter,
+) -> None:
+    target = resolve_mouse_output_target(action.target)
+    if target is None:
+        return
+    if not target.is_relative:
+        await start_combo_key_action(
+            manager,
+            combo_id,
+            action,
+            uinput_dev,
+            asyncio_mod=asyncio_mod,
+            resolve_code_fn=resolve_code_fn,
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
+        )
+        return
+    if action.tap_enabled:
+        task = asyncio_mod.create_task(
+            combo_tap_relative(
+                manager,
+                combo_id,
+                uinput_dev,
+                target.code,
+                target.relative_value,
+                action.tap_hold_ms,
+                asyncio_mod=asyncio_mod,
+                evdev_mod=evdev_mod,
+                uinput_writer=uinput_writer,
+            )
+        )
+        manager.combo_state.active_actions[combo_id] = ComboActionState(
+            kind="tap_relative",
+            uinput=uinput_dev,
+            code=target.code,
+            task=task,
+        )
+        return
+    if action.rapidfire_enabled:
+        task = asyncio_mod.create_task(
+            combo_rapidfire_relative(
+                manager,
+                combo_id,
+                uinput_dev,
+                target.code,
+                target.relative_value,
+                action.rapidfire_hold_ms,
+                action.rapidfire_wait_ms,
+                asyncio_mod=asyncio_mod,
+                evdev_mod=evdev_mod,
+                uinput_writer=uinput_writer,
+            )
+        )
+        manager.combo_state.active_actions[combo_id] = ComboActionState(
+            kind="rapidfire_relative",
+            uinput=uinput_dev,
+            code=target.code,
+            active=True,
+            task=task,
+        )
+        return
+    write_combo_relative(
+        uinput_dev,
+        target.code,
+        target.relative_value,
+        evdev_mod=evdev_mod,
+        uinput_writer=uinput_writer,
+    )
+
+
 async def stop_combo_action(
     manager: _ComboManager,
     combo_id: str,
@@ -1315,7 +1401,14 @@ async def stop_combo_action(
             )
         _restore_combo_trigger_bindings(manager, restore_bindings)
         return
-    if kind in {"tap_key", "tap_trigger", "rapidfire_key", "rapidfire_trigger"}:
+    if kind in {
+        "tap_key",
+        "tap_trigger",
+        "rapidfire_key",
+        "rapidfire_trigger",
+        "tap_relative",
+        "rapidfire_relative",
+    }:
         state.active = False
         task = state.task
         if task is not None and not task.done():
@@ -1571,6 +1664,69 @@ async def combo_rapidfire_key(
         write_combo_key(uinput_dev, code, 0, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
 
 
+async def combo_tap_relative(
+    manager: _ComboManager,
+    combo_id: str,
+    uinput_dev: object | None,
+    code: int,
+    value: int,
+    hold_ms: int,
+    *,
+    asyncio_mod: _AsyncioModule,
+    evdev_mod: _EvdevModule,
+    uinput_writer: UInputWriter,
+) -> None:
+    task = asyncio_mod.current_task()
+
+    try:
+        await tap_relative_pulse(
+            emit_pulse=lambda: write_combo_relative(
+                uinput_dev,
+                code,
+                value,
+                evdev_mod=evdev_mod,
+                uinput_writer=uinput_writer,
+            ),
+            hold_s=max(0.001, float(hold_ms) / 1000.0),
+            asyncio_mod=asyncio_mod,
+        )
+    except asyncio_mod.CancelledError:
+        raise
+    finally:
+        prune_combo_action_task(manager, combo_id, task)
+
+
+async def combo_rapidfire_relative(
+    manager: _ComboManager,
+    combo_id: str,
+    uinput_dev: object | None,
+    code: int,
+    value: int,
+    hold_ms: int,
+    wait_ms: int,
+    *,
+    asyncio_mod: _AsyncioModule,
+    evdev_mod: _EvdevModule,
+    uinput_writer: UInputWriter,
+) -> None:
+    try:
+        await rapidfire_relative_pulses(
+            emit_pulse=lambda: write_combo_relative(
+                uinput_dev,
+                code,
+                value,
+                evdev_mod=evdev_mod,
+                uinput_writer=uinput_writer,
+            ),
+            is_active=lambda: _combo_action_active(manager, combo_id),
+            hold_s=max(0.001, hold_ms / 1000.0),
+            wait_s=max(0.001, wait_ms / 1000.0),
+            asyncio_mod=asyncio_mod,
+        )
+    except asyncio_mod.CancelledError:
+        raise
+
+
 async def combo_rapidfire_trigger(
     manager: _ComboManager,
     combo_id: str,
@@ -1621,6 +1777,23 @@ def write_combo_key(
         return
     writer.write(evdev_mod.ecodes.EV_KEY, int(code), int(value))
     writer.syn()
+
+
+def write_combo_relative(
+    uinput_dev: object | None,
+    code: int,
+    value: int,
+    *,
+    evdev_mod: _EvdevModule,
+    uinput_writer: UInputWriter,
+) -> None:
+    write_relative_pulse(
+        uinput_dev,
+        code,
+        value,
+        ev_rel_code=evdev_mod.ecodes.EV_REL,
+        uinput_writer=uinput_writer,
+    )
 
 
 def write_combo_trigger(

@@ -89,6 +89,7 @@ class _ComboEcodesByType:
 
 class _ComboEcodes:
     EV_KEY: Final[int] = evdev.ecodes.EV_KEY
+    EV_REL: Final[int] = evdev.ecodes.EV_REL
     EV_ABS: Final[int] = evdev.ecodes.EV_ABS
     bytype: Final[_ComboEcodesByType] = _ComboEcodesByType()
 

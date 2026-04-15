@@ -9,7 +9,6 @@ from keyforge.common.ipc import CommandType
 from keyforge.common.models import ActionType, MappingAction, SuperkeyMode
 from keyforge.keyforged.output_helpers import (
     get_trigger_axis,
-    parse_mouse_output_target,
     resolve_output_code,
 )
 from keyforge.keyforged.runtime.action_runner import (
@@ -22,7 +21,6 @@ from keyforge.keyforged.runtime.grabbed_device_outputs import (
     passthrough,
     track_superkey_output,
     write_key,
-    write_relative,
 )
 from keyforge.keyforged.runtime.grabbed_device_repeat import (
     rapidfire_key,
@@ -44,6 +42,10 @@ from keyforge.keyforged.runtime.grabbed_device_types import (
     InputEventLike,
     UInputWriter,
     WritableUInput,
+)
+from keyforge.keyforged.runtime.mouse_actions import (
+    resolve_mouse_output_target,
+    write_relative_pulse,
 )
 from keyforge.keyforged.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keyforge.keyforged.superkey_state import SuperkeyMachine
@@ -499,17 +501,17 @@ async def _execute_mouse_action(
     uinput_writer: UInputWriter,
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
 ) -> None:
-    event_type, code, relative_value = parse_mouse_output_target(action.target)
-    if code is None:
+    target = resolve_mouse_output_target(action.target)
+    if target is None:
         return
-    if event_type == evdev_mod.ecodes.EV_REL:
+    if target.is_relative:
         await _execute_relative_mouse_action(
             device_runtime,
             action,
             event,
             event_name,
-            code=code,
-            relative_value=relative_value,
+            code=target.code,
+            relative_value=target.relative_value,
             asyncio_mod=asyncio_mod,
             fire_and_observe_fn=fire_and_observe_fn,
             evdev_mod=evdev_mod,
@@ -598,11 +600,11 @@ async def _execute_relative_mouse_action(
     if int(event.value) != 1:
         return
 
-    write_relative(
+    write_relative_pulse(
         device_runtime.mouse_uinput,
         code,
         relative_value,
-        evdev_mod=evdev_mod,
+        ev_rel_code=evdev_mod.ecodes.EV_REL,
         uinput_writer=uinput_writer,
     )
 

@@ -1,16 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>tools.keymasq.Keymasq.desktop</id>
+  <id>io.github.nyrda.keymasq</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Keymasq</name>
   <summary>Linux input remapper for keyboards, mice, and gamepads</summary>
-  <developer>
+  <developer id="io.github.nyrda">
     <name>nyrda</name>
   </developer>
   <launchable type="desktop-id">tools.keymasq.Keymasq.desktop</launchable>
-  <url type="homepage">https://keymasq.tools</url>
-  <url type="bugtracker">https://github.com/nyrda/keymasq/issues</url>
+  <url type="homepage">https://github.com/nyrda</url>
   <update_contact>nyrda@keymasq.tools</update_contact>
   <description>
     <p>
@@ -34,11 +33,6 @@
     <keyword>macro</keyword>
     <keyword>combo</keyword>
   </keywords>
-  <screenshots>
-    <screenshot type="default">
-      <image>https://raw.githubusercontent.com/nyrda/keymasq/master/assets/screenshots/keymasq_profile.png</image>
-    </screenshot>
-  </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="0.4.1" date="2026-04-16">

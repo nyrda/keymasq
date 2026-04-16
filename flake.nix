@@ -97,7 +97,7 @@
 
           postInstall = ''
             install -Dm644 $src/assets/tools.keymasq.Keymasq.desktop $out/share/applications/tools.keymasq.Keymasq.desktop
-            install -Dm644 $src/assets/tools.keymasq.Keymasq.metainfo.xml $out/share/metainfo/tools.keymasq.Keymasq.metainfo.xml
+            install -Dm644 $src/assets/io.github.nyrda.keymasq.metainfo.xml $out/share/metainfo/io.github.nyrda.keymasq.metainfo.xml
             install -Dm644 $src/assets/tools.keymasq.Keymasq.svg $out/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg
             for icon in $src/assets/icons/tools.keymasq.Keymasq-*.png; do
               size=''${icon##*-}

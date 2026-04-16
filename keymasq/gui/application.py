@@ -23,7 +23,7 @@ from keymasq.gui.icons import register_icon_search_path, theme_supports_core_ico
 from keymasq.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keymasq.gui.window import MainWindow  # noqa: E402
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 APP_ID = "tools.keymasq.Keymasq"
 APP_ICON_NAME = APP_ID
 

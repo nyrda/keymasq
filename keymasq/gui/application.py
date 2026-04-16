@@ -24,12 +24,14 @@ from keymasq.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keymasq.gui.window import MainWindow  # noqa: E402
 
 APP_VERSION = "0.4.0"
+APP_ID = "io.github.nyrda.Keymasq"
+APP_ICON_NAME = APP_ID
 
 
 class Application(Adw.Application):
     def __init__(self, demo_mode: bool = False) -> None:
         super().__init__(
-            application_id="dev.keymasq.Keymasq",
+            application_id=APP_ID,
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
         self.demo_mode = demo_mode
@@ -125,7 +127,7 @@ class Application(Adw.Application):
         if self.window:
             dialog = Adw.AboutDialog()
             dialog.set_application_name("Keymasq")
-            dialog.set_application_icon("keymasq")
+            dialog.set_application_icon(APP_ICON_NAME)
             dialog.set_version(APP_VERSION)
             dialog.set_comments("A key remapping tool for Linux")
             dialog.set_developer_name("Keymasq Team")

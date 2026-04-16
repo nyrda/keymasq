@@ -98,6 +98,49 @@ class TestRecordMacroDialog:
 
 
 class TestDialogConstruction:
+    def test_about_dialog_uses_packaged_app_identity(self, monkeypatch):
+        import keymasq.gui.application as application_module
+
+        captured: dict[str, object] = {}
+
+        class DummyAboutDialog:
+            def set_application_name(self, value):
+                captured["application_name"] = value
+
+            def set_application_icon(self, value):
+                captured["application_icon"] = value
+
+            def set_version(self, value):
+                captured["version"] = value
+
+            def set_comments(self, value):
+                captured["comments"] = value
+
+            def set_developer_name(self, value):
+                captured["developer_name"] = value
+
+            def set_license_type(self, value):
+                captured["license_type"] = value
+
+            def present(self, parent):
+                captured["parent"] = parent
+
+        monkeypatch.setattr(application_module.Adw, "AboutDialog", DummyAboutDialog)
+
+        app = application_module.Application(demo_mode=True)
+        app.window = object()
+
+        assert app.get_application_id() == application_module.APP_ID
+
+        app._on_about(None, None)
+
+        assert captured["application_name"] == "Keymasq"
+        assert captured["application_icon"] == application_module.APP_ICON_NAME
+        assert captured["version"] == application_module.APP_VERSION
+        assert captured["comments"] == "A key remapping tool for Linux"
+        assert captured["developer_name"] == "Keymasq Team"
+        assert captured["parent"] is app.window
+
     def test_superkey_dialog_constructs_without_missing_right_panel(self, temp_config_dir):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

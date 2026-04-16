@@ -41,15 +41,9 @@ use one terminal per process:
 These helpers automatically enter `nix develop` when needed and force Python to
 import the current source tree. `dev-keymasqd.sh` stages the Python package
 under `/tmp` before switching to the `keymasq` user so development works even
-when the repository lives under a private home directory.
-
-Before using them, stop any installed services that would conflict with the same
-daemon or session sockets:
-
-```bash
-sudo systemctl stop keymasqd
-systemctl --user stop keymasq-session
-```
+when the repository lives under a private home directory. The daemon and
+session helpers also stop the corresponding installed `systemd` service before
+launching the source checkout so they can take over the same sockets cleanly.
 
 ## Running Checks
 

@@ -7,10 +7,10 @@ recording paths. Security reports should be handled privately.
 
 Do not open a public issue for security-sensitive bugs.
 
-Until a dedicated security mailbox is published, use GitHub private security
-advisories for this repository if available. If private advisories are not
-enabled yet, contact the maintainer directly through the project contact listed
-in the repository profile and request a private reporting channel.
+Report vulnerabilities privately by email to `nyrda@keymasq.tools`.
+
+If GitHub private security advisories are enabled for this repository, you can
+also use that channel.
 
 Include:
 

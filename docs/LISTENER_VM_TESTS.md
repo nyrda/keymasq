@@ -4,7 +4,16 @@ Keymasq includes a NixOS VM matrix for listener integration tests.
 
 ## Support Status
 
-### Supported and integration-tested
+This page distinguishes between:
+
+- environments covered by dedicated listener VM tests
+- environments expected to work through a shared listener path, but not
+  currently covered by a dedicated VM in this matrix
+
+The first group is the tested support matrix. The second group should be read
+as best-effort compatibility until dedicated VM coverage is added.
+
+### Tested support matrix
 
 - GNOME
 - KDE Plasma
@@ -14,10 +23,10 @@ Keymasq includes a NixOS VM matrix for listener integration tests.
 - Generic Wayland via `zwlr_foreign_toplevel_manager_v1` (tested with Sway)
 - X11
 
-### Supported but not covered by listener integration tests
+### Expected to work, but not covered by dedicated VM tests
 
-These environments rely on supported listener paths, but do not currently have
-dedicated listener VM coverage in this matrix:
+These environments rely on listener paths that Keymasq supports, but they are
+not currently part of the dedicated VM integration matrix:
 
 - river
 - treeland

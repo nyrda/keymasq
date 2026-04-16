@@ -1,5 +1,5 @@
 assets/tools.keymasq.Keymasq.desktop usr/share/applications/
-assets/tools.keymasq.Keymasq.metainfo.xml usr/share/metainfo/
+assets/io.github.nyrda.keymasq.metainfo.xml usr/share/metainfo/
 assets/tools.keymasq.Keymasq.svg usr/share/icons/hicolor/scalable/apps/
 examples/security.toml etc/keymasq/
 gnome-extension/keymasq-bridge@nyrda usr/share/gnome-shell/extensions/

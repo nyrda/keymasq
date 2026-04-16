@@ -29,7 +29,7 @@ declare -a source_paths=(
     README.md
     pyproject.toml
     assets/tools.keymasq.Keymasq.desktop
-    assets/tools.keymasq.Keymasq.metainfo.xml
+    assets/io.github.nyrda.keymasq.metainfo.xml
     assets/tools.keymasq.Keymasq.svg
     assets/icons
     examples

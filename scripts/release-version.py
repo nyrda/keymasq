@@ -74,7 +74,7 @@ def _build_rules(
             f"## [{version}] - {release_date}",
         ),
         RewriteRule(
-            root / "assets/tools.keymasq.Keymasq.metainfo.xml",
+            root / "assets/io.github.nyrda.keymasq.metainfo.xml",
             re.compile(r'(?m)^ {4}<release version="[^"]+" date="[^"]+">$'),
             f'    <release version="{version}" date="{release_date}">',
         ),

@@ -62,7 +62,7 @@ updates:
 - `nfpm.yaml`
 - `debian/changelog`
 - `CHANGELOG.md`
-- `assets/tools.keymasq.Keymasq.metainfo.xml`
+- `assets/io.github.nyrda.keymasq.metainfo.xml`
 - the generated pacman files: `PKGBUILD`, `keymasq.install`,
   `packaging/aur/PKGBUILD`, `packaging/aur/keymasq.install`, and
   `packaging/aur/.SRCINFO`
@@ -76,7 +76,7 @@ that should be preserved in place:
 
 - the top entry body in `CHANGELOG.md`
 - the top entry bullet list in `debian/changelog`
-- the top `<release>` description in `assets/tools.keymasq.Keymasq.metainfo.xml`
+- the top `<release>` description in `assets/io.github.nyrda.keymasq.metainfo.xml`
 
 The script then stamps the requested version, updates the current release date,
 and refreshes the generated packaging files. Use `--dry-run` to preview the
@@ -132,7 +132,7 @@ The main filesystem layout is:
 /usr/lib/udev/rules.d/91-keymasq-acl.rules
 /usr/share/polkit-1/actions/com.keymasq.record-macro.policy
 /usr/share/applications/tools.keymasq.Keymasq.desktop
-/usr/share/metainfo/tools.keymasq.Keymasq.metainfo.xml
+/usr/share/metainfo/io.github.nyrda.keymasq.metainfo.xml
 /usr/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg
 /usr/share/icons/hicolor/<size>x<size>/apps/tools.keymasq.Keymasq.png
 /usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/

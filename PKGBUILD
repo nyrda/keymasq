@@ -3,7 +3,7 @@
 
 # Maintainer: nyrda <nyrda@keymasq.tools>
 pkgname=keymasq
-pkgver=0.3.2
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="A key remapping tool for Linux using evdev and uinput"
 arch=(

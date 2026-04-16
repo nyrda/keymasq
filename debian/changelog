@@ -1,13 +1,13 @@
-keymasq (0.3.2-1) unstable; urgency=medium
+keymasq (0.4.0-1) unstable; urgency=medium
 
-  * Expand superkey pattern actions and macro payloads for richer action
-    sequences.
-  * Resolve macros nested inside superkeys and refresh bindings after updates.
-  * Sync macro editor state more reliably when loading saved data.
-  * Reject unsupported rapidfire configurations on non-action superkey types.
-  * Refresh mouse suppression during hold macro playback.
+  * Rename the project from Keyforge to Keymasq across commands, services,
+    package metadata, and documentation.
+  * Switch desktop and packaging identities to namespaced Keymasq IDs,
+    including AppStream metadata, icons, and the GNOME bridge extension.
+  * Align release and repository publishing artifacts with the Keymasq
+    namespace.
 
- -- nyrda <nyrda@keymasq.tools>  Mon, 13 Apr 2026 06:08:01 +0000
+ -- nyrda <nyrda@keymasq.tools>  Thu, 16 Apr 2026 00:23:42 +0000
 
 keymasq (0.3-1) unstable; urgency=medium
 

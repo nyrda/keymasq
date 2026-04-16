@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Propose a focused improvement to Keyforge
+about: Propose a focused improvement to Keymasq
 labels: enhancement
 ---
 

@@ -7,10 +7,10 @@ from typing import Any
 
 import pytest
 
-from keyforge.common.ipc import Command, CommandType, Response, encode_response
-from keyforge.session.action_handler import ActionHandler
-from keyforge.session.client import KeyforgedClient
-from keyforge.session.slurp import SLURP_MACRO_NAME, trigger_slurp_macro
+from keymasq.common.ipc import Command, CommandType, Response, encode_response
+from keymasq.session.action_handler import ActionHandler
+from keymasq.session.client import KeymasqdClient
+from keymasq.session.slurp import SLURP_MACRO_NAME, trigger_slurp_macro
 
 
 class _FakeWriter:
@@ -64,7 +64,7 @@ class _FakeProcess:
 
 
 @pytest.mark.asyncio
-async def test_keyforged_client_connect_and_disconnect(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_keymasqd_client_connect_and_disconnect(monkeypatch: pytest.MonkeyPatch) -> None:
     reader = _FakeReader([])
     writer = _FakeWriter(wait_closed_error=RuntimeError("closed"))
     opened_paths: list[str] = []
@@ -76,15 +76,15 @@ async def test_keyforged_client_connect_and_disconnect(monkeypatch: pytest.Monke
     async def _listen_forever() -> None:
         await asyncio.Future()
 
-    monkeypatch.setattr("keyforge.session.client.SOCKET_PATH", Path("/tmp/keyforge.sock"))
+    monkeypatch.setattr("keymasq.session.client.SOCKET_PATH", Path("/tmp/keymasq.sock"))
     monkeypatch.setattr(asyncio, "open_unix_connection", _open_unix_connection)
 
-    client = KeyforgedClient(event_handler=lambda _event, _data: None)
+    client = KeymasqdClient(event_handler=lambda _event, _data: None)
     monkeypatch.setattr(client, "_listen_loop", _listen_forever)
 
     await client.connect()
 
-    assert opened_paths == ["/tmp/keyforge.sock"]
+    assert opened_paths == ["/tmp/keymasq.sock"]
     assert client.reader is reader
     assert client.writer is writer
     assert client._listen_task is not None
@@ -98,8 +98,8 @@ async def test_keyforged_client_connect_and_disconnect(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_keyforged_client_send_command_round_trip_cleans_pending() -> None:
-    client = KeyforgedClient(event_handler=lambda _event, _data: None)
+async def test_keymasqd_client_send_command_round_trip_cleans_pending() -> None:
+    client = KeymasqdClient(event_handler=lambda _event, _data: None)
     writer = _FakeWriter()
     client.writer = writer
 
@@ -119,8 +119,8 @@ async def test_keyforged_client_send_command_round_trip_cleans_pending() -> None
 
 
 @pytest.mark.asyncio
-async def test_keyforged_client_send_command_timeout_cleans_pending() -> None:
-    client = KeyforgedClient(event_handler=lambda _event, _data: None)
+async def test_keymasqd_client_send_command_timeout_cleans_pending() -> None:
+    client = KeymasqdClient(event_handler=lambda _event, _data: None)
     client.writer = _FakeWriter()
 
     with pytest.raises(TimeoutError):
@@ -130,9 +130,9 @@ async def test_keyforged_client_send_command_timeout_cleans_pending() -> None:
 
 
 @pytest.mark.asyncio
-async def test_keyforged_client_listen_loop_decodes_partial_messages() -> None:
+async def test_keymasqd_client_listen_loop_decodes_partial_messages() -> None:
     response = encode_response(Response(status="ok", request_id="9", data={"done": True}))
-    client = KeyforgedClient(event_handler=lambda _event, _data: None)
+    client = KeymasqdClient(event_handler=lambda _event, _data: None)
     client.reader = _FakeReader([response[:5], response[5:], b""])
     client.writer = _FakeWriter()
 
@@ -151,13 +151,13 @@ async def test_keyforged_client_listen_loop_decodes_partial_messages() -> None:
 
 
 @pytest.mark.asyncio
-async def test_keyforged_client_handle_response_logs_event_handler_errors(
+async def test_keymasqd_client_handle_response_logs_event_handler_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     async def _event_handler(_event: CommandType, _data: dict[str, Any]) -> None:
         raise RuntimeError("boom")
 
-    client = KeyforgedClient(event_handler=_event_handler)
+    client = KeymasqdClient(event_handler=_event_handler)
 
     with caplog.at_level(logging.ERROR):
         await client._handle_response(
@@ -300,7 +300,7 @@ async def test_trigger_slurp_macro_logs_failures(caplog: pytest.LogCaptureFixtur
 def test_session_main_module_calls_manager_main(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
-    monkeypatch.setattr("keyforge.session.manager.main", lambda: calls.append("module"))
-    runpy.run_module("keyforge.session.__main__", run_name="__main__")
+    monkeypatch.setattr("keymasq.session.manager.main", lambda: calls.append("module"))
+    runpy.run_module("keymasq.session.__main__", run_name="__main__")
 
     assert calls == ["module"]

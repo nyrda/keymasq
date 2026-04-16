@@ -1,5 +1,5 @@
-from keyforge.session.wayland_protocols import ExtForeignToplevelListTracker
-from keyforge.session.wayland_protocols.ext_foreign_toplevel_list_client import (
+from keymasq.session.wayland_protocols import ExtForeignToplevelListTracker
+from keymasq.session.wayland_protocols.ext_foreign_toplevel_list_client import (
     EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE,
     ExtForeignToplevelListWaylandClient,
     _encode_string,

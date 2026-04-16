@@ -1,4 +1,4 @@
-from keyforge.session.compositor import detect_compositor_sync, is_compositor_supported_sync
+from keymasq.session.compositor import detect_compositor_sync, is_compositor_supported_sync
 
 
 def _probe_result(value: bool):
@@ -21,35 +21,35 @@ def _set_probes(
     x11: bool,
 ) -> None:
     monkeypatch.setattr(
-        "keyforge.session.compositor.HyprlandListener.probe_available",
+        "keymasq.session.compositor.HyprlandListener.probe_available",
         _probe_result(hyprland),
     )
     monkeypatch.setattr(
-        "keyforge.session.compositor.NiriListener.probe_available",
+        "keymasq.session.compositor.NiriListener.probe_available",
         _probe_result(niri),
     )
     monkeypatch.setattr(
-        "keyforge.session.compositor.KDEListener.probe_available",
+        "keymasq.session.compositor.KDEListener.probe_available",
         _probe_result(kde),
     )
     monkeypatch.setattr(
-        "keyforge.session.compositor.GnomeListener.probe_session",
+        "keymasq.session.compositor.GnomeListener.probe_session",
         _probe_result(gnome),
     )
     monkeypatch.setattr(
-        "keyforge.session.compositor.GnomeListener.probe_available",
+        "keymasq.session.compositor.GnomeListener.probe_available",
         _probe_result(gnome if gnome_supported is None else gnome_supported),
     )
     monkeypatch.setattr(
-        "keyforge.session.compositor.CosmicListener.probe_available",
+        "keymasq.session.compositor.CosmicListener.probe_available",
         _probe_result(cosmic),
     )
     monkeypatch.setattr(
-        "keyforge.session.compositor.WlrootsWaylandListener.probe_available",
+        "keymasq.session.compositor.WlrootsWaylandListener.probe_available",
         _probe_result(wayland),
     )
     monkeypatch.setattr(
-        "keyforge.session.compositor.X11Listener.probe_available",
+        "keymasq.session.compositor.X11Listener.probe_available",
         _probe_result(x11),
     )
 

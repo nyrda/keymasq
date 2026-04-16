@@ -16,4 +16,4 @@ fi
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 unset GTK_THEME
 
-exec python -m keyforge.gui "$@"
+exec python -m keymasq.gui "$@"

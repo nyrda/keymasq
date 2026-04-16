@@ -4,11 +4,11 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
-import keyforge.session.manager.events as session_events_module
-import keyforge.session.manager.profiles as session_profiles_module
-from keyforge.common.ipc import CommandType
-from keyforge.session.listeners.hyprland import HyprlandListener
-from keyforge.session.manager import SessionManager
+import keymasq.session.manager.events as session_events_module
+import keymasq.session.manager.profiles as session_profiles_module
+from keymasq.common.ipc import CommandType
+from keymasq.session.listeners.hyprland import HyprlandListener
+from keymasq.session.manager import SessionManager
 
 
 @pytest.mark.asyncio
@@ -204,7 +204,7 @@ def test_handle_device_grab_status_waiting_notifies_once_and_broadcasts() -> Non
     session_events_module.handle_device_grab_status_event(manager, event)
 
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
-        "Keyforge: Grab Pending",
+        "Keymasq: Grab Pending",
         "Test Keyboard: waiting for keys to be released (key_l).",
     )
     assert manager.broadcast_to_session_clients.call_args_list == [  # type: ignore[attr-defined]
@@ -237,7 +237,7 @@ def test_handle_device_grab_status_timeout_notifies_and_schedules_retry() -> Non
         monkeypatch.undo()
 
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
-        "Keyforge: Grab Timed Out",
+        "Keymasq: Grab Timed Out",
         "Test Keyboard: keys stayed down too long (key_l). Retrying automatically.",
     )
     schedule_grab_retry.assert_called_once_with(

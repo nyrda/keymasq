@@ -1,6 +1,6 @@
 # Packaging
 
-This document explains which installable packages Keyforge provides, what each
+This document explains which installable packages Keymasq provides, what each
 package contains, and how those packages are built and tested in this
 repository.
 
@@ -10,15 +10,15 @@ how packaging is organized.
 
 ## Overview
 
-Keyforge is packaged as a single application that installs the same core pieces
+Keymasq is packaged as a single application that installs the same core pieces
 on every supported distribution:
 
-- `keyforged`: the privileged system daemon that reads input devices and applies
+- `keymasqd`: the privileged system daemon that reads input devices and applies
   remaps
-- `keyforge-session`: the per-user session service that tracks desktop/session
+- `keymasq-session`: the per-user session service that tracks desktop/session
   state and talks to the daemon
-- `keyforge`: the main CLI and GTK application
-- `keyforge-record`: the helper used for privileged recording operations
+- `keymasq`: the main CLI and GTK application
+- `keymasq-record`: the helper used for privileged recording operations
 
 The repository currently maintains these package outputs:
 
@@ -26,7 +26,7 @@ The repository currently maintains these package outputs:
 |--------|--------|--------|--------|
 | Nix package | Nix and NixOS users | `flake.nix` | `nix build .#default` |
 | NixOS module | NixOS systems | `flake.nix` | `nixosModules.default` |
-| Arch local checkout package | Arch users testing/installing the current worktree | `PKGBUILD`, `keyforge.install` | `.pkg.tar.zst` |
+| Arch local checkout package | Arch users testing/installing the current worktree | `PKGBUILD`, `keymasq.install` | `.pkg.tar.zst` |
 | Arch AUR package | AUR publication and release packaging | `packaging/aur/` | AUR Git repo contents |
 | Debian package | Debian, Ubuntu, Mint, and derivatives | `debian/` | `.deb` |
 | Fedora RPM | Fedora systems | `nfpm.yaml` | `.fedora.x86_64.rpm` |
@@ -62,10 +62,10 @@ updates:
 - `nfpm.yaml`
 - `debian/changelog`
 - `CHANGELOG.md`
-- `keyforge/gui/application.py`
-- `assets/keyforge.metainfo.xml`
-- the generated pacman files: `PKGBUILD`, `keyforge.install`,
-  `packaging/aur/PKGBUILD`, `packaging/aur/keyforge.install`, and
+- `keymasq/gui/application.py`
+- `assets/io.github.nyrda.Keymasq.metainfo.xml`
+- the generated pacman files: `PKGBUILD`, `keymasq.install`,
+  `packaging/aur/PKGBUILD`, `packaging/aur/keymasq.install`, and
   `packaging/aur/.SRCINFO`
 
 Do not edit the rendered pacman files directly. The release helper regenerates
@@ -77,7 +77,7 @@ that should be preserved in place:
 
 - the top entry body in `CHANGELOG.md`
 - the top entry bullet list in `debian/changelog`
-- the top `<release>` description in `assets/keyforge.metainfo.xml`
+- the top `<release>` description in `assets/io.github.nyrda.Keymasq.metainfo.xml`
 
 The script then stamps the requested version, updates the current release date,
 and refreshes the generated packaging files. Use `--dry-run` to preview the
@@ -93,7 +93,7 @@ These directories provide the shared package contents:
 
 - `systemd/`: system and user service units
 - `udev/`: device access rules
-- `sysusers.d/`: creation of the `keyforge` system user/group
+- `sysusers.d/`: creation of the `keymasq` system user/group
 - `tmpfiles.d/`: runtime and state directory creation
 - `polkit/`: privileged recording policy
 - `assets/`: desktop file, AppStream metainfo, and SVG/PNG application icons
@@ -103,46 +103,46 @@ These directories provide the shared package contents:
 In practice, the distro packages all install the same user-visible pieces:
 
 - executable commands in `/usr/bin/`
-- a system service for `keyforged`
-- a user service for `keyforge-session`
+- a system service for `keymasqd`
+- a user service for `keymasq-session`
 - udev, sysusers, tmpfiles, and polkit integration
 - the desktop launcher and icon
 - the AppStream metainfo file
 - the GNOME Shell bridge extension files
-- `/etc/keyforge/security.toml` as the default security configuration
+- `/etc/keymasq/security.toml` as the default security configuration
 
 The Nix outputs split that payload slightly differently:
 
 - the plain Nix package installs the application commands, desktop assets, and
   polkit policy into the Nix store
 - the NixOS module wires up the system daemon, user session service, udev ACLs,
-  tmpfiles, the `keyforge` system user/group, and `/etc/keyforge/security.toml`
+  tmpfiles, the `keymasq` system user/group, and `/etc/keymasq/security.toml`
 - the plain Nix package does not mutate `/etc`, systemd, or udev on its own
 
 The main filesystem layout is:
 
 ```text
-/usr/bin/keyforge
-/usr/bin/keyforged
-/usr/bin/keyforge-session
-/usr/bin/keyforge-record
-/usr/lib/systemd/system/keyforged.service
-/usr/lib/systemd/user/keyforge-session.service
-/usr/lib/sysusers.d/keyforge.conf
-/usr/lib/tmpfiles.d/keyforge.conf
-/usr/lib/udev/rules.d/91-keyforge-acl.rules
-/usr/share/polkit-1/actions/com.keyforge.record-macro.policy
-/usr/share/applications/keyforge.desktop
-/usr/share/metainfo/keyforge.metainfo.xml
-/usr/share/icons/hicolor/scalable/apps/keyforge.svg
-/usr/share/icons/hicolor/<size>x<size>/apps/keyforge.png
-/usr/share/gnome-shell/extensions/keyforge-bridge@keyforge/
-/etc/keyforge/security.toml
+/usr/bin/keymasq
+/usr/bin/keymasqd
+/usr/bin/keymasq-session
+/usr/bin/keymasq-record
+/usr/lib/systemd/system/keymasqd.service
+/usr/lib/systemd/user/keymasq-session.service
+/usr/lib/sysusers.d/keymasq.conf
+/usr/lib/tmpfiles.d/keymasq.conf
+/usr/lib/udev/rules.d/91-keymasq-acl.rules
+/usr/share/polkit-1/actions/com.keymasq.record-macro.policy
+/usr/share/applications/io.github.nyrda.Keymasq.desktop
+/usr/share/metainfo/io.github.nyrda.Keymasq.metainfo.xml
+/usr/share/icons/hicolor/scalable/apps/io.github.nyrda.Keymasq.svg
+/usr/share/icons/hicolor/<size>x<size>/apps/io.github.nyrda.Keymasq.png
+/usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/
+/etc/keymasq/security.toml
 ```
 
 The Python module path differs by package family:
 
-- Debian packages install into `/usr/lib/python3/dist-packages/keyforge/`
+- Debian packages install into `/usr/lib/python3/dist-packages/keymasq/`
 - RPM packages install into the target distro `site-packages` path
 - Arch packages follow Arch's Python package layout
 - Nix packages install into the Nix store
@@ -153,10 +153,10 @@ The Python module path differs by package family:
 
 `flake.nix` exposes two important outputs:
 
-- `packages.<system>.default`: a build of the Keyforge package itself
+- `packages.<system>.default`: a build of the Keymasq package itself
 - `nixosModules.default`: a NixOS module that installs the package and wires up
   the system daemon, user session service, udev access, tmpfiles, and the
-  generated `/etc/keyforge/security.toml`
+  generated `/etc/keymasq/security.toml`
 
 This is the most self-contained packaging path in the repository. It is useful
 both for Nix users and for developers who want a reproducible build shell.
@@ -184,24 +184,24 @@ tools, `git`, and `ssh`.
 
 For NixOS, the intended consumption path is the module. It exposes:
 
-- `services.keyforge.enable`
-- `services.keyforge.package`
-- `services.keyforge.installPackage`
-- `services.keyforge.securityConfig`
+- `services.keymasq.enable`
+- `services.keymasq.package`
+- `services.keymasq.installPackage`
+- `services.keymasq.securityConfig`
 
 Functional module usage:
 
 ```nix
 {
-  inputs.keyforge.url = "github:nyrda/keyforge";
+  inputs.keymasq.url = "github:nyrda/keymasq";
 
-  outputs = { self, nixpkgs, keyforge, ... }: {
+  outputs = { self, nixpkgs, keymasq, ... }: {
     nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
-        keyforge.nixosModules.default
+        keymasq.nixosModules.default
         ({ pkgs, ... }: {
-          services.keyforge = {
+          services.keymasq = {
             enable = true;
             installPackage = true;
           };
@@ -223,9 +223,9 @@ python3 packaging/pacman/render.py
 
 This produces two Arch-facing outputs with the same install payload:
 
-- `PKGBUILD` and `keyforge.install` at the repo root for local worktree
+- `PKGBUILD` and `keymasq.install` at the repo root for local worktree
   installs
-- `packaging/aur/PKGBUILD`, `packaging/aur/keyforge.install`, and
+- `packaging/aur/PKGBUILD`, `packaging/aur/keymasq.install`, and
   `packaging/aur/.SRCINFO` for the AUR package repo
 
 The root `PKGBUILD` is for `git clone ... && makepkg -sif` testing. It copies
@@ -258,11 +258,11 @@ Important files include:
 
 - `debian/control`: package metadata and runtime dependencies
 - `debian/rules`: build rules
-- `debian/keyforge.install`: install manifest for the shared payload
+- `debian/keymasq.install`: install manifest for the shared payload
 - `debian/tests/`: installed-package smoke tests and CLI tests
 
 The Debian package builds the Python package with `pybuild`, stages the shared
-payload, and preserves `/etc/keyforge/security.toml` as a Debian conffile so
+payload, and preserves `/etc/keymasq/security.toml` as a Debian conffile so
 local edits survive upgrades.
 
 Build the binary package with:
@@ -274,14 +274,14 @@ dpkg-buildpackage -us -uc -b
 Typical output:
 
 ```text
-../keyforge_0.1.0-1_all.deb
+../keymasq_0.1.0-1_all.deb
 ```
 
 Inspect the resulting package with:
 
 ```bash
-dpkg-deb -I ../keyforge_0.1.0-1_all.deb
-dpkg-deb -c ../keyforge_0.1.0-1_all.deb
+dpkg-deb -I ../keymasq_0.1.0-1_all.deb
+dpkg-deb -c ../keymasq_0.1.0-1_all.deb
 ```
 
 #### Manual current-worktree build via Debian container
@@ -342,7 +342,7 @@ The RPM build flow:
 
 `scripts/build-packages.sh` builds the wheel directly from the current working
 tree. Unlike the release source tarball flow, it does not archive only tracked
-Git files first, so uncommitted changes in `keyforge/`, packaging metadata, and
+Git files first, so uncommitted changes in `keymasq/`, packaging metadata, and
 other referenced files are included in the generated RPM payload.
 
 Build RPMs with:
@@ -393,8 +393,8 @@ nix develop -c bash -lc 'bash scripts/build-packages.sh'
 Typical output:
 
 ```text
-dist/keyforge-0.1.0-1.fedora.x86_64.rpm
-dist/keyforge-0.1.0-1.opensuse.x86_64.rpm
+dist/keymasq-0.1.0-1.fedora.x86_64.rpm
+dist/keymasq-0.1.0-1.opensuse.x86_64.rpm
 ```
 
 If you only provide one compatible build host, the script builds only that RPM
@@ -408,7 +408,7 @@ matching armored public key as `rpm-signing-key.asc` alongside the release
 artifacts. The public key is intended to be mirrored at:
 
 ```text
-https://keyforge.tools/keys/keyforge-rpm-signing-key.asc
+https://keymasq.tools/keys/keymasq-rpm-signing-key.asc
 ```
 
 ## Build environments
@@ -459,7 +459,7 @@ Run the standard source checks first:
 ```
 
 This wrapper runs `ruff`, `basedpyright`, and the selected pytest scope in the
-Nix dev shell. Use `./scripts/check.sh keyforged`, `./scripts/check.sh session`,
+Nix dev shell. Use `./scripts/check.sh keymasqd`, `./scripts/check.sh session`,
 or `./scripts/check.sh gui` for focused local validation, and keep `full` for
 packaging work, shared-code changes, and broad refactors.
 
@@ -482,7 +482,7 @@ Typical Debian verification flow:
 
 ```bash
 dpkg-buildpackage -us -uc -b
-lintian ../keyforge_0.1.0-1_all.deb
+lintian ../keymasq_0.1.0-1_all.deb
 autopkgtest . -- qemu /path/to/debian-autopkgtest.qcow2
 ```
 
@@ -495,7 +495,7 @@ If you need to debug the package inside a guest, install the built `.deb` and
 run the test scripts directly:
 
 ```bash
-sudo apt-get install -y ../keyforge_0.1.0-1_all.deb
+sudo apt-get install -y ../keymasq_0.1.0-1_all.deb
 sudo sh debian/tests/pkg-smoke
 sh debian/tests/installed-cli
 ```

@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-import keyforge.session.manager as session_manager_module
-import keyforge.session.manager.payloads as session_payloads_module
-import keyforge.session.manager.profiles as session_profiles_module
-import keyforge.session.manager.recording as session_recording_module
-from keyforge.common.ipc import CommandType, Response
-from keyforge.common.models import (
+import keymasq.session.manager as session_manager_module
+import keymasq.session.manager.payloads as session_payloads_module
+import keymasq.session.manager.profiles as session_profiles_module
+import keymasq.session.manager.recording as session_recording_module
+from keymasq.common.ipc import CommandType, Response
+from keymasq.common.models import (
     ActionType,
     ComboEvent,
     ComboStep,
@@ -22,8 +22,8 @@ from keyforge.common.models import (
     SuperkeyAction,
     SuperkeyConfig,
 )
-from keyforge.session.manager import SessionManager
-from keyforge.session.profiles import ResolvedCombo, ResolvedDeviceProfile, ResolvedProfiles
+from keymasq.session.manager import SessionManager
+from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile, ResolvedProfiles
 
 __all__ = [
     'asyncio',

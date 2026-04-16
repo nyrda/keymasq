@@ -3,8 +3,8 @@ from tests.gui.support import *
 
 class TestDeviceTabWidget:
     def test_device_tab_creation(self):
-        from keyforge.common.models import ButtonDefinition, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -28,14 +28,14 @@ class TestDeviceTabWidget:
         assert len(tab._button_widgets) == 2
 
     def test_device_tab_initial_profile_selection(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.widgets.device_tab import DeviceTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -67,9 +67,9 @@ class TestDeviceTabWidget:
         assert tab.settings_frame.get_sensitive() is True
 
     def test_device_tab_does_not_start_active_profile_polling(self, monkeypatch):
-        from keyforge.common.models import ButtonDefinition, HardwareConfig
-        from keyforge.gui.widgets import device_tab as device_tab_module
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         def fail_timeout(*args, **kwargs):
             raise AssertionError("DeviceTab should not schedule active profile polling")
@@ -91,14 +91,14 @@ class TestDeviceTabWidget:
         )
 
     def test_device_tab_refresh_profiles_picks_up_new_global_profile(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.widgets.device_tab import DeviceTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -140,7 +140,7 @@ class TestDeviceTabWidget:
         assert tab._selected_profile.config.name == "Gaming"
 
     def test_device_tab_greys_out_overridden_mapping(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ActionType,
             ButtonDefinition,
             DeviceProfileLayer,
@@ -148,8 +148,8 @@ class TestDeviceTabWidget:
             MappingAction,
             ProfileConfig,
         )
-        from keyforge.gui.widgets.device_tab import DeviceTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -217,14 +217,14 @@ class TestDeviceTabWidget:
         assert overlay_widget.has_css_class("button-card-mapped-active") is True
 
     def test_device_tab_always_grab_toggle_persists_selected_layer(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.widgets.device_tab import DeviceTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -262,9 +262,9 @@ class TestDeviceTabWidget:
     ):
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import ButtonDefinition, HardwareConfig
-        from keyforge.gui.widgets import device_tab as device_tab_module
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -344,9 +344,9 @@ class TestDeviceTabWidget:
     ):
         from gi.repository import Adw
 
-        from keyforge.common.models import ButtonDefinition, HardwareConfig
-        from keyforge.gui.widgets import device_tab as device_tab_module
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -413,14 +413,14 @@ class TestDeviceTabWidget:
     ):
         from gi.repository import Gdk
 
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.widgets.device_tab import DeviceTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.session.profiles import ProfileManager
 
         class _Click:
             def __init__(self, button: int) -> None:
@@ -512,7 +512,7 @@ class TestDeviceTabWidget:
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             DeviceType,
@@ -520,8 +520,8 @@ class TestDeviceTabWidget:
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.widgets.device_tab import DeviceTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -594,8 +594,8 @@ class TestDeviceTabWidget:
     ):
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -667,8 +667,8 @@ class TestDeviceTabWidget:
     def test_device_tab_add_keys_capture_read_rejects_wheel_input(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import ButtonDefinition, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -702,8 +702,8 @@ class TestDeviceTabWidget:
     def test_device_tab_duplicate_key_esc_cancels_capture(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -738,8 +738,8 @@ class TestDeviceTabWidget:
     def test_mouse_device_tab_add_inputs_accepts_keyboard_keys(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -791,8 +791,8 @@ class TestDeviceTabWidget:
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gdk, Gtk
 
-        from keyforge.common.models import ButtonDefinition, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -829,8 +829,8 @@ class TestDeviceTabWidget:
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import ButtonDefinition, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -878,8 +878,8 @@ class TestDeviceTabWidget:
     def test_gamepad_device_tab_add_buttons_capture_sets_gamepad_type(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -950,8 +950,8 @@ class TestDeviceTabWidget:
     def test_gamepad_device_tab_rejects_alias_duplicate_by_code(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keyforge.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
 
         class _HardwareManager:
             def save_hardware(self, device: HardwareConfig) -> None:

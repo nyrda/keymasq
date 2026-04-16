@@ -1,6 +1,6 @@
 # GNOME Support
 
-Keyforge supports GNOME 46 and newer through a GNOME Shell extension.
+Keymasq supports GNOME 46 and newer through a GNOME Shell extension.
 
 ## Enable the extension
 
@@ -9,27 +9,27 @@ automatically. You need to enable it once after installation.
 
 If you install the package while already logged into GNOME, the files may be on
 disk before the current GNOME Shell session notices the new extension. In that
-case, `gnome-extensions enable keyforge-bridge@keyforge` can fail with
-`Extension "keyforge-bridge@keyforge" does not exist` even though the files are
+case, `gnome-extensions enable keymasq-bridge@nyrda` can fail with
+`Extension "keymasq-bridge@nyrda" does not exist` even though the files are
 present under `/usr/share/gnome-shell/extensions/`.
 
-For packaged installs, log out and back in once after installing Keyforge so
+For packaged installs, log out and back in once after installing Keymasq so
 GNOME Shell rescans system extensions. Then enable the bridge:
 
 ```bash
-gnome-extensions enable keyforge-bridge@keyforge
+gnome-extensions enable keymasq-bridge@nyrda
 ```
 
 If you want to verify that GNOME Shell sees it before enabling, check:
 
 ```bash
-gnome-extensions info keyforge-bridge@keyforge
+gnome-extensions info keymasq-bridge@nyrda
 ```
 
-After enabling the extension, restart the Keyforge session service:
+After enabling the extension, restart the Keymasq session service:
 
 ```bash
-systemctl --user restart keyforge-session
+systemctl --user restart keymasq-session
 ```
 
 ## Verify
@@ -37,13 +37,13 @@ systemctl --user restart keyforge-session
 Check extension status:
 
 ```bash
-gnome-extensions info keyforge-bridge@keyforge
+gnome-extensions info keymasq-bridge@nyrda
 ```
 
 Watch session logs:
 
 ```bash
-journalctl --user -u keyforge-session -f
+journalctl --user -u keymasq-session -f
 ```
 
 On success, you should see GNOME listener startup and active-window updates
@@ -53,11 +53,11 @@ when switching windows.
 
 GNOME does not expose window information the same way other Wayland compositors
 do. The extension runs inside GNOME Shell and forwards the focused window name
-and pointer position to Keyforge so that window-aware profiles and pointer
+and pointer position to Keymasq so that window-aware profiles and pointer
 features work.
 
 The same bridge also handles GNOME compositor actions. These are allowlisted
-bridge RPCs, not arbitrary shell commands. Keyforge currently supports:
+bridge RPCs, not arbitrary shell commands. Keymasq currently supports:
 
 - `workspace` with `next`, `prev`, or a 1-based workspace number
 - `move_to_workspace` with `next`, `prev`, or a 1-based workspace number
@@ -65,12 +65,12 @@ bridge RPCs, not arbitrary shell commands. Keyforge currently supports:
 - `fullscreen` with `toggle`, `on`, or `off`
 - `maximize` with `toggle`, `on`, or `off`
 
-If the extension is missing or disconnected, Keyforge keeps running but
+If the extension is missing or disconnected, Keymasq keeps running but
 window-based profile activation is unavailable until the extension reconnects.
 GNOME compositor actions are also unavailable until the bridge reconnects.
 
-If Keyforge updates the installed bridge files but your current GNOME session is
-still running the old extension code, Keyforge now shows a warning telling you
+If Keymasq updates the installed bridge files but your current GNOME session is
+still running the old extension code, Keymasq now shows a warning telling you
 to log out and back in. That reloads GNOME Shell and starts the updated bridge.
 
 ## Manual install from checkout
@@ -80,7 +80,7 @@ extension into your user extension directory first. If GNOME Shell does not see
 it immediately, log out and back in before enabling it:
 
 ```bash
-mkdir -p ~/.local/share/gnome-shell/extensions/keyforge-bridge@keyforge
-cp -r gnome-extension/keyforge-bridge@keyforge/* ~/.local/share/gnome-shell/extensions/keyforge-bridge@keyforge/
-gnome-extensions enable keyforge-bridge@keyforge
+mkdir -p ~/.local/share/gnome-shell/extensions/keymasq-bridge@nyrda
+cp -r gnome-extension/keymasq-bridge@nyrda/* ~/.local/share/gnome-shell/extensions/keymasq-bridge@nyrda/
+gnome-extensions enable keymasq-bridge@nyrda
 ```

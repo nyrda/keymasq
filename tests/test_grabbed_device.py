@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import evdev
 import pytest
 
-from keyforge.keyforged.output_helpers import resolve_output_code
-from keyforge.keyforged.runtime import grabbed_device as gdm
-from keyforge.keyforged.runtime import grabbed_device_outputs as gdo
-from keyforge.keyforged.runtime import grabbed_device_repeat as gdr
-from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
+from keymasq.keymasqd.output_helpers import resolve_output_code
+from keymasq.keymasqd.runtime import grabbed_device as gdm
+from keymasq.keymasqd.runtime import grabbed_device_outputs as gdo
+from keymasq.keymasqd.runtime import grabbed_device_repeat as gdr
+from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
 
 
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")

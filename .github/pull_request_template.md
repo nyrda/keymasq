@@ -6,7 +6,7 @@
 ## Testing
 
 - [ ] `python -m pytest tests/ -v`
-- [ ] `ruff check keyforge tests`
+- [ ] `ruff check keymasq tests`
 - [ ] `basedpyright`
 
 ## Notes

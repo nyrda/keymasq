@@ -85,7 +85,7 @@ Python evdev is perfectly acceptable for:
 3. This is 20-60x below human perception
 4. Kernel syscall overhead dominates, not Python
 
-The keyforge implementation using Python evdev is well-suited for its purpose. The latency introduced by Python is negligible compared to:
+The keymasq implementation using Python evdev is well-suited for its purpose. The latency introduced by Python is negligible compared to:
 - USB polling intervals (1000 us)
 - Display latency (5000-20000 us)
 - Human reaction time (100000+ us)

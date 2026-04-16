@@ -1,42 +1,42 @@
 # Security Model
 
-Keyforge uses a two-broker design:
+Keymasq uses a two-broker design:
 
-- `keyforged`: privileged daemon for evdev/uinput, macro storage, recording, and capture
-- `keyforge-session`: per-user broker for GUI/CLI requests, profile logic, and compositor integration
+- `keymasqd`: privileged daemon for evdev/uinput, macro storage, recording, and capture
+- `keymasq-session`: per-user broker for GUI/CLI requests, profile logic, and compositor integration
 
 GUI and CLI do not access kernel input devices directly.
 
 ## Target Environment
 
-Keyforge is designed for single-user Linux desktops. The default security policy reflects this: open access with optional hardening via ACL and UID allowlists for multi-user systems.
+Keymasq is designed for single-user Linux desktops. The default security policy reflects this: open access with optional hardening via ACL and UID allowlists for multi-user systems.
 
 ## Connection Chain
 
 The runtime forms a single-connection chain:
 
-    GUI/CLI  -->  keyforge-session  -->  keyforged
+    GUI/CLI  -->  keymasq-session  -->  keymasqd
 
 Each link accepts exactly one upstream connection at a time:
 
-- `keyforged` accepts one `keyforge-session` connection. A second session is rejected while the first is alive.
-- `keyforge-session` is the sole bridge between GUI/CLI clients and the daemon.
-- GUI and CLI talk only to `keyforge-session`, never directly to `keyforged`.
+- `keymasqd` accepts one `keymasq-session` connection. A second session is rejected while the first is alive.
+- `keymasq-session` is the sole bridge between GUI/CLI clients and the daemon.
+- GUI and CLI talk only to `keymasq-session`, never directly to `keymasqd`.
 
 This means there is always a single linear path from GUI to hardware. No parallel connections can issue competing privileged commands.
 
 ## Trust Boundaries
 
-1. GUI/CLI -> `keyforge-session` over the per-user session socket
-2. `keyforge-session` -> `keyforged` over the daemon socket
+1. GUI/CLI -> `keymasq-session` over the per-user session socket
+2. `keymasq-session` -> `keymasqd` over the daemon socket
 
 Both layers enforce authorization. Session-side checks are not advisory; daemon-side checks remain the final authority.
 
 ## Privileged Helper Path Pinning
 
-The GUI recording unlock flow uses `pkexec` to run the `keyforge-record` helper.
+The GUI recording unlock flow uses `pkexec` to run the `keymasq-record` helper.
 
-- Keyforge does not resolve that helper from `$PATH` during privileged execution
+- Keymasq does not resolve that helper from `$PATH` during privileged execution
 - The helper path is treated as a trusted absolute executable path
 - The Polkit rule pins the same executable via `org.freedesktop.policykit.exec.path`
 - Package builds may substitute a different absolute path, but the runtime helper path and Polkit path must match exactly
@@ -45,13 +45,13 @@ This is intentional. Allowing `$PATH` lookup for the `pkexec` target would weake
 
 In practice:
 
-- traditional distro packages use `/usr/bin/keyforge-record`
+- traditional distro packages use `/usr/bin/keymasq-record`
 - Nix/NixOS builds stamp the helper to the package store path
 - both remain safe because the elevated path is fixed by the package, not chosen from the caller's environment
 
 ## Daemon Single-Owner Model
 
-`keyforged` allows exactly one active session-side client connection at a time.
+`keymasqd` allows exactly one active session-side client connection at a time.
 
 - The first accepted daemon client becomes the active owner (`uid`, `pid`, `connection_id`).
 - Additional daemon client connections are denied while that owner is alive.
@@ -61,7 +61,7 @@ This prevents a second local process from concurrently issuing privileged daemon
 
 ## Peer Identity and ACL
 
-On each accepted Unix socket connection, Keyforge reads `SO_PEERCRED` (`pid`, `uid`, `gid`).
+On each accepted Unix socket connection, Keymasq reads `SO_PEERCRED` (`pid`, `uid`, `gid`).
 
 Authorization is then layered as:
 
@@ -73,7 +73,7 @@ This prevents bypass when a local process attempts to talk directly to the daemo
 
 ## Recording Guard
 
-Keyforge treats recording and capture features as sensitive because they can observe original input.
+Keymasq treats recording and capture features as sensitive because they can observe original input.
 
 - Tier 1: recording and capture commands require an active unlock lease by default
 - Unlock is per-user and time-bounded by default
@@ -90,10 +90,10 @@ If `macro_edit_requires_unlock = true`, macro inspection and edit operations are
 Runtime unlock refresh is bound to the same GUI process and same socket connection:
 
 1. GUI performs the initial unlock
-2. GUI claims a refresh lease from `keyforge-session`
-3. GUI periodically refreshes that lease through `keyforge-session`
-4. `keyforge-session` forwards refresh to `keyforged`
-5. `keyforged` extends the runtime lease expiry directly
+2. GUI claims a refresh lease from `keymasq-session`
+3. GUI periodically refreshes that lease through `keymasq-session`
+4. `keymasq-session` forwards refresh to `keymasqd`
+5. `keymasqd` extends the runtime lease expiry directly
 
 Ownership is checked at both hops:
 
@@ -103,8 +103,8 @@ Ownership is checked at both hops:
 If the owner process or connection changes, refresh is rejected and the runtime unlock is actively cleared by the next lower layer:
 
 - On normal GUI shutdown, the owner explicitly locks the runtime unlock.
-- If the GUI disconnects or crashes, `keyforge-session` clears the runtime unlock for that UID when the last same-UID session client disappears.
-- If `keyforge-session` disconnects or crashes, `keyforged` clears all runtime unlock files before releasing devices.
+- If the GUI disconnects or crashes, `keymasq-session` clears the runtime unlock for that UID when the last same-UID session client disappears.
+- If `keymasq-session` disconnects or crashes, `keymasqd` clears all runtime unlock files before releasing devices.
 
 The runtime TTL remains a bounded fallback, but normal and abnormal disconnect paths now clean up the runtime unlock immediately instead of waiting for expiry.
 
@@ -136,7 +136,7 @@ If an owner already exists for that UID, the same process and connection must co
 
 Combo recording uses the same guarded original-input path as recording and capture.
 
-- Combo capture is performed by `keyforged`, not by GUI key events
+- Combo capture is performed by `keymasqd`, not by GUI key events
 - It observes raw original-input events from the hardware interfaces associated with the selected profile
 - It requires the caller to already hold the active recording owner chain
 - `CaptureManager.begin_combo()` additionally requires a one-shot daemon-issued authorization capability
@@ -169,7 +169,7 @@ This keeps compositor-specific control inside the listener boundary instead of t
 
 Security policy path:
 
-`/etc/keyforge/security.toml`
+`/etc/keymasq/security.toml`
 
 Relevant controls:
 
@@ -187,7 +187,7 @@ Relevant controls:
 
 Empty UID allowlists mean no UID restriction. This is the default and is appropriate for single-user desktops. On multi-user systems, populate `daemon_allowed_uids` and `session_allowed_uids` to restrict access to specific users.
 
-`session_command_acl` applies to the single session-side client class: `client`. The session socket is a same-user endpoint, so Keyforge does not model GUI and CLI as separate enforceable trust classes there.
+`session_command_acl` applies to the single session-side client class: `client`. The session socket is a same-user endpoint, so Keymasq does not model GUI and CLI as separate enforceable trust classes there.
 
 ACL entries are deny rules only. Supported forms: `!command`, `-command`, or `deny:command`. Commands not explicitly denied are allowed. Positive entries (entries without a deny prefix) are ignored.
 
@@ -229,10 +229,10 @@ you without a usable pointer button in the desktop UI.
 
 ## Socket Paths
 
-- daemon socket: `/run/keyforge/socket` (mode `0o666`)
-- session socket: `/run/user/<uid>/keyforge/session.sock` (mode `0o600`)
+- daemon socket: `/run/keymasq/socket` (mode `0o666`)
+- session socket: `/run/user/<uid>/keymasq/session.sock` (mode `0o600`)
 
-The daemon socket is world-accessible because `keyforged` starts as a system service before any user session exists. Any user's `keyforge-session` must be able to connect and claim ownership. Access control is not enforced at the filesystem level but through the single-owner model: once a session claims the daemon, all other connections are rejected. On multi-user systems, use `daemon_allowed_uids` to restrict which UIDs may connect.
+The daemon socket is world-accessible because `keymasqd` starts as a system service before any user session exists. Any user's `keymasq-session` must be able to connect and claim ownership. Access control is not enforced at the filesystem level but through the single-owner model: once a session claims the daemon, all other connections are rejected. On multi-user systems, use `daemon_allowed_uids` to restrict which UIDs may connect.
 
 The session socket is restricted to the owning user via `XDG_RUNTIME_DIR` permissions and explicit `0o700` on the socket directory.
 
@@ -253,13 +253,13 @@ The effective security model is:
 
 ## Diagnostics Mode
 
-Keyforged includes an optional diagnostics mode for internal latency measurement.
+Keymasqd includes an optional diagnostics mode for internal latency measurement.
 
-- Enable: `keyforge diagnostics on --interval 5`
-- Disable: `keyforge diagnostics off`
+- Enable: `keymasq diagnostics on --interval 5`
+- Disable: `keymasq diagnostics off`
 
-When enabled, keyforged logs periodic latency stats (`p50`, `p95`, `p99`, `max`) for internal event buckets.
+When enabled, keymasqd logs periodic latency stats (`p50`, `p95`, `p99`, `max`) for internal event buckets.
 
 View logs with:
 
-`journalctl -u keyforged -f`
+`journalctl -u keymasqd -f`

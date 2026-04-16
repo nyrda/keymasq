@@ -3,8 +3,8 @@ set -euo pipefail
 
 workspace_dir="${1:-/workspace}"
 dist_dir="${2:-$workspace_dir/dist/arch}"
-repo_copy="/tmp/keyforge"
-build_dir="/tmp/keyforge-aur-build"
+repo_copy="/tmp/keymasq"
+build_dir="/tmp/keymasq-aur-build"
 
 rm -rf "$repo_copy" "$build_dir"
 cp -a "$workspace_dir" "$repo_copy"
@@ -22,7 +22,7 @@ runuser -u builder -- bash -lc '
 
     cd "'"$repo_copy"'"
 
-    pkgver="${KEYFORGE_PKGVER_OVERRIDE:-$(
+    pkgver="${KEYMASQ_PKGVER_OVERRIDE:-$(
         python3 - <<'"'"'PY'"'"'
 from pathlib import Path
 import tomllib
@@ -32,7 +32,7 @@ print(data["project"]["version"])
 PY
     )}"
 
-    archive_path="'"$repo_copy"'/dist/keyforge-${pkgver}.tar.gz"
+    archive_path="'"$repo_copy"'/dist/keymasq-${pkgver}.tar.gz"
     archive_sha256="$(sha256sum "$archive_path" | awk '"'"'{print $1}'"'"')"
 
     python3 packaging/pacman/render.py \
@@ -41,7 +41,7 @@ PY
         --aur-sha256 "$archive_sha256"
 
     mkdir -p "'"$build_dir"'"
-    cp packaging/aur/PKGBUILD packaging/aur/keyforge.install packaging/aur/.SRCINFO "'"$build_dir"'/"
+    cp packaging/aur/PKGBUILD packaging/aur/keymasq.install packaging/aur/.SRCINFO "'"$build_dir"'/"
 
     cd "'"$build_dir"'"
     makepkg --nodeps --noconfirm --cleanbuild --clean

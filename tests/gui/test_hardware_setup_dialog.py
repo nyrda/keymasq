@@ -6,7 +6,7 @@ class TestHardwareSetupDialog:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
@@ -34,7 +34,7 @@ class TestHardwareSetupDialog:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
@@ -65,15 +65,15 @@ class TestHardwareSetupDialog:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.common.models import DeviceType
-        from keyforge.gui.wizards import hardware_setup as hardware_setup_mod
-        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
         session_devices = [
             {
                 "path": "/dev/input/event22",
-                "name": "keyforge-gamepad",
+                "name": "keymasq-gamepad",
                 "phys": "py-evdev-uinput",
                 "vendor_id": "045e",
                 "product_id": "028e",
@@ -139,9 +139,9 @@ class TestHardwareSetupDialog:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.common.models import DeviceType
-        from keyforge.gui.wizards import hardware_setup as hardware_setup_mod
-        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
         session_devices = [
@@ -209,8 +209,8 @@ class TestHardwareSetupDialog:
         import evdev
         from gi.repository import Gtk
 
-        from keyforge.common.models import DeviceType
-        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -269,8 +269,8 @@ class TestHardwareSetupDialog:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.common.models import DeviceType
-        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -344,7 +344,7 @@ class TestHardwareSetupDialog:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
@@ -358,8 +358,8 @@ def test_keyboard_device_tab_prepends_extra_buttons_section():
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-    from keyforge.gui.widgets.device_tab import DeviceTab
+    from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.gui.widgets.device_tab import DeviceTab
 
     def child_widgets(widget):
         items = []

@@ -8,7 +8,7 @@ fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PACKAGE_PATH="$1"
-SIGNING_KEY_PATH="${KEYFORGE_RPM_SIGNING_PUBLIC_KEY_PATH:-}"
+SIGNING_KEY_PATH="${KEYMASQ_RPM_SIGNING_PUBLIC_KEY_PATH:-}"
 
 if [[ ! -f "$PACKAGE_PATH" ]]; then
     echo "package not found: $PACKAGE_PATH" >&2

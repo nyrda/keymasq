@@ -3,8 +3,8 @@ from tests.gui.support import *
 
 class TestMainWindow:
     def test_main_window_seeds_default_profile_for_first_device(self, temp_config_dir):
-        from keyforge.common.models import ButtonDefinition, HardwareConfig
-        from keyforge.gui.window import MainWindow
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
 
@@ -26,13 +26,13 @@ class TestMainWindow:
         assert tab.settings_frame.get_sensitive() is True
 
     def test_main_window_demo_mode(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
 
@@ -92,13 +92,13 @@ class TestMainWindow:
         assert tab2._selected_profile.config.name == "Profile 2"
 
     def test_main_window_syncs_manual_profile_selection_across_tabs(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -158,15 +158,15 @@ class TestMainWindow:
         assert tab2._selected_profile.config.name == "Desktop"
 
     def test_main_window_startup_probe_applies_compositor_state_and_devices(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
             WindowRule,
         )
-        from keyforge.gui.session_client import GuiTaskResult
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.session_client import GuiTaskResult
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -220,13 +220,13 @@ class TestMainWindow:
         assert device_tab._selected_profile.config.name == "Desktop"
 
     def test_main_window_profiles_changed_event_updates_tabs_without_polling(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -278,16 +278,16 @@ class TestMainWindow:
         temp_config_dir,
         monkeypatch,
     ):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui import window as window_module
-        from keyforge.gui.session_client import GuiTaskResult
-        from keyforge.gui.window import MainWindow
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui import window as window_module
+        from keymasq.gui.session_client import GuiTaskResult
+        from keymasq.gui.window import MainWindow
+        from keymasq.session.profiles import ProfileManager
 
         monkeypatch.setattr(
             window_module,
@@ -341,8 +341,8 @@ class TestMainWindow:
     def test_main_window_destroy_removes_repeating_timeout_sources(
         self, temp_config_dir, monkeypatch
     ):
-        from keyforge.gui import window as window_module
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
 
         removed: list[int] = []
         registered: list[tuple[str, object]] = []
@@ -376,13 +376,13 @@ class TestMainWindow:
         assert unregistered == [("*", window._on_session_event)]
 
     def test_main_window_status_error_keeps_last_runtime_profile_state(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -424,7 +424,7 @@ class TestMainWindow:
         assert tab.status_label.get_text() == "active"
 
     def test_main_window_partial_runtime_state_preserves_omitted_keys(self, temp_config_dir):
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window._apply_profile_runtime_state(
@@ -441,7 +441,7 @@ class TestMainWindow:
         finished = window._on_status_response(
             {
                 "status": "ok",
-                "keyforged_connected": True,
+                "keymasqd_connected": True,
                 "recording_unlocked": False,
                 "recording_unlock_required": True,
                 "recording_unlock_source": "none",
@@ -458,20 +458,20 @@ class TestMainWindow:
         assert window._profile_runtime_state["window"] == {"class": "steam"}
 
     def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window._status_query_id = 1
         window._status_query_inflight = True
         window._on_destroy()
 
-        finished = window._on_status_response({"status": "ok", "keyforged_connected": True}, 1)
+        finished = window._on_status_response({"status": "ok", "keymasqd_connected": True}, 1)
 
         assert finished is False
         assert window._status_query_inflight is True
 
     def test_main_window_shows_warning_banner_even_when_compositor_supported(self):
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -491,7 +491,7 @@ class TestMainWindow:
     def test_main_window_apply_loaded_devices_updates_empty_state_and_demo_devices(
         self, temp_config_dir
     ):
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=False)
 
@@ -515,7 +515,7 @@ class TestMainWindow:
     def test_main_window_status_response_updates_labels_for_all_status_paths(
         self, temp_config_dir, monkeypatch
     ):
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         issues: list[str | None] = []
@@ -530,28 +530,28 @@ class TestMainWindow:
 
         window._status_query_id = 3
         window._status_query_inflight = True
-        assert window._on_status_response({"status": "ok", "keyforged_connected": True}, 2) is False
+        assert window._on_status_response({"status": "ok", "keymasqd_connected": True}, 2) is False
         assert window._status_query_inflight is True
         assert unlock_updates == []
         assert issues == []
 
-        assert window._on_status_response({"status": "ok", "keyforged_connected": True}, 3) is False
+        assert window._on_status_response({"status": "ok", "keymasqd_connected": True}, 3) is False
         assert window.session_status.get_label() == "session: 🟢"
-        assert window.keyforged_status.get_label() == "keyforged: 🟢"
-        assert unlock_updates[-1] == {"status": "ok", "keyforged_connected": True}
+        assert window.keymasqd_status.get_label() == "keymasqd: 🟢"
+        assert unlock_updates[-1] == {"status": "ok", "keymasqd_connected": True}
         assert issues[-1] is None
 
         window._status_query_inflight = True
         assert (
-            window._on_status_response({"status": "ok", "keyforged_connected": False}, 3) is False
+            window._on_status_response({"status": "ok", "keymasqd_connected": False}, 3) is False
         )
         assert window.session_status.get_label() == "session: 🟡"
-        assert window.keyforged_status.get_label() == "keyforged: 🔴"
-        assert issues[-1] == "keyforged"
+        assert window.keymasqd_status.get_label() == "keymasqd: 🔴"
+        assert issues[-1] == "keymasqd"
 
         window._status_query_inflight = True
         assert window._on_status_response(None, 3) is False
         assert window.session_status.get_label() == "session: 🔴"
-        assert window.keyforged_status.get_label() == "keyforged: ⚪"
+        assert window.keymasqd_status.get_label() == "keymasqd: ⚪"
         assert unlock_updates[-1] is None
         assert issues[-1] == "session"

@@ -1,11 +1,11 @@
-{ pkgs, system, keyforgePackage, keyforgeModule, source }:
+{ pkgs, system, keymasqPackage, keymasqModule, source }:
 
 let
   lib = pkgs.lib;
-  vmUser = "keyforgevm";
+  vmUser = "keymasqvm";
   vmUid = 1000;
   runtimeDir = "/run/user/${toString vmUid}";
-  worktreeDir = "/tmp/keyforge-src";
+  worktreeDir = "/tmp/keymasq-src";
   sessionEnvFile = "/home/${vmUser}/.pytest-vm-session-env";
   testPython = pkgs.python3.withPackages (
     ps: with ps; [
@@ -20,7 +20,7 @@ let
     ]
   );
   pytestRunner = pkgs.stdenvNoCC.mkDerivation {
-    pname = "keyforge-pytest-vm-runner";
+    pname = "keymasq-pytest-vm-runner";
     version = "1";
     dontUnpack = true;
 
@@ -45,7 +45,7 @@ let
 
     installPhase = ''
       mkdir -p "$out/bin"
-      cat > "$out/bin/keyforge-pytest-vm" <<'EOF'
+      cat > "$out/bin/keymasq-pytest-vm" <<'EOF'
 #!${pkgs.bash}/bin/bash
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
@@ -56,7 +56,7 @@ else
 fi
 exec ${testPython}/bin/python -m pytest "$@"
 EOF
-      chmod +x "$out/bin/keyforge-pytest-vm"
+      chmod +x "$out/bin/keymasq-pytest-vm"
     '';
   };
   userCommand =
@@ -76,7 +76,7 @@ in
       nodes.machine =
         { ... }:
         {
-          imports = [ keyforgeModule ];
+          imports = [ keymasqModule ];
 
           documentation.nixos.enable = false;
 
@@ -92,7 +92,7 @@ in
 
           boot.kernelModules = [ "uinput" ];
 
-          services.keyforge = {
+          services.keymasq = {
             enable = true;
             securityConfig = {
               daemon_allowed_uids = [ vmUid ];
@@ -129,7 +129,7 @@ in
           programs.dconf.enable = true;
 
           environment.systemPackages = [
-            keyforgePackage
+            keymasqPackage
             pytestRunner
             testPython
             pkgs.gobject-introspection
@@ -148,7 +148,7 @@ in
 
         pytest_output_path = "/tmp/pytest-vm-output.log"
         pytest_status_path = "/tmp/pytest-vm-exit.txt"
-        pytest_mark_expr = os.environ.get("KEYFORGE_PYTEST_MARK_EXPR", "").strip()
+        pytest_mark_expr = os.environ.get("KEYMASQ_PYTEST_MARK_EXPR", "").strip()
         pytest_mark_args = (
             " -m " + shlex.quote(pytest_mark_expr)
             if pytest_mark_expr
@@ -228,7 +228,7 @@ in
                 "cd ${worktreeDir} && "
                 "rm -f /tmp/pytest-vm-output.log /tmp/pytest-vm-exit.txt && "
                 "set +e; "
-                "${pytestRunner}/bin/keyforge-pytest-vm tests/ -q -ra"
+                "${pytestRunner}/bin/keymasq-pytest-vm tests/ -q -ra"
                 + pytest_mark_args
                 + " > /tmp/pytest-vm-output.log 2>&1; "
                 "status=$?; "

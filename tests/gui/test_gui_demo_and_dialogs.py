@@ -3,7 +3,7 @@ from tests.gui.support import *
 
 class TestDemoDevice:
     def test_demo_device_creation(self):
-        from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
 
         demo_device = HardwareConfig(
             vendor_id="1234",
@@ -25,7 +25,7 @@ class TestDemoDevice:
         assert len(demo_device.buttons) == 2
 
     def test_demo_profile_mapping(self):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ActionType,
             DeviceProfileLayer,
             MappingAction,
@@ -58,7 +58,7 @@ class TestRecordMacroDialog:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.gui.widgets.record_macro_dialog import RecordMacroDialog
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 
         monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
 
@@ -102,7 +102,7 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
 
         dialog = SuperkeyDialog(Gtk.Window())
 
@@ -113,9 +113,9 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keyforge.common.models import ActionType, SuperkeyAction
-        import keyforge.gui.widgets.key_selector_dialog as key_selector_dialog_module
-        from keyforge.gui.widgets.superkey_dialog import ActionListDialog
+        from keymasq.common.models import ActionType, SuperkeyAction
+        import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
+        from keymasq.gui.widgets.superkey_dialog import ActionListDialog
 
         captured: dict[str, object] = {}
 
@@ -156,8 +156,8 @@ class TestDialogConstruction:
         }
 
     def test_pattern_superkey_action_summary_formats_without_label_rewrite(self):
-        from keyforge.common.models import ActionType, SuperkeyAction
-        from keyforge.gui.widgets.superkey_dialog import _describe_pattern_superkey_action
+        from keymasq.common.models import ActionType, SuperkeyAction
+        from keymasq.gui.widgets.superkey_dialog import _describe_pattern_superkey_action
 
         label = _describe_pattern_superkey_action(
             SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
@@ -187,7 +187,7 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
 
-        from keyforge.gui.widgets.macro_manager_dialog import MacroManagerDialog
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
 
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
 
@@ -200,8 +200,8 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
 
-        import keyforge.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
-        from keyforge.gui.widgets.macro_manager_dialog import MacroManagerDialog
+        import keymasq.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
 
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
 

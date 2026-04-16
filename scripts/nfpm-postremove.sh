@@ -14,11 +14,11 @@ if [ "${1:-0}" -ne 0 ]; then
 fi
 
 echo ""
-echo "Keyforge has been removed."
+echo "Keymasq has been removed."
 echo ""
-echo "The 'keyforge' user and group have been preserved."
+echo "The 'keymasq' user and group have been preserved."
 echo "To remove them:"
-echo "  sudo userdel keyforge"
-echo "  sudo groupdel keyforge"
+echo "  sudo userdel keymasq"
+echo "  sudo groupdel keymasq"
 echo ""
-echo "Configuration files remain in: /etc/keyforge/"
+echo "Configuration files remain in: /etc/keymasq/"

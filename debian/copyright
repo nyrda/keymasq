@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: keyforge
-Source: https://github.com/nyrda/keyforge
+Upstream-Name: keymasq
+Source: https://github.com/nyrda/keymasq
 
 Files: *
 Copyright: 2026 nyrda

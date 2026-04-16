@@ -1,6 +1,6 @@
 # Contributing
 
-Keyforge accepts focused contributions that preserve the current architecture and
+Keymasq accepts focused contributions that preserve the current architecture and
 security model.
 
 ## Before You Start
@@ -21,14 +21,14 @@ The expected local quality gates are:
 
 ```bash
 python -m pytest tests/ -v
-ruff check keyforge tests
+ruff check keymasq tests
 basedpyright
 ```
 
 ## Contribution Expectations
 
 - Keep changes local unless the task genuinely requires a broader refactor.
-- Preserve the split between `keyforged`, `keyforge-session`, and the GTK UI.
+- Preserve the split between `keymasqd`, `keymasq-session`, and the GTK UI.
 - Keep compositor-specific behavior modular.
 - Do not weaken recording or combo-capture security checks.
 - Update the relevant `docs/*.md` file when user-visible behavior or security semantics change.

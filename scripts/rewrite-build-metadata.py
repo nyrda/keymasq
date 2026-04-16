@@ -54,8 +54,8 @@ def _build_rules(
         rules.append(
             RewriteRule(
                 root / "debian/changelog",
-                re.compile(r"(?m)^keyforge \([^)]+\)"),
-                f"keyforge ({debian_version})",
+                re.compile(r"(?m)^keymasq \([^)]+\)"),
+                f"keymasq ({debian_version})",
             )
         )
 

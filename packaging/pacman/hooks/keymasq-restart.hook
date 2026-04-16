@@ -1,0 +1,19 @@
+# Optional pacman hook for Keymasq upgrades.
+#
+# Purpose:
+#   Restart keymasqd and keymasq-session automatically after keymasq upgrades.
+#
+# Install:
+#   sudo install -Dm644 packaging/pacman/hooks/keymasq-restart.hook \
+#     /etc/pacman.d/hooks/90-keymasq-restart.hook
+
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = keymasq
+
+[Action]
+Description = Restarting keymasq services after keymasq upgrade
+When = PostTransaction
+Exec = /usr/lib/keymasq/restart-services.sh

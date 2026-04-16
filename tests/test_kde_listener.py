@@ -1,7 +1,7 @@
 import asyncio
 
-from keyforge.session.listeners import kde as kde_listener_module
-from keyforge.session.listeners.kde import (
+from keymasq.session.listeners import kde as kde_listener_module
+from keymasq.session.listeners.kde import (
     KDE_DISPATCH_METHODS,
     KDEListener,
     has_kde_wayland_support,
@@ -226,4 +226,4 @@ def test_dispatch_runs_one_shot_kwin_script(monkeypatch, tmp_path) -> None:
     assert ok is True
     assert message == "ok"
     assert listener._dispatch_waiters == {}
-    assert unloaded == [f"keyforge-kde-dispatch-{kde_listener_module.os.getpid()}-abc12345"]
+    assert unloaded == [f"keymasq-kde-dispatch-{kde_listener_module.os.getpid()}-abc12345"]

@@ -1,0 +1,8 @@
+{
+  "uuid": "keymasq-bridge@nyrda",
+  "name": "Keymasq Bridge",
+  "description": "Bridge active window and pointer data to keymasq-session",
+  "shell-version": ["46", "47", "48", "49", "50"],
+  "version": 1,
+  "url": "https://github.com/nyrda/keymasq"
+}

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import evdev
 import pytest
 
-from keyforge.keyforged.superkey_state import (
+from keymasq.keymasqd.superkey_state import (
     SuperkeyActionData,
     SuperkeyConfig,
     SuperkeyMachine,

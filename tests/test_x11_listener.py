@@ -1,8 +1,8 @@
 import inspect
 from types import SimpleNamespace
 
-from keyforge.session.listeners import x11 as x11_listener_module
-from keyforge.session.listeners.x11 import X11Listener
+from keymasq.session.listeners import x11 as x11_listener_module
+from keymasq.session.listeners.x11 import X11Listener
 
 
 def test_x11_handle_event_syncs_on_active_window_property(monkeypatch) -> None:

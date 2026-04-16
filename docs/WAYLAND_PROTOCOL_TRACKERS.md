@@ -4,7 +4,7 @@ This document describes the reusable async trackers for event-driven active-wind
 
 ## Purpose
 
-Keyforge includes two protocol-level tracker libraries that compositor-specific listeners can reuse:
+Keymasq includes two protocol-level tracker libraries that compositor-specific listeners can reuse:
 
 - `ExtForeignToplevelListTracker`
 - `WlrForeignToplevelManagerTracker`
@@ -17,11 +17,11 @@ Both trackers provide a shared model for:
 
 ## Location
 
-- `keyforge/session/wayland_protocols/ext_foreign_toplevel_list.py`
-- `keyforge/session/wayland_protocols/ext_foreign_toplevel_list_client.py`
-- `keyforge/session/wayland_protocols/wlr_foreign_toplevel_manager.py`
-- `keyforge/session/wayland_protocols/wlr_foreign_toplevel_client.py`
-- `keyforge/session/wayland_protocols/__init__.py`
+- `keymasq/session/wayland_protocols/ext_foreign_toplevel_list.py`
+- `keymasq/session/wayland_protocols/ext_foreign_toplevel_list_client.py`
+- `keymasq/session/wayland_protocols/wlr_foreign_toplevel_manager.py`
+- `keymasq/session/wayland_protocols/wlr_foreign_toplevel_client.py`
+- `keymasq/session/wayland_protocols/__init__.py`
 
 ## Shared Behavior
 
@@ -67,7 +67,7 @@ Compositor/protocol adapters should:
 
 1. create one tracker instance
 2. map protocol callbacks to tracker update methods
-3. run an async task that awaits `next_active_window()` and forwards updates into Keyforge listener callback flow
+3. run an async task that awaits `next_active_window()` and forwards updates into Keymasq listener callback flow
 
 Example shape:
 

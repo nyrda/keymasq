@@ -9,8 +9,8 @@ rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
 DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -us -uc -b
-lintian ../keyforge_*.deb
+lintian ../keymasq_*.deb
 
-cp -f ../keyforge_*.deb "$DIST_DIR"/
-cp -f ../keyforge_*.changes "$DIST_DIR"/
-cp -f ../keyforge_*.buildinfo "$DIST_DIR"/
+cp -f ../keymasq_*.deb "$DIST_DIR"/
+cp -f ../keymasq_*.changes "$DIST_DIR"/
+cp -f ../keymasq_*.buildinfo "$DIST_DIR"/

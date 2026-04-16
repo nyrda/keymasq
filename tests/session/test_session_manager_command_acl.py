@@ -64,7 +64,7 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
         )
         return True
 
-    monkeypatch.setattr("keyforge.session.manager.commands.command_allowed", fake_command_allowed)
+    monkeypatch.setattr("keymasq.session.manager.commands.command_allowed", fake_command_allowed)
     monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
 
     result = await manager._handle_session_request(

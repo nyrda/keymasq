@@ -1,8 +1,0 @@
-{
-  "uuid": "keyforge-bridge@keyforge",
-  "name": "Keyforge Bridge",
-  "description": "Bridge active window and pointer data to keyforge-session",
-  "shell-version": ["46", "47", "48", "49", "50"],
-  "version": 1,
-  "url": "https://github.com/nyrda/keyforge"
-}

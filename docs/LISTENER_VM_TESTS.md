@@ -1,6 +1,6 @@
 # Listener VM Tests
 
-Keyforge includes a NixOS VM matrix for listener integration tests.
+Keymasq includes a NixOS VM matrix for listener integration tests.
 
 ## Support Status
 
@@ -50,13 +50,13 @@ dedicated listener VM coverage in this matrix:
 Each desktop test validates:
 
 1. **Compositor detection** — `get_compositor` returns the correct compositor ID.
-2. **Listener startup** — `keyforge-session` starts and the compositor-specific listener becomes active.
+2. **Listener startup** — `keymasq-session` starts and the compositor-specific listener becomes active.
 3. **Window open** — a GTK4 window is opened via `window-lab`; the listener reports its title.
 4. **Focus switching** — a second window is opened, then focus moves back to the first; the listener tracks each change.
 5. **Title change** — an existing window is retitled; the listener picks up the new title.
 6. **Window close** — a window is closed; the listener reports focus moving to the remaining window.
 7. **Cursor position** — where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
-8. **Listener-scoped dispatch** — compositor-specific tests can trigger a compositor dispatch through Keyforge and verify the observable result.
+8. **Listener-scoped dispatch** — compositor-specific tests can trigger a compositor dispatch through Keymasq and verify the observable result.
 
 The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, Sway, and Niri. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
 
@@ -81,9 +81,9 @@ These tests are heavy. A Linux host with KVM acceleration is strongly recommende
 
 The VM environments install:
 
-- `keyforge-session-query` — sends commands to the session socket and prints the JSON response.
-- `keyforge-listener-window-lab` — small GTK4 app controlled over a Unix socket.
-- `keyforge-listener-window-labctl` — CLI client for `window-lab`.
+- `keymasq-session-query` — sends commands to the session socket and prints the JSON response.
+- `keymasq-listener-window-lab` — small GTK4 app controlled over a Unix socket.
+- `keymasq-listener-window-labctl` — CLI client for `window-lab`.
 
 `window-lab` gives the test real desktop windows to observe without depending on compositor-specific tooling:
 
@@ -97,7 +97,7 @@ The VM environments install:
 
 ### GNOME
 
-The GNOME VM installs and enables the `keyforge-bridge@keyforge` Shell extension automatically. The GNOME listener depends on that bridge for active-window and pointer updates.
+The GNOME VM installs and enables the `keymasq-bridge@nyrda` Shell extension automatically. The GNOME listener depends on that bridge for active-window and pointer updates.
 
 **Focus and title tracking**: GNOME Wayland has aggressive focus-stealing prevention. GTK's `window.present()` is not sufficient to programmatically switch focus. The bridge extension handles this by:
 
@@ -114,21 +114,21 @@ The `activate_title` bridge command is used by the GNOME VM test to switch focus
 - `focus_changed` messages
 - pointer request/response
 
-The full `listener-vm-gnome` test exercises the keyforge-session GNOME listener end-to-end (compositor detection → bridge connection → window tracking → cursor position). The two tests are separate to avoid socket conflicts between the probe and `keyforge-session`.
+The full `listener-vm-gnome` test exercises the keymasq-session GNOME listener end-to-end (compositor detection → bridge connection → window tracking → cursor position). The two tests are separate to avoid socket conflicts between the probe and `keymasq-session`.
 
 ### KDE Plasma 6
 
-The KDE test does not use a generic Wayland foreign-toplevel protocol. It exercises the real KDE listener path in [keyforge/session/listeners/kde.py](../keyforge/session/listeners/kde.py):
+The KDE test does not use a generic Wayland foreign-toplevel protocol. It exercises the real KDE listener path in [keymasq/session/listeners/kde.py](../keymasq/session/listeners/kde.py):
 
-- `keyforge-session` connects to `org.kde.KWin` over the session D-Bus
+- `keymasq-session` connects to `org.kde.KWin` over the session D-Bus
 - it calls `org.kde.kwin.Scripting.loadScript`
 - it injects a temporary KWin JavaScript plugin
-- that plugin reports active-window changes back to `keyforge-session` over the exported `keyforge.kde.Listener` D-Bus interface
+- that plugin reports active-window changes back to `keymasq-session` over the exported `keymasq.kde.Listener` D-Bus interface
 
 The VM test now asserts both:
 
 - `org.kde.KWin` is present on the session bus
-- `keyforge-session` logs `KDE listener script loaded`, proving the KWin script/plugin path is active
+- `keymasq-session` logs `KDE listener script loaded`, proving the KWin script/plugin path is active
 
 Window switching in the test still uses the GTK lab app's normal activation path, but the observed active-window updates come from the injected KWin script, not from `zwlr_foreign_toplevel_manager_v1`.
 
@@ -142,13 +142,13 @@ The Hyprland test uses the Hyprland listener which connects to `.socket2.sock` f
 
 ### Niri
 
-The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` directly. As with the upstream Niri IPC design, Keyforge uses two separate connections: one event-stream socket for focused-window tracking and one command socket for compositor actions.
+The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` directly. As with the upstream Niri IPC design, Keymasq uses two separate connections: one event-stream socket for focused-window tracking and one command socket for compositor actions.
 
-**Focus switching**: The test activates windows through Keyforge's Niri listener path (`activate_title`) so the listener's cached focused-window state stays coherent even when the VM seat does not report a focused Niri window.
+**Focus switching**: The test activates windows through Keymasq's Niri listener path (`activate_title`) so the listener's cached focused-window state stays coherent even when the VM seat does not report a focused Niri window.
 
 **Dispatch path**: The test sends `dispatch_compositor` through the session socket for the Niri `toggle-window-floating` action and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
 
-**Cursor position**: The Niri VM test uses the `slurp`-backed cursor capture path, just like Sway and COSMIC. The test grabs the QEMU AT keyboard so keyforged creates uinput devices (including `keyforge-mouse`), then verifies that `get_cursor_position` returns valid on-screen coordinates. A retry loop (up to 3 attempts) handles VM timing variance where the compositor may need extra time to register the new uinput mouse or where slurp's layer surface isn't ready before the macro click fires.
+**Cursor position**: The Niri VM test uses the `slurp`-backed cursor capture path, just like Sway and COSMIC. The test grabs the QEMU AT keyboard so keymasqd creates uinput devices (including `keymasq-mouse`), then verifies that `get_cursor_position` returns valid on-screen coordinates. A retry loop (up to 3 attempts) handles VM timing variance where the compositor may need extra time to register the new uinput mouse or where slurp's layer surface isn't ready before the macro click fires.
 
 **Software renderer patch**: Niri (Smithay) rejects software EGL renderers (`llvmpipe`) in `src/backend/tty.rs`, which prevents it from creating any `wl_output` in a VM without a real GPU. The test uses a patched niri (`niriPatched` in `listener-vm-matrix.nix`) that disables this check. The niri version is pinned via `niriExpectedVersion`; a Nix assertion fails evaluation if nixpkgs ships a different version, and a build-time grep guard fails the build if the patch target moves. See the `niriPatched` comments in `listener-vm-matrix.nix` for the update procedure.
 
@@ -175,7 +175,7 @@ The XFCE test uses the X11 listener backed by `python-xlib`. The listener reads 
 | GNOME | no | bridge `activate_title` → `meta_window.activate()` |
 | KDE | yes | GTK activation; listener events come from injected KWin script over D-Bus |
 | Hyprland | no | `hyprctl dispatch focuswindow title:<name>` |
-| Niri | no | Keyforge `activate_title` -> Niri `FocusWindow { id }` |
+| Niri | no | Keymasq `activate_title` -> Niri `FocusWindow { id }` |
 | COSMIC | yes | GTK `window.present()` |
 | Sway | no | `swaymsg "[title=<name>] focus"` |
 | X11/XFCE | yes | GTK `window.present()` |

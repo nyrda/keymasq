@@ -5,7 +5,7 @@ class TestComboEditorDialog:
     def test_combo_editor_dialog_present_and_close(self):
         from gi.repository import GLib, Gtk
 
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         def flush_gtk_events() -> None:
             context = GLib.MainContext.default()
@@ -32,7 +32,7 @@ class TestComboEditorDialog:
     def test_combo_editor_capture_response_adds_step(self):
         from gi.repository import Gtk
 
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent, profile_name="Desktop")
@@ -52,8 +52,8 @@ class TestComboEditorDialog:
     def test_combo_editor_capture_request_uses_profile_name(self, monkeypatch):
         from gi.repository import Gtk
 
-        import keyforge.gui.widgets.combo_editor_dialog as combo_editor_dialog_module
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        import keymasq.gui.widgets.combo_editor_dialog as combo_editor_dialog_module
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         calls: list[tuple[dict, float]] = []
 
@@ -98,7 +98,7 @@ class TestComboEditorDialog:
     def test_combo_editor_new_steps_after_first_default_to_600ms(self):
         from gi.repository import Gtk
 
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent, profile_name="Desktop")
@@ -122,8 +122,8 @@ class TestComboEditorDialog:
     def test_combo_editor_save_disabled_until_complete(self):
         from gi.repository import Gtk
 
-        from keyforge.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent)
@@ -148,8 +148,8 @@ class TestComboEditorDialog:
     def test_combo_editor_emits_saved_combo(self):
         from gi.repository import Gtk
 
-        from keyforge.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent)
@@ -182,8 +182,8 @@ class TestComboEditorDialog:
     def test_combo_editor_generates_default_name_when_name_is_empty(self):
         from gi.repository import Gtk
 
-        from keyforge.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent)
@@ -211,14 +211,14 @@ class TestComboEditorDialog:
     def test_combo_editor_step_timeout_controls_and_save(self):
         from gi.repository import Gtk
 
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ActionType,
             ComboConfig,
             ComboEvent,
             ComboStep,
             MappingAction,
         )
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         def child_widgets(widget):
             children = []
@@ -261,8 +261,8 @@ class TestComboEditorDialog:
     def test_combo_editor_trigger_recall_and_restore_controls(self):
         from gi.repository import Gtk
 
-        from keyforge.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent)
@@ -300,14 +300,14 @@ class TestComboEditorDialog:
     def test_combo_editor_exact_duplicate_is_rejected(self):
         from gi.repository import Gtk
 
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ActionType,
             ComboConfig,
             ComboEvent,
             ComboStep,
             MappingAction,
         )
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(
@@ -362,14 +362,14 @@ class TestComboEditorDialog:
     def test_combo_editor_prefix_shadow_does_not_block_save(self):
         from gi.repository import Gtk
 
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ActionType,
             ComboConfig,
             ComboEvent,
             ComboStep,
             MappingAction,
         )
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(
@@ -417,8 +417,8 @@ class TestComboEditorDialog:
     def test_combo_editor_allows_saved_superkey_actions(self, temp_config_dir, monkeypatch):
         from gi.repository import Gtk
 
-        from keyforge.common import paths
-        from keyforge.common.models import (
+        from keymasq.common import paths
+        from keymasq.common.models import (
             ActionType,
             ComboEvent,
             ComboStep,
@@ -427,8 +427,8 @@ class TestComboEditorDialog:
             SuperkeyConfig,
             SuperkeyMode,
         )
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
-        from keyforge.session.superkeys import SuperkeyManager
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.session.superkeys import SuperkeyManager
 
         superkeys_dir = temp_config_dir / "superkeys"
         superkeys_dir.mkdir()
@@ -490,8 +490,8 @@ class TestComboEditorDialog:
     def test_combo_editor_rejects_missing_superkey_action(self):
         from gi.repository import Gtk
 
-        from keyforge.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-        from keyforge.gui.widgets.combo_editor_dialog import ComboEditorDialog
+        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent)

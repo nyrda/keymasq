@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from keyforge.keyforged.macro_store import MacroStore
+from keymasq.keymasqd.macro_store import MacroStore
 
 
 def test_macro_store_crud_and_revision(tmp_path: Path) -> None:

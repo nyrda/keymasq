@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import evdev
 
-from keyforge.keyforged import output_helpers
+from keymasq.keymasqd import output_helpers
 
 
 def test_resolve_output_code_handles_known_tuple_and_unknown_targets(monkeypatch) -> None:

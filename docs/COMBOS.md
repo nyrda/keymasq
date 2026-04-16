@@ -3,7 +3,7 @@
 ## Overview
 
 A combo is a trigger made from one or more key or button presses that fires a
-single action. Think of it as a keyboard shortcut that Keyforge intercepts
+single action. Think of it as a keyboard shortcut that Keymasq intercepts
 before it reaches your apps.
 
 A combo can be:
@@ -12,29 +12,29 @@ A combo can be:
 - **Multi-step** — a sequence of chords, like `Alt+R` then `1`.
 
 When a combo matches, it triggers an action — a key press, a mouse click, a
-macro, a shell command, or anything else Keyforge can map to.
+macro, a shell command, or anything else Keymasq can map to.
 
 Combos are stored inside profiles. They can include events from multiple
 devices, so a combo can combine a keyboard key and a mouse button if needed.
 
 ## Quick Start: Your First Combo
 
-1. Open the Keyforge GUI and go to the **Combo** tab.
+1. Open the Keymasq GUI and go to the **Combo** tab.
 2. Select the profile you want the combo to belong to.
 3. Click **Add Combo**.
-4. Keyforge enters capture mode — press the key combination you want as the
+4. Keymasq enters capture mode — press the key combination you want as the
    trigger (for example, hold `Alt` and press `1`).
 5. Choose the action to fire when the combo matches.
 6. Save.
 
-Now whenever you press that combination, Keyforge runs the action instead of
+Now whenever you press that combination, Keymasq runs the action instead of
 sending the keys to your apps.
 
-![Combo tab with combos listed for the selected profile](../assets/screenshots/keyforge_combos_tab_example.png)
+![Combo tab with combos listed for the selected profile](../assets/screenshots/keymasq_combos_tab_example.png)
 
-![Add combo dialog — define steps for the trigger](../assets/screenshots/keyforge_add_combo_dialog.png)
+![Add combo dialog — define steps for the trigger](../assets/screenshots/keymasq_add_combo_dialog.png)
 
-![Choose the action to fire when the combo matches](../assets/screenshots/keyforge_combo_select_action_dialog.png)
+![Choose the action to fire when the combo matches](../assets/screenshots/keymasq_combo_select_action_dialog.png)
 
 ## How Combos Work
 
@@ -43,7 +43,7 @@ sending the keys to your apps.
 Here's what happens when you use a single-step combo like `Alt+1`:
 
 1. You press and hold `Alt` — nothing special happens yet.
-2. You press `1` — the combo is complete, so Keyforge fires the action.
+2. You press `1` — the combo is complete, so Keymasq fires the action.
 3. The normal `1` key press is consumed and does not reach your apps.
 4. `Alt` stays held (since you're still physically holding it), so modifier
    behavior in your compositor and apps works normally.
@@ -94,7 +94,7 @@ Restore is per trigger key. In the combo editor you can choose exactly which
 captured trigger keys should be re-pressed. This is useful for non-standard
 "modifier-like" setups such as using `CapsLock` as a combo leader.
 
-When a key is restored, Keyforge restores that trigger key through its normal
+When a key is restored, Keymasq restores that trigger key through its normal
 mapping behavior rather than blindly sending the raw physical key. For example,
 if the trigger key is mapped to **Suppress**, restore keeps it suppressed; if
 the trigger key is remapped to another output key, restore re-presses that
@@ -112,7 +112,7 @@ synthetic shortcut is interpreted by the desktop.
 
 ## Combo Capture
 
-When you create or edit a combo's trigger, Keyforge enters capture mode and
+When you create or edit a combo's trigger, Keymasq enters capture mode and
 records the raw physical input directly from your devices — not the remapped
 output. This means:
 
@@ -164,7 +164,7 @@ Combos can trigger saved **Super Keys**.
 - One-shot child actions like commands, profile actions, and compositor
   actions still fire once on combo completion.
 - Nested **Super Key** child actions inside an overload are not expanded again
-  from a combo-triggered overload. Keyforge skips them and logs a warning
+  from a combo-triggered overload. Keymasq skips them and logs a warning
   instead of allowing recursive nesting.
 
 #### Pattern
@@ -255,7 +255,7 @@ editing combos.
 ## Security Notes
 
 - **Command actions** run shell commands inside your user session (delegated
-  to keyforge-session, not the privileged daemon). They still execute
+  to keymasq-session, not the privileged daemon). They still execute
   automatically when the combo fires, so be mindful of what you put in them.
 - **Compositor dispatcher actions** can send commands to your compositor
   (e.g. Hyprland). These interact with your desktop environment directly, so

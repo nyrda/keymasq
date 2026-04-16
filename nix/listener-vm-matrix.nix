@@ -1,10 +1,10 @@
-{ pkgs, system, keyforgePackage, keyforgeModule }:
+{ pkgs, system, keymasqPackage, keymasqModule }:
 
 let
   lib = pkgs.lib;
-  gnomeBridgeSource = ../gnome-extension + "/keyforge-bridge@keyforge";
+  gnomeBridgeSource = ../gnome-extension + "/keymasq-bridge@nyrda";
 
-  vmUser = "keyforgevm";
+  vmUser = "keymasqvm";
   vmUid = 1000;
   giTypelibPath = lib.makeSearchPath "lib/girepository-1.0" [
     pkgs.cairo
@@ -53,17 +53,17 @@ let
       '';
     };
 
-  windowLab = mkGtkScript "keyforge-listener-window-lab" ./listener-vms/window-lab.py;
-  gnomeBridge = pkgs.runCommand "keyforge-gnome-bridge" { } ''
-    mkdir -p "$out/share/gnome-shell/extensions/keyforge-bridge@keyforge"
+  windowLab = mkGtkScript "keymasq-listener-window-lab" ./listener-vms/window-lab.py;
+  gnomeBridge = pkgs.runCommand "keymasq-gnome-bridge" { } ''
+    mkdir -p "$out/share/gnome-shell/extensions/keymasq-bridge@nyrda"
     cp ${gnomeBridgeSource + "/extension.js"} \
-      "$out/share/gnome-shell/extensions/keyforge-bridge@keyforge/extension.js"
+      "$out/share/gnome-shell/extensions/keymasq-bridge@nyrda/extension.js"
     cp ${gnomeBridgeSource + "/metadata.json"} \
-      "$out/share/gnome-shell/extensions/keyforge-bridge@keyforge/metadata.json"
+      "$out/share/gnome-shell/extensions/keymasq-bridge@nyrda/metadata.json"
   '';
 
   sessionQuery = pkgs.writeShellApplication {
-    name = "keyforge-session-query";
+    name = "keymasq-session-query";
     runtimeInputs = [ pkgs.python3 ];
     text = ''
       exec ${pkgs.python3}/bin/python ${./listener-vms/session-query.py} "$@"
@@ -71,7 +71,7 @@ let
   };
 
   gnomeBridgeProbe = pkgs.writeShellApplication {
-    name = "keyforge-gnome-bridge-probe";
+    name = "keymasq-gnome-bridge-probe";
     runtimeInputs = [ pkgs.python3 ];
     text = ''
       exec ${pkgs.python3}/bin/python ${./listener-vms/gnome-bridge-probe.py} "$@"
@@ -79,7 +79,7 @@ let
   };
 
   windowCtl = pkgs.writeShellApplication {
-    name = "keyforge-listener-window-labctl";
+    name = "keymasq-listener-window-labctl";
     runtimeInputs = [ pkgs.python3 ];
     text = ''
       exec ${pkgs.python3}/bin/python ${./listener-vms/window-labctl.py} "$@"
@@ -87,12 +87,12 @@ let
   };
 
   listenerVmTools = pkgs.symlinkJoin {
-    name = "keyforge-listener-vm-tools";
+    name = "keymasq-listener-vm-tools";
     paths = [ windowLab sessionQuery windowCtl gnomeBridgeProbe ];
   };
 
   cosmicMinimalSession = pkgs.stdenvNoCC.mkDerivation {
-    pname = "keyforge-cosmic-minimal-session";
+    pname = "keymasq-cosmic-minimal-session";
     version = "1";
     dontUnpack = true;
     passthru.providedSessions = [ "cosmic-minimal" ];
@@ -110,7 +110,7 @@ EOF
       cat > "$out/share/wayland-sessions/cosmic-minimal.desktop" <<EOF
 [Desktop Entry]
 Name=COSMIC Minimal
-Comment=Minimal COSMIC compositor session for Keyforge listener tests
+Comment=Minimal COSMIC compositor session for Keymasq listener tests
 Exec=$out/bin/cosmic-minimal-session
 Type=Application
 DesktopNames=COSMIC
@@ -147,7 +147,7 @@ EOF
         }:
         {
           imports = [
-            keyforgeModule
+            keymasqModule
             extraModule
           ];
 
@@ -163,7 +163,7 @@ EOF
           time.timeZone = "UTC";
           i18n.defaultLocale = "en_US.UTF-8";
 
-          services.keyforge = {
+          services.keymasq = {
             enable = true;
             securityConfig = {
               daemon_allowed_uids = [ vmUid ];
@@ -196,7 +196,7 @@ EOF
           programs.dconf.enable = true;
 
           environment.systemPackages = [
-            keyforgePackage
+            keymasqPackage
             listenerVmTools
             gnomeBridge
             pkgs.jq
@@ -221,7 +221,7 @@ EOF
         def session_query(command: str) -> dict:
             raw = machine.succeed(
                 as_user(
-                    f"keyforge-session-query --socket {runtime_dir}/keyforge/session.sock --command {command}"
+                    f"keymasq-session-query --socket {runtime_dir}/keymasq/session.sock --command {command}"
                 )
             )
             return json.loads(raw)
@@ -235,7 +235,7 @@ EOF
             machine.succeed(f"chown ${vmUser}: {payload_path}")
             raw = machine.succeed(
                 as_user(
-                    f"keyforge-session-query --socket {runtime_dir}/keyforge/session.sock "
+                    f"keymasq-session-query --socket {runtime_dir}/keymasq/session.sock "
                     f"--command {command} --payload-file {payload_path}"
                 )
             )
@@ -247,7 +247,7 @@ EOF
                 try:
                     raw = machine.succeed(
                         as_user(
-                            f"keyforge-session-query --socket {runtime_dir}/keyforge/session.sock "
+                            f"keymasq-session-query --socket {runtime_dir}/keymasq/session.sock "
                             f"--command activate_title --field title={title}"
                         )
                     )
@@ -258,7 +258,7 @@ EOF
                 except Exception as e:
                     machine.log(f"session_activate_title({title!r}) attempt failed: {e}")
                 time.sleep(1)
-            raise Exception(f"Failed to activate window {title!r} through keyforge-session")
+            raise Exception(f"Failed to activate window {title!r} through keymasq-session")
 
         def gnome_activate_title(title: str, timeout: int = 30) -> None:
             """Ask the GNOME bridge extension to activate a window by title."""
@@ -267,7 +267,7 @@ EOF
                 try:
                     raw = machine.succeed(
                         as_user(
-                            f"keyforge-session-query --socket {runtime_dir}/keyforge/session.sock "
+                            f"keymasq-session-query --socket {runtime_dir}/keymasq/session.sock "
                             f"--command activate_title --field title={title}"
                         )
                     )
@@ -409,12 +409,12 @@ EOF
                 as_user("systemctl --user status default.target --no-pager || true"),
             )
             log_command_output(
-                "keyforge-session user service",
-                as_user("systemctl --user status keyforge-session.service --no-pager || true"),
+                "keymasq-session user service",
+                as_user("systemctl --user status keymasq-session.service --no-pager || true"),
             )
             log_command_output(
-                "keyforge-session journal",
-                as_user("journalctl --user -u keyforge-session.service --no-pager -n 200 || true"),
+                "keymasq-session journal",
+                as_user("journalctl --user -u keymasq-session.service --no-pager -n 200 || true"),
             )
             log_command_output(
                 "gnome-bridge-probe user service",
@@ -455,7 +455,7 @@ EOF
                     if socket_path == listener_socket:
                         ready_status, _ = machine.execute(
                             as_user(
-                                "keyforge-listener-window-labctl "
+                                "keymasq-listener-window-labctl "
                                 f"--socket {socket_path} snapshot >/dev/null"
                             ),
                             timeout=20,
@@ -483,7 +483,7 @@ EOF
             raise AssertionError(f"{description} was not created by {unit_name}")
 
         def wait_for_listener() -> None:
-            machine.log("Waiting for keyforge-session listener readiness")
+            machine.log("Waiting for keymasq-session listener readiness")
             deadline = time.time() + 120
             last = None
             while time.time() < deadline:
@@ -547,13 +547,13 @@ EOF
         ${desktopReadyScript}
         ${preflightScript}
         if ${if runListenerAssertions then "True" else "False"}:
-            machine.succeed("${userCommand "systemctl --user stop keyforge-session.service || true"}")
-            machine.succeed("${userCommand "systemctl --user start keyforge-session.service || true"}")
-            wait_for_user_command("keyforge-session user service", "systemctl --user is-active keyforge-session.service")
+            machine.succeed("${userCommand "systemctl --user stop keymasq-session.service || true"}")
+            machine.succeed("${userCommand "systemctl --user start keymasq-session.service || true"}")
+            wait_for_user_command("keymasq-session user service", "systemctl --user is-active keymasq-session.service")
             wait_for_user_socket(
-                "keyforge-session socket",
-                f"{runtime_dir}/keyforge/session.sock",
-                "keyforge-session.service",
+                "keymasq-session socket",
+                f"{runtime_dir}/keymasq/session.sock",
+                "keymasq-session.service",
             )
 
             with subtest("listener starts"):
@@ -561,7 +561,7 @@ EOF
                 if "${expectedCompositor}" == "kde":
                     wait_for_user_command(
                         "KDE listener script loaded",
-                        "journalctl --user -u keyforge-session.service --no-pager "
+                        "journalctl --user -u keymasq-session.service --no-pager "
                         "| grep -F 'KDE listener script loaded'",
                     )
 
@@ -569,28 +569,28 @@ EOF
                 if "${expectedCompositor}" == "gnome":
                     wait_for_user_command(
                         "GNOME bridge connected",
-                        "journalctl --user -u keyforge-session.service --no-pager "
+                        "journalctl --user -u keymasq-session.service --no-pager "
                         "| grep -F 'GNOME bridge connected'",
                     )
                 if not lab_prestarted:
                     machine.succeed(as_user(f"rm -f {listener_socket}"))
                     machine.succeed(
                         as_user(
-                            "systemd-run --user --unit=keyforge-window-lab "
-                            "--collect keyforge-listener-window-lab "
+                            "systemd-run --user --unit=keymasq-window-lab "
+                            "--collect keymasq-listener-window-lab "
                             f"--socket {listener_socket} "
-                            "--app-id io.keyforge.ListenerLab"
+                            "--app-id io.github.nyrda.Keymasq.ListenerLab"
                         )
                     )
                     wait_for_user_socket(
                         "window lab socket",
                         listener_socket,
-                        "keyforge-window-lab.service",
+                        "keymasq-window-lab.service",
                     )
 
                 machine.succeed(
                     as_user(
-                        f"keyforge-listener-window-labctl --socket {listener_socket} "
+                        f"keymasq-listener-window-labctl --socket {listener_socket} "
                         "open alpha Alpha"
                     )
                 )
@@ -609,7 +609,7 @@ EOF
 
                 machine.succeed(
                     as_user(
-                        f"keyforge-listener-window-labctl --socket {listener_socket} "
+                        f"keymasq-listener-window-labctl --socket {listener_socket} "
                         "open beta Beta"
                     )
                 )
@@ -632,14 +632,14 @@ EOF
                 else:
                     machine.succeed(
                         as_user(
-                            f"keyforge-listener-window-labctl --socket {listener_socket} focus alpha"
+                            f"keymasq-listener-window-labctl --socket {listener_socket} focus alpha"
                         )
                     )
                 wait_for_active_title("Alpha")
 
                 machine.succeed(
                     as_user(
-                        f"keyforge-listener-window-labctl --socket {listener_socket} "
+                        f"keymasq-listener-window-labctl --socket {listener_socket} "
                         "retitle alpha AlphaRenamed"
                     )
                 )
@@ -647,7 +647,7 @@ EOF
 
             machine.succeed(
                 as_user(
-                    f"keyforge-listener-window-labctl --socket {listener_socket} close alpha"
+                    f"keymasq-listener-window-labctl --socket {listener_socket} close alpha"
                 )
             )
             wait_for_active_title("Beta")
@@ -689,14 +689,14 @@ EOF
                 )
 
             machine.succeed(
-                as_user(f"keyforge-listener-window-labctl --socket {listener_socket} quit")
+                as_user(f"keymasq-listener-window-labctl --socket {listener_socket} quit")
             )
 
             with subtest("cursor position"):
                 uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic", "niri")
                 if uses_slurp:
-                    # Slurp-based compositors need keyforged uinput devices and a __slurp_trigger macro.
-                    # Create a hardware config for the QEMU AT keyboard so keyforged grabs it.
+                    # Slurp-based compositors need keymasqd uinput devices and a __slurp_trigger macro.
+                    # Create a hardware config for the QEMU AT keyboard so keymasqd grabs it.
                     import base64
                     hw_toml = (
                         '[hardware]\n'
@@ -714,7 +714,7 @@ EOF
                         'label = "A"\n'
                         'evdev = "key_a"\n'
                     )
-                    hw_dir = "/home/${vmUser}/.config/keyforge/hardware"
+                    hw_dir = "/home/${vmUser}/.config/keymasq/hardware"
                     machine.succeed(as_user("mkdir -p " + hw_dir))
                     hw_b64 = base64.b64encode(hw_toml.encode()).decode()
                     machine.succeed(f"echo {hw_b64} | base64 -d > " + hw_dir + "/0001_0001.toml")
@@ -731,7 +731,7 @@ EOF
                         '[devices."0001:0001"]\n'
                         'always_grab_all = true\n'
                     )
-                    prof_dir = "/home/${vmUser}/.config/keyforge/profiles"
+                    prof_dir = "/home/${vmUser}/.config/keymasq/profiles"
                     machine.succeed(as_user("mkdir -p " + prof_dir))
                     prof_b64 = base64.b64encode(profile_toml.encode()).decode()
                     machine.succeed(f"echo {prof_b64} | base64 -d > " + prof_dir + "/cursor-test.toml")
@@ -747,21 +747,21 @@ EOF
 
                     # Verify the device was grabbed by checking session journal.
                     wait_for_user_command(
-                        "keyforged grabbed device",
-                        "journalctl --user -u keyforge-session.service --no-pager "
+                        "keymasqd grabbed device",
+                        "journalctl --user -u keymasq-session.service --no-pager "
                         "| grep -F 'Grabbed device 0001:0001'",
                         timeout=30,
                     )
 
-                    # keyforged registers the internal __slurp_trigger macro at startup.
+                    # keymasqd registers the internal __slurp_trigger macro at startup.
                     # Do not recreate it here; names starting with "__" are reserved.
 
-                    # Give the compositor time to discover the new keyforge-mouse
+                    # Give the compositor time to discover the new keymasq-mouse
                     # uinput device via libinput/udev before we query cursor position.
                     wait_for_command(
-                        "keyforge-mouse uinput visible",
-                        "ls /dev/input/by-id/ 2>/dev/null | grep -qF keyforge || "
-                        "cat /proc/bus/input/devices | grep -qF keyforge-mouse",
+                        "keymasq-mouse uinput visible",
+                        "ls /dev/input/by-id/ 2>/dev/null | grep -qF keymasq || "
+                        "cat /proc/bus/input/devices | grep -qF keymasq-mouse",
                         timeout=15,
                     )
                     time.sleep(1)
@@ -811,7 +811,7 @@ EOF
     services.displayManager.gdm.enable = true;
     services.desktopManager.gnome.enable = true;
 
-    systemd.user.services.keyforge-session = {
+    systemd.user.services.keymasq-session = {
       wantedBy = lib.mkForce [ ];
       partOf = lib.mkForce [ ];
       after = lib.mkForce [ ];
@@ -823,7 +823,7 @@ EOF
         settings = {
           "org/gnome/shell" = {
             disable-user-extensions = false;
-            enabled-extensions = [ "keyforge-bridge@keyforge" ];
+            enabled-extensions = [ "keymasq-bridge@nyrda" ];
           };
         };
       }
@@ -957,14 +957,14 @@ in
         bridge_debug = f"{runtime_dir}/gnome-bridge-probe.debug"
         machine.succeed(
             as_user(
-                f"rm -f {listener_socket} {runtime_dir}/keyforge/gnome-bridge.sock {bridge_output} {bridge_debug}"
+                f"rm -f {listener_socket} {runtime_dir}/keymasq/gnome-bridge.sock {bridge_output} {bridge_debug}"
             )
         )
         machine.succeed(
             as_user(
                 "systemd-run --user --unit=gnome-bridge-probe "
-                "${gnomeBridgeProbe}/bin/keyforge-gnome-bridge-probe "
-                f"--socket {runtime_dir}/keyforge/gnome-bridge.sock "
+                "${gnomeBridgeProbe}/bin/keymasq-gnome-bridge-probe "
+                f"--socket {runtime_dir}/keymasq/gnome-bridge.sock "
                 f"--output {bridge_output} "
                 f"--debug-output {bridge_debug} "
                 "--timeout 180 "
@@ -977,12 +977,12 @@ in
         wait_for_user_command("GNOME Wayland socket", f"test -S {runtime_dir}/wayland-0")
         wait_for_user_command(
             "GNOME bridge extension visible",
-            "gnome-extensions info keyforge-bridge@keyforge >/dev/null",
+            "gnome-extensions info keymasq-bridge@nyrda >/dev/null",
         )
-        machine.succeed(as_user("gnome-extensions enable keyforge-bridge@keyforge"))
+        machine.succeed(as_user("gnome-extensions enable keymasq-bridge@nyrda"))
         wait_for_user_command(
             "GNOME bridge extension enabled",
-            "gnome-extensions list --enabled | grep -Fx keyforge-bridge@keyforge",
+            "gnome-extensions list --enabled | grep -Fx keymasq-bridge@nyrda",
         )
       '';
       preflightScript = ''
@@ -991,15 +991,15 @@ in
             as_user("systemctl --user status gnome-bridge-probe.service --no-pager || true"),
         )
         log_command_output(
-            "keyforge runtime dir after probe launch",
-            as_user(f"ls -la {runtime_dir}/keyforge || true"),
+            "keymasq runtime dir after probe launch",
+            as_user(f"ls -la {runtime_dir}/keymasq || true"),
         )
         log_command_output(
             "gnome-bridge-probe debug after launch",
             as_user(f"cat {bridge_debug} || true"),
         )
-        machine.succeed(as_user("gnome-extensions disable keyforge-bridge@keyforge || true"))
-        machine.succeed(as_user("gnome-extensions enable keyforge-bridge@keyforge"))
+        machine.succeed(as_user("gnome-extensions disable keymasq-bridge@nyrda || true"))
+        machine.succeed(as_user("gnome-extensions enable keymasq-bridge@nyrda"))
         wait_for_user_command("GNOME bridge probe output", f"test -f {bridge_output}")
         log_command_output(
             "gnome-bridge-probe debug",
@@ -1030,12 +1030,12 @@ in
         )
         wait_for_user_command(
             "GNOME bridge extension visible",
-            "gnome-extensions info keyforge-bridge@keyforge >/dev/null",
+            "gnome-extensions info keymasq-bridge@nyrda >/dev/null",
         )
-        machine.succeed(as_user("gnome-extensions enable keyforge-bridge@keyforge"))
+        machine.succeed(as_user("gnome-extensions enable keymasq-bridge@nyrda"))
         wait_for_user_command(
             "GNOME bridge extension enabled",
-            "gnome-extensions list --enabled | grep -Fx keyforge-bridge@keyforge",
+            "gnome-extensions list --enabled | grep -Fx keymasq-bridge@nyrda",
         )
       '';
     };

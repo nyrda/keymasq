@@ -2,22 +2,22 @@
 from tests.gui.support import *
 
 def test_notify_session_reload_returns_false_without_shell_fallback(monkeypatch):
-    from keyforge.gui import session_reload
+    from keymasq.gui import session_reload
 
     monkeypatch.setattr(session_reload, "session_request", lambda payload, timeout=5.0: None)
 
     assert session_reload.notify_session_reload(timeout=0.1) is False
 
 
-def test_resolve_keyforge_record_helper_path(tmp_path, monkeypatch):
-    from keyforge.common import paths
+def test_resolve_keymasq_record_helper_path(tmp_path, monkeypatch):
+    from keymasq.common import paths
 
-    helper = tmp_path / "keyforge-record"
+    helper = tmp_path / "keymasq-record"
     helper.write_text("#!/bin/sh\n")
     helper.chmod(0o755)
-    monkeypatch.setattr(paths, "KEYFORGE_RECORD_HELPER_PATH", helper)
+    monkeypatch.setattr(paths, "KEYMASQ_RECORD_HELPER_PATH", helper)
 
-    assert paths.resolve_keyforge_record_helper_path() == str(helper)
+    assert paths.resolve_keymasq_record_helper_path() == str(helper)
 
 
 def test_run_gui_task_calls_callback_and_on_done_when_worker_raises(monkeypatch):
@@ -25,7 +25,7 @@ def test_run_gui_task_calls_callback_and_on_done_when_worker_raises(monkeypatch)
 
     from gi.repository import GLib
 
-    from keyforge.gui import session_client
+    from keymasq.gui import session_client
 
     callback_results: list[object] = []
     done = threading.Event()
@@ -48,7 +48,7 @@ def test_run_gui_task_calls_callback_and_on_done_when_worker_raises(monkeypatch)
 def test_persistent_session_connection_clears_partial_buffer_on_disconnect_and_reconnect():
     import queue
 
-    from keyforge.gui.session_client import _PersistentSessionConnection
+    from keymasq.gui.session_client import _PersistentSessionConnection
 
     class _FakeSocket:
         def __init__(self, chunks: list[bytes]) -> None:
@@ -80,8 +80,8 @@ def test_persistent_session_connection_clears_partial_buffer_on_disconnect_and_r
 
 
 def test_device_tab_builds_captured_window_rules():
-    from keyforge.common.models import ButtonDefinition, HardwareConfig
-    from keyforge.gui.widgets.device_tab import DeviceTab
+    from keymasq.common.models import ButtonDefinition, HardwareConfig
+    from keymasq.gui.widgets.device_tab import DeviceTab
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -114,8 +114,8 @@ def test_device_tab_builds_captured_window_rules():
 
 
 def test_device_tab_delete_button_visibility_depends_on_rule_count():
-    from keyforge.common.models import ButtonDefinition, HardwareConfig, WindowRule
-    from keyforge.gui.widgets.device_tab import DeviceTab
+    from keymasq.common.models import ButtonDefinition, HardwareConfig, WindowRule
+    from keymasq.gui.widgets.device_tab import DeviceTab
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -147,14 +147,14 @@ def test_device_tab_delete_button_visibility_depends_on_rule_count():
 
 
 def test_device_tab_refresh_profiles_does_not_save_on_programmatic_settings_update(temp_config_dir):
-    from keyforge.common.models import (
+    from keymasq.common.models import (
         ButtonDefinition,
         DeviceProfileLayer,
         HardwareConfig,
         ProfileConfig,
     )
-    from keyforge.gui.widgets.device_tab import DeviceTab
-    from keyforge.session.profiles import ProfileManager
+    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.session.profiles import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -199,7 +199,7 @@ def test_device_tab_refresh_profiles_does_not_save_on_programmatic_settings_upda
 
 
 def test_device_tab_explicit_passthrough_is_shown_as_active_mask(temp_config_dir):
-    from keyforge.common.models import (
+    from keymasq.common.models import (
         ActionType,
         ButtonDefinition,
         DeviceProfileLayer,
@@ -207,8 +207,8 @@ def test_device_tab_explicit_passthrough_is_shown_as_active_mask(temp_config_dir
         MappingAction,
         ProfileConfig,
     )
-    from keyforge.gui.widgets.device_tab import DeviceTab
-    from keyforge.session.profiles import ProfileManager
+    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.session.profiles import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -266,14 +266,14 @@ def test_device_tab_explicit_passthrough_is_shown_as_active_mask(temp_config_dir
 
 
 def test_device_tab_does_not_auto_switch_to_active_profile(temp_config_dir):
-    from keyforge.common.models import (
+    from keymasq.common.models import (
         ButtonDefinition,
         DeviceProfileLayer,
         HardwareConfig,
         ProfileConfig,
     )
-    from keyforge.gui.widgets.device_tab import DeviceTab
-    from keyforge.session.profiles import ProfileManager
+    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.session.profiles import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -319,14 +319,14 @@ def test_device_tab_does_not_auto_switch_to_active_profile(temp_config_dir):
 
 
 def test_window_rules_dialog_applies_to_profile_it_was_opened_for(temp_config_dir):
-    from keyforge.common.models import (
+    from keymasq.common.models import (
         ButtonDefinition,
         DeviceProfileLayer,
         HardwareConfig,
         ProfileConfig,
     )
-    from keyforge.gui.widgets.device_tab import DeviceTab
-    from keyforge.session.profiles import ProfileManager
+    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.session.profiles import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -383,8 +383,8 @@ def test_window_rules_dialog_applies_to_profile_it_was_opened_for(temp_config_di
 
 
 def test_describe_mapping_action_compact_includes_runtime_markers():
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.action_labels import describe_mapping_action_compact
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
 
     action = MappingAction(
         action_type=ActionType.KEYBOARD,
@@ -399,8 +399,8 @@ def test_describe_mapping_action_compact_includes_runtime_markers():
 def test_key_selector_dialog_distinguishes_explicit_passthrough_and_no_override():
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     explicit_results: list[MappingAction | None] = []
     explicit_dialog = KeySelectorDialog(Gtk.Box(), "Back")
@@ -422,8 +422,8 @@ def test_key_selector_dialog_distinguishes_explicit_passthrough_and_no_override(
 def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -460,8 +460,8 @@ def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
 def test_key_selector_dialog_warns_when_exec_ignores_rapidfire(caplog: pytest.LogCaptureFixture):
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -470,7 +470,7 @@ def test_key_selector_dialog_warns_when_exec_ignores_rapidfire(caplog: pytest.Lo
     dialog.rapidfire_check.set_active(True)
     dialog.exec_entry.set_text("echo hi")
 
-    with caplog.at_level("WARNING", logger="keyforge.gui.widgets.key_selector_dialog"):
+    with caplog.at_level("WARNING", logger="keymasq.gui.widgets.key_selector_dialog"):
         dialog._on_exec_map_clicked(None)
 
     assert len(results) == 1
@@ -482,8 +482,8 @@ def test_key_selector_dialog_warns_when_exec_ignores_rapidfire(caplog: pytest.Lo
 def test_key_selector_dialog_map_code_handles_valid_and_invalid_input():
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -507,9 +507,9 @@ def test_key_selector_dialog_map_code_handles_valid_and_invalid_input():
 def test_key_selector_dialog_profile_tab_populates_and_maps_selected_action(monkeypatch):
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets import key_selector_dialog as dialog_module
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     requests: list[dict] = []
 
@@ -563,8 +563,8 @@ def test_key_selector_dialog_profile_tab_populates_and_maps_selected_action(monk
 def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_listener():
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     active_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -596,8 +596,8 @@ def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_li
 def test_key_selector_dialog_only_shows_niri_dispatch_for_active_niri_listener():
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     active_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -637,8 +637,8 @@ def test_key_selector_dialog_only_shows_niri_dispatch_for_active_niri_listener()
 def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -670,8 +670,8 @@ def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
 def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     active_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -712,7 +712,7 @@ def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
 def test_key_selector_dialog_keeps_hyprland_custom_dispatch_enabled():
     from gi.repository import Gtk
 
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -732,8 +732,8 @@ def test_key_selector_dialog_keeps_hyprland_custom_dispatch_enabled():
 
 
 def test_compositor_action_helpers_resolve_kde_actions() -> None:
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.compositor_actions import (
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.compositor_actions import (
         compositor_action_tab_name,
         describe_compositor_action,
     )
@@ -756,8 +756,8 @@ def test_compositor_action_helpers_resolve_kde_actions() -> None:
 
 
 def test_compositor_action_helpers_resolve_niri_actions() -> None:
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets.compositor_actions import (
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.compositor_actions import (
         compositor_action_tab_name,
         describe_compositor_action,
     )
@@ -782,9 +782,9 @@ def test_compositor_action_helpers_resolve_niri_actions() -> None:
 def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
     from gi.repository import Gtk
 
-    from keyforge.common.models import ActionType, MappingAction
-    from keyforge.gui.widgets import key_selector_dialog as dialog_module
-    from keyforge.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
     class _Result:
         def __init__(self, x: int, y: int) -> None:
@@ -834,14 +834,14 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
 
     assert (
         error_dialog.mouse_move_capture_status.get_text()
-        == "Please restart Keyforge Session, then try again"
+        == "Please restart Keymasq Session, then try again"
     )
 
 
 def test_shared_navigation_picker_builds_dropdown():
     from gi.repository import Gtk
 
-    from keyforge.gui.widgets.input_picker_shared import build_navigation_tab
+    from keymasq.gui.widgets.input_picker_shared import build_navigation_tab
 
     class _Owner:
         def _create_key_button(

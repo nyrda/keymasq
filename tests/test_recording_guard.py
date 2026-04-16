@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from keyforge.common import recording_guard
+from keymasq.common import recording_guard
 
 
 def test_unlock_path_helpers() -> None:

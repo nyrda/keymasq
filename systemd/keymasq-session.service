@@ -1,0 +1,15 @@
+[Unit]
+Description=Keymasq Session Manager
+Documentation=man:keymasq-session(1)
+Documentation=https://github.com/nyrda/keymasq
+After=default.target
+PartOf=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/keymasq-session
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

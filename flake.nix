@@ -1,5 +1,5 @@
 {
-  description = "Keyforge - key remapping tool";
+  description = "Keymasq - key remapping tool";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -49,20 +49,20 @@
           runtimePythonPackages = runtimePython.pkgs;
         in
         runtimePythonPackages.buildPythonPackage {
-          pname = "keyforge";
+          pname = "keymasq";
           version = "0.3.2";
           pyproject = true;
 
           src = mkCleanSrc pkgs;
 
           postPatch = ''
-            cat > keyforge/common/build_paths.py <<EOF
-            KEYFORGE_RECORD_HELPER_PATH = "${placeholder "out"}/bin/keyforge-record"
+            cat > keymasq/common/build_paths.py <<EOF
+            KEYMASQ_RECORD_HELPER_PATH = "${placeholder "out"}/bin/keymasq-record"
             SLURP_PATH = "${pkgs.slurp}/bin/slurp"
             EOF
 
-            substituteInPlace polkit/com.keyforge.record-macro.policy \
-              --replace-fail "/usr/bin/keyforge-record" "${placeholder "out"}/bin/keyforge-record"
+            substituteInPlace polkit/com.keymasq.record-macro.policy \
+              --replace-fail "/usr/bin/keymasq-record" "${placeholder "out"}/bin/keymasq-record"
           '';
 
           preFixup = ''
@@ -96,32 +96,32 @@
           ];
 
           postInstall = ''
-            install -Dm644 $src/assets/keyforge.desktop $out/share/applications/keyforge.desktop
-            install -Dm644 $src/assets/keyforge.metainfo.xml $out/share/metainfo/keyforge.metainfo.xml
-            install -Dm644 $src/assets/keyforge.svg $out/share/icons/hicolor/scalable/apps/keyforge.svg
-            for icon in $src/assets/icons/keyforge-*.png; do
+            install -Dm644 $src/assets/io.github.nyrda.Keymasq.desktop $out/share/applications/io.github.nyrda.Keymasq.desktop
+            install -Dm644 $src/assets/io.github.nyrda.Keymasq.metainfo.xml $out/share/metainfo/io.github.nyrda.Keymasq.metainfo.xml
+            install -Dm644 $src/assets/io.github.nyrda.Keymasq.svg $out/share/icons/hicolor/scalable/apps/io.github.nyrda.Keymasq.svg
+            for icon in $src/assets/icons/io.github.nyrda.Keymasq-*.png; do
               size=''${icon##*-}
               size=''${size%.png}
-              install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/keyforge.png
+              install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/io.github.nyrda.Keymasq.png
             done
-            install -Dm644 $src/polkit/com.keyforge.record-macro.policy $out/share/polkit-1/actions/com.keyforge.record-macro.policy
+            install -Dm644 $src/polkit/com.keymasq.record-macro.policy $out/share/polkit-1/actions/com.keymasq.record-macro.policy
           '';
 
           meta = {
             description = "A key remapping tool for Linux";
-            homepage = "https://keyforge.tools";
-            changelog = "https://github.com/nyrda/keyforge/blob/master/CHANGELOG.md";
+            homepage = "https://keymasq.tools";
+            changelog = "https://github.com/nyrda/keymasq/blob/master/CHANGELOG.md";
             sourceProvenance = [ lib.sourceTypes.fromSource ];
             platforms = lib.platforms.linux;
             license = lib.licenses.mit;
             maintainers = [
               {
                 name = "nyrda";
-                email = "nyrda@keyforge.tools";
+                email = "nyrda@keymasq.tools";
                 github = "nyrda";
               }
             ];
-            mainProgram = "keyforge";
+            mainProgram = "keymasq";
           };
         };
       packagesFor = forAllSystems (system: {
@@ -134,8 +134,8 @@
         import ./nix/listener-vm-matrix.nix {
           inherit pkgs;
           system = "x86_64-linux";
-          keyforgePackage = packagesFor.x86_64-linux.default;
-          keyforgeModule = self.nixosModules.default;
+          keymasqPackage = packagesFor.x86_64-linux.default;
+          keymasqModule = self.nixosModules.default;
         };
       pytestVmChecks =
         let
@@ -144,8 +144,8 @@
         import ./nix/pytest-vm.nix {
           inherit pkgs;
           system = "x86_64-linux";
-          keyforgePackage = packagesFor.x86_64-linux.default;
-          keyforgeModule = self.nixosModules.default;
+          keymasqPackage = packagesFor.x86_64-linux.default;
+          keymasqModule = self.nixosModules.default;
           source = mkCleanSrc pkgs;
         };
     in
@@ -157,7 +157,7 @@
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/keyforge";
+          program = "${self.packages.${system}.default}/bin/keymasq";
         };
       });
 
@@ -167,24 +167,24 @@
 
       nixosModules.default = { config, lib, pkgs, ... }:
         let
-          cfg = config.services.keyforge;
+          cfg = config.services.keymasq;
           tomlFormat = pkgs.formats.toml { };
           defaultPackage =
             self.packages.${pkgs.stdenv.hostPlatform.system}.default
-              or (throw "Keyforge does not provide a package for ${pkgs.stdenv.hostPlatform.system}");
+              or (throw "Keymasq does not provide a package for ${pkgs.stdenv.hostPlatform.system}");
         in
         {
-          options.services.keyforge = {
-            enable = lib.mkEnableOption "Keyforge key remapping daemon";
+          options.services.keymasq = {
+            enable = lib.mkEnableOption "Keymasq key remapping daemon";
 
             package = lib.mkOption {
               type = lib.types.package;
               default = defaultPackage;
               defaultText = lib.literalExpression "self.packages.${pkgs.stdenv.hostPlatform.system}.default";
-              description = "Keyforge package to use for the daemon, session service, and optional CLI/GUI install.";
+              description = "Keymasq package to use for the daemon, session service, and optional CLI/GUI install.";
             };
 
-            installPackage = lib.mkEnableOption "install the Keyforge package into environment.systemPackages";
+            installPackage = lib.mkEnableOption "install the Keymasq package into environment.systemPackages";
 
             securityConfig = lib.mkOption {
               type = lib.types.attrs;
@@ -200,68 +200,68 @@
                 session_command_acl.cli = [ ];
                 daemon_command_acl.session = [ ];
               };
-              description = "Security policy configuration (rendered to /etc/keyforge/security.toml)";
+              description = "Security policy configuration (rendered to /etc/keymasq/security.toml)";
             };
           };
 
           config = lib.mkIf cfg.enable {
-            users.users.keyforge = {
+            users.users.keymasq = {
               isSystemUser = true;
-              group = "keyforge";
-              description = "Keyforge daemon user";
+              group = "keymasq";
+              description = "Keymasq daemon user";
             };
-            users.groups.keyforge = { };
+            users.groups.keymasq = { };
 
-            environment.etc."keyforge/security.toml".source =
-              tomlFormat.generate "keyforge-security.toml" cfg.securityConfig;
+            environment.etc."keymasq/security.toml".source =
+              tomlFormat.generate "keymasq-security.toml" cfg.securityConfig;
 
             systemd.tmpfiles.rules = [
-              "d /run/keyforge 0755 keyforge keyforge -"
-              "d /var/lib/keyforge 0750 keyforge keyforge -"
+              "d /run/keymasq 0755 keymasq keymasq -"
+              "d /var/lib/keymasq 0750 keymasq keymasq -"
             ];
 
             services.udev.extraRules = ''
-              ACTION=="add|change", KERNEL=="uinput", GROUP="input", MODE="0660", RUN+="${pkgs.acl}/bin/setfacl -m u:keyforge:rw /dev/%k"
-              ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", RUN+="${pkgs.acl}/bin/setfacl -m u:keyforge:rw /dev/input/%k"
+              ACTION=="add|change", KERNEL=="uinput", GROUP="input", MODE="0660", RUN+="${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/%k"
+              ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", RUN+="${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/input/%k"
             '';
 
-            systemd.services.keyforged = {
-              description = "Keyforge Input Remapping Daemon";
+            systemd.services.keymasqd = {
+              description = "Keymasq Input Remapping Daemon";
               wantedBy = [ "multi-user.target" ];
               after = [ "systemd-udev-settle.service" ];
               requires = [ "systemd-udev-settle.service" ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "notify";
-                User = "keyforge";
-                Group = "keyforge";
+                User = "keymasq";
+                Group = "keymasq";
                 SupplementaryGroups = [ "input" ];
                 Nice = -5;
                 ExecStartPre = [
-                  "+${pkgs.acl}/bin/setfacl -m u:keyforge:rw /dev/uinput"
-                  "+${pkgs.bash}/bin/sh -c 'for p in /dev/input/event*; do [ -e \"$p\" ] && ${pkgs.acl}/bin/setfacl -m u:keyforge:rw \"$p\"; done'"
+                  "+${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/uinput"
+                  "+${pkgs.bash}/bin/sh -c 'for p in /dev/input/event*; do [ -e \"$p\" ] && ${pkgs.acl}/bin/setfacl -m u:keymasq:rw \"$p\"; done'"
                 ];
-                ExecStart = "${cfg.package}/bin/keyforged";
+                ExecStart = "${cfg.package}/bin/keymasqd";
                 Restart = "on-failure";
                 RestartSec = 5;
                 NoNewPrivileges = true;
                 ProtectSystem = "strict";
                 ProtectHome = true;
                 PrivateTmp = true;
-                StateDirectory = "keyforge";
-                ReadWritePaths = [ "/run/keyforge" "/var/lib/keyforge" ];
+                StateDirectory = "keymasq";
+                ReadWritePaths = [ "/run/keymasq" "/var/lib/keymasq" ];
               };
             };
 
-            systemd.user.services.keyforge-session = {
-              description = "Keyforge Session Manager";
+            systemd.user.services.keymasq-session = {
+              description = "Keymasq Session Manager";
               partOf = [ "graphical-session.target" ];
               wantedBy = [ "graphical-session.target" ];
               after = [ "graphical-session.target" ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "simple";
-                ExecStart = "${cfg.package}/bin/keyforge-session";
+                ExecStart = "${cfg.package}/bin/keymasq-session";
                 Restart = "on-failure";
                 RestartSec = 3;
               };

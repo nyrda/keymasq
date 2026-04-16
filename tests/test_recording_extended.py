@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import evdev
 import pytest
 
-from keyforge.keyforged.recording import RecordingManager
+from keymasq.keymasqd.recording import RecordingManager
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,7 @@ async def test_recording_progress_reports_latest_event() -> None:
     callback.side_effect = lambda *_args: setattr(recorder, "_stopped", True)
 
     with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr("keyforge.keyforged.recording.asyncio.sleep", AsyncMock())
+        monkeypatch.setattr("keymasq.keymasqd.recording.asyncio.sleep", AsyncMock())
         await recorder._monitor_progress()
 
     callback.assert_awaited_once()

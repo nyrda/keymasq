@@ -10,7 +10,7 @@ on how you press it — or let it do several things at once.
 key — tap it quickly to copy, hold it down to paste. One key, two useful
 actions, no awkward finger chords.
 
-Keyforge gives you two ways to set this up:
+Keymasq gives you two ways to set this up:
 
 - **Pattern mode** — the key watches *how* you press it (tap, double tap,
   hold, or tap-then-hold) and each gesture can trigger one action or a
@@ -28,7 +28,7 @@ setting it up again each time.
 
 ### Pattern
 
-Keyforge watches how you press the source key and chooses one of four
+Keymasq watches how you press the source key and chooses one of four
 slots:
 
 | Interaction | What it means |
@@ -161,7 +161,7 @@ The chosen slot then runs its action bundle.
 
 ### Concurrency
 
-The same super key can still be assigned to multiple inputs at once. Keyforge
+The same super key can still be assigned to multiple inputs at once. Keymasq
 keeps the outputs stable when two source keys share the same super key and
 both hold the same child output.
 
@@ -197,7 +197,7 @@ You will not be left with broken references.
 Super keys live in:
 
 ```text
-~/.config/keyforge/superkeys/
+~/.config/keymasq/superkeys/
 ```
 
 The file format is strict: each super key must declare `mode`, and every

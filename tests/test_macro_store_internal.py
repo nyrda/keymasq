@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from keyforge.keyforged.macro_store import MacroStore
+from keymasq.keymasqd.macro_store import MacroStore
 
 
 def test_register_internal_macro():

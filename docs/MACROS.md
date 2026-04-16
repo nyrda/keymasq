@@ -2,13 +2,13 @@
 
 ## Overview
 
-In Keyforge, a macro is a saved sequence of input actions that you can replay
+In Keymasq, a macro is a saved sequence of input actions that you can replay
 later. A macro can type text, press keys, click mouse buttons, move the mouse,
 or combine several of those actions with recorded timing.
 
-Macros are saved centrally by Keyforge and can be reused from profiles,
+Macros are saved centrally by Keymasq and can be reused from profiles,
 superkeys, combos, or the CLI. You create and edit them in the GUI, and
-Keyforge plays them back by macro name.
+Keymasq plays them back by macro name.
 
 ## Quick Start: Your First Macro
 
@@ -16,7 +16,7 @@ The fastest way to get started is to create an empty macro, add a few events
 by hand, and assign it to a key. This doesn't require any special permissions
 or unlock steps.
 
-1. Open the Keyforge GUI and go to **Macro Manager**.
+1. Open the Keymasq GUI and go to **Macro Manager**.
 2. Click **Empty Macro…** and give it a name.
 3. The macro editor opens with a blank timeline. Add the key presses or mouse
    actions you want — for example, a Ctrl+C shortcut.
@@ -28,9 +28,9 @@ or unlock steps.
 That's it. The sections below cover the other creation methods (live recording
 and type templates), loop modes, timing adjustments, and more.
 
-![Macro Manager — the three creation buttons are at the bottom](../assets/screenshots/keyforge_macros.png)
+![Macro Manager — the three creation buttons are at the bottom](../assets/screenshots/keymasq_macros.png)
 
-![A key bound to a macro appears with the macro name underneath](../assets/screenshots/keyforge_macro_bound.png)
+![A key bound to a macro appears with the macro name underneath](../assets/screenshots/keymasq_macro_bound.png)
 
 ## Creating Macros
 
@@ -38,7 +38,7 @@ There are three ways to create a macro:
 
 - **Live recording** — capture what you do in real time.
 - **Empty macro** — start from a blank timeline and add events by hand.
-- **Type macro template** — enter text and let Keyforge build the keystrokes
+- **Type macro template** — enter text and let Keymasq build the keystrokes
   for you.
 
 ### Live Recording
@@ -60,7 +60,7 @@ net.
 
 **How to record:**
 
-1. Make sure the Keyforge GUI is running and unlocked.
+1. Make sure the Keymasq GUI is running and unlocked.
 2. Switch to the application you want to record in.
 3. Press your **Toggle Recording** key to start capturing.
 4. Perform the inputs you want to capture.
@@ -82,9 +82,9 @@ reach them will be captured too, which is rarely what you want.
 | Move to start | Before playback, move the cursor to the position it was at when recording began. |
 | Block mouse movement | Prevent accidental mouse movement during playback (requires a grabbed mouse device). |
 
-![Recording settings — Move to start and Block mouse movement options](../assets/screenshots/keyforge_macro_recording_settings.png)
+![Recording settings — Move to start and Block mouse movement options](../assets/screenshots/keymasq_macro_recording_settings.png)
 
-![Save dialog — name your recorded macro before saving](../assets/screenshots/keyforge_save_macro_dialog.png)
+![Save dialog — name your recorded macro before saving](../assets/screenshots/keymasq_save_macro_dialog.png)
 
 ### Empty Macro
 
@@ -105,13 +105,13 @@ you need.
 to capture live timing — for example, a simple keyboard shortcut, a short
 button sequence, or a starting point you plan to refine in the editor.
 
-![The macro editor — add events to build your macro by hand](../assets/screenshots/keyforge_edit_macro_1.png)
+![The macro editor — add events to build your macro by hand](../assets/screenshots/keymasq_edit_macro_1.png)
 
 ### Type Macro Template
 
 Type macro templates are a shortcut for creating simple text-typing macros
 without recording. You type the text you want, choose a delay between
-keystrokes, and Keyforge builds the macro automatically.
+keystrokes, and Keymasq builds the macro automatically.
 
 **How to create one:**
 
@@ -127,7 +127,7 @@ any short text that doesn't need precise timing.
 non-QWERTY layout, or need exact control over timing, live recording will
 give more reliable results.
 
-![Type Macro dialog — enter text, set key-down and pause timing](../assets/screenshots/keyforge_type_macro_creation.png)
+![Type Macro dialog — enter text, set key-down and pause timing](../assets/screenshots/keymasq_type_macro_creation.png)
 
 ## Using Macros
 
@@ -140,7 +140,7 @@ Once a macro is saved, you can trigger it in several ways:
 | Mapped key or button | Device tab → pick a key → set action to **Play Macro** |
 | Superkey action | Superkey editor → add a macro action |
 | Combo | Combo tab → set the combo's action to **Play Macro** |
-| CLI command | Terminal: `keyforge macro play <name>` |
+| CLI command | Terminal: `keymasq macro play <name>` |
 | GUI button | Macro Manager → click **Play** next to a macro |
 
 **Playback options** (available from the mapping or the play command):
@@ -153,7 +153,7 @@ Once a macro is saved, you can trigger it in several ways:
 - **Block mouse movement** — temporarily prevent mouse movement during
   playback (requires a grabbed mouse device).
 
-![Mapping dialog — pick a macro, set speed and replay options](../assets/screenshots/keyforge_map_macro_1.png)
+![Mapping dialog — pick a macro, set speed and replay options](../assets/screenshots/keymasq_map_macro_1.png)
 
 ### Loop Modes
 
@@ -171,7 +171,7 @@ automatically.
 in a game, continuous scrolling, or any workflow where you want the macro to
 keep running without pressing the trigger again and again.
 
-![Loop mode dropdown — None, Count, Hold, or Toggle](../assets/screenshots/keyforge_macro_edit_loop_modes.png)
+![Loop mode dropdown — None, Count, Hold, or Toggle](../assets/screenshots/keymasq_macro_edit_loop_modes.png)
 
 ### Concurrency
 
@@ -250,7 +250,7 @@ keyboard) without affecting another (say, mouse movement).
 Gap notes appear as **G** markers on the timeline. You can move them, edit
 their duration, or delete them at any time.
 
-![A gap note on the macro timeline](../assets/screenshots/keyforge_macro_edit_gap_note.png)
+![A gap note on the macro timeline](../assets/screenshots/keymasq_macro_edit_gap_note.png)
 
 ### Timing Tools
 
@@ -264,22 +264,22 @@ The **Timing Tools** menu provides bulk adjustments to your macro's timing:
 | **Apply Gap Limits** | Set a minimum and/or maximum gap between events, clamping any that fall outside. |
 | **Insert Gap** | Add a delay at a specific time, scoped to Everything, Keyboard, Mouse, or Movement. |
 
-![Timing Tools menu — Trim, Scale, Gap Limits, and Insert Gap](../assets/screenshots/keyforge_macros_timing_tools.png)
+![Timing Tools menu — Trim, Scale, Gap Limits, and Insert Gap](../assets/screenshots/keymasq_macros_timing_tools.png)
 
 ## CLI Usage
 
-The `keyforge` CLI lets you work with macros from a terminal. It's best for
+The `keymasq` CLI lets you work with macros from a terminal. It's best for
 quick operations — use the GUI for creating and editing.
 
 | Command | What it does |
 |---|---|
-| `keyforge macro list` | Show all saved macros with basic info. |
-| `keyforge macro play <name>` | Play a macro by name. |
-| `keyforge macro cancel` | Stop all currently running macros. |
+| `keymasq macro list` | Show all saved macros with basic info. |
+| `keymasq macro play <name>` | Play a macro by name. |
+| `keymasq macro cancel` | Stop all currently running macros. |
 
 ## Storage
 
-Macros are stored in `/var/lib/keyforge/macros/`, owned by the `keyforge`
+Macros are stored in `/var/lib/keymasq/macros/`, owned by the `keymasq`
 system user. Do not edit these files by hand — use the GUI or CLI instead.
 
 ### Deleting Macros
@@ -293,20 +293,20 @@ pressing the trigger will do nothing because the macro no longer exists.
 
 ## Security Notes
 
-Keyforge treats macros with care because recording captures raw input, which
+Keymasq treats macros with care because recording captures raw input, which
 could be misused as a keylogger.
 
 - **Recording is allowed by default**, but guarded by an unlock step. Before
-  you can record a macro, Keyforge asks you to confirm through a one-time
+  you can record a macro, Keymasq asks you to confirm through a one-time
   unlock prompt. This is intentional — recording captures your raw keystrokes,
   so the unlock prevents anything from silently recording in the background
   without your knowledge.
 
-- **Macros are stored in `/var/lib/keyforge/macros/`**, owned by the `keyforge`
-  system user, not mixed into your profile files. The GUI asks Keyforge to save
+- **Macros are stored in `/var/lib/keymasq/macros/`**, owned by the `keymasq`
+  system user, not mixed into your profile files. The GUI asks Keymasq to save
   or play them; it does not write files there directly.
 
-**Optional security settings** (in `/etc/keyforge/security.toml`). Most users
+**Optional security settings** (in `/etc/keymasq/security.toml`). Most users
 do not need to change these — they are intended for system administrators:
 
 - **Disable the unlock requirement** (not recommended):

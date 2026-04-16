@@ -1,8 +1,0 @@
-# Keyforge ACL rules
-# Keep vendor group/mode handling intact and grant daemon access via ACL.
-
-# uinput access for virtual device creation
-ACTION=="add|change", KERNEL=="uinput", GROUP="input", MODE="0660", RUN+="/usr/bin/setfacl -m u:keyforge:rw /dev/%k"
-
-# input event devices across all drivers (including vendor-managed groups)
-ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", RUN+="/usr/bin/setfacl -m u:keyforge:rw /dev/input/%k"

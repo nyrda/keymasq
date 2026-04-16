@@ -280,7 +280,7 @@ class TestProfileManager:
         manager = ProfileManager()
 
         monkeypatch.setattr(
-            "keyforge.session.profiles.MAX_PROFILE_PATH_ATTEMPTS",
+            "keymasq.session.profiles.MAX_PROFILE_PATH_ATTEMPTS",
             3,
         )
         monkeypatch.setattr(Path, "exists", lambda self: True)

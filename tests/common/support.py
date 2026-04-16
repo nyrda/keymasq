@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from keyforge.common.models import (
+from keymasq.common.models import (
     ActionType,
     ComboConfig,
     ComboEvent,
@@ -17,8 +17,8 @@ from keyforge.common.models import (
     WindowRule,
     is_protected_button,
 )
-from keyforge.session.hardware import HardwareManager
-from keyforge.session.profiles import ProfileManager
+from keymasq.session.hardware import HardwareManager
+from keymasq.session.profiles import ProfileManager
 
 __all__ = [
     'datetime',

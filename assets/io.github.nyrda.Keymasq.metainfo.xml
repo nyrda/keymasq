@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.nyrda.Keymasq.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Keymasq</name>
+  <summary>Linux input remapper for keyboards, mice, and gamepads</summary>
+  <developer>
+    <name>nyrda</name>
+  </developer>
+  <launchable type="desktop-id">io.github.nyrda.Keymasq.desktop</launchable>
+  <url type="homepage">https://keymasq.tools</url>
+  <url type="bugtracker">https://github.com/nyrda/keymasq/issues</url>
+  <update_contact>nyrda@keymasq.tools</update_contact>
+  <description>
+    <p>
+      Keymasq is a Linux input remapper built around a privileged daemon, a
+      per-user session broker, and a GTK4 GUI.
+    </p>
+    <p>
+      It supports global layered profiles, per-device mappings, window-aware
+      profile activation, macros, superkeys, and multi-step combos.
+    </p>
+  </description>
+  <categories>
+    <category>Settings</category>
+    <category>HardwareSettings</category>
+  </categories>
+  <keywords>
+    <keyword>keyboard</keyword>
+    <keyword>mouse</keyword>
+    <keyword>gamepad</keyword>
+    <keyword>remap</keyword>
+    <keyword>macro</keyword>
+    <keyword>combo</keyword>
+  </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/nyrda/keymasq/master/assets/screenshots/keymasq_profile.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.3.2" date="2026-04-13">
+      <description>
+        <p>Expands superkey pattern actions and macro payloads, resolves nested macro refresh issues, tightens rapidfire validation, and keeps hold-macro mouse suppression in sync.</p>
+      </description>
+    </release>
+    <release version="0.3" date="2026-04-10">
+      <description>
+        <p>Adds first-class Niri support and expands superkeys with pattern/overload modes plus value-aware bindings.</p>
+      </description>
+    </release>
+    <release version="0.2" date="2026-04-07">
+      <description>
+        <p>Improves first-run setup with an editable default profile and a cleaner device setup flow.</p>
+      </description>
+    </release>
+  </releases>
+</component>

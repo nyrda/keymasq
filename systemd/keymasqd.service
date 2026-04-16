@@ -1,0 +1,30 @@
+[Unit]
+Description=Keymasq Input Remapping Daemon
+Documentation=man:keymasqd(1)
+Documentation=https://github.com/nyrda/keymasq
+After=systemd-udev-settle.service
+Requires=systemd-udev-settle.service
+
+[Service]
+Type=notify
+User=keymasq
+Group=keymasq
+SupplementaryGroups=input
+# Keep grabbed-input remapping responsive under CPU contention.
+Nice=-5
+ExecStartPre=+/usr/bin/setfacl -m u:keymasq:rw /dev/uinput
+ExecStartPre=+/usr/bin/sh -c 'for p in /dev/input/event*; do [ -e "$p" ] && /usr/bin/setfacl -m u:keymasq:rw "$p"; done'
+ExecStart=/usr/bin/keymasqd
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+StateDirectory=keymasq
+ReadWritePaths=/run/keymasq /var/lib/keymasq
+
+[Install]
+WantedBy=multi-user.target

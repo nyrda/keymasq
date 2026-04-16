@@ -10,4 +10,4 @@ if [[ ! -f "${REPO_ROOT}/flake.nix" ]]; then
 fi
 
 OUT_PATH="$(nix build "${REPO_ROOT}#default" --no-link --print-out-paths)"
-exec "${OUT_PATH}/bin/keyforge" "$@"
+exec "${OUT_PATH}/bin/keymasq" "$@"

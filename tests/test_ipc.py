@@ -1,4 +1,4 @@
-from keyforge.common.ipc import (
+from keymasq.common.ipc import (
     Command,
     CommandType,
     Response,

@@ -3,13 +3,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import keyforge.session.manager.core as session_manager_core_module
-import keyforge.session.manager.profiles as session_profiles_module
-from keyforge.common.security import PeerCredentials
-from keyforge.session.manager import SessionManager
+import keymasq.session.manager.core as session_manager_core_module
+import keymasq.session.manager.profiles as session_profiles_module
+from keymasq.common.security import PeerCredentials
+from keymasq.session.manager import SessionManager
 
 
-class _FakeKeyforgedClient:
+class _FakeKeymasqdClient:
     def __init__(self) -> None:
         self.connect_calls = 0
 
@@ -60,7 +60,7 @@ class _FakeSessionWriter:
 @pytest.mark.asyncio
 async def test_connect_loop_reconnect_reapplies_profiles_after_restart() -> None:
     manager = SessionManager()
-    manager.client = _FakeKeyforgedClient()
+    manager.client = _FakeKeymasqdClient()
     manager.running = True
     manager._retry_event.set()
     manager.profile_state.grabbed_devices = {"1234:5678"}
@@ -80,7 +80,7 @@ async def test_connect_loop_reconnect_reapplies_profiles_after_restart() -> None
         "activate_initial_profiles",
         lambda _manager: _activate_initial_profiles(),
     )
-    manager._broadcast_keyforged_status = lambda connected: status_events.append(connected)  # type: ignore[assignment]
+    manager._broadcast_keymasqd_status = lambda connected: status_events.append(connected)  # type: ignore[assignment]
 
     try:
         await manager.connect_loop()
@@ -186,14 +186,14 @@ async def test_send_notification_logs_even_when_dbus_notification_fails(
     manager = SessionManager()
     manager.dbus.notify = AsyncMock(side_effect=RuntimeError("notification unavailable"))  # type: ignore[method-assign]
 
-    with caplog.at_level("INFO", logger="keyforge-session"):
-        manager.send_notification("Keyforge: Grab Pending", "Test Keyboard is waiting.")
+    with caplog.at_level("INFO", logger="keymasq-session"):
+        manager.send_notification("Keymasq: Grab Pending", "Test Keyboard is waiting.")
         await asyncio.sleep(0)
 
-    assert "Notification: Keyforge: Grab Pending: Test Keyboard is waiting." in caplog.text
+    assert "Notification: Keymasq: Grab Pending: Test Keyboard is waiting." in caplog.text
     manager.dbus.notify.assert_awaited_once_with(  # type: ignore[attr-defined]
-        "Keyforge: Grab Pending",
+        "Keymasq: Grab Pending",
         "Test Keyboard is waiting.",
-        app_name="keyforge",
+        app_name="keymasq",
         timeout_ms=2000,
     )

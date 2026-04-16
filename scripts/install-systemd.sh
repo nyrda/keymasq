@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: sudo bash scripts/install-systemd.sh [--user <username>] [--python <python3-path>]
 
-Installs Keyforge systemd units and wrappers for source installs.
+Installs Keymasq systemd units and wrappers for source installs.
 EOF
 }
 
@@ -52,58 +52,58 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-echo "Installing Keyforge systemd setup for user: ${TARGET_USER}"
+echo "Installing Keymasq systemd setup for user: ${TARGET_USER}"
 
-if ! id keyforge >/dev/null 2>&1; then
-  useradd -r -s /usr/sbin/nologin -M keyforge
+if ! id keymasq >/dev/null 2>&1; then
+  useradd -r -s /usr/sbin/nologin -M keymasq
 fi
 
-if ! getent group keyforge >/dev/null 2>&1; then
-  groupadd --system keyforge
+if ! getent group keymasq >/dev/null 2>&1; then
+  groupadd --system keymasq
 fi
 
-usermod -aG keyforge keyforge >/dev/null 2>&1 || true
+usermod -aG keymasq keymasq >/dev/null 2>&1 || true
 
-install -Dm644 "${REPO_ROOT}/udev/91-keyforge-acl.rules" /etc/udev/rules.d/91-keyforge-acl.rules
+install -Dm644 "${REPO_ROOT}/udev/91-keymasq-acl.rules" /etc/udev/rules.d/91-keymasq-acl.rules
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=input --action=add
 udevadm trigger --subsystem-match=misc --action=add
 
-install -d -m 0755 -o keyforge -g keyforge /run/keyforge
-install -d -m 0750 -o keyforge -g keyforge /var/lib/keyforge
+install -d -m 0755 -o keymasq -g keymasq /run/keymasq
+install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
 
-cat >/usr/local/bin/keyforged-wrapper <<EOF
+cat >/usr/local/bin/keymasqd-wrapper <<EOF
 #!/usr/bin/env bash
-exec ${PYTHON_BIN} -m keyforge.keyforged "\$@"
+exec ${PYTHON_BIN} -m keymasq.keymasqd "\$@"
 EOF
-chmod 0755 /usr/local/bin/keyforged-wrapper
+chmod 0755 /usr/local/bin/keymasqd-wrapper
 
-cat >/usr/local/bin/keyforge-session-wrapper <<EOF
+cat >/usr/local/bin/keymasq-session-wrapper <<EOF
 #!/usr/bin/env bash
-exec ${PYTHON_BIN} -m keyforge.session.manager "\$@"
+exec ${PYTHON_BIN} -m keymasq.session.manager "\$@"
 EOF
-chmod 0755 /usr/local/bin/keyforge-session-wrapper
+chmod 0755 /usr/local/bin/keymasq-session-wrapper
 
-cat >/etc/systemd/system/keyforged.service <<'EOF'
+cat >/etc/systemd/system/keymasqd.service <<'EOF'
 [Unit]
-Description=Keyforge Input Remapping Daemon
+Description=Keymasq Input Remapping Daemon
 After=systemd-udev-settle.service
 Requires=systemd-udev-settle.service
 
 [Service]
 Type=simple
-User=keyforge
-Group=keyforge
+User=keymasq
+Group=keymasq
 SupplementaryGroups=input
 Nice=-5
-ExecStart=/usr/local/bin/keyforged-wrapper
+ExecStart=/usr/local/bin/keymasqd-wrapper
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/run/keyforge /var/lib/keyforge
+ReadWritePaths=/run/keymasq /var/lib/keymasq
 
 [Install]
 WantedBy=multi-user.target
@@ -116,26 +116,26 @@ if [[ -z "${USER_HOME}" ]]; then
 fi
 
 install -d -m 0755 -o "${TARGET_USER}" -g "${TARGET_USER}" "${USER_HOME}/.config/systemd/user"
-cat >"${USER_HOME}/.config/systemd/user/keyforge-session.service" <<'EOF'
+cat >"${USER_HOME}/.config/systemd/user/keymasq-session.service" <<'EOF'
 [Unit]
-Description=Keyforge Session Manager
+Description=Keymasq Session Manager
 After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/keyforge-session-wrapper
+ExecStart=/usr/local/bin/keymasq-session-wrapper
 Restart=on-failure
 RestartSec=3
 
 [Install]
 WantedBy=default.target
 EOF
-chown "${TARGET_USER}:${TARGET_USER}" "${USER_HOME}/.config/systemd/user/keyforge-session.service"
+chown "${TARGET_USER}:${TARGET_USER}" "${USER_HOME}/.config/systemd/user/keymasq-session.service"
 
 systemctl daemon-reload
-systemctl enable --now keyforged
+systemctl enable --now keymasqd
 sudo -u "${TARGET_USER}" systemctl --user daemon-reload
-sudo -u "${TARGET_USER}" systemctl --user enable --now keyforge-session
+sudo -u "${TARGET_USER}" systemctl --user enable --now keymasq-session
 
-echo "Done. Launch GUI with: keyforge"
+echo "Done. Launch GUI with: keymasq"

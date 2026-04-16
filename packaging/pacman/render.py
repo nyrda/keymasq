@@ -11,12 +11,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
 COMMON_METADATA = {
-    "maintainer": "nyrda <nyrda@keyforge.tools>",
-    "pkgname": "keyforge",
+    "maintainer": "nyrda <nyrda@keymasq.tools>",
+    "pkgname": "keymasq",
     "pkgrel": "1",
     "pkgdesc": "A key remapping tool for Linux using evdev and uinput",
     "arch": ["any"],
-    "url": "https://github.com/nyrda/keyforge",
+    "url": "https://github.com/nyrda/keymasq",
     "license": ["MIT"],
     "depends": [
         "acl",
@@ -85,7 +85,7 @@ def parse_args(pkgver: str) -> argparse.Namespace:
     )
     parser.add_argument(
         "--aur-source-url",
-        default=f"{COMMON_METADATA['url']}/releases/download/v{pkgver}/keyforge-{pkgver}.tar.gz",
+        default=f"{COMMON_METADATA['url']}/releases/download/v{pkgver}/keymasq-{pkgver}.tar.gz",
         help="Release tarball URL to embed in packaging/aur/PKGBUILD.",
     )
     parser.add_argument(
@@ -174,9 +174,9 @@ def build_srcinfo(pkgver: str, aur_source_url: str, aur_sha256: str) -> str:
         lines.append(f"\toptdepends = {optdepend}")
     lines.extend(
         [
-            f"\tsource = keyforge-{pkgver}.tar.gz::{aur_source_url}",
+            f"\tsource = keymasq-{pkgver}.tar.gz::{aur_source_url}",
             f"\tsha256sums = {aur_sha256}",
-            "\tinstall = keyforge.install",
+            "\tinstall = keymasq.install",
             "",
             f"pkgname = {COMMON_METADATA['pkgname']}",
         ]
@@ -185,7 +185,7 @@ def build_srcinfo(pkgver: str, aur_source_url: str, aur_sha256: str) -> str:
 
 
 def main() -> None:
-    pkgver = os.environ.get("KEYFORGE_PKGVER_OVERRIDE") or read_version()
+    pkgver = os.environ.get("KEYMASQ_PKGVER_OVERRIDE") or read_version()
     args = parse_args(pkgver)
     local_replacements = build_replacements(
         args.pkgver, "local", args.aur_source_url, args.aur_sha256
@@ -196,16 +196,16 @@ def main() -> None:
 
     write_if_changed(REPO_ROOT / "PKGBUILD", render_template("PKGBUILD.in", local_replacements))
     write_if_changed(
-        REPO_ROOT / "keyforge.install",
-        render_template("keyforge.install.in", local_replacements),
+        REPO_ROOT / "keymasq.install",
+        render_template("keymasq.install.in", local_replacements),
     )
     write_if_changed(
         REPO_ROOT / "packaging/aur/PKGBUILD",
         render_template("PKGBUILD.in", aur_replacements),
     )
     write_if_changed(
-        REPO_ROOT / "packaging/aur/keyforge.install",
-        render_template("keyforge.install.in", aur_replacements),
+        REPO_ROOT / "packaging/aur/keymasq.install",
+        render_template("keymasq.install.in", aur_replacements),
     )
     write_if_changed(
         REPO_ROOT / "packaging/aur/.SRCINFO",

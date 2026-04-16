@@ -2,8 +2,8 @@ import logging
 
 import pytest
 
-from keyforge.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-from keyforge.session.hardware import HardwareManager
+from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+from keymasq.session.hardware import HardwareManager
 
 
 def test_hardware_manager_loads_existing_configs(temp_config_dir) -> None:

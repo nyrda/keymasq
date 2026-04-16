@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from keyforge.common.security import command_allowed, load_security_policy, uid_allowed
+from keymasq.common.security import command_allowed, load_security_policy, uid_allowed
 
 
 def test_load_security_policy_defaults_when_missing(tmp_path: Path) -> None:

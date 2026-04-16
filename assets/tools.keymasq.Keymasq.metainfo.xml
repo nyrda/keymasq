@@ -41,9 +41,9 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.4.0" date="2026-04-16">
+    <release version="0.4.1" date="2026-04-16">
       <description>
-        <p>Renames the project to Keymasq and moves desktop, packaging, and repository-facing identities to a clean namespaced Keymasq scheme.</p>
+        <p>Moves the desktop application identity to tools.keymasq.Keymasq, restores the About dialog icon on installed packages, and adds smoke checks to keep launcher assets aligned with the GUI app ID.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

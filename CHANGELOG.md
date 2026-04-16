@@ -2,21 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.0] - 2026-04-16
+## [0.4.1] - 2026-04-16
 
 ### Changed
 
-- Renamed the project from Keyforge to Keymasq across commands, services,
-  package metadata, and documentation.
-- Switched desktop integration and packaging identities to namespaced
-  Keymasq IDs, including the desktop file, AppStream metadata, icons, and
-  GNOME bridge extension UUID.
+- Rebased the packaged desktop application identity on `keymasq.tools`,
+  moving the GTK application ID, desktop file ID, AppStream ID, and installed
+  icon namespace to `tools.keymasq.Keymasq`.
+- Normalized listener-lab test fixture app IDs so the repository no longer
+  mixes old GitHub-based and internal placeholder identities with the shipped
+  desktop application ID.
 
-### Improved
+### Fixed
 
-- Aligned the release and repository publishing pipeline with the Keymasq
-  naming scheme so generated packages, repository metadata, and hosted assets
-  share one clean namespace.
+- Restored the About dialog application icon on installed packages by making
+  the GUI request the same icon name that packaging installs.
+- Added packaging smoke checks to verify the desktop launcher `Icon=` value
+  matches the GUI application identity, preventing future rename drift from
+  silently shipping broken launcher assets.
 
 ## [0.3] - 2026-04-10
 

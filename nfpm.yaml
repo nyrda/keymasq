@@ -1,7 +1,7 @@
 name: keymasq
 arch: x86_64
 platform: linux
-version: 0.3.2
+version: 0.4.0
 release: 1
 maintainer: nyrda <nyrda@keymasq.tools>
 description: A key remapping tool for Linux using evdev and uinput

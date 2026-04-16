@@ -2,22 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.2] - 2026-04-13
+## [0.4.0] - 2026-04-16
 
-### Added
+### Changed
 
-- Expanded superkey pattern actions and macro payloads so advanced superkey
-  flows can express richer action sequences.
+- Renamed the project from Keyforge to Keymasq across commands, services,
+  package metadata, and documentation.
+- Switched desktop integration and packaging identities to namespaced
+  Keymasq IDs, including the desktop file, AppStream metadata, icons, and
+  GNOME bridge extension UUID.
 
-### Fixed
+### Improved
 
-- Resolved macros nested inside superkeys and refreshed bindings correctly
-  after updates.
-- Synced macro editor state more reliably when loading existing data and
-  reopening the manager dialog.
-- Rejected unsupported rapidfire configurations on non-action superkey types.
-- Refreshed mouse suppression during hold macro playback to prevent stray
-  pointer input while macros are running.
+- Aligned the release and repository publishing pipeline with the Keymasq
+  naming scheme so generated packages, repository metadata, and hosted assets
+  share one clean namespace.
 
 ## [0.3] - 2026-04-10
 

@@ -41,9 +41,9 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.3.2" date="2026-04-13">
+    <release version="0.4.0" date="2026-04-16">
       <description>
-        <p>Expands superkey pattern actions and macro payloads, resolves nested macro refresh issues, tightens rapidfire validation, and keeps hold-macro mouse suppression in sync.</p>
+        <p>Renames the project to Keymasq and moves desktop, packaging, and repository-facing identities to a clean namespaced Keymasq scheme.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

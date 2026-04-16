@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.nyrda.Keymasq.desktop</id>
+  <id>tools.keymasq.Keymasq.desktop</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Keymasq</name>
@@ -8,7 +8,7 @@
   <developer>
     <name>nyrda</name>
   </developer>
-  <launchable type="desktop-id">io.github.nyrda.Keymasq.desktop</launchable>
+  <launchable type="desktop-id">tools.keymasq.Keymasq.desktop</launchable>
   <url type="homepage">https://keymasq.tools</url>
   <url type="bugtracker">https://github.com/nyrda/keymasq/issues</url>
   <update_contact>nyrda@keymasq.tools</update_contact>

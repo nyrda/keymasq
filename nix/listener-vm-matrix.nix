@@ -579,7 +579,7 @@ EOF
                             "systemd-run --user --unit=keymasq-window-lab "
                             "--collect keymasq-listener-window-lab "
                             f"--socket {listener_socket} "
-                            "--app-id io.github.nyrda.Keymasq.ListenerLab"
+                            "--app-id tools.keymasq.ListenerLab"
                         )
                     )
                     wait_for_user_socket(

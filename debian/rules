@@ -8,8 +8,8 @@ export PYBUILD_SYSTEM = pyproject
 
 execute_after_dh_install:
 	set -eu; \
-	for icon in assets/icons/io.github.nyrda.Keymasq-*.png; do \
+	for icon in assets/icons/tools.keymasq.Keymasq-*.png; do \
 		size="$${icon##*-}"; \
 		size="$${size%.png}"; \
-		install -Dm644 "$$icon" "debian/keymasq/usr/share/icons/hicolor/$${size}x$${size}/apps/io.github.nyrda.Keymasq.png"; \
+		install -Dm644 "$$icon" "debian/keymasq/usr/share/icons/hicolor/$${size}x$${size}/apps/tools.keymasq.Keymasq.png"; \
 	done

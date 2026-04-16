@@ -27,9 +27,9 @@ systemctl daemon-reload 2>/dev/null || true
 
 # Bump mtimes so desktop environments that watch icon/theme changes
 # can notice the new launcher assets without a full session restart.
-find /usr/share/icons/hicolor -path '*/apps/keymasq.*' -exec touch {} + >/dev/null 2>&1 || true
+find /usr/share/icons/hicolor -path '*/apps/tools.keymasq.Keymasq.*' -exec touch {} + >/dev/null 2>&1 || true
 touch /usr/share/icons/hicolor 2>/dev/null || true
-touch /usr/share/applications/io.github.nyrda.Keymasq.desktop 2>/dev/null || true
+touch /usr/share/applications/tools.keymasq.Keymasq.desktop 2>/dev/null || true
 
 echo ""
 if [ "${1:-1}" -gt 1 ]; then

@@ -180,7 +180,10 @@ class SuperkeyMachine:
             self._hold_task.cancel()
             self._hold_task = None
 
-        if self.config.double_tap_actions:
+        # Tap+hold uses the same second-press window as double tap. Without
+        # this branch, a quick tap followed by a held second press falls back
+        # to a fresh first press and incorrectly triggers the plain hold slot.
+        if self.config.double_tap_actions or self.config.tap_hold_actions:
             self.state = SuperkeyState.UP_WAIT
             self._double_tap_task = asyncio.create_task(self._double_tap_timeout())
         elif self.config.tap_actions:

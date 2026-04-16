@@ -77,6 +77,21 @@ def test_root_entrypoint_falls_back_to_cli(monkeypatch: pytest.MonkeyPatch) -> N
     assert called == ["cli"]
 
 
+def test_cli_main_version_uses_package_version(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    monkeypatch.setattr(cli_main, "__version__", "9.9.9")
+    monkeypatch.setattr(sys, "argv", ["keymasq", "--version"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main.main()
+
+    assert excinfo.value.code == 0
+    assert capsys.readouterr().out.strip() == "keymasq 9.9.9"
+
+
 def test_keymasqd_script_entrypoint_calls_daemon_main(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[str] = []
     monkeypatch.setitem(

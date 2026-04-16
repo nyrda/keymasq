@@ -2,6 +2,8 @@ import argparse
 import os
 from importlib import resources
 
+from keymasq import __version__
+
 # Libadwaita applications should not inherit a forced GTK theme override.
 # Let Adw.StyleManager and the session settings drive appearance instead.
 os.environ.pop("GTK_THEME", None)
@@ -23,7 +25,7 @@ from keymasq.gui.icons import register_icon_search_path, theme_supports_core_ico
 from keymasq.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keymasq.gui.window import MainWindow  # noqa: E402
 
-APP_VERSION = "0.4.1"
+APP_VERSION = __version__
 APP_ID = "tools.keymasq.Keymasq"
 APP_ICON_NAME = APP_ID
 

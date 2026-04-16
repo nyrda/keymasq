@@ -74,11 +74,6 @@ def _build_rules(
             f"## [{version}] - {release_date}",
         ),
         RewriteRule(
-            root / "keymasq/gui/application.py",
-            re.compile(r'(?m)^APP_VERSION = "[^"]+"$'),
-            f'APP_VERSION = "{version}"',
-        ),
-        RewriteRule(
             root / "assets/tools.keymasq.Keymasq.metainfo.xml",
             re.compile(r'(?m)^ {4}<release version="[^"]+" date="[^"]+">$'),
             f'    <release version="{version}" date="{release_date}">',

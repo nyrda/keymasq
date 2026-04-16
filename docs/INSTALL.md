@@ -81,7 +81,7 @@ Add the Keymasq repository and install:
 
 ```bash
 sudo rpm --import https://repo.keymasq.tools/gpg-key.asc
-sudo zypper addrepo --gpgcheck https://repo.keymasq.tools/opensuse keymasq
+sudo zypper addrepo -f --gpgcheck https://repo.keymasq.tools/opensuse keymasq
 sudo zypper install keymasq
 sudo systemctl enable --now keymasqd
 systemctl --user enable --now keymasq-session

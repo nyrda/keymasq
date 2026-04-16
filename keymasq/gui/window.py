@@ -775,7 +775,17 @@ class MainWindow(Adw.ApplicationWindow):
         self.placeholder.append(subtitle)
         self._placeholder_subtitle = subtitle
 
-        self.stack.add_titled(self.placeholder, "placeholder", "Welcome")
+        self._ensure_placeholder_page()
+
+    def _ensure_placeholder_page(self) -> None:
+        if self.placeholder in self.stack:
+            return
+        self.stack.add_titled_with_icon(
+            self.placeholder,
+            "placeholder",
+            "Welcome",
+            resolve_icon_name(*device_icon_names(False)),
+        )
 
     def _apply_loaded_devices(self, devices: list) -> None:
         if self.demo_mode and not devices:
@@ -1358,8 +1368,7 @@ class MainWindow(Adw.ApplicationWindow):
                 break
 
         if not has_device_tabs:
-            if self.placeholder not in self.stack:
-                self.stack.add_titled(self.placeholder, "placeholder", "Welcome")
+            self._ensure_placeholder_page()
 
     def _update_compositor_status(self) -> None:
         if not self._startup_probe_done:

@@ -491,6 +491,7 @@ class TestMainWindow:
     def test_main_window_apply_loaded_devices_updates_empty_state_and_demo_devices(
         self, temp_config_dir
     ):
+        from keymasq.gui.icons import resolve_icon_name, device_icon_names
         from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=False)
@@ -501,6 +502,8 @@ class TestMainWindow:
         assert window._placeholder_subtitle is not None
         assert window._placeholder_title.get_label() == "No devices configured"
         assert window._placeholder_subtitle.get_label() == "Unlock capture to add a new device"
+        placeholder_page = window.stack.get_page(window.placeholder)
+        assert placeholder_page.get_icon_name() == resolve_icon_name(*device_icon_names(False))
 
         demo_window = MainWindow(demo_mode=True)
         demo_window._apply_loaded_devices([])

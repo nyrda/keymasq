@@ -13,6 +13,18 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
   exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
 fi
 
+stop_installed_session_service() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return
+  fi
+
+  if systemctl --user is-active --quiet keymasq-session.service; then
+    systemctl --user stop keymasq-session.service
+  fi
+}
+
+stop_installed_session_service
+
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 exec python -m keymasq.session "$@"

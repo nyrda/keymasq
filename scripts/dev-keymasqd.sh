@@ -13,6 +13,22 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
   exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
 fi
 
+stop_installed_daemon_service() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return
+  fi
+
+  if ! systemctl is-active --quiet keymasqd.service; then
+    return
+  fi
+
+  if [[ "${EUID}" -eq 0 ]]; then
+    systemctl stop keymasqd.service
+  else
+    sudo systemctl stop keymasqd.service
+  fi
+}
+
 stage_source_checkout() {
   local repo_id
   local stage_root
@@ -34,6 +50,8 @@ stage_source_checkout() {
 
 STAGED_PYTHONPATH="$(stage_source_checkout)"
 export PYTHONPATH="${STAGED_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}"
+
+stop_installed_daemon_service
 
 exec sudo -u keymasq env \
   HOME=/var/lib/keymasq \

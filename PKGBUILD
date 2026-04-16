@@ -80,8 +80,8 @@ package() {
 
     install -Dm644 "assets/tools.keymasq.Keymasq.desktop" \
         "$pkgdir/usr/share/applications/tools.keymasq.Keymasq.desktop"
-    install -Dm644 "assets/io.github.nyrda.keymasq.metainfo.xml" \
-        "$pkgdir/usr/share/metainfo/io.github.nyrda.keymasq.metainfo.xml"
+    install -Dm644 "assets/tools.keymasq.keymasq.metainfo.xml" \
+        "$pkgdir/usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml"
     install -Dm644 "assets/tools.keymasq.Keymasq.svg" \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg"
     local icon

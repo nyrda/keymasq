@@ -58,8 +58,8 @@ contents:
 
   - src: assets/tools.keymasq.Keymasq.desktop
     dst: /usr/share/applications/tools.keymasq.Keymasq.desktop
-  - src: assets/io.github.nyrda.keymasq.metainfo.xml
-    dst: /usr/share/metainfo/io.github.nyrda.keymasq.metainfo.xml
+  - src: assets/tools.keymasq.keymasq.metainfo.xml
+    dst: /usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml
   - src: assets/tools.keymasq.Keymasq.svg
     dst: /usr/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg
   - src: assets/icons/tools.keymasq.Keymasq-16.png

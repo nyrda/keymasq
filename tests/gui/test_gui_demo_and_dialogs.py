@@ -99,6 +99,7 @@ class TestRecordMacroDialog:
 
 class TestDialogConstruction:
     def test_about_dialog_uses_packaged_app_identity(self, monkeypatch):
+        from keymasq import __version__
         import keymasq.gui.application as application_module
 
         captured: dict[str, object] = {}
@@ -131,6 +132,7 @@ class TestDialogConstruction:
         app.window = object()
 
         assert app.get_application_id() == application_module.APP_ID
+        assert application_module.APP_VERSION == __version__
 
         app._on_about(None, None)
 

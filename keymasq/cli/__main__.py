@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import sys
 
+from keymasq import __version__
 from keymasq.cli.commands import (
     cancel_macro_cli,
     create_hardware,
@@ -19,6 +20,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="keymasq",
         description="Keymasq CLI - Key remapping tool",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")

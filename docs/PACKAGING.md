@@ -62,7 +62,6 @@ updates:
 - `nfpm.yaml`
 - `debian/changelog`
 - `CHANGELOG.md`
-- `keymasq/gui/application.py`
 - `assets/tools.keymasq.Keymasq.metainfo.xml`
 - the generated pacman files: `PKGBUILD`, `keymasq.install`,
   `packaging/aur/PKGBUILD`, `packaging/aur/keymasq.install`, and

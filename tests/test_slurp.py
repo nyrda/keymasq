@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from keyforge.common.slurp import SlurpCapture, SlurpMode, SlurpResult
+from keymasq.common.slurp import SlurpCapture, SlurpMode, SlurpResult
 
 
 def test_slurp_result() -> None:

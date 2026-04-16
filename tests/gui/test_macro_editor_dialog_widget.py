@@ -2,7 +2,7 @@
 from tests.gui.macro_editor_dialog_support import *
 
 def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> None:
-    from keyforge.gui.session_client import GuiTaskResult
+    from keymasq.gui.session_client import GuiTaskResult
 
     dialog = _build_macro_dialog(monkeypatch)
 
@@ -181,7 +181,7 @@ def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> N
 
     assert (
         dialog._macro_capture_status.get_text()
-        == "Please restart Keyforge Session, then try again"
+        == "Please restart Keymasq Session, then try again"
     )
 
 

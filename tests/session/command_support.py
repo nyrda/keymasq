@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-import keyforge.session.manager.compositor as session_compositor_module
-import keyforge.session.manager.profiles as session_profiles_module
-import keyforge.session.manager.recording as session_recording_module
-from keyforge.common.ipc import Response
-from keyforge.common.security import PeerCredentials, SecurityPolicy
-from keyforge.session.listeners.hyprland import HyprlandListener
-from keyforge.session.listeners.kde import KDEListener
-from keyforge.session.manager import SessionManager
+import keymasq.session.manager.compositor as session_compositor_module
+import keymasq.session.manager.profiles as session_profiles_module
+import keymasq.session.manager.recording as session_recording_module
+from keymasq.common.ipc import Response
+from keymasq.common.security import PeerCredentials, SecurityPolicy
+from keymasq.session.listeners.hyprland import HyprlandListener
+from keymasq.session.listeners.kde import KDEListener
+from keymasq.session.manager import SessionManager
 
 __all__ = [
     'SimpleNamespace',

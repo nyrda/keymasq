@@ -1,9 +1,9 @@
 # Profile System
 
-The profile system is how Keyforge stores and applies remaps. A profile is a
+The profile system is how Keymasq stores and applies remaps. A profile is a
 named set of mappings that can include layers for one device or several
 devices.
-Keyforge can activate more than one profile at the same time, then merge those
+Keymasq can activate more than one profile at the same time, then merge those
 profiles into the final mapping for each device based on profile type,
 priority, and active window rules.
 
@@ -13,15 +13,15 @@ The easiest way to think about profiles is:
 
 - a profile is a named layer of remaps
 - more than one profile can be active at once
-- for each device, Keyforge merges the matching layers from the active profiles
+- for each device, Keymasq merges the matching layers from the active profiles
 
 What "matching layers" means:
 
 - a profile can contain a keyboard layer, a mouse layer, a gamepad layer, or
   any combination of them
-- when input comes from your mouse, Keyforge only looks at the mouse parts of
+- when input comes from your mouse, Keymasq only looks at the mouse parts of
   the active profiles
-- when input comes from your keyboard, Keyforge only looks at the keyboard
+- when input comes from your keyboard, Keymasq only looks at the keyboard
   parts of the active profiles
 
 Simple example:
@@ -52,18 +52,18 @@ profiles, each of which may contribute a layer to each device".
 Profiles are stored in:
 
 ```text
-~/.config/keyforge/profiles/<profile_name>.toml
+~/.config/keymasq/profiles/<profile_name>.toml
 ```
 
 The visible profile name can contain arbitrary characters. The on-disk filename is derived from that name by replacing unsafe filename characters so the file always stays inside `profiles/`.
 
-On first start, Keyforge seeds an editable permanent profile named `Default` so
+On first start, Keymasq seeds an editable permanent profile named `Default` so
 new devices can be remapped immediately without creating a profile first.
 
 Hardware definitions are still separate:
 
 ```text
-~/.config/keyforge/hardware/<hardware_id>.toml
+~/.config/keymasq/hardware/<hardware_id>.toml
 ```
 
 ## Profile Types
@@ -84,9 +84,9 @@ There are two profile types.
 
 ## Activation And Merge Rules
 
-Keyforge can have more than one active profile at once.
+Keymasq can have more than one active profile at once.
 
-For each device, Keyforge resolves the final mapping by layering active profiles in this order:
+For each device, Keymasq resolves the final mapping by layering active profiles in this order:
 
 1. Enabled permanent profiles
 2. Enabled conditional profiles whose window rules match
@@ -116,7 +116,7 @@ permanent profile normally remaps.
 
 ## Exclusive Input Capture
 
-`always_grab_all` is a per-device layer setting that makes Keyforge capture all
+`always_grab_all` is a per-device layer setting that makes Keymasq capture all
 input from the device, even buttons that are not remapped. This prevents the
 original input from reaching your apps.
 
@@ -228,10 +228,10 @@ Deleting a hardware definition does not delete global profiles. Any layers for t
 Profile commands operate on profile names:
 
 ```bash
-keyforge profiles list
-keyforge profiles enable Gaming
-keyforge profiles disable Gaming
-keyforge profiles toggle Gaming
+keymasq profiles list
+keymasq profiles enable Gaming
+keymasq profiles disable Gaming
+keymasq profiles toggle Gaming
 ```
 
 `list` shows:

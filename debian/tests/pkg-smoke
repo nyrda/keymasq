@@ -18,47 +18,47 @@ assert_cmd() {
     }
 }
 
-assert_file /usr/bin/keyforge
-assert_file /usr/bin/keyforged
-assert_file /usr/bin/keyforge-session
-assert_file /usr/bin/keyforge-record
-assert_file /usr/lib/systemd/system/keyforged.service
-assert_file /usr/lib/systemd/user/keyforge-session.service
-assert_file /usr/lib/udev/rules.d/91-keyforge-acl.rules
-assert_file /usr/lib/sysusers.d/keyforge.conf
-assert_file /usr/lib/tmpfiles.d/keyforge.conf
-assert_file /usr/share/polkit-1/actions/com.keyforge.record-macro.policy
-assert_file /usr/share/applications/keyforge.desktop
-assert_file /usr/share/metainfo/keyforge.metainfo.xml
-assert_file /usr/share/icons/hicolor/scalable/apps/keyforge.svg
+assert_file /usr/bin/keymasq
+assert_file /usr/bin/keymasqd
+assert_file /usr/bin/keymasq-session
+assert_file /usr/bin/keymasq-record
+assert_file /usr/lib/systemd/system/keymasqd.service
+assert_file /usr/lib/systemd/user/keymasq-session.service
+assert_file /usr/lib/udev/rules.d/91-keymasq-acl.rules
+assert_file /usr/lib/sysusers.d/keymasq.conf
+assert_file /usr/lib/tmpfiles.d/keymasq.conf
+assert_file /usr/share/polkit-1/actions/com.keymasq.record-macro.policy
+assert_file /usr/share/applications/io.github.nyrda.Keymasq.desktop
+assert_file /usr/share/metainfo/io.github.nyrda.Keymasq.metainfo.xml
+assert_file /usr/share/icons/hicolor/scalable/apps/io.github.nyrda.Keymasq.svg
 for size in 16 22 24 32 48 64 128 256 512; do
-    assert_file "/usr/share/icons/hicolor/${size}x${size}/apps/keyforge.png"
+    assert_file "/usr/share/icons/hicolor/${size}x${size}/apps/io.github.nyrda.Keymasq.png"
 done
-assert_file /usr/share/gnome-shell/extensions/keyforge-bridge@keyforge/metadata.json
-assert_file /etc/keyforge/security.toml
+assert_file /usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/metadata.json
+assert_file /etc/keymasq/security.toml
 
-assert_cmd "keyforge cli help" keyforge --help
-assert_cmd "keyforged help" keyforged --help
-assert_cmd "keyforge-session help" keyforge-session --help
-assert_cmd "keyforge-record help" keyforge-record --help
-assert_cmd "python import" python3 -c "import keyforge, keyforge.common.models"
-assert_cmd "python package css" python3 -c "from importlib import resources; assert resources.files('keyforge').joinpath('gui/style.css').is_file()"
-assert_cmd "python package gui assets" python3 -c "from importlib import resources; gui = resources.files('keyforge').joinpath('gui'); assert gui.joinpath('assets', 'gamepad.svg').is_file(); assert gui.joinpath('assets', 'keyforge-keyboard-symbolic.svg').is_file(); assert gui.joinpath('assets', 'keyforge-mouse-symbolic.svg').is_file(); assert gui.joinpath('assets', 'keyforge-combos-symbolic.svg').is_file()"
+assert_cmd "keymasq cli help" keymasq --help
+assert_cmd "keymasqd help" keymasqd --help
+assert_cmd "keymasq-session help" keymasq-session --help
+assert_cmd "keymasq-record help" keymasq-record --help
+assert_cmd "python import" python3 -c "import keymasq, keymasq.common.models"
+assert_cmd "python package css" python3 -c "from importlib import resources; assert resources.files('keymasq').joinpath('gui/style.css').is_file()"
+assert_cmd "python package gui assets" python3 -c "from importlib import resources; gui = resources.files('keymasq').joinpath('gui'); assert gui.joinpath('assets', 'gamepad.svg').is_file(); assert gui.joinpath('assets', 'keymasq-keyboard-symbolic.svg').is_file(); assert gui.joinpath('assets', 'keymasq-mouse-symbolic.svg').is_file(); assert gui.joinpath('assets', 'keymasq-combos-symbolic.svg').is_file()"
 
 if command -v systemd-sysusers >/dev/null 2>&1; then
-    systemd-sysusers /usr/lib/sysusers.d/keyforge.conf >/dev/null 2>&1 || true
+    systemd-sysusers /usr/lib/sysusers.d/keymasq.conf >/dev/null 2>&1 || true
 fi
 
 if command -v systemd-tmpfiles >/dev/null 2>&1; then
-    systemd-tmpfiles --create /usr/lib/tmpfiles.d/keyforge.conf >/dev/null 2>&1 || true
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/keymasq.conf >/dev/null 2>&1 || true
 fi
 
-assert_cmd "keyforge user exists" id keyforge
-assert_file /run/keyforge
-assert_file /var/lib/keyforge
+assert_cmd "keymasq user exists" id keymasq
+assert_file /run/keymasq
+assert_file /var/lib/keymasq
 
 if command -v systemctl >/dev/null 2>&1 && [ -e /dev/uinput ]; then
-    systemctl start keyforged
-    systemctl is-active --quiet keyforged
-    systemctl stop keyforged
+    systemctl start keymasqd
+    systemctl is-active --quiet keymasqd
+    systemctl stop keymasqd
 fi

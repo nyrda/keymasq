@@ -1,6 +1,6 @@
 import asyncio
 
-from keyforge.session.listeners.wayland_wlr import WlrootsWaylandListener
+from keymasq.session.listeners.wayland_wlr import WlrootsWaylandListener
 
 
 async def _noop_callback(_window_class: str, _window_title: str, _window_tags: list[str]) -> None:

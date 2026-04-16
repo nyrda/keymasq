@@ -1,6 +1,6 @@
 # Security Policy
 
-Keyforge includes a privileged daemon, session broker, and protected input
+Keymasq includes a privileged daemon, session broker, and protected input
 recording paths. Security reports should be handled privately.
 
 ## Reporting A Vulnerability

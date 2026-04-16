@@ -65,8 +65,8 @@ def _build_rules(
         ),
         RewriteRule(
             root / "debian/changelog",
-            re.compile(r"(?m)^keyforge \(([^-]+)(-\d+)\)"),
-            rf"keyforge ({version}\2)",
+            re.compile(r"(?m)^keymasq \(([^-]+)(-\d+)\)"),
+            rf"keymasq ({version}\2)",
         ),
         RewriteRule(
             root / "CHANGELOG.md",
@@ -74,12 +74,12 @@ def _build_rules(
             f"## [{version}] - {release_date}",
         ),
         RewriteRule(
-            root / "keyforge/gui/application.py",
+            root / "keymasq/gui/application.py",
             re.compile(r'(?m)^APP_VERSION = "[^"]+"$'),
             f'APP_VERSION = "{version}"',
         ),
         RewriteRule(
-            root / "assets/keyforge.metainfo.xml",
+            root / "assets/io.github.nyrda.Keymasq.metainfo.xml",
             re.compile(r'(?m)^ {4}<release version="[^"]+" date="[^"]+">$'),
             f'    <release version="{version}" date="{release_date}">',
         ),
@@ -88,8 +88,8 @@ def _build_rules(
         rules.append(
             RewriteRule(
                 root / "debian/changelog",
-                re.compile(r"(?m)^ -- nyrda <nyrda@keyforge.tools>  .+$"),
-                f" -- nyrda <nyrda@keyforge.tools>  {_debian_timestamp()}",
+                re.compile(r"(?m)^ -- nyrda <nyrda@keymasq.tools>  .+$"),
+                f" -- nyrda <nyrda@keymasq.tools>  {_debian_timestamp()}",
             )
         )
     return rules
@@ -111,7 +111,7 @@ def _rewrite_file(rule: RewriteRule, dry_run: bool) -> bool:
 
 def _load_pacman_render(root: Path) -> ModuleType:
     render_path = root / "packaging/pacman/render.py"
-    spec = importlib.util.spec_from_file_location("_keyforge_pacman_render", render_path)
+    spec = importlib.util.spec_from_file_location("_keymasq_pacman_render", render_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"failed to load pacman renderer from {render_path}")
     module = importlib.util.module_from_spec(spec)
@@ -122,7 +122,7 @@ def _load_pacman_render(root: Path) -> ModuleType:
 def _render_pacman_outputs(root: Path, version: str, dry_run: bool) -> list[Path]:
     module = _load_pacman_render(root)
     aur_source_url = (
-        f"{module.COMMON_METADATA['url']}/releases/download/v{version}/keyforge-{version}.tar.gz"
+        f"{module.COMMON_METADATA['url']}/releases/download/v{version}/keymasq-{version}.tar.gz"
     )
     aur_sha256 = "SKIP"
     local_replacements = module.build_replacements(
@@ -131,14 +131,14 @@ def _render_pacman_outputs(root: Path, version: str, dry_run: bool) -> list[Path
     aur_replacements = module.build_replacements(version, "aur", aur_source_url, aur_sha256)
     outputs = {
         root / "PKGBUILD": module.render_template("PKGBUILD.in", local_replacements),
-        root / "keyforge.install": module.render_template(
-            "keyforge.install.in", local_replacements
+        root / "keymasq.install": module.render_template(
+            "keymasq.install.in", local_replacements
         ),
         root / "packaging/aur/PKGBUILD": module.render_template(
             "PKGBUILD.in", aur_replacements
         ),
-        root / "packaging/aur/keyforge.install": module.render_template(
-            "keyforge.install.in", aur_replacements
+        root / "packaging/aur/keymasq.install": module.render_template(
+            "keymasq.install.in", aur_replacements
         ),
         root / "packaging/aur/.SRCINFO": module.build_srcinfo(
             version, aur_source_url, aur_sha256
@@ -160,7 +160,7 @@ def _render_pacman_outputs(root: Path, version: str, dry_run: bool) -> list[Path
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Update the Keyforge release version across maintained version files "
+            "Update the Keymasq release version across maintained version files "
             "and regenerate pacman packaging outputs."
         )
     )

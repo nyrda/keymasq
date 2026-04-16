@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from keyforge import record
+from keymasq import record
 
 
 def test_require_privileged_caller_allows_root(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -21,7 +21,7 @@ def test_require_privileged_caller_rejects_other_user(monkeypatch: pytest.Monkey
         record._require_privileged_caller()
 
 
-def test_require_privileged_caller_allows_keyforge_user(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_require_privileged_caller_allows_keymasq_user(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(record.os, "geteuid", lambda: 777)
     monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
     record._require_privileged_caller()
@@ -53,7 +53,7 @@ def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path:
 def test_main_status_prints_json(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(sys, "argv", ["keyforge-record", "status", "--uid", "1000"])
+    monkeypatch.setattr(sys, "argv", ["keymasq-record", "status", "--uid", "1000"])
     monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
     monkeypatch.setattr(
         record,
@@ -78,7 +78,7 @@ def test_main_unlock_runtime_extends_previous_expiry(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keyforge-record", "unlock-runtime", "--uid", "1000", "--ttl", "5"],
+        ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "5"],
     )
     monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
@@ -100,7 +100,7 @@ def test_main_unlock_runtime_extends_previous_expiry(
 def test_main_error_emits_json_and_exits(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(sys, "argv", ["keyforge-record", "status", "--uid", "1000"])
+    monkeypatch.setattr(sys, "argv", ["keymasq-record", "status", "--uid", "1000"])
 
     def _raise() -> None:
         raise PermissionError("denied")

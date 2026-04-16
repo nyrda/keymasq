@@ -3,8 +3,8 @@ from tests.gui.support import *
 
 class TestComboTabWidget:
     def test_combo_tab_does_not_start_active_profile_polling(self, monkeypatch):
-        from keyforge.gui.widgets.combo_tab import ComboTab
-        from keyforge.gui.widgets import profile_managed_tab as profile_tab_module
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.gui.widgets import profile_managed_tab as profile_tab_module
 
         def fail_request(*args, **kwargs):
             raise AssertionError("ComboTab should not request active profiles during construction")
@@ -14,13 +14,13 @@ class TestComboTabWidget:
         ComboTab(profile_manager=None, demo_mode=False)
 
     def test_combo_tab_syncs_with_device_tab_selection(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -58,13 +58,13 @@ class TestComboTabWidget:
         assert window.combo_tab._selected_profile.config.name == "Gaming"
 
     def test_combo_tab_profile_selection_syncs_back_to_device_tabs(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ButtonDefinition,
             DeviceProfileLayer,
             HardwareConfig,
             ProfileConfig,
         )
-        from keyforge.gui.window import MainWindow
+        from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -105,7 +105,7 @@ class TestComboTabWidget:
         assert tab._selected_profile.config.name == "Gaming"
 
     def test_combo_tab_add_edit_delete_combo(self, temp_config_dir):
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ActionType,
             ComboConfig,
             ComboEvent,
@@ -113,8 +113,8 @@ class TestComboTabWidget:
             MappingAction,
             ProfileConfig,
         )
-        from keyforge.gui.widgets.combo_tab import ComboTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -185,9 +185,9 @@ class TestComboTabWidget:
         assert tab.section_label.get_text() == "No combos in this profile."
 
     def test_combo_tab_marks_active_profile_from_session_payload(self, temp_config_dir):
-        from keyforge.common.models import ProfileConfig
-        from keyforge.gui.widgets.combo_tab import ComboTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.common.models import ProfileConfig
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -206,9 +206,9 @@ class TestComboTabWidget:
         assert tab.status_label.get_text() == "active"
 
     def test_combo_tab_respects_compositor_tag_rule_capability(self, temp_config_dir):
-        from keyforge.common.models import ProfileConfig, WindowRule
-        from keyforge.gui.widgets.combo_tab import ComboTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.common.models import ProfileConfig, WindowRule
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -234,9 +234,9 @@ class TestComboTabWidget:
         assert supported.status_label.get_text() == "waiting"
 
     def test_combo_tab_empty_state_uses_section_header_text(self, temp_config_dir):
-        from keyforge.common.models import ProfileConfig
-        from keyforge.gui.widgets.combo_tab import ComboTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.common.models import ProfileConfig
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -256,7 +256,7 @@ class TestComboTabWidget:
     def test_combo_tab_sorts_rows_and_opens_editor_for_activated_row(self, temp_config_dir):
         from gi.repository import Gtk
 
-        from keyforge.common.models import (
+        from keymasq.common.models import (
             ActionType,
             ComboConfig,
             ComboEvent,
@@ -264,8 +264,8 @@ class TestComboTabWidget:
             MappingAction,
             ProfileConfig,
         )
-        from keyforge.gui.widgets.combo_tab import ComboTab
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
 
         def combo(combo_id: str, name: str, trigger_key: str, action_key: str) -> ComboConfig:
             return ComboConfig(
@@ -335,7 +335,7 @@ class TestComboTabWidget:
     def test_combo_tab_add_combo_requires_selected_profile(self, temp_config_dir):
         from gi.repository import Gtk
 
-        from keyforge.gui.widgets.combo_tab import ComboTab
+        from keymasq.gui.widgets.combo_tab import ComboTab
 
         tab = ComboTab(profile_manager=None, demo_mode=True)
         opened: list[str] = []

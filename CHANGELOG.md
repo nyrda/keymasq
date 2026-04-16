@@ -52,11 +52,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Initial public release of Keyforge.
+- Initial public release of Keymasq.
 - GTK4 desktop application and CLI for managing remaps, profiles, macros,
   superkeys, and combos.
-- Three-process runtime split across `keyforged`, `keyforge-session`, and
-  `keyforge` for device access, session/compositor integration, and GUI/CLI
+- Three-process runtime split across `keymasqd`, `keymasq-session`, and
+  `keymasq` for device access, session/compositor integration, and GUI/CLI
   control.
 - Global profile system with per-device layers and focused-window-based profile
   activation.
@@ -69,5 +69,5 @@ All notable changes to this project will be documented in this file.
   `zwlr_foreign_toplevel_manager_v1`, and X11.
 - Packaged install paths for Nix/NixOS, Arch Linux, Debian/Ubuntu/Mint,
   Fedora, and openSUSE.
-- Security model based on a dedicated `keyforge` system user, session-brokered
+- Security model based on a dedicated `keymasq` system user, session-brokered
   daemon access, and guarded recording/capture flows.

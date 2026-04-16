@@ -1,7 +1,7 @@
-Source: keyforge
+Source: keymasq
 Section: utils
 Priority: optional
-Maintainer: nyrda <nyrda@keyforge.tools>
+Maintainer: nyrda <nyrda@keymasq.tools>
 Build-Depends:
  debhelper-compat (= 13),
  dh-sequence-python3,
@@ -13,9 +13,9 @@ Build-Depends:
  python3-wheel
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
-Homepage: https://keyforge.tools
+Homepage: https://keymasq.tools
 
-Package: keyforge
+Package: keymasq
 Architecture: all
 Depends:
  ${misc:Depends},
@@ -36,7 +36,7 @@ Recommends:
 Suggests:
  gnome-shell
 Description: key remapping tool for Linux using evdev and uinput
- Keyforge provides a privileged remapping daemon, a per-user session manager,
+ Keymasq provides a privileged remapping daemon, a per-user session manager,
  and a GTK4 configuration interface for Linux input remapping.
  .
  It supports global layered profiles, macros, superkeys, combos, window-based

@@ -1,6 +1,6 @@
 import pytest
 
-from keyforge.cli import commands
+from keymasq.cli import commands
 
 
 def test_profile_kind_variants() -> None:

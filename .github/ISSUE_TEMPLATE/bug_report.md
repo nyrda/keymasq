@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible bug in Keyforge
+about: Report a reproducible bug in Keymasq
 labels: bug
 ---
 
@@ -13,7 +13,7 @@ Describe the bug clearly.
 - Distro:
 - Desktop/compositor:
 - Install method: package / source
-- Keyforge version:
+- Keymasq version:
 
 ## Steps To Reproduce
 
@@ -33,8 +33,8 @@ What happened instead.
 
 Include relevant excerpts from:
 
-- `journalctl -u keyforged`
-- `journalctl --user -u keyforge-session`
+- `journalctl -u keymasqd`
+- `journalctl --user -u keymasq-session`
 
 ## Additional Context
 

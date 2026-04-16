@@ -1,0 +1,5 @@
+keymasq: initial-upload-closes-no-bugs
+keymasq: no-manual-page [usr/bin/keymasq]
+keymasq: no-manual-page [usr/bin/keymasq-record]
+keymasq: no-manual-page [usr/bin/keymasq-session]
+keymasq: no-manual-page [usr/bin/keymasqd]

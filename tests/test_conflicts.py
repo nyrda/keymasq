@@ -1,13 +1,13 @@
 from datetime import datetime, timedelta
 
-from keyforge.common.models import (
+from keymasq.common.models import (
     ActionType,
     DeviceProfileLayer,
     MappingAction,
     ProfileConfig,
     WindowRule,
 )
-from keyforge.session.profiles import ProfileManager
+from keymasq.session.profiles import ProfileManager
 
 
 def _profile(

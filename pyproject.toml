@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "python-keyforge"
+name = "python-keymasq"
 version = "0.3.2"
 description = "A key remapping tool for Linux"
 readme = "README.md"
-authors = [{ name = "nyrda", email = "nyrda@keyforge.tools" }]
+authors = [{ name = "nyrda", email = "nyrda@keymasq.tools" }]
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
@@ -40,11 +40,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://keyforge.tools"
-Repository = "https://github.com/nyrda/keyforge"
-Issues = "https://github.com/nyrda/keyforge/issues"
-Documentation = "https://github.com/nyrda/keyforge/tree/master/docs"
-Changelog = "https://github.com/nyrda/keyforge/blob/master/CHANGELOG.md"
+Homepage = "https://keymasq.tools"
+Repository = "https://github.com/nyrda/keymasq"
+Issues = "https://github.com/nyrda/keymasq/issues"
+Documentation = "https://github.com/nyrda/keymasq/tree/master/docs"
+Changelog = "https://github.com/nyrda/keymasq/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = [
@@ -62,17 +62,17 @@ dev = [
 ]
 
 [project.scripts]
-keyforged = "keyforge.keyforged.__main__:main"
-keyforge-session = "keyforge.session.__main__:main"
-keyforge = "keyforge.__main__:main"
-keyforge-record = "keyforge.record:main"
+keymasqd = "keymasq.keymasqd.__main__:main"
+keymasq-session = "keymasq.session.__main__:main"
+keymasq = "keymasq.__main__:main"
+keymasq-record = "keymasq.record:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["keyforge*"]
+include = ["keymasq*"]
 
 [tool.setuptools.package-data]
-keyforge = ["gui/style.css", "gui/assets/*.svg"]
+keymasq = ["gui/style.css", "gui/assets/*.svg"]
 
 [tool.ruff]
 line-length = 100
@@ -83,11 +83,11 @@ select = ["E", "F", "W", "I", "N", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401", "F403"]
-"keyforge/gui/**/*.py" = ["E402"]
-"keyforge/session/listeners/kde.py" = ["N802", "F821"]
+"keymasq/gui/**/*.py" = ["E402"]
+"keymasq/session/listeners/kde.py" = ["N802", "F821"]
 
 [tool.pyright]
-include = ["keyforge", "tests", "benchmarks"]
+include = ["keymasq", "tests", "benchmarks"]
 exclude = ["build", "pkg"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
@@ -102,8 +102,8 @@ reportMissingTypeArgument = "none"
 reportPrivateUsage = "none"
 reportUntypedBaseClass = "none"
 executionEnvironments = [
-    { root = "keyforge/session", extraPaths = ["."], reportMissingTypeStubs = "error", reportUnknownMemberType = "error", reportUnknownArgumentType = "error", reportUnknownVariableType = "error", reportUnknownParameterType = "error", reportMissingParameterType = "error", reportMissingTypeArgument = "error", reportPrivateUsage = "error", reportUntypedBaseClass = "error" },
-    { root = "keyforge/keyforged", extraPaths = ["."], reportMissingTypeStubs = "error", reportUnknownMemberType = "error", reportUnknownArgumentType = "error", reportUnknownVariableType = "error", reportUnknownParameterType = "error", reportMissingParameterType = "error", reportMissingTypeArgument = "error", reportPrivateUsage = "error", reportUntypedBaseClass = "error" },
+    { root = "keymasq/session", extraPaths = ["."], reportMissingTypeStubs = "error", reportUnknownMemberType = "error", reportUnknownArgumentType = "error", reportUnknownVariableType = "error", reportUnknownParameterType = "error", reportMissingParameterType = "error", reportMissingTypeArgument = "error", reportPrivateUsage = "error", reportUntypedBaseClass = "error" },
+    { root = "keymasq/keymasqd", extraPaths = ["."], reportMissingTypeStubs = "error", reportUnknownMemberType = "error", reportUnknownArgumentType = "error", reportUnknownVariableType = "error", reportUnknownParameterType = "error", reportMissingParameterType = "error", reportMissingTypeArgument = "error", reportPrivateUsage = "error", reportUntypedBaseClass = "error" },
     { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none", reportUnknownLambdaType = "none" },
 ]
 
@@ -118,8 +118,8 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 markers = [
-    "keyforged: tests covering the keyforged daemon and input runtime",
-    "session: tests covering keyforge-session and compositor/session integration",
+    "keymasqd: tests covering the keymasqd daemon and input runtime",
+    "session: tests covering keymasq-session and compositor/session integration",
     "gui: tests covering the GTK GUI",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

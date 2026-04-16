@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from keyforge.common import paths
-from keyforge.common.models import (
+from keymasq.common import paths
+from keymasq.common.models import (
     ActionType,
     ComboConfig,
     ComboEvent,
@@ -16,15 +16,15 @@ from keyforge.common.models import (
     mapping_action_to_superkey_action,
     superkey_action_to_mapping_action,
 )
-from keyforge.keyforged.runtime.actions import parse_superkey_config
-from keyforge.session.manager.payloads import (
+from keymasq.keymasqd.runtime.actions import parse_superkey_config
+from keymasq.session.manager.payloads import (
     clear_combo_exec_refs,
     combo_action_signature_payload,
     combo_action_to_payload,
     serialize_superkey,
 )
-from keyforge.session.profiles import ProfileManager
-from keyforge.session.superkeys import SuperkeyManager
+from keymasq.session.profiles import ProfileManager
+from keymasq.session.superkeys import SuperkeyManager
 
 
 def _parse_manager() -> object:
@@ -254,7 +254,7 @@ rapidfire_wait_ms = 60
         encoding="utf-8",
     )
 
-    with caplog.at_level("WARNING", logger="keyforge-session.superkeys"):
+    with caplog.at_level("WARNING", logger="keymasq-session.superkeys"):
         config = SuperkeyManager().get_superkey("warn")
 
     assert config is not None

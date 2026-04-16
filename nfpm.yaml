@@ -1,12 +1,12 @@
-name: keyforge
+name: keymasq
 arch: x86_64
 platform: linux
 version: 0.3.2
 release: 1
-maintainer: nyrda <nyrda@keyforge.tools>
+maintainer: nyrda <nyrda@keymasq.tools>
 description: A key remapping tool for Linux using evdev and uinput
 vendor: nyrda
-homepage: https://keyforge.tools
+homepage: https://keymasq.tools
 license: MIT
 
 depends:
@@ -31,68 +31,68 @@ contents:
     type: tree
     expand: true
 
-  - src: staging/rpm/usr/bin/keyforged
-    dst: /usr/bin/keyforged
-  - src: staging/rpm/usr/bin/keyforge-session
-    dst: /usr/bin/keyforge-session
-  - src: staging/rpm/usr/bin/keyforge
-    dst: /usr/bin/keyforge
-  - src: staging/rpm/usr/bin/keyforge-record
-    dst: /usr/bin/keyforge-record
+  - src: staging/rpm/usr/bin/keymasqd
+    dst: /usr/bin/keymasqd
+  - src: staging/rpm/usr/bin/keymasq-session
+    dst: /usr/bin/keymasq-session
+  - src: staging/rpm/usr/bin/keymasq
+    dst: /usr/bin/keymasq
+  - src: staging/rpm/usr/bin/keymasq-record
+    dst: /usr/bin/keymasq-record
 
-  - src: systemd/keyforged.service
-    dst: /usr/lib/systemd/system/keyforged.service
-  - src: systemd/keyforge-session.service
-    dst: /usr/lib/systemd/user/keyforge-session.service
+  - src: systemd/keymasqd.service
+    dst: /usr/lib/systemd/system/keymasqd.service
+  - src: systemd/keymasq-session.service
+    dst: /usr/lib/systemd/user/keymasq-session.service
 
-  - src: sysusers.d/keyforge.conf
-    dst: /usr/lib/sysusers.d/keyforge.conf
-  - src: tmpfiles.d/keyforge.conf
-    dst: /usr/lib/tmpfiles.d/keyforge.conf
+  - src: sysusers.d/keymasq.conf
+    dst: /usr/lib/sysusers.d/keymasq.conf
+  - src: tmpfiles.d/keymasq.conf
+    dst: /usr/lib/tmpfiles.d/keymasq.conf
 
-  - src: udev/91-keyforge-acl.rules
-    dst: /usr/lib/udev/rules.d/91-keyforge-acl.rules
+  - src: udev/91-keymasq-acl.rules
+    dst: /usr/lib/udev/rules.d/91-keymasq-acl.rules
 
-  - src: polkit/com.keyforge.record-macro.policy
-    dst: /usr/share/polkit-1/actions/com.keyforge.record-macro.policy
+  - src: polkit/com.keymasq.record-macro.policy
+    dst: /usr/share/polkit-1/actions/com.keymasq.record-macro.policy
 
-  - src: assets/keyforge.desktop
-    dst: /usr/share/applications/keyforge.desktop
-  - src: assets/keyforge.metainfo.xml
-    dst: /usr/share/metainfo/keyforge.metainfo.xml
-  - src: assets/keyforge.svg
-    dst: /usr/share/icons/hicolor/scalable/apps/keyforge.svg
-  - src: assets/icons/keyforge-16.png
-    dst: /usr/share/icons/hicolor/16x16/apps/keyforge.png
-  - src: assets/icons/keyforge-22.png
-    dst: /usr/share/icons/hicolor/22x22/apps/keyforge.png
-  - src: assets/icons/keyforge-24.png
-    dst: /usr/share/icons/hicolor/24x24/apps/keyforge.png
-  - src: assets/icons/keyforge-32.png
-    dst: /usr/share/icons/hicolor/32x32/apps/keyforge.png
-  - src: assets/icons/keyforge-48.png
-    dst: /usr/share/icons/hicolor/48x48/apps/keyforge.png
-  - src: assets/icons/keyforge-64.png
-    dst: /usr/share/icons/hicolor/64x64/apps/keyforge.png
-  - src: assets/icons/keyforge-128.png
-    dst: /usr/share/icons/hicolor/128x128/apps/keyforge.png
-  - src: assets/icons/keyforge-256.png
-    dst: /usr/share/icons/hicolor/256x256/apps/keyforge.png
-  - src: assets/icons/keyforge-512.png
-    dst: /usr/share/icons/hicolor/512x512/apps/keyforge.png
+  - src: assets/io.github.nyrda.Keymasq.desktop
+    dst: /usr/share/applications/io.github.nyrda.Keymasq.desktop
+  - src: assets/io.github.nyrda.Keymasq.metainfo.xml
+    dst: /usr/share/metainfo/io.github.nyrda.Keymasq.metainfo.xml
+  - src: assets/io.github.nyrda.Keymasq.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/io.github.nyrda.Keymasq.svg
+  - src: assets/icons/io.github.nyrda.Keymasq-16.png
+    dst: /usr/share/icons/hicolor/16x16/apps/io.github.nyrda.Keymasq.png
+  - src: assets/icons/io.github.nyrda.Keymasq-22.png
+    dst: /usr/share/icons/hicolor/22x22/apps/io.github.nyrda.Keymasq.png
+  - src: assets/icons/io.github.nyrda.Keymasq-24.png
+    dst: /usr/share/icons/hicolor/24x24/apps/io.github.nyrda.Keymasq.png
+  - src: assets/icons/io.github.nyrda.Keymasq-32.png
+    dst: /usr/share/icons/hicolor/32x32/apps/io.github.nyrda.Keymasq.png
+  - src: assets/icons/io.github.nyrda.Keymasq-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/io.github.nyrda.Keymasq.png
+  - src: assets/icons/io.github.nyrda.Keymasq-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/io.github.nyrda.Keymasq.png
+  - src: assets/icons/io.github.nyrda.Keymasq-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/io.github.nyrda.Keymasq.png
+  - src: assets/icons/io.github.nyrda.Keymasq-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/io.github.nyrda.Keymasq.png
+  - src: assets/icons/io.github.nyrda.Keymasq-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/io.github.nyrda.Keymasq.png
 
   - src: examples/security.toml
-    dst: /etc/keyforge/security.toml
+    dst: /etc/keymasq/security.toml
     type: config|noreplace
 
-  - src: gnome-extension/keyforge-bridge@keyforge/
-    dst: /usr/share/gnome-shell/extensions/keyforge-bridge@keyforge/
+  - src: gnome-extension/keymasq-bridge@nyrda/
+    dst: /usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/
     type: tree
 
   - src: LICENSE
-    dst: /usr/share/licenses/keyforge/LICENSE
+    dst: /usr/share/licenses/keymasq/LICENSE
   - src: README.md
-    dst: /usr/share/doc/keyforge/README.md
+    dst: /usr/share/doc/keymasq/README.md
 
 scripts:
   postinstall: scripts/nfpm-postinstall.sh

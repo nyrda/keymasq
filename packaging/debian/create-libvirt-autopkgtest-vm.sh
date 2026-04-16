@@ -12,9 +12,9 @@ Options:
   --release RELEASE      Debian release: trixie or bookworm (default: trixie)
   --pool NAME            Libvirt storage pool for the VM disk (default: pool)
   --cache-dir PATH       Directory for downloaded cloud images
-                         (default: \$XDG_CACHE_HOME/keyforge/autopkgtest-libvirt)
+                         (default: \$XDG_CACHE_HOME/keymasq/autopkgtest-libvirt)
   --seed-dir PATH        Directory for generated cloud-init seed disks
-                         (default: /tmp/keyforge-autopkgtest-seeds)
+                         (default: /tmp/keymasq-autopkgtest-seeds)
   --memory MiB           VM memory in MiB (default: 2048)
   --vcpus COUNT          Number of vCPUs (default: 2)
   --size GiB             VM disk size in GiB (default: 20)
@@ -55,8 +55,8 @@ cleanup_on_error() {
 NAME="debian-trixie-autopkgtest"
 RELEASE="trixie"
 STORAGE_POOL="pool"
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/keyforge/autopkgtest-libvirt"
-SEED_DIR="/tmp/keyforge-autopkgtest-seeds"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/keymasq/autopkgtest-libvirt"
+SEED_DIR="/tmp/keymasq-autopkgtest-seeds"
 MEMORY="2048"
 VCPUS="2"
 DISK_SIZE_GIB="20"

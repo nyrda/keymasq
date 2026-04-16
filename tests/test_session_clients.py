@@ -8,23 +8,23 @@ from typing import Any
 
 import pytest
 
-from keyforge.common.ipc import Command, CommandType, Response
-from keyforge.gui import session_client as gui_session_client
-from keyforge.session.client import KeyforgedClient
+from keymasq.common.ipc import Command, CommandType, Response
+from keymasq.gui import session_client as gui_session_client
+from keymasq.session.client import KeymasqdClient
 
 
-def test_keyforged_client_send_command_requires_connection() -> None:
+def test_keymasqd_client_send_command_requires_connection() -> None:
     async def _run() -> None:
-        client = KeyforgedClient(event_handler=lambda _event, _data: None)
+        client = KeymasqdClient(event_handler=lambda _event, _data: None)
         with pytest.raises(RuntimeError):
             await client.send_command(Command(command=CommandType.PING, data={}))
 
     asyncio.run(_run())
 
 
-def test_keyforged_client_handle_response_matches_pending() -> None:
+def test_keymasqd_client_handle_response_matches_pending() -> None:
     async def _run() -> None:
-        client = KeyforgedClient(event_handler=lambda _event, _data: None)
+        client = KeymasqdClient(event_handler=lambda _event, _data: None)
         future: asyncio.Future[Response] = asyncio.get_running_loop().create_future()
         client._pending_requests["1"] = future
 
@@ -37,14 +37,14 @@ def test_keyforged_client_handle_response_matches_pending() -> None:
     asyncio.run(_run())
 
 
-def test_keyforged_client_handle_response_dispatches_event() -> None:
+def test_keymasqd_client_handle_response_dispatches_event() -> None:
     async def _run() -> None:
         calls: list[tuple[CommandType, dict[str, Any]]] = []
 
         async def _event_handler(event_type: CommandType, data: dict[str, Any]) -> None:
             calls.append((event_type, data))
 
-        client = KeyforgedClient(event_handler=_event_handler)
+        client = KeymasqdClient(event_handler=_event_handler)
         response = Response(
             status="event",
             data={

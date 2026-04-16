@@ -1,6 +1,6 @@
 # Dependency Reference
 
-This document summarizes the dependencies Keyforge needs at runtime, for
+This document summarizes the dependencies Keymasq needs at runtime, for
 packaging, and for development. It complements `docs/INSTALL.md` and
 `docs/PACKAGING.md`.
 
@@ -12,7 +12,7 @@ There are three different dependency layers in this project:
 - System packages required to make those Python packages usable on a desktop
 - Feature-specific tools or desktop components that enable optional behavior
 
-If you are packaging Keyforge, check the package definitions directly:
+If you are packaging Keymasq, check the package definitions directly:
 
 - `pyproject.toml`
 - `PKGBUILD`
@@ -24,7 +24,7 @@ If you are packaging Keyforge, check the package definitions directly:
 
 - Minimum supported Python version: `3.12`
 
-Keyforge uses the Python 3.12 standard library `tomllib` for TOML reads, so it
+Keymasq uses the Python 3.12 standard library `tomllib` for TOML reads, so it
 does not depend on the older `tomli` package.
 
 ## Base Python Runtime Dependencies
@@ -72,14 +72,14 @@ Notes:
 
 - `PyGObject` is a Python dependency, but it still requires the underlying GTK
   and introspection libraries from the operating system.
-- `keyforge-record` is not a third-party dependency. It is a Keyforge-provided
+- `keymasq-record` is not a third-party dependency. It is a Keymasq-provided
   helper script installed as part of the package.
-- The `keyforged` daemon relies on system integration from the package or local
-  setup: service units, a `keyforge` system user, tmpfiles, and udev ACL rules.
+- The `keymasqd` daemon relies on system integration from the package or local
+  setup: service units, a `keymasq` system user, tmpfiles, and udev ACL rules.
 
 ## Feature-Specific Dependencies
 
-These are optional in the sense that Keyforge can run without them, but the
+These are optional in the sense that Keymasq can run without them, but the
 related feature will be unavailable or degraded.
 
 ### Compositor and desktop support
@@ -90,7 +90,7 @@ related feature will be unavailable or degraded.
   expose the required foreign-toplevel protocol
 - KDE Plasma Wayland: supported with the base install
 - COSMIC Wayland: supported with the base install
-- GNOME Wayland: requires the Keyforge GNOME Shell bridge extension in
+- GNOME Wayland: requires the Keymasq GNOME Shell bridge extension in
   `gnome-extension/`
 - X11: requires `python-xlib`, which is part of the base Python dependency set
 
@@ -113,7 +113,7 @@ GUI convenience.
 
 ### Recording unlock helper
 
-- `keyforge-record` must be installed alongside the rest of Keyforge
+- `keymasq-record` must be installed alongside the rest of Keymasq
 - the matching Polkit policy must be installed
 - the helper path and Polkit policy must agree on the same absolute executable
   path
@@ -229,12 +229,12 @@ Defined in `flake.nix`:
   - `wrapGAppsHook4`
 - helper path stamping:
   - `slurp` path is embedded into the build
-  - `keyforge-record` helper path is embedded into the build
+  - `keymasq-record` helper path is embedded into the build
 
 The NixOS module also provisions:
 
-- the `keyforge` system user and group
+- the `keymasq` system user and group
 - systemd units
 - tmpfiles rules
 - udev ACL setup
-- `/etc/keyforge/security.toml`
+- `/etc/keymasq/security.toml`

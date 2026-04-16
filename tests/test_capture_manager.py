@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import evdev
 import pytest
 
-from keyforge.keyforged.capture_manager import CaptureManager
+from keymasq.keymasqd.capture_manager import CaptureManager
 
 
 class _FakeInfo:
@@ -206,11 +206,11 @@ def test_capture_manager_parse_helpers(monkeypatch) -> None:
     device = _FakeDevice("/dev/input/event3", 0x1234, 0x5678, [])
 
     monkeypatch.setattr(
-        "keyforge.keyforged.capture_manager.resolve_stable_path",
+        "keymasq.keymasqd.capture_manager.resolve_stable_path",
         lambda path: f"/stable{path}",
     )
     monkeypatch.setattr(
-        "keyforge.keyforged.capture_manager.get_interface_id",
+        "keymasq.keymasqd.capture_manager.get_interface_id",
         lambda stable_path: f"iface:{stable_path.rsplit('/', 1)[-1]}",
     )
 
@@ -259,7 +259,7 @@ def test_capture_manager_find_combo_devices_filters_inputs(monkeypatch) -> None:
 
     excluded = _FakeDevice("/dev/input/event1", 0x1234, 0x5678, [])
     virtual = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [])
-    virtual.name = "keyforge-virtual"
+    virtual.name = "keymasq-virtual"
     wrong_hwid = _FakeDevice("/dev/input/event3", 0x0001, 0x0002, [])
     no_keys = _FakeDevice("/dev/input/event4", 0x1234, 0x5678, [])
     no_keys.capabilities = lambda: {evdev.ecodes.EV_KEY: [999999]}

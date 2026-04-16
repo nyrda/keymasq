@@ -14,7 +14,7 @@ Before opening an issue, include:
 - desktop environment or compositor
 - whether you are using a package build or source install
 - relevant service status output
-- relevant logs from `journalctl -u keyforged` or `journalctl --user -u keyforge-session`
+- relevant logs from `journalctl -u keymasqd` or `journalctl --user -u keymasq-session`
 
 Security issues should not be reported publicly. See
 [SECURITY.md](SECURITY.md).

@@ -1,37 +1,37 @@
-# Keyforge - Agent Guide
+# Keymasq - Agent Guide
 
 Use this file as a quick project map. Keep deeper behavior details in `docs/`, not here.
 
 ## Architecture
 
-Keyforge is a Linux input remapper built around three processes:
+Keymasq is a Linux input remapper built around three processes:
 
-- `keyforged` - privileged daemon for device grabbing, remap runtime, macro storage/playback, recording, and combo capture/runtime
-- `keyforge-session` - per-user broker for profiles, compositor/window tracking, daemon IPC, and GUI-facing state
-- `keyforge` - GTK4 GUI and CLI for profiles, mappings, macros, superkeys, and combos
+- `keymasqd` - privileged daemon for device grabbing, remap runtime, macro storage/playback, recording, and combo capture/runtime
+- `keymasq-session` - per-user broker for profiles, compositor/window tracking, daemon IPC, and GUI-facing state
+- `keymasq` - GTK4 GUI and CLI for profiles, mappings, macros, superkeys, and combos
 
 ## Main Code Areas
 
-- `keyforge/common/` - shared models, IPC types, paths, security helpers
-- `keyforge/keyforged/` - privileged daemon and input runtime
-- `keyforge/session/` - profile resolution, listeners, session socket
-- `keyforge/gui/` - GTK app and widgets
-- `keyforge/cli/` - CLI
-- `tests/` - pytest suite, split into `tests/keyforged/`, `tests/session/`, `tests/gui/`, and `tests/common/`
+- `keymasq/common/` - shared models, IPC types, paths, security helpers
+- `keymasq/keymasqd/` - privileged daemon and input runtime
+- `keymasq/session/` - profile resolution, listeners, session socket
+- `keymasq/gui/` - GTK app and widgets
+- `keymasq/cli/` - CLI
+- `tests/` - pytest suite, split into `tests/keymasqd/`, `tests/session/`, `tests/gui/`, and `tests/common/`
 - `docs/` - behavioral docs
 
 ## High-Value Files
 
-- `keyforge/common/models.py` - `ActionType`, `MappingAction`, profile and combo models
-- `keyforge/common/ipc.py` - daemon/session protocol and command types
-- `keyforge/keyforged/daemon.py` - daemon bootstrap, socket server, ACL/recording-unlock enforcement, and dispatch into `daemon_*_commands.py`
-- `keyforge/keyforged/device_manager.py` - stateful facade over `keyforge/keyforged/runtime/*` for grabs, mappings, combos, topology, and macro playback
-- `keyforge/session/manager/core.py` - session server lifecycle, keyforged reconnect loop, and manager wiring
-- `keyforge/session/manager/commands.py` - GUI/session request dispatch and policy gating
-- `keyforge/session/manager/profiles.py` - runtime profile reevaluation, device grab/apply logic, and combo updates
-- `keyforge/session/manager/state.py` - session runtime state containers
-- `keyforge/session/profiles.py` - on-disk profile load/save and profile/combo resolution
-- `keyforge/gui/window.py` - main window, device/combo tab setup, and shared profile selection sync
+- `keymasq/common/models.py` - `ActionType`, `MappingAction`, profile and combo models
+- `keymasq/common/ipc.py` - daemon/session protocol and command types
+- `keymasq/keymasqd/daemon.py` - daemon bootstrap, socket server, ACL/recording-unlock enforcement, and dispatch into `daemon_*_commands.py`
+- `keymasq/keymasqd/device_manager.py` - stateful facade over `keymasq/keymasqd/runtime/*` for grabs, mappings, combos, topology, and macro playback
+- `keymasq/session/manager/core.py` - session server lifecycle, keymasqd reconnect loop, and manager wiring
+- `keymasq/session/manager/commands.py` - GUI/session request dispatch and policy gating
+- `keymasq/session/manager/profiles.py` - runtime profile reevaluation, device grab/apply logic, and combo updates
+- `keymasq/session/manager/state.py` - session runtime state containers
+- `keymasq/session/profiles.py` - on-disk profile load/save and profile/combo resolution
+- `keymasq/gui/window.py` - main window, device/combo tab setup, and shared profile selection sync
 
 ## Gotchas
 
@@ -56,9 +56,9 @@ All tool commands (`ruff`, `basedpyright`, `pytest`) must run inside `nix develo
 
 Run `./scripts/check.sh <category>` after Python code changes:
 
-- `keyforged` for `keyforge/keyforged/` changes and keyforged-only tests
-- `session` for `keyforge/session/` changes and session/compositor tests
-- `gui` for `keyforge/gui/` changes and GTK tests
-- `full` for multi-category edits, shared-code edits (`keyforge/common/`, CLI, packaging-affecting changes), or before handing off a broad refactor
+- `keymasqd` for `keymasq/keymasqd/` changes and keymasqd-only tests
+- `session` for `keymasq/session/` changes and session/compositor tests
+- `gui` for `keymasq/gui/` changes and GTK tests
+- `full` for multi-category edits, shared-code edits (`keymasq/common/`, CLI, packaging-affecting changes), or before handing off a broad refactor
 
 `./scripts/check.sh` without an argument defaults to `full`. Skip checks for doc-only, config-only, or non-code changes.

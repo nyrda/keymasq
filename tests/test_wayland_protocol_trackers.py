@@ -1,9 +1,9 @@
 import asyncio
 
-from keyforge.session.wayland_protocols.ext_foreign_toplevel_list import (
+from keymasq.session.wayland_protocols.ext_foreign_toplevel_list import (
     ExtForeignToplevelListTracker,
 )
-from keyforge.session.wayland_protocols.wlr_foreign_toplevel_manager import (
+from keymasq.session.wayland_protocols.wlr_foreign_toplevel_manager import (
     WLR_TOPLEVEL_STATE_ACTIVATED,
     WlrForeignToplevelManagerTracker,
 )

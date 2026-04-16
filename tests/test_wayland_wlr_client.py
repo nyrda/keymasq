@@ -1,5 +1,5 @@
-from keyforge.session.wayland_protocols import WlrForeignToplevelManagerTracker
-from keyforge.session.wayland_protocols.wlr_foreign_toplevel_client import (
+from keymasq.session.wayland_protocols import WlrForeignToplevelManagerTracker
+from keymasq.session.wayland_protocols.wlr_foreign_toplevel_client import (
     WlrForeignToplevelWaylandClient,
     _encode_string,
     _pack_uint,

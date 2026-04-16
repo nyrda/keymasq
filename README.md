@@ -1,10 +1,10 @@
-# Keyforge
+# Keymasq
 
-[![Tests](https://github.com/nyrda/keyforge/actions/workflows/tests.yml/badge.svg)](https://github.com/nyrda/keyforge/actions/workflows/tests.yml)
-[![Quality](https://github.com/nyrda/keyforge/actions/workflows/quality.yml/badge.svg)](https://github.com/nyrda/keyforge/actions/workflows/quality.yml)
-[![Package](https://github.com/nyrda/keyforge/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keyforge/actions/workflows/package.yml)
+[![Tests](https://github.com/nyrda/keymasq/actions/workflows/tests.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/tests.yml)
+[![Quality](https://github.com/nyrda/keymasq/actions/workflows/quality.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/quality.yml)
+[![Package](https://github.com/nyrda/keymasq/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/package.yml)
 
-Keyforge is a Linux input remapper with a simple graphical interface.
+Keymasq is a Linux input remapper with a simple graphical interface.
 
 It supports keyboard, mouse, and gamepad remapping with layered profiles,
 window-aware activation, macros, superkeys, and combos.
@@ -23,11 +23,11 @@ window-aware activation, macros, superkeys, and combos.
 
 Main profile view in the GTK4 application:
 
-![Keyforge main profile view](assets/screenshots/keyforge_profile.png)
+![Keymasq main profile view](assets/screenshots/keymasq_profile.png)
 
 ## Desktop Support
 
-Keyforge supports current Linux desktop environments on both Wayland and X11.
+Keymasq supports current Linux desktop environments on both Wayland and X11.
 
 - **Wayland**: supported on Hyprland, Niri, KDE Plasma, COSMIC, GNOME, and
   wlroots-based compositors that expose `zwlr_foreign_toplevel_manager_v1`
@@ -37,7 +37,7 @@ Keyforge supports current Linux desktop environments on both Wayland and X11.
   [docs/GNOME.md](docs/GNOME.md)
 - **Wayland compositor details**: see [docs/WAYLAND.md](docs/WAYLAND.md)
 
-Keyforge auto-detects the current session and uses the appropriate compositor
+Keymasq auto-detects the current session and uses the appropriate compositor
 integration or Wayland fallback at runtime.
 
 
@@ -45,26 +45,26 @@ integration or Wayland fallback at runtime.
 
 ```text
 ┌─────────────────┐
-│  GUI / CLI      │  `keyforge`
+│  GUI / CLI      │  `keymasq`
 └────────┬────────┘
          │ session socket
 ┌────────▼────────┐
-│ keyforge-session│  per-user broker
+│ keymasq-session│  per-user broker
 └────────┬────────┘
          │ daemon socket
 ┌────────▼────────┐
-│   keyforged     │  privileged daemon
+│   keymasqd     │  privileged daemon
 └─────────────────┘
 ```
 
-- `keyforged` handles evdev/uinput access, macro storage, recording, and device
+- `keymasqd` handles evdev/uinput access, macro storage, recording, and device
   control
-- `keyforge-session` owns compositor integration, profile resolution, and the
+- `keymasq-session` owns compositor integration, profile resolution, and the
   user-session boundary
-- `keyforge` opens the GUI by default in a desktop session and exposes CLI
+- `keymasq` opens the GUI by default in a desktop session and exposes CLI
   subcommands when invoked with arguments
 
-The daemon runs as a dedicated `keyforge` system user, not as root.
+The daemon runs as a dedicated `keymasq` system user, not as root.
 
 ## Quick Start
 
@@ -77,11 +77,11 @@ Installation instructions for supported distributions and NixOS are in
 
 ## Configuration
 
-Keyforge is primarily configured through the GTK4 GUI. Configuration data is
-stored in `~/.config/keyforge/`:
+Keymasq is primarily configured through the GTK4 GUI. Configuration data is
+stored in `~/.config/keymasq/`:
 
 ```text
-~/.config/keyforge/
+~/.config/keymasq/
 ├── hardware/
 │   └── <hardware_id>.toml
 └── profiles/
@@ -98,16 +98,16 @@ rules.
 
 | Command | Description |
 | --- | --- |
-| `keyforged` | Privileged system daemon |
-| `keyforge-session` | Per-user session broker |
-| `keyforge` | GUI by default, CLI with subcommands |
-| `keyforge-record` | Privileged recording helper used by the GUI |
+| `keymasqd` | Privileged system daemon |
+| `keymasq-session` | Per-user session broker |
+| `keymasq` | GUI by default, CLI with subcommands |
+| `keymasq-record` | Privileged recording helper used by the GUI |
 
 ## Security
 
-Keyforge uses a double-broker design:
+Keymasq uses a double-broker design:
 
-- `keyforge-session` is the only client that talks to `keyforged`
+- `keymasq-session` is the only client that talks to `keymasqd`
 - GUI and CLI clients talk to the session broker, not directly to kernel input
   devices
 - Recording and capture features are guarded by an unlock flow and owner checks

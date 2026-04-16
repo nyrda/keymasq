@@ -7,7 +7,7 @@ from unittest import mock
 import evdev
 import pytest
 
-from keyforge.common.models import (
+from keymasq.common.models import (
     ActionType,
     ButtonDefinition,
     DeviceProfileLayer,
@@ -18,8 +18,8 @@ from keyforge.common.models import (
     ProfileConfig,
 )
 
-TEST_UINPUT_ENV = "KEYFORGE_TEST_UINPUT"
-TEST_UINPUT_PREFIX = "keyforge-test"
+TEST_UINPUT_ENV = "KEYMASQ_TEST_UINPUT"
+TEST_UINPUT_PREFIX = "keymasq-test"
 
 
 def _create_virtual_uinput(
@@ -54,16 +54,16 @@ def enable_test_uinput_identity(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def temp_config_dir(tmp_path: Path) -> Generator[Path, None, None]:
-    config_dir = tmp_path / "keyforge"
+    config_dir = tmp_path / "keymasq"
     hardware_dir = config_dir / "hardware"
     profiles_dir = config_dir / "profiles"
     hardware_dir.mkdir(parents=True)
     profiles_dir.mkdir(parents=True)
 
     with (
-        mock.patch("keyforge.common.paths.CONFIG_DIR", config_dir),
-        mock.patch("keyforge.common.paths.HARDWARE_DIR", hardware_dir),
-        mock.patch("keyforge.common.paths.PROFILES_DIR", profiles_dir),
+        mock.patch("keymasq.common.paths.CONFIG_DIR", config_dir),
+        mock.patch("keymasq.common.paths.HARDWARE_DIR", hardware_dir),
+        mock.patch("keymasq.common.paths.PROFILES_DIR", profiles_dir),
     ):
         yield config_dir
 
@@ -71,13 +71,13 @@ def temp_config_dir(tmp_path: Path) -> Generator[Path, None, None]:
 @pytest.fixture
 def temp_socket_dir(tmp_path: Path) -> Generator[Path, None, None]:
     # Keep the UNIX socket path short enough for Linux AF_UNIX limits in CI.
-    with tempfile.TemporaryDirectory(prefix="keyforge-sock-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="keymasq-sock-") as temp_dir:
         run_dir = Path(temp_dir)
         socket_path = run_dir / "socket"
 
         with (
-            mock.patch("keyforge.common.paths.RUN_DIR", run_dir),
-            mock.patch("keyforge.common.paths.SOCKET_PATH", socket_path),
+            mock.patch("keymasq.common.paths.RUN_DIR", run_dir),
+            mock.patch("keymasq.common.paths.SOCKET_PATH", socket_path),
         ):
             yield run_dir
 
@@ -202,20 +202,20 @@ def event_loop():
 
 
 _CATEGORY_BY_FILE = {
-    "test_capture_manager.py": "keyforged",
-    "test_combo_engine.py": "keyforged",
-    "test_daemon.py": "keyforged",
-    "test_device_manager.py": "keyforged",
-    "test_grabbed_device.py": "keyforged",
-    "test_integration.py": "keyforged",
-    "test_keyforged_client.py": "keyforged",
-    "test_macro_backend.py": "keyforged",
-    "test_macro_store.py": "keyforged",
-    "test_macro_store_internal.py": "keyforged",
-    "test_output_helpers.py": "keyforged",
-    "test_recording_extended.py": "keyforged",
-    "test_socket_server.py": "keyforged",
-    "test_superkey_state.py": "keyforged",
+    "test_capture_manager.py": "keymasqd",
+    "test_combo_engine.py": "keymasqd",
+    "test_daemon.py": "keymasqd",
+    "test_device_manager.py": "keymasqd",
+    "test_grabbed_device.py": "keymasqd",
+    "test_integration.py": "keymasqd",
+    "test_keymasqd_client.py": "keymasqd",
+    "test_macro_backend.py": "keymasqd",
+    "test_macro_store.py": "keymasqd",
+    "test_macro_store_internal.py": "keymasqd",
+    "test_output_helpers.py": "keymasqd",
+    "test_recording_extended.py": "keymasqd",
+    "test_socket_server.py": "keymasqd",
+    "test_superkey_state.py": "keymasqd",
     "test_compositor.py": "session",
     "test_gnome_listener.py": "session",
     "test_kde_listener.py": "session",
@@ -249,7 +249,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             tests_index = item_path.parts.index("tests")
             if len(item_path.parts) > tests_index + 1:
                 subtree = item_path.parts[tests_index + 1]
-                if subtree in {"keyforged", "session", "gui"}:
+                if subtree in {"keymasqd", "session", "gui"}:
                     category = subtree
         if category is None:
             category = _CATEGORY_BY_FILE.get(item_path.name)

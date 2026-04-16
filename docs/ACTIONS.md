@@ -2,17 +2,17 @@
 
 ## Overview
 
-An action is what Keyforge does when a mapped key, combo, or super key fires.
-Every mapping in Keyforge — whether it's a single key remap, a combo trigger,
+An action is what Keymasq does when a mapped key, combo, or super key fires.
+Every mapping in Keymasq — whether it's a single key remap, a combo trigger,
 or a super key slot — points to one action.
 
 After setting up your input devices, you can reassign every key to any action
-Keyforge supports — a different key, a mouse button, a macro, a shell
+Keymasq supports — a different key, a mouse button, a macro, a shell
 command, and more.
 
 ## Quick Start: Remapping a Key
 
-1. Open the Keyforge GUI and go to the **Device** tab for the device you want
+1. Open the Keymasq GUI and go to the **Device** tab for the device you want
    to remap.
 2. Click the key or button you want to change.
 3. The action chooser dialog opens — pick the action you want from the tabs.
@@ -49,7 +49,7 @@ profile in the stack decide.
 ### Execute Shell Command
 
 Run a shell command when the key is pressed. The command runs inside your
-user session (delegated to keyforge-session, not the privileged daemon).
+user session (delegated to keymasq-session, not the privileged daemon).
 
 Enter the command text and click **Map**.
 
@@ -65,7 +65,7 @@ Super keys have two modes:
 - **Overload**: the source key behaves like a one-to-many normal mapping and
   forwards its down, repeat, and up cycle to multiple child actions.
 
-![Special tab — Passthrough, No Override, Suppress, Super Keys, and Execute Shell Command](../assets/screenshots/keyforge_key_action_special.png)
+![Special tab — Passthrough, No Override, Suppress, Super Keys, and Execute Shell Command](../assets/screenshots/keymasq_key_action_special.png)
 
 ## Keyboard
 
@@ -73,11 +73,11 @@ Pick a keyboard key from the visual layout (up to F12). The mapped button
 will send that key press instead of its original input.
 
 You can also use **Capture Key** to press any key on your keyboard and have
-Keyforge detect it automatically, or enter a raw evdev code directly (e.g.
+Keymasq detect it automatically, or enter a raw evdev code directly (e.g.
 `125` or `key_leftmeta`). For a full list of evdev codes, see the
 [Linux input event codes header](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h).
 
-![Keyboard tab — visual layout with Capture Key and raw code entry](../assets/screenshots/keyforge_key_action_keyboard.png)
+![Keyboard tab — visual layout with Capture Key and raw code entry](../assets/screenshots/keymasq_key_action_keyboard.png)
 
 ## Navigation
 
@@ -91,7 +91,7 @@ A focused set of navigation and function keys for quick access:
 These are the same as Keyboard actions — the Navigation tab is just a
 convenience for finding these keys faster.
 
-![Navigation tab — arrow keys, Home/End, Page Up/Down, Insert, Delete](../assets/screenshots/keyforge_key_action_navigation.png)
+![Navigation tab — arrow keys, Home/End, Page Up/Down, Insert, Delete](../assets/screenshots/keymasq_key_action_navigation.png)
 
 ## Mouse
 
@@ -115,7 +115,7 @@ Capture opens a crosshair overlay — click anywhere to set the coordinates.
 On other platforms, Capture gives you 2 seconds to move your cursor to the
 desired position, then reads the coordinates automatically.
 
-![Mouse tab — buttons and Move Cursor with Relative/Absolute mode](../assets/screenshots/keyforge_key_action_mouse.png)
+![Mouse tab — buttons and Move Cursor with Relative/Absolute mode](../assets/screenshots/keymasq_key_action_mouse.png)
 
 ## Gamepad
 
@@ -128,11 +128,11 @@ Map to a gamepad button or trigger. Available inputs include:
 - D-Pad (Up, Down, Left, Right)
 - Select, Start, Guide
 
-![Gamepad tab — face buttons, shoulders, triggers, D-pad, and sticks](../assets/screenshots/keyforge_key_action_gamepad.png)
+![Gamepad tab — face buttons, shoulders, triggers, D-pad, and sticks](../assets/screenshots/keymasq_key_action_gamepad.png)
 
 ## Compositor
 
-Send a command to your window compositor. Currently Keyforge supports
+Send a command to your window compositor. Currently Keymasq supports
 Hyprland, Niri, KDE Plasma, and GNOME.
 
 ### Hyprland
@@ -156,7 +156,7 @@ custom dispatcher and arguments manually.
 For custom dispatchers, enter the dispatcher name and any arguments in the
 text fields.
 
-![Hyprland tab — preset dropdown and custom dispatcher fields](../assets/screenshots/keyforge_key_action_hyprland.png)
+![Hyprland tab — preset dropdown and custom dispatcher fields](../assets/screenshots/keymasq_key_action_hyprland.png)
 
 ### Niri
 
@@ -182,7 +182,7 @@ Choose from presets or enter a raw Niri action using the same syntax as
 Custom Niri actions use the same action name and argument style as
 `niri msg action`. For example, use dispatcher `focus-workspace` with args `2`,
 or dispatcher `focus-window` with args `--id 17`.
-Keyforge still keeps a direct socket fast path for the common preset actions,
+Keymasq still keeps a direct socket fast path for the common preset actions,
 and the "Previous Window" / "Next Window" presets follow Niri's scrolling
 model by using the looping horizontal focus actions.
 
@@ -203,12 +203,12 @@ Choose from a preset dropdown of supported KWin actions.
 | All Desktops Toggle | Show or hide the focused window on all desktops. |
 | Show Desktop Toggle | Toggle Plasma's show-desktop mode. |
 
-KDE compositor actions are restricted to Keyforge's supported KWin action IDs.
+KDE compositor actions are restricted to Keymasq's supported KWin action IDs.
 Unlike Hyprland dispatchers, arbitrary arguments are not supported.
 
 ### GNOME
 
-GNOME compositor actions are routed through the Keyforge GNOME Shell bridge
+GNOME compositor actions are routed through the Keymasq GNOME Shell bridge
 extension. Unlike Hyprland, GNOME does not expose a generic dispatcher socket,
 so only a small allowlisted set of actions is available.
 
@@ -262,7 +262,7 @@ pressed, the selected macro plays back.
 See [Macros](MACROS.md) for details on creating macros, loop modes, and
 editing.
 
-![Macro tab — recording controls, macro list, and playback options](../assets/screenshots/keyforge_key_action_macro.png)
+![Macro tab — recording controls, macro list, and playback options](../assets/screenshots/keymasq_key_action_macro.png)
 
 ## Profile
 
@@ -281,7 +281,7 @@ hint label below shows what the mapping will do (e.g. "Toggle profile
 Profile actions fire once on key press — they don't have a press/release
 lifecycle.
 
-![Profile tab — Toggle/Enable/Disable dropdown and profile selector](../assets/screenshots/keyforge_key_action_profile.png)
+![Profile tab — Toggle/Enable/Disable dropdown and profile selector](../assets/screenshots/keymasq_key_action_profile.png)
 
 ## Action Modifiers
 
@@ -314,7 +314,7 @@ movement.
 With mouse move actions, rapidfire repeats the movement offset on each cycle —
 useful for continuous scrolling or nudging.
 
-![Rapidfire enabled — hold and wait duration spinners](../assets/screenshots/keyforge_key_action_rapidfire.png)
+![Rapidfire enabled — hold and wait duration spinners](../assets/screenshots/keymasq_key_action_rapidfire.png)
 
 ### Tap
 
@@ -332,7 +332,7 @@ accidentally hold, ensuring consistent short inputs.
 With mouse move actions, tap emits the movement once and ignores how long the
 key is held.
 
-![Tap enabled — hold duration spinner](../assets/screenshots/keyforge_key_action_tap.png)
+![Tap enabled — hold duration spinner](../assets/screenshots/keymasq_key_action_tap.png)
 
 ## Safety Note
 

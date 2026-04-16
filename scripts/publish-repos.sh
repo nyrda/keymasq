@@ -2,7 +2,7 @@
 set -euo pipefail
 
 : "${RPM_SIGNING_KEY_PRIVATE_ASC:?set RPM_SIGNING_KEY_PRIVATE_ASC}"
-: "${REPO_UPLOAD_URL:?set REPO_UPLOAD_URL (e.g. https://repo.keyforge.tools)}"
+: "${REPO_UPLOAD_URL:?set REPO_UPLOAD_URL (e.g. https://repo.keymasq.tools)}"
 : "${REPO_UPLOAD_TOKEN:?set REPO_UPLOAD_TOKEN}"
 
 WORK_DIR="$(mktemp -d)"
@@ -46,7 +46,7 @@ fi
 
 # -- Set up directory structure --
 
-DEB_POOL="$REPO_DIR/debian/pool/main/k/keyforge"
+DEB_POOL="$REPO_DIR/debian/pool/main/k/keymasq"
 DEB_DIST="$REPO_DIR/debian/dists/stable"
 DEB_BINARY="$DEB_DIST/main/binary-all"
 FEDORA_DIR="$REPO_DIR/fedora"
@@ -90,7 +90,7 @@ fi
 
 if [[ $deb_count -gt 0 ]]; then
     echo "Rebuilding APT metadata..."
-    (cd "$REPO_DIR/debian" && dpkg-scanpackages --multiversion pool/main/k/keyforge) \
+    (cd "$REPO_DIR/debian" && dpkg-scanpackages --multiversion pool/main/k/keymasq) \
         > "$DEB_BINARY/Packages"
     gzip -k -f "$DEB_BINARY/Packages"
 
@@ -99,8 +99,8 @@ if [[ $deb_count -gt 0 ]]; then
         -o "APT::FTPArchive::Release::Codename=stable" \
         -o "APT::FTPArchive::Release::Architectures=all" \
         -o "APT::FTPArchive::Release::Components=main" \
-        -o "APT::FTPArchive::Release::Label=Keyforge" \
-        -o "APT::FTPArchive::Release::Origin=keyforge.tools" \
+        -o "APT::FTPArchive::Release::Label=Keymasq" \
+        -o "APT::FTPArchive::Release::Origin=keymasq.tools" \
         release "$DEB_DIST" > "$DEB_DIST/Release"
 
     gpg --batch --yes --detach-sign --armor \

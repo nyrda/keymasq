@@ -3,9 +3,9 @@ from tests.gui.support import *
 
 class TestProfileCreateDialog:
     def test_new_profile_defaults_to_permanent(self, temp_config_dir):
-        from keyforge.common.models import ProfileConfig
-        from keyforge.gui.wizards.profile_create import ProfileCreateDialog
-        from keyforge.session.profiles import ProfileManager
+        from keymasq.common.models import ProfileConfig
+        from keymasq.gui.wizards.profile_create import ProfileCreateDialog
+        from keymasq.session.profiles import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -44,7 +44,7 @@ class TestApplication:
 
 class TestButtonWidget:
     def test_button_widget_creation(self):
-        from keyforge.common.models import ButtonDefinition
+        from keymasq.common.models import ButtonDefinition
 
         button = ButtonDefinition(
             id="btn_left",
@@ -60,7 +60,7 @@ class TestButtonWidget:
 
 class TestProfileActions:
     def test_action_types(self):
-        from keyforge.common.models import ActionType
+        from keymasq.common.models import ActionType
 
         assert ActionType.PASSTHROUGH.value == "passthrough"
         assert ActionType.KEYBOARD.value == "keyboard"
@@ -70,7 +70,7 @@ class TestProfileActions:
         assert ActionType.SUPPRESS.value == "suppress"
 
     def test_mapping_action_keyboard(self):
-        from keyforge.common.models import ActionType, MappingAction
+        from keymasq.common.models import ActionType, MappingAction
 
         action = MappingAction(
             action_type=ActionType.KEYBOARD,
@@ -81,7 +81,7 @@ class TestProfileActions:
         assert action.target == "key_space"
 
     def test_mapping_action_with_rapidfire(self):
-        from keyforge.common.models import ActionType, MappingAction
+        from keymasq.common.models import ActionType, MappingAction
 
         action = MappingAction(
             action_type=ActionType.KEYBOARD,

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import evdev
 import pytest
 
-from keyforge.common.devices import (
+from keymasq.common.devices import (
     classify_event_device_type,
     clear_device_path_cache,
     detect_input_classes_from_capabilities,
@@ -14,7 +14,7 @@ from keyforge.common.devices import (
     primary_input_class,
     resolve_stable_path,
 )
-from keyforge.common.models import DeviceType
+from keymasq.common.models import DeviceType
 
 
 def test_get_interface_id_appends_event_suffix_for_if_ids() -> None:
@@ -123,11 +123,11 @@ def test_find_all_interfaces_filters_matching_devices(monkeypatch: pytest.Monkey
     monkeypatch.setattr("evdev.list_devices", lambda: device_paths)
     monkeypatch.setattr("evdev.InputDevice", _FakeInputDevice)
     monkeypatch.setattr(
-        "keyforge.common.devices.resolve_stable_path",
+        "keymasq.common.devices.resolve_stable_path",
         lambda path: f"/dev/input/by-id/{Path(path).name}",
     )
     monkeypatch.setattr(
-        "keyforge.common.devices.get_interface_id",
+        "keymasq.common.devices.get_interface_id",
         lambda stable_path: f"id-{Path(stable_path).name}",
     )
 

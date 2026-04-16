@@ -1,0 +1,4 @@
+# Ignore Keymasq host-side pytest devices in libinput-based desktop sessions.
+# The tests still interact with these devices through evdev and uinput.
+
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="keymasq-test-*", ENV{LIBINPUT_IGNORE_DEVICE}="1"

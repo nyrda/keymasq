@@ -4,9 +4,9 @@ import os
 import pytest
 import pytest_asyncio
 
-from keyforge.common import paths
-from keyforge.common.ipc import Command, CommandType, decode_response, encode_command
-from keyforge.keyforged.socket_server import ClientContext, SocketServer
+from keymasq.common import paths
+from keymasq.common.ipc import Command, CommandType, decode_response, encode_command
+from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 
 
 class _BroadcastWriter:

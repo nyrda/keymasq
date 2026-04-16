@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Restart system daemon first.
-systemctl try-restart keyforged.service || true
+systemctl try-restart keymasqd.service || true
 
 # Restart user session service for active users.
 if command -v loginctl >/dev/null 2>&1; then
@@ -22,12 +22,12 @@ if command -v loginctl >/dev/null 2>&1; then
       runuser -u "${user}" -- env \
         XDG_RUNTIME_DIR="${runtime_dir}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
-        systemctl --user try-restart keyforge-session.service || true
+        systemctl --user try-restart keymasq-session.service || true
     else
       sudo -u "${user}" env \
         XDG_RUNTIME_DIR="${runtime_dir}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
-        systemctl --user try-restart keyforge-session.service || true
+        systemctl --user try-restart keymasq-session.service || true
     fi
   done < <(loginctl list-sessions --no-legend 2>/dev/null || true)
 fi

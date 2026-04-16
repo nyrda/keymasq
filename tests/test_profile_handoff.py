@@ -3,12 +3,12 @@ import asyncio
 import evdev
 import pytest
 
-from keyforge.common.models import ActionType, MappingAction
-from keyforge.keyforged.combo_engine import ComboDecision
-from keyforge.keyforged.device_manager import DeviceManager
-from keyforge.keyforged.runtime import grabbed_device as gdm
-from keyforge.keyforged.runtime import grabbed_device_events as gde
-from keyforge.keyforged.runtime.grabbed_device import GrabbedDevice
+from keymasq.common.models import ActionType, MappingAction
+from keymasq.keymasqd.combo_engine import ComboDecision
+from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import grabbed_device as gdm
+from keymasq.keymasqd.runtime import grabbed_device_events as gde
+from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
 
 
 class _FakeUInput:

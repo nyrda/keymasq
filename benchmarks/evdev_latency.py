@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Evdev passthrough latency benchmark for Keyforge.
+Evdev passthrough latency benchmark for Keymasq.
 
 Measures the overhead of Python evdev passthrough by:
 1. Creating a virtual uinput source device
 2. Reading events via evdev
-3. Writing to another uinput device (simulating keyforge passthrough)
+3. Writing to another uinput device (simulating keymasq passthrough)
 4. Measuring end-to-end latency
 
 Usage:

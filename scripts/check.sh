@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/check.sh [--vm] [keyforged|session|gui|full]
+Usage: ./scripts/check.sh [--vm] [keymasqd|session|gui|full]
 
 Runs ruff, basedpyright, and the selected pytest category.
 Defaults to full.
@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
     --vm)
       BACKEND="vm"
       ;;
-    keyforged|session|keyforge-session|gui|full)
+    keymasqd|session|keymasq-session|gui|full)
       CATEGORY="$1"
       ;;
     -h|--help)
@@ -38,10 +38,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$CATEGORY" in
-  keyforged)
-    PYTEST_MARK_EXPR="keyforged"
+  keymasqd)
+    PYTEST_MARK_EXPR="keymasqd"
     ;;
-  session|keyforge-session)
+  session|keymasq-session)
     CATEGORY="session"
     PYTEST_MARK_EXPR="session"
     ;;
@@ -134,7 +134,7 @@ run_pytest_vm() {
   local command="cd '$ROOT_DIR' && "
 
   if [[ -n "$PYTEST_MARK_EXPR" ]]; then
-    command+="KEYFORGE_PYTEST_MARK_EXPR='$PYTEST_MARK_EXPR' "
+    command+="KEYMASQ_PYTEST_MARK_EXPR='$PYTEST_MARK_EXPR' "
   fi
   command+="nix run '$flake_ref#checks.x86_64-linux.pytest-vm.driver' -- --keep-machine-state"
 
@@ -159,7 +159,7 @@ run_pytest_vm() {
   fi
 }
 
-if ! run_compact_check "ruff" "cd '$ROOT_DIR' && nix develop -c bash -lc 'ruff check keyforge tests'"; then
+if ! run_compact_check "ruff" "cd '$ROOT_DIR' && nix develop -c bash -lc 'ruff check keymasq tests'"; then
   exit 1
 fi
 

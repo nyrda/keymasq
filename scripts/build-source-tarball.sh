@@ -19,22 +19,22 @@ PY
     )"
 fi
 
-readonly archive_name="keyforge-${version}.tar.gz"
+readonly archive_name="keymasq-${version}.tar.gz"
 readonly archive_path="$DIST_DIR/$archive_name"
-readonly archive_prefix="keyforge-${version}/"
+readonly archive_prefix="keymasq-${version}/"
 
 declare -a source_paths=(
     CHANGELOG.md
     LICENSE
     README.md
     pyproject.toml
-    assets/keyforge.desktop
-    assets/keyforge.metainfo.xml
-    assets/keyforge.svg
+    assets/io.github.nyrda.Keymasq.desktop
+    assets/io.github.nyrda.Keymasq.metainfo.xml
+    assets/io.github.nyrda.Keymasq.svg
     assets/icons
     examples
     gnome-extension
-    keyforge
+    keymasq
     polkit
     systemd
     sysusers.d

@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import keyforge.session.manager.compositor as session_compositor_module
-from keyforge.session.manager import SessionManager
+import keymasq.session.manager.compositor as session_compositor_module
+from keymasq.session.manager import SessionManager
 
 
 @pytest.mark.asyncio
@@ -75,7 +75,7 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
     async def unsupported(_compositor_id: str | None, _dbus=None) -> bool:
         return False
 
-    monkeypatch.setattr("keyforge.session.manager.compositor.is_compositor_supported", unsupported)
+    monkeypatch.setattr("keymasq.session.manager.compositor.is_compositor_supported", unsupported)
 
     await session_compositor_module.switch_compositor(manager, "wayland")
     assert manager.compositor_state.compositor_id == "wayland"
@@ -85,7 +85,7 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
     async def supported(_compositor_id: str | None, _dbus=None) -> bool:
         return True
 
-    monkeypatch.setattr("keyforge.session.manager.compositor.is_compositor_supported", supported)
+    monkeypatch.setattr("keymasq.session.manager.compositor.is_compositor_supported", supported)
 
     async def fail_listener_start(_manager: SessionManager) -> None:
         manager.compositor_state.window_listener = None

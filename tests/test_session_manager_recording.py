@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import keyforge.session.manager.recording as session_recording_module
-from keyforge.common.ipc import Command, CommandType, Response
-from keyforge.common.security import PeerCredentials
-from keyforge.session.manager import SessionManager
+import keymasq.session.manager.recording as session_recording_module
+from keymasq.common.ipc import Command, CommandType, Response
+from keymasq.common.security import PeerCredentials
+from keymasq.session.manager import SessionManager
 
 
 @pytest.mark.asyncio

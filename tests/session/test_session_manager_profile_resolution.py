@@ -102,7 +102,7 @@ async def test_topology_refresh_retries_after_reevaluate_failure(
 
     monkeypatch.setattr(session_profiles_module.asyncio, "sleep", fake_sleep)
 
-    with caplog.at_level("WARNING", logger="keyforge-session"):
+    with caplog.at_level("WARNING", logger="keymasq-session"):
         session_profiles_module.schedule_topology_refresh(
             manager,
             session_manager_module.TOPOLOGY_REFRESH_DEBOUNCE_S,

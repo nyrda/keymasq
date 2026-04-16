@@ -2,13 +2,15 @@ import asyncio
 
 import pytest
 
-from keyforge.session.listeners.niri import (
+from keymasq.session.listeners.niri import (
     NIRI_DISPATCH_BUILDERS,
     NiriListener,
     normalize_niri_dispatcher,
     parse_niri_event,
     parse_niri_reply,
 )
+
+LISTENER_LAB_APP_ID = "io.github.nyrda.Keymasq.ListenerLab"
 
 
 class _FakeWriter:
@@ -147,13 +149,13 @@ async def test_windows_changed_updates_focused_window_and_emits_callback() -> No
             "windows": [
                 {
                     "id": 1,
-                    "app_id": "io.keyforge.ListenerLab",
+                    "app_id": LISTENER_LAB_APP_ID,
                     "title": "Alpha",
                     "is_focused": True,
                 },
                 {
                     "id": 2,
-                    "app_id": "io.keyforge.ListenerLab",
+                    "app_id": LISTENER_LAB_APP_ID,
                     "title": "Beta",
                     "is_focused": False,
                 },
@@ -162,8 +164,8 @@ async def test_windows_changed_updates_focused_window_and_emits_callback() -> No
     )
 
     assert listener._focused_window_id == 1
-    assert await listener.get_active_window() == ("io.keyforge.ListenerLab", "Alpha", [])
-    assert events == [("io.keyforge.ListenerLab", "Alpha", [])]
+    assert await listener.get_active_window() == (LISTENER_LAB_APP_ID, "Alpha", [])
+    assert events == [(LISTENER_LAB_APP_ID, "Alpha", [])]
 
 
 @pytest.mark.asyncio
@@ -177,13 +179,13 @@ async def test_window_opened_or_changed_tracks_new_focused_window() -> None:
     listener._windows = {
         1: {
             "id": 1,
-            "app_id": "io.keyforge.ListenerLab",
+            "app_id": LISTENER_LAB_APP_ID,
             "title": "Alpha",
             "is_focused": True,
         }
     }
     listener._focused_window_id = 1
-    listener._last_class = "io.keyforge.ListenerLab"
+    listener._last_class = LISTENER_LAB_APP_ID
     listener._last_title = "Alpha"
 
     await listener._handle_event(
@@ -191,7 +193,7 @@ async def test_window_opened_or_changed_tracks_new_focused_window() -> None:
         {
             "window": {
                 "id": 2,
-                "app_id": "io.keyforge.ListenerLab",
+                "app_id": LISTENER_LAB_APP_ID,
                 "title": "Beta",
                 "is_focused": True,
             }
@@ -200,7 +202,7 @@ async def test_window_opened_or_changed_tracks_new_focused_window() -> None:
 
     assert listener._focused_window_id == 2
     assert listener._windows[1]["is_focused"] is False
-    assert events == [("io.keyforge.ListenerLab", "Beta", [])]
+    assert events == [(LISTENER_LAB_APP_ID, "Beta", [])]
 
 
 @pytest.mark.asyncio
@@ -214,13 +216,13 @@ async def test_window_focus_changed_to_none_clears_active_window() -> None:
     listener._windows = {
         1: {
             "id": 1,
-            "app_id": "io.keyforge.ListenerLab",
+            "app_id": LISTENER_LAB_APP_ID,
             "title": "Alpha",
             "is_focused": True,
         }
     }
     listener._focused_window_id = 1
-    listener._last_class = "io.keyforge.ListenerLab"
+    listener._last_class = LISTENER_LAB_APP_ID
     listener._last_title = "Alpha"
 
     await listener._handle_event("WindowFocusChanged", {"id": None})
@@ -241,7 +243,7 @@ async def test_get_active_window_refreshes_from_focused_window_request(monkeypat
             {
                 "FocusedWindow": {
                     "id": 3,
-                    "app_id": "io.keyforge.ListenerLab",
+                    "app_id": LISTENER_LAB_APP_ID,
                     "title": "Gamma",
                     "is_focused": True,
                 }
@@ -252,7 +254,7 @@ async def test_get_active_window_refreshes_from_focused_window_request(monkeypat
     listener.running = True
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 
-    assert await listener.get_active_window() == ("io.keyforge.ListenerLab", "Gamma", [])
+    assert await listener.get_active_window() == (LISTENER_LAB_APP_ID, "Gamma", [])
 
 
 @pytest.mark.asyncio
@@ -272,7 +274,7 @@ async def test_get_active_window_falls_back_to_windows_snapshot(monkeypatch) -> 
                 "Windows": [
                     {
                         "id": 7,
-                        "app_id": "io.keyforge.ListenerLab",
+                        "app_id": LISTENER_LAB_APP_ID,
                         "title": "Alpha",
                         "is_focused": False,
                     }
@@ -284,7 +286,7 @@ async def test_get_active_window_falls_back_to_windows_snapshot(monkeypatch) -> 
     listener.running = True
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 
-    assert await listener.get_active_window() == ("io.keyforge.ListenerLab", "Alpha", [])
+    assert await listener.get_active_window() == (LISTENER_LAB_APP_ID, "Alpha", [])
     assert requests == ["FocusedWindow", "Windows"]
 
 
@@ -305,13 +307,13 @@ async def test_activate_window_by_title_updates_cached_window_state(monkeypatch)
                 "Windows": [
                     {
                         "id": 5,
-                        "app_id": "io.keyforge.ListenerLab",
+                        "app_id": LISTENER_LAB_APP_ID,
                         "title": "Alpha",
                         "is_focused": False,
                     },
                     {
                         "id": 6,
-                        "app_id": "io.keyforge.ListenerLab",
+                        "app_id": LISTENER_LAB_APP_ID,
                         "title": "Beta",
                         "is_focused": False,
                     },
@@ -328,9 +330,9 @@ async def test_activate_window_by_title_updates_cached_window_state(monkeypatch)
 
     assert result == {"found": True, "id": 6, "title": "Beta"}
     assert listener._focused_window_id == 6
-    assert await listener.get_active_window() == ("io.keyforge.ListenerLab", "Beta", [])
+    assert await listener.get_active_window() == (LISTENER_LAB_APP_ID, "Beta", [])
     assert requests == ["Windows", {"Action": {"FocusWindow": {"id": 6}}}]
-    assert events == [("io.keyforge.ListenerLab", "Beta", [])]
+    assert events == [(LISTENER_LAB_APP_ID, "Beta", [])]
 
 
 @pytest.mark.asyncio

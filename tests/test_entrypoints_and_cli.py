@@ -13,40 +13,40 @@ def _module_with_main(fn: Callable[[], None]) -> types.ModuleType:
 
 
 def test_root_entrypoint_prefers_cli_when_args(monkeypatch: pytest.MonkeyPatch) -> None:
-    from keyforge import __main__ as app_main
+    from keymasq import __main__ as app_main
 
     called: list[str] = []
     monkeypatch.setitem(
         sys.modules,
-        "keyforge.cli.__main__",
+        "keymasq.cli.__main__",
         _module_with_main(lambda: called.append("cli")),
     )
     monkeypatch.setitem(
         sys.modules,
-        "keyforge.gui.__main__",
+        "keymasq.gui.__main__",
         _module_with_main(lambda: called.append("gui")),
     )
-    monkeypatch.setattr(sys, "argv", ["keyforge", "devices"])
+    monkeypatch.setattr(sys, "argv", ["keymasq", "devices"])
 
     app_main.main()
     assert called == ["cli"]
 
 
 def test_root_entrypoint_uses_gui_with_desktop(monkeypatch: pytest.MonkeyPatch) -> None:
-    from keyforge import __main__ as app_main
+    from keymasq import __main__ as app_main
 
     called: list[str] = []
     monkeypatch.setitem(
         sys.modules,
-        "keyforge.cli.__main__",
+        "keymasq.cli.__main__",
         _module_with_main(lambda: called.append("cli")),
     )
     monkeypatch.setitem(
         sys.modules,
-        "keyforge.gui.__main__",
+        "keymasq.gui.__main__",
         _module_with_main(lambda: called.append("gui")),
     )
-    monkeypatch.setattr(sys, "argv", ["keyforge"])
+    monkeypatch.setattr(sys, "argv", ["keymasq"])
     monkeypatch.setenv("DISPLAY", ":0")
 
     app_main.main()
@@ -54,20 +54,20 @@ def test_root_entrypoint_uses_gui_with_desktop(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_root_entrypoint_falls_back_to_cli(monkeypatch: pytest.MonkeyPatch) -> None:
-    from keyforge import __main__ as app_main
+    from keymasq import __main__ as app_main
 
     called: list[str] = []
     monkeypatch.setitem(
         sys.modules,
-        "keyforge.cli.__main__",
+        "keymasq.cli.__main__",
         _module_with_main(lambda: called.append("cli")),
     )
     monkeypatch.setitem(
         sys.modules,
-        "keyforge.gui.__main__",
+        "keymasq.gui.__main__",
         _module_with_main(lambda: called.append("gui")),
     )
-    monkeypatch.setattr(sys, "argv", ["keyforge"])
+    monkeypatch.setattr(sys, "argv", ["keymasq"])
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
@@ -77,15 +77,15 @@ def test_root_entrypoint_falls_back_to_cli(monkeypatch: pytest.MonkeyPatch) -> N
     assert called == ["cli"]
 
 
-def test_keyforged_script_entrypoint_calls_daemon_main(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_keymasqd_script_entrypoint_calls_daemon_main(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[str] = []
     monkeypatch.setitem(
         sys.modules,
-        "keyforge.keyforged.daemon",
+        "keymasq.keymasqd.daemon",
         _module_with_main(lambda: called.append("daemon")),
     )
 
-    runpy.run_module("keyforge.keyforged.__main__", run_name="__main__")
+    runpy.run_module("keymasq.keymasqd.__main__", run_name="__main__")
     assert called == ["daemon"]
 
 
@@ -93,20 +93,20 @@ def test_session_script_entrypoint_calls_manager_main(monkeypatch: pytest.Monkey
     called: list[str] = []
     monkeypatch.setitem(
         sys.modules,
-        "keyforge.session.manager",
+        "keymasq.session.manager",
         _module_with_main(lambda: called.append("manager")),
     )
 
-    runpy.run_module("keyforge.session.__main__", run_name="__main__")
+    runpy.run_module("keymasq.session.__main__", run_name="__main__")
     assert called == ["manager"]
 
 
 def test_cli_main_hardware_create_requires_vid_pid(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from keyforge.cli import __main__ as cli_main
+    from keymasq.cli import __main__ as cli_main
 
-    monkeypatch.setattr(sys, "argv", ["keyforge", "hardware", "create"])
+    monkeypatch.setattr(sys, "argv", ["keymasq", "hardware", "create"])
 
     with pytest.raises(SystemExit) as excinfo:
         cli_main.main()
@@ -116,7 +116,7 @@ def test_cli_main_hardware_create_requires_vid_pid(
 
 
 def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
-    from keyforge.cli import __main__ as cli_main
+    from keymasq.cli import __main__ as cli_main
 
     calls: list[tuple[str, str]] = []
 
@@ -124,14 +124,14 @@ def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPat
         calls.append((command, profile_name))
 
     monkeypatch.setattr(cli_main, "set_profile_state_cli", _set_profile_state)
-    monkeypatch.setattr(sys, "argv", ["keyforge", "profiles", "toggle", "gaming"])
+    monkeypatch.setattr(sys, "argv", ["keymasq", "profiles", "toggle", "gaming"])
 
     cli_main.main()
     assert calls == [("toggle_profile", "gaming")]
 
 
 def test_cli_main_devices_runs_async_handler(monkeypatch: pytest.MonkeyPatch) -> None:
-    from keyforge.cli import __main__ as cli_main
+    from keymasq.cli import __main__ as cli_main
 
     called: list[bool] = []
 
@@ -139,7 +139,7 @@ def test_cli_main_devices_runs_async_handler(monkeypatch: pytest.MonkeyPatch) ->
         called.append(verbose)
 
     monkeypatch.setattr(cli_main, "list_devices", _list_devices)
-    monkeypatch.setattr(sys, "argv", ["keyforge", "devices", "--verbose"])
+    monkeypatch.setattr(sys, "argv", ["keymasq", "devices", "--verbose"])
 
     cli_main.main()
     assert called == [True]

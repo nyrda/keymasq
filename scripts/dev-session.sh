@@ -15,4 +15,4 @@ fi
 
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
-exec python -m keyforge.session "$@"
+exec python -m keymasq.session "$@"

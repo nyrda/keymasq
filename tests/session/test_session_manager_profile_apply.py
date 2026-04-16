@@ -131,7 +131,7 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout() -> Non
         monkeypatch.undo()
 
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
-        "Keyforge: Grab Timed Out",
+        "Keymasq: Grab Timed Out",
         (
             "Test Mouse: grab timed out while waiting for keys to be released. "
             "Retrying automatically."
@@ -205,7 +205,7 @@ async def test_apply_resolved_device_profile_skips_same_interface_noop_without_m
     monkeypatch.setattr(session_profiles_module, "maybe_notify_profile_activation", maybe_notify)
 
     try:
-        with caplog.at_level("INFO", logger="keyforge-session"):
+        with caplog.at_level("INFO", logger="keymasq-session"):
             await session_profiles_module.apply_resolved_device_profile(
                 manager,
                 hardware_id,
@@ -254,7 +254,7 @@ async def test_apply_resolved_device_profile_skips_profile_only_change_without_m
     monkeypatch.setattr(session_profiles_module, "maybe_notify_profile_activation", maybe_notify)
 
     try:
-        with caplog.at_level("INFO", logger="keyforge-session"):
+        with caplog.at_level("INFO", logger="keymasq-session"):
             await session_profiles_module.apply_resolved_device_profile(
                 manager,
                 hardware_id,

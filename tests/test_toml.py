@@ -1,6 +1,6 @@
 import pytest
 
-from keyforge.common.models import (
+from keymasq.common.models import (
     ActionType,
     ButtonDefinition,
     DeviceProfileLayer,
@@ -11,8 +11,8 @@ from keyforge.common.models import (
     ProfileConfig,
     WindowRule,
 )
-from keyforge.session.hardware import HardwareManager
-from keyforge.session.profiles import ProfileManager
+from keymasq.session.hardware import HardwareManager
+from keymasq.session.profiles import ProfileManager
 
 
 class TestHardwareTOML:
@@ -141,7 +141,7 @@ rapidfire_wait_ms = 60
             encoding="utf-8",
         )
 
-        with caplog.at_level("WARNING", logger="keyforge-session.profiles"):
+        with caplog.at_level("WARNING", logger="keymasq-session.profiles"):
             manager = ProfileManager()
 
         profile = manager.get_profile("Rapidfire")

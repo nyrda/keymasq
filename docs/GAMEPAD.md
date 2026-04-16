@@ -1,10 +1,10 @@
 # Gamepad Output Support
 
-Keyforge can remap mouse buttons, keyboard keys, or any input to virtual gamepad buttons. This is useful for games that expect controller input or for using mouse buttons as gamepad controls.
+Keymasq can remap mouse buttons, keyboard keys, or any input to virtual gamepad buttons. This is useful for games that expect controller input or for using mouse buttons as gamepad controls.
 
 ## How It Works
 
-When you map a button to a gamepad action, Keyforge creates a virtual gamepad device using Linux uinput. Games see this as a standard gamepad and can receive input from it.
+When you map a button to a gamepad action, Keymasq creates a virtual gamepad device using Linux uinput. Games see this as a standard gamepad and can receive input from it.
 
 ## Available Gamepad Buttons
 
@@ -115,7 +115,7 @@ Gamepad buttons support the same rapidfire and tap options as keyboard/mouse map
 
 ### Adding a Physical Gamepad
 
-When you add a gamepad in the hardware setup flow, Keyforge now detects its reported
+When you add a gamepad in the hardware setup flow, Keymasq now detects its reported
 digital gamepad buttons from evdev capabilities and creates the hardware profile
 automatically. Standard buttons such as face buttons, shoulders, start/select/guide,
 stick clicks, and digital D-pad buttons are added when the controller reports them.
@@ -143,9 +143,9 @@ The virtual gamepad appears as a standard Linux gamepad. Most games detect it au
 
 ### Virtual Device Created
 
-Keyforge creates a uinput device with Xbox 360 hardware IDs for maximum compatibility:
+Keymasq creates a uinput device with Xbox 360 hardware IDs for maximum compatibility:
 
-- **Name**: `keyforge-gamepad`
+- **Name**: `keymasq-gamepad`
 - **Vendor ID**: `0x045e` (Microsoft)
 - **Product ID**: `0x028e` (Xbox 360 controller)
 - **Capabilities**:
@@ -154,7 +154,7 @@ Keyforge creates a uinput device with Xbox 360 hardware IDs for maximum compatib
 
 ### Linux Gamepad Specification
 
-Keyforge follows the [Linux Gamepad Specification](https://kernel.org/doc/html/latest/input/gamepad.html):
+Keymasq follows the [Linux Gamepad Specification](https://kernel.org/doc/html/latest/input/gamepad.html):
 
 - Button positions are based on physical location, not labels
 - D-pad can be digital buttons or analog hat

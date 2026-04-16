@@ -28,9 +28,9 @@ declare -a source_paths=(
     LICENSE
     README.md
     pyproject.toml
-    assets/io.github.nyrda.Keymasq.desktop
-    assets/io.github.nyrda.Keymasq.metainfo.xml
-    assets/io.github.nyrda.Keymasq.svg
+    assets/tools.keymasq.Keymasq.desktop
+    assets/tools.keymasq.Keymasq.metainfo.xml
+    assets/tools.keymasq.Keymasq.svg
     assets/icons
     examples
     gnome-extension

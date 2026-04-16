@@ -56,30 +56,30 @@ contents:
   - src: polkit/com.keymasq.record-macro.policy
     dst: /usr/share/polkit-1/actions/com.keymasq.record-macro.policy
 
-  - src: assets/io.github.nyrda.Keymasq.desktop
-    dst: /usr/share/applications/io.github.nyrda.Keymasq.desktop
-  - src: assets/io.github.nyrda.Keymasq.metainfo.xml
-    dst: /usr/share/metainfo/io.github.nyrda.Keymasq.metainfo.xml
-  - src: assets/io.github.nyrda.Keymasq.svg
-    dst: /usr/share/icons/hicolor/scalable/apps/io.github.nyrda.Keymasq.svg
-  - src: assets/icons/io.github.nyrda.Keymasq-16.png
-    dst: /usr/share/icons/hicolor/16x16/apps/io.github.nyrda.Keymasq.png
-  - src: assets/icons/io.github.nyrda.Keymasq-22.png
-    dst: /usr/share/icons/hicolor/22x22/apps/io.github.nyrda.Keymasq.png
-  - src: assets/icons/io.github.nyrda.Keymasq-24.png
-    dst: /usr/share/icons/hicolor/24x24/apps/io.github.nyrda.Keymasq.png
-  - src: assets/icons/io.github.nyrda.Keymasq-32.png
-    dst: /usr/share/icons/hicolor/32x32/apps/io.github.nyrda.Keymasq.png
-  - src: assets/icons/io.github.nyrda.Keymasq-48.png
-    dst: /usr/share/icons/hicolor/48x48/apps/io.github.nyrda.Keymasq.png
-  - src: assets/icons/io.github.nyrda.Keymasq-64.png
-    dst: /usr/share/icons/hicolor/64x64/apps/io.github.nyrda.Keymasq.png
-  - src: assets/icons/io.github.nyrda.Keymasq-128.png
-    dst: /usr/share/icons/hicolor/128x128/apps/io.github.nyrda.Keymasq.png
-  - src: assets/icons/io.github.nyrda.Keymasq-256.png
-    dst: /usr/share/icons/hicolor/256x256/apps/io.github.nyrda.Keymasq.png
-  - src: assets/icons/io.github.nyrda.Keymasq-512.png
-    dst: /usr/share/icons/hicolor/512x512/apps/io.github.nyrda.Keymasq.png
+  - src: assets/tools.keymasq.Keymasq.desktop
+    dst: /usr/share/applications/tools.keymasq.Keymasq.desktop
+  - src: assets/tools.keymasq.Keymasq.metainfo.xml
+    dst: /usr/share/metainfo/tools.keymasq.Keymasq.metainfo.xml
+  - src: assets/tools.keymasq.Keymasq.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg
+  - src: assets/icons/tools.keymasq.Keymasq-16.png
+    dst: /usr/share/icons/hicolor/16x16/apps/tools.keymasq.Keymasq.png
+  - src: assets/icons/tools.keymasq.Keymasq-22.png
+    dst: /usr/share/icons/hicolor/22x22/apps/tools.keymasq.Keymasq.png
+  - src: assets/icons/tools.keymasq.Keymasq-24.png
+    dst: /usr/share/icons/hicolor/24x24/apps/tools.keymasq.Keymasq.png
+  - src: assets/icons/tools.keymasq.Keymasq-32.png
+    dst: /usr/share/icons/hicolor/32x32/apps/tools.keymasq.Keymasq.png
+  - src: assets/icons/tools.keymasq.Keymasq-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/tools.keymasq.Keymasq.png
+  - src: assets/icons/tools.keymasq.Keymasq-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/tools.keymasq.Keymasq.png
+  - src: assets/icons/tools.keymasq.Keymasq-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/tools.keymasq.Keymasq.png
+  - src: assets/icons/tools.keymasq.Keymasq-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/tools.keymasq.Keymasq.png
+  - src: assets/icons/tools.keymasq.Keymasq-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/tools.keymasq.Keymasq.png
 
   - src: examples/security.toml
     dst: /etc/keymasq/security.toml

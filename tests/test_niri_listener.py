@@ -10,7 +10,7 @@ from keymasq.session.listeners.niri import (
     parse_niri_reply,
 )
 
-LISTENER_LAB_APP_ID = "io.github.nyrda.Keymasq.ListenerLab"
+LISTENER_LAB_APP_ID = "tools.keymasq.ListenerLab"
 
 
 class _FakeWriter:

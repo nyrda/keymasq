@@ -59,19 +59,19 @@ package() {
 
     python -m installer --destdir="$pkgdir" "$srcdir"/python-dist/*.whl
 
-    install -Dm644 "assets/io.github.nyrda.Keymasq.desktop" \
-        "$pkgdir/usr/share/applications/io.github.nyrda.Keymasq.desktop"
-    install -Dm644 "assets/io.github.nyrda.Keymasq.metainfo.xml" \
-        "$pkgdir/usr/share/metainfo/io.github.nyrda.Keymasq.metainfo.xml"
-    install -Dm644 "assets/io.github.nyrda.Keymasq.svg" \
-        "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.nyrda.Keymasq.svg"
+    install -Dm644 "assets/tools.keymasq.Keymasq.desktop" \
+        "$pkgdir/usr/share/applications/tools.keymasq.Keymasq.desktop"
+    install -Dm644 "assets/tools.keymasq.Keymasq.metainfo.xml" \
+        "$pkgdir/usr/share/metainfo/tools.keymasq.Keymasq.metainfo.xml"
+    install -Dm644 "assets/tools.keymasq.Keymasq.svg" \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg"
     local icon
     local size
-    for icon in assets/icons/io.github.nyrda.Keymasq-*.png; do
+    for icon in assets/icons/tools.keymasq.Keymasq-*.png; do
         size="${icon##*-}"
         size="${size%.png}"
         install -Dm644 "$icon" \
-            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/io.github.nyrda.Keymasq.png"
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/tools.keymasq.Keymasq.png"
     done
 
     install -Dm644 "systemd/keymasqd.service" \

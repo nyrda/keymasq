@@ -24,7 +24,7 @@ from keymasq.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keymasq.gui.window import MainWindow  # noqa: E402
 
 APP_VERSION = "0.4.0"
-APP_ID = "io.github.nyrda.Keymasq"
+APP_ID = "tools.keymasq.Keymasq"
 APP_ICON_NAME = APP_ID
 
 

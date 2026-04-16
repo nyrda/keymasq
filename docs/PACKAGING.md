@@ -63,7 +63,7 @@ updates:
 - `debian/changelog`
 - `CHANGELOG.md`
 - `keymasq/gui/application.py`
-- `assets/io.github.nyrda.Keymasq.metainfo.xml`
+- `assets/tools.keymasq.Keymasq.metainfo.xml`
 - the generated pacman files: `PKGBUILD`, `keymasq.install`,
   `packaging/aur/PKGBUILD`, `packaging/aur/keymasq.install`, and
   `packaging/aur/.SRCINFO`
@@ -77,7 +77,7 @@ that should be preserved in place:
 
 - the top entry body in `CHANGELOG.md`
 - the top entry bullet list in `debian/changelog`
-- the top `<release>` description in `assets/io.github.nyrda.Keymasq.metainfo.xml`
+- the top `<release>` description in `assets/tools.keymasq.Keymasq.metainfo.xml`
 
 The script then stamps the requested version, updates the current release date,
 and refreshes the generated packaging files. Use `--dry-run` to preview the
@@ -132,10 +132,10 @@ The main filesystem layout is:
 /usr/lib/tmpfiles.d/keymasq.conf
 /usr/lib/udev/rules.d/91-keymasq-acl.rules
 /usr/share/polkit-1/actions/com.keymasq.record-macro.policy
-/usr/share/applications/io.github.nyrda.Keymasq.desktop
-/usr/share/metainfo/io.github.nyrda.Keymasq.metainfo.xml
-/usr/share/icons/hicolor/scalable/apps/io.github.nyrda.Keymasq.svg
-/usr/share/icons/hicolor/<size>x<size>/apps/io.github.nyrda.Keymasq.png
+/usr/share/applications/tools.keymasq.Keymasq.desktop
+/usr/share/metainfo/tools.keymasq.Keymasq.metainfo.xml
+/usr/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg
+/usr/share/icons/hicolor/<size>x<size>/apps/tools.keymasq.Keymasq.png
 /usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/
 /etc/keymasq/security.toml
 ```

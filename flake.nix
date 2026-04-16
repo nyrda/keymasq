@@ -96,13 +96,13 @@
           ];
 
           postInstall = ''
-            install -Dm644 $src/assets/io.github.nyrda.Keymasq.desktop $out/share/applications/io.github.nyrda.Keymasq.desktop
-            install -Dm644 $src/assets/io.github.nyrda.Keymasq.metainfo.xml $out/share/metainfo/io.github.nyrda.Keymasq.metainfo.xml
-            install -Dm644 $src/assets/io.github.nyrda.Keymasq.svg $out/share/icons/hicolor/scalable/apps/io.github.nyrda.Keymasq.svg
-            for icon in $src/assets/icons/io.github.nyrda.Keymasq-*.png; do
+            install -Dm644 $src/assets/tools.keymasq.Keymasq.desktop $out/share/applications/tools.keymasq.Keymasq.desktop
+            install -Dm644 $src/assets/tools.keymasq.Keymasq.metainfo.xml $out/share/metainfo/tools.keymasq.Keymasq.metainfo.xml
+            install -Dm644 $src/assets/tools.keymasq.Keymasq.svg $out/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg
+            for icon in $src/assets/icons/tools.keymasq.Keymasq-*.png; do
               size=''${icon##*-}
               size=''${size%.png}
-              install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/io.github.nyrda.Keymasq.png
+              install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/tools.keymasq.Keymasq.png
             done
             install -Dm644 $src/polkit/com.keymasq.record-macro.policy $out/share/polkit-1/actions/com.keymasq.record-macro.policy
           '';

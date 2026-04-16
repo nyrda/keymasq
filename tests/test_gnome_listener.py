@@ -324,15 +324,15 @@ async def test_gnome_get_active_window_queries_bridge_when_cache_empty() -> None
             {
                 "type": "active_window",
                 "request_id": 1,
-                "app_id": "org.keymasq.ListenerLab",
+                "app_id": "tools.keymasq.ListenerLab",
                 "title": "Alpha",
             }
         )
 
     asyncio.create_task(_respond())
 
-    assert await listener.get_active_window() == ("org.keymasq.ListenerLab", "Alpha", [])
-    assert observed == [("org.keymasq.ListenerLab", "Alpha", [])]
+    assert await listener.get_active_window() == ("tools.keymasq.ListenerLab", "Alpha", [])
+    assert observed == [("tools.keymasq.ListenerLab", "Alpha", [])]
     assert listener._writer.payloads == [{"type": "get_active_window", "request_id": 1}]
 
 
@@ -410,7 +410,7 @@ async def test_gnome_activated_message_updates_window_state() -> None:
             "type": "activated",
             "request_id": 7,
             "found": True,
-            "app_id": "org.keymasq.ListenerLab",
+            "app_id": "tools.keymasq.ListenerLab",
             "title": "Alpha",
         }
     )
@@ -419,8 +419,8 @@ async def test_gnome_activated_message_updates_window_state() -> None:
         "type": "activated",
         "request_id": 7,
         "found": True,
-        "app_id": "org.keymasq.ListenerLab",
+        "app_id": "tools.keymasq.ListenerLab",
         "title": "Alpha",
     }
-    assert await listener.get_active_window() == ("org.keymasq.ListenerLab", "Alpha", [])
-    assert observed == [("org.keymasq.ListenerLab", "Alpha", [])]
+    assert await listener.get_active_window() == ("tools.keymasq.ListenerLab", "Alpha", [])
+    assert observed == [("tools.keymasq.ListenerLab", "Alpha", [])]

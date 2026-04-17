@@ -96,13 +96,13 @@
           ];
 
           postInstall = ''
-            install -Dm644 $src/assets/tools.keymasq.Keymasq.desktop $out/share/applications/tools.keymasq.Keymasq.desktop
+            install -Dm644 $src/assets/tools.keymasq.keymasq.desktop $out/share/applications/tools.keymasq.keymasq.desktop
             install -Dm644 $src/assets/tools.keymasq.keymasq.metainfo.xml $out/share/metainfo/tools.keymasq.keymasq.metainfo.xml
-            install -Dm644 $src/assets/tools.keymasq.Keymasq.svg $out/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg
-            for icon in $src/assets/icons/tools.keymasq.Keymasq-*.png; do
+            install -Dm644 $src/assets/tools.keymasq.keymasq.svg $out/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
+            for icon in $src/assets/icons/tools.keymasq.keymasq-*.png; do
               size=''${icon##*-}
               size=''${size%.png}
-              install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/tools.keymasq.Keymasq.png
+              install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/tools.keymasq.keymasq.png
             done
             install -Dm644 $src/polkit/com.keymasq.record-macro.policy $out/share/polkit-1/actions/com.keymasq.record-macro.policy
           '';

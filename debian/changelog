@@ -2,7 +2,7 @@ keymasq (0.4.1-1) unstable; urgency=medium
 
   * Rebase the packaged desktop application identity on keymasq.tools and
     move the GTK app ID, desktop ID, AppStream ID, and icon namespace to
-    tools.keymasq.Keymasq.
+    tools.keymasq.keymasq.
   * Restore the About dialog icon on installed packages by making the GUI
     use the packaged icon name.
   * Add packaging smoke checks that verify the launcher icon name matches

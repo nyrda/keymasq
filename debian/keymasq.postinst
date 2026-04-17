@@ -21,9 +21,9 @@ case "$1" in
             systemctl daemon-reload >/dev/null 2>&1 || true
         fi
 
-        find /usr/share/icons/hicolor -path '*/apps/tools.keymasq.Keymasq.*' -exec touch {} + >/dev/null 2>&1 || true
+        find /usr/share/icons/hicolor -path '*/apps/tools.keymasq.keymasq.*' -exec touch {} + >/dev/null 2>&1 || true
         touch /usr/share/icons/hicolor >/dev/null 2>&1 || true
-        touch /usr/share/applications/tools.keymasq.Keymasq.desktop >/dev/null 2>&1 || true
+        touch /usr/share/applications/tools.keymasq.keymasq.desktop >/dev/null 2>&1 || true
         ;;
 esac
 

@@ -8,7 +8,7 @@
   <developer id="tools.keymasq">
     <name>nyrda</name>
   </developer>
-  <launchable type="desktop-id">tools.keymasq.Keymasq.desktop</launchable>
+  <launchable type="desktop-id">tools.keymasq.keymasq.desktop</launchable>
   <url type="homepage">https://keymasq.tools</url>
   <update_contact>nyrda@keymasq.tools</update_contact>
   <description>
@@ -37,7 +37,7 @@
   <releases>
     <release version="0.4.1" date="2026-04-16">
       <description>
-        <p>Moves the desktop application identity to tools.keymasq.Keymasq, restores the About dialog icon on installed packages, and adds smoke checks to keep launcher assets aligned with the GUI app ID.</p>
+        <p>Moves the desktop application identity to tools.keymasq.keymasq, restores the About dialog icon on installed packages, and adds smoke checks to keep launcher assets aligned with the GUI app ID.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

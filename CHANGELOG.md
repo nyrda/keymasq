@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Rebased the packaged desktop application identity on `keymasq.tools`,
   moving the GTK application ID, desktop file ID, AppStream ID, and installed
-  icon namespace to `tools.keymasq.Keymasq`.
+  icon namespace to `tools.keymasq.keymasq`.
 - Normalized listener-lab test fixture app IDs so the repository no longer
   mixes old GitHub-based and internal placeholder identities with the shipped
   desktop application ID.

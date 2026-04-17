@@ -28,9 +28,9 @@ declare -a source_paths=(
     LICENSE
     README.md
     pyproject.toml
-    assets/tools.keymasq.Keymasq.desktop
+    assets/tools.keymasq.keymasq.desktop
     assets/tools.keymasq.keymasq.metainfo.xml
-    assets/tools.keymasq.Keymasq.svg
+    assets/tools.keymasq.keymasq.svg
     assets/icons
     examples
     gnome-extension

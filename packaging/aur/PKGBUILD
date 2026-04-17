@@ -59,19 +59,19 @@ package() {
 
     python -m installer --destdir="$pkgdir" "$srcdir"/python-dist/*.whl
 
-    install -Dm644 "assets/tools.keymasq.Keymasq.desktop" \
-        "$pkgdir/usr/share/applications/tools.keymasq.Keymasq.desktop"
+    install -Dm644 "assets/tools.keymasq.keymasq.desktop" \
+        "$pkgdir/usr/share/applications/tools.keymasq.keymasq.desktop"
     install -Dm644 "assets/tools.keymasq.keymasq.metainfo.xml" \
         "$pkgdir/usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml"
-    install -Dm644 "assets/tools.keymasq.Keymasq.svg" \
-        "$pkgdir/usr/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg"
+    install -Dm644 "assets/tools.keymasq.keymasq.svg" \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg"
     local icon
     local size
-    for icon in assets/icons/tools.keymasq.Keymasq-*.png; do
+    for icon in assets/icons/tools.keymasq.keymasq-*.png; do
         size="${icon##*-}"
         size="${size%.png}"
         install -Dm644 "$icon" \
-            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/tools.keymasq.Keymasq.png"
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/tools.keymasq.keymasq.png"
     done
 
     install -Dm644 "systemd/keymasqd.service" \

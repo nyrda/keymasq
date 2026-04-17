@@ -131,10 +131,10 @@ The main filesystem layout is:
 /usr/lib/tmpfiles.d/keymasq.conf
 /usr/lib/udev/rules.d/91-keymasq-acl.rules
 /usr/share/polkit-1/actions/com.keymasq.record-macro.policy
-/usr/share/applications/tools.keymasq.Keymasq.desktop
+/usr/share/applications/tools.keymasq.keymasq.desktop
 /usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml
-/usr/share/icons/hicolor/scalable/apps/tools.keymasq.Keymasq.svg
-/usr/share/icons/hicolor/<size>x<size>/apps/tools.keymasq.Keymasq.png
+/usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
+/usr/share/icons/hicolor/<size>x<size>/apps/tools.keymasq.keymasq.png
 /usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/
 /etc/keymasq/security.toml
 ```

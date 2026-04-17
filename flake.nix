@@ -228,8 +228,11 @@
             systemd.services.keymasqd = {
               description = "Keymasq Input Remapping Daemon";
               wantedBy = [ "multi-user.target" ];
-              after = [ "systemd-udev-settle.service" ];
-              requires = [ "systemd-udev-settle.service" ];
+              after = [
+                "systemd-udevd.service"
+                "systemd-udev-trigger.service"
+              ];
+              wants = [ "systemd-udev-trigger.service" ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "notify";

@@ -1,0 +1,99 @@
+site_name: Keymasq
+site_description: Linux input remapper with a simple graphical interface.
+site_url: https://keymasq.tools/docs/latest/
+repo_url: https://github.com/nyrda/keymasq
+repo_name: nyrda/keymasq
+edit_uri: edit/master/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.png
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/nyrda/keymasq
+  generator: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.keys
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+# Docs intentionally omitted from the published site (developer-facing):
+#   - LISTENER_VM_TESTS.md
+#   - PACKAGING.md
+#   - WAYLAND_PROTOCOL_TRACKERS.md
+# They stay in the repo; just not linked from nav.
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Install: INSTALL.md
+      - Dependencies: DEPENDENCIES.md
+  - User Guide:
+      - Profiles: PROFILES.md
+      - Actions: ACTIONS.md
+      - Superkeys: SUPERKEYS.md
+      - Combos: COMBOS.md
+      - Macros: MACROS.md
+      - Gamepad: GAMEPAD.md
+  - Desktop Support:
+      - Wayland: WAYLAND.md
+      - GNOME: GNOME.md
+  - Reference:
+      - Security: SECURITY.md
+      - Troubleshooting: TROUBLESHOOTING.md

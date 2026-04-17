@@ -85,3 +85,6 @@ Thumbs.db
 pkg/
 src/
 *.pkg.tar.zst
+
+# Docs site (mkdocs build output)
+site/

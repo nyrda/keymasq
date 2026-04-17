@@ -23,7 +23,7 @@ window-aware activation, macros, superkeys, and combos.
 
 Main profile view in the GTK4 application:
 
-![Keymasq main profile view](assets/screenshots/keymasq_profile.png)
+![Keymasq main profile view](docs/assets/screenshots/keymasq_profile.png)
 
 ## Desktop Support
 

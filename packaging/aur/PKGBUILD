@@ -3,7 +3,7 @@
 
 # Maintainer: nyrda <nyrda@keymasq.tools>
 pkgname=keymasq
-pkgver=0.4.1
+pkgver=0.5.0
 pkgrel=1
 pkgdesc="A key remapping tool for Linux using evdev and uinput"
 arch=(
@@ -38,7 +38,7 @@ optdepends=(
     'niri: for Niri window rule support'
 )
 install="$pkgname.install"
-source=("$pkgname-$pkgver.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.4.1/keymasq-0.4.1.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.5.0/keymasq-0.5.0.tar.gz")
 sha256sums=('SKIP')
 
 

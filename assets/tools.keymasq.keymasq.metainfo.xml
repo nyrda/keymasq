@@ -35,9 +35,9 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.4.1" date="2026-04-16">
+    <release version="0.5.0" date="2026-04-17">
       <description>
-        <p>Moves the desktop application identity to tools.keymasq.keymasq, restores the About dialog icon on installed packages, and adds smoke checks to keep launcher assets aligned with the GUI app ID.</p>
+        <p>Normalizes the desktop application identity to lowercase tools.keymasq.keymasq, updates packaging assets and hooks to match, and keeps launcher metadata aligned with the GUI app ID.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

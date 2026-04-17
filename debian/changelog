@@ -1,14 +1,14 @@
-keymasq (0.4.1-1) unstable; urgency=medium
+keymasq (0.5.0-1) unstable; urgency=medium
 
-  * Rebase the packaged desktop application identity on keymasq.tools and
-    move the GTK app ID, desktop ID, AppStream ID, and icon namespace to
-    tools.keymasq.keymasq.
-  * Restore the About dialog icon on installed packages by making the GUI
-    use the packaged icon name.
-  * Add packaging smoke checks that verify the launcher icon name matches
-    the GUI application identity.
+  * Normalize the packaged desktop application identity to lowercase
+    tools.keymasq.keymasq across the GTK app ID, desktop ID, AppStream
+    launchable entry, and icon namespace.
+  * Update generated package outputs, post-install hooks, and smoke checks
+    to use the lowercase desktop asset names consistently.
+  * Keep the installed launcher and About dialog icon metadata aligned with
+    the shipped lowercase application identity.
 
- -- nyrda <nyrda@keymasq.tools>  Thu, 16 Apr 2026 10:07:57 +0000
+ -- nyrda <nyrda@keymasq.tools>  Fri, 17 Apr 2026 01:29:41 +0000
 
 keymasq (0.3-1) unstable; urgency=medium
 

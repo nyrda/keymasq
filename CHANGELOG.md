@@ -2,22 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.5.0] - 2026-04-17
-
-### Changed
-
-- Normalized the packaged desktop application identity to all-lowercase
-  `tools.keymasq.keymasq` across the GTK application ID, desktop file ID,
-  AppStream launchable entry, and installed icon namespace.
-- Aligned packaging manifests, generated package outputs, post-install hooks,
-  and smoke tests with the lowercase desktop asset names.
+## [0.5.1] - 2026-04-17
 
 ### Fixed
 
-- Kept the About dialog icon and launcher metadata aligned with the shipped
-  lowercase application identity on installed packages.
-- Preserved packaging smoke coverage so launcher assets still track the GUI
-  application identity after the rename.
+- Corrected documentation asset references to use the shipped lowercase
+  `keymasq` names after the `0.5.0` desktop identity normalization.
+- Packages and published docs now point at the same lowercase branding assets,
+  avoiding stale mixed-case references in the release output.
 
 ## [0.3] - 2026-04-10
 

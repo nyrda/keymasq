@@ -1,6 +1,6 @@
 pkgbase = keymasq
 	pkgdesc = A key remapping tool for Linux using evdev and uinput
-	pkgver = 0.5.0
+	pkgver = 0.5.1
 	pkgrel = 1
 	url = https://github.com/nyrda/keymasq
 	arch = any
@@ -23,7 +23,7 @@ pkgbase = keymasq
 	depends = systemd
 	optdepends = hyprland: for Hyprland window rule support
 	optdepends = niri: for Niri window rule support
-	source = keymasq-0.5.0.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.5.0/keymasq-0.5.0.tar.gz
+	source = keymasq-0.5.1.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.5.1/keymasq-0.5.1.tar.gz
 	sha256sums = SKIP
 	install = keymasq.install
 

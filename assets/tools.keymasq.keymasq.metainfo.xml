@@ -35,9 +35,9 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.5.0" date="2026-04-17">
+    <release version="0.5.1" date="2026-04-17">
       <description>
-        <p>Normalizes the desktop application identity to lowercase tools.keymasq.keymasq, updates packaging assets and hooks to match, and keeps launcher metadata aligned with the GUI app ID.</p>
+        <p>Fixes documentation asset references after the lowercase keymasq identity rename so published release assets and docs stay aligned.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

@@ -2,24 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.1] - 2026-04-16
+## [0.5.0] - 2026-04-17
 
 ### Changed
 
-- Rebased the packaged desktop application identity on `keymasq.tools`,
-  moving the GTK application ID, desktop file ID, AppStream ID, and installed
-  icon namespace to `tools.keymasq.keymasq`.
-- Normalized listener-lab test fixture app IDs so the repository no longer
-  mixes old GitHub-based and internal placeholder identities with the shipped
-  desktop application ID.
+- Normalized the packaged desktop application identity to all-lowercase
+  `tools.keymasq.keymasq` across the GTK application ID, desktop file ID,
+  AppStream launchable entry, and installed icon namespace.
+- Aligned packaging manifests, generated package outputs, post-install hooks,
+  and smoke tests with the lowercase desktop asset names.
 
 ### Fixed
 
-- Restored the About dialog application icon on installed packages by making
-  the GUI request the same icon name that packaging installs.
-- Added packaging smoke checks to verify the desktop launcher `Icon=` value
-  matches the GUI application identity, preventing future rename drift from
-  silently shipping broken launcher assets.
+- Kept the About dialog icon and launcher metadata aligned with the shipped
+  lowercase application identity on installed packages.
+- Preserved packaging smoke coverage so launcher assets still track the GUI
+  application identity after the rename.
 
 ## [0.3] - 2026-04-10
 

@@ -9,6 +9,7 @@
     <name>nyrda</name>
   </developer>
   <launchable type="desktop-id">tools.keymasq.Keymasq.desktop</launchable>
+  <url type="homepage">https://keymasq.tools</url>
   <update_contact>nyrda@keymasq.tools</update_contact>
   <description>
     <p>

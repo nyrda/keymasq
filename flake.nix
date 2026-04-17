@@ -301,6 +301,10 @@
                 pytest
                 pytest-asyncio
                 pytest-cov
+                # Docs site (mkdocs + Material theme). mkdocs-material
+                # pulls in mkdocs, pymdown-extensions, and pygments as
+                # transitive deps.
+                mkdocs-material
               ]))
               pkgs.gobject-introspection
               pkgs.gtk4

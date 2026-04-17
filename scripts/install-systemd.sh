@@ -87,8 +87,8 @@ chmod 0755 /usr/local/bin/keymasq-session-wrapper
 cat >/etc/systemd/system/keymasqd.service <<'EOF'
 [Unit]
 Description=Keymasq Input Remapping Daemon
-After=systemd-udev-settle.service
-Requires=systemd-udev-settle.service
+After=systemd-udevd.service systemd-udev-trigger.service
+Wants=systemd-udev-trigger.service
 
 [Service]
 Type=simple

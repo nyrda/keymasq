@@ -28,9 +28,9 @@ or unlock steps.
 That's it. The sections below cover the other creation methods (live recording
 and type templates), loop modes, timing adjustments, and more.
 
-![Macro Manager — the three creation buttons are at the bottom](../assets/screenshots/keymasq_macros.png)
+![Macro Manager — the three creation buttons are at the bottom](assets/screenshots/keymasq_macros.png)
 
-![A key bound to a macro appears with the macro name underneath](../assets/screenshots/keymasq_macro_bound.png)
+![A key bound to a macro appears with the macro name underneath](assets/screenshots/keymasq_macro_bound.png)
 
 ## Creating Macros
 
@@ -82,9 +82,9 @@ reach them will be captured too, which is rarely what you want.
 | Move to start | Before playback, move the cursor to the position it was at when recording began. |
 | Block mouse movement | Prevent accidental mouse movement during playback (requires a grabbed mouse device). |
 
-![Recording settings — Move to start and Block mouse movement options](../assets/screenshots/keymasq_macro_recording_settings.png)
+![Recording settings — Move to start and Block mouse movement options](assets/screenshots/keymasq_macro_recording_settings.png)
 
-![Save dialog — name your recorded macro before saving](../assets/screenshots/keymasq_save_macro_dialog.png)
+![Save dialog — name your recorded macro before saving](assets/screenshots/keymasq_save_macro_dialog.png)
 
 ### Empty Macro
 
@@ -105,7 +105,7 @@ you need.
 to capture live timing — for example, a simple keyboard shortcut, a short
 button sequence, or a starting point you plan to refine in the editor.
 
-![The macro editor — add events to build your macro by hand](../assets/screenshots/keymasq_edit_macro_1.png)
+![The macro editor — add events to build your macro by hand](assets/screenshots/keymasq_edit_macro_1.png)
 
 ### Type Macro Template
 
@@ -127,7 +127,7 @@ any short text that doesn't need precise timing.
 non-QWERTY layout, or need exact control over timing, live recording will
 give more reliable results.
 
-![Type Macro dialog — enter text, set key-down and pause timing](../assets/screenshots/keymasq_type_macro_creation.png)
+![Type Macro dialog — enter text, set key-down and pause timing](assets/screenshots/keymasq_type_macro_creation.png)
 
 ## Using Macros
 
@@ -153,7 +153,7 @@ Once a macro is saved, you can trigger it in several ways:
 - **Block mouse movement** — temporarily prevent mouse movement during
   playback (requires a grabbed mouse device).
 
-![Mapping dialog — pick a macro, set speed and replay options](../assets/screenshots/keymasq_map_macro_1.png)
+![Mapping dialog — pick a macro, set speed and replay options](assets/screenshots/keymasq_map_macro_1.png)
 
 ### Loop Modes
 
@@ -171,7 +171,7 @@ automatically.
 in a game, continuous scrolling, or any workflow where you want the macro to
 keep running without pressing the trigger again and again.
 
-![Loop mode dropdown — None, Count, Hold, or Toggle](../assets/screenshots/keymasq_macro_edit_loop_modes.png)
+![Loop mode dropdown — None, Count, Hold, or Toggle](assets/screenshots/keymasq_macro_edit_loop_modes.png)
 
 ### Concurrency
 
@@ -250,7 +250,7 @@ keyboard) without affecting another (say, mouse movement).
 Gap notes appear as **G** markers on the timeline. You can move them, edit
 their duration, or delete them at any time.
 
-![A gap note on the macro timeline](../assets/screenshots/keymasq_macro_edit_gap_note.png)
+![A gap note on the macro timeline](assets/screenshots/keymasq_macro_edit_gap_note.png)
 
 ### Timing Tools
 
@@ -264,7 +264,7 @@ The **Timing Tools** menu provides bulk adjustments to your macro's timing:
 | **Apply Gap Limits** | Set a minimum and/or maximum gap between events, clamping any that fall outside. |
 | **Insert Gap** | Add a delay at a specific time, scoped to Everything, Keyboard, Mouse, or Movement. |
 
-![Timing Tools menu — Trim, Scale, Gap Limits, and Insert Gap](../assets/screenshots/keymasq_macros_timing_tools.png)
+![Timing Tools menu — Trim, Scale, Gap Limits, and Insert Gap](assets/screenshots/keymasq_macros_timing_tools.png)
 
 ## CLI Usage
 

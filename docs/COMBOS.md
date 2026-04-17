@@ -30,11 +30,11 @@ devices, so a combo can combine a keyboard key and a mouse button if needed.
 Now whenever you press that combination, Keymasq runs the action instead of
 sending the keys to your apps.
 
-![Combo tab with combos listed for the selected profile](../assets/screenshots/keymasq_combos_tab_example.png)
+![Combo tab with combos listed for the selected profile](assets/screenshots/keymasq_combos_tab_example.png)
 
-![Add combo dialog — define steps for the trigger](../assets/screenshots/keymasq_add_combo_dialog.png)
+![Add combo dialog — define steps for the trigger](assets/screenshots/keymasq_add_combo_dialog.png)
 
-![Choose the action to fire when the combo matches](../assets/screenshots/keymasq_combo_select_action_dialog.png)
+![Choose the action to fire when the combo matches](assets/screenshots/keymasq_combo_select_action_dialog.png)
 
 ## How Combos Work
 

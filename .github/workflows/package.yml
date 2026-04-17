@@ -855,7 +855,7 @@ jobs:
       - name: Publish to repository server
         env:
           RPM_SIGNING_KEY_PRIVATE_ASC: ${{ secrets.RPM_SIGNING_KEY_PRIVATE_ASC }}
-          REPO_UPLOAD_URL: ${{ vars.REPO_UPLOAD_URL }}
+          REPO_UPLOAD_URL: ${{ secrets.REPO_UPLOAD_URL }}
           REPO_UPLOAD_TOKEN: ${{ secrets.REPO_UPLOAD_TOKEN }}
         run: bash scripts/publish-repos.sh
 

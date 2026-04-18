@@ -146,6 +146,11 @@ The Python module path differs by package family:
 - Arch packages follow Arch's Python package layout
 - Nix packages install into the Nix store
 
+The runtime dependency set also includes `uvloop`. Keymasq uses it as the
+default `asyncio` policy for `keymasqd` and `keymasq-session` when available,
+but those processes still fall back to the stdlib loop with a warning if the
+package is missing or broken.
+
 ## Available package definitions
 
 ### Nix package and NixOS module
@@ -331,6 +336,13 @@ Fedora and openSUSE variants.
 
 This packaging path exists because the payload is mostly identical across the
 RPM-based targets, while dependency names and Python library paths differ.
+
+That includes the new `uvloop` runtime dependency:
+
+- Fedora resolves it through `python3dist(uvloop)` metadata, provided by the
+  `python3-uvloop` package
+- openSUSE follows the versioned Python package pattern used elsewhere in the
+  script, for example `python313-uvloop`
 
 The RPM build flow:
 

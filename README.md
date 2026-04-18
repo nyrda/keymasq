@@ -75,6 +75,10 @@ integration or Wayland fallback at runtime.
 - `keymasq` opens the GUI by default in a desktop session and exposes CLI
   subcommands when invoked with arguments
 
+`keymasqd` and `keymasq-session` prefer `uvloop` as their default `asyncio`
+runtime when it is installed. If `uvloop` is unavailable, they fall back to the
+standard library event loop and log a warning.
+
 The daemon runs as a dedicated `keymasq` system user, not as root.
 
 ## Quick Start

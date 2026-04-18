@@ -8,6 +8,7 @@ import signal
 import traceback
 from typing import cast
 
+from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.common.devices import resolve_evdev_code
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
@@ -501,6 +502,7 @@ def main() -> None:
         level=log_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    ensure_uvloop(log)
 
     if args.verbose >= 2:
         log.info("Trace logging enabled (-vv)")

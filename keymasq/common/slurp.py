@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, cast
 
+from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.common.paths import resolve_slurp_path
 
 log = logging.getLogger("keymasq.slurp")
@@ -227,6 +228,7 @@ class SlurpCapture:
             loop = asyncio.get_running_loop()
             asyncio.ensure_future(coro, loop=loop)
         except RuntimeError:
+            ensure_uvloop()
             asyncio.run(cast(Coroutine[Any, Any, object], coro))
 
 

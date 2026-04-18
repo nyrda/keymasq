@@ -10,6 +10,7 @@ import time
 from collections.abc import Sequence
 from typing import Protocol, cast
 
+from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.common.ipc import CommandType
 from keymasq.common.paths import (
     RECORDING_UNLOCK_RUNTIME_DIR,
@@ -713,6 +714,7 @@ def main() -> None:
         level=log_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    ensure_uvloop(log)
 
     if args.verbose >= 2:
         log.info("Trace logging enabled (-vv)")

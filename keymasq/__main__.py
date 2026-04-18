@@ -1,6 +1,8 @@
 import os
 import sys
 
+from keymasq.common.asyncio_runtime import ensure_uvloop
+
 
 def _has_desktop_environment() -> bool:
     for name in ("XDG_CURRENT_DESKTOP", "DESKTOP_SESSION", "WAYLAND_DISPLAY", "DISPLAY"):
@@ -11,6 +13,8 @@ def _has_desktop_environment() -> bool:
 
 
 def main() -> None:
+    ensure_uvloop()
+
     if len(sys.argv) > 1:
         from keymasq.cli.__main__ import main as cli_main
 

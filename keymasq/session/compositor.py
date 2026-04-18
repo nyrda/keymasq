@@ -3,6 +3,7 @@ import logging
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import TypedDict, cast
 
+from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners.cosmic import CosmicListener
 from keymasq.session.listeners.gnome import GnomeListener
@@ -95,6 +96,7 @@ def _run_probe_sync[ProbeResult](
     try:
         asyncio.get_running_loop()
     except RuntimeError:
+        ensure_uvloop()
         return asyncio.run(coro)
     log.debug("Synchronous compositor probe called in running loop")
     return None

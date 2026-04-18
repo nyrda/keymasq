@@ -1,6 +1,8 @@
 import argparse
 import sys
 
+from keymasq.common.asyncio_runtime import ensure_uvloop
+
 
 def _wants_help(argv: list[str]) -> bool:
     return any(arg in {"-h", "--help"} for arg in argv[1:])
@@ -22,6 +24,8 @@ def _print_help() -> None:
 
 
 def main() -> None:
+    ensure_uvloop()
+
     if _wants_help(sys.argv):
         _print_help()
         return

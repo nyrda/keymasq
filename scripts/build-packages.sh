@@ -83,6 +83,7 @@ configure_rpm_dependencies() {
             export RPM_EVDEV_DEP="${python_prefix}-evdev"
             export RPM_TOMLI_W_DEP="${python_prefix}-tomli-w"
             export RPM_DBUS_NEXT_DEP="${python_prefix}-dbus_next"
+            export RPM_UVLOOP_DEP="${python_prefix}-uvloop"
             export RPM_XLIB_DEP="${python_prefix}-python-xlib"
             export RPM_PYGOBJECT_DEP="${python_prefix}-gobject"
             export RPM_GTK_DEP='typelib(Gtk) = 4.0'
@@ -92,6 +93,7 @@ configure_rpm_dependencies() {
             export RPM_EVDEV_DEP='python3dist(evdev)'
             export RPM_TOMLI_W_DEP='python3dist(tomli-w)'
             export RPM_DBUS_NEXT_DEP='python3dist(dbus-next)'
+            export RPM_UVLOOP_DEP='python3dist(uvloop)'
             export RPM_XLIB_DEP='python3dist(python-xlib)'
             export RPM_PYGOBJECT_DEP='python3dist(pygobject)'
             export RPM_GTK_DEP='gtk4'

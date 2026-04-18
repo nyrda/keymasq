@@ -91,6 +91,7 @@
             evdev
             tomli-w
             dbus-next
+            uvloop
             xlib
             pygobject3
           ];

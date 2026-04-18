@@ -14,9 +14,12 @@ from keymasq.cli.commands import (
     set_profile_state_cli,
     test_device,
 )
+from keymasq.common.asyncio_runtime import ensure_uvloop
 
 
 def main() -> None:
+    ensure_uvloop()
+
     parser = argparse.ArgumentParser(
         prog="keymasq",
         description="Keymasq CLI - Key remapping tool",

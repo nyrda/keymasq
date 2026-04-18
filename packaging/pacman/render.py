@@ -25,6 +25,7 @@ COMMON_METADATA = {
         "python-evdev>=1.6.0",
         "python-tomli-w>=1.0.0",
         "python-dbus-next>=0.2.3",
+        "python-uvloop",
         "python-xlib>=0.33",
         "python-gobject>=3.42.0",
         "gtk4",

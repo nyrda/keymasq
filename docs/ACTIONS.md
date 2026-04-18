@@ -308,11 +308,16 @@ This continues for as long as the key is physically held down.
 | **Hold (ms)** | How long each pulse is held. | 20 ms | 10–1000 ms |
 | **Wait (ms)** | Pause between pulses. | 20 ms | 10–1000 ms |
 
-**Use cases:** auto-fire in games, repeated key presses, continuous mouse
-movement.
+**Use cases:** auto-fire in games, Linux autoclicker setups, repeated key
+presses, and continuous mouse movement.
 
 With mouse move actions, rapidfire repeats the movement offset on each cycle —
 useful for continuous scrolling or nudging.
+
+If you want a simple autoclicker, map a key or mouse button to a mouse action
+and enable Rapidfire. Use a [macro](MACROS.md) instead when you need a more
+scripted pattern, such as double-clicks, cursor movement, mixed keyboard and
+mouse input, or toggle/count playback.
 
 ![Rapidfire enabled — hold and wait duration spinners](assets/screenshots/keymasq_key_action_rapidfire.png)
 

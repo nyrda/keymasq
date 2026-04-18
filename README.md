@@ -7,7 +7,9 @@
 Keymasq is a Linux input remapper with a simple graphical interface.
 
 It supports keyboard, mouse, and gamepad remapping with layered profiles,
-window-aware activation, macros, superkeys, and combos.
+window-aware activation, macros, superkeys, and combos. It can also be used
+for practical workflows like a Linux autoclicker, game auto-fire, app-specific
+shortcuts, and multi-step automation.
 
 ## Features
 
@@ -15,8 +17,17 @@ window-aware activation, macros, superkeys, and combos.
 - Layer per-device mappings in global profiles
 - Auto-activate profiles based on the active window
 - Record, edit, and play macros
+- Build autoclicker and auto-fire setups with rapidfire actions or looped macros
 - Assign multiple actions to a single key with superkeys
 - Trigger actions with multi-input combos
+
+## Common Use Cases
+
+- Build a Linux autoclicker from a rapidfire mouse mapping or a looped macro
+- Create app-specific or game-specific profiles that enable automatically
+- Record repeated input sequences and replay them from a key, combo, or CLI command
+- Turn one button into tap, hold, double-tap, or one-to-many actions with superkeys
+- Trigger shortcuts or macros from multi-input combos across devices
 
 
 ## Screenshot

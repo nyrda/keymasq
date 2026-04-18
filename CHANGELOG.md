@@ -2,14 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.5.1] - 2026-04-17
+## [0.6.0] - 2026-04-18
 
-### Fixed
+### Improved
 
-- Corrected documentation asset references to use the shipped lowercase
-  `keymasq` names after the `0.5.0` desktop identity normalization.
-- Packages and published docs now point at the same lowercase branding assets,
-  avoiding stale mixed-case references in the release output.
+- Anchored macro playback timing to monotonic deadlines, reducing drift during
+  replay and improving fidelity for timing-sensitive macros.
+- Preferred `uvloop` for supported async runtimes and tightened daemon timer
+  slack at startup to make background scheduling more predictable.
+
+### Changed
+
+- Switched `keymasqd` startup dependencies to udev-triggered systemd ordering
+  so device availability is coordinated with the actual trigger path.
+
+### Added
+
+- Added macro replay fidelity benchmarks and supporting documentation for
+  timing analysis and verification.
+- Expanded end-user docs with autoclicker workflows and related macro use
+  cases.
 
 ## [0.3] - 2026-04-10
 

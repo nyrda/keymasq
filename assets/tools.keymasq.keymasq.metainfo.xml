@@ -35,9 +35,9 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.5.1" date="2026-04-17">
+    <release version="0.6.0" date="2026-04-18">
       <description>
-        <p>Fixes documentation asset references after the lowercase keymasq identity rename so published release assets and docs stay aligned.</p>
+        <p>Improves macro replay timing fidelity, prefers uvloop for supported async runtimes, and expands documentation and benchmarks for replay analysis and autoclicker workflows.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

@@ -46,6 +46,7 @@ from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.socket_server import ClientContext, SocketServer
+from keymasq.keymasqd.timer_precision import set_timer_slack_ns
 
 log = logging.getLogger("keymasqd")
 
@@ -715,6 +716,11 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     ensure_uvloop(log)
+    # Tighten kernel timer slack on the main thread before any worker threads
+    # are spawned so they inherit the tighter wakeup resolution. This measurably
+    # reduces jitter on the sub-millisecond asyncio.sleep() deadlines used by
+    # macro replay.
+    set_timer_slack_ns(logger=log)
 
     if args.verbose >= 2:
         log.info("Trace logging enabled (-vv)")

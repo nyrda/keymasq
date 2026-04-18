@@ -1,11 +1,14 @@
-keymasq (0.5.1-1) unstable; urgency=medium
+keymasq (0.6.0-1) unstable; urgency=medium
 
-  * Fix documentation asset references to use the shipped lowercase keymasq
-    names after the 0.5.0 desktop identity normalization.
-  * Keep published docs and packaged branding assets aligned so release
-    outputs no longer mix old and new asset casing.
+  * Improve macro replay timing by anchoring playback to monotonic deadlines
+    and tightening daemon timer slack at startup.
+  * Prefer uvloop for supported async runtimes to reduce event-loop
+    overhead in the daemon, session broker, and CLI entrypoints.
+  * Switch keymasqd startup ordering to udev-triggered dependencies and add
+    benchmark and docs coverage for macro replay fidelity and autoclicker
+    workflows.
 
- -- nyrda <nyrda@keymasq.tools>  Fri, 17 Apr 2026 01:47:30 +0000
+ -- nyrda <nyrda@keymasq.tools>  Sat, 18 Apr 2026 02:15:47 +0000
 
 keymasq (0.3-1) unstable; urgency=medium
 

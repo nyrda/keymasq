@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ctypes
+import importlib.util
 import statistics
 import sys
 import time
@@ -31,6 +33,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.recording import RecordingManager
+
+PR_SET_TIMERSLACK = 29
+PR_GET_TIMERSLACK = 30
 
 
 @dataclass
@@ -123,6 +128,25 @@ def _wait_for_device_path(name: str, timeout_s: float = 2.0) -> str:
                 dev.close()
         time.sleep(0.02)
     raise RuntimeError(f"Timed out waiting for uinput device {name!r}")
+
+
+def get_timer_slack_ns() -> int | None:
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        result = libc.prctl(PR_GET_TIMERSLACK, 0, 0, 0, 0)
+        if result < 0:
+            return None
+        return int(result)
+    except Exception:
+        return None
+
+
+def set_timer_slack_ns(slack_ns: int) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    result = libc.prctl(PR_SET_TIMERSLACK, ctypes.c_ulong(slack_ns), 0, 0, 0)
+    if result != 0:
+        errno = ctypes.get_errno()
+        raise OSError(errno, f"prctl(PR_SET_TIMERSLACK, {slack_ns}) failed")
 
 
 class OutputDevices:
@@ -510,7 +534,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=[],
         help="Run only the named scenario. Can be passed multiple times.",
     )
+    parser.add_argument(
+        "--uvloop",
+        action="store_true",
+        help="Use uvloop as the asyncio event loop policy for this benchmark run.",
+    )
+    parser.add_argument(
+        "--timerslack-ns",
+        type=int,
+        default=None,
+        help="Set per-process timer slack in nanoseconds for this benchmark run.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.uvloop:
+        if importlib.util.find_spec("uvloop") is None:
+            print("uvloop requested but not installed in this environment", file=sys.stderr)
+            return 2
+        import uvloop
+
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    original_slack_ns = get_timer_slack_ns()
+    if args.timerslack_ns is not None:
+        set_timer_slack_ns(args.timerslack_ns)
+    active_loop = "uvloop" if args.uvloop else "asyncio-default"
+    current_slack_ns = get_timer_slack_ns()
+    print(
+        f"# macro_replay_fidelity loop={active_loop} "
+        f"timer_slack_ns={current_slack_ns} "
+        f"original_timer_slack_ns={original_slack_ns}"
+    )
     return asyncio.run(async_main(set(args.scenario)))
 
 

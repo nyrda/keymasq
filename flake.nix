@@ -299,6 +299,7 @@
                 dbus-next
                 evdev
                 tomli-w
+                uvloop
                 pygobject3
                 xlib
                 pytest
@@ -326,6 +327,7 @@
               pkgs.dpkg
               pkgs.nodejs
               pkgs.cloc
+              pkgs.glow
               # GitHub Actions
               pkgs.gh           # GitHub CLI - manage workflows, PRs, releases
               pkgs.act          # run GitHub Actions locally

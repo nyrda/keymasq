@@ -337,12 +337,17 @@ Fedora and openSUSE variants.
 This packaging path exists because the payload is mostly identical across the
 RPM-based targets, while dependency names and Python library paths differ.
 
-That includes the new `uvloop` runtime dependency:
+That includes the new `uvloop` runtime package recommendation:
 
 - Fedora resolves it through `python3dist(uvloop)` metadata, provided by the
   `python3-uvloop` package
 - openSUSE follows the versioned Python package pattern used elsewhere in the
   script, for example `python313-uvloop`
+
+For RPMs this is intentionally a weak dependency rather than a hard one, so the
+package remains installable on Fedora releases where `uvloop` is not yet
+available in the tested repositories. At runtime, Keymasq still prefers
+`uvloop` and logs a warning before falling back to the stdlib `asyncio` loop.
 
 The RPM build flow:
 

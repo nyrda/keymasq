@@ -15,7 +15,6 @@ depends:
   - ${RPM_EVDEV_DEP}
   - ${RPM_TOMLI_W_DEP}
   - ${RPM_DBUS_NEXT_DEP}
-  - ${RPM_UVLOOP_DEP}
   - ${RPM_XLIB_DEP}
   - ${RPM_PYGOBJECT_DEP}
   - ${RPM_GTK_DEP}
@@ -25,6 +24,7 @@ depends:
 
 recommends:
   - slurp
+  - ${RPM_UVLOOP_DEP}
 
 contents:
   - src: staging/rpm${RPM_PYTHON_SITELIB}/

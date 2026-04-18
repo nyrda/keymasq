@@ -228,6 +228,7 @@ Defined in `nfpm.yaml`:
 Defined in `nfpm.yaml` under `recommends`:
 
 - `slurp`
+- distro-specific `uvloop` package name
 
 Verified current RPM dependency naming:
 
@@ -235,6 +236,11 @@ Verified current RPM dependency naming:
   `python3-uvloop`
 - openSUSE metadata follows the versioned Python package pattern, for example
   `python313-uvloop`
+
+Keymasq keeps `uvloop` as a weak RPM dependency instead of a hard one because
+Fedora 43 does not currently expose a stable `python3-uvloop` package in the
+same way Fedora 42 does. RPM installs therefore remain valid without `uvloop`,
+and the runtime falls back cleanly with a warning when it is unavailable.
 
 ### Nix package and NixOS module
 

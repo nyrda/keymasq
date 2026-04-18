@@ -10,6 +10,11 @@ Macros are saved centrally by Keymasq and can be reused from profiles,
 superkeys, combos, or the CLI. You create and edit them in the GUI, and
 Keymasq plays them back by macro name.
 
+Macros are also one of the ways to build a Linux autoclicker in Keymasq. For
+simple repeated clicks, a rapidfire mouse action is usually the fastest setup.
+Use a macro when you need more control over timing, double-click patterns,
+cursor movement, mixed keyboard and mouse input, or toggle/count playback.
+
 ## Quick Start: Your First Macro
 
 The fastest way to get started is to create an empty macro, add a few events
@@ -154,6 +159,32 @@ Once a macro is saved, you can trigger it in several ways:
   playback (requires a grabbed mouse device).
 
 ![Mapping dialog — pick a macro, set speed and replay options](assets/screenshots/keymasq_map_macro_1.png)
+
+### Example: Build a Linux Autoclicker with a Macro
+
+If you want Keymasq to act as a Linux autoclicker, a looped macro is the
+better choice when you need a specific click pattern instead of a simple
+"repeat while held" pulse.
+
+One straightforward setup:
+
+1. Open **Macro Manager** and create an **Empty Macro**.
+2. Add a mouse click press event for the button you want, such as left click.
+3. Add the matching mouse click release event shortly after it.
+4. If needed, adjust the gap between clicks in the timeline.
+5. Save the macro with a clear name such as `auto_left_click`.
+6. Go to the **Device** tab and bind a key or mouse button to **Play Macro**.
+7. Set the loop mode to **Hold** if you want clicking only while the trigger is held, or **Toggle** if you want one press to start and another to stop.
+
+Use this approach when you want:
+
+- a repeated click pattern with exact timing
+- double-click or burst-click behavior
+- a click sequence that also moves the cursor
+- a trigger that starts and stops on toggle instead of only while held
+
+For a simpler autoclicker, map a mouse button action and enable
+[Rapidfire](ACTIONS.md#rapidfire) instead.
 
 ### Loop Modes
 

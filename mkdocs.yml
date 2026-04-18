@@ -1,5 +1,5 @@
 site_name: Keymasq
-site_description: Linux input remapper with a simple graphical interface.
+site_description: Linux input remapper with macros, combos, superkeys, and autoclicker workflows.
 site_url: https://keymasq.tools/docs/latest/
 repo_url: https://github.com/nyrda/keymasq
 repo_name: nyrda/keymasq

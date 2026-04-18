@@ -34,6 +34,7 @@ Defined in `pyproject.toml` under `[project].dependencies`:
 - `PyGObject>=3.42.0`
 - `dbus-next>=0.2.3`
 - `evdev>=1.6.0`
+- `uvloop`
 - `python-xlib>=0.33`
 - `tomli-w>=1.0.0`
 
@@ -43,8 +44,23 @@ What they are used for:
 - `dbus-next`: session D-Bus access for notifications and compositor/session
   integrations
 - `evdev`: input device access, recording, capture, and remap runtime
+- `uvloop`: default `asyncio` event loop policy for `keymasqd` and
+  `keymasq-session`, with graceful fallback to the stdlib loop when unavailable
 - `python-xlib`: X11 listener support
 - `tomli-w`: writing profile, hardware, and superkey TOML files
+
+## Async Runtime Policy
+
+Keymasq now prefers `uvloop` by default for its `asyncio`-driven long-running
+processes:
+
+- `keymasqd`
+- `keymasq-session`
+
+If `uvloop` is importable, those processes install `uvloop.EventLoopPolicy()`
+before creating their main event loop. If it is unavailable or fails to load,
+Keymasq falls back to the standard-library `asyncio` policy and logs a warning
+instead of failing startup.
 
 ## System Runtime Dependencies
 
@@ -154,6 +170,7 @@ Defined in `PKGBUILD` under `depends`:
 - `python-dbus-next>=0.2.3`
 - `python-evdev>=1.6.0`
 - `python-gobject>=3.42.0`
+- `python-uvloop`
 - `python-tomli-w>=1.0.0`
 - `python-xlib>=0.33`
 - `gtk4`
@@ -178,6 +195,7 @@ Defined in `debian/control`:
 - `python3-evdev`
 - `python3-gi`
 - `python3-tomli-w`
+- `python3-uvloop`
 - `python3-xlib`
 - `systemd`
 - `udev`
@@ -200,6 +218,7 @@ Defined in `nfpm.yaml`:
   - `evdev`
   - `tomli-w`
   - `dbus-next`
+  - `uvloop`
   - `python-xlib`
   - `PyGObject`
 - distro-specific GTK4 and libadwaita package names
@@ -210,6 +229,13 @@ Defined in `nfpm.yaml` under `recommends`:
 
 - `slurp`
 
+Verified current RPM dependency naming:
+
+- Fedora metadata uses `python3dist(uvloop)`, which is provided by
+  `python3-uvloop`
+- openSUSE metadata follows the versioned Python package pattern, for example
+  `python313-uvloop`
+
 ### Nix package and NixOS module
 
 Defined in `flake.nix`:
@@ -218,6 +244,7 @@ Defined in `flake.nix`:
   - `dbus-next`
   - `evdev`
   - `tomli-w`
+  - `uvloop`
   - `xlib`
   - `pygobject3`
 - GUI/system libraries:

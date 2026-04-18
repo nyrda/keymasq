@@ -28,6 +28,7 @@ Depends:
  python3-evdev,
  python3-gi,
  python3-tomli-w,
+  python3-uvloop,
  python3-xlib,
  systemd,
  udev

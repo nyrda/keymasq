@@ -178,6 +178,8 @@ For a working manual install, make sure the following pieces exist on the
 system:
 
 - a Python 3.12+ environment containing Keymasq and its Python dependencies
+- `uvloop` installed if you want the preferred async runtime for
+  `keymasqd` and `keymasq-session`
 - GTK4 and libadwaita runtime libraries for the GUI
 - `slurp` available for wlroots/COSMIC cursor acquisition and GUI point-pick flows
 - the Keymasq executables available to the system or the users who will run them: `keymasq`, `keymasqd`, and `keymasq-session`
@@ -192,6 +194,10 @@ system:
 Manual installs do not need to use `systemd` specifically. Any equivalent
 service manager or launcher arrangement is fine as long as `keymasqd` runs as
 the privileged service identity and `keymasq-session` runs in the user session.
+
+If `uvloop` is missing or fails to import, `keymasqd` and `keymasq-session`
+still start and fall back to the default `asyncio` event loop policy. They log
+a warning when this happens so the missing optimization is visible.
 
 ### Recording and capture unlock
 

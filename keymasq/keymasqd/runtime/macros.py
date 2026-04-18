@@ -83,6 +83,8 @@ class _EvdevModule(Protocol):
 class _AsyncioLoop(Protocol):
     def create_future(self) -> asyncio.Future[int]: ...
 
+    def time(self) -> float: ...
+
 
 class _AsyncioModule(Protocol):
     CancelledError: ClassVar[type[BaseException]]
@@ -390,10 +392,12 @@ async def play_macro_task(
     if manager.verbosity >= 1:
         log.debug("Macro playback started: %s", macro_name or "<unnamed>")
 
+    speed_factor = max(0.01, speed)
     macro_duration_us = (
         max(int_value_fn(ev.get("t_us"), 0) for ev in macro_events) if macro_events else 0
     )
-    suppression_timeout_s = max(2.0, (macro_duration_us / max(speed, 0.01)) / 1_000_000.0 + 1.0)
+    suppression_timeout_s = max(2.0, (macro_duration_us / speed_factor) / 1_000_000.0 + 1.0)
+    event_loop = asyncio_mod.get_running_loop()
     try:
         if block_mouse_movement:
             acquire_macro_mouse_inhibit(
@@ -423,7 +427,12 @@ async def play_macro_task(
                     uinput_writer=uinput_writer,
                 )
 
-            prev_t_us = 0
+            # Anchor every replay iteration to a single monotonic reference so
+            # each event's wait is computed against its absolute deadline rather
+            # than the gap from the previous event. Overshoot from any single
+            # asyncio.sleep() is absorbed by the next event's remaining-time
+            # calculation instead of accumulating across the macro.
+            iteration_anchor = event_loop.time()
             for idx, ev in enumerate(macro_events):
                 if instance_id in manager.macro_state.cancel_instance_ids:
                     break
@@ -431,11 +440,13 @@ async def play_macro_task(
                     await asyncio_mod.sleep(0)
 
                 t_us = int_value_fn(ev.get("t_us"), 0)
-                delay_us = max(0, t_us - prev_t_us)
-                prev_t_us = t_us
-                scaled_delay_us = int(delay_us / speed)
-                if scaled_delay_us >= 500:
-                    await asyncio_mod.sleep(scaled_delay_us / 1_000_000)
+                deadline = iteration_anchor + (t_us / speed_factor) / 1_000_000.0
+                remaining = deadline - event_loop.time()
+                # Skip sub-500µs waits: asyncio's timer resolution can't hit
+                # them, and the drift they'd introduce is already compensated
+                # on the next event by the anchored deadline.
+                if remaining >= 0.0005:
+                    await asyncio_mod.sleep(remaining)
 
                 action_type = str(ev.get("macro_action", "") or "")
                 if action_type:

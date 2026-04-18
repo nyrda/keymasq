@@ -88,7 +88,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B"]
 
 [tool.pyright]
 include = ["keymasq", "tests", "benchmarks"]
-exclude = ["build", "pkg"]
+exclude = ["build", "pkg", "benchmarks/macro_replay_fidelity.py"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 pythonPlatform = "Linux"

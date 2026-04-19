@@ -251,6 +251,24 @@ The effective security model is:
 - recording guard for original-input observation features
 - listener-scoped compositor dispatch instead of shell execution
 
+## Build Attestations
+
+GitHub releases include build attestations for published artifacts (`.deb`,
+`.rpm`, `SHA256SUMS`). These are signed statements from GitHub Actions proving
+the artifact was produced by the Keymasq release workflow.
+
+With the GitHub CLI, verify an artifact:
+
+```bash
+gh attestation verify ./keymasq_*_all.deb -R nyrda/keymasq
+gh attestation verify ./keymasq-*.fedora.*.rpm -R nyrda/keymasq
+gh attestation verify ./SHA256SUMS -R nyrda/keymasq
+```
+
+This is useful if you want to verify the build chain, not just the checksum.
+Most users installing from the package repository do not need this—repository
+packages are already signed.
+
 ## Diagnostics Mode
 
 Keymasqd includes an optional diagnostics mode for internal latency measurement.

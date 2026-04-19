@@ -4,12 +4,13 @@
 [![Quality](https://github.com/nyrda/keymasq/actions/workflows/quality.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/quality.yml)
 [![Package](https://github.com/nyrda/keymasq/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/package.yml)
 
-Keymasq is a Linux input remapper with a simple graphical interface.
+Remap keys, buttons, and gamepad inputs on Linux—with per-app profiles,
+macros, and graphical setup and configuration.
 
-It supports keyboard, mouse, and gamepad remapping with layered profiles,
-window-aware activation, macros, superkeys, and combos. It can also be used
-for practical workflows like a Linux autoclicker, game auto-fire, app-specific
-shortcuts, and multi-step automation.
+Keymasq supports keyboard, mouse, and gamepad remapping with layered profiles,
+window-aware activation, macros, superkeys, and combos. Use it for workflows
+like a Linux autoclicker, game auto-fire, app-specific shortcuts, and
+multi-step automation.
 
 ## Features
 
@@ -18,8 +19,12 @@ shortcuts, and multi-step automation.
 - Auto-activate profiles based on the active window
 - Record, edit, and play macros
 - Build autoclicker and auto-fire setups with rapidfire actions or looped macros
-- Assign multiple actions to a single key with superkeys
-- Trigger actions with multi-input combos
+- Superkeys: one key fires multiple actions, or different actions for tap vs hold vs double-tap
+- Combos: trigger actions or superkeys from any input combination—even across devices
+
+## Screenshot
+
+![Keymasq main profile view](docs/assets/screenshots/keymasq_profile.png)
 
 ## Common Use Cases
 
@@ -27,14 +32,7 @@ shortcuts, and multi-step automation.
 - Create app-specific or game-specific profiles that enable automatically
 - Record repeated input sequences and replay them from a key, combo, or CLI command
 - Turn one button into tap, hold, double-tap, or one-to-many actions with superkeys
-- Trigger shortcuts or macros from multi-input combos across devices
-
-
-## Screenshot
-
-Main profile view in the GTK4 application:
-
-![Keymasq main profile view](docs/assets/screenshots/keymasq_profile.png)
+- Trigger macros or shortcuts from cross-device combos like keyboard + mouse button
 
 ## Desktop Support
 
@@ -52,43 +50,35 @@ Keymasq auto-detects the current session and uses the appropriate compositor
 integration or Wayland fallback at runtime.
 
 
-## Architecture
-
-```text
-┌─────────────────┐
-│  GUI / CLI      │  `keymasq`
-└────────┬────────┘
-         │ session socket
-┌────────▼────────┐
-│ keymasq-session│  per-user broker
-└────────┬────────┘
-         │ daemon socket
-┌────────▼────────┐
-│   keymasqd     │  privileged daemon
-└─────────────────┘
-```
-
-- `keymasqd` handles evdev/uinput access, macro storage, recording, and device
-  control
-- `keymasq-session` owns compositor integration, profile resolution, and the
-  user-session boundary
-- `keymasq` opens the GUI by default in a desktop session and exposes CLI
-  subcommands when invoked with arguments
-
-`keymasqd` and `keymasq-session` prefer `uvloop` as their default `asyncio`
-runtime when it is installed. If `uvloop` is unavailable, they fall back to the
-standard library event loop and log a warning.
-
-The daemon runs as a dedicated `keymasq` system user, not as root.
-
 ## Quick Start
 
-Packaged installs are the recommended path for normal use.
+### Arch Linux
 
-## Install
+```bash
+yay -S keymasq
+sudo systemctl enable --now keymasqd
+systemctl --user enable --now keymasq-session
+keymasq
+```
 
-Installation instructions for supported distributions and NixOS are in
-[docs/INSTALL.md](docs/INSTALL.md).
+### Debian
+
+Also works on Ubuntu, Linux Mint, Pop!_OS, PikaOS, and other apt-based distros.
+
+```bash
+curl -fsSL https://repo.keymasq.tools/gpg-key.asc \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/keymasq.gpg
+echo "deb [signed-by=/etc/apt/keyrings/keymasq.gpg arch=all] https://repo.keymasq.tools/debian stable main" \
+  | sudo tee /etc/apt/sources.list.d/keymasq.list
+sudo apt update && sudo apt install keymasq
+sudo systemctl enable --now keymasqd
+systemctl --user enable --now keymasq-session
+keymasq
+```
+
+### Fedora / openSUSE / NixOS
+
+See [docs/INSTALL.md](docs/INSTALL.md) for full instructions.
 
 ## Configuration
 
@@ -108,15 +98,6 @@ stored in `~/.config/keymasq/`:
 
 See [docs/PROFILES.md](docs/PROFILES.md) for the profile format and merge
 rules.
-
-## Components
-
-| Command | Description |
-| --- | --- |
-| `keymasqd` | Privileged system daemon |
-| `keymasq-session` | Per-user session broker |
-| `keymasq` | GUI by default, CLI with subcommands |
-| `keymasq-record` | Privileged recording helper used by the GUI |
 
 ## Security
 
@@ -140,6 +121,11 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 - GNOME setup: [docs/GNOME.md](docs/GNOME.md)
 - Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - Security model: [docs/SECURITY.md](docs/SECURITY.md)
+
+## Support
+
+Found a bug or have a question?
+[Open a GitHub issue](https://github.com/nyrda/keymasq/issues).
 
 ## License
 

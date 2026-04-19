@@ -34,10 +34,6 @@ makedepends=(
     'python-build'
     'python-installer'
 )
-optdepends=(
-    'hyprland: for Hyprland window rule support'
-    'niri: for Niri window rule support'
-)
 install="$pkgname.install"
 source=("$pkgname-$pkgver.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.6.0/keymasq-0.6.0.tar.gz")
 sha256sums=('SKIP')

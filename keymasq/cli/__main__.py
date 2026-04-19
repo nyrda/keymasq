@@ -1,18 +1,13 @@
 import argparse
-import asyncio
-import sys
 
 from keymasq import __version__
 from keymasq.cli.commands import (
     cancel_macro_cli,
-    create_hardware,
-    list_devices,
     list_macros_cli,
     list_profiles_cli,
     play_macro_cli,
     set_diagnostics_cli,
     set_profile_state_cli,
-    test_device,
 )
 from keymasq.common.asyncio_runtime import ensure_uvloop
 
@@ -31,17 +26,6 @@ def main() -> None:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
-
-    devices_parser = subparsers.add_parser("devices", help="List available devices")
-    devices_parser.add_argument("-v", "--verbose", action="store_true", help="Show details")
-
-    hardware_parser = subparsers.add_parser("hardware", help="Hardware configuration")
-    hardware_parser.add_argument("action", choices=["create", "list"], help="Action to perform")
-    hardware_parser.add_argument("--vid", help="Vendor ID (e.g., 046d)")
-    hardware_parser.add_argument("--pid", help="Product ID (e.g., c08b)")
-
-    test_parser = subparsers.add_parser("test", help="Test device events")
-    test_parser.add_argument("device", help="Device path (e.g., /dev/input/event5)")
 
     macros_parser = subparsers.add_parser("macros", help="Macro commands")
     macros_sub = macros_parser.add_subparsers(dest="macros_command", required=True)
@@ -79,19 +63,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.command == "devices":
-        asyncio.run(list_devices(args.verbose))
-    elif args.command == "hardware":
-        if args.action == "list":
-            print("Hardware configs not yet implemented")
-        elif args.action == "create":
-            if not args.vid or not args.pid:
-                print("Error: --vid and --pid required")
-                sys.exit(1)
-            create_hardware(args.vid, args.pid)
-    elif args.command == "test":
-        asyncio.run(test_device(args.device))
-    elif args.command == "macros":
+    if args.command == "macros":
         if args.macros_command == "list":
             list_macros_cli()
         elif args.macros_command == "play":

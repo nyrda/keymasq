@@ -1,5 +1,8 @@
 # Installation Guide
 
+Pick your distribution below. Most users will install from a package and enable
+two services—one system daemon and one user session service.
+
 ## 1. Package Installs (Recommended)
 
 ### Arch Linux
@@ -99,6 +102,59 @@ The signing key used for repository metadata and RPM packages is available at
 AC46 70B9 328E B2EA 468E  8FFF E3FD 12BD B158 EBE4
 ```
 
+### NixOS
+
+Use the NixOS module from the Keymasq flake. This complete example installs the
+GUI/CLI package, starts `keymasqd`, starts `keymasq-session` in graphical user
+sessions, and writes `/etc/keymasq/security.toml` from the `securityConfig`
+settings below:
+
+```nix
+{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.keymasq.url = "github:nyrda/keymasq";
+
+  outputs = { self, nixpkgs, keymasq }: {
+    nixosConfigurations.desktop = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        keymasq.nixosModules.default
+        {
+          services.keymasq = {
+            enable = true;
+            installPackage = true;
+            securityConfig = {
+              daemon_allowed_uids = [];
+              session_allowed_uids = [];
+
+              macro.exec_timeout_max_ms = 30000;
+
+              gui.allow_left_right_click_remap = false;
+
+              recording_guard = {
+                unlock_required = true;
+                macro_edit_requires_unlock = false;
+              };
+
+              session_command_acl.client = [];
+              daemon_command_acl.session = [];
+            };
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+```bash
+sudo nixos-rebuild switch --flake .#desktop
+```
+
+To change the policy, edit `services.keymasq.securityConfig` and rebuild. For
+example, set `gui.allow_left_right_click_remap = true;` if you intentionally
+want the GUI to allow left/right mouse click remaps.
+
 ### GNOME Wayland: enable the Shell bridge
 
 GNOME support requires the Keymasq GNOME Shell bridge extension. Packaged
@@ -124,81 +180,14 @@ Without the bridge, Keymasq still runs on GNOME, but window-aware profiles,
 pointer-position features, and GNOME compositor actions are unavailable. For
 details and manual-install steps, see [GNOME.md](GNOME.md).
 
-### Verify GitHub release checksums
-
-GitHub releases include a `SHA256SUMS` file for the published `.deb` and `.rpm`
-artifacts, plus the published `rpm-signing-key.asc`. After downloading the
-package you want to install and the matching `SHA256SUMS` file, verify them
-from the same directory:
-
-```bash
-sha256sum -c --ignore-missing SHA256SUMS
-```
-
-You can also verify a single downloaded artifact directly:
-
-```bash
-sha256sum keymasq_*_all.deb
-grep 'keymasq_.*_all.deb' SHA256SUMS
-```
-
-### Verify GitHub artifact attestations
-
-GitHub releases are also accompanied by GitHub Actions build attestations for
-the published `.deb`, `.rpm`, `rpm-signing-key.asc`, and `SHA256SUMS` files. If
-you have the GitHub CLI installed, you can verify that an artifact was produced
-by the Keymasq release workflow:
-
-```bash
-gh attestation verify ./keymasq_*_all.deb -R nyrda/keymasq
-```
-
-Use the same command shape for RPMs or `SHA256SUMS`:
-
-```bash
-gh attestation verify ./keymasq-*.fedora.*.rpm -R nyrda/keymasq
-gh attestation verify ./rpm-signing-key.asc -R nyrda/keymasq
-gh attestation verify ./SHA256SUMS -R nyrda/keymasq
-```
-
-### NixOS
-
-NixOS support is provided through the flake module. Add the input, import the
-module, enable the service, and rebuild:
-
-```nix
-{
-  inputs.keymasq.url = "github:nyrda/keymasq";
-
-  outputs = { self, nixpkgs, keymasq, ... }: {
-    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        keymasq.nixosModules.default
-        ({ ... }: {
-          services.keymasq = {
-            enable = true;
-            installPackage = true;
-          };
-        })
-      ];
-    };
-  };
-}
-```
-
-```bash
-sudo nixos-rebuild switch --flake .#my-host
-```
-
-This installs the package, enables `keymasqd`, enables the
-`keymasq-session` user service for graphical sessions, and generates
-`/etc/keymasq/security.toml`.
-
 ## 2. Advanced: Manual Install
 
 This section is for advanced users with custom setups. Most users should use
 the packaged installs above.
+
+The following is a requirements checklist, not a step-by-step tutorial. If
+you're doing a manual install, you likely already know how to set up services
+and permissions on your system.
 
 For a working manual install, make sure the following pieces exist on the
 system:
@@ -348,3 +337,25 @@ uninstall is partly manual:
 - remove any manually installed runtime-policy, udev, or privilege-management integration you added
 - keep or delete `~/.config/keymasq/` depending on whether you want to retain
   profiles and hardware config
+
+## 6. Verifying GitHub Releases (Optional)
+
+If you download packages directly from GitHub releases instead of the
+repository, you can verify their integrity.
+
+### Checksums
+
+GitHub releases include a `SHA256SUMS` file for the published `.deb` and `.rpm`
+artifacts. After downloading the package and the `SHA256SUMS` file, verify from
+the same directory:
+
+```bash
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+Or verify a single artifact:
+
+```bash
+sha256sum keymasq_*_all.deb
+grep 'keymasq_.*_all.deb' SHA256SUMS
+```

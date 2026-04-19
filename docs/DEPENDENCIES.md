@@ -44,23 +44,10 @@ What they are used for:
 - `dbus-next`: session D-Bus access for notifications and compositor/session
   integrations
 - `evdev`: input device access, recording, capture, and remap runtime
-- `uvloop`: default `asyncio` event loop policy for `keymasqd` and
-  `keymasq-session`, with graceful fallback to the stdlib loop when unavailable
+- `uvloop`: default `asyncio` event loop policy
 - `python-xlib`: X11 listener support
 - `tomli-w`: writing profile, hardware, and superkey TOML files
 
-## Async Runtime Policy
-
-Keymasq now prefers `uvloop` by default for its `asyncio`-driven long-running
-processes:
-
-- `keymasqd`
-- `keymasq-session`
-
-If `uvloop` is importable, those processes install `uvloop.EventLoopPolicy()`
-before creating their main event loop. If it is unavailable or fails to load,
-Keymasq falls back to the standard-library `asyncio` policy and logs a warning
-instead of failing startup.
 
 ## System Runtime Dependencies
 
@@ -123,7 +110,7 @@ differentiator is the compositor/session environment itself.
   pointer reads
 - On unsupported compositors, `slurp` is not used
 
-So `slurp` is not a universal base runtime dependency, but it is a real
+`slurp` is not a universal base runtime dependency, but it is a real
 feature/runtime dependency for supported Wayland environments rather than just a
 GUI convenience.
 
@@ -177,11 +164,6 @@ Defined in `PKGBUILD` under `depends`:
 - `libadwaita`
 - `polkit`
 - `systemd`
-
-Defined in `PKGBUILD` under `optdepends`:
-
-- `hyprland` for Hyprland-specific window integration
-- `niri` for Niri-specific window integration
 
 ### Debian package
 

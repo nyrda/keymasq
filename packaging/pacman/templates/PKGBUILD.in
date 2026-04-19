@@ -18,10 +18,7 @@ depends=(
 makedepends=(
 @MAKEDEPENDS@
 )
-optdepends=(
-@OPTDEPENDS@
-)
-install="$pkgname.install"
+@OPTDEPENDS_BLOCK@install="$pkgname.install"
 @AUR_RELEASE_NOTE@@SOURCE_BLOCK@
 @SHA256SUMS_BLOCK@
 

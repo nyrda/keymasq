@@ -39,10 +39,7 @@ COMMON_METADATA = {
         "python-build",
         "python-installer",
     ],
-    "optdepends": [
-        "hyprland: for Hyprland window rule support",
-        "niri: for Niri window rule support",
-    ],
+    "optdepends": [],
 }
 
 LOCAL_PREPARE = """prepare() {
@@ -101,6 +98,12 @@ def format_array(values: list[str], indent: str = "    ") -> str:
     return "\n".join(f"{indent}'{value}'" for value in values)
 
 
+def format_array_block(name: str, values: list[str]) -> str:
+    if not values:
+        return ""
+    return f"{name}=(\n{format_array(values)}\n)\n"
+
+
 def render_template(name: str, replacements: dict[str, str]) -> str:
     content = (TEMPLATES_DIR / name).read_text()
     for key, value in replacements.items():
@@ -137,7 +140,9 @@ def build_replacements(
         "LICENSE": format_array(COMMON_METADATA["license"]),
         "DEPENDS": format_array(COMMON_METADATA["depends"]),
         "MAKEDEPENDS": format_array(COMMON_METADATA["makedepends"]),
-        "OPTDEPENDS": format_array(COMMON_METADATA["optdepends"]),
+        "OPTDEPENDS_BLOCK": format_array_block(
+            "optdepends", COMMON_METADATA["optdepends"]
+        ),
         "PREPARE_BLOCK": "",
         "SOURCE_BLOCK": "source=()",
         "SHA256SUMS_BLOCK": "sha256sums=()",

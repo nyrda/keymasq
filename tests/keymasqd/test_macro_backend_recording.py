@@ -422,9 +422,7 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()
     manager.output_state.mouse_uinput = MagicMock()
-    emit_absolute_mouse_move = MagicMock()
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(mdm, "emit_absolute_mouse_move", emit_absolute_mouse_move)
+    manager.set_cursor_position = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
 
     await _play_macro_task(
         manager,
@@ -507,13 +505,7 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         block_mouse_movement=False,
     )
 
-    emit_absolute_mouse_move.assert_called_once_with(
-        manager,
-        320,
-        240,
-        evdev_mod=dm.evdev,
-        uinput_writer=dm._macro_uinput_writer(),
-    )
+    manager.set_cursor_position.assert_awaited_once_with(320, 240)
     assert [call.args for call in manager.output_state.keyboard_uinput.write.call_args_list] == [
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 1),
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 0),
@@ -521,4 +513,3 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
     assert [call.args for call in manager.output_state.mouse_uinput.write.call_args_list] == [
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 123)
     ]
-    monkeypatch.undo()

@@ -121,6 +121,8 @@ class _MacroManager(Protocol):
     @property
     def verbosity(self) -> int: ...
 
+    async def set_cursor_position(self, x: int, y: int) -> dict[str, object]: ...
+
 
 async def play_macro(
     manager: _MacroManager,
@@ -419,13 +421,7 @@ async def play_macro_task(
             iterations += 1
             pending_abs_moves.clear()
             if move_to_start:
-                emit_absolute_mouse_move(
-                    manager,
-                    int(start_x),
-                    int(start_y),
-                    evdev_mod=evdev_mod,
-                    uinput_writer=uinput_writer,
-                )
+                await manager.set_cursor_position(int(start_x), int(start_y))
 
             # Anchor every replay iteration to a single monotonic reference so
             # each event's wait is computed against its absolute deadline rather
@@ -483,13 +479,7 @@ async def play_macro_task(
                             elif event_code == evdev_mod.ecodes.REL_Y:
                                 slot["y"] = event_value
                             if "x" in slot and "y" in slot:
-                                emit_absolute_mouse_move(
-                                    manager,
-                                    slot["x"],
-                                    slot["y"],
-                                    evdev_mod=evdev_mod,
-                                    uinput_writer=uinput_writer,
-                                )
+                                await manager.set_cursor_position(slot["x"], slot["y"])
                                 pending_abs_moves.pop(move_id, None)
                     continue
 

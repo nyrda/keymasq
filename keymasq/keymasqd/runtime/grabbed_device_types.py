@@ -13,6 +13,7 @@ from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
 type BroadcastCallback = Callable[[CommandType, dict[str, object]], Awaitable[None]]
+type CursorPositionSetter = Callable[[int, int], Awaitable[dict[str, object]]]
 type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
@@ -208,6 +209,9 @@ class GrabbedDeviceRuntime(Protocol):
 
     @property
     def broadcast_callback(self) -> BroadcastCallback | None: ...
+
+    @property
+    def cursor_position_setter(self) -> CursorPositionSetter | None: ...
 
     @property
     def recording_manager(self) -> RecordingManager | None: ...

@@ -2,7 +2,9 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
+
+from keymasq.common.ipc import Command, CommandType, Response
 
 if TYPE_CHECKING:
     from keymasq.session.dbus import SessionDBus
@@ -68,6 +70,38 @@ class WindowListener(ABC):
 
     async def get_cursor_position(self) -> tuple[int, int] | None:
         return None
+
+    @property
+    def supports_native_cursor_position_set(self) -> bool:
+        return False
+
+    async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
+        client = self.client
+        if client is None:
+            return False, "keymasqd client unavailable"
+
+        try:
+            result = cast(
+                Response,
+                await client.send_command(
+                    Command(
+                        command=CommandType.SET_CURSOR_POSITION,
+                        data={
+                            "x": int(x),
+                            "y": int(y),
+                        },
+                    )
+                ),
+            )
+        except Exception as exc:
+            return False, str(exc)
+
+        data = cast(dict[str, object], result.data) if isinstance(result.data, dict) else {}
+        payload_status = data.get("status", "ok")
+        if result.status == "ok" and payload_status == "ok":
+            return True, "ok"
+        message = data.get("message")
+        return False, str(result.error or message or "keymasqd cursor move failed")
 
     def runtime_support_details(self) -> dict[str, bool | str | int]:
         return {}

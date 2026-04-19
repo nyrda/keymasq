@@ -30,6 +30,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     BroadcastCallback,
+    CursorPositionSetter,
     DeviceEventCallback,
     GrabbedDeviceState,
     MacroPlayer,
@@ -117,6 +118,7 @@ class GrabbedDevice:
         mouse_uinput: evdev.UInput | None = None,
         gamepad_uinput: evdev.UInput | None = None,
         broadcast_callback: BroadcastCallback | None = None,
+        cursor_position_setter: CursorPositionSetter | None = None,
         recording_manager: RecordingManager | None = None,
         macro_player: MacroPlayer | None = None,
         suppress_rel_getter: Callable[[], bool] | None = None,
@@ -146,6 +148,7 @@ class GrabbedDevice:
         self.mouse_uinput = mouse_uinput
         self.gamepad_uinput = gamepad_uinput
         self.broadcast_callback = broadcast_callback
+        self.cursor_position_setter = cursor_position_setter
         self.recording_manager: RecordingManager | None = recording_manager
         self.macro_player = macro_player
         self.suppress_rel_getter = suppress_rel_getter

@@ -538,6 +538,30 @@ class TestGrabbedDeviceHelpers:
         assert macro_player.await_count == 2
         assert macro_player.await_args_list[0].kwargs["trigger_value"] == 1
         assert macro_player.await_args_list[1].kwargs["trigger_value"] == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_action_mouse_move_abs_uses_cursor_position_setter(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cursor_position_setter = AsyncMock(return_value={"status": "ok"})
+        mouse = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            cursor_position_setter=cursor_position_setter,
+            mouse_uinput=mouse,  # type: ignore[arg-type]
+        )
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.MOUSE_MOVE_ABS, move_x=10, move_y=20),
+            SimpleNamespace(value=1),
+            "move_abs",
+        )
+
+        cursor_position_setter.assert_awaited_once_with(10, 20)
+        assert mouse.writes == []
+
     @pytest.mark.asyncio
     async def test_execute_action_covers_superkey_and_tap_move_branches(
         self,

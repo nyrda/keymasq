@@ -659,6 +659,11 @@ async def _execute_move_action(
                 f"tap move {event_name}",
             )
     elif event.value == 1:
+        if action.action_type == ActionType.MOUSE_MOVE_ABS:
+            cursor_position_setter = device_runtime.cursor_position_setter
+            if cursor_position_setter is not None:
+                await cursor_position_setter(int(action.move_x), int(action.move_y))
+                return
         emit_configured_mouse_move(device_runtime, action)
 
 

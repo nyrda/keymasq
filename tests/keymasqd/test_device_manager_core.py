@@ -1,6 +1,107 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.device_manager_support import *
 
+
+@pytest.mark.asyncio
+async def test_set_cursor_position_emits_absolute_mouse_move() -> None:
+    manager = DeviceManager()
+    mouse = _FakeUInput()
+    manager.output_state.mouse_uinput = mouse  # type: ignore[assignment]
+
+    result = await manager.set_cursor_position(123, 456)
+
+    assert result == {"status": "ok", "x": 123, "y": 456}
+    assert mouse.writes == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, -2147483648),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, -2147483648),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 123),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 456),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_set_cursor_position_reports_missing_mouse_uinput() -> None:
+    manager = DeviceManager()
+
+    assert await manager.set_cursor_position(123, 456) == {
+        "status": "error",
+        "message": "No mouse uinput device available",
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_cursor_position_uses_session_backend_when_enabled() -> None:
+    manager = DeviceManager()
+    sent: list[tuple[CommandType, dict[str, object]]] = []
+
+    async def callback(command: CommandType, data: dict[str, object]) -> None:
+        sent.append((command, data))
+        manager.complete_cursor_position_request(
+            str(data["request_id"]),
+            ok=True,
+            message="ok",
+        )
+
+    manager.broadcast_callback = callback
+    manager.set_cursor_position_backend(True)
+
+    result = await manager.set_cursor_position(123, 456)
+
+    assert result == {"status": "ok", "backend": "session", "x": 123, "y": 456}
+    assert sent == [
+        (
+            CommandType.SET_CURSOR_POSITION,
+            {"request_id": "1", "x": 123, "y": 456},
+        )
+    ]
+    assert manager.cursor_position_state.request_seq == 0
+
+
+@pytest.mark.asyncio
+async def test_set_cursor_position_falls_back_when_session_backend_fails() -> None:
+    manager = DeviceManager()
+    mouse = _FakeUInput()
+    manager.output_state.mouse_uinput = mouse  # type: ignore[assignment]
+    manager.set_cursor_position_backend(True)
+
+    async def callback(command: CommandType, data: dict[str, object]) -> None:
+        assert command == CommandType.SET_CURSOR_POSITION
+        manager.complete_cursor_position_request(
+            str(data["request_id"]),
+            ok=False,
+            message="unsupported",
+        )
+
+    manager.broadcast_callback = callback
+
+    result = await manager.set_cursor_position(123, 456)
+
+    assert result == {"status": "ok", "x": 123, "y": 456}
+    assert any(write == (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 123) for write in mouse.writes)
+
+
+def test_set_cursor_position_backend_disable_resets_request_sequence() -> None:
+    manager = DeviceManager()
+    manager.cursor_position_state.request_seq = 42
+
+    assert manager.set_cursor_position_backend(False) == {"status": "ok", "enabled": False}
+    assert manager.cursor_position_state.request_seq == 0
+
+
+@pytest.mark.asyncio
+async def test_complete_cursor_position_request_resets_sequence_when_pending_empty() -> None:
+    manager = DeviceManager()
+    future: asyncio.Future[dict[str, object]] = asyncio.get_running_loop().create_future()
+    manager.cursor_position_state.request_seq = 42
+    manager.cursor_position_state.pending["42"] = future
+
+    assert manager.complete_cursor_position_request("42", ok=True, message="ok") == {
+        "status": "ok",
+        "completed": True,
+    }
+    assert manager.cursor_position_state.request_seq == 0
+
+
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
 class TestDeviceManager:
     @pytest.fixture
@@ -507,4 +608,3 @@ class TestReleaseScheduling:
 
         assert fake_device.release.await_count == 1
         assert holds["count"] >= 2
-

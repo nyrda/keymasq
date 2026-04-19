@@ -421,6 +421,7 @@ class SessionManager:
                 retry_delay = 1.0
                 log.info("Connected to keymasqd")
                 self._broadcast_keymasqd_status(True)
+                await runtime_compositor.sync_cursor_position_backend(self)
 
                 try:
                     await runtime_profiles.activate_initial_profiles(self)

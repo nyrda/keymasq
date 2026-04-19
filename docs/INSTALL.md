@@ -61,6 +61,7 @@ baseurl=https://repo.keymasq.tools/fedora
 enabled=1
 gpgcheck=1
 gpgkey=https://repo.keymasq.tools/gpg-key.asc
+metadata_expire=1h
 EOF
 sudo dnf install keymasq
 sudo systemctl enable --now keymasqd
@@ -68,7 +69,7 @@ systemctl --user enable --now keymasq-session
 ```
 
 Alternatively, import the signing key and install the RPM from the
-[GitHub release](https://github.com/nyrda/keymasq/releases) directly:
+[GitHub release](https://github.com/nyrda/keymasq/releases):
 
 ```bash
 sudo rpm --import https://repo.keymasq.tools/gpg-key.asc
@@ -95,8 +96,33 @@ The signing key used for repository metadata and RPM packages is available at
 `https://repo.keymasq.tools/gpg-key.asc`. The current fingerprint is:
 
 ```text
-733B FA24 A526 857B 06E7  A5D9 E002 1F70 BA1C 66DE
+AC46 70B9 328E B2EA 468E  8FFF E3FD 12BD B158 EBE4
 ```
+
+### GNOME Wayland: enable the Shell bridge
+
+GNOME support requires the Keymasq GNOME Shell bridge extension. Packaged
+installs include the extension files, but they do not enable the extension for
+you.
+
+If you installed Keymasq while already logged into GNOME, log out and back in
+once so GNOME Shell rescans system extensions. Then enable the bridge and
+restart the session service:
+
+```bash
+gnome-extensions enable keymasq-bridge@nyrda
+systemctl --user restart keymasq-session
+```
+
+Verify that GNOME Shell sees the extension:
+
+```bash
+gnome-extensions info keymasq-bridge@nyrda
+```
+
+Without the bridge, Keymasq still runs on GNOME, but window-aware profiles,
+pointer-position features, and GNOME compositor actions are unavailable. For
+details and manual-install steps, see [GNOME.md](GNOME.md).
 
 ### Verify GitHub release checksums
 
@@ -189,7 +215,8 @@ system:
 - the required runtime and state directories: `/run/keymasq` and `/var/lib/keymasq`
 - a security policy file at `/etc/keymasq/security.toml` if you want explicit policy configuration
 - input and `uinput` device access set up for the privileged daemon identity
-- any compositor-specific integration required by your desktop environment
+- any compositor-specific integration required by your desktop environment,
+  such as the GNOME Shell bridge extension on GNOME Wayland
 
 Manual installs do not need to use `systemd` specifically. Any equivalent
 service manager or launcher arrangement is fine as long as `keymasqd` runs as
@@ -238,7 +265,7 @@ method that:
 - `keymasq` can connect and profile activation works on real device input
 
 For debugging service startup, permissions, compositor integration, or verbose
-logging, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+logging, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 For development work, use the Nix-based flow in [DEVELOPMENT.md](../DEVELOPMENT.md).
 

@@ -26,7 +26,7 @@ def test_root_entrypoint_prefers_cli_when_args(monkeypatch: pytest.MonkeyPatch) 
         "keymasq.gui.__main__",
         _module_with_main(lambda: called.append("gui")),
     )
-    monkeypatch.setattr(sys, "argv", ["keymasq", "devices"])
+    monkeypatch.setattr(sys, "argv", ["keymasq", "profiles", "list"])
 
     app_main.main()
     assert called == ["cli"]
@@ -116,20 +116,6 @@ def test_session_script_entrypoint_calls_manager_main(monkeypatch: pytest.Monkey
     assert called == ["manager"]
 
 
-def test_cli_main_hardware_create_requires_vid_pid(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    from keymasq.cli import __main__ as cli_main
-
-    monkeypatch.setattr(sys, "argv", ["keymasq", "hardware", "create"])
-
-    with pytest.raises(SystemExit) as excinfo:
-        cli_main.main()
-
-    assert excinfo.value.code == 1
-    assert "--vid and --pid required" in capsys.readouterr().out
-
-
 def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
 
@@ -143,18 +129,3 @@ def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPat
 
     cli_main.main()
     assert calls == [("toggle_profile", "gaming")]
-
-
-def test_cli_main_devices_runs_async_handler(monkeypatch: pytest.MonkeyPatch) -> None:
-    from keymasq.cli import __main__ as cli_main
-
-    called: list[bool] = []
-
-    async def _list_devices(verbose: bool) -> None:
-        called.append(verbose)
-
-    monkeypatch.setattr(cli_main, "list_devices", _list_devices)
-    monkeypatch.setattr(sys, "argv", ["keymasq", "devices", "--verbose"])
-
-    cli_main.main()
-    assert called == [True]

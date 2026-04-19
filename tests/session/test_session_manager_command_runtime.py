@@ -76,6 +76,9 @@ async def test_get_active_profiles_does_not_include_window_state() -> None:
             always_grab_all=False,
         )
     }
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        name="Gaming Keyboard"
+    )
     manager.compositor_state.current_window = {
         "class": "steam",
         "title": "Counter-Strike 2",
@@ -93,6 +96,8 @@ async def test_get_active_profiles_does_not_include_window_state() -> None:
     assert result["status"] == "ok"
     assert result["active_profiles"] == ["Gaming"]
     assert "devices" in result
+    devices = cast(dict[str, dict[str, object]], result["devices"])
+    assert devices["1234:5678"]["device_name"] == "Gaming Keyboard"
     assert "window" not in result
 
 

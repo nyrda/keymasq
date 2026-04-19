@@ -12,6 +12,13 @@ systemctl status keymasqd
 systemctl --user status keymasq-session
 ```
 
+Check the Keymasq runtime state from the user session:
+
+```bash
+keymasq status
+keymasq --json status
+```
+
 Follow live logs:
 
 ```bash

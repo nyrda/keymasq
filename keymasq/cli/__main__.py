@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 from keymasq import __version__
 from keymasq.cli.commands import (
@@ -8,16 +9,25 @@ from keymasq.cli.commands import (
     play_macro_cli,
     set_diagnostics_cli,
     set_profile_state_cli,
+    status_cli,
 )
 from keymasq.common.asyncio_runtime import ensure_uvloop
 
 
 def main() -> None:
     ensure_uvloop()
+    argv = sys.argv[1:]
+    json_output = "--json" in argv
+    argv = [arg for arg in argv if arg != "--json"]
 
     parser = argparse.ArgumentParser(
         prog="keymasq",
         description="Keymasq CLI - Key remapping tool",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print raw session response as JSON",
     )
     parser.add_argument(
         "--version",
@@ -26,6 +36,8 @@ def main() -> None:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    subparsers.add_parser("status", help="Show Keymasq runtime status")
 
     macros_parser = subparsers.add_parser("macros", help="Macro commands")
     macros_sub = macros_parser.add_subparsers(dest="macros_command", required=True)
@@ -61,26 +73,29 @@ def main() -> None:
     toggle_parser = profiles_sub.add_parser("toggle", help="Toggle profile enabled state")
     toggle_parser.add_argument("profile_name", help="Profile name")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    json_output = json_output or bool(args.json)
 
-    if args.command == "macros":
+    if args.command == "status":
+        status_cli(json_output=json_output)
+    elif args.command == "macros":
         if args.macros_command == "list":
-            list_macros_cli()
+            list_macros_cli(json_output=json_output)
         elif args.macros_command == "play":
-            play_macro_cli(args.name, args.speed)
+            play_macro_cli(args.name, args.speed, json_output=json_output)
         elif args.macros_command == "cancel":
-            cancel_macro_cli()
+            cancel_macro_cli(json_output=json_output)
     elif args.command == "diagnostics":
-        set_diagnostics_cli(args.state == "on", args.interval)
+        set_diagnostics_cli(args.state == "on", args.interval, json_output=json_output)
     elif args.command == "profiles":
         if args.profiles_command == "list":
-            list_profiles_cli()
+            list_profiles_cli(json_output=json_output)
         elif args.profiles_command == "enable":
-            set_profile_state_cli("enable_profile", args.profile_name)
+            set_profile_state_cli("enable_profile", args.profile_name, json_output=json_output)
         elif args.profiles_command == "disable":
-            set_profile_state_cli("disable_profile", args.profile_name)
+            set_profile_state_cli("disable_profile", args.profile_name, json_output=json_output)
         elif args.profiles_command == "toggle":
-            set_profile_state_cli("toggle_profile", args.profile_name)
+            set_profile_state_cli("toggle_profile", args.profile_name, json_output=json_output)
     else:
         parser.print_help()
 

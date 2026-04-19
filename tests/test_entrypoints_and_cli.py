@@ -119,13 +119,28 @@ def test_session_script_entrypoint_calls_manager_main(monkeypatch: pytest.Monkey
 def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
 
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, bool]] = []
 
-    def _set_profile_state(command: str, profile_name: str) -> None:
-        calls.append((command, profile_name))
+    def _set_profile_state(command: str, profile_name: str, *, json_output: bool) -> None:
+        calls.append((command, profile_name, json_output))
 
     monkeypatch.setattr(cli_main, "set_profile_state_cli", _set_profile_state)
     monkeypatch.setattr(sys, "argv", ["keymasq", "profiles", "toggle", "gaming"])
 
     cli_main.main()
-    assert calls == [("toggle_profile", "gaming")]
+    assert calls == [("toggle_profile", "gaming", False)]
+
+
+def test_cli_main_status_routes_json_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[bool] = []
+
+    def _status_cli(*, json_output: bool) -> None:
+        calls.append(json_output)
+
+    monkeypatch.setattr(cli_main, "status_cli", _status_cli)
+    monkeypatch.setattr(sys, "argv", ["keymasq", "status", "--json"])
+
+    cli_main.main()
+    assert calls == [True]

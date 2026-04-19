@@ -57,17 +57,20 @@ async def set_profile_enabled(
 
 
 def build_active_profiles_payload(manager: "SessionManager") -> JsonObject:
+    devices: dict[str, JsonObject] = {}
+    for hardware_id, resolved in sorted(manager.profile_state.resolved_devices.items()):
+        hardware = manager.hardware.get_hardware(hardware_id)
+        devices[hardware_id] = {
+            "device_name": hardware.name if hardware else hardware_id,
+            "profiles": list(resolved.active_profile_names),
+            "mapping_count": resolved.mapping_count,
+            "always_grab_all": resolved.always_grab_all,
+        }
+
     return {
         "status": "ok",
         "active_profiles": list(manager.profile_state.active_profile_names),
-        "devices": {
-            hardware_id: {
-                "profiles": list(resolved.active_profile_names),
-                "mapping_count": resolved.mapping_count,
-                "always_grab_all": resolved.always_grab_all,
-            }
-            for hardware_id, resolved in sorted(manager.profile_state.resolved_devices.items())
-        },
+        "devices": devices,
     }
 
 

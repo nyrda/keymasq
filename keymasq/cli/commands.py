@@ -1,102 +1,11 @@
-import asyncio
 import json
 import socket
 import sys
-from collections.abc import Callable, Iterable
 from typing import Any, cast
-
-import evdev
 
 from keymasq.common.paths import SESSION_SOCKET_PATH
 
 JsonObject = dict[str, Any]
-
-
-async def list_devices(verbose: bool = False) -> None:
-    print("Available input devices:\n")
-
-    list_devices = cast(Callable[[], list[str]], evdev.list_devices)
-    devices = list_devices()
-
-    for path in sorted(devices):
-        try:
-            device = evdev.InputDevice(path)
-            info = device.info
-
-            print(f"{path}")
-            print(f"  Name: {device.name}")
-            print(f"  VID:PID: {info.vendor:04x}:{info.product:04x}")
-
-            if verbose:
-                caps = device.capabilities()
-                print("  Capabilities:")
-                for ev_type, codes in caps.items():
-                    type_name = evdev.ecodes.EV.get(ev_type, f"UNKNOWN({ev_type})")
-                    type_codes = cast(dict[int, str], evdev.ecodes.bytype[ev_type])
-                    code_names: list[str] = []
-                    for code in codes:
-                        if isinstance(code, tuple):
-                            tuple_code = cast(tuple[object, ...], code)
-                            first = tuple_code[0] if tuple_code else None
-                            second = tuple_code[1] if len(tuple_code) > 1 else None
-                            if isinstance(first, int):
-                                code_name = type_codes.get(first, str(first))
-                            else:
-                                code_name = str(first)
-                            code_names.append(f"{code_name}[{second}]")
-                        else:
-                            code_name = type_codes.get(code, str(code))
-                            code_names.append(code_name)
-                    print(f"    {type_name}: {', '.join(str(c) for c in code_names[:10])}")
-                    if len(code_names) > 10:
-                        print(f"      ... and {len(code_names) - 10} more")
-
-            print()
-
-        except Exception as e:
-            if verbose:
-                print(f"{path}: Error - {e}\n")
-
-
-def create_hardware(vid: str, pid: str) -> None:
-    print(f"Creating hardware config for {vid}:{pid}")
-    print("This feature requires the GUI for interactive setup.")
-    print("Run: keymasq")
-
-
-async def test_device(device_path: str) -> None:
-    try:
-        device = evdev.InputDevice(device_path)
-        print(f"Listening on: {device.name}")
-        print(f"Path: {device_path}")
-        print("Press Ctrl+C to stop\n")
-
-        loop = asyncio.get_event_loop()
-
-        def _read_events() -> list[evdev.InputEvent]:
-            read = cast(Callable[[], Iterable[evdev.InputEvent]], device.read)
-            return list(read())
-
-        while True:
-            events = await loop.run_in_executor(None, _read_events)
-
-            for event in events:
-                if event.type == evdev.ecodes.EV_SYN:
-                    continue
-
-                type_name = evdev.ecodes.EV.get(event.type, f"UNKNOWN({event.type})")
-                code_name = evdev.ecodes.bytype[event.type].get(event.code, str(event.code))
-
-                print(f"{type_name:12} {code_name:20} value={event.value}")
-
-    except FileNotFoundError:
-        print(f"Error: Device not found: {device_path}")
-        sys.exit(1)
-    except PermissionError:
-        print("Error: Permission denied. Try with sudo or add user to 'input' group.")
-        sys.exit(1)
-    except KeyboardInterrupt:
-        print("\nStopped.")
 
 
 def _session_request(payload: JsonObject, timeout: float = 5.0) -> JsonObject | None:
@@ -234,6 +143,7 @@ def list_profiles_cli() -> None:
             print(f"  {hardware_id}  {device_name}")
             print(f"    active: {active_profiles or 'passthrough'}")
             print(f"    mappings: {mapping_count}")
+
 
 def set_profile_state_cli(command: str, profile_name: str) -> None:
     result = (

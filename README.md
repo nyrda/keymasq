@@ -27,12 +27,14 @@ multi-step automation.
 ![Keymasq main profile view](docs/assets/screenshots/keymasq_profile.png)
 
 ## Common Use Cases
-
+- Remap mouse side buttons without vendor software
+- Remap your Capslock key
 - Build a Linux autoclicker from a rapidfire mouse mapping or a looped macro
-- Create app-specific or game-specific profiles that enable automatically
+- Create app-specific or game-specific profiles
 - Record repeated input sequences and replay them from a key, combo, or CLI command
-- Turn one button into tap, hold, double-tap, or one-to-many actions with superkeys
-- Trigger macros or shortcuts from cross-device combos like keyboard + mouse button
+- Tap, Double Tap, Hold and Tap-Hold a button to trigger different actions
+- Execute multiple actions with one button
+- Simplify hard to press combos with multi-step combos
 
 ## Desktop Support
 

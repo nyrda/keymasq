@@ -254,7 +254,7 @@ Important:
 - restarting `keymasq-session` alone is not always enough if GNOME Shell has
   not reloaded the extension into the current session yet
 
-See [docs/GNOME.md](docs/GNOME.md) for the bridge installation and verification
+See [GNOME.md](GNOME.md) for the bridge installation and verification
 steps.
 
 ### Unsupported or partially supported compositor setup

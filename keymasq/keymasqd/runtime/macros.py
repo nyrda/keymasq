@@ -427,8 +427,12 @@ async def play_macro_task(
             # each event's wait is computed against its absolute deadline rather
             # than the gap from the previous event. Overshoot from any single
             # asyncio.sleep() is absorbed by the next event's remaining-time
-            # calculation instead of accumulating across the macro.
+            # calculation instead of accumulating across the macro. Control
+            # actions that intentionally block replay extend the timeline via a
+            # separate offset so later event deadlines preserve legacy
+            # sequential semantics.
             iteration_anchor = event_loop.time()
+            timeline_offset_s = 0.0
             for idx, ev in enumerate(macro_events):
                 if instance_id in manager.macro_state.cancel_instance_ids:
                     break
@@ -436,7 +440,11 @@ async def play_macro_task(
                     await asyncio_mod.sleep(0)
 
                 t_us = int_value_fn(ev.get("t_us"), 0)
-                deadline = iteration_anchor + (t_us / speed_factor) / 1_000_000.0
+                deadline = (
+                    iteration_anchor
+                    + timeline_offset_s
+                    + (t_us / speed_factor) / 1_000_000.0
+                )
                 remaining = deadline - event_loop.time()
                 # Skip sub-500µs waits: asyncio's timer resolution can't hit
                 # them, and the drift they'd introduce is already compensated
@@ -446,7 +454,7 @@ async def play_macro_task(
 
                 action_type = str(ev.get("macro_action", "") or "")
                 if action_type:
-                    await run_macro_control_action(
+                    timeline_offset_s += await run_macro_control_action(
                         manager,
                         ev,
                         speed,
@@ -643,6 +651,7 @@ def release_macro_mouse_inhibit(manager: _MacroManager) -> None:
     if manager.macro_state.mouse_inhibit_count == 0:
         end_mouse_rel_suppression(manager)
 
+
 async def run_macro_control_action(
     manager: _MacroManager,
     ev: dict[str, object],
@@ -655,14 +664,17 @@ async def run_macro_control_action(
     command_type: _CommandTypeEnum,
     str_value_fn: StrValueFn,
     int_value_fn: IntValueFn,
-) -> None:
+) -> float:
     action_type = str_value_fn(ev.get("macro_action"), "")
     if action_type == "wait_fixed":
         duration_ms = max(0, int_value_fn(ev.get("duration_ms"), 0))
         scaled = duration_ms / max(speed, 0.01)
         if scaled > 0:
+            loop = asyncio_mod.get_running_loop()
+            started_at = loop.time()
             await asyncio_mod.sleep(scaled / 1000.0)
-        return
+            return max(0.0, loop.time() - started_at)
+        return 0.0
 
     if action_type == "wait_random":
         min_ms = max(0, int_value_fn(ev.get("min_ms"), 0))
@@ -670,13 +682,16 @@ async def run_macro_control_action(
         sampled_ms = random_mod.randint(min_ms, max_ms)
         scaled = sampled_ms / max(speed, 0.01)
         if scaled > 0:
+            loop = asyncio_mod.get_running_loop()
+            started_at = loop.time()
             await asyncio_mod.sleep(scaled / 1000.0)
-        return
+            return max(0.0, loop.time() - started_at)
+        return 0.0
 
     if action_type == "exec_async":
         command = str_value_fn(ev.get("command"), "").strip()
         if not command:
-            return
+            return 0.0
         if manager.broadcast_callback:
             await manager.broadcast_callback(
                 command_type.ACTION_TRIGGER,
@@ -686,15 +701,17 @@ async def run_macro_control_action(
                     "macro_exec_async": True,
                 },
             )
-        return
+        return 0.0
 
     if action_type == "exec_sync":
         command = str_value_fn(ev.get("command"), "").strip()
         if not command:
-            return
+            return 0.0
 
         timeout_ms = max(1, int_value_fn(ev.get("timeout_ms"), 30000))
         inhibit_mouse = bool(ev.get("inhibit_mouse", False))
+        loop = asyncio_mod.get_running_loop()
+        started_at = loop.time()
         if inhibit_mouse:
             acquire_macro_mouse_inhibit(
                 manager,
@@ -704,7 +721,6 @@ async def run_macro_control_action(
 
         wait_id = uuid_mod.uuid4().hex
         try:
-            loop = asyncio_mod.get_running_loop()
             waiter = loop.create_future()
             manager.macro_state.exec_waiters[wait_id] = waiter
 
@@ -723,6 +739,9 @@ async def run_macro_control_action(
             manager.macro_state.exec_waiters.pop(wait_id, None)
             if inhibit_mouse:
                 release_macro_mouse_inhibit(manager)
+        return max(0.0, loop.time() - started_at)
+
+    return 0.0
 
 
 def complete_macro_exec_wait(

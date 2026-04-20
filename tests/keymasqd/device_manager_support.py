@@ -197,8 +197,8 @@ async def _runtime_combo_timeout_watchdog(manager: DeviceManager, deadline: floa
 
 async def _runtime_run_macro_control_action(
     manager: DeviceManager, ev: dict[str, object], speed: float
-) -> None:
-    await mdm.run_macro_control_action(
+) -> float:
+    return await mdm.run_macro_control_action(
         manager,
         ev,
         speed,

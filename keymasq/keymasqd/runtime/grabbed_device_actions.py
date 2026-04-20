@@ -345,6 +345,7 @@ async def execute_action(
                     gamepad_uinput=cast(WritableUInput, device_runtime.gamepad_uinput),
                     source_device=device_runtime.hardware_id,
                     broadcast_callback=superkey_broadcast,
+                    cursor_position_setter=device_runtime.cursor_position_setter,
                     key_event_tracker=superkey_key_event_tracker,
                 )
                 device_runtime.state.superkey_machines[event_name] = machine
@@ -659,6 +660,11 @@ async def _execute_move_action(
                 f"tap move {event_name}",
             )
     elif event.value == 1:
+        if action.action_type == ActionType.MOUSE_MOVE_ABS:
+            cursor_position_setter = device_runtime.cursor_position_setter
+            if cursor_position_setter is not None:
+                await cursor_position_setter(int(action.move_x), int(action.move_y))
+                return
         emit_configured_mouse_move(device_runtime, action)
 
 

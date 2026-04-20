@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import evdev
 import pytest
@@ -137,6 +137,26 @@ async def test_exec_action_broadcasts_via_callback() -> None:
     payload = callback[0]
     assert payload["action_type"] == "exec"
     assert payload["exec_ref"] == 77
+
+
+@pytest.mark.asyncio
+async def test_mouse_move_abs_action_uses_cursor_position_setter() -> None:
+    cursor_position_setter = AsyncMock()
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="abs_move_test",
+            hold_actions=[SuperkeyActionData(action_type="mouse_move_abs", move_x=123, move_y=456)],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        cursor_position_setter=cursor_position_setter,
+    )
+
+    await machine._execute_action_down(machine.config.hold_actions[0])
+
+    cursor_position_setter.assert_awaited_once_with(123, 456)
 
 
 @pytest.mark.asyncio

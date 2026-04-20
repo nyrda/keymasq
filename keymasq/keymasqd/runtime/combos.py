@@ -164,6 +164,8 @@ class _ComboManager(Protocol):
     @property
     def broadcast_callback(self) -> Callable[[CommandType, JsonObject], Awaitable[None]] | None: ...
 
+    async def set_cursor_position(self, x: int, y: int) -> JsonObject: ...
+
     async def play_macro(
         self,
         *,
@@ -763,6 +765,7 @@ async def _combo_superkey_machine(
         mouse_uinput=cast(_WritableUInput, manager.output_state.mouse_uinput),
         gamepad_uinput=cast(_WritableUInput, manager.output_state.gamepad_uinput),
         broadcast_callback=combo_superkey_broadcast,
+        cursor_position_setter=manager.set_cursor_position,
         key_event_tracker=combo_superkey_output_tracker,
     )
     manager.combo_state.superkey_machines[combo_id] = machine
@@ -1153,7 +1156,11 @@ async def _start_combo_action_instance(
         )
         return
 
-    if action.action_type in (action_type_enum.MOUSE_MOVE_REL, action_type_enum.MOUSE_MOVE_ABS):
+    if action.action_type == action_type_enum.MOUSE_MOVE_ABS:
+        await manager.set_cursor_position(int(action.move_x), int(action.move_y))
+        return
+
+    if action.action_type == action_type_enum.MOUSE_MOVE_REL:
         emit_combo_mouse_move(manager, action, emit_mouse_move_fn=emit_mouse_move_fn)
         return
 

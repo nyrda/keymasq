@@ -73,6 +73,10 @@ async def handle_event(
             asyncio.create_task(runtime_recording.play_macro_trigger(manager, data))
         return
 
+    if event_type == CommandType.SET_CURSOR_POSITION:
+        await handle_set_cursor_position_request(manager, data)
+        return
+
     if event_type == CommandType.DEVICE_CONNECTED:
         log.info("Device connected: %s", data)
         await on_device_connected(manager, data)
@@ -116,6 +120,71 @@ async def handle_event(
 
     if event_type == CommandType.RECORDING_PROGRESS:
         manager.broadcast_to_session_clients({"event": "recording_progress", **data})
+
+
+async def handle_set_cursor_position_request(
+    manager: "SessionManager",
+    data: JsonObject,
+) -> None:
+    request_id = _str_value(data.get("request_id"), "")
+    x = _int_value(data.get("x"), 0)
+    y = _int_value(data.get("y"), 0)
+    listener = manager.compositor_state.window_listener
+    ok = False
+    message = "No native cursor position listener available"
+
+    if listener is not None and bool(
+        getattr(listener, "supports_native_cursor_position_set", False)
+    ):
+        if manager.verbosity >= 1:
+            log.debug(
+                "Setting cursor position through %s listener: request_id=%s x=%s y=%s",
+                type(listener).__name__,
+                request_id or "<none>",
+                x,
+                y,
+            )
+        try:
+            ok, message = await listener.set_cursor_position(x, y)
+        except Exception as exc:
+            ok = False
+            message = str(exc)
+
+    if not request_id:
+        log.debug("Handled cursor position request without request_id: %s", message)
+        return
+
+    asyncio.create_task(
+        send_cursor_position_result(
+            manager,
+            request_id=request_id,
+            ok=ok,
+            message=message,
+        )
+    )
+
+
+async def send_cursor_position_result(
+    manager: "SessionManager",
+    *,
+    request_id: str,
+    ok: bool,
+    message: str,
+) -> None:
+    try:
+        await manager.client.send_command(
+            Command(
+                command=CommandType.SET_CURSOR_POSITION_RESULT,
+                data={
+                    "request_id": request_id,
+                    "ok": bool(ok),
+                    "message": str(message or ""),
+                },
+            ),
+            timeout=1.0,
+        )
+    except Exception as exc:
+        log.debug("Failed to send cursor position result to keymasqd: %s", exc)
 
 
 async def handle_start_macro_trigger(manager: "SessionManager") -> None:

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call
 
@@ -36,6 +37,99 @@ async def test_handle_event_compositor_dispatch_uses_listener() -> None:
 
     await asyncio.sleep(0)
     listener.dispatch.assert_awaited_once_with("workspace", "e+1")
+
+
+@pytest.mark.asyncio
+async def test_handle_event_set_cursor_position_uses_native_listener_and_replies() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    listener = SimpleNamespace(
+        supports_native_cursor_position_set=True,
+        set_cursor_position=AsyncMock(return_value=(True, "ok")),
+    )
+    manager.compositor_state.window_listener = listener
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.SET_CURSOR_POSITION,
+        {"request_id": "cursor-1", "x": 123, "y": 456},
+    )
+    await asyncio.sleep(0)
+
+    listener.set_cursor_position.assert_awaited_once_with(123, 456)
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.SET_CURSOR_POSITION_RESULT
+    assert sent.data == {"request_id": "cursor-1", "ok": True, "message": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_handle_event_set_cursor_position_logs_listener_request(caplog) -> None:
+    manager = SessionManager()
+    manager.verbosity = 1
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    listener = SimpleNamespace(
+        supports_native_cursor_position_set=True,
+        set_cursor_position=AsyncMock(return_value=(True, "ok")),
+    )
+    manager.compositor_state.window_listener = listener
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session"):
+        await session_events_module.handle_event(
+            manager,
+            CommandType.SET_CURSOR_POSITION,
+            {"request_id": "cursor-1", "x": 123, "y": 456},
+        )
+        await asyncio.sleep(0)
+
+    assert (
+        "Setting cursor position through SimpleNamespace listener: "
+        "request_id=cursor-1 x=123 y=456"
+    ) in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_handle_event_set_cursor_position_rejects_non_native_listener() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    listener = SimpleNamespace(
+        supports_native_cursor_position_set=False,
+        set_cursor_position=AsyncMock(return_value=(True, "ok")),
+    )
+    manager.compositor_state.window_listener = listener
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.SET_CURSOR_POSITION,
+        {"request_id": "cursor-1", "x": 123, "y": 456},
+    )
+    await asyncio.sleep(0)
+
+    listener.set_cursor_position.assert_not_awaited()
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.SET_CURSOR_POSITION_RESULT
+    assert sent.data["request_id"] == "cursor-1"
+    assert sent.data["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_handle_event_set_cursor_position_missing_request_id_is_one_way() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    listener = SimpleNamespace(
+        supports_native_cursor_position_set=True,
+        set_cursor_position=AsyncMock(return_value=(True, "ok")),
+    )
+    manager.compositor_state.window_listener = listener
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.SET_CURSOR_POSITION,
+        {"x": 123, "y": 456},
+    )
+    await asyncio.sleep(0)
+
+    listener.set_cursor_position.assert_awaited_once_with(123, 456)
+    manager.client.send_command.assert_not_awaited()
 
 
 @pytest.mark.asyncio

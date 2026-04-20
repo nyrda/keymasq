@@ -129,6 +129,8 @@ class _GrabManager(Protocol):
 
     async def play_macro(self, **kwargs: object) -> JsonObject: ...
 
+    async def set_cursor_position(self, x: int, y: int) -> JsonObject: ...
+
     async def cancel_macro_playback(self) -> JsonObject: ...
 
     def _detect_device_types(self, raw_device: _InputDevice) -> set[DeviceType]: ...
@@ -435,6 +437,7 @@ async def grab_device_unlocked(
                     mouse_uinput=manager.output_state.mouse_uinput,
                     gamepad_uinput=manager.output_state.gamepad_uinput,
                     broadcast_callback=manager.broadcast_callback,
+                    cursor_position_setter=manager.set_cursor_position,
                     recording_manager=manager.recording_manager,
                     macro_player=manager.play_macro,
                     suppress_rel_getter=lambda: manager.macro_state.mouse_rel_suppressed,

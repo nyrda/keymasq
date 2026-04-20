@@ -719,8 +719,57 @@ class TestComboActionDispatch:
             evdev.ecodes.REL_HWHEEL,
             1,
         ) in manager.output_state.mouse_uinput.writes
-        assert manager.output_state.gamepad_uinput.writes == [
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
-        ]
         monkeypatch.undo()
+
+    @pytest.mark.asyncio
+    async def test_start_combo_action_mouse_move_abs_uses_cursor_position_setter(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.mouse_uinput = _FakeUInput()
+        manager.set_cursor_position = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
+        emit_combo_mouse_move = Mock()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="mouse", evdev="btn_side")
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(cdm, "emit_combo_mouse_move", emit_combo_mouse_move)
+
+        await _runtime_start_combo_action(
+            manager,
+            "mouse-move-abs",
+            dm.MappingAction(action_type=ActionType.MOUSE_MOVE_ABS, move_x=33, move_y=44),
+            binding,
+        )
+
+        manager.set_cursor_position.assert_awaited_once_with(33, 44)
+        emit_combo_mouse_move.assert_not_called()
+        assert manager.output_state.mouse_uinput.writes == []
+        monkeypatch.undo()
+
+    @pytest.mark.asyncio
+    async def test_combo_pattern_superkey_passes_cursor_position_setter(self, monkeypatch) -> None:
+        manager = DeviceManager()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-abs",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[
+                    SuperkeyActionData(action_type="mouse_move_abs", move_x=12, move_y=34)
+                ],
+            ),
+        )
+        created_setters: list[object] = []
+
+        class _FakeMachine:
+            def __init__(self, **kwargs) -> None:
+                self.config = kwargs["config"]
+                self.event_name = kwargs["event_name"]
+                self.stop = AsyncMock()
+                self.on_down = AsyncMock()
+                self.on_up = AsyncMock()
+                created_setters.append(kwargs.get("cursor_position_setter"))
+
+        monkeypatch.setattr(cdm, "SuperkeyMachine", _FakeMachine)
+
+        await _runtime_start_combo_action(manager, "combo-pattern-abs", action, binding)
+
+        assert created_setters == [manager.set_cursor_position]

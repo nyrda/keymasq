@@ -345,6 +345,7 @@ async def execute_action(
                     gamepad_uinput=cast(WritableUInput, device_runtime.gamepad_uinput),
                     source_device=device_runtime.hardware_id,
                     broadcast_callback=superkey_broadcast,
+                    cursor_position_setter=device_runtime.cursor_position_setter,
                     key_event_tracker=superkey_key_event_tracker,
                 )
                 device_runtime.state.superkey_machines[event_name] = machine

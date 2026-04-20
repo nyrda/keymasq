@@ -567,15 +567,24 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
+        cursor_position_setter = AsyncMock(return_value={"status": "ok"})
+        device = _make_grabbed_device(
+            monkeypatch,
+            cursor_position_setter=cursor_position_setter,
+        )
         move_calls: list[tuple[str, int]] = []
         fake_machine = SimpleNamespace(on_down=AsyncMock(), on_up=AsyncMock())
         created_configs: list[SuperkeyConfig] = []
+        created_setters: list[object] = []
 
         monkeypatch.setattr(
             gda,
             "SuperkeyMachine",
-            lambda **kwargs: created_configs.append(kwargs["config"]) or fake_machine,
+            lambda **kwargs: (
+                created_configs.append(kwargs["config"]),
+                created_setters.append(kwargs.get("cursor_position_setter")),
+                fake_machine,
+            )[-1],
         )
         monkeypatch.setattr(
             gde,
@@ -619,6 +628,7 @@ class TestGrabbedDeviceHelpers:
         await asyncio.sleep(0)
 
         assert created_configs and created_configs[0].name == "super"
+        assert created_setters == [cursor_position_setter]
         fake_machine.on_down.assert_awaited_once()
         fake_machine.on_up.assert_awaited_once()
         assert move_calls == [("move_btn", 33)]

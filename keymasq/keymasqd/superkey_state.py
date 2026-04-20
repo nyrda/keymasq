@@ -84,6 +84,9 @@ class _WritableUInput(Protocol):
     def syn(self) -> None: ...
 
 
+type CursorPositionSetter = Callable[[int, int], Awaitable[object]]
+
+
 class SuperkeyMachine:
     def __init__(
         self,
@@ -94,6 +97,7 @@ class SuperkeyMachine:
         gamepad_uinput: _WritableUInput,
         source_device: str = "",
         broadcast_callback: Callable[[dict[str, object]], Awaitable[None]] | None = None,
+        cursor_position_setter: CursorPositionSetter | None = None,
         key_event_tracker: Callable[[str, int, int], bool] | None = None,
     ) -> None:
         self.config = config
@@ -103,6 +107,7 @@ class SuperkeyMachine:
         self.gamepad_uinput = gamepad_uinput
         self.source_device = source_device
         self.broadcast_callback = broadcast_callback
+        self.cursor_position_setter = cursor_position_setter
         self.key_event_tracker = key_event_tracker
 
         self.state = SuperkeyState.IDLE
@@ -359,12 +364,24 @@ class SuperkeyMachine:
                 await self.broadcast_callback(trigger_payload)
             return
 
-        if action.action_type in {"mouse_move_rel", "mouse_move_abs"}:
+        if action.action_type == "mouse_move_abs":
+            if self.cursor_position_setter is not None:
+                await self.cursor_position_setter(int(action.move_x), int(action.move_y))
+                return
             emit_mouse_move(
                 self.mouse_uinput,
                 int(action.move_x),
                 int(action.move_y),
-                absolute=action.action_type == "mouse_move_abs",
+                absolute=True,
+            )
+            return
+
+        if action.action_type == "mouse_move_rel":
+            emit_mouse_move(
+                self.mouse_uinput,
+                int(action.move_x),
+                int(action.move_y),
+                absolute=False,
             )
             return
 

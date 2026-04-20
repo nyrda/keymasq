@@ -1,164 +1,52 @@
 import asyncio
+import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import AbstractContextManager
-from typing import Protocol, TypeVar, cast
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
 
 from keymasq.common.ipc import CommandType
-from keymasq.keymasqd.runtime import grab_lifecycle
+from keymasq.keymasqd.runtime import adapters as runtime_adapters
 
 type JsonObject = dict[str, object]
-_T = TypeVar("_T")
-
-
-class _DeviceInfo(Protocol):
-    @property
-    def vendor(self) -> int: ...
-
-    @property
-    def product(self) -> int: ...
-
-
-class _InputDevice(Protocol):
-    @property
-    def info(self) -> _DeviceInfo: ...
-
-
-class _LiveInterfaceInfo(Protocol):
-    @property
-    def hardware_id(self) -> str: ...
-
-    @property
-    def vendor_id(self) -> str: ...
-
-    @property
-    def product_id(self) -> str: ...
-
-    @property
-    def stable_path(self) -> str: ...
-
-    @property
-    def path(self) -> str: ...
-
-    @property
-    def interface_id(self) -> str: ...
-
-
-type Snapshot = dict[str, _LiveInterfaceInfo]
-
-
-class _LiveInterfaceInfoFactory(Protocol):
-    def __call__(
-        self,
-        *,
-        hardware_id: str,
-        vendor_id: str,
-        product_id: str,
-        stable_path: str,
-        path: str,
-        interface_id: str,
-    ) -> _LiveInterfaceInfo: ...
-
-
-class _GrabbedDevice(Protocol):
-    @property
-    def path(self) -> str: ...
-
-    @property
-    def stable_path(self) -> str: ...
-
-
-class _TopologyState(Protocol):
-    poll_s: float
-    debounce_s: float
-    watcher_task: asyncio.Task[None] | None
-    reconcile_task: asyncio.Task[None] | None
-    live_snapshot: Snapshot
-    reconciled_snapshot: Snapshot
-
-
-class _GrabState(Protocol):
-    @property
-    def desired_grabs(self) -> Mapping[str, object]: ...
-
-
-type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
-
-
-class _TopologyManager(Protocol):
-    @property
-    def topology_state(self) -> _TopologyState: ...
-
-    @property
-    def grab_state(self) -> _GrabState: ...
-
-    @property
-    def grabbed_devices(self) -> Mapping[str, Sequence[_GrabbedDevice]]: ...
-
-    @property
-    def broadcast_callback(self) -> BroadcastCallback | None: ...
-
-    @property
-    def _command_type(self) -> type[CommandType]: ...
-
-    @property
-    def _op_lock(self) -> asyncio.Lock: ...
-
-
-class _AsyncioModule(Protocol):
-    async def sleep(self, delay: float, /) -> None: ...
-
-    def create_task(self, coro: Awaitable[_T], /) -> asyncio.Task[_T]: ...
-
-    def current_task(self) -> asyncio.Task[None] | None: ...
-
-    def to_thread(
-        self,
-        func: Callable[..., _T],
-        /,
-        *args: object,
-        **kwargs: object,
-    ) -> Awaitable[_T]: ...
-
-
-class _ContextlibModule(Protocol):
-    def suppress(self, *exceptions: type[BaseException]) -> AbstractContextManager[None]: ...
-
-
+type Snapshot = dict[str, Any]
+type _TopologyManager = Any
 type ClearDevicePathCacheFn = Callable[[], None]
 type DevicePathsFn = Callable[[], list[str]]
-type DeviceInputFn = Callable[[str], _InputDevice]
+type DeviceInputFn = Callable[[str], Any]
 type ResolveStablePathFn = Callable[[str], str]
 type GetInterfaceIdFn = Callable[[str], str | None]
-type ReleaseInterfaceFn = Callable[[_TopologyManager, str, str], Awaitable[None]]
-
-_release_interface_unlocked = cast(
-    ReleaseInterfaceFn,
-    grab_lifecycle.release_interface_unlocked,
-)
+type ReleaseInterfaceFn = Callable[[Any, str, str], Awaitable[None]]
 
 
-def _manager_op_lock(manager: _TopologyManager) -> asyncio.Lock:
-    return manager._op_lock  # pyright: ignore[reportPrivateUsage]
+@dataclass(frozen=True)
+class LiveInterfaceInfo:
+    hardware_id: str
+    vendor_id: str
+    product_id: str
+    stable_path: str
+    path: str
+    interface_id: str
 
 
-def _manager_command_type(manager: _TopologyManager) -> type[CommandType]:
-    return manager._command_type  # pyright: ignore[reportPrivateUsage]
+@dataclass(frozen=True)
+class TopologyRuntimeDeps:
+    asyncio_mod: runtime_adapters.AsyncioRuntimeAdapter
+    clear_device_path_cache_fn: ClearDevicePathCacheFn
+    device_paths_fn: DevicePathsFn
+    device_input_fn: DeviceInputFn
+    resolve_stable_path_fn: ResolveStablePathFn
+    get_interface_id_fn: GetInterfaceIdFn
+    release_interface_fn: ReleaseInterfaceFn
 
 
 async def start_topology_watcher(
     manager: _TopologyManager,
     *,
-    asyncio_mod: _AsyncioModule,
-    cancelled_error: type[BaseException],
     log: logging.Logger,
-    live_interface_info_cls: _LiveInterfaceInfoFactory,
-    clear_device_path_cache_fn: ClearDevicePathCacheFn,
-    device_paths_fn: DevicePathsFn,
-    device_input_fn: DeviceInputFn,
-    resolve_stable_path_fn: ResolveStablePathFn,
-    get_interface_id_fn: GetInterfaceIdFn,
+    deps: TopologyRuntimeDeps,
 ) -> None:
+    asyncio_mod = deps.asyncio_mod
     if (
         manager.topology_state.watcher_task is not None
         and not manager.topology_state.watcher_task.done()
@@ -166,12 +54,11 @@ async def start_topology_watcher(
         return
     snapshot = await asyncio_mod.to_thread(
         scan_live_interfaces_sync,
-        live_interface_info_cls=live_interface_info_cls,
-        clear_device_path_cache_fn=clear_device_path_cache_fn,
-        device_paths_fn=device_paths_fn,
-        device_input_fn=device_input_fn,
-        resolve_stable_path_fn=resolve_stable_path_fn,
-        get_interface_id_fn=get_interface_id_fn,
+        clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
+        device_paths_fn=deps.device_paths_fn,
+        device_input_fn=deps.device_input_fn,
+        resolve_stable_path_fn=deps.resolve_stable_path_fn,
+        get_interface_id_fn=deps.get_interface_id_fn,
         log=log,
     )
     manager.topology_state.live_snapshot = dict(snapshot)
@@ -179,15 +66,8 @@ async def start_topology_watcher(
     manager.topology_state.watcher_task = asyncio_mod.create_task(
         topology_watch_loop(
             manager,
-            asyncio_mod=asyncio_mod,
-            cancelled_error=cancelled_error,
             log=log,
-            live_interface_info_cls=live_interface_info_cls,
-            clear_device_path_cache_fn=clear_device_path_cache_fn,
-            device_paths_fn=device_paths_fn,
-            device_input_fn=device_input_fn,
-            resolve_stable_path_fn=resolve_stable_path_fn,
-            get_interface_id_fn=get_interface_id_fn,
+            deps=deps,
         )
     )
 
@@ -195,53 +75,44 @@ async def start_topology_watcher(
 async def stop_topology_watcher(
     manager: _TopologyManager,
     *,
-    asyncio_mod: _AsyncioModule,
-    cancelled_error: type[BaseException],
-    contextlib_mod: _ContextlibModule,
+    deps: TopologyRuntimeDeps,
 ) -> None:
     task = manager.topology_state.watcher_task
     manager.topology_state.watcher_task = None
     if task is not None and not task.done():
         task.cancel()
-        with contextlib_mod.suppress(cancelled_error):
+        with contextlib.suppress(asyncio.CancelledError):
             await task
 
     reconcile_task = manager.topology_state.reconcile_task
     manager.topology_state.reconcile_task = None
     if reconcile_task is not None and not reconcile_task.done():
         reconcile_task.cancel()
-        with contextlib_mod.suppress(cancelled_error):
+        with contextlib.suppress(asyncio.CancelledError):
             await reconcile_task
 
 
 async def topology_watch_loop(
     manager: _TopologyManager,
     *,
-    asyncio_mod: _AsyncioModule,
-    cancelled_error: type[BaseException],
     log: logging.Logger,
-    live_interface_info_cls: _LiveInterfaceInfoFactory,
-    clear_device_path_cache_fn: ClearDevicePathCacheFn,
-    device_paths_fn: DevicePathsFn,
-    device_input_fn: DeviceInputFn,
-    resolve_stable_path_fn: ResolveStablePathFn,
-    get_interface_id_fn: GetInterfaceIdFn,
+    deps: TopologyRuntimeDeps,
 ) -> None:
+    asyncio_mod = deps.asyncio_mod
     try:
         while True:
             await asyncio_mod.sleep(manager.topology_state.poll_s)
             try:
                 snapshot = await asyncio_mod.to_thread(
                     scan_live_interfaces_sync,
-                    live_interface_info_cls=live_interface_info_cls,
-                    clear_device_path_cache_fn=clear_device_path_cache_fn,
-                    device_paths_fn=device_paths_fn,
-                    device_input_fn=device_input_fn,
-                    resolve_stable_path_fn=resolve_stable_path_fn,
-                    get_interface_id_fn=get_interface_id_fn,
+                    clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
+                    device_paths_fn=deps.device_paths_fn,
+                    device_input_fn=deps.device_input_fn,
+                    resolve_stable_path_fn=deps.resolve_stable_path_fn,
+                    get_interface_id_fn=deps.get_interface_id_fn,
                     log=log,
                 )
-            except cancelled_error:
+            except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 log.warning("Topology scan failed: %s", exc)
@@ -252,9 +123,8 @@ async def topology_watch_loop(
                 schedule_topology_reconcile(
                     manager,
                     snapshot,
-                    asyncio_mod=asyncio_mod,
-                    cancelled_error=cancelled_error,
                     log=log,
+                    deps=deps,
                 )
                 continue
 
@@ -265,11 +135,10 @@ async def topology_watch_loop(
                 schedule_topology_reconcile(
                     manager,
                     snapshot,
-                    asyncio_mod=asyncio_mod,
-                    cancelled_error=cancelled_error,
                     log=log,
+                    deps=deps,
                 )
-    except cancelled_error:
+    except asyncio.CancelledError:
         raise
 
 
@@ -277,10 +146,10 @@ def schedule_topology_reconcile(
     manager: _TopologyManager,
     snapshot: Snapshot,
     *,
-    asyncio_mod: _AsyncioModule,
-    cancelled_error: type[BaseException],
     log: logging.Logger,
+    deps: TopologyRuntimeDeps,
 ) -> None:
+    asyncio_mod = deps.asyncio_mod
     task = manager.topology_state.reconcile_task
     if task is not None and not task.done():
         task.cancel()
@@ -288,8 +157,8 @@ def schedule_topology_reconcile(
     async def _run() -> None:
         try:
             await asyncio_mod.sleep(manager.topology_state.debounce_s)
-            await reconcile_topology(manager, snapshot, log=log)
-        except cancelled_error:
+            await reconcile_topology(manager, snapshot, log=log, deps=deps)
+        except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.warning("Topology reconcile failed: %s", exc)
@@ -306,12 +175,13 @@ async def reconcile_topology(
     snapshot: Snapshot,
     *,
     log: logging.Logger,
+    deps: TopologyRuntimeDeps,
 ) -> None:
-    async with _manager_op_lock(manager):
+    async with manager._op_lock:
         previous = dict(manager.topology_state.reconciled_snapshot)
         desired_hardware_ids = set(manager.grab_state.desired_grabs)
         events = build_topology_events(manager, previous, snapshot, desired_hardware_ids)
-        await reconcile_topology_unlocked(manager, snapshot)
+        await reconcile_topology_unlocked(manager, snapshot, deps=deps)
         manager.topology_state.reconciled_snapshot = dict(snapshot)
 
     for event_type, payload in events:
@@ -323,7 +193,9 @@ async def reconcile_topology(
             log.warning("Failed to broadcast topology event %s: %s", event_type.value, exc)
 
 
-async def reconcile_topology_unlocked(manager: _TopologyManager, snapshot: Snapshot) -> None:
+async def reconcile_topology_unlocked(
+    manager: _TopologyManager, snapshot: Snapshot, *, deps: TopologyRuntimeDeps
+) -> None:
     live_paths = set(snapshot)
     removed: list[tuple[str, str]] = []
 
@@ -334,7 +206,7 @@ async def reconcile_topology_unlocked(manager: _TopologyManager, snapshot: Snaps
                 removed.append((hardware_id, device.path))
 
     for hardware_id, path in removed:
-        await _release_interface_unlocked(manager, hardware_id, path)
+        await deps.release_interface_fn(manager, hardware_id, path)
 
 
 def build_topology_events(
@@ -351,7 +223,7 @@ def build_topology_events(
             continue
         events.append(
             (
-                _manager_command_type(manager).DEVICE_DISCONNECTED,
+                manager._command_type.DEVICE_DISCONNECTED,
                 live_interface_payload(info),
             )
         )
@@ -362,7 +234,7 @@ def build_topology_events(
             continue
         events.append(
             (
-                _manager_command_type(manager).DEVICE_CONNECTED,
+                manager._command_type.DEVICE_CONNECTED,
                 live_interface_payload(info),
             )
         )
@@ -370,7 +242,7 @@ def build_topology_events(
     return events
 
 
-def live_interface_payload(info: _LiveInterfaceInfo) -> JsonObject:
+def live_interface_payload(info: Any) -> JsonObject:
     return {
         "hardware_id": info.hardware_id,
         "vendor_id": info.vendor_id,
@@ -383,7 +255,6 @@ def live_interface_payload(info: _LiveInterfaceInfo) -> JsonObject:
 
 def scan_live_interfaces_sync(
     *,
-    live_interface_info_cls: _LiveInterfaceInfoFactory,
     clear_device_path_cache_fn: ClearDevicePathCacheFn,
     device_paths_fn: DevicePathsFn,
     device_input_fn: DeviceInputFn,
@@ -402,7 +273,7 @@ def scan_live_interfaces_sync(
             product_id = f"{info.product:04x}"
             hardware_id = f"{vendor_id}:{product_id}"
             stable_path = resolve_stable_path_fn(path)
-            snapshot[stable_path] = live_interface_info_cls(
+            snapshot[stable_path] = LiveInterfaceInfo(
                 hardware_id=hardware_id,
                 vendor_id=vendor_id,
                 product_id=product_id,

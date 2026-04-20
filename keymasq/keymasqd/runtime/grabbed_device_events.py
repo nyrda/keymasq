@@ -13,26 +13,22 @@ from keymasq.common.devices import (
     classify_event_device_type,
     normalize_evdev_binding_value,
 )
-from keymasq.common.ipc import CommandType
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
 from keymasq.keymasqd.runtime.grabbed_device_types import (
+    ActionExecutionDeps,
     AsyncioModule,
-    ClassifyEventDeviceTypeFn,
     EvdevModule,
+    EventProcessingDeps,
+    FireAndObserve,
     GrabbedDeviceRuntime,
     InputEventLike,
     TimeModule,
-    WritableUInput,
+    identity_uinput_writer,
     runtime_is_running,
 )
-from keymasq.keymasqd.superkey_state import SuperkeyMachine
-
-
-def _uinput_writer(device: object | None) -> WritableUInput | None:
-    return cast(WritableUInput | None, device)
 
 
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
@@ -46,6 +42,31 @@ def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[objec
 
     task.add_done_callback(_log_task_result)
     return task
+
+
+def build_action_execution_deps(
+    *, fire_and_observe_fn: FireAndObserve = _fire_and_observe
+) -> ActionExecutionDeps:
+    return ActionExecutionDeps(
+        asyncio_mod=cast(AsyncioModule, asyncio),
+        fire_and_observe_fn=fire_and_observe_fn,
+        evdev_mod=evdev,
+        uinput_writer=identity_uinput_writer,
+    )
+
+
+def build_event_processing_deps(
+    *,
+    log: logging.Logger,
+    fire_and_observe_fn: FireAndObserve = _fire_and_observe,
+) -> EventProcessingDeps:
+    return EventProcessingDeps(
+        evdev_mod=evdev,
+        time_mod=time,
+        log=log,
+        classify_event_device_type_fn=classify_event_device_type,
+        action_deps=build_action_execution_deps(fire_and_observe_fn=fire_and_observe_fn),
+    )
 
 
 def _evdev_code_name(raw_name: object, fallback: int) -> str:
@@ -106,7 +127,6 @@ def _log_mapped_action(
     event_name: str,
     *,
     evdev_mod: EvdevModule,
-    action_type_enum: type[ActionType],
     log: logging.Logger,
 ) -> None:
     if device_runtime.verbosity < 2:
@@ -125,7 +145,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type == action_type_enum.SUPPRESS:
+    if action.action_type == ActionType.SUPPRESS:
         log.debug(
             "[%s] %s (%s) -> SUPPRESS value=%s",
             device_runtime.hardware_id,
@@ -134,11 +154,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type in (
-        action_type_enum.KEYBOARD,
-        action_type_enum.MOUSE,
-        action_type_enum.GAMEPAD,
-    ):
+    if action.action_type in (ActionType.KEYBOARD, ActionType.MOUSE, ActionType.GAMEPAD):
         target = action.target or "?"
         mods: list[str] = []
         if action.rapidfire_enabled:
@@ -157,10 +173,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type in (
-        action_type_enum.MOUSE_MOVE_REL,
-        action_type_enum.MOUSE_MOVE_ABS,
-    ):
+    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
         log.debug(
             "[%s] %s (%s) -> %s x=%s y=%s value=%s",
             device_runtime.hardware_id,
@@ -172,7 +185,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type == action_type_enum.EXEC:
+    if action.action_type == ActionType.EXEC:
         log.debug(
             "[%s] %s (%s) -> EXEC %s value=%s",
             device_runtime.hardware_id,
@@ -182,7 +195,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type == action_type_enum.SUPERKEY:
+    if action.action_type == ActionType.SUPERKEY:
         sk_name = action.superkey_config.name if action.superkey_config else "?"
         log.debug(
             "[%s] %s (%s) -> SUPERKEY:%s value=%s",
@@ -213,12 +226,7 @@ async def event_loop(
                 await process_event(
                     device_runtime,
                     event,
-                    evdev_mod=evdev,
-                    time_mod=time,
-                    log=log,
-                    combo_decision_cls=ComboDecision,
-                    classify_event_device_type_fn=classify_event_device_type,
-                    action_type_enum=ActionType,
+                    deps=build_event_processing_deps(log=log),
                 )
                 error_backoff = 0.01
             except Exception as exc:
@@ -261,7 +269,11 @@ async def cleanup_runtime_failure(
         log.warning(
             "Failed to reset superkeys after event error on %s: %s", device_runtime.path, exc
         )
-    runtime_outputs.release_all_keys(device_runtime, evdev_mod=evdev, uinput_writer=_uinput_writer)
+    runtime_outputs.release_all_keys(
+        device_runtime,
+        evdev_mod=evdev,
+        uinput_writer=identity_uinput_writer,
+    )
 
 
 async def recover_from_event_processing_error(device_runtime: GrabbedDeviceRuntime) -> None:
@@ -292,13 +304,10 @@ async def process_event(
     device_runtime: GrabbedDeviceRuntime,
     event: InputEventLike,
     *,
-    evdev_mod: EvdevModule,
-    time_mod: TimeModule,
-    log: logging.Logger,
-    combo_decision_cls: type[ComboDecision],
-    classify_event_device_type_fn: ClassifyEventDeviceTypeFn,
-    action_type_enum: type[ActionType],
+    deps: EventProcessingDeps,
 ) -> None:
+    evdev_mod = deps.evdev_mod
+    time_mod = deps.time_mod
     started_ns = time_mod.perf_counter_ns()
     diag_label = "unknown"
     combo_consumed = False
@@ -306,7 +315,13 @@ async def process_event(
     suppress_recalled_release_passthrough = False
 
     event_name = get_event_name(event, evdev_mod=evdev_mod)
-    _log_raw_hardware_event(device_runtime, event, event_name, evdev_mod=evdev_mod, log=log)
+    _log_raw_hardware_event(
+        device_runtime,
+        event,
+        event_name,
+        evdev_mod=evdev_mod,
+        log=deps.log,
+    )
     if event.type == evdev_mod.ecodes.EV_KEY:
         if int(event.value) == 1:
             device_runtime.state.held_source_keys.add(event_name)
@@ -341,7 +356,7 @@ async def process_event(
     )
     if consumed is True:
         return
-    if isinstance(consumed, combo_decision_cls):
+    if isinstance(consumed, ComboDecision):
         if consumed.consume_current_event:
             if not (
                 event.type == evdev_mod.ecodes.EV_KEY
@@ -375,7 +390,7 @@ async def process_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
         )
         _record_diagnostics(device_runtime, "passthrough_other", started_ns, time_mod=time_mod)
         return
@@ -388,7 +403,7 @@ async def process_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
         )
         if int(event.value) == 0:
             device_runtime.state.combo_passthrough_held.discard(event_name)
@@ -414,7 +429,7 @@ async def process_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
         )
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_fast"
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
@@ -430,14 +445,13 @@ async def process_event(
 
     if recording_active and not _is_recording_control_action(
         action,
-        action_type_enum=action_type_enum,
     ):
         recording_manager = device_runtime.recording_manager
         if recording_manager is None:
             return
         input_event = cast(evdev.InputEvent, event)
         recording_manager.record_event(
-            classify_event_device_type_fn(input_event, device_runtime.device_types),
+            deps.classify_event_device_type_fn(input_event, device_runtime.device_types),
             input_event,
         )
 
@@ -447,8 +461,7 @@ async def process_event(
         event,
         event_name,
         evdev_mod=evdev_mod,
-        action_type_enum=action_type_enum,
-        log=log,
+        log=deps.log,
     )
 
     if action:
@@ -457,13 +470,7 @@ async def process_event(
             action,
             event,
             event_name,
-            asyncio_mod=cast(runtime_actions.AsyncioModule, asyncio),
-            command_type=CommandType,
-            fire_and_observe_fn=_fire_and_observe,
-            action_type_enum=action_type_enum,
-            superkey_machine_cls=SuperkeyMachine,
-            evdev_mod=evdev_mod,
-            uinput_writer=_uinput_writer,
+            deps=deps.action_deps,
         )
         diag_label = (
             f"combo_release_action_{action.action_type.value}"
@@ -481,7 +488,7 @@ async def process_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
         )
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_mapped"
 
@@ -493,16 +500,14 @@ async def process_event(
 
 def _is_recording_control_action(
     action: MappingAction | None,
-    *,
-    action_type_enum: type[ActionType],
 ) -> bool:
     return bool(
         action
         and action.action_type
         in (
-            action_type_enum.START_MACRO_RECORDING,
-            action_type_enum.STOP_MACRO_RECORDING,
-            action_type_enum.CANCEL_MACRO_PLAYBACK,
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.CANCEL_MACRO_PLAYBACK,
         )
     )
 

@@ -239,7 +239,6 @@ class TestGrabbedDeviceHelpers:
                 "waiting",
                 ["key_a"],
                 waited_s=1.5,
-                command_type=CommandType,
                 log=gdm.log,
             )
 
@@ -286,13 +285,11 @@ class TestGrabbedDeviceHelpers:
             device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt")
             ,
-            action_type_enum=ActionType,
         )
         gdg.reconcile_startup_held_action(
             device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_south")
             ,
-            action_type_enum=ActionType,
         )
 
         assert gamepad.writes == [

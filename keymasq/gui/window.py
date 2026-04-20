@@ -78,7 +78,6 @@ class MainWindow(Adw.ApplicationWindow):
         self._recording_refresh_lease_id: str = ""
         self._recording_claim_attempt_key: tuple[str, int] | None = None
         self._unlock_refresh_inflight = False
-        self._unlock_add_button: Gtk.Button | None = None
         self._placeholder_subtitle: Gtk.Label | None = None
         self._menu_unlock_btn: Gtk.Button | None = None
         self._unlock_status_label: Gtk.Label | None = None
@@ -449,7 +448,6 @@ class MainWindow(Adw.ApplicationWindow):
                 self._recording_claim_attempt_key = claim_key
                 self._request_recording_refresh_lease()
 
-        self._refresh_add_device_button()
         self._refresh_macro_menu_state()
         self._refresh_unlock_status_label()
 
@@ -601,9 +599,9 @@ class MainWindow(Adw.ApplicationWindow):
         header.set_title_widget(self.stack_switcher)
 
         unlock_add_button = Gtk.Button(icon_name="list-add-symbolic")
+        unlock_add_button.set_tooltip_text("Add device")
         unlock_add_button.connect("clicked", self._on_add_device_clicked)
         header.pack_start(unlock_add_button)
-        self._unlock_add_button = unlock_add_button
 
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
@@ -1152,15 +1150,6 @@ class MainWindow(Adw.ApplicationWindow):
         status_label.set_label(error_msg or "Authorization failed")
         status_label.add_css_class("error")
         return False
-
-    def _refresh_add_device_button(self) -> None:
-        if self._unlock_add_button is None:
-            return
-
-        self._unlock_add_button.set_icon_name("list-add-symbolic")
-        self._unlock_add_button.set_tooltip_text("Add device")
-        if self._placeholder_subtitle is not None:
-            self._placeholder_subtitle.set_label("Click + to add a new device")
 
     def _refresh_macro_menu_state(self) -> None:
         if self._menu_unlock_btn is not None:

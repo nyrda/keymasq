@@ -54,6 +54,9 @@ with contextlib.suppress(ImportError, AttributeError):
     _build_slurp_path = str(getattr(build_paths, "SLURP_PATH", _build_slurp_path))
 
 KEYMASQ_RECORD_HELPER_PATH = Path(_build_helper_path)
+KEYMASQ_RECORD_HELPER_FALLBACK_PATHS = (
+    Path("/run/current-system/sw/bin/keymasq-record"),
+)
 SLURP_PATH = Path(_build_slurp_path)
 SLURP_FALLBACK_PATHS = (
     Path("/usr/bin/slurp"),
@@ -78,8 +81,15 @@ def ensure_session_socket_dir() -> None:
 
 
 def resolve_keymasq_record_helper_path() -> str | None:
-    if KEYMASQ_RECORD_HELPER_PATH.is_file() and os.access(KEYMASQ_RECORD_HELPER_PATH, os.X_OK):
-        return str(KEYMASQ_RECORD_HELPER_PATH)
+    candidates = [KEYMASQ_RECORD_HELPER_PATH, *KEYMASQ_RECORD_HELPER_FALLBACK_PATHS]
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate_str = str(candidate)
+        if candidate_str in seen:
+            continue
+        seen.add(candidate_str)
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate_str
     return None
 
 

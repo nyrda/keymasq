@@ -664,6 +664,84 @@ class TestDeviceTabWidget:
         assert tab.device.evdev_devices[-1].device_type == DeviceType.MOUSE
         assert status.get_text() == "Captured btn_side (0 remaining)"
 
+    def test_device_tab_add_inputs_dialog_requires_unlock_before_capture(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+
+        unlock_callbacks: list[object] = []
+        root = SimpleNamespace(
+            _recording_unlock_required=True,
+            _recording_unlocked=False,
+            _recording_refresh_owner=False,
+            present_unlock_dialog=lambda on_success=None: unlock_callbacks.append(on_success),
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=False)
+        tab.get_root = lambda: root  # type: ignore[method-assign]
+        presented: list[Adw.Dialog] = []
+
+        def monkeypatch_present(self, parent) -> None:
+            presented.append(self)
+
+        original_present = Adw.Dialog.present
+        Adw.Dialog.present = monkeypatch_present  # type: ignore[method-assign]
+        try:
+            tab._on_add_keys_clicked(tab.add_keys_btn)
+        finally:
+            Adw.Dialog.present = original_present  # type: ignore[method-assign]
+
+        assert len(presented) == 1
+        content = presented[0].get_child()
+        assert isinstance(content, Gtk.Box)
+        dialog_children: list[Gtk.Widget] = []
+        child = content.get_first_child()
+        while child is not None:
+            dialog_children.append(child)
+            child = child.get_next_sibling()
+
+        privilege_status = dialog_children[2]
+        button_row = dialog_children[4]
+        assert isinstance(privilege_status, Gtk.Label)
+        assert isinstance(button_row, Gtk.Box)
+
+        row_children: list[Gtk.Widget] = []
+        child = button_row.get_first_child()
+        while child is not None:
+            row_children.append(child)
+            child = child.get_next_sibling()
+
+        cancel_btn, unlock_btn, start_btn = row_children
+        assert isinstance(cancel_btn, Gtk.Button)
+        assert isinstance(unlock_btn, Gtk.Button)
+        assert isinstance(start_btn, Gtk.Button)
+        assert start_btn.get_sensitive() is False
+        assert unlock_btn.get_visible() is True
+        assert unlock_btn.has_css_class("destructive-action") is True
+        assert "Unlock to add additional keys and mouse buttons." in privilege_status.get_text()
+
+        unlock_btn.emit("clicked")
+        assert len(unlock_callbacks) == 1
+
+        root._recording_unlocked = True
+        root._recording_refresh_owner = True
+        callback = unlock_callbacks[0]
+        assert callable(callback)
+        callback()
+
+        assert start_btn.get_sensitive() is True
+        assert unlock_btn.get_visible() is False
+        assert "Add inputs reads raw key events before remapping." in privilege_status.get_text()
+
     def test_device_tab_add_keys_capture_read_rejects_wheel_input(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
@@ -1004,4 +1082,3 @@ class TestDeviceTabWidget:
 
         assert len(tab.device.buttons) == 1
         assert "already exists" in status.get_text()
-

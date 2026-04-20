@@ -177,8 +177,28 @@ def test_resolve_keymasq_record_helper_path_returns_none_for_non_executable(
     helper.chmod(0o644)
 
     monkeypatch.setattr(paths, "KEYMASQ_RECORD_HELPER_PATH", helper)
+    monkeypatch.setattr(paths, "KEYMASQ_RECORD_HELPER_FALLBACK_PATHS", ())
 
     assert paths.resolve_keymasq_record_helper_path() is None
+
+
+def test_resolve_keymasq_record_helper_path_uses_nixos_system_profile_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import keymasq.common.paths as paths
+
+    nixos_helper = tmp_path / "run-current-system-sw-bin-keymasq-record"
+    nixos_helper.write_text("#!/bin/sh\n", encoding="utf-8")
+    nixos_helper.chmod(0o755)
+
+    monkeypatch.setattr(paths, "KEYMASQ_RECORD_HELPER_PATH", tmp_path / "missing-build-helper")
+    monkeypatch.setattr(
+        paths,
+        "KEYMASQ_RECORD_HELPER_FALLBACK_PATHS",
+        (tmp_path / "missing-usr-bin-helper", nixos_helper),
+    )
+
+    assert paths.resolve_keymasq_record_helper_path() == str(nixos_helper)
 
 
 def test_resolve_slurp_path_returns_none_for_non_executable(

@@ -986,7 +986,8 @@ class MainWindow(Adw.ApplicationWindow):
         message = Gtk.Label(
             label=(
                 "Unlock input capture while running the GUI.\n"
-                "This is required for device setup and macro recording."
+                "This is used for adding additional keys and buttons, combo capture, "
+                "and macro recording."
             )
         )
         message.set_wrap(True)

@@ -47,6 +47,13 @@ class RecordingManager:
     def is_recording(self) -> bool:
         return not self._stopped
 
+    def should_record_grabbed_event(self, _device_path: str, _device_types: list[str]) -> bool:
+        # Macro recording should follow the explicit device selection sent by the
+        # session/UI. Grabbed physical devices are represented in the recording
+        # UI by their matching keymasq-* outputs, so recording them here would
+        # duplicate the same input stream.
+        return False
+
     async def start(
         self,
         devices: list[RecordingDevice],

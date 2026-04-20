@@ -87,6 +87,38 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
 
 
 @pytest.mark.asyncio
+async def test_real_recording_manager_skips_grabbed_device_stream() -> None:
+    recorder = RecordingManager()
+    event_callback = AsyncMock()
+    keyboard_uinput = MagicMock()
+
+    await recorder.start([])
+
+    mapping = {
+        "btn_macro": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+    }
+    grabbed = GrabbedDevice(
+        path="/dev/input/event0",
+        hardware_id="test",
+        button_map={"btn_macro": "key_f14"},
+        mapping_getter=lambda: mapping,
+        event_callback=event_callback,
+        device_type=DeviceType.KEYBOARD,
+        keyboard_uinput=keyboard_uinput,
+        recording_manager=recorder,
+    )
+
+    await _process_grabbed_event(
+        grabbed,
+        evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+    )
+
+    result = await recorder.stop()
+
+    assert result["event_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_play_macro_allows_concurrent_playback() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()

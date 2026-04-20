@@ -450,7 +450,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self._recording_claim_attempt_key = claim_key
                 self._request_recording_refresh_lease()
 
-        self._refresh_unlock_button()
+        self._refresh_add_device_button()
         self._refresh_macro_menu_state()
         self._refresh_unlock_status_label()
 
@@ -601,8 +601,8 @@ class MainWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(self.stack_switcher)
 
-        unlock_add_button = Gtk.Button(icon_name="system-lock-screen-symbolic")
-        unlock_add_button.connect("clicked", self._on_unlock_or_add_clicked)
+        unlock_add_button = Gtk.Button(icon_name="list-add-symbolic")
+        unlock_add_button.connect("clicked", self._on_add_device_clicked)
         header.pack_start(unlock_add_button)
         self._unlock_add_button = unlock_add_button
 
@@ -796,7 +796,7 @@ class MainWindow(Adw.ApplicationWindow):
             if self._placeholder_title is not None:
                 self._placeholder_title.set_label("No devices configured")
             if self._placeholder_subtitle is not None:
-                self._placeholder_subtitle.set_label("Unlock capture to add a new device")
+                self._placeholder_subtitle.set_label("Click + to add a new device")
             return
 
         self.stack.remove(self.placeholder)
@@ -969,12 +969,8 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.connect("device-created", self._on_device_created)
         dialog.present()
 
-    def _on_unlock_or_add_clicked(self, _button: Gtk.Button) -> None:
-        if self._recording_unlocked:
-            self._on_add_device(_button)
-            return
-
-        self.present_unlock_dialog()
+    def _on_add_device_clicked(self, _button: Gtk.Button) -> None:
+        self._on_add_device(_button)
 
     def present_unlock_dialog(self, on_success=None) -> None:
         self._present_unlock_dialog(on_success=on_success)
@@ -1169,21 +1165,14 @@ class MainWindow(Adw.ApplicationWindow):
         status_label.add_css_class("error")
         return False
 
-    def _refresh_unlock_button(self) -> None:
+    def _refresh_add_device_button(self) -> None:
         if self._unlock_add_button is None:
             return
 
-        if self._recording_unlocked:
-            self._unlock_add_button.set_icon_name("list-add-symbolic")
-            self._unlock_add_button.set_tooltip_text("Add device")
-            if self._placeholder_subtitle is not None:
-                self._placeholder_subtitle.set_label("Click + to add a new device")
-            return
-
-        self._unlock_add_button.set_icon_name("system-lock-screen-symbolic")
-        self._unlock_add_button.set_tooltip_text("Unlock recording and capture")
+        self._unlock_add_button.set_icon_name("list-add-symbolic")
+        self._unlock_add_button.set_tooltip_text("Add device")
         if self._placeholder_subtitle is not None:
-            self._placeholder_subtitle.set_label("Unlock capture to add a new device")
+            self._placeholder_subtitle.set_label("Click + to add a new device")
 
     def _refresh_macro_menu_state(self) -> None:
         if self._menu_record_btn is not None:

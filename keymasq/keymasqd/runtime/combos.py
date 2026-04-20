@@ -1,13 +1,13 @@
 import asyncio
+import contextlib
 import logging
 import queue
+import time
 from collections.abc import Awaitable, Callable, Sequence
-from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
 from keymasq.common.combos import normalize_combo_evdev
-from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -53,14 +53,6 @@ type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type ComboCaptureQueueState = tuple[
     queue.SimpleQueue[dict[str, object]], set[str], asyncio.Event | None
 ]
-
-
-class _TimeModule(Protocol):
-    def monotonic(self) -> float: ...
-
-
-class _ContextlibModule(Protocol):
-    def suppress(self, *exceptions: type[BaseException]) -> AbstractContextManager[None]: ...
 
 
 class _EmitMouseMoveFn(Protocol):
@@ -122,8 +114,6 @@ class ComboRuntimeState:
 @dataclass(frozen=True)
 class ComboRuntimeDeps:
     asyncio_mod: runtime_adapters.AsyncioRuntimeAdapter
-    contextlib_mod: _ContextlibModule
-    time_mod: _TimeModule
     evdev_mod: runtime_adapters.ComboEvdevAdapter
     uinput_writer: runtime_adapters.UInputWriter
     emit_mouse_move_fn: _EmitMouseMoveFn
@@ -152,8 +142,6 @@ async def on_device_event(
     *,
     resolve_stable_path_fn: ResolveStablePathFn,
     get_interface_id_fn: GetInterfaceIdFn,
-    combo_binding_cls: type[RuntimeComboBinding],
-    combo_input_event_cls: type[ComboInputEvent],
     int_value_fn: IntValueFn,
     str_value_fn: StrValueFn,
     deps: ComboRuntimeDeps,
@@ -176,8 +164,6 @@ async def on_device_event(
     return await process_runtime_combo_event(
         manager,
         combo_payload,
-        combo_binding_cls=combo_binding_cls,
-        combo_input_event_cls=combo_input_event_cls,
         int_value_fn=int_value_fn,
         str_value_fn=str_value_fn,
         deps=deps,
@@ -241,8 +227,6 @@ async def process_runtime_combo_event(
     manager: _ComboManager,
     payload: dict[str, object] | None,
     *,
-    combo_binding_cls: type[RuntimeComboBinding],
-    combo_input_event_cls: type[ComboInputEvent],
     int_value_fn: IntValueFn,
     str_value_fn: StrValueFn,
     deps: ComboRuntimeDeps,
@@ -255,7 +239,7 @@ async def process_runtime_combo_event(
     if value not in {0, 1, 2}:
         return None
 
-    binding = combo_binding_cls(
+    binding = RuntimeComboBinding(
         hardware_id=str_value_fn(payload.get("hardware_id"), ""),
         evdev=str_value_fn(payload.get("evdev"), ""),
         source=str_value_fn(payload.get("source"), ""),
@@ -265,14 +249,13 @@ async def process_runtime_combo_event(
             manager,
             binding.hardware_id,
             binding.source,
-            combo_binding_cls=combo_binding_cls,
         )
         if binding in held_modifiers:
             held_modifiers.discard(binding)
         manager.combo_state.engine.prime_held_bindings(held_modifiers)
     decision = manager.combo_state.engine.handle_event(
-        combo_input_event_cls(binding=binding, value=value),
-        deps.time_mod.monotonic(),
+        ComboInputEvent(binding=binding, value=value),
+        time.monotonic(),
     )
     if decision.recall_events:
         emit_combo_recalls(manager, decision.recall_events)
@@ -332,8 +315,6 @@ def held_combo_modifier_bindings_for_scope(
     manager: _ComboManager,
     hardware_id: str,
     source: str,
-    *,
-    combo_binding_cls: type[RuntimeComboBinding],
 ) -> set[RuntimeComboBinding]:
     held: set[RuntimeComboBinding] = set()
     for device in manager.grabbed_devices.get(hardware_id, []):
@@ -352,7 +333,7 @@ def held_combo_modifier_bindings_for_scope(
         modifier_names_str = [name for name in modifier_name_values if isinstance(name, str)]
         for evdev_name in modifier_names_str:
             held.add(
-                combo_binding_cls(
+                RuntimeComboBinding(
                     hardware_id=hardware_id,
                     evdev=evdev_name,
                     source=device.interface_id,
@@ -363,8 +344,6 @@ def held_combo_modifier_bindings_for_scope(
 
 def prime_combo_engine_with_held_bindings(
     manager: _ComboManager,
-    *,
-    combo_binding_cls: type[RuntimeComboBinding],
 ) -> None:
     held: set[RuntimeComboBinding] = set()
     for devices in manager.grabbed_devices.values():
@@ -382,7 +361,7 @@ def prime_combo_engine_with_held_bindings(
             held_names_str = [name for name in held_name_values if isinstance(name, str)]
             for evdev_name in held_names_str:
                 held.add(
-                    combo_binding_cls(
+                    RuntimeComboBinding(
                         hardware_id=str(device.hardware_id or "").lower(),
                         evdev=str(evdev_name or "").lower(),
                         source=str(device.interface_id or "").lower(),
@@ -424,7 +403,6 @@ async def broadcast_combo_action(
         manager.broadcast_callback,
         data,
         fire_and_observe_fn=deps.fire_and_observe_fn,
-        command_type=CommandType,
         label="combo action broadcast",
     )
 
@@ -1132,7 +1110,7 @@ async def stop_combo_action(
         task = state.task
         if task is not None and not task.done():
             task.cancel()
-            with deps.contextlib_mod.suppress(deps.asyncio_mod.CancelledError):
+            with contextlib.suppress(deps.asyncio_mod.CancelledError):
                 await task
         _restore_combo_trigger_bindings(manager, restore_bindings)
         return
@@ -1178,7 +1156,7 @@ async def clear_combo_runtime(
         refcounts.clear()
     if manager.combo_state.timeout_task and not manager.combo_state.timeout_task.done():
         manager.combo_state.timeout_task.cancel()
-        with deps.contextlib_mod.suppress(deps.asyncio_mod.CancelledError):
+        with contextlib.suppress(deps.asyncio_mod.CancelledError):
             await manager.combo_state.timeout_task
     manager.combo_state.timeout_task = None
 
@@ -1247,8 +1225,8 @@ async def combo_timeout_watchdog(
     deps: ComboRuntimeDeps,
 ) -> None:
     try:
-        await deps.asyncio_mod.sleep(max(0.0, deadline - deps.time_mod.monotonic()))
-        manager.combo_state.engine.expire_timeouts(deps.time_mod.monotonic())
+        await deps.asyncio_mod.sleep(max(0.0, deadline - time.monotonic()))
+        manager.combo_state.engine.expire_timeouts(time.monotonic())
     except deps.asyncio_mod.CancelledError:
         raise
     finally:

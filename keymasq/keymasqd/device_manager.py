@@ -2,9 +2,6 @@ import asyncio
 import contextlib
 import errno
 import logging
-import random
-import time
-import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
@@ -138,9 +135,6 @@ def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[objec
 def _topology_runtime_deps() -> runtime_topology.TopologyRuntimeDeps:
     return runtime_topology.TopologyRuntimeDeps(
         asyncio_mod=ASYNCIO_RUNTIME,
-        cancelled_error=asyncio.CancelledError,
-        contextlib_mod=contextlib,
-        live_interface_info_cls=LiveInterfaceInfo,
         clear_device_path_cache_fn=clear_device_path_cache,
         device_paths_fn=_device_paths,
         device_input_fn=_device_input,
@@ -153,12 +147,8 @@ def _topology_runtime_deps() -> runtime_topology.TopologyRuntimeDeps:
 def _macro_runtime_deps() -> runtime_macros.MacroRuntimeDeps:
     return runtime_macros.MacroRuntimeDeps(
         asyncio_mod=ASYNCIO_RUNTIME,
-        contextlib_mod=contextlib,
         evdev_mod=evdev,
         uinput_writer=runtime_adapters.identity_uinput_writer,
-        random_mod=random,
-        uuid_mod=uuid,
-        command_type=CommandType,
         log=log,
         int_value_fn=_int_value,
         str_value_fn=_str_value,
@@ -172,8 +162,6 @@ def _combo_runtime_deps(
 ) -> runtime_combos.ComboRuntimeDeps:
     return runtime_combos.ComboRuntimeDeps(
         asyncio_mod=ASYNCIO_RUNTIME,
-        contextlib_mod=contextlib,
-        time_mod=time,
         evdev_mod=runtime_adapters.COMBO_EVDEV_RUNTIME,
         uinput_writer=runtime_adapters.identity_uinput_writer,
         emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
@@ -189,14 +177,7 @@ def _capability_device(
     return cast(common_devices._CapabilityDevice, device)  # pyright: ignore[reportPrivateUsage]
 
 
-@dataclass(frozen=True)
-class LiveInterfaceInfo:
-    hardware_id: str
-    vendor_id: str
-    product_id: str
-    stable_path: str
-    path: str
-    interface_id: str
+LiveInterfaceInfo = runtime_topology.LiveInterfaceInfo
 
 
 @dataclass
@@ -490,7 +471,6 @@ class DeviceManager:
             self.combo_state.engine.set_combos(parsed)
             runtime_combos.prime_combo_engine_with_held_bindings(
                 self,
-                combo_binding_cls=RuntimeComboBinding,
             )
             runtime_combos.refresh_combo_timeout_watchdog(
                 self,

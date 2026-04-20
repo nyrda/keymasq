@@ -495,7 +495,7 @@ class TestDeviceManagerHelpers:
             Mock(side_effect=lambda *args, **kwargs: refreshes.append("refresh")),
         )
 
-        monkeypatch.setattr(dm.time, "monotonic", lambda: 10.0)
+        monkeypatch.setattr(cdm.time, "monotonic", lambda: 10.0)
         monkeypatch.setattr(dm.asyncio, "sleep", AsyncMock())
 
         task = asyncio.create_task(_runtime_combo_timeout_watchdog(manager, 10.5))

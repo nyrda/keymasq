@@ -13,7 +13,6 @@ from keymasq.common.devices import (
     classify_event_device_type,
     normalize_evdev_binding_value,
 )
-from keymasq.common.ipc import CommandType
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
@@ -50,10 +49,7 @@ def build_action_execution_deps(
 ) -> ActionExecutionDeps:
     return ActionExecutionDeps(
         asyncio_mod=cast(AsyncioModule, asyncio),
-        command_type=CommandType,
         fire_and_observe_fn=fire_and_observe_fn,
-        action_type_enum=ActionType,
-        superkey_machine_cls=runtime_actions.SuperkeyMachine,
         evdev_mod=evdev,
         uinput_writer=identity_uinput_writer,
     )
@@ -68,9 +64,7 @@ def build_event_processing_deps(
         evdev_mod=evdev,
         time_mod=time,
         log=log,
-        combo_decision_cls=ComboDecision,
         classify_event_device_type_fn=classify_event_device_type,
-        action_type_enum=ActionType,
         action_deps=build_action_execution_deps(fire_and_observe_fn=fire_and_observe_fn),
     )
 
@@ -133,7 +127,6 @@ def _log_mapped_action(
     event_name: str,
     *,
     evdev_mod: EvdevModule,
-    action_type_enum: type[ActionType],
     log: logging.Logger,
 ) -> None:
     if device_runtime.verbosity < 2:
@@ -152,7 +145,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type == action_type_enum.SUPPRESS:
+    if action.action_type == ActionType.SUPPRESS:
         log.debug(
             "[%s] %s (%s) -> SUPPRESS value=%s",
             device_runtime.hardware_id,
@@ -161,11 +154,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type in (
-        action_type_enum.KEYBOARD,
-        action_type_enum.MOUSE,
-        action_type_enum.GAMEPAD,
-    ):
+    if action.action_type in (ActionType.KEYBOARD, ActionType.MOUSE, ActionType.GAMEPAD):
         target = action.target or "?"
         mods: list[str] = []
         if action.rapidfire_enabled:
@@ -184,10 +173,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type in (
-        action_type_enum.MOUSE_MOVE_REL,
-        action_type_enum.MOUSE_MOVE_ABS,
-    ):
+    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
         log.debug(
             "[%s] %s (%s) -> %s x=%s y=%s value=%s",
             device_runtime.hardware_id,
@@ -199,7 +185,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type == action_type_enum.EXEC:
+    if action.action_type == ActionType.EXEC:
         log.debug(
             "[%s] %s (%s) -> EXEC %s value=%s",
             device_runtime.hardware_id,
@@ -209,7 +195,7 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type == action_type_enum.SUPERKEY:
+    if action.action_type == ActionType.SUPERKEY:
         sk_name = action.superkey_config.name if action.superkey_config else "?"
         log.debug(
             "[%s] %s (%s) -> SUPERKEY:%s value=%s",
@@ -322,7 +308,6 @@ async def process_event(
 ) -> None:
     evdev_mod = deps.evdev_mod
     time_mod = deps.time_mod
-    action_type_enum = deps.action_type_enum
     started_ns = time_mod.perf_counter_ns()
     diag_label = "unknown"
     combo_consumed = False
@@ -371,7 +356,7 @@ async def process_event(
     )
     if consumed is True:
         return
-    if isinstance(consumed, deps.combo_decision_cls):
+    if isinstance(consumed, ComboDecision):
         if consumed.consume_current_event:
             if not (
                 event.type == evdev_mod.ecodes.EV_KEY
@@ -460,7 +445,6 @@ async def process_event(
 
     if recording_active and not _is_recording_control_action(
         action,
-        action_type_enum=action_type_enum,
     ):
         recording_manager = device_runtime.recording_manager
         if recording_manager is None:
@@ -477,7 +461,6 @@ async def process_event(
         event,
         event_name,
         evdev_mod=evdev_mod,
-        action_type_enum=action_type_enum,
         log=deps.log,
     )
 
@@ -517,16 +500,14 @@ async def process_event(
 
 def _is_recording_control_action(
     action: MappingAction | None,
-    *,
-    action_type_enum: type[ActionType],
 ) -> bool:
     return bool(
         action
         and action.action_type
         in (
-            action_type_enum.START_MACRO_RECORDING,
-            action_type_enum.STOP_MACRO_RECORDING,
-            action_type_enum.CANCEL_MACRO_PLAYBACK,
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.CANCEL_MACRO_PLAYBACK,
         )
     )
 

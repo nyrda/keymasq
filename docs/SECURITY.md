@@ -200,6 +200,10 @@ When `unlock_required = true`:
 - live key/button capture requires an unlock
 - combo capture requires an unlock
 
+Template-based hardware creation in the GUI does not require unlock. The unlock
+gate applies to original-input observation flows, not to writing normal
+same-user hardware/profile config files.
+
 This is the recommended packaged default because those features observe raw
 input before normal remapping or application delivery.
 

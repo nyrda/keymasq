@@ -91,6 +91,23 @@ class TestMainWindow:
         assert tab2._selected_profile is not None
         assert tab2._selected_profile.config.name == "Profile 2"
 
+    def test_main_window_add_device_action_does_not_require_unlock(self, temp_config_dir):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        add_calls: list[bool] = []
+        unlock_calls: list[bool] = []
+        button = object()
+
+        window._recording_unlocked = False
+        window._on_add_device = lambda _button: add_calls.append(True)  # type: ignore[method-assign]
+        window.present_unlock_dialog = lambda on_success=None: unlock_calls.append(True)  # type: ignore[method-assign]
+
+        window._on_add_device_clicked(button)
+
+        assert add_calls == [True]
+        assert unlock_calls == []
+
     def test_main_window_syncs_manual_profile_selection_across_tabs(self, temp_config_dir):
         from keymasq.common.models import (
             ButtonDefinition,
@@ -501,7 +518,7 @@ class TestMainWindow:
         assert window._placeholder_title is not None
         assert window._placeholder_subtitle is not None
         assert window._placeholder_title.get_label() == "No devices configured"
-        assert window._placeholder_subtitle.get_label() == "Unlock capture to add a new device"
+        assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
         placeholder_page = window.stack.get_page(window.placeholder)
         assert placeholder_page.get_icon_name() == resolve_icon_name(*device_icon_names(False))
 

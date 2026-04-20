@@ -203,10 +203,10 @@ def _combo_runtime_deps(
     fire_and_observe_fn: runtime_combos.FireAndObserve = _fire_and_observe,
 ) -> runtime_combos.ComboRuntimeDeps:
     return runtime_combos.ComboRuntimeDeps(
-        asyncio_mod=cast(runtime_combos._AsyncioModule, ASYNCIO_RUNTIME),  # pyright: ignore[reportPrivateUsage]
+        asyncio_mod=ASYNCIO_RUNTIME,
         contextlib_mod=contextlib,
         time_mod=time,
-        evdev_mod=cast(runtime_combos._EvdevModule, runtime_adapters.COMBO_EVDEV_RUNTIME),  # pyright: ignore[reportPrivateUsage]
+        evdev_mod=runtime_adapters.COMBO_EVDEV_RUNTIME,
         uinput_writer=runtime_adapters.identity_uinput_writer,
         emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
         get_trigger_axis_fn=get_trigger_axis,

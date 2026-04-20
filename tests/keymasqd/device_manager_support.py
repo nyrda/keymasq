@@ -84,10 +84,10 @@ def _combo_runtime_deps(
     fire_and_observe_fn: cdm.FireAndObserve = dm._fire_and_observe,
 ) -> cdm.ComboRuntimeDeps:
     return cdm.ComboRuntimeDeps(
-        asyncio_mod=cast(cdm._AsyncioModule, dm.ASYNCIO_RUNTIME),  # pyright: ignore[reportPrivateUsage]
+        asyncio_mod=dm.ASYNCIO_RUNTIME,
         contextlib_mod=dm.contextlib,
         time_mod=dm.time,
-        evdev_mod=cast(cdm._EvdevModule, dm.runtime_adapters.COMBO_EVDEV_RUNTIME),  # pyright: ignore[reportPrivateUsage]
+        evdev_mod=dm.runtime_adapters.COMBO_EVDEV_RUNTIME,
         uinput_writer=dm.runtime_adapters.identity_uinput_writer,
         emit_mouse_move_fn=dm.runtime_adapters.combo_emit_mouse_move,
         get_trigger_axis_fn=dm.get_trigger_axis,

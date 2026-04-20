@@ -2,26 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.6.0] - 2026-04-18
-
-### Improved
-
-- Anchored macro playback timing to monotonic deadlines, reducing drift during
-  replay and improving fidelity for timing-sensitive macros.
-- Preferred `uvloop` for supported async runtimes and tightened daemon timer
-  slack at startup to make background scheduling more predictable.
-
-### Changed
-
-- Switched `keymasqd` startup dependencies to udev-triggered systemd ordering
-  so device availability is coordinated with the actual trigger path.
+## [0.7.0] - 2026-04-20
 
 ### Added
 
-- Added macro replay fidelity benchmarks and supporting documentation for
-  timing analysis and verification.
-- Expanded end-user docs with autoclicker workflows and related macro use
-  cases.
+- Added `keymasq status --json` so automation and scripts can inspect runtime
+  state without scraping human-readable CLI output.
+
+### Improved
+
+- Routed absolute mouse move actions through compositor-aware cursor position
+  setters so screen-position workflows behave consistently across session
+  backends.
+- Tightened slurp capture handling and macro editor updates for point-capture
+  and absolute-position editing flows.
+
+### Changed
+
+- Removed obsolete CLI device and hardware commands.
+- Split GitHub Actions checks into faster static, typecheck, non-GUI, and GUI
+  paths with leaner cached Nix shells.
 
 ## [0.3] - 2026-04-10
 

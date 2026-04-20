@@ -35,9 +35,9 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.6.0" date="2026-04-18">
+    <release version="0.7.0" date="2026-04-20">
       <description>
-        <p>Improves macro replay timing fidelity, prefers uvloop for supported async runtimes, and expands documentation and benchmarks for replay analysis and autoclicker workflows.</p>
+        <p>Adds machine-readable CLI status output, routes absolute cursor moves through compositor-aware listeners, and improves slurp-based capture plus macro editor workflows.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

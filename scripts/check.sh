@@ -116,10 +116,21 @@ run_pytest_host() {
     pytest_args="$pytest_args -m $PYTEST_MARK_EXPR"
   fi
 
-  command="cd '$ROOT_DIR' && nix develop -c bash -lc 'pytest ${pytest_args}'"
-
-  if command -v xvfb-run >/dev/null 2>&1; then
-    command="cd '$ROOT_DIR' && xvfb-run -a nix develop -c bash -lc 'pytest ${pytest_args}'"
+  if [[ "$CATEGORY" == "gui" || "$CATEGORY" == "full" ]]; then
+    command="
+      cd '$ROOT_DIR' && nix develop '.#ci-gui' -c bash <<'EOF'
+set -euo pipefail
+export DISPLAY=:99
+export GDK_BACKEND=x11
+Xvfb :99 -screen 0 1280x1024x24 >/tmp/keymasq-xvfb.log 2>&1 &
+xvfb_pid=\$!
+trap 'kill \"\$xvfb_pid\"' EXIT
+sleep 1
+pytest ${pytest_args}
+EOF
+    "
+  else
+    command="cd '$ROOT_DIR' && nix develop '.#ci' -c bash -lc 'pytest ${pytest_args}'"
   fi
 
   echo "pytest (${CATEGORY}):"

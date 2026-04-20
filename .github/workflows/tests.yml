@@ -3,17 +3,88 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  checks:
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      gui: ${{ steps.filter.outputs.gui }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 20
+
+      - name: Detect GUI-impacting changes
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          base: ${{ github.ref }}
+          filters: |
+            gui:
+              - ".github/workflows/tests.yml"
+              - "assets/**"
+              - "flake.nix"
+              - "flake.lock"
+              - "keymasq/__init__.py"
+              - "keymasq/__main__.py"
+              - "keymasq/common/**"
+              - "keymasq/gui/**"
+              - "keymasq/session/**"
+              - "pyproject.toml"
+              - "tests/common/**"
+              - "tests/gui/**"
+
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set Up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Static Analysis Tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ruff>=0.12.0" "basedpyright>=1.38.2"
+
+      - name: Run Ruff
+        run: ruff check keymasq tests
+
+      - name: Run BasedPyright
+        run: basedpyright
+
+  tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -25,24 +96,53 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
+      - name: Enable Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
       - name: Verify Nix
         run: nix --version
 
-      - name: Install Xvfb
+      - name: Run Non-GUI pytest
         run: |
-          if command -v sudo >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y xvfb
-          else
-            apt-get update
-            apt-get install -y xvfb
-          fi
-
-      - name: Run Ruff, BasedPyright, and pytest
-        run: |
-          xvfb-run -a nix develop -c bash -lc '
+          nix develop .#ci -c bash -lc '
             set -euo pipefail
-            ruff check keymasq tests
-            basedpyright
-            pytest tests -v
+            pytest tests -v --ignore=tests/gui -m "not gui"
           '
+
+  gui-tests:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.gui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Enable Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Verify Nix
+        run: nix --version
+
+      - name: Run GUI pytest
+        run: |
+          nix develop .#ci-gui -c bash <<'EOF'
+            set -euo pipefail
+            export DISPLAY=:99
+            export GDK_BACKEND=x11
+            Xvfb :99 -screen 0 1280x1024x24 >/tmp/keymasq-xvfb.log 2>&1 &
+            xvfb_pid=$!
+            trap 'kill "$xvfb_pid"' EXIT
+            sleep 1
+            pytest tests/gui -v -m gui
+          EOF

@@ -280,9 +280,47 @@
         let
           pkgs = mkPkgs system;
           devPython = pkgs.python312;
-          devPythonPackages = pkgs.python312Packages;
+          mkTestPython =
+            extraPackages:
+            devPython.withPackages (
+              ps: with ps; [
+                dbus-next
+                evdev
+                tomli-w
+                uvloop
+                xlib
+                pytest
+                pytest-asyncio
+                pytest-cov
+              ] ++ extraPackages
+            );
         in
         {
+          ci = pkgs.mkShell {
+            packages = [
+              (mkTestPython [ ])
+            ];
+          };
+
+          ci-gui = pkgs.mkShell {
+            # Point gdk-pixbuf at the librsvg loaders cache so SVG icons
+            # (Adwaita theme, GTK4 assets) render correctly inside the
+            # dev shell — matches what wrapGAppsHook4 does for the
+            # installed package.
+            GDK_PIXBUF_MODULE_FILE = "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
+
+            packages = [
+              (mkTestPython [ pkgs.python312Packages.pygobject3 ])
+              pkgs.gobject-introspection
+              pkgs.gtk4
+              pkgs.libadwaita
+              pkgs.librsvg
+              pkgs.adwaita-icon-theme
+              pkgs.hicolor-icon-theme
+              pkgs.xorgserver
+            ];
+          };
+
           default = pkgs.mkShell {
             # Point gdk-pixbuf at the librsvg loaders cache so SVG icons
             # (Adwaita theme, GTK4 assets) render correctly inside the
@@ -322,7 +360,7 @@
               pkgs.nfpm
               pkgs.gnupg
               pkgs.rpm
-              devPythonPackages.mypy
+              pkgs.python312Packages.mypy
               pkgs.ruff
               pkgs.basedpyright
               pkgs.dpkg

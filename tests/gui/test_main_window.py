@@ -108,6 +108,32 @@ class TestMainWindow:
         assert add_calls == [True]
         assert unlock_calls == []
 
+    def test_main_window_unlock_dialog_copy_mentions_additional_keys(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        presented: list[Adw.Dialog] = []
+
+        def monkeypatch_present(self, root) -> None:
+            presented.append(self)
+
+        original_present = Adw.Dialog.present
+        Adw.Dialog.present = monkeypatch_present  # type: ignore[method-assign]
+        try:
+            window._present_unlock_dialog()
+        finally:
+            Adw.Dialog.present = original_present  # type: ignore[method-assign]
+
+        assert len(presented) == 1
+        content = presented[0].get_child()
+        assert isinstance(content, Gtk.Box)
+        message = content.get_first_child()
+        assert isinstance(message, Gtk.Label)
+        assert "additional keys and buttons" in message.get_label()
+        assert "device setup" not in message.get_label()
+
     def test_main_window_syncs_manual_profile_selection_across_tabs(self, temp_config_dir):
         from keymasq.common.models import (
             ButtonDefinition,

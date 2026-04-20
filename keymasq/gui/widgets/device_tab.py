@@ -1038,6 +1038,12 @@ class DeviceTab(ProfileManagedTab):
         row.append(spin)
         box.append(row)
 
+        privilege_status = Gtk.Label(label="")
+        privilege_status.add_css_class("dim-label")
+        privilege_status.set_halign(Gtk.Align.START)
+        privilege_status.set_wrap(True)
+        box.append(privilege_status)
+
         status = Gtk.Label(label="")
         status.add_css_class("dim-label")
         status.set_halign(Gtk.Align.START)
@@ -1052,30 +1058,63 @@ class DeviceTab(ProfileManagedTab):
         start_btn = Gtk.Button(label="Start Capture")
         start_btn.add_css_class("suggested-action")
 
+        unlock_btn = Gtk.Button(label="Unlock")
+        unlock_btn.add_css_class("destructive-action")
+        unlock_btn.connect(
+            "clicked",
+            self._on_add_inputs_unlock_clicked,
+            start_btn,
+            privilege_status,
+            status,
+        )
+        btn_row.append(unlock_btn)
+
         def on_start(_b) -> None:
             if self._add_keys_capturing:
                 return
             count = int(spin.get_value())
             status.set_text(self._capture_waiting_label())
             start_btn.set_sensitive(False)
-            self._start_add_keys_capture(count, status, dialog)
+            self._start_add_keys_capture(
+                count,
+                status,
+                dialog,
+                start_btn=start_btn,
+                unlock_btn=unlock_btn,
+                privilege_status=privilege_status,
+            )
 
         start_btn.connect("clicked", on_start)
         btn_row.append(start_btn)
         box.append(btn_row)
 
+        self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
         dialog.set_child(box)
         dialog.present(self.get_root())
 
     def _start_add_keys_capture(
-        self, count: int, status_label: Gtk.Label, parent_dialog: Adw.Dialog
+        self,
+        count: int,
+        status_label: Gtk.Label,
+        parent_dialog: Adw.Dialog,
+        *,
+        start_btn: Gtk.Button | None = None,
+        unlock_btn: Gtk.Button | None = None,
+        privilege_status: Gtk.Label | None = None,
     ) -> None:
         vid = self.device.vendor_id
         pid = self.device.product_id
         self._capture_active_hardware_id = f"{vid}:{pid}"
         self._add_keys_pending_ids = [f"key_added_{i + 1}" for i in range(count)]
         def on_capture_begun(result: JsonDict | None) -> bool:
-            return self._on_add_keys_capture_begun(result, status_label, parent_dialog)
+            return self._on_add_keys_capture_begun(
+                result,
+                status_label,
+                parent_dialog,
+                start_btn=start_btn,
+                unlock_btn=unlock_btn,
+                privilege_status=privilege_status,
+            )
 
         session_request_async(
             {
@@ -1086,20 +1125,41 @@ class DeviceTab(ProfileManagedTab):
         )
 
     def _on_add_keys_capture_begun(
-        self, result: dict | None, status_label: Gtk.Label, parent_dialog: Adw.Dialog
+        self,
+        result: dict | None,
+        status_label: Gtk.Label,
+        parent_dialog: Adw.Dialog,
+        *,
+        start_btn: Gtk.Button | None = None,
+        unlock_btn: Gtk.Button | None = None,
+        privilege_status: Gtk.Label | None = None,
     ) -> bool:
         if not result or result.get("status") != "ok":
             status_label.set_text((result or {}).get("message", "Capture failed"))
             self._stop_add_keys_capture()
+            self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
             return False
 
         self._add_keys_capturing = True
         self._add_keys_poll_id = GLib.timeout_add(
-            16, self._poll_add_keys_capture, status_label, parent_dialog
+            16,
+            self._poll_add_keys_capture,
+            status_label,
+            parent_dialog,
+            start_btn,
+            unlock_btn,
+            privilege_status,
         )
         return False
 
-    def _poll_add_keys_capture(self, status_label: Gtk.Label, parent_dialog: Adw.Dialog) -> bool:
+    def _poll_add_keys_capture(
+        self,
+        status_label: Gtk.Label,
+        parent_dialog: Adw.Dialog,
+        start_btn: Gtk.Button | None = None,
+        unlock_btn: Gtk.Button | None = None,
+        privilege_status: Gtk.Label | None = None,
+    ) -> bool:
         if not self._add_keys_capturing:
             return False
 
@@ -1108,7 +1168,14 @@ class DeviceTab(ProfileManagedTab):
 
         self._add_keys_poll_inflight = True
         def on_capture_read(result: JsonDict | None) -> bool:
-            return self._on_add_keys_capture_read(result, status_label, parent_dialog)
+            return self._on_add_keys_capture_read(
+                result,
+                status_label,
+                parent_dialog,
+                start_btn=start_btn,
+                unlock_btn=unlock_btn,
+                privilege_status=privilege_status,
+            )
 
         session_request_async(
             {
@@ -1120,7 +1187,14 @@ class DeviceTab(ProfileManagedTab):
         return True
 
     def _on_add_keys_capture_read(
-        self, result: dict | None, status_label: Gtk.Label, parent_dialog: Adw.Dialog
+        self,
+        result: dict | None,
+        status_label: Gtk.Label,
+        parent_dialog: Adw.Dialog,
+        *,
+        start_btn: Gtk.Button | None = None,
+        unlock_btn: Gtk.Button | None = None,
+        privilege_status: Gtk.Label | None = None,
     ) -> bool:
         self._add_keys_poll_inflight = False
         if not self._add_keys_capturing:
@@ -1132,6 +1206,7 @@ class DeviceTab(ProfileManagedTab):
         if result.get("status") != "ok":
             status_label.set_text(result.get("message", "Capture failed"))
             self._stop_add_keys_capture()
+            self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
             return False
 
         captured = result.get("captured")
@@ -1182,6 +1257,90 @@ class DeviceTab(ProfileManagedTab):
         self.hardware_manager.save_hardware(self.device)
         parent_dialog.close()
         self._reload_ui()
+
+    def _add_inputs_unlock_state(self) -> tuple[bool, bool, bool]:
+        root = self.main_window or self.get_root()
+        unlock_required = bool(getattr(root, "_recording_unlock_required", True))
+        recording_unlocked = bool(getattr(root, "_recording_unlocked", False))
+        refresh_owner = bool(getattr(root, "_recording_refresh_owner", False))
+        return unlock_required, recording_unlocked, refresh_owner
+
+    def _update_add_inputs_capture_controls(
+        self,
+        start_btn: Gtk.Button | None,
+        unlock_btn: Gtk.Button | None,
+        privilege_status: Gtk.Label | None,
+    ) -> None:
+        if start_btn is None or unlock_btn is None or privilege_status is None:
+            return
+
+        unlock_required, recording_unlocked, refresh_owner = self._add_inputs_unlock_state()
+        can_capture = not unlock_required or (recording_unlocked and refresh_owner)
+
+        start_btn.set_sensitive(can_capture and not self._add_keys_capturing)
+        if can_capture:
+            start_btn.add_css_class("suggested-action")
+        else:
+            start_btn.remove_css_class("suggested-action")
+
+        if not unlock_required:
+            unlock_btn.set_visible(False)
+            privilege_status.set_text(
+                "Unlock not required. Add-input capture reads raw key events before remapping."
+            )
+            return
+
+        if can_capture:
+            unlock_btn.set_visible(False)
+            privilege_status.set_text(
+                "Original-input capture is unlocked. Add inputs reads raw key events before "
+                "remapping."
+            )
+            return
+
+        unlock_btn.set_visible(True)
+        unlock_btn.set_label("Claim Unlock" if recording_unlocked else "Unlock")
+        if recording_unlocked:
+            privilege_status.set_text(
+                "Unlock active in another session. Claim unlock to add additional keys and "
+                "mouse buttons."
+            )
+        else:
+            privilege_status.set_text(
+                "Original-input capture uses privileged raw events. Unlock to add additional "
+                "keys and mouse buttons."
+            )
+
+    def _on_add_inputs_unlock_clicked(
+        self,
+        button: Gtk.Button,
+        start_btn: Gtk.Button,
+        privilege_status: Gtk.Label,
+        status_label: Gtk.Label,
+    ) -> None:
+        root = self.main_window or self.get_root()
+        present_unlock = getattr(root, "present_unlock_dialog", None)
+        if callable(present_unlock):
+            present_unlock(
+                on_success=lambda: self._on_add_inputs_unlock_success(
+                    start_btn,
+                    button,
+                    privilege_status,
+                    status_label,
+                )
+            )
+            return
+        status_label.set_text("Unlock is only available from the main window.")
+
+    def _on_add_inputs_unlock_success(
+        self,
+        start_btn: Gtk.Button,
+        unlock_btn: Gtk.Button,
+        privilege_status: Gtk.Label,
+        status_label: Gtk.Label,
+    ) -> None:
+        status_label.set_text("")
+        self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
 
     def _stop_add_keys_capture(self) -> None:
         self._add_keys_capturing = False

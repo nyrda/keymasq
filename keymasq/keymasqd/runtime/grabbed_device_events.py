@@ -449,11 +449,21 @@ async def process_event(
         recording_manager = device_runtime.recording_manager
         if recording_manager is None:
             return
-        input_event = cast(evdev.InputEvent, event)
-        recording_manager.record_event(
-            deps.classify_event_device_type_fn(input_event, device_runtime.device_types),
-            input_event,
+        should_record_grabbed_event = getattr(
+            recording_manager,
+            "should_record_grabbed_event",
+            None,
         )
+        if callable(should_record_grabbed_event) and not bool(
+            should_record_grabbed_event(device_runtime.path, device_runtime.device_types)
+        ):
+            pass
+        else:
+            input_event = cast(evdev.InputEvent, event)
+            recording_manager.record_event(
+                deps.classify_event_device_type_fn(input_event, device_runtime.device_types),
+                input_event,
+            )
 
     _log_mapped_action(
         device_runtime,

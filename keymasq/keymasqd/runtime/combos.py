@@ -1,10 +1,10 @@
 import asyncio
 import logging
 import queue
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.ipc import CommandType
@@ -74,73 +74,8 @@ class _EmitMouseMoveFn(Protocol):
     ) -> None: ...
 
 
-class _OutputState(Protocol):
-    @property
-    def keyboard_uinput(self) -> object | None: ...
-
-    @property
-    def mouse_uinput(self) -> object | None: ...
-
-    @property
-    def gamepad_uinput(self) -> object | None: ...
-
-
-class _GrabbedComboDevice(Protocol):
-    hardware_id: str
-    interface_id: str
-
-    def emit_combo_release(self, evdev_name: str) -> None: ...
-
-    def emit_combo_press(self, evdev_name: str) -> None: ...
-
-    def combo_passthrough_binding_active(self, evdev_name: str) -> bool: ...
-
-    def combo_source_binding_held(self, evdev_name: str) -> bool: ...
-
-    def combo_binding_recalled(self, evdev_name: str) -> bool: ...
-
-    def mark_combo_recalled_binding(self, evdev_name: str) -> None: ...
-
-    def clear_combo_recalled_binding(self, evdev_name: str) -> None: ...
-
-    def combo_passthrough_held_modifiers(self) -> set[str]: ...
-
-    def combo_held_source_bindings(self) -> set[str]: ...
-
-
-class _ComboManager(Protocol):
-    @property
-    def combo_state(self) -> "ComboRuntimeState": ...
-
-    @property
-    def output_state(self) -> _OutputState: ...
-
-    @property
-    def grabbed_devices(self) -> Mapping[str, Sequence[_GrabbedComboDevice]]: ...
-
-    @property
-    def broadcast_callback(self) -> Callable[[CommandType, JsonObject], Awaitable[None]] | None: ...
-
-    async def set_cursor_position(self, x: int, y: int) -> JsonObject: ...
-
-    async def play_macro(
-        self,
-        *,
-        macro_events: list[JsonObject],
-        macro_name: str = "",
-        replay_mouse_movement: bool = True,
-        replay_mouse_clicks: bool = True,
-        speed: float = 1.0,
-        loop_mode: str = "none",
-        loop_count: int = 1,
-        move_to_start: bool = False,
-        start_x: int = 0,
-        start_y: int = 0,
-        block_mouse_movement: bool = False,
-        source_device: str = "",
-        source_button: str = "",
-        trigger_value: int = 1,
-    ) -> JsonObject: ...
+type _GrabbedComboDevice = Any
+type _ComboManager = Any
 
 
 @dataclass

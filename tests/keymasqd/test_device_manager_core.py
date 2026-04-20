@@ -514,7 +514,7 @@ class TestMacroControlActions:
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
-        monkeypatch.setattr(dm.random, "randint", lambda _minimum, _maximum: 50)
+        monkeypatch.setattr(mdm.random, "randint", lambda _minimum, _maximum: 50)
 
         result = await _runtime_run_macro_control_action(
             manager,

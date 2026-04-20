@@ -1,9 +1,9 @@
-import contextlib
 import logging
 from collections.abc import Callable
 from typing import cast
 
-from keymasq.common.models import MappingAction, SuperkeyMode
+from keymasq.common.ipc import CommandType
+from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
 from keymasq.keymasqd.output_helpers import (
     get_trigger_axis,
     resolve_output_code,
@@ -58,18 +58,16 @@ async def execute_action(
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
 ) -> None:
     asyncio_mod = deps.asyncio_mod
-    action_type_enum = deps.action_type_enum
     evdev_mod = deps.evdev_mod
     uinput_writer = deps.uinput_writer
     fire_and_observe_fn = deps.fire_and_observe_fn
-    superkey_machine_cls: type[SuperkeyMachine] = deps.superkey_machine_cls
-    if action.action_type == action_type_enum.PASSTHROUGH:
+    if action.action_type == ActionType.PASSTHROUGH:
         passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
 
-    elif action.action_type == action_type_enum.SUPPRESS:
+    elif action.action_type == ActionType.SUPPRESS:
         pass
 
-    elif action.action_type == action_type_enum.KEYBOARD:
+    elif action.action_type == ActionType.KEYBOARD:
         await _execute_key_action(
             device_runtime,
             action,
@@ -82,7 +80,7 @@ async def execute_action(
             shared_output_tracker=shared_output_tracker,
         )
 
-    elif action.action_type == action_type_enum.MOUSE:
+    elif action.action_type == ActionType.MOUSE:
         await _execute_mouse_action(
             device_runtime,
             action,
@@ -92,7 +90,7 @@ async def execute_action(
             shared_output_tracker=shared_output_tracker,
         )
 
-    elif action.action_type == action_type_enum.GAMEPAD:
+    elif action.action_type == ActionType.GAMEPAD:
         if action.target:
             is_trigger, axis_code = get_trigger_axis(action.target)
             if is_trigger:
@@ -125,7 +123,6 @@ async def execute_action(
                             device_runtime,
                             event_name,
                             asyncio_mod=asyncio_mod,
-                            contextlib_mod=contextlib,
                         )
                 elif action.tap_enabled:
                     if event.value == 1 and not device_runtime.state.tap_active.get(
@@ -151,7 +148,7 @@ async def execute_action(
                     should_emit = True
                     if shared_output_tracker is not None:
                         should_emit = shared_output_tracker(
-                            action_type_enum.GAMEPAD.value,
+                            ActionType.GAMEPAD.value,
                             axis_code,
                             int(event.value),
                         )
@@ -176,7 +173,7 @@ async def execute_action(
                     shared_output_tracker=shared_output_tracker,
                 )
 
-    elif action.action_type == action_type_enum.EXEC:
+    elif action.action_type == ActionType.EXEC:
         if event.value == 1:
             dispatch_action_trigger(
                 device_runtime.broadcast_callback,
@@ -186,11 +183,10 @@ async def execute_action(
                     source_button=event_name,
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
-                command_type=deps.command_type,
                 label=f"exec action {event_name}",
             )
 
-    elif action.action_type == action_type_enum.COMPOSITOR_DISPATCH:
+    elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
         if event.value == 1:
             dispatch_action_trigger(
                 device_runtime.broadcast_callback,
@@ -200,11 +196,10 @@ async def execute_action(
                     source_button=event_name,
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
-                command_type=deps.command_type,
                 label=f"compositor action {event_name}",
             )
 
-    elif action.action_type == action_type_enum.START_MACRO_RECORDING:
+    elif action.action_type == ActionType.START_MACRO_RECORDING:
         if event.value == 1:
             dispatch_action_trigger(
                 device_runtime.broadcast_callback,
@@ -214,11 +209,10 @@ async def execute_action(
                     source_button=event_name,
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
-                command_type=deps.command_type,
                 label=f"start recording action {event_name}",
             )
 
-    elif action.action_type == action_type_enum.STOP_MACRO_RECORDING:
+    elif action.action_type == ActionType.STOP_MACRO_RECORDING:
         if event.value == 1:
             dispatch_action_trigger(
                 device_runtime.broadcast_callback,
@@ -228,11 +222,10 @@ async def execute_action(
                     source_button=event_name,
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
-                command_type=deps.command_type,
                 label=f"stop recording action {event_name}",
             )
 
-    elif action.action_type == action_type_enum.CANCEL_MACRO_PLAYBACK:
+    elif action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         if event.value == 1:
             dispatch_action_trigger(
                 device_runtime.broadcast_callback,
@@ -242,14 +235,13 @@ async def execute_action(
                     source_button=event_name,
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
-                command_type=deps.command_type,
                 label=f"cancel macro action {event_name}",
             )
 
     elif action.action_type in (
-        action_type_enum.PROFILE_ENABLE,
-        action_type_enum.PROFILE_DISABLE,
-        action_type_enum.PROFILE_TOGGLE,
+        ActionType.PROFILE_ENABLE,
+        ActionType.PROFILE_DISABLE,
+        ActionType.PROFILE_TOGGLE,
     ):
         if event.value == 1:
             dispatch_action_trigger(
@@ -260,11 +252,10 @@ async def execute_action(
                     source_button=event_name,
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
-                command_type=deps.command_type,
                 label=f"profile action {event_name}",
             )
 
-    elif action.action_type == action_type_enum.MACRO:
+    elif action.action_type == ActionType.MACRO:
         macro_request = build_macro_playback_request(
             action,
             source_device=device_runtime.hardware_id,
@@ -277,7 +268,7 @@ async def execute_action(
                 f"macro action {event_name}",
             )
 
-    elif action.action_type in (action_type_enum.MOUSE_MOVE_REL, action_type_enum.MOUSE_MOVE_ABS):
+    elif action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
         await _execute_move_action(
             device_runtime,
             action,
@@ -286,7 +277,7 @@ async def execute_action(
             deps=deps,
         )
 
-    elif action.action_type == action_type_enum.SUPERKEY:
+    elif action.action_type == ActionType.SUPERKEY:
         if action.superkey_config:
             if action.superkey_config.mode == SuperkeyMode.OVERLOAD:
                 await _execute_overload_superkey(
@@ -305,7 +296,7 @@ async def execute_action(
                     if device_runtime.broadcast_callback:
                         fire_and_observe_fn(
                             device_runtime.broadcast_callback(
-                                deps.command_type.ACTION_TRIGGER,
+                                CommandType.ACTION_TRIGGER,
                                 data,
                             ),
                             f"superkey action {event_name}",
@@ -323,7 +314,7 @@ async def execute_action(
                         value,
                     )
 
-                machine = superkey_machine_cls(
+                machine = SuperkeyMachine(
                     config=cast(RuntimeSuperkeyConfig, action.superkey_config),
                     event_name=event_name,
                     keyboard_uinput=cast(WritableUInput, device_runtime.keyboard_uinput),
@@ -363,7 +354,7 @@ async def _execute_overload_superkey(
         )
 
     for index, child_action in enumerate(config.overload_actions):
-        if child_action.action_type == deps.action_type_enum.SUPERKEY:
+        if child_action.action_type == ActionType.SUPERKEY:
             log.warning(
                 "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
                 config.name,
@@ -425,7 +416,6 @@ async def _execute_key_action(
                 device_runtime,
                 event_name,
                 asyncio_mod=deps.asyncio_mod,
-                contextlib_mod=contextlib,
             )
     elif action.tap_enabled:
         if event.value == 1 and not device_runtime.state.tap_active.get(event_name, False):
@@ -536,7 +526,6 @@ async def _execute_relative_mouse_action(
                 device_runtime,
                 event_name,
                 asyncio_mod=deps.asyncio_mod,
-                contextlib_mod=contextlib,
             )
         return
 
@@ -602,7 +591,6 @@ async def _execute_move_action(
                 device_runtime,
                 event_name,
                 asyncio_mod=deps.asyncio_mod,
-                contextlib_mod=contextlib,
             )
     elif action.tap_enabled:
         if event.value == 1 and not device_runtime.state.tap_active.get(event_name, False):
@@ -618,7 +606,7 @@ async def _execute_move_action(
                 f"tap move {event_name}",
             )
     elif event.value == 1:
-        if action.action_type == deps.action_type_enum.MOUSE_MOVE_ABS:
+        if action.action_type == ActionType.MOUSE_MOVE_ABS:
             cursor_position_setter = device_runtime.cursor_position_setter
             if cursor_position_setter is not None:
                 await cursor_position_setter(int(action.move_x), int(action.move_y))

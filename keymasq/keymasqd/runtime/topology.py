@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -15,15 +17,21 @@ type DeviceInputFn = Callable[[str], Any]
 type ResolveStablePathFn = Callable[[str], str]
 type GetInterfaceIdFn = Callable[[str], str | None]
 type ReleaseInterfaceFn = Callable[[Any, str, str], Awaitable[None]]
-type LiveInterfaceInfoFactory = Callable[..., Any]
+
+
+@dataclass(frozen=True)
+class LiveInterfaceInfo:
+    hardware_id: str
+    vendor_id: str
+    product_id: str
+    stable_path: str
+    path: str
+    interface_id: str
 
 
 @dataclass(frozen=True)
 class TopologyRuntimeDeps:
     asyncio_mod: runtime_adapters.AsyncioRuntimeAdapter
-    cancelled_error: type[BaseException]
-    contextlib_mod: Any
-    live_interface_info_cls: LiveInterfaceInfoFactory
     clear_device_path_cache_fn: ClearDevicePathCacheFn
     device_paths_fn: DevicePathsFn
     device_input_fn: DeviceInputFn
@@ -46,7 +54,6 @@ async def start_topology_watcher(
         return
     snapshot = await asyncio_mod.to_thread(
         scan_live_interfaces_sync,
-        live_interface_info_cls=deps.live_interface_info_cls,
         clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
         device_paths_fn=deps.device_paths_fn,
         device_input_fn=deps.device_input_fn,
@@ -74,14 +81,14 @@ async def stop_topology_watcher(
     manager.topology_state.watcher_task = None
     if task is not None and not task.done():
         task.cancel()
-        with deps.contextlib_mod.suppress(deps.cancelled_error):
+        with contextlib.suppress(asyncio.CancelledError):
             await task
 
     reconcile_task = manager.topology_state.reconcile_task
     manager.topology_state.reconcile_task = None
     if reconcile_task is not None and not reconcile_task.done():
         reconcile_task.cancel()
-        with deps.contextlib_mod.suppress(deps.cancelled_error):
+        with contextlib.suppress(asyncio.CancelledError):
             await reconcile_task
 
 
@@ -98,7 +105,6 @@ async def topology_watch_loop(
             try:
                 snapshot = await asyncio_mod.to_thread(
                     scan_live_interfaces_sync,
-                    live_interface_info_cls=deps.live_interface_info_cls,
                     clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
                     device_paths_fn=deps.device_paths_fn,
                     device_input_fn=deps.device_input_fn,
@@ -106,7 +112,7 @@ async def topology_watch_loop(
                     get_interface_id_fn=deps.get_interface_id_fn,
                     log=log,
                 )
-            except deps.cancelled_error:
+            except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 log.warning("Topology scan failed: %s", exc)
@@ -132,7 +138,7 @@ async def topology_watch_loop(
                     log=log,
                     deps=deps,
                 )
-    except deps.cancelled_error:
+    except asyncio.CancelledError:
         raise
 
 
@@ -152,7 +158,7 @@ def schedule_topology_reconcile(
         try:
             await asyncio_mod.sleep(manager.topology_state.debounce_s)
             await reconcile_topology(manager, snapshot, log=log, deps=deps)
-        except deps.cancelled_error:
+        except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.warning("Topology reconcile failed: %s", exc)
@@ -249,7 +255,6 @@ def live_interface_payload(info: Any) -> JsonObject:
 
 def scan_live_interfaces_sync(
     *,
-    live_interface_info_cls: LiveInterfaceInfoFactory,
     clear_device_path_cache_fn: ClearDevicePathCacheFn,
     device_paths_fn: DevicePathsFn,
     device_input_fn: DeviceInputFn,
@@ -268,7 +273,7 @@ def scan_live_interfaces_sync(
             product_id = f"{info.product:04x}"
             hardware_id = f"{vendor_id}:{product_id}"
             stable_path = resolve_stable_path_fn(path)
-            snapshot[stable_path] = live_interface_info_cls(
+            snapshot[stable_path] = LiveInterfaceInfo(
                 hardware_id=hardware_id,
                 vendor_id=vendor_id,
                 product_id=product_id,

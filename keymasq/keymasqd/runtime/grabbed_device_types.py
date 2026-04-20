@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -8,7 +7,7 @@ from typing import Final, Protocol, TypeVar, cast
 import evdev
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.models import MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.superkey_state import SuperkeyMachine
@@ -109,12 +108,6 @@ class AsyncioModule(Protocol):
     ) -> Awaitable[_T]: ...
 
 
-class ContextlibModule(Protocol):
-    def suppress(
-        self, *exceptions: type[BaseException]
-    ) -> contextlib.AbstractContextManager[None]: ...
-
-
 class TimeModule(Protocol):
     def monotonic(self) -> float: ...
 
@@ -147,10 +140,7 @@ def identity_uinput_writer(device: object | None) -> WritableUInput | None:
 @dataclass(frozen=True)
 class ActionExecutionDeps:
     asyncio_mod: AsyncioModule
-    command_type: type[CommandType]
     fire_and_observe_fn: FireAndObserve
-    action_type_enum: type[ActionType]
-    superkey_machine_cls: type[SuperkeyMachine]
     evdev_mod: EvdevModule
     uinput_writer: UInputWriter
 
@@ -160,9 +150,7 @@ class EventProcessingDeps:
     evdev_mod: EvdevModule
     time_mod: TimeModule
     log: logging.Logger
-    combo_decision_cls: type[ComboDecision]
     classify_event_device_type_fn: ClassifyEventDeviceTypeFn
-    action_type_enum: type[ActionType]
     action_deps: ActionExecutionDeps
 
 

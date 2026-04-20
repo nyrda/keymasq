@@ -16,7 +16,7 @@ import pytest
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import ActionType, DeviceType, MappingAction, SuperkeyMode
 from keymasq.keymasqd import device_manager as dm
-from keymasq.keymasqd.combo_engine import ComboDecision, ComboInputEvent
+from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
 from keymasq.keymasqd.runtime import actions as adm
 from keymasq.keymasqd.runtime import combos as cdm
@@ -85,8 +85,6 @@ def _combo_runtime_deps(
 ) -> cdm.ComboRuntimeDeps:
     return cdm.ComboRuntimeDeps(
         asyncio_mod=dm.ASYNCIO_RUNTIME,
-        contextlib_mod=dm.contextlib,
-        time_mod=dm.time,
         evdev_mod=dm.runtime_adapters.COMBO_EVDEV_RUNTIME,
         uinput_writer=dm.runtime_adapters.identity_uinput_writer,
         emit_mouse_move_fn=dm.runtime_adapters.combo_emit_mouse_move,
@@ -117,8 +115,6 @@ async def _runtime_on_device_event(
         source,
         resolve_stable_path_fn=dm.resolve_stable_path,
         get_interface_id_fn=dm.get_interface_id,
-        combo_binding_cls=dm.RuntimeComboBinding,
-        combo_input_event_cls=ComboInputEvent,
         int_value_fn=dm._int_value,
         str_value_fn=dm._str_value,
         deps=_combo_runtime_deps(),
@@ -422,7 +418,6 @@ __all__ = [
     'SuperkeyMode',
     'dm',
     'ComboDecision',
-    'ComboInputEvent',
     'DesiredGrabConfig',
     'DeviceManager',
     'adm',

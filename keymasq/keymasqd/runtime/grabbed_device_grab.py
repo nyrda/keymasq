@@ -28,14 +28,13 @@ async def broadcast_grab_status(
     active_names: list[str],
     *,
     waited_s: float,
-    command_type: type[CommandType],
     log: logging.Logger,
 ) -> None:
     if device_runtime.broadcast_callback is None:
         return
     try:
         await device_runtime.broadcast_callback(
-            command_type.DEVICE_GRAB_STATUS,
+            CommandType.DEVICE_GRAB_STATUS,
             {
                 "hardware_id": device_runtime.hardware_id,
                 "path": device_runtime.path,
@@ -134,7 +133,6 @@ async def wait_for_active_keys_to_clear(
                     "ready",
                     [],
                     waited_s=now - started_at,
-                    command_type=CommandType,
                     log=log,
                 )
                 log.info(
@@ -158,7 +156,6 @@ async def wait_for_active_keys_to_clear(
                 "timed_out",
                 active_names,
                 waited_s=now - started_at,
-                command_type=CommandType,
                 log=log,
             )
             log.error(
@@ -177,7 +174,6 @@ async def wait_for_active_keys_to_clear(
                 "waiting",
                 active_names,
                 waited_s=now - started_at,
-                command_type=CommandType,
                 log=log,
             )
             log.warning(
@@ -193,7 +189,6 @@ async def wait_for_active_keys_to_clear(
                 "waiting",
                 active_names,
                 waited_s=now - started_at,
-                command_type=CommandType,
                 log=log,
             )
             log.info(
@@ -243,19 +238,17 @@ def seed_startup_held_actions(device_runtime: GrabbedDeviceRuntime) -> None:
             mapping,
         )
         device_runtime.state.held_source_actions[event_name] = action
-        reconcile_startup_held_action(device_runtime, action, action_type_enum=ActionType)
+        reconcile_startup_held_action(device_runtime, action)
 
 
 def reconcile_startup_held_action(
     device_runtime: GrabbedDeviceRuntime,
     action: MappingAction | None,
-    *,
-    action_type_enum: type[ActionType],
 ) -> None:
     if action is None or not action.target:
         return
 
-    if action.action_type == action_type_enum.KEYBOARD:
+    if action.action_type == ActionType.KEYBOARD:
         code = resolve_output_code(action.target)
         if code is not None:
             runtime_outputs.ensure_key_released(
@@ -265,7 +258,7 @@ def reconcile_startup_held_action(
             )
         return
 
-    if action.action_type == action_type_enum.MOUSE:
+    if action.action_type == ActionType.MOUSE:
         code = resolve_output_code(action.target)
         if code is not None:
             runtime_outputs.ensure_key_released(
@@ -275,7 +268,7 @@ def reconcile_startup_held_action(
             )
         return
 
-    if action.action_type == action_type_enum.GAMEPAD:
+    if action.action_type == ActionType.GAMEPAD:
         is_trigger, axis_code = get_trigger_axis(action.target)
         if is_trigger and axis_code is not None:
             runtime_outputs.ensure_trigger_released(

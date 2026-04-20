@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from typing import cast
 
 import evdev
@@ -12,7 +13,6 @@ from keymasq.keymasqd.runtime.grabbed_device_outputs import (
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     AsyncioModule,
-    ContextlibModule,
     EvdevModule,
     GrabbedDeviceRuntime,
     TaskFactory,
@@ -86,12 +86,11 @@ async def stop_rapidfire_async(
     event_name: str,
     *,
     asyncio_mod: AsyncioModule,
-    contextlib_mod: ContextlibModule,
 ) -> None:
     task = device_runtime.state.rapidfire_tasks.get(event_name)
     stop_rapidfire(device_runtime, event_name)
     if task is not None and not task.done():
-        with contextlib_mod.suppress(asyncio.CancelledError):
+        with contextlib.suppress(asyncio.CancelledError):
             await task
 
 

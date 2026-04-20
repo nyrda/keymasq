@@ -117,13 +117,12 @@ def dispatch_action_trigger(
     data: JsonObject | None,
     *,
     fire_and_observe_fn: FireAndObserve,
-    command_type: type[CommandType],
     label: str,
 ) -> bool:
     if broadcast_callback is None or data is None:
         return False
     fire_and_observe_fn(
-        broadcast_callback(command_type.ACTION_TRIGGER, data),
+        broadcast_callback(CommandType.ACTION_TRIGGER, data),
         label,
     )
     return True

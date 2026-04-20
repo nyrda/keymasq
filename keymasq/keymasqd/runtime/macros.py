@@ -1,7 +1,12 @@
+import contextlib
 import logging
+import random
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+from keymasq.common.ipc import CommandType
 
 type JsonObject = dict[str, object]
 type IntValueFn = Callable[[object, int], int]
@@ -12,12 +17,8 @@ type _MacroManager = Any
 @dataclass(frozen=True)
 class MacroRuntimeDeps:
     asyncio_mod: Any
-    contextlib_mod: Any
     evdev_mod: Any
     uinput_writer: Any
-    random_mod: Any
-    uuid_mod: Any
-    command_type: Any
     log: logging.Logger
     int_value_fn: IntValueFn
     str_value_fn: StrValueFn
@@ -207,7 +208,7 @@ async def cancel_macro_instances(
         task.cancel()
 
     if tasks:
-        with deps.contextlib_mod.suppress(Exception):
+        with contextlib.suppress(Exception):
             await asyncio_mod.wait_for(
                 asyncio_mod.gather(*tasks, return_exceptions=True),
                 timeout=1.0,
@@ -531,7 +532,7 @@ async def run_macro_control_action(
     if action_type == "wait_random":
         min_ms = max(0, int_value_fn(ev.get("min_ms"), 0))
         max_ms = max(min_ms, int_value_fn(ev.get("max_ms"), min_ms))
-        sampled_ms = deps.random_mod.randint(min_ms, max_ms)
+        sampled_ms = random.randint(min_ms, max_ms)
         scaled = sampled_ms / max(speed, 0.01)
         if scaled > 0:
             loop = asyncio_mod.get_running_loop()
@@ -546,7 +547,7 @@ async def run_macro_control_action(
             return 0.0
         if manager.broadcast_callback:
             await manager.broadcast_callback(
-                deps.command_type.ACTION_TRIGGER,
+                CommandType.ACTION_TRIGGER,
                 {
                     "action_type": "exec",
                     "cmd": command,
@@ -571,21 +572,21 @@ async def run_macro_control_action(
                 deps=deps,
             )
 
-        wait_id = deps.uuid_mod.uuid4().hex
+        wait_id = uuid.uuid4().hex
         try:
             waiter = loop.create_future()
             manager.macro_state.exec_waiters[wait_id] = waiter
 
             if manager.broadcast_callback:
                 await manager.broadcast_callback(
-                    deps.command_type.ACTION_TRIGGER,
+                    CommandType.ACTION_TRIGGER,
                     {
                         "action_type": "exec",
                         "cmd": command,
                         "macro_exec_wait_id": wait_id,
                     },
                 )
-                with deps.contextlib_mod.suppress(asyncio_mod.TimeoutError):
+                with contextlib.suppress(asyncio_mod.TimeoutError):
                     await asyncio_mod.wait_for(waiter, timeout=max(0.1, timeout_ms / 1000.0))
         finally:
             manager.macro_state.exec_waiters.pop(wait_id, None)

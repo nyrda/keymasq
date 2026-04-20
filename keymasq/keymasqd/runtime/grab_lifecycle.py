@@ -1,7 +1,5 @@
 import asyncio
-import contextlib
 import logging
-import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
 
@@ -9,7 +7,7 @@ import evdev
 
 from keymasq.common.devices import resolve_evdev_event_type
 from keymasq.common.models import DeviceType, MappingAction
-from keymasq.keymasqd.combo_engine import ComboDecision, ComboInputEvent, RuntimeComboBinding
+from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.output_helpers import get_trigger_axis, resolve_output_code
 from keymasq.keymasqd.runtime import actions as runtime_actions
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
@@ -57,8 +55,6 @@ def _combo_runtime_deps(
 ) -> runtime_combos.ComboRuntimeDeps:
     return runtime_combos.ComboRuntimeDeps(
         asyncio_mod=ASYNCIO_RUNTIME,
-        contextlib_mod=contextlib,
-        time_mod=time,
         evdev_mod=COMBO_EVDEV_RUNTIME,
         uinput_writer=runtime_adapters.identity_uinput_writer,
         emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
@@ -172,8 +168,6 @@ async def grab_device_unlocked(
             source,
             resolve_stable_path_fn=resolve_stable_path_fn,
             get_interface_id_fn=get_interface_id_fn,
-            combo_binding_cls=RuntimeComboBinding,
-            combo_input_event_cls=ComboInputEvent,
             int_value_fn=int_value_fn,
             str_value_fn=str_value_fn,
             deps=_combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),

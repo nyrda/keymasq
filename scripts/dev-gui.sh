@@ -13,6 +13,9 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
   exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
 fi
 
+source "${REPO_ROOT}/scripts/dev-shell-env.sh"
+normalize_dev_shell_for_pkexec
+
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 unset GTK_THEME
 

@@ -1,7 +1,6 @@
 # Keymasq
 
 [![Tests](https://github.com/nyrda/keymasq/actions/workflows/tests.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/tests.yml)
-[![Quality](https://github.com/nyrda/keymasq/actions/workflows/quality.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/quality.yml)
 [![Package](https://github.com/nyrda/keymasq/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/package.yml)
 
 Remap keys, buttons, and gamepad inputs on Linux—with per-app profiles,

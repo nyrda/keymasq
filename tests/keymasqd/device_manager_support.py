@@ -16,7 +16,7 @@ import pytest
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import ActionType, DeviceType, MappingAction, SuperkeyMode
 from keymasq.keymasqd import device_manager as dm
-from keymasq.keymasqd.combo_engine import ComboDecision, ComboInputEvent
+from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
 from keymasq.keymasqd.runtime import actions as adm
 from keymasq.keymasqd.runtime import combos as cdm
@@ -78,6 +78,22 @@ def _make_grabbed_device(
     )
 
 
+def _combo_runtime_deps(
+    *,
+    resolve_code_fn: cdm.ResolveCodeFn = dm.resolve_output_code,
+    fire_and_observe_fn: cdm.FireAndObserve = dm._fire_and_observe,
+) -> cdm.ComboRuntimeDeps:
+    return cdm.ComboRuntimeDeps(
+        asyncio_mod=dm.ASYNCIO_RUNTIME,
+        evdev_mod=dm.runtime_adapters.COMBO_EVDEV_RUNTIME,
+        uinput_writer=dm.runtime_adapters.identity_uinput_writer,
+        emit_mouse_move_fn=dm.runtime_adapters.combo_emit_mouse_move,
+        get_trigger_axis_fn=dm.get_trigger_axis,
+        resolve_code_fn=resolve_code_fn,
+        fire_and_observe_fn=fire_and_observe_fn,
+    )
+
+
 async def _runtime_on_device_event(
     manager: DeviceManager,
     hardware_id: str,
@@ -99,40 +115,16 @@ async def _runtime_on_device_event(
         source,
         resolve_stable_path_fn=dm.resolve_stable_path,
         get_interface_id_fn=dm.get_interface_id,
-        combo_binding_cls=dm.RuntimeComboBinding,
-        combo_input_event_cls=ComboInputEvent,
         int_value_fn=dm._int_value,
         str_value_fn=dm._str_value,
-        time_mod=dm.time,
-        action_type_enum=dm.ActionType,
-        mapping_action_cls=dm.MappingAction,
-        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
-        get_trigger_axis_fn=dm.get_trigger_axis,
-        resolve_code_fn=dm.resolve_output_code,
-        fire_and_observe_fn=dm._fire_and_observe,
-        command_type=dm.CommandType,
-        asyncio_mod=dm._combo_asyncio_runtime(),
-        contextlib_mod=dm.contextlib,
-        evdev_mod=dm._combo_evdev_runtime(),
-        uinput_writer=dm._combo_uinput_writer(),
+        deps=_combo_runtime_deps(),
     )
 
 
 async def _runtime_clear_combo_runtime(manager: DeviceManager) -> None:
     await cdm.clear_combo_runtime(
         manager,
-        asyncio_mod=dm._combo_asyncio_runtime(),
-        contextlib_mod=dm.contextlib,
-        mapping_action_cls=dm.MappingAction,
-        evdev_mod=dm._combo_evdev_runtime(),
-        uinput_writer=dm._combo_uinput_writer(),
-        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
-        get_trigger_axis_fn=dm.get_trigger_axis,
-        resolve_code_fn=dm.resolve_output_code,
-        fire_and_observe_fn=dm._fire_and_observe,
-        command_type=dm.CommandType,
-        action_type_enum=dm.ActionType,
-        time_mod=dm.time,
+        deps=_combo_runtime_deps(),
     )
 
 
@@ -143,36 +135,14 @@ async def _runtime_clear_combo_scope(
         manager,
         hardware_id,
         source,
-        asyncio_mod=dm._combo_asyncio_runtime(),
-        contextlib_mod=dm.contextlib,
-        mapping_action_cls=dm.MappingAction,
-        evdev_mod=dm._combo_evdev_runtime(),
-        uinput_writer=dm._combo_uinput_writer(),
-        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
-        get_trigger_axis_fn=dm.get_trigger_axis,
-        resolve_code_fn=dm.resolve_output_code,
-        fire_and_observe_fn=dm._fire_and_observe,
-        command_type=dm.CommandType,
-        action_type_enum=dm.ActionType,
-        time_mod=dm.time,
+        deps=_combo_runtime_deps(),
     )
 
 
 def _runtime_refresh_combo_watchdog(manager: DeviceManager) -> None:
     cdm.refresh_combo_timeout_watchdog(
         manager,
-        asyncio_mod=dm._combo_asyncio_runtime(),
-        time_mod=dm.time,
-        action_type_enum=dm.ActionType,
-        mapping_action_cls=dm.MappingAction,
-        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
-        get_trigger_axis_fn=dm.get_trigger_axis,
-        resolve_code_fn=dm.resolve_output_code,
-        fire_and_observe_fn=dm._fire_and_observe,
-        command_type=dm.CommandType,
-        contextlib_mod=dm.contextlib,
-        evdev_mod=dm._combo_evdev_runtime(),
-        uinput_writer=dm._combo_uinput_writer(),
+        deps=_combo_runtime_deps(),
     )
 
 
@@ -180,18 +150,7 @@ async def _runtime_combo_timeout_watchdog(manager: DeviceManager, deadline: floa
     await cdm.combo_timeout_watchdog(
         manager,
         deadline,
-        asyncio_mod=dm._combo_asyncio_runtime(),
-        time_mod=dm.time,
-        action_type_enum=dm.ActionType,
-        mapping_action_cls=dm.MappingAction,
-        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
-        get_trigger_axis_fn=dm.get_trigger_axis,
-        resolve_code_fn=dm.resolve_output_code,
-        fire_and_observe_fn=dm._fire_and_observe,
-        command_type=dm.CommandType,
-        contextlib_mod=dm.contextlib,
-        evdev_mod=dm._combo_evdev_runtime(),
-        uinput_writer=dm._combo_uinput_writer(),
+        deps=_combo_runtime_deps(),
     )
 
 
@@ -202,13 +161,7 @@ async def _runtime_run_macro_control_action(
         manager,
         ev,
         speed,
-        asyncio_mod=dm._macro_asyncio_runtime(),
-        contextlib_mod=dm.contextlib,
-        random_mod=dm.random,
-        uuid_mod=dm.uuid,
-        command_type=dm._macro_command_type(),
-        str_value_fn=dm._str_value,
-        int_value_fn=dm._int_value,
+        deps=dm._macro_runtime_deps(),
     )
 
 
@@ -216,12 +169,7 @@ async def _runtime_process_grabbed_event(device: GrabbedDevice, event: evdev.Inp
     await gde.process_event(
         device,
         event,
-        evdev_mod=evdev,
-        time_mod=gde.time,
-        log=gdm.log,
-        combo_decision_cls=ComboDecision,
-        classify_event_device_type_fn=gde.classify_event_device_type,
-        action_type_enum=ActionType,
+        deps=gde.build_event_processing_deps(log=gdm.log),
     )
 
 
@@ -236,13 +184,7 @@ async def _runtime_execute_grabbed_action(
         action,
         event,
         event_name,
-        asyncio_mod=gdm.ASYNCIO_RUNTIME,
-        command_type=dm.CommandType,
-        fire_and_observe_fn=gde._fire_and_observe,
-        action_type_enum=ActionType,
-        superkey_machine_cls=gda.SuperkeyMachine,
-        evdev_mod=evdev,
-        uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+        deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
     )
 
 
@@ -294,7 +236,7 @@ def _runtime_write_grabbed_key(
         code,
         value,
         evdev_mod=evdev,
-        uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+        uinput_writer=gdt.identity_uinput_writer,
     )
 
 
@@ -328,7 +270,7 @@ async def _runtime_tap_grabbed_trigger(
         event_name,
         asyncio_mod=gdm.ASYNCIO_RUNTIME,
         evdev_mod=evdev,
-        uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+        uinput_writer=gdt.identity_uinput_writer,
     )
 
 
@@ -343,16 +285,9 @@ async def _runtime_tap_grabbed_move(
 
 async def _runtime_topology_watch_loop(manager: DeviceManager) -> None:
     await tdm.topology_watch_loop(
-        dm._topology_manager(manager),
-        asyncio_mod=dm._topology_asyncio_runtime(),
-        cancelled_error=asyncio.CancelledError,
+        manager,
         log=dm.log,
-        live_interface_info_cls=dm._topology_live_interface_info_factory(),
-        clear_device_path_cache_fn=dm.clear_device_path_cache,
-        device_paths_fn=dm._device_paths,
-        device_input_fn=dm._topology_device_input_fn(),
-        resolve_stable_path_fn=dm.resolve_stable_path,
-        get_interface_id_fn=dm.get_interface_id,
+        deps=dm._topology_runtime_deps(),
     )
 
 
@@ -361,11 +296,10 @@ def _runtime_schedule_topology_reconcile(
     snapshot: dict[str, dm.LiveInterfaceInfo],
 ) -> None:
     tdm.schedule_topology_reconcile(
-        dm._topology_manager(manager),
+        manager,
         snapshot,
-        asyncio_mod=dm._topology_asyncio_runtime(),
-        cancelled_error=asyncio.CancelledError,
         log=dm.log,
+        deps=dm._topology_runtime_deps(),
     )
 
 
@@ -453,15 +387,7 @@ async def _runtime_start_combo_action(
         action,
         binding,
         trigger_bindings or (binding,),
-        action_type_enum=dm.ActionType,
-        asyncio_mod=dm._combo_asyncio_runtime(),
-        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
-        get_trigger_axis_fn=dm.get_trigger_axis,
-        resolve_code_fn=resolve_code_fn,
-        fire_and_observe_fn=dm._fire_and_observe,
-        command_type=dm.CommandType,
-        evdev_mod=dm._combo_evdev_runtime(),
-        uinput_writer=dm._combo_uinput_writer(),
+        deps=_combo_runtime_deps(resolve_code_fn=cast(cdm.ResolveCodeFn, resolve_code_fn)),
     )
 
 
@@ -469,17 +395,7 @@ async def _runtime_stop_combo_action(manager: DeviceManager, combo_id: str) -> N
     await cdm.stop_combo_action(
         manager,
         combo_id,
-        asyncio_mod=dm._combo_asyncio_runtime(),
-        contextlib_mod=dm.contextlib,
-        mapping_action_cls=dm.MappingAction,
-        evdev_mod=dm._combo_evdev_runtime(),
-        uinput_writer=dm._combo_uinput_writer(),
-        emit_mouse_move_fn=dm._combo_emit_mouse_move_fn(),
-        get_trigger_axis_fn=dm.get_trigger_axis,
-        resolve_code_fn=dm.resolve_output_code,
-        fire_and_observe_fn=dm._fire_and_observe,
-        command_type=dm.CommandType,
-        action_type_enum=dm.ActionType,
+        deps=_combo_runtime_deps(),
     )
 
 __all__ = [
@@ -502,7 +418,6 @@ __all__ = [
     'SuperkeyMode',
     'dm',
     'ComboDecision',
-    'ComboInputEvent',
     'DesiredGrabConfig',
     'DeviceManager',
     'adm',

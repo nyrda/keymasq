@@ -1,8 +1,8 @@
 import asyncio
-import contextlib
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Final, Protocol, TypeVar
+from typing import Final, Protocol, TypeVar, cast
 
 import evdev
 
@@ -65,6 +65,8 @@ class WritableUInput(Protocol):
 
 type UInputWriter = Callable[[object | None], WritableUInput | None]
 type TaskFactory = Callable[[], asyncio.Task[None]]
+type RelativePulseEmitter = Callable[[], None]
+type RelativePulseActive = Callable[[], bool]
 
 
 class ErrnoModule(Protocol):
@@ -106,12 +108,6 @@ class AsyncioModule(Protocol):
     ) -> Awaitable[_T]: ...
 
 
-class ContextlibModule(Protocol):
-    def suppress(
-        self, *exceptions: type[BaseException]
-    ) -> contextlib.AbstractContextManager[None]: ...
-
-
 class TimeModule(Protocol):
     def monotonic(self) -> float: ...
 
@@ -135,6 +131,27 @@ class EvdevModule(Protocol):
 
 
 type ClassifyEventDeviceTypeFn = Callable[[evdev.InputEvent, list[str]], str]
+
+
+def identity_uinput_writer(device: object | None) -> WritableUInput | None:
+    return cast(WritableUInput | None, device)
+
+
+@dataclass(frozen=True)
+class ActionExecutionDeps:
+    asyncio_mod: AsyncioModule
+    fire_and_observe_fn: FireAndObserve
+    evdev_mod: EvdevModule
+    uinput_writer: UInputWriter
+
+
+@dataclass(frozen=True)
+class EventProcessingDeps:
+    evdev_mod: EvdevModule
+    time_mod: TimeModule
+    log: logging.Logger
+    classify_event_device_type_fn: ClassifyEventDeviceTypeFn
+    action_deps: ActionExecutionDeps
 
 
 @dataclass

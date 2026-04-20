@@ -52,16 +52,7 @@ async def _play_macro_task(manager: DeviceManager, **kwargs: object) -> None:
         start_x=int(kwargs["start_x"]),
         start_y=int(kwargs["start_y"]),
         block_mouse_movement=bool(kwargs["block_mouse_movement"]),
-        asyncio_mod=dm._macro_asyncio_runtime(),
-        evdev_mod=dm.evdev,
-        log=dm.log,
-        int_value_fn=dm._int_value,
-        str_value_fn=dm._str_value,
-        uinput_writer=dm._macro_uinput_writer(),
-        contextlib_mod=dm.contextlib,
-        random_mod=dm.random,
-        uuid_mod=dm.uuid,
-        command_type=dm._macro_command_type(),
+        deps=dm._macro_runtime_deps(),
     )
 
 
@@ -69,12 +60,7 @@ async def _process_grabbed_event(device: GrabbedDevice, event: evdev.InputEvent)
     await gde.process_event(
         device,
         event,
-        evdev_mod=evdev,
-        time_mod=gde.time,
-        log=gdm.log,
-        combo_decision_cls=ComboDecision,
-        classify_event_device_type_fn=gde.classify_event_device_type,
-        action_type_enum=ActionType,
+        deps=gde.build_event_processing_deps(log=gdm.log),
     )
 
 __all__ = [

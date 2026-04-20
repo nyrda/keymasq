@@ -416,9 +416,8 @@ class TestListDevices:
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
-            asyncio_mod=dm._topology_asyncio_runtime(),
-            cancelled_error=asyncio.CancelledError,
             log=dm.log,
+            deps=dm._topology_runtime_deps(),
         )
 
     @pytest.mark.asyncio
@@ -467,9 +466,8 @@ class TestListDevices:
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
-            asyncio_mod=dm._topology_asyncio_runtime(),
-            cancelled_error=asyncio.CancelledError,
             log=dm.log,
+            deps=dm._topology_runtime_deps(),
         )
 
 
@@ -516,7 +514,7 @@ class TestMacroControlActions:
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
-        monkeypatch.setattr(dm.random, "randint", lambda _minimum, _maximum: 50)
+        monkeypatch.setattr(mdm.random, "randint", lambda _minimum, _maximum: 50)
 
         result = await _runtime_run_macro_control_action(
             manager,

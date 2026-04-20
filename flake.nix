@@ -316,6 +316,7 @@
               pkgs.libadwaita
               pkgs.librsvg
               pkgs.adwaita-icon-theme
+              pkgs.basedpyright
               pkgs.hicolor-icon-theme
               pkgs.xorgserver
             ];

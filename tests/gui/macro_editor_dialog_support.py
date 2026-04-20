@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 import evdev  # noqa: E402
 
 from keymasq.common.models import ActionType  # noqa: E402
+from keymasq.gui.widgets.macro_editor_dialog import EditableControl  # noqa: E402
 from keymasq.gui.widgets.macro_editor_dialog import EditableEvent  # noqa: E402
 from keymasq.gui.widgets.macro_editor_dialog import EditableMove  # noqa: E402
 from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog  # noqa: E402
@@ -57,6 +58,7 @@ __all__ = [
     'sys',
     'evdev',
     'ActionType',
+    'EditableControl',
     'EditableEvent',
     'EditableMove',
     'MacroEditorDialog',

@@ -828,7 +828,9 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
     assert results[0].move_y == 480
 
     error_dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    error_dialog._on_capture_position_clicked(Gtk.Button())
     error_dialog._on_capture_position_response(
+        error_dialog._capture_request_id,
         {"status": "error", "message": "Unknown command: get_cursor_position"}
     )
 
@@ -836,6 +838,60 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
         error_dialog.mouse_move_capture_status.get_text()
         == "Please restart Keymasq Session, then try again"
     )
+
+
+def test_key_selector_dialog_repeated_delayed_capture_ignores_stale_response(monkeypatch):
+    from collections.abc import Callable
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    callbacks: list[Callable[[], bool]] = []
+    requests: list[Callable[[dict[str, object]], bool | None]] = []
+
+    class _SlurpCapture:
+        available = False
+
+        def set_compositor(self, compositor: str) -> None:
+            return None
+
+    def fake_timeout_add(_delay, callback):
+        callbacks.append(callback)
+        return len(callbacks)
+
+    def fake_source_remove(_source_id):
+        return None
+
+    def fake_session_request_async(payload, callback, timeout=5.0):
+        assert payload == {"command": "get_cursor_position"}
+        requests.append(callback)
+
+    monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
+    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+    monkeypatch.setattr(dialog_module.GLib, "timeout_add", fake_timeout_add)
+    monkeypatch.setattr(dialog_module.GLib, "source_remove", fake_source_remove)
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog.mouse_move_abs_check.set_active(True)
+    dialog._on_mouse_move_mode_changed(dialog.mouse_move_abs_check)
+
+    dialog._on_capture_position_clicked(Gtk.Button())
+    timer1 = callbacks.pop(0)
+    assert timer1() is False
+    stale_response = requests.pop(0)
+
+    dialog._on_capture_position_clicked(Gtk.Button())
+    timer2 = callbacks.pop(0)
+    stale_response({"status": "ok", "x": 100, "y": 200})
+
+    assert timer2() is False
+    fresh_response = requests.pop(0)
+    fresh_response({"status": "ok", "x": 300, "y": 400})
+
+    assert dialog.mouse_move_x_spin.get_value_as_int() == 300
+    assert dialog.mouse_move_y_spin.get_value_as_int() == 400
 
 
 def test_shared_navigation_picker_builds_dropdown():

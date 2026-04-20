@@ -1,4 +1,8 @@
 # ruff: noqa: F403, F405, I001
+from collections.abc import Callable
+
+from keymasq.gui.widgets.macro_editor_dialog import EditableControl
+
 from tests.gui.macro_editor_dialog_support import *
 
 def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> None:
@@ -128,6 +132,8 @@ def test_macro_editor_gap_note_controls_shift_timeline(monkeypatch) -> None:
     dialog._timeline._selected = gap
 
     dialog._on_selection_changed(gap)
+    assert dialog._prop_title.get_label() == "Wait"
+    assert dialog._move_x_label.get_label() == "Wait (ms):"
     dialog._move_x_spin.set_value(150)
     dialog._on_move_x_changed(dialog._move_x_spin)
 
@@ -143,6 +149,97 @@ def test_macro_editor_gap_note_controls_shift_timeline(monkeypatch) -> None:
     dialog._on_gap_scope_changed(dialog._gap_scope_combo)
 
     assert gap.scope == "keyboard"
+
+
+def test_macro_editor_abs_move_capture_updates_selected_move(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
+    move = EditableMove(mode="abs", t_us=5000, x=10, y=20)
+    dialog._synthetic_moves = [move]
+    dialog._timeline._selected = move
+
+    dialog._on_selection_changed(move)
+    assert dialog._move_capture_row.get_visible() is True
+
+    dialog._on_capture_selected_move_clicked(dialog._move_capture_btn)
+    assert dialog._test_slurp.capture_callback is not None
+
+    class _Result:
+        def __init__(self, x: int, y: int) -> None:
+            self.x = x
+            self.y = y
+
+    dialog._test_slurp.capture_callback(_Result(640, 480))
+
+    assert move.x == 640
+    assert move.y == 480
+    assert dialog._move_x_spin.get_value_as_int() == 640
+    assert dialog._move_y_spin.get_value_as_int() == 480
+    assert dialog._move_capture_status.get_text() == "Captured: 640, 480"
+
+
+def test_macro_editor_repeated_abs_move_capture_updates_every_run(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
+    move = EditableMove(mode="abs", t_us=5000, x=10, y=20)
+    dialog._synthetic_moves = [move]
+    dialog._timeline._selected = move
+    dialog._on_selection_changed(move)
+
+    class _Result:
+        def __init__(self, x: int, y: int) -> None:
+            self.x = x
+            self.y = y
+
+    for x, y in ((100, 200), (300, 400), (500, 600)):
+        dialog._on_capture_selected_move_clicked(dialog._move_capture_btn)
+        assert dialog._test_slurp.capture_callback is not None
+        dialog._test_slurp.capture_callback(_Result(x, y))
+        assert dialog._move_x_spin.get_value_as_int() == x
+        assert dialog._move_y_spin.get_value_as_int() == y
+
+
+def test_set_entry_text_if_needed_skips_redundant_updates() -> None:
+    class _FakeEntry:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.set_calls: list[str] = []
+
+        def get_text(self) -> str:
+            return self.text
+
+        def set_text(self, text: str) -> None:
+            self.text = text
+            self.set_calls.append(text)
+
+    entry = _FakeEntry("echo hi")
+
+    macro_editor_dialog_module._set_entry_text_if_needed(entry, "echo hi")
+    assert entry.set_calls == []
+
+    macro_editor_dialog_module._set_entry_text_if_needed(entry, "echo bye")
+    assert entry.set_calls == ["echo bye"]
+
+
+def test_macro_editor_exec_command_edit_does_not_refresh_control_panel(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+
+    for mode, command_text in (("exec_sync", "echo hi"), ("exec_async", "printf 'x'")):
+        control = EditableControl(mode=mode, t_us=5000, command="")
+        dialog._control_events = [control]
+        dialog._timeline._selected = control
+        dialog._on_selection_changed(control)
+
+        def fail_refresh(_control: EditableControl) -> None:
+            raise AssertionError("command typing should not trigger full control refresh")
+
+        original_refresh = dialog._refresh_after_control_change
+        dialog._refresh_after_control_change = fail_refresh  # type: ignore[method-assign]
+        try:
+            dialog._control_cmd_entry.set_text(command_text)
+        finally:
+            dialog._refresh_after_control_change = original_refresh  # type: ignore[method-assign]
+
+        assert control.command == command_text
+        assert dialog._control_cmd_entry.get_text() == command_text
 
 
 def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> None:
@@ -164,7 +261,9 @@ def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> N
             self.x = x
             self.y = y
 
-    dialog._on_slurp_capture_result(_Result(640, 480))
+    dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
+    assert dialog._test_slurp.capture_callback is not None
+    dialog._test_slurp.capture_callback(_Result(640, 480))
 
     assert dialog._macro_loop_mode == "count"
     assert dialog._macro_loop_count == 4
@@ -176,6 +275,7 @@ def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> N
     assert dialog._macro_capture_status.get_text() == "Captured: 640, 480"
 
     dialog._on_capture_start_position_response(
+        dialog._capture_request_id,
         {"status": "error", "message": "Unknown command: get_cursor_position"}
     )
 
@@ -183,6 +283,118 @@ def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> N
         dialog._macro_capture_status.get_text()
         == "Please restart Keymasq Session, then try again"
     )
+
+
+def test_macro_editor_repeated_start_capture_updates_every_run(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
+    dialog._macro_move_to_start_check.set_active(True)
+    dialog._on_macro_move_to_start_toggled(dialog._macro_move_to_start_check)
+
+    class _Result:
+        def __init__(self, x: int, y: int) -> None:
+            self.x = x
+            self.y = y
+
+    for x, y in ((100, 200), (300, 400), (500, 600)):
+        dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
+        assert dialog._test_slurp.capture_callback is not None
+        dialog._test_slurp.capture_callback(_Result(x, y))
+        assert dialog._macro_start_x_spin.get_value_as_int() == x
+        assert dialog._macro_start_y_spin.get_value_as_int() == y
+
+
+def test_macro_editor_delayed_start_capture_ignores_stale_response(monkeypatch) -> None:
+    callbacks: list[Callable[[], bool]] = []
+    requests: list[Callable[[dict[str, object]], bool | None]] = []
+
+    def fake_timeout_add(_delay, callback):
+        callbacks.append(callback)
+        return len(callbacks)
+
+    def fake_source_remove(_source_id):
+        return None
+
+    def fake_session_request_async(payload, callback, timeout=5.0):
+        assert payload == {"command": "get_cursor_position"}
+        requests.append(callback)
+
+    monkeypatch.setattr(macro_editor_dialog_module.GLib, "timeout_add", fake_timeout_add)
+    monkeypatch.setattr(macro_editor_dialog_module.GLib, "source_remove", fake_source_remove)
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    dialog = _build_macro_dialog(monkeypatch, slurp_available=False)
+    dialog._macro_move_to_start_check.set_active(True)
+    dialog._on_macro_move_to_start_toggled(dialog._macro_move_to_start_check)
+
+    dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
+    timer1 = callbacks.pop(0)
+    assert timer1() is False
+    assert len(requests) == 1
+    stale_response = requests.pop(0)
+
+    dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
+    timer2 = callbacks.pop(0)
+    stale_response({"status": "ok", "x": 100, "y": 200})
+
+    assert timer2() is False
+    assert len(requests) == 1
+    fresh_response = requests.pop(0)
+    fresh_response({"status": "ok", "x": 300, "y": 400})
+
+    assert dialog._macro_start_x_spin.get_value_as_int() == 300
+    assert dialog._macro_start_y_spin.get_value_as_int() == 400
+
+
+def test_macro_editor_delayed_abs_move_capture_ignores_stale_response(monkeypatch) -> None:
+    callbacks: list[Callable[[], bool]] = []
+    requests: list[Callable[[dict[str, object]], bool | None]] = []
+
+    def fake_timeout_add(_delay, callback):
+        callbacks.append(callback)
+        return len(callbacks)
+
+    def fake_source_remove(_source_id):
+        return None
+
+    def fake_session_request_async(payload, callback, timeout=5.0):
+        assert payload == {"command": "get_cursor_position"}
+        requests.append(callback)
+
+    monkeypatch.setattr(macro_editor_dialog_module.GLib, "timeout_add", fake_timeout_add)
+    monkeypatch.setattr(macro_editor_dialog_module.GLib, "source_remove", fake_source_remove)
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    dialog = _build_macro_dialog(monkeypatch, slurp_available=False)
+    move = EditableMove(mode="abs", t_us=5000, x=10, y=20)
+    dialog._synthetic_moves = [move]
+    dialog._timeline._selected = move
+    dialog._on_selection_changed(move)
+
+    dialog._on_capture_selected_move_clicked(dialog._move_capture_btn)
+    timer1 = callbacks.pop(0)
+    assert timer1() is False
+    assert len(requests) == 1
+    stale_response = requests.pop(0)
+
+    dialog._on_capture_selected_move_clicked(dialog._move_capture_btn)
+    timer2 = callbacks.pop(0)
+    stale_response({"status": "ok", "x": 100, "y": 200})
+
+    assert timer2() is False
+    assert len(requests) == 1
+    fresh_response = requests.pop(0)
+    fresh_response({"status": "ok", "x": 300, "y": 400})
+
+    assert dialog._move_x_spin.get_value_as_int() == 300
+    assert dialog._move_y_spin.get_value_as_int() == 400
 
 
 def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:

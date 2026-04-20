@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 on:
   push:
@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: tests-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  pytest:
+  checks:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -38,5 +38,11 @@ jobs:
             apt-get install -y xvfb
           fi
 
-      - name: Run pytest
-        run: xvfb-run -a nix develop -c bash -lc 'pytest tests -v'
+      - name: Run Ruff, BasedPyright, and pytest
+        run: |
+          xvfb-run -a nix develop -c bash -lc '
+            set -euo pipefail
+            ruff check keymasq tests
+            basedpyright
+            pytest tests -v
+          '

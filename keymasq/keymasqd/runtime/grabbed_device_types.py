@@ -1,13 +1,14 @@
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Final, Protocol, TypeVar
+from typing import Final, Protocol, TypeVar, cast
 
 import evdev
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import MappingAction
+from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.superkey_state import SuperkeyMachine
@@ -65,6 +66,8 @@ class WritableUInput(Protocol):
 
 type UInputWriter = Callable[[object | None], WritableUInput | None]
 type TaskFactory = Callable[[], asyncio.Task[None]]
+type RelativePulseEmitter = Callable[[], None]
+type RelativePulseActive = Callable[[], bool]
 
 
 class ErrnoModule(Protocol):
@@ -135,6 +138,32 @@ class EvdevModule(Protocol):
 
 
 type ClassifyEventDeviceTypeFn = Callable[[evdev.InputEvent, list[str]], str]
+
+
+def identity_uinput_writer(device: object | None) -> WritableUInput | None:
+    return cast(WritableUInput | None, device)
+
+
+@dataclass(frozen=True)
+class ActionExecutionDeps:
+    asyncio_mod: AsyncioModule
+    command_type: type[CommandType]
+    fire_and_observe_fn: FireAndObserve
+    action_type_enum: type[ActionType]
+    superkey_machine_cls: type[SuperkeyMachine]
+    evdev_mod: EvdevModule
+    uinput_writer: UInputWriter
+
+
+@dataclass(frozen=True)
+class EventProcessingDeps:
+    evdev_mod: EvdevModule
+    time_mod: TimeModule
+    log: logging.Logger
+    combo_decision_cls: type[ComboDecision]
+    classify_event_device_type_fn: ClassifyEventDeviceTypeFn
+    action_type_enum: type[ActionType]
+    action_deps: ActionExecutionDeps
 
 
 @dataclass

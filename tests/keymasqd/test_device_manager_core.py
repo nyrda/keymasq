@@ -416,9 +416,8 @@ class TestListDevices:
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
-            asyncio_mod=dm._topology_asyncio_runtime(),
-            cancelled_error=asyncio.CancelledError,
             log=dm.log,
+            deps=dm._topology_runtime_deps(),
         )
 
     @pytest.mark.asyncio
@@ -467,9 +466,8 @@ class TestListDevices:
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
-            asyncio_mod=dm._topology_asyncio_runtime(),
-            cancelled_error=asyncio.CancelledError,
             log=dm.log,
+            deps=dm._topology_runtime_deps(),
         )
 
 

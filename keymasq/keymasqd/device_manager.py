@@ -135,60 +135,34 @@ def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[objec
     return task
 
 
-def _topology_manager(
-    manager: "DeviceManager",
-) -> runtime_topology._TopologyManager:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_topology._TopologyManager, manager)  # pyright: ignore[reportPrivateUsage]
-
-
-def _topology_asyncio_runtime(
-) -> runtime_topology._AsyncioModule:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_topology._AsyncioModule, ASYNCIO_RUNTIME)  # pyright: ignore[reportPrivateUsage]
-
-
-def _topology_live_interface_info_factory(
-) -> runtime_topology._LiveInterfaceInfoFactory:  # pyright: ignore[reportPrivateUsage]
-    return cast(  # pyright: ignore[reportPrivateUsage]
-        runtime_topology._LiveInterfaceInfoFactory,  # pyright: ignore[reportPrivateUsage]
-        LiveInterfaceInfo,
+def _topology_runtime_deps() -> runtime_topology.TopologyRuntimeDeps:
+    return runtime_topology.TopologyRuntimeDeps(
+        asyncio_mod=ASYNCIO_RUNTIME,
+        cancelled_error=asyncio.CancelledError,
+        contextlib_mod=contextlib,
+        live_interface_info_cls=LiveInterfaceInfo,
+        clear_device_path_cache_fn=clear_device_path_cache,
+        device_paths_fn=_device_paths,
+        device_input_fn=_device_input,
+        resolve_stable_path_fn=resolve_stable_path,
+        get_interface_id_fn=get_interface_id,
+        release_interface_fn=runtime_grab_lifecycle.release_interface_unlocked,
     )
 
 
-def _topology_device_input_fn() -> runtime_topology.DeviceInputFn:
-    return _device_input
-
-
-def _macro_manager(
-    manager: "DeviceManager",
-) -> runtime_macros._MacroManager:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_macros._MacroManager, manager)  # pyright: ignore[reportPrivateUsage]
-
-
-def _macro_asyncio_runtime() -> runtime_macros._AsyncioModule:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_macros._AsyncioModule, ASYNCIO_RUNTIME)  # pyright: ignore[reportPrivateUsage]
-
-
-def _macro_uinput_writer_impl(
-    device: object | None,
-) -> runtime_macros._WritableUInput | None:  # pyright: ignore[reportPrivateUsage]
-    return cast(  # pyright: ignore[reportPrivateUsage]
-        runtime_macros._WritableUInput | None,  # pyright: ignore[reportPrivateUsage]
-        runtime_adapters.identity_uinput_writer(device),
+def _macro_runtime_deps() -> runtime_macros.MacroRuntimeDeps:
+    return runtime_macros.MacroRuntimeDeps(
+        asyncio_mod=ASYNCIO_RUNTIME,
+        contextlib_mod=contextlib,
+        evdev_mod=evdev,
+        uinput_writer=runtime_adapters.identity_uinput_writer,
+        random_mod=random,
+        uuid_mod=uuid,
+        command_type=CommandType,
+        log=log,
+        int_value_fn=_int_value,
+        str_value_fn=_str_value,
     )
-
-
-def _macro_uinput_writer() -> runtime_macros.UInputWriter:
-    return _macro_uinput_writer_impl
-
-
-def _macro_command_type() -> runtime_macros._CommandTypeEnum:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_macros._CommandTypeEnum, CommandType)  # pyright: ignore[reportPrivateUsage]
-
-
-def _combo_manager(
-    manager: "DeviceManager",
-) -> runtime_combos._ComboManager:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_combos._ComboManager, manager)  # pyright: ignore[reportPrivateUsage]
 
 
 def _combo_runtime_deps(
@@ -338,24 +312,15 @@ class DeviceManager:
 
     async def start_topology_watcher(self) -> None:
         await runtime_topology.start_topology_watcher(
-            _topology_manager(self),
-            asyncio_mod=_topology_asyncio_runtime(),
-            cancelled_error=asyncio.CancelledError,
+            self,
             log=log,
-            live_interface_info_cls=_topology_live_interface_info_factory(),
-            clear_device_path_cache_fn=clear_device_path_cache,
-            device_paths_fn=_device_paths,
-            device_input_fn=_topology_device_input_fn(),
-            resolve_stable_path_fn=resolve_stable_path,
-            get_interface_id_fn=get_interface_id,
+            deps=_topology_runtime_deps(),
         )
 
     async def stop_topology_watcher(self) -> None:
         await runtime_topology.stop_topology_watcher(
-            _topology_manager(self),
-            asyncio_mod=_topology_asyncio_runtime(),
-            cancelled_error=asyncio.CancelledError,
-            contextlib_mod=contextlib,
+            self,
+            deps=_topology_runtime_deps(),
         )
 
     async def grab_device(
@@ -519,16 +484,16 @@ class DeviceManager:
 
             self.active_combos = parsed
             await runtime_combos.clear_combo_runtime(
-                _combo_manager(self),
+                self,
                 deps=_combo_runtime_deps(),
             )
             self.combo_state.engine.set_combos(parsed)
             runtime_combos.prime_combo_engine_with_held_bindings(
-                _combo_manager(self),
+                self,
                 combo_binding_cls=RuntimeComboBinding,
             )
             runtime_combos.refresh_combo_timeout_watchdog(
-                _combo_manager(self),
+                self,
                 deps=_combo_runtime_deps(),
             )
             log.info("Updated combos (%d active)", len(parsed))
@@ -668,7 +633,7 @@ class DeviceManager:
         trigger_value: int = 1,
     ) -> JsonObject:
         return await runtime_macros.play_macro(
-            _macro_manager(self),
+            self,
             macro_events,
             macro_name,
             replay_mouse_movement,
@@ -683,16 +648,7 @@ class DeviceManager:
             source_device,
             source_button,
             trigger_value,
-            asyncio_mod=_macro_asyncio_runtime(),
-            contextlib_mod=contextlib,
-            evdev_mod=evdev,
-            log=log,
-            int_value_fn=_int_value,
-            str_value_fn=_str_value,
-            uinput_writer=_macro_uinput_writer(),
-            random_mod=random,
-            uuid_mod=uuid,
-            command_type=_macro_command_type(),
+            deps=_macro_runtime_deps(),
         )
 
     def set_cursor_position_backend(self, enabled: bool) -> JsonObject:
@@ -785,11 +741,8 @@ class DeviceManager:
 
     async def cancel_macro_playback(self) -> JsonObject:
         return await runtime_macros.cancel_macro_playback(
-            _macro_manager(self),
-            asyncio_mod=_macro_asyncio_runtime(),
-            evdev_mod=evdev,
-            contextlib_mod=contextlib,
-            uinput_writer=_macro_uinput_writer(),
+            self,
+            deps=_macro_runtime_deps(),
         )
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:
@@ -802,17 +755,17 @@ class DeviceManager:
         notify_event: asyncio.Event | None = None,
     ) -> JsonObject:
         return runtime_combos.begin_combo_capture(
-            _combo_manager(self),
+            self,
             token,
             hardware_ids,
             notify_event,
         )
 
     def read_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.read_combo_capture(_combo_manager(self), token)
+        return runtime_combos.read_combo_capture(self, token)
 
     def end_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.end_combo_capture(_combo_manager(self), token)
+        return runtime_combos.end_combo_capture(self, token)
 
 
 GrabbedDevice = runtime_grabbed_device.GrabbedDevice

@@ -4,7 +4,6 @@ import evdev
 import pytest
 
 from keymasq.common.models import ActionType, MappingAction
-from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import grabbed_device as gdm
 from keymasq.keymasqd.runtime import grabbed_device_events as gde
@@ -47,12 +46,7 @@ async def _process_event(device: GrabbedDevice, event: evdev.InputEvent) -> None
     await gde.process_event(
         device,
         event,
-        evdev_mod=evdev,
-        time_mod=gde.time,
-        log=gdm.log,
-        combo_decision_cls=ComboDecision,
-        classify_event_device_type_fn=gde.classify_event_device_type,
-        action_type_enum=ActionType,
+        deps=gde.build_event_processing_deps(log=gdm.log),
     )
 
 

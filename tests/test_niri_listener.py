@@ -122,6 +122,32 @@ def test_probe_available_checks_socket_connectivity(monkeypatch, tmp_path) -> No
 
 
 @pytest.mark.asyncio
+async def test_send_cmd_request_retries_after_eof(monkeypatch) -> None:
+    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        return
+
+    listener = NiriListener(_cb)
+    pairs = [
+        (_FakeReader([b""]), _FakeWriter()),
+        (_FakeReader([b'{"Ok":"Handled"}\n']), _FakeWriter()),
+    ]
+
+    async def fake_ensure() -> bool:
+        if listener._cmd_reader is None or listener._cmd_writer is None:
+            if not pairs:
+                return False
+            listener._cmd_reader, listener._cmd_writer = pairs.pop(0)  # type: ignore[assignment]
+        return True
+
+    monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
+
+    ok, body = await listener._send_cmd_request({"Action": {}}, timeout_s=0.5)
+
+    assert ok is True
+    assert body == "Handled"
+
+
+@pytest.mark.asyncio
 async def test_send_event_stream_request_writes_event_stream_request() -> None:
     async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
         return

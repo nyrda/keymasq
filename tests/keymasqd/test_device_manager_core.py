@@ -477,40 +477,55 @@ class TestMacroControlActions:
     @pytest.mark.asyncio
     async def test_run_macro_control_action_wait_fixed_uses_speed(self, monkeypatch):
         manager = DeviceManager()
-
+        clock = {"now": 10.0}
         sleep_calls: list[float] = []
+
+        class _FakeLoop:
+            def time(self) -> float:
+                return clock["now"]
 
         async def fake_sleep(duration: float) -> None:
             sleep_calls.append(duration)
+            clock["now"] += duration
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
 
-        await _runtime_run_macro_control_action(
+        result = await _runtime_run_macro_control_action(
             manager,
             {"macro_action": "wait_fixed", "duration_ms": 20},
             2.0,
         )
 
         assert sleep_calls == [0.01]
+        assert result == pytest.approx(0.01)
 
     @pytest.mark.asyncio
     async def test_run_macro_control_action_wait_random_uses_random_range(self, monkeypatch):
         manager = DeviceManager()
+        clock = {"now": 20.0}
         sleep_calls: list[float] = []
+
+        class _FakeLoop:
+            def time(self) -> float:
+                return clock["now"]
 
         async def fake_sleep(duration: float) -> None:
             sleep_calls.append(duration)
+            clock["now"] += duration
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
         monkeypatch.setattr(dm.random, "randint", lambda _minimum, _maximum: 50)
 
-        await _runtime_run_macro_control_action(
+        result = await _runtime_run_macro_control_action(
             manager,
             {"macro_action": "wait_random", "min_ms": 10, "max_ms": 80},
             10.0,
         )
 
         assert sleep_calls == [0.005]
+        assert result == pytest.approx(0.005)
 
     @pytest.mark.asyncio
     async def test_run_macro_control_action_exec_async_broadcasts(self):
@@ -523,7 +538,7 @@ class TestMacroControlActions:
 
         manager.broadcast_callback = cb
 
-        await _runtime_run_macro_control_action(
+        result = await _runtime_run_macro_control_action(
             manager,
             {
                 "macro_action": "exec_async",
@@ -537,10 +552,12 @@ class TestMacroControlActions:
         assert called_command == CommandType.ACTION_TRIGGER
         assert called_data["action_type"] == "exec"
         assert called_data["macro_exec_async"] is True
+        assert result == 0.0
 
     @pytest.mark.asyncio
     async def test_run_macro_control_action_exec_sync_wait_id_and_cleanup(self, monkeypatch):
         manager = DeviceManager()
+        clock = {"now": 30.0}
         callback = AsyncMock()
 
         async def cb(command, data):
@@ -549,19 +566,29 @@ class TestMacroControlActions:
         manager.broadcast_callback = cb
         begin_mouse_rel_suppression = Mock()
         end_mouse_rel_suppression = Mock()
+        real_loop = asyncio.get_running_loop()
+
+        class _FakeLoop:
+            def create_future(self) -> asyncio.Future[int]:
+                return real_loop.create_future()
+
+            def time(self) -> float:
+                return clock["now"]
 
         async def fake_sleep(duration: float) -> None:
             return None
 
         async def fake_wait_for(awaitable, timeout):
+            clock["now"] += 0.025
             raise TimeoutError
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
         monkeypatch.setattr(dm.asyncio, "wait_for", fake_wait_for)
         monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
         monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
 
-        await _runtime_run_macro_control_action(
+        result = await _runtime_run_macro_control_action(
             manager,
             {
                 "macro_action": "exec_sync",
@@ -577,6 +604,7 @@ class TestMacroControlActions:
         assert manager.macro_state.exec_waiters == {}
         callback.assert_awaited_once()
         assert callback.await_args.args[0] == CommandType.ACTION_TRIGGER
+        assert result == pytest.approx(0.025)
 
 
 class TestReleaseScheduling:

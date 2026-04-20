@@ -513,3 +513,59 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
     assert [call.args for call in manager.output_state.mouse_uinput.write.call_args_list] == [
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 123)
     ]
+
+
+@pytest.mark.asyncio
+async def test_play_macro_control_actions_shift_later_deadlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    clock = {"now": 100.0}
+    sleep_calls: list[float] = []
+
+    class _FakeLoop:
+        def time(self) -> float:
+            return clock["now"]
+
+    async def fake_sleep(duration: float) -> None:
+        sleep_calls.append(duration)
+        clock["now"] += duration
+
+    async def fake_run_macro_control_action(*args, **kwargs) -> float:
+        return 0.2
+
+    monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
+    monkeypatch.setattr(mdm, "run_macro_control_action", fake_run_macro_control_action)
+
+    await _play_macro_task(
+        manager,
+        instance_id=1,
+        macro_events=[
+            {
+                "t_us": 0,
+                "macro_action": "wait_fixed",
+                "duration_ms": 1,
+            },
+            {
+                "t_us": 100_000,
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.KEY_A,
+                "value": 0,
+                "device_type": "keyboard",
+            },
+        ],
+        macro_name="shifted_deadline",
+        replay_mouse_movement=True,
+        replay_mouse_clicks=True,
+        speed=1.0,
+        loop_mode="none",
+        loop_count=1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+    )
+
+    assert sleep_calls == [pytest.approx(0.3), 0]

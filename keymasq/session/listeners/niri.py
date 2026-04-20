@@ -749,7 +749,7 @@ class NiriListener(WindowListener):
                     await cmd_writer.drain()
                     reply = await asyncio.wait_for(cmd_reader.readline(), timeout=timeout_s)
                     if not reply:
-                        return False, None
+                        raise ConnectionError("Niri command socket closed")
 
                     ok, body = parse_niri_reply(reply.decode("utf-8", errors="replace").strip())
                     if ok:

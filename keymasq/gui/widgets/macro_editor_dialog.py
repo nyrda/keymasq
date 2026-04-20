@@ -136,6 +136,12 @@ def _get_dropdown_selected_id(
     return default_id
 
 
+def _set_entry_text_if_needed(entry: Gtk.Entry, text: str) -> None:
+    """Avoid redundant Gtk.Entry updates that reset caret/focus state."""
+    if entry.get_text() != text:
+        entry.set_text(text)
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -1452,7 +1458,7 @@ class TimelineWidget(Gtk.DrawingArea):
             elif track == "movement":
                 gap_scope = "movement"
 
-            gap_btn = Gtk.Button(label=f"Insert Gap Note at {t_label}")
+            gap_btn = Gtk.Button(label=f"Insert Wait at {t_label}")
             gap_btn.add_css_class("flat")
 
             def _insert_gap(_b, _t=t_us, _scope=gap_scope, _p=popover):
@@ -1567,7 +1573,7 @@ class TimelineWidget(Gtk.DrawingArea):
             if box.get_first_child():
                 box.append(Gtk.Separator())
             if ev.mode == "gap":
-                label = f"Delete Gap Note ({ev.x}ms, {ev.scope})"
+                label = f"Delete Wait ({ev.x}ms, {ev.scope})"
             else:
                 label = f"Delete Move {ev.mode.upper()} ({ev.x}, {ev.y})"
             del_move_btn = Gtk.Button(label=label)
@@ -1645,6 +1651,10 @@ class MacroEditorDialog(Adw.Dialog):
         self._capture_delay_seconds: float = 2.0
         self._capture_timeout_id: int = 0
         self._capture_pending: bool = False
+        self._capture_request_id: int = 0
+        self._move_capture_timeout_id: int = 0
+        self._move_capture_pending: bool = False
+        self._move_capture_request_id: int = 0
         self._slurp_capture = get_slurp_capture()
         self._slurp_capture.set_compositor(detect_compositor_sync())
         self._slurp_available = self._slurp_capture.available
@@ -2009,7 +2019,7 @@ class MacroEditorDialog(Adw.Dialog):
 
         box.append(Gtk.Separator())
 
-        insert_title = Gtk.Label(label="Insert Gap")
+        insert_title = Gtk.Label(label="Insert Wait")
         insert_title.add_css_class("heading")
         insert_title.set_halign(Gtk.Align.START)
         box.append(insert_title)
@@ -2027,7 +2037,7 @@ class MacroEditorDialog(Adw.Dialog):
         box.append(at_row)
 
         gap_insert_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gap_insert_row.append(Gtk.Label(label="Gap (ms):"))
+        gap_insert_row.append(Gtk.Label(label="Wait (ms):"))
         insert_gap_ms_spin = Gtk.SpinButton()
         self._insert_gap_ms_spin = insert_gap_ms_spin
         insert_gap_ms_spin.set_adjustment(
@@ -2044,7 +2054,7 @@ class MacroEditorDialog(Adw.Dialog):
         scope_row.append(self._insert_gap_scope_combo)
         box.append(scope_row)
 
-        insert_btn = Gtk.Button(label="Insert Gap")
+        insert_btn = Gtk.Button(label="Insert Wait")
         insert_btn.add_css_class("suggested-action")
         insert_btn.connect("clicked", self._on_insert_gap_clicked)
         box.append(insert_btn)
@@ -2182,6 +2192,43 @@ class MacroEditorDialog(Adw.Dialog):
         panel.append(move_row)
         self._move_row = move_row
         self._move_row.set_visible(False)
+
+        move_capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        move_capture_row.set_halign(Gtk.Align.START)
+        move_capture_row.set_margin_start(24)
+
+        if not self._slurp_available:
+            move_capture_label = Gtk.Label(label="Capture new position in:")
+            move_capture_label.add_css_class("dim-label")
+            move_capture_row.append(move_capture_label)
+
+        self._move_capture_delay_spin = Gtk.SpinButton()
+        self._move_capture_delay_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._capture_delay_seconds, lower=0.2, upper=15.0, step_increment=0.2
+            )
+        )
+        self._move_capture_delay_spin.set_digits(1)
+        self._move_capture_delay_spin.set_width_chars(4)
+        self._move_capture_delay_spin.set_visible(not self._slurp_available)
+        move_capture_row.append(self._move_capture_delay_spin)
+
+        if not self._slurp_available:
+            move_capture_row.append(Gtk.Label(label="s"))
+
+        self._move_capture_btn = Gtk.Button(label="Capture")
+        self._move_capture_btn.connect("clicked", self._on_capture_selected_move_clicked)
+        move_capture_row.append(self._move_capture_btn)
+
+        self._move_capture_status = Gtk.Label(label="")
+        self._move_capture_status.add_css_class("dim-label")
+        self._move_capture_status.set_halign(Gtk.Align.START)
+        self._move_capture_status.set_hexpand(True)
+        move_capture_row.append(self._move_capture_status)
+
+        panel.append(move_capture_row)
+        self._move_capture_row = move_capture_row
+        self._move_capture_row.set_visible(False)
 
         gap_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         gap_row.set_halign(Gtk.Align.START)
@@ -2435,17 +2482,41 @@ class MacroEditorDialog(Adw.Dialog):
         if self._slurp_available:
             self._macro_capture_delay_spin.set_sensitive(False)
         else:
-            self._macro_capture_delay_spin.set_sensitive(enabled)
+            self._macro_capture_delay_spin.set_sensitive(enabled and not self._capture_pending)
         self._macro_capture_btn.set_sensitive(enabled and not self._capture_pending)
+
+    def _update_selected_move_capture_controls(
+        self,
+        selected_move: EditableMove | None = None,
+    ) -> None:
+        if not hasattr(self, "_move_capture_row"):
+            return
+        move = selected_move
+        if move is None:
+            selected_obj = self._timeline._selected if hasattr(self, "_timeline") else None
+            move = selected_obj if isinstance(selected_obj, EditableMove) else None
+        enabled = bool(move is not None and move.mode == "abs")
+        self._move_capture_row.set_visible(enabled)
+        if self._slurp_available:
+            self._move_capture_delay_spin.set_sensitive(False)
+        else:
+            self._move_capture_delay_spin.set_sensitive(enabled and not self._move_capture_pending)
+        self._move_capture_btn.set_sensitive(enabled and not self._move_capture_pending)
 
     def _on_capture_start_position_clicked(self, btn: Gtk.Button) -> None:
         self._cancel_capture_start_position("")
+        self._capture_request_id += 1
+        request_id = self._capture_request_id
 
         if self._slurp_available:
             self._capture_pending = True
             self._macro_capture_btn.set_sensitive(False)
             self._macro_capture_status.set_text("Click to capture position...")
-            self._slurp_capture.capture_point(self._on_slurp_capture_result)
+            self._slurp_capture.capture_point(
+                lambda result, expected_id=request_id: self._on_slurp_capture_result(
+                    expected_id, result
+                )
+            )
         else:
             self._capture_delay_seconds = float(self._macro_capture_delay_spin.get_value())
             self._capture_pending = True
@@ -2455,10 +2526,45 @@ class MacroEditorDialog(Adw.Dialog):
             )
             self._capture_timeout_id = GLib.timeout_add(
                 int(self._capture_delay_seconds * 1000),
-                self._capture_start_position_after_delay,
+                lambda expected_id=request_id: self._capture_start_position_after_delay(
+                    expected_id
+                ),
             )
 
-    def _on_slurp_capture_result(self, result) -> None:
+    def _on_capture_selected_move_clicked(self, btn: Gtk.Button) -> None:
+        selected_obj = self._timeline._selected
+        if not isinstance(selected_obj, EditableMove) or selected_obj.mode != "abs":
+            return
+        self._cancel_capture_selected_move("")
+        self._move_capture_request_id += 1
+        request_id = self._move_capture_request_id
+
+        if self._slurp_available:
+            self._move_capture_pending = True
+            self._update_selected_move_capture_controls(selected_obj)
+            self._move_capture_status.set_text("Click to capture position...")
+            self._slurp_capture.capture_point(
+                lambda result, move=selected_obj, expected_id=request_id: (
+                    self._on_move_slurp_capture_result(expected_id, move, result)
+                )
+            )
+        else:
+            self._capture_delay_seconds = float(self._move_capture_delay_spin.get_value())
+            self._move_capture_pending = True
+            self._update_selected_move_capture_controls(selected_obj)
+            self._move_capture_status.set_text(
+                f"Move cursor now... capturing in {self._capture_delay_seconds:.1f}s"
+            )
+            self._move_capture_timeout_id = GLib.timeout_add(
+                int(self._capture_delay_seconds * 1000),
+                lambda move=selected_obj, expected_id=request_id: (
+                    self._capture_selected_move_after_delay(expected_id, move)
+                ),
+            )
+
+    def _on_slurp_capture_result(self, request_id: int, result) -> None:
+        if request_id != self._capture_request_id:
+            return
         self._capture_pending = False
         self._update_macro_move_start_controls()
 
@@ -2471,19 +2577,68 @@ class MacroEditorDialog(Adw.Dialog):
         self._macro_move_to_start_check.set_active(True)
         self._macro_capture_status.set_text(f"Captured: {result.x}, {result.y}")
 
-    def _capture_start_position_after_delay(self) -> bool:
+    def _on_move_slurp_capture_result(self, request_id: int, move: EditableMove, result) -> None:
+        if request_id != self._move_capture_request_id:
+            return
+        self._move_capture_pending = False
+        self._update_selected_move_capture_controls()
+
+        if result is None:
+            self._move_capture_status.set_text("Capture cancelled or failed")
+            return
+
+        if move.mode != "abs" or move not in self._synthetic_moves:
+            self._move_capture_status.set_text("Capture target no longer available")
+            return
+
+        move.x = int(result.x)
+        move.y = int(result.y)
+        if self._timeline._selected is move:
+            self._updating_props = True
+            try:
+                self._move_x_spin.set_value(move.x)
+                self._move_y_spin.set_value(move.y)
+            finally:
+                self._updating_props = False
+            self._on_selection_changed(move)
+        self._timeline.queue_draw()
+        self._move_capture_status.set_text(f"Captured: {result.x}, {result.y}")
+
+    def _capture_start_position_after_delay(self, request_id: int) -> bool:
         self._capture_timeout_id = 0
-        if not self._capture_pending:
+        if request_id != self._capture_request_id or not self._capture_pending:
             return False
         self._macro_capture_status.set_text("Reading cursor position...")
         session_request_async(
             {"command": "get_cursor_position"},
-            self._on_capture_start_position_response,
+            lambda response, expected_id=request_id: self._on_capture_start_position_response(
+                expected_id, response
+            ),
             timeout=5.0,
         )
         return False
 
-    def _on_capture_start_position_response(self, response: dict | None) -> bool:
+    def _capture_selected_move_after_delay(self, request_id: int, move: EditableMove) -> bool:
+        self._move_capture_timeout_id = 0
+        if request_id != self._move_capture_request_id or not self._move_capture_pending:
+            return False
+        self._move_capture_status.set_text("Reading cursor position...")
+        session_request_async(
+            {"command": "get_cursor_position"},
+            lambda response, expected_move=move, expected_id=request_id: (
+                self._on_capture_selected_move_response(expected_id, expected_move, response)
+            ),
+            timeout=5.0,
+        )
+        return False
+
+    def _on_capture_start_position_response(
+        self,
+        request_id: int,
+        response: dict | None,
+    ) -> bool:
+        if request_id != self._capture_request_id:
+            return False
         self._capture_pending = False
         self._update_macro_move_start_controls()
 
@@ -2496,13 +2651,54 @@ class MacroEditorDialog(Adw.Dialog):
             self._macro_capture_status.set_text(message)
             return False
 
-        self._macro_start_x_spin.set_value(int(response.get("x", 0)))
-        self._macro_start_y_spin.set_value(int(response.get("y", 0)))
+        x = int(response.get("x", 0))
+        y = int(response.get("y", 0))
+        self._macro_start_x_spin.set_value(x)
+        self._macro_start_y_spin.set_value(y)
         self._macro_move_to_start_check.set_active(True)
         self._macro_capture_status.set_text("Captured")
         return False
 
+    def _on_capture_selected_move_response(
+        self,
+        request_id: int,
+        move: EditableMove,
+        response: dict | None,
+    ) -> bool:
+        if request_id != self._move_capture_request_id:
+            return False
+        self._move_capture_pending = False
+        self._update_selected_move_capture_controls()
+
+        if not response or response.get("status") != "ok":
+            message = (
+                (response or {}).get("message") or (response or {}).get("error") or "Capture failed"
+            )
+            if "Unknown command: get_cursor_position" in message:
+                message = "Please restart Keymasq Session, then try again"
+            self._move_capture_status.set_text(message)
+            return False
+
+        if move.mode != "abs" or move not in self._synthetic_moves:
+            self._move_capture_status.set_text("Capture target no longer available")
+            return False
+
+        move.x = int(response.get("x", 0))
+        move.y = int(response.get("y", 0))
+        if self._timeline._selected is move:
+            self._updating_props = True
+            try:
+                self._move_x_spin.set_value(move.x)
+                self._move_y_spin.set_value(move.y)
+            finally:
+                self._updating_props = False
+            self._on_selection_changed(move)
+        self._timeline.queue_draw()
+        self._move_capture_status.set_text("Captured")
+        return False
+
     def _cancel_capture_start_position(self, status_text: str) -> None:
+        self._capture_request_id += 1
         if self._capture_timeout_id:
             GLib.source_remove(self._capture_timeout_id)
             self._capture_timeout_id = 0
@@ -2511,6 +2707,17 @@ class MacroEditorDialog(Adw.Dialog):
             self._macro_capture_status.set_text(status_text)
         if hasattr(self, "_macro_capture_btn"):
             self._update_macro_move_start_controls()
+
+    def _cancel_capture_selected_move(self, status_text: str) -> None:
+        self._move_capture_request_id += 1
+        if self._move_capture_timeout_id:
+            GLib.source_remove(self._move_capture_timeout_id)
+            self._move_capture_timeout_id = 0
+        self._move_capture_pending = False
+        if hasattr(self, "_move_capture_status"):
+            self._move_capture_status.set_text(status_text)
+        if hasattr(self, "_move_capture_btn"):
+            self._update_selected_move_capture_controls()
 
     def _build_footer(self) -> Gtk.Widget:
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -3156,10 +3363,14 @@ class MacroEditorDialog(Adw.Dialog):
         selected_obj: object | None,
     ) -> None:
         if selected_obj is None:
+            self._cancel_capture_selected_move("")
             self._revealer.set_reveal_child(False)
+            self._update_selected_move_capture_controls(None)
             return
 
         self._revealer.set_reveal_child(True)
+        if not isinstance(selected_obj, EditableMove) or selected_obj.mode != "abs":
+            self._cancel_capture_selected_move("")
         if isinstance(selected_obj, EditableControl):
             control = selected_obj
             self._prop_title.set_label("Control")
@@ -3204,25 +3415,27 @@ class MacroEditorDialog(Adw.Dialog):
                     self._control_b_spin.set_value(max(1, int(control.max_ms)))
                 elif control.mode == "exec_async":
                     self._control_cmd_row.set_visible(True)
-                    self._control_cmd_entry.set_text(control.command)
+                    _set_entry_text_if_needed(self._control_cmd_entry, control.command)
                 elif control.mode == "exec_sync":
                     self._control_cmd_row.set_visible(True)
                     self._control_sync_row.set_visible(True)
                     self._control_timeout_hint_label.set_visible(True)
-                    self._control_cmd_entry.set_text(control.command)
+                    _set_entry_text_if_needed(self._control_cmd_entry, control.command)
                     self._control_timeout_spin.set_value(max(1, int(control.timeout_ms)))
                     self._control_inhibit_check.set_active(bool(control.inhibit_mouse))
                     self._update_timeout_clamp_hint(int(control.timeout_ms))
             finally:
                 self._updating_props = False
+            self._move_capture_row.set_visible(False)
+            self._update_selected_move_capture_controls(None)
             return
 
         self._control_row.set_visible(False)
         if isinstance(selected_obj, EditableMove):
             move = selected_obj
             if move.mode == "gap":
-                self._prop_title.set_label("Gap Note")
-                self._key_info_label.set_label(f"Insert {int(move.x)}ms gap ({move.scope})")
+                self._prop_title.set_label("Wait")
+                self._key_info_label.set_label(f"Insert {int(move.x)}ms wait ({move.scope})")
             else:
                 self._prop_title.set_label(f"Mouse Move ({move.mode.upper()})")
                 self._key_info_label.set_label(f"Move {move.mode.upper()} (x={move.x}, y={move.y})")
@@ -3237,10 +3450,11 @@ class MacroEditorDialog(Adw.Dialog):
             self._change_key_btn.set_visible(False)
             self._move_row.set_visible(True)
             self._gap_row.set_visible(move.mode == "gap")
+            self._move_capture_row.set_visible(move.mode == "abs")
             self._move_mode_label.set_label(
                 f"Mode: {move.mode.upper()}" if move.mode != "gap" else "Mode: GAP"
             )
-            self._move_x_label.set_label("Gap (ms):" if move.mode == "gap" else "X:")
+            self._move_x_label.set_label("Wait (ms):" if move.mode == "gap" else "X:")
             self._move_y_label.set_label("Unused:" if move.mode == "gap" else "Y:")
             self._move_y_spin.set_sensitive(move.mode != "gap")
 
@@ -3252,6 +3466,7 @@ class MacroEditorDialog(Adw.Dialog):
                 _set_dropdown_selected_id(self._gap_scope_combo, _SCOPE_OPTIONS, move.scope)
             finally:
                 self._updating_props = False
+            self._update_selected_move_capture_controls(move)
             return
 
         if isinstance(selected_obj, dict):
@@ -3269,12 +3484,14 @@ class MacroEditorDialog(Adw.Dialog):
             self._move_row.set_visible(False)
             self._gap_row.set_visible(False)
             self._control_row.set_visible(False)
+            self._move_capture_row.set_visible(False)
 
             self._updating_props = True
             try:
                 self._press_spin.set_value(int(selected_obj.get("t_us", 0)) / 1000)
             finally:
                 self._updating_props = False
+            self._update_selected_move_capture_controls(None)
             return
 
         assert isinstance(selected_obj, EditableEvent)
@@ -3292,6 +3509,7 @@ class MacroEditorDialog(Adw.Dialog):
         self._change_key_btn.set_visible(True)
         self._move_row.set_visible(False)
         self._gap_row.set_visible(False)
+        self._move_capture_row.set_visible(False)
 
         self._updating_props = True
         try:
@@ -3300,6 +3518,7 @@ class MacroEditorDialog(Adw.Dialog):
             self._release_spin.set_value(ev.release_t_us / 1000)
         finally:
             self._updating_props = False
+        self._update_selected_move_capture_controls(None)
 
     def _refresh_after_key_timing_change(self, ev: EditableEvent) -> None:
         self._events.sort(key=lambda e: e.press_t_us)
@@ -3549,8 +3768,10 @@ class MacroEditorDialog(Adw.Dialog):
         if not isinstance(selected_obj, EditableControl):
             return
         if selected_obj.mode in {"exec_sync", "exec_async"}:
-            selected_obj.command = entry.get_text().strip()
-            self._refresh_after_control_change(selected_obj)
+            # Do not rebuild the property panel while the command entry is focused.
+            # The full control refresh path toggles row visibility, which drops focus
+            # from the Gtk.Entry and makes typing impossible.
+            selected_obj.command = entry.get_text()
 
     def _on_control_timeout_changed(self, spin: Gtk.SpinButton) -> None:
         if self._updating_props:
@@ -3588,6 +3809,7 @@ class MacroEditorDialog(Adw.Dialog):
             return
 
         self._cancel_capture_start_position("")
+        self._cancel_capture_selected_move("")
         self._apply_macro_state(self._initial_macro_data)
 
         self._timeline._selected = None
@@ -3645,7 +3867,7 @@ class MacroEditorDialog(Adw.Dialog):
         box.set_margin_start(12)
         box.set_margin_end(12)
 
-        title = Gtk.Label(label="Insert Gap Note")
+        title = Gtk.Label(label="Insert Wait")
         title.add_css_class("heading")
         box.append(title)
 
@@ -3667,7 +3889,7 @@ class MacroEditorDialog(Adw.Dialog):
         box.append(at_row)
 
         gap_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gap_row.append(Gtk.Label(label="Gap:"))
+        gap_row.append(Gtk.Label(label="Wait:"))
         gap_spin = Gtk.SpinButton()
         gap_spin.set_adjustment(Gtk.Adjustment(value=100, lower=1, upper=60000, step_increment=10))
         gap_spin.set_digits(0)
@@ -4391,4 +4613,5 @@ class MacroEditorDialog(Adw.Dialog):
 
     def close(self) -> None:
         self._cancel_capture_start_position("")
+        self._cancel_capture_selected_move("")
         super().close()

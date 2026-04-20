@@ -41,6 +41,44 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
     )
 
 
+@pytest.mark.asyncio
+async def test_set_cursor_position_command_forwards_to_device_manager(daemon_testbed):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    device_manager.set_cursor_position.return_value = {"status": "ok", "x": 123, "y": 456}
+
+    result = await daemon._handle_command(
+        CommandType.SET_CURSOR_POSITION,
+        {"x": "123", "y": 456},
+    )
+
+    assert result == {"status": "ok", "x": 123, "y": 456}
+    device_manager.set_cursor_position.assert_awaited_once_with(123, 456)
+
+
+@pytest.mark.asyncio
+async def test_cursor_position_backend_commands_forward_to_device_manager(daemon_testbed):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    device_manager.set_cursor_position_backend.return_value = {"status": "ok", "enabled": True}
+
+    backend_result = await daemon._handle_command(
+        CommandType.SET_CURSOR_POSITION_BACKEND,
+        {"enabled": True},
+    )
+    result_result = await daemon._handle_command(
+        CommandType.SET_CURSOR_POSITION_RESULT,
+        {"request_id": "cursor-1", "ok": True, "message": "ok"},
+    )
+
+    assert backend_result == {"status": "ok", "enabled": True}
+    assert result_result == {"status": "ok", "completed": True}
+    device_manager.set_cursor_position_backend.assert_called_once_with(True)
+    device_manager.complete_cursor_position_request.assert_called_once_with(
+        "cursor-1",
+        ok=True,
+        message="ok",
+    )
+
+
 @pytest.mark.parametrize(
     ("command_type", "data", "manager_method", "expected_call", "expected_result"),
     [
@@ -241,5 +279,3 @@ async def test_read_capture_combo_event_drains_sources_once_before_waiting(
         "value": 1,
     }
     assert seen_before_wait == {"device": 1, "capture": 1}
-
-

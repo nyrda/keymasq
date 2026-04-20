@@ -4,7 +4,7 @@ import queue
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
-from typing import ClassVar, Protocol, cast
+from typing import Protocol, cast
 
 from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.ipc import CommandType
@@ -75,7 +75,8 @@ class _Ecodes(Protocol):
 
 
 class _EvdevModule(Protocol):
-    ecodes: _Ecodes
+    @property
+    def ecodes(self) -> _Ecodes: ...
 
 
 class _TimeModule(Protocol):
@@ -83,7 +84,7 @@ class _TimeModule(Protocol):
 
 
 class _AsyncioModule(Protocol):
-    CancelledError: ClassVar[type[BaseException]]
+    CancelledError: type[BaseException]
 
     def create_task(self, coro: Awaitable[None], /) -> asyncio.Task[None]: ...
 
@@ -105,15 +106,6 @@ class _EmitMouseMoveFn(Protocol):
         *,
         absolute: bool = False,
     ) -> None: ...
-
-
-class _QueueFactory(Protocol):
-    def __call__(self) -> queue.SimpleQueue[dict[str, object]]: ...
-
-
-class _QueueModule(Protocol):
-    Empty: ClassVar[type[BaseException]]
-    SimpleQueue: _QueueFactory
 
 
 class _OutputState(Protocol):
@@ -1546,11 +1538,9 @@ def begin_combo_capture(
     token: str,
     hardware_ids: set[str],
     notify_event: asyncio.Event | None,
-    *,
-    queue_mod: _QueueModule,
 ) -> dict[str, object]:
     manager.combo_state.capture_queues[token] = (
-        queue_mod.SimpleQueue(),
+        queue.SimpleQueue(),
         set(hardware_ids),
         notify_event,
     )
@@ -1560,16 +1550,14 @@ def begin_combo_capture(
     }
 
 
-def read_combo_capture(
-    manager: _ComboManager, token: str, *, queue_mod: _QueueModule
-) -> dict[str, object]:
+def read_combo_capture(manager: _ComboManager, token: str) -> dict[str, object]:
     capture_state = manager.combo_state.capture_queues.get(token)
     if capture_state is None:
         return {"event": None}
     capture_queue, _hardware_ids, _notify_event = capture_state
     try:
         return {"event": capture_queue.get_nowait()}
-    except queue_mod.Empty:
+    except queue.Empty:
         return {"event": None}
 
 

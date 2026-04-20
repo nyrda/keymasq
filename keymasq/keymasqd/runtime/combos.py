@@ -23,6 +23,7 @@ from keymasq.keymasqd.combo_engine import (
     RuntimeCombo,
     RuntimeComboBinding,
 )
+from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime.action_runner import (
     build_action_trigger_payload,
     build_macro_playback_request,
@@ -54,43 +55,8 @@ type ComboCaptureQueueState = tuple[
 ]
 
 
-class _WritableUInput(Protocol):
-    def write(self, event_type: int, code: int, value: int) -> None: ...
-
-    def syn(self) -> None: ...
-
-
-type UInputWriter = Callable[[object | None], _WritableUInput | None]
-
-
-class _EcodesByType(Protocol):
-    def get(self, key: int, default: dict[int, object] | None = None) -> dict[int, object]: ...
-
-
-class _Ecodes(Protocol):
-    EV_KEY: int
-    EV_REL: int
-    EV_ABS: int
-    bytype: _EcodesByType
-
-
-class _EvdevModule(Protocol):
-    @property
-    def ecodes(self) -> _Ecodes: ...
-
-
 class _TimeModule(Protocol):
     def monotonic(self) -> float: ...
-
-
-class _AsyncioModule(Protocol):
-    CancelledError: type[BaseException]
-
-    def create_task(self, coro: Awaitable[None], /) -> asyncio.Task[None]: ...
-
-    async def sleep(self, delay: float, /) -> None: ...
-
-    def current_task(self) -> asyncio.Task[None] | None: ...
 
 
 class _ContextlibModule(Protocol):
@@ -220,11 +186,11 @@ class ComboRuntimeState:
 
 @dataclass(frozen=True)
 class ComboRuntimeDeps:
-    asyncio_mod: _AsyncioModule
+    asyncio_mod: runtime_adapters.AsyncioRuntimeAdapter
     contextlib_mod: _ContextlibModule
     time_mod: _TimeModule
-    evdev_mod: _EvdevModule
-    uinput_writer: UInputWriter
+    evdev_mod: runtime_adapters.ComboEvdevAdapter
+    uinput_writer: runtime_adapters.UInputWriter
     emit_mouse_move_fn: _EmitMouseMoveFn
     get_trigger_axis_fn: TriggerAxisFn
     resolve_code_fn: ResolveCodeFn
@@ -292,7 +258,7 @@ def build_combo_event_payload(
     *,
     stable_path: str | None,
     source: str | None,
-    evdev_mod: _EvdevModule,
+    evdev_mod: runtime_adapters.ComboEvdevAdapter,
     resolve_stable_path_fn: ResolveStablePathFn,
     get_interface_id_fn: GetInterfaceIdFn,
 ) -> dict[str, object] | None:
@@ -670,9 +636,9 @@ async def _combo_superkey_machine(
     machine = SuperkeyMachine(
         config=config,
         event_name=trigger_name,
-        keyboard_uinput=cast(_WritableUInput, manager.output_state.keyboard_uinput),
-        mouse_uinput=cast(_WritableUInput, manager.output_state.mouse_uinput),
-        gamepad_uinput=cast(_WritableUInput, manager.output_state.gamepad_uinput),
+        keyboard_uinput=cast(runtime_adapters.WritableUInput, manager.output_state.keyboard_uinput),
+        mouse_uinput=cast(runtime_adapters.WritableUInput, manager.output_state.mouse_uinput),
+        gamepad_uinput=cast(runtime_adapters.WritableUInput, manager.output_state.gamepad_uinput),
         broadcast_callback=combo_superkey_broadcast,
         cursor_position_setter=manager.set_cursor_position,
         key_event_tracker=combo_superkey_output_tracker,

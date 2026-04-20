@@ -80,7 +80,6 @@ class MainWindow(Adw.ApplicationWindow):
         self._unlock_refresh_inflight = False
         self._unlock_add_button: Gtk.Button | None = None
         self._placeholder_subtitle: Gtk.Label | None = None
-        self._menu_record_btn: Gtk.Button | None = None
         self._menu_unlock_btn: Gtk.Button | None = None
         self._unlock_status_label: Gtk.Label | None = None
         self._selected_profile_name: str | None = None
@@ -627,12 +626,6 @@ class MainWindow(Adw.ApplicationWindow):
         menu_box.append(menu_unlock_btn)
         self._menu_unlock_btn = menu_unlock_btn
 
-        menu_record_btn = Gtk.Button(label="Record New Macro")
-        menu_record_btn.set_halign(Gtk.Align.FILL)
-        menu_record_btn.connect("clicked", self._on_menu_record_macro_clicked, menu_popover)
-        menu_box.append(menu_record_btn)
-        self._menu_record_btn = menu_record_btn
-
         macros_btn = Gtk.Button(label="Macros")
         macros_btn.set_halign(Gtk.Align.FILL)
         macros_btn.connect("clicked", self._on_menu_action_clicked, "macros", menu_popover)
@@ -746,12 +739,6 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_menu_unlock_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         popover.popdown()
         self.present_unlock_dialog()
-
-    def _on_menu_record_macro_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
-        popover.popdown()
-        if not self._recording_unlocked:
-            return
-        self.present_recording_settings_dialog()
 
     def _setup_placeholder(self) -> None:
         self.placeholder = Gtk.Box(
@@ -1176,13 +1163,6 @@ class MainWindow(Adw.ApplicationWindow):
             self._placeholder_subtitle.set_label("Click + to add a new device")
 
     def _refresh_macro_menu_state(self) -> None:
-        if self._menu_record_btn is not None:
-            self._menu_record_btn.set_sensitive(self._recording_unlocked)
-            if self._recording_unlocked:
-                self._menu_record_btn.set_tooltip_text(None)
-            else:
-                self._menu_record_btn.set_tooltip_text("unlock to record a new macro macro.")
-
         if self._menu_unlock_btn is not None:
             self._menu_unlock_btn.set_visible(not self._recording_unlocked)
 

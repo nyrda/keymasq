@@ -24,7 +24,6 @@ from keymasq.common.devices import (
 )
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
-    ActionType,
     DeviceType,
     MappingAction,
 )
@@ -228,6 +227,24 @@ def _combo_uinput_writer_impl(
 
 def _combo_uinput_writer() -> runtime_combos.UInputWriter:
     return _combo_uinput_writer_impl
+
+
+def _combo_runtime_deps(
+    *,
+    resolve_code_fn: runtime_combos.ResolveCodeFn = resolve_output_code,
+    fire_and_observe_fn: runtime_combos.FireAndObserve = _fire_and_observe,
+) -> runtime_combos.ComboRuntimeDeps:
+    return runtime_combos.ComboRuntimeDeps(
+        asyncio_mod=_combo_asyncio_runtime(),
+        contextlib_mod=contextlib,
+        time_mod=time,
+        evdev_mod=_combo_evdev_runtime(),
+        uinput_writer=_combo_uinput_writer(),
+        emit_mouse_move_fn=_combo_emit_mouse_move_fn(),
+        get_trigger_axis_fn=get_trigger_axis,
+        resolve_code_fn=resolve_code_fn,
+        fire_and_observe_fn=fire_and_observe_fn,
+    )
 
 
 def _combo_queue_module() -> runtime_combos._QueueModule:  # pyright: ignore[reportPrivateUsage]
@@ -545,18 +562,7 @@ class DeviceManager:
             self.active_combos = parsed
             await runtime_combos.clear_combo_runtime(
                 _combo_manager(self),
-                asyncio_mod=_combo_asyncio_runtime(),
-                contextlib_mod=contextlib,
-                mapping_action_cls=MappingAction,
-                evdev_mod=_combo_evdev_runtime(),
-                uinput_writer=_combo_uinput_writer(),
-                emit_mouse_move_fn=_combo_emit_mouse_move_fn(),
-                get_trigger_axis_fn=get_trigger_axis,
-                resolve_code_fn=resolve_output_code,
-                fire_and_observe_fn=_fire_and_observe,
-                command_type=CommandType,
-                action_type_enum=ActionType,
-                time_mod=time,
+                deps=_combo_runtime_deps(),
             )
             self.combo_state.engine.set_combos(parsed)
             runtime_combos.prime_combo_engine_with_held_bindings(
@@ -565,18 +571,7 @@ class DeviceManager:
             )
             runtime_combos.refresh_combo_timeout_watchdog(
                 _combo_manager(self),
-                asyncio_mod=_combo_asyncio_runtime(),
-                time_mod=time,
-                action_type_enum=ActionType,
-                mapping_action_cls=MappingAction,
-                emit_mouse_move_fn=_combo_emit_mouse_move_fn(),
-                get_trigger_axis_fn=get_trigger_axis,
-                resolve_code_fn=resolve_output_code,
-                fire_and_observe_fn=_fire_and_observe,
-                command_type=CommandType,
-                contextlib_mod=contextlib,
-                evdev_mod=_combo_evdev_runtime(),
-                uinput_writer=_combo_uinput_writer(),
+                deps=_combo_runtime_deps(),
             )
             log.info("Updated combos (%d active)", len(parsed))
             return {"updated": True, "combo_count": len(parsed)}

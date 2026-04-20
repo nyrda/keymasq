@@ -776,22 +776,20 @@ async def combo_tap_key(
     code: int,
     hold_ms: int,
     *,
-    asyncio_mod: _AsyncioModule,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
-    task = asyncio_mod.current_task()
+    task = deps.asyncio_mod.current_task()
     pressed = False
 
     try:
-        write_combo_key(uinput_dev, code, 1, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
+        write_combo_key(uinput_dev, code, 1, deps=deps)
         pressed = True
-        await asyncio_mod.sleep(max(0.001, float(hold_ms) / 1000.0))
-    except asyncio_mod.CancelledError:
+        await deps.asyncio_mod.sleep(max(0.001, float(hold_ms) / 1000.0))
+    except deps.asyncio_mod.CancelledError:
         raise
     finally:
         if pressed:
-            write_combo_key(uinput_dev, code, 0, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
+            write_combo_key(uinput_dev, code, 0, deps=deps)
         prune_combo_action_task(manager, combo_id, task)
 
 
@@ -801,11 +799,9 @@ async def combo_tap_trigger(
     axis_code: int,
     hold_ms: int,
     *,
-    asyncio_mod: _AsyncioModule,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
-    task = asyncio_mod.current_task()
+    task = deps.asyncio_mod.current_task()
     pressed = False
 
     try:
@@ -813,12 +809,11 @@ async def combo_tap_trigger(
             manager,
             axis_code,
             255,
-            evdev_mod=evdev_mod,
-            uinput_writer=uinput_writer,
+            deps=deps,
         )
         pressed = True
-        await asyncio_mod.sleep(max(0.001, float(hold_ms) / 1000.0))
-    except asyncio_mod.CancelledError:
+        await deps.asyncio_mod.sleep(max(0.001, float(hold_ms) / 1000.0))
+    except deps.asyncio_mod.CancelledError:
         raise
     finally:
         if pressed:
@@ -826,8 +821,7 @@ async def combo_tap_trigger(
                 manager,
                 axis_code,
                 0,
-                evdev_mod=evdev_mod,
-                uinput_writer=uinput_writer,
+                deps=deps,
             )
         prune_combo_action_task(manager, combo_id, task)
 
@@ -969,9 +963,7 @@ async def _start_combo_action_instance(
                         combo_id,
                         axis_code,
                         action.tap_hold_ms,
-                        asyncio_mod=deps.asyncio_mod,
-                        evdev_mod=deps.evdev_mod,
-                        uinput_writer=deps.uinput_writer,
+                        deps=deps,
                     )
                 )
                 manager.combo_state.active_actions[combo_id] = ComboActionState(
@@ -988,9 +980,7 @@ async def _start_combo_action_instance(
                         axis_code,
                         action.rapidfire_hold_ms,
                         action.rapidfire_wait_ms,
-                        asyncio_mod=deps.asyncio_mod,
-                        evdev_mod=deps.evdev_mod,
-                        uinput_writer=deps.uinput_writer,
+                        deps=deps,
                     )
                 )
                 manager.combo_state.active_actions[combo_id] = ComboActionState(
@@ -1004,8 +994,7 @@ async def _start_combo_action_instance(
                 manager,
                 axis_code,
                 255,
-                evdev_mod=deps.evdev_mod,
-                uinput_writer=deps.uinput_writer,
+                deps=deps,
             )
             manager.combo_state.active_actions[combo_id] = ComboActionState(
                 kind="trigger",
@@ -1083,9 +1072,7 @@ async def start_combo_key_action(
                 uinput_dev,
                 code,
                 action.tap_hold_ms,
-                asyncio_mod=deps.asyncio_mod,
-                evdev_mod=deps.evdev_mod,
-                uinput_writer=deps.uinput_writer,
+                deps=deps,
             )
         )
         manager.combo_state.active_actions[combo_id] = ComboActionState(
@@ -1104,9 +1091,7 @@ async def start_combo_key_action(
                 code,
                 action.rapidfire_hold_ms,
                 action.rapidfire_wait_ms,
-                asyncio_mod=deps.asyncio_mod,
-                evdev_mod=deps.evdev_mod,
-                uinput_writer=deps.uinput_writer,
+                deps=deps,
             )
         )
         manager.combo_state.active_actions[combo_id] = ComboActionState(
@@ -1117,7 +1102,7 @@ async def start_combo_key_action(
             task=task,
         )
         return
-    write_combo_key(uinput_dev, code, 1, evdev_mod=deps.evdev_mod, uinput_writer=deps.uinput_writer)
+    write_combo_key(uinput_dev, code, 1, deps=deps)
     manager.combo_state.active_actions[combo_id] = ComboActionState(
         kind="key",
         uinput=uinput_dev,
@@ -1154,9 +1139,7 @@ async def start_combo_mouse_action(
                 target.code,
                 target.relative_value,
                 action.tap_hold_ms,
-                asyncio_mod=deps.asyncio_mod,
-                evdev_mod=deps.evdev_mod,
-                uinput_writer=deps.uinput_writer,
+                deps=deps,
             )
         )
         manager.combo_state.active_actions[combo_id] = ComboActionState(
@@ -1176,9 +1159,7 @@ async def start_combo_mouse_action(
                 target.relative_value,
                 action.rapidfire_hold_ms,
                 action.rapidfire_wait_ms,
-                asyncio_mod=deps.asyncio_mod,
-                evdev_mod=deps.evdev_mod,
-                uinput_writer=deps.uinput_writer,
+                deps=deps,
             )
         )
         manager.combo_state.active_actions[combo_id] = ComboActionState(
@@ -1193,8 +1174,7 @@ async def start_combo_mouse_action(
         uinput_dev,
         target.code,
         target.relative_value,
-        evdev_mod=deps.evdev_mod,
-        uinput_writer=deps.uinput_writer,
+        deps=deps,
     )
 
 
@@ -1232,8 +1212,7 @@ async def stop_combo_action(
                 uinput_dev,
                 code,
                 0,
-                evdev_mod=deps.evdev_mod,
-                uinput_writer=deps.uinput_writer,
+                deps=deps,
             )
         _restore_combo_trigger_bindings(manager, restore_bindings)
         return
@@ -1244,8 +1223,7 @@ async def stop_combo_action(
                 manager,
                 axis_code,
                 0,
-                evdev_mod=deps.evdev_mod,
-                uinput_writer=deps.uinput_writer,
+                deps=deps,
             )
         _restore_combo_trigger_bindings(manager, restore_bindings)
         return
@@ -1397,22 +1375,20 @@ async def combo_rapidfire_key(
     hold_ms: int,
     wait_ms: int,
     *,
-    asyncio_mod: _AsyncioModule,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
     try:
         while _combo_action_active(manager, combo_id):
-            write_combo_key(uinput_dev, code, 1, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
-            await asyncio_mod.sleep(max(0.001, hold_ms / 1000.0))
+            write_combo_key(uinput_dev, code, 1, deps=deps)
+            await deps.asyncio_mod.sleep(max(0.001, hold_ms / 1000.0))
             if not _combo_action_active(manager, combo_id):
                 break
-            write_combo_key(uinput_dev, code, 0, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
-            await asyncio_mod.sleep(max(0.001, wait_ms / 1000.0))
-    except asyncio_mod.CancelledError:
+            write_combo_key(uinput_dev, code, 0, deps=deps)
+            await deps.asyncio_mod.sleep(max(0.001, wait_ms / 1000.0))
+    except deps.asyncio_mod.CancelledError:
         raise
     finally:
-        write_combo_key(uinput_dev, code, 0, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
+        write_combo_key(uinput_dev, code, 0, deps=deps)
 
 
 async def combo_tap_relative(
@@ -1423,11 +1399,9 @@ async def combo_tap_relative(
     value: int,
     hold_ms: int,
     *,
-    asyncio_mod: _AsyncioModule,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
-    task = asyncio_mod.current_task()
+    task = deps.asyncio_mod.current_task()
 
     try:
         await tap_relative_pulse(
@@ -1435,13 +1409,12 @@ async def combo_tap_relative(
                 uinput_dev,
                 code,
                 value,
-                evdev_mod=evdev_mod,
-                uinput_writer=uinput_writer,
+                deps=deps,
             ),
             hold_s=max(0.001, float(hold_ms) / 1000.0),
-            asyncio_mod=asyncio_mod,
+            asyncio_mod=deps.asyncio_mod,
         )
-    except asyncio_mod.CancelledError:
+    except deps.asyncio_mod.CancelledError:
         raise
     finally:
         prune_combo_action_task(manager, combo_id, task)
@@ -1456,9 +1429,7 @@ async def combo_rapidfire_relative(
     hold_ms: int,
     wait_ms: int,
     *,
-    asyncio_mod: _AsyncioModule,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
     try:
         await rapidfire_relative_pulses(
@@ -1466,15 +1437,14 @@ async def combo_rapidfire_relative(
                 uinput_dev,
                 code,
                 value,
-                evdev_mod=evdev_mod,
-                uinput_writer=uinput_writer,
+                deps=deps,
             ),
             is_active=lambda: _combo_action_active(manager, combo_id),
             hold_s=max(0.001, hold_ms / 1000.0),
             wait_s=max(0.001, wait_ms / 1000.0),
-            asyncio_mod=asyncio_mod,
+            asyncio_mod=deps.asyncio_mod,
         )
-    except asyncio_mod.CancelledError:
+    except deps.asyncio_mod.CancelledError:
         raise
 
 
@@ -1485,9 +1455,7 @@ async def combo_rapidfire_trigger(
     hold_ms: int,
     wait_ms: int,
     *,
-    asyncio_mod: _AsyncioModule,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
     try:
         while _combo_action_active(manager, combo_id):
@@ -1495,24 +1463,22 @@ async def combo_rapidfire_trigger(
                 manager,
                 axis_code,
                 255,
-                evdev_mod=evdev_mod,
-                uinput_writer=uinput_writer,
+                deps=deps,
             )
-            await asyncio_mod.sleep(max(0.001, hold_ms / 1000.0))
+            await deps.asyncio_mod.sleep(max(0.001, hold_ms / 1000.0))
             if not _combo_action_active(manager, combo_id):
                 break
             write_combo_trigger(
                 manager,
                 axis_code,
                 0,
-                evdev_mod=evdev_mod,
-                uinput_writer=uinput_writer,
+                deps=deps,
             )
-            await asyncio_mod.sleep(max(0.001, wait_ms / 1000.0))
-    except asyncio_mod.CancelledError:
+            await deps.asyncio_mod.sleep(max(0.001, wait_ms / 1000.0))
+    except deps.asyncio_mod.CancelledError:
         raise
     finally:
-        write_combo_trigger(manager, axis_code, 0, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
+        write_combo_trigger(manager, axis_code, 0, deps=deps)
 
 
 def write_combo_key(
@@ -1520,13 +1486,12 @@ def write_combo_key(
     code: int,
     value: int,
     *,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
-    writer = uinput_writer(uinput_dev)
+    writer = deps.uinput_writer(uinput_dev)
     if writer is None:
         return
-    writer.write(evdev_mod.ecodes.EV_KEY, int(code), int(value))
+    writer.write(deps.evdev_mod.ecodes.EV_KEY, int(code), int(value))
     writer.syn()
 
 
@@ -1535,15 +1500,14 @@ def write_combo_relative(
     code: int,
     value: int,
     *,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
     write_relative_pulse(
         uinput_dev,
         code,
         value,
-        ev_rel_code=evdev_mod.ecodes.EV_REL,
-        uinput_writer=uinput_writer,
+        ev_rel_code=deps.evdev_mod.ecodes.EV_REL,
+        uinput_writer=deps.uinput_writer,
     )
 
 
@@ -1552,13 +1516,12 @@ def write_combo_trigger(
     axis_code: int,
     value: int,
     *,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
+    deps: ComboRuntimeDeps,
 ) -> None:
-    writer = uinput_writer(manager.output_state.gamepad_uinput)
+    writer = deps.uinput_writer(manager.output_state.gamepad_uinput)
     if writer is None:
         return
-    writer.write(evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
+    writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
     writer.syn()
 
 

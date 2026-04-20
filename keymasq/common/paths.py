@@ -22,6 +22,7 @@ import contextlib
 import importlib
 import logging
 import os
+import shutil
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -54,6 +55,10 @@ with contextlib.suppress(ImportError, AttributeError):
 
 KEYMASQ_RECORD_HELPER_PATH = Path(_build_helper_path)
 SLURP_PATH = Path(_build_slurp_path)
+SLURP_FALLBACK_PATHS = (
+    Path("/usr/bin/slurp"),
+    Path("/run/current-system/sw/bin/slurp"),
+)
 
 
 def ensure_config_dirs() -> None:
@@ -79,6 +84,26 @@ def resolve_keymasq_record_helper_path() -> str | None:
 
 
 def resolve_slurp_path() -> str | None:
-    if SLURP_PATH.is_file() and os.access(SLURP_PATH, os.X_OK):
-        return str(SLURP_PATH)
+    env_slurp_path = os.environ.get("SLURP_PATH")
+    if env_slurp_path is not None:
+        if env_slurp_path == "":
+            return None
+        env_path = Path(env_slurp_path)
+        if env_path.is_file() and os.access(env_path, os.X_OK):
+            return str(env_path)
+        return None
+
+    candidates: list[Path] = [SLURP_PATH, *SLURP_FALLBACK_PATHS]
+    path_slurp = shutil.which("slurp")
+    if path_slurp:
+        candidates.append(Path(path_slurp))
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate_str = str(candidate)
+        if candidate_str in seen:
+            continue
+        seen.add(candidate_str)
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate_str
     return None

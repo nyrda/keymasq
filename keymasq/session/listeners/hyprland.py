@@ -276,7 +276,10 @@ class HyprlandListener(WindowListener):
                         return None
                     cmd_writer.write(command.encode())
                     await cmd_writer.drain()
-                    return await cmd_reader.read(read_size)
+                    response = await cmd_reader.read(read_size)
+                    if not response:
+                        raise ConnectionError("Hyprland command socket closed")
+                    return response
                 except Exception:
                     try:
                         cmd_writer = self._cmd_writer

@@ -60,6 +60,71 @@ def test_resolve_slurp_path_uses_build_override(
         importlib.reload(paths)
 
 
+def test_resolve_slurp_path_honors_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import keymasq.common.paths as paths
+
+    slurp = tmp_path / "slurp"
+    slurp.write_text("#!/bin/sh\n", encoding="utf-8")
+    slurp.chmod(0o755)
+
+    monkeypatch.setenv("SLURP_PATH", str(slurp))
+    monkeypatch.setattr(paths, "SLURP_PATH", tmp_path / "missing-build-slurp")
+    monkeypatch.setattr(paths, "SLURP_FALLBACK_PATHS", ())
+    monkeypatch.setattr(paths.shutil, "which", lambda _name: None)
+
+    assert paths.resolve_slurp_path() == str(slurp)
+
+
+def test_resolve_slurp_path_empty_environment_override_disables_slurp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import keymasq.common.paths as paths
+
+    monkeypatch.setenv("SLURP_PATH", "")
+
+    assert paths.resolve_slurp_path() is None
+
+
+def test_resolve_slurp_path_uses_nixos_system_profile_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import keymasq.common.paths as paths
+
+    nixos_slurp = tmp_path / "run-current-system-sw-bin-slurp"
+    nixos_slurp.write_text("#!/bin/sh\n", encoding="utf-8")
+    nixos_slurp.chmod(0o755)
+
+    monkeypatch.delenv("SLURP_PATH", raising=False)
+    monkeypatch.setattr(paths, "SLURP_PATH", tmp_path / "missing-build-slurp")
+    monkeypatch.setattr(
+        paths,
+        "SLURP_FALLBACK_PATHS",
+        (tmp_path / "missing-usr-bin-slurp", nixos_slurp),
+    )
+    monkeypatch.setattr(paths.shutil, "which", lambda _name: None)
+
+    assert paths.resolve_slurp_path() == str(nixos_slurp)
+
+
+def test_resolve_slurp_path_uses_path_lookup_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import keymasq.common.paths as paths
+
+    path_slurp = tmp_path / "path-slurp"
+    path_slurp.write_text("#!/bin/sh\n", encoding="utf-8")
+    path_slurp.chmod(0o755)
+
+    monkeypatch.delenv("SLURP_PATH", raising=False)
+    monkeypatch.setattr(paths, "SLURP_PATH", tmp_path / "missing-build-slurp")
+    monkeypatch.setattr(paths, "SLURP_FALLBACK_PATHS", ())
+    monkeypatch.setattr(paths.shutil, "which", lambda _name: str(path_slurp))
+
+    assert paths.resolve_slurp_path() == str(path_slurp)
+
+
 def test_ensure_config_dirs_creates_expected_directories(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -125,7 +190,10 @@ def test_resolve_slurp_path_returns_none_for_non_executable(
     slurp.write_text("#!/bin/sh\n", encoding="utf-8")
     slurp.chmod(0o644)
 
+    monkeypatch.delenv("SLURP_PATH", raising=False)
     monkeypatch.setattr(paths, "SLURP_PATH", slurp)
+    monkeypatch.setattr(paths, "SLURP_FALLBACK_PATHS", ())
+    monkeypatch.setattr(paths.shutil, "which", lambda _name: None)
 
     assert paths.resolve_slurp_path() is None
 

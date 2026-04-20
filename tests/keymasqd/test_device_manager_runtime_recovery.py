@@ -43,13 +43,9 @@ class TestEventLoopRecovery:
                 action,
                 event,
                 event_name,
-                asyncio_mod=gdm.ASYNCIO_RUNTIME,
-                command_type=dm.CommandType,
-                fire_and_observe_fn=lambda coro, _label: asyncio.create_task(coro),
-                action_type_enum=ActionType,
-                superkey_machine_cls=gda.SuperkeyMachine,
-                evdev_mod=evdev,
-                uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+                deps=gde.build_action_execution_deps(
+                    fire_and_observe_fn=lambda coro, _label: asyncio.create_task(coro)
+                ),
             )
             raise RuntimeError("boom")
 

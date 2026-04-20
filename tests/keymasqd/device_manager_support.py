@@ -165,13 +165,7 @@ async def _runtime_run_macro_control_action(
         manager,
         ev,
         speed,
-        asyncio_mod=dm._macro_asyncio_runtime(),
-        contextlib_mod=dm.contextlib,
-        random_mod=dm.random,
-        uuid_mod=dm.uuid,
-        command_type=dm._macro_command_type(),
-        str_value_fn=dm._str_value,
-        int_value_fn=dm._int_value,
+        deps=dm._macro_runtime_deps(),
     )
 
 
@@ -179,12 +173,7 @@ async def _runtime_process_grabbed_event(device: GrabbedDevice, event: evdev.Inp
     await gde.process_event(
         device,
         event,
-        evdev_mod=evdev,
-        time_mod=gde.time,
-        log=gdm.log,
-        combo_decision_cls=ComboDecision,
-        classify_event_device_type_fn=gde.classify_event_device_type,
-        action_type_enum=ActionType,
+        deps=gde.build_event_processing_deps(log=gdm.log),
     )
 
 
@@ -199,13 +188,7 @@ async def _runtime_execute_grabbed_action(
         action,
         event,
         event_name,
-        asyncio_mod=gdm.ASYNCIO_RUNTIME,
-        command_type=dm.CommandType,
-        fire_and_observe_fn=gde._fire_and_observe,
-        action_type_enum=ActionType,
-        superkey_machine_cls=gda.SuperkeyMachine,
-        evdev_mod=evdev,
-        uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+        deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
     )
 
 
@@ -257,7 +240,7 @@ def _runtime_write_grabbed_key(
         code,
         value,
         evdev_mod=evdev,
-        uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+        uinput_writer=gdt.identity_uinput_writer,
     )
 
 
@@ -291,7 +274,7 @@ async def _runtime_tap_grabbed_trigger(
         event_name,
         asyncio_mod=gdm.ASYNCIO_RUNTIME,
         evdev_mod=evdev,
-        uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+        uinput_writer=gdt.identity_uinput_writer,
     )
 
 
@@ -306,16 +289,9 @@ async def _runtime_tap_grabbed_move(
 
 async def _runtime_topology_watch_loop(manager: DeviceManager) -> None:
     await tdm.topology_watch_loop(
-        dm._topology_manager(manager),
-        asyncio_mod=dm._topology_asyncio_runtime(),
-        cancelled_error=asyncio.CancelledError,
+        manager,
         log=dm.log,
-        live_interface_info_cls=dm._topology_live_interface_info_factory(),
-        clear_device_path_cache_fn=dm.clear_device_path_cache,
-        device_paths_fn=dm._device_paths,
-        device_input_fn=dm._topology_device_input_fn(),
-        resolve_stable_path_fn=dm.resolve_stable_path,
-        get_interface_id_fn=dm.get_interface_id,
+        deps=dm._topology_runtime_deps(),
     )
 
 
@@ -324,11 +300,10 @@ def _runtime_schedule_topology_reconcile(
     snapshot: dict[str, dm.LiveInterfaceInfo],
 ) -> None:
     tdm.schedule_topology_reconcile(
-        dm._topology_manager(manager),
+        manager,
         snapshot,
-        asyncio_mod=dm._topology_asyncio_runtime(),
-        cancelled_error=asyncio.CancelledError,
         log=dm.log,
+        deps=dm._topology_runtime_deps(),
     )
 
 

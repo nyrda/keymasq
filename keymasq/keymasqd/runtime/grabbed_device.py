@@ -1,8 +1,8 @@
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable, Coroutine, Sequence
-from typing import Final, TypeVar, cast
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Final, cast
 
 import evdev
 
@@ -16,15 +16,10 @@ from keymasq.common.devices import (
 from keymasq.common.models import ActionType, DeviceType, MappingAction
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
+from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import grabbed_device_events as runtime_events
 from keymasq.keymasqd.runtime import grabbed_device_grab as runtime_grab
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
-from keymasq.keymasqd.runtime.grabbed_device_types import (
-    AsyncioEvent as _AsyncioEvent,
-)
-from keymasq.keymasqd.runtime.grabbed_device_types import (
-    AsyncioLoop as _AsyncioLoop,
-)
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     AsyncioModule as _AsyncioModule,
 )
@@ -35,6 +30,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceState,
     MacroPlayer,
     MappingGetter,
+    identity_uinput_writer,
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ManagedInputDevice as _ManagedInputDevice,
@@ -49,8 +45,6 @@ ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
 ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
 
-_T = TypeVar("_T")
-
 __all__ = [
     "ASYNCIO_RUNTIME",
     "ACTIVE_KEY_IDLE_LOG_INTERVAL_S",
@@ -63,36 +57,7 @@ __all__ = [
 ]
 
 
-class _AsyncioRuntimeAdapter:
-    def get_running_loop(self) -> _AsyncioLoop:
-        return asyncio.get_running_loop()
-
-    def create_event(self) -> _AsyncioEvent:
-        return asyncio.Event()
-
-    def wait_for(self, aw: Awaitable[_T], timeout: float) -> Awaitable[_T]:
-        return asyncio.wait_for(aw, timeout)
-
-    async def sleep(self, delay: float, /) -> None:
-        await asyncio.sleep(delay)
-
-    def current_task(self) -> asyncio.Task[object] | None:
-        return cast(asyncio.Task[object] | None, asyncio.current_task())
-
-    def create_task(self, coro: Coroutine[object, object, _T], /) -> asyncio.Task[_T]:
-        return asyncio.create_task(coro)
-
-    def to_thread(
-        self,
-        func: Callable[..., _T],
-        /,
-        *args: object,
-        **kwargs: object,
-    ) -> Awaitable[_T]:
-        return asyncio.to_thread(func, *args, **kwargs)
-
-
-ASYNCIO_RUNTIME: Final[_AsyncioModule] = _AsyncioRuntimeAdapter()
+ASYNCIO_RUNTIME: Final[_AsyncioModule] = cast(_AsyncioModule, runtime_adapters.ASYNCIO_RUNTIME)
 
 
 def _device_input(path: str) -> _ManagedInputDevice:
@@ -100,7 +65,7 @@ def _device_input(path: str) -> _ManagedInputDevice:
 
 
 def _uinput_writer(device: object | None) -> _WritableUInput | None:
-    return cast(_WritableUInput | None, device)
+    return identity_uinput_writer(device)
 
 
 class GrabbedDevice:

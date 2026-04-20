@@ -10,6 +10,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     InputEventLike,
     UInputWriter,
     WritableUInput,
+    identity_uinput_writer,
 )
 
 
@@ -147,7 +148,7 @@ def ensure_key_released(
                 code,
                 0,
                 evdev_mod=evdev,
-                uinput_writer=_uinput_writer,
+                uinput_writer=identity_uinput_writer,
             )
     except Exception:
         pass
@@ -214,7 +215,3 @@ def release_all_keys(
     device_runtime.state.combo_passthrough_held.clear()
     device_runtime.state.combo_recalled_bindings.clear()
     device_runtime.state.held_source_actions.clear()
-
-
-def _uinput_writer(device: object | None) -> WritableUInput | None:
-    return cast(WritableUInput | None, device)

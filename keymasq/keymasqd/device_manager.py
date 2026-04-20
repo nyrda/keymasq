@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import errno
 import logging
-import queue
 import random
 import time
 import uuid
@@ -198,57 +197,22 @@ def _combo_manager(
     return cast(runtime_combos._ComboManager, manager)  # pyright: ignore[reportPrivateUsage]
 
 
-def _combo_asyncio_runtime() -> runtime_combos._AsyncioModule:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_combos._AsyncioModule, ASYNCIO_RUNTIME)  # pyright: ignore[reportPrivateUsage]
-
-
-def _combo_evdev_runtime() -> runtime_combos._EvdevModule:  # pyright: ignore[reportPrivateUsage]
-    return cast(  # pyright: ignore[reportPrivateUsage]
-        runtime_combos._EvdevModule,  # pyright: ignore[reportPrivateUsage]
-        runtime_adapters.COMBO_EVDEV_RUNTIME,
-    )
-
-
-def _combo_emit_mouse_move_fn() -> runtime_combos._EmitMouseMoveFn:  # pyright: ignore[reportPrivateUsage]
-    return cast(  # pyright: ignore[reportPrivateUsage]
-        runtime_combos._EmitMouseMoveFn,  # pyright: ignore[reportPrivateUsage]
-        runtime_adapters.combo_emit_mouse_move,
-    )
-
-
-def _combo_uinput_writer_impl(
-    device: object | None,
-) -> runtime_combos._WritableUInput | None:  # pyright: ignore[reportPrivateUsage]
-    return cast(  # pyright: ignore[reportPrivateUsage]
-        runtime_combos._WritableUInput | None,  # pyright: ignore[reportPrivateUsage]
-        runtime_adapters.identity_uinput_writer(device),
-    )
-
-
-def _combo_uinput_writer() -> runtime_combos.UInputWriter:
-    return _combo_uinput_writer_impl
-
-
 def _combo_runtime_deps(
     *,
     resolve_code_fn: runtime_combos.ResolveCodeFn = resolve_output_code,
     fire_and_observe_fn: runtime_combos.FireAndObserve = _fire_and_observe,
 ) -> runtime_combos.ComboRuntimeDeps:
     return runtime_combos.ComboRuntimeDeps(
-        asyncio_mod=_combo_asyncio_runtime(),
+        asyncio_mod=cast(runtime_combos._AsyncioModule, ASYNCIO_RUNTIME),  # pyright: ignore[reportPrivateUsage]
         contextlib_mod=contextlib,
         time_mod=time,
-        evdev_mod=_combo_evdev_runtime(),
-        uinput_writer=_combo_uinput_writer(),
-        emit_mouse_move_fn=_combo_emit_mouse_move_fn(),
+        evdev_mod=cast(runtime_combos._EvdevModule, runtime_adapters.COMBO_EVDEV_RUNTIME),  # pyright: ignore[reportPrivateUsage]
+        uinput_writer=runtime_adapters.identity_uinput_writer,
+        emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
         get_trigger_axis_fn=get_trigger_axis,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )
-
-
-def _combo_queue_module() -> runtime_combos._QueueModule:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_combos._QueueModule, queue)  # pyright: ignore[reportPrivateUsage]
 
 
 def _capability_device(
@@ -848,13 +812,10 @@ class DeviceManager:
             token,
             hardware_ids,
             notify_event,
-            queue_mod=_combo_queue_module(),
         )
 
     def read_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.read_combo_capture(
-            _combo_manager(self), token, queue_mod=_combo_queue_module()
-        )
+        return runtime_combos.read_combo_capture(_combo_manager(self), token)
 
     def end_combo_capture(self, token: str) -> JsonObject:
         return runtime_combos.end_combo_capture(_combo_manager(self), token)

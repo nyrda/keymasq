@@ -206,29 +206,17 @@ def _manager_op_lock(manager: _GrabManager) -> asyncio.Lock:
     return manager._op_lock  # pyright: ignore[reportPrivateUsage]
 
 
-def _combo_asyncio_runtime() -> runtime_combos._AsyncioModule:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_combos._AsyncioModule, ASYNCIO_RUNTIME)  # pyright: ignore[reportPrivateUsage]
-
-
-def _combo_evdev_runtime() -> runtime_combos._EvdevModule:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_combos._EvdevModule, COMBO_EVDEV_RUNTIME)  # pyright: ignore[reportPrivateUsage]
-
-
-def _combo_uinput_writer() -> runtime_combos.UInputWriter:
-    return _identity_uinput
-
-
 def _combo_runtime_deps(
     *,
     resolve_code_fn: runtime_combos.ResolveCodeFn = resolve_output_code,
     fire_and_observe_fn: runtime_combos.FireAndObserve = _fire_and_forget,
 ) -> runtime_combos.ComboRuntimeDeps:
     return runtime_combos.ComboRuntimeDeps(
-        asyncio_mod=_combo_asyncio_runtime(),
+        asyncio_mod=cast(runtime_combos._AsyncioModule, ASYNCIO_RUNTIME),  # pyright: ignore[reportPrivateUsage]
         contextlib_mod=contextlib,
         time_mod=time,
-        evdev_mod=_combo_evdev_runtime(),
-        uinput_writer=_combo_uinput_writer(),
+        evdev_mod=cast(runtime_combos._EvdevModule, COMBO_EVDEV_RUNTIME),  # pyright: ignore[reportPrivateUsage]
+        uinput_writer=_identity_uinput,
         emit_mouse_move_fn=_combo_emit_mouse_move,
         get_trigger_axis_fn=get_trigger_axis,
         resolve_code_fn=resolve_code_fn,

@@ -109,6 +109,11 @@ differentiator is the compositor/session environment itself.
   path used by the listener for recording start-position capture and similar
   pointer reads
 - On unsupported compositors, `slurp` is not used
+- Path resolution checks the embedded build path first, then `/usr/bin/slurp`,
+  `/run/current-system/sw/bin/slurp`, and finally `PATH`
+- `SLURP_PATH` overrides auto-detection entirely:
+  set it to an absolute path to force that binary, or set it to an empty string
+  to disable slurp integration and force the fallback cursor-query path
 
 `slurp` is not a universal base runtime dependency, but it is a real
 feature/runtime dependency for supported Wayland environments rather than just a

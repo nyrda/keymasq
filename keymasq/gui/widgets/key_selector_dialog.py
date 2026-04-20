@@ -301,6 +301,7 @@ class KeySelectorDialog(Adw.Dialog):
         self._capture_delay_seconds: float = 2.0
         self._capture_timeout_id: int = 0
         self._capture_pending: bool = False
+        self._capture_request_id: int = 0
         self._slurp_capture = get_slurp_capture()
         self._slurp_capture.set_compositor(detect_compositor_sync())
         self._slurp_available = self._slurp_capture.available
@@ -1080,12 +1081,18 @@ class KeySelectorDialog(Adw.Dialog):
 
     def _on_capture_position_clicked(self, btn: Gtk.Button) -> None:
         self._cancel_capture_position("")
+        self._capture_request_id += 1
+        request_id = self._capture_request_id
 
         if self._slurp_available:
             self._capture_pending = True
             self.mouse_move_capture_btn.set_sensitive(False)
             self.mouse_move_capture_status.set_text("Click to capture position...")
-            self._slurp_capture.capture_point(self._on_slurp_capture_result)
+            self._slurp_capture.capture_point(
+                lambda result, expected_id=request_id: self._on_slurp_capture_result(
+                    expected_id, result
+                )
+            )
         else:
             self._capture_delay_seconds = float(self.mouse_move_capture_delay_spin.get_value())
             self._capture_pending = True
@@ -1095,10 +1102,12 @@ class KeySelectorDialog(Adw.Dialog):
             )
             self._capture_timeout_id = GLib.timeout_add(
                 int(self._capture_delay_seconds * 1000),
-                self._capture_position_after_delay,
+                lambda expected_id=request_id: self._capture_position_after_delay(expected_id),
             )
 
-    def _on_slurp_capture_result(self, result) -> None:
+    def _on_slurp_capture_result(self, request_id: int, result) -> None:
+        if request_id != self._capture_request_id:
+            return
         self._capture_pending = False
         self.mouse_move_capture_btn.set_sensitive(True)
 
@@ -1110,19 +1119,23 @@ class KeySelectorDialog(Adw.Dialog):
         self.mouse_move_y_spin.set_value(result.y)
         self.mouse_move_capture_status.set_text(f"Captured: {result.x}, {result.y}")
 
-    def _capture_position_after_delay(self) -> bool:
+    def _capture_position_after_delay(self, request_id: int) -> bool:
         self._capture_timeout_id = 0
-        if not self._capture_pending:
+        if request_id != self._capture_request_id or not self._capture_pending:
             return False
         self.mouse_move_capture_status.set_text("Reading cursor position...")
         session_request_async(
             {"command": "get_cursor_position"},
-            self._on_capture_position_response,
+            lambda response, expected_id=request_id: self._on_capture_position_response(
+                expected_id, response
+            ),
             timeout=5.0,
         )
         return False
 
-    def _on_capture_position_response(self, response: dict | None) -> bool:
+    def _on_capture_position_response(self, request_id: int, response: dict | None) -> bool:
+        if request_id != self._capture_request_id:
+            return False
         self._capture_pending = False
         self.mouse_move_capture_btn.set_sensitive(True)
 
@@ -1141,6 +1154,7 @@ class KeySelectorDialog(Adw.Dialog):
         return False
 
     def _cancel_capture_position(self, status_text: str) -> None:
+        self._capture_request_id += 1
         if self._capture_timeout_id:
             GLib.source_remove(self._capture_timeout_id)
             self._capture_timeout_id = 0

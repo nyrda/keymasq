@@ -158,12 +158,6 @@ def _topology_device_input_fn() -> runtime_topology.DeviceInputFn:
     return _device_input
 
 
-def _grab_lifecycle_manager(
-    manager: "DeviceManager",
-) -> runtime_grab_lifecycle._GrabManager:  # pyright: ignore[reportPrivateUsage]
-    return cast(runtime_grab_lifecycle._GrabManager, manager)  # pyright: ignore[reportPrivateUsage]
-
-
 def _macro_manager(
     manager: "DeviceManager",
 ) -> runtime_macros._MacroManager:  # pyright: ignore[reportPrivateUsage]
@@ -375,7 +369,7 @@ class DeviceManager:
     ) -> JsonObject:
         async with self._op_lock:
             return await runtime_grab_lifecycle.grab_device_unlocked(
-                _grab_lifecycle_manager(self),
+                self,
                 hardware_id,
                 evdev_paths,
                 button_map,
@@ -407,12 +401,12 @@ class DeviceManager:
         async with self._op_lock:
             if immediate:
                 return await runtime_grab_lifecycle.release_device_unlocked(
-                    _grab_lifecycle_manager(self),
+                    self,
                     hardware_id,
                     log=log,
                 )
             return runtime_grab_lifecycle.schedule_hardware_release_unlocked(
-                _grab_lifecycle_manager(self),
+                self,
                 hardware_id,
                 grace_s,
                 asyncio_mod=runtime_grab_lifecycle.ASYNCIO_RUNTIME,
@@ -421,7 +415,7 @@ class DeviceManager:
 
     async def release_all_devices(self) -> None:
         await runtime_grab_lifecycle.release_all_devices(
-            _grab_lifecycle_manager(self),
+            self,
             fire_and_observe_fn=_fire_and_observe,
         )
 
@@ -431,7 +425,7 @@ class DeviceManager:
         mapping: JsonObject,
     ) -> JsonObject:
         return await runtime_grab_lifecycle.set_mapping(
-            _grab_lifecycle_manager(self),
+            self,
             hardware_id,
             mapping,
             json_object_fn=_json_object,

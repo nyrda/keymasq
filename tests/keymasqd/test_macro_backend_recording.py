@@ -86,36 +86,163 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
     assert recorder.calls[0][1].code == evdev.ecodes.KEY_F14
 
 
-@pytest.mark.asyncio
-async def test_real_recording_manager_skips_grabbed_device_stream() -> None:
-    recorder = RecordingManager()
-    event_callback = AsyncMock()
-    keyboard_uinput = MagicMock()
+class _QuietInputDevice:
+    def close(self) -> None:
+        pass
 
-    await recorder.start([])
+    async def async_read_loop(self):
+        while True:
+            await asyncio.sleep(60)
+            yield evdev.InputEvent(1, 1, evdev.ecodes.EV_SYN, 0, 0)
 
-    mapping = {
-        "btn_macro": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
-    }
-    grabbed = GrabbedDevice(
+
+def _grabbed_recording_device(
+    recorder: RecordingManager,
+    *,
+    stable_path: str = "/dev/input/by-id/raw-kbd",
+) -> GrabbedDevice:
+    device = GrabbedDevice(
         path="/dev/input/event0",
         hardware_id="test",
         button_map={"btn_macro": "key_f14"},
-        mapping_getter=lambda: mapping,
-        event_callback=event_callback,
+        mapping_getter=lambda: {
+            "btn_macro": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+        },
+        event_callback=AsyncMock(),
         device_type=DeviceType.KEYBOARD,
-        keyboard_uinput=keyboard_uinput,
+        keyboard_uinput=MagicMock(),
         recording_manager=recorder,
+    )
+    device.stable_path = stable_path
+    return device
+
+
+@pytest.mark.asyncio
+async def test_recording_manager_records_selected_grabbed_raw_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = RecordingManager()
+    monkeypatch.setattr(
+        recording_module,
+        "resolve_stable_path",
+        lambda path: "/dev/input/by-id/raw-kbd" if path == "/dev/input/event0" else path,
+    )
+
+    await recorder.start(
+        [
+            {
+                "path": "/dev/input/event0",
+                "stable_path": "/dev/input/by-id/raw-kbd",
+                "recording_id": "physical:/dev/input/by-id/raw-kbd",
+                "recording_kind": "physical",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+                "grabbed_by_keymasq": True,
+            }
+        ]
     )
 
     await _process_grabbed_event(
-        grabbed,
+        _grabbed_recording_device(recorder),
         evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
     )
-
     result = await recorder.stop()
 
+    assert result["event_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_recording_manager_prefers_selected_passthrough_over_grabbed_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = RecordingManager()
+    opened_paths: list[str] = []
+
+    def fake_input_device(path: str):
+        opened_paths.append(path)
+        return _QuietInputDevice()
+
+    monkeypatch.setattr(recording_module.evdev, "InputDevice", fake_input_device)
+    monkeypatch.setattr(
+        recording_module,
+        "resolve_stable_path",
+        lambda path: "/dev/input/by-id/raw-kbd" if path == "/dev/input/event0" else path,
+    )
+
+    await recorder.start(
+        [
+            {
+                "path": "/dev/input/event0",
+                "stable_path": "/dev/input/by-id/raw-kbd",
+                "recording_id": "physical:/dev/input/by-id/raw-kbd",
+                "recording_kind": "physical",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+                "grabbed_by_keymasq": True,
+            },
+            {
+                "path": "/dev/input/event10",
+                "stable_path": "/dev/input/event10",
+                "recording_id": "keymasq:passthrough:test:kbd",
+                "recording_kind": "keymasq_passthrough",
+                "source_stable_path": "/dev/input/by-id/raw-kbd",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+            },
+        ]
+    )
+
+    await _process_grabbed_event(
+        _grabbed_recording_device(recorder),
+        evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+    )
+    result = await recorder.stop()
+
+    assert opened_paths == ["/dev/input/event10"]
     assert result["event_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_recording_manager_keeps_unrelated_grabbed_raw_when_passthrough_selected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = RecordingManager()
+    monkeypatch.setattr(recording_module.evdev, "InputDevice", lambda _path: _QuietInputDevice())
+    monkeypatch.setattr(
+        recording_module,
+        "resolve_stable_path",
+        lambda path: "/dev/input/by-id/raw-kbd" if path == "/dev/input/event0" else path,
+    )
+
+    await recorder.start(
+        [
+            {
+                "path": "/dev/input/event0",
+                "stable_path": "/dev/input/by-id/raw-kbd",
+                "recording_id": "physical:/dev/input/by-id/raw-kbd",
+                "recording_kind": "physical",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+                "grabbed_by_keymasq": True,
+            },
+            {
+                "path": "/dev/input/event10",
+                "recording_id": "keymasq:passthrough:other:kbd",
+                "recording_kind": "keymasq_passthrough",
+                "source_stable_path": "/dev/input/by-id/other-kbd",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+            },
+        ]
+    )
+
+    await _process_grabbed_event(
+        _grabbed_recording_device(recorder),
+        evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+    )
+    result = await recorder.stop()
+
+    assert result["event_count"] == 1
 
 
 @pytest.mark.asyncio

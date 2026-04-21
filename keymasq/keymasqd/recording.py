@@ -7,6 +7,7 @@ import evdev
 from keymasq.common.devices import (
     classify_event_device_type,
     normalize_input_classes,
+    resolve_stable_path,
 )
 from keymasq.common.ipc import CommandType
 
@@ -42,17 +43,16 @@ class RecordingManager:
         self._stopped = True
         self._include_mouse_movement = False
         self._include_mouse_clicks = False
+        self._record_grabbed_source_keys: set[str] = set()
 
     @property
     def is_recording(self) -> bool:
         return not self._stopped
 
-    def should_record_grabbed_event(self, _device_path: str, _device_types: list[str]) -> bool:
-        # Macro recording should follow the explicit device selection sent by the
-        # session/UI. Grabbed physical devices are represented in the recording
-        # UI by their matching keymasq-* outputs, so recording them here would
-        # duplicate the same input stream.
-        return False
+    def should_record_grabbed_event(self, device_path: str, _device_types: list[str]) -> bool:
+        return _physical_source_key(resolve_stable_path(device_path)) in (
+            self._record_grabbed_source_keys
+        )
 
     async def start(
         self,
@@ -69,9 +69,10 @@ class RecordingManager:
         self._stopped = False
         self._include_mouse_movement = bool(include_mouse_movement)
         self._include_mouse_clicks = bool(include_mouse_clicks)
+        extra_devices, self._record_grabbed_source_keys = _build_recording_plan(devices)
 
-        for dev in devices:
-            path_value = dev.get("path")
+        for dev in extra_devices:
+            path_value = dev.get("open_path", dev.get("path"))
             if not isinstance(path_value, str) or not path_value:
                 continue
             try:
@@ -158,6 +159,7 @@ class RecordingManager:
             except Exception:
                 pass
         self._extra_devices = []
+        self._record_grabbed_source_keys = set()
 
         duration_ms = int(_event_time_us(self._events[-1]) / 1000) if self._events else 0
         device_types = sorted({str(event.get("device_type", "other")) for event in self._events})
@@ -192,3 +194,66 @@ class RecordingManager:
                     "duration_ms": duration_ms,
                 },
             )
+
+
+def _str_value(value: object, default: str = "") -> str:
+    return default if value is None else str(value)
+
+
+def _physical_source_key(stable_path: str) -> str:
+    return f"physical:{stable_path}"
+
+
+def _recording_device_kind(device: RecordingDevice) -> str:
+    return _str_value(
+        device.get("recording_kind", device.get("kind", "physical")),
+        "physical",
+    )
+
+
+def _recording_device_path(device: RecordingDevice) -> str:
+    return _str_value(device.get("open_path", device.get("path", "")), "")
+
+
+def _recording_device_source_key(device: RecordingDevice) -> str:
+    source_stable_path = _str_value(device.get("source_stable_path"), "")
+    if source_stable_path:
+        return _physical_source_key(source_stable_path)
+
+    stable_path = _str_value(device.get("stable_path"), "")
+    if stable_path:
+        return _physical_source_key(stable_path)
+
+    path = _recording_device_path(device)
+    if path:
+        return _physical_source_key(resolve_stable_path(path))
+
+    return _str_value(device.get("recording_id"), "")
+
+
+def _build_recording_plan(
+    devices: list[RecordingDevice],
+) -> tuple[list[RecordingDevice], set[str]]:
+    selected = [device for device in devices if _recording_device_path(device)]
+    passthrough_sources = {
+        _recording_device_source_key(device)
+        for device in selected
+        if _recording_device_kind(device) == "keymasq_passthrough"
+    }
+    passthrough_sources.discard("")
+
+    extra_devices: list[RecordingDevice] = []
+    grabbed_source_keys: set[str] = set()
+
+    for device in selected:
+        kind = _recording_device_kind(device)
+        source_key = _recording_device_source_key(device)
+        if kind == "physical" and source_key in passthrough_sources:
+            continue
+        if kind == "physical" and bool(device.get("grabbed_by_keymasq", False)):
+            if source_key:
+                grabbed_source_keys.add(source_key)
+            continue
+        extra_devices.append(device)
+
+    return extra_devices, grabbed_source_keys

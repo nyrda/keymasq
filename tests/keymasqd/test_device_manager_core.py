@@ -321,6 +321,115 @@ class TestDeviceDetection:
 
 
 class TestListDevices:
+    def test_list_devices_marks_physical_recording_identity(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+
+        class FakeDevice:
+            path = "/dev/input/event0"
+            name = "Raw Keyboard"
+            phys = "usb-test"
+            uniq = ""
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def capabilities(self):
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A]}
+
+            def input_props(self):
+                return []
+
+        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(dm.evdev, "InputDevice", lambda _path: FakeDevice())
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda _path: "/dev/input/by-id/raw-kbd")
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+
+        result = manager._list_devices_sync()
+        result_devices = cast(list[dict[str, object]], result["devices"])
+        device = result_devices[0]
+
+        assert device["path"] == "/dev/input/event0"
+        assert device["open_path"] == "/dev/input/event0"
+        assert device["stable_path"] == "/dev/input/by-id/raw-kbd"
+        assert device["recording_id"] == "physical:/dev/input/by-id/raw-kbd"
+        assert device["recording_kind"] == "physical"
+        assert device["grabbed_by_keymasq"] is False
+
+    def test_list_devices_marks_keymasq_outputs_and_passthrough_sources(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = SimpleNamespace(
+            device=SimpleNamespace(path="/dev/input/event10")
+        )  # type: ignore[assignment]
+        manager.grabbed_devices = {
+            "1234:5678": [
+                SimpleNamespace(
+                    path="/dev/input/event0",
+                    stable_path="/dev/input/by-id/raw-kbd",
+                    hardware_id="1234:5678",
+                    interface_id="kbd",
+                    uinput=SimpleNamespace(device=SimpleNamespace(path="/dev/input/event20")),
+                )
+            ]
+        }
+
+        class FakeDevice:
+            def __init__(self, path: str) -> None:
+                self.path = path
+                self.name = {
+                    "/dev/input/event0": "Raw Keyboard",
+                    "/dev/input/event10": "keymasq-keyboard",
+                    "/dev/input/event20": "keymasq-1234:5678",
+                }[path]
+                self.phys = "py-evdev-uinput" if path != "/dev/input/event0" else "usb-test"
+                self.uniq = ""
+                self.info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def capabilities(self):
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A]}
+
+            def input_props(self):
+                return []
+
+        stable_paths = {
+            "/dev/input/event0": "/dev/input/by-id/raw-kbd",
+            "/dev/input/event10": "/dev/input/event10",
+            "/dev/input/event20": "/dev/input/event20",
+        }
+        monkeypatch.setattr(
+            dm,
+            "_device_paths",
+            lambda: ["/dev/input/event0", "/dev/input/event10", "/dev/input/event20"],
+        )
+        monkeypatch.setattr(dm.evdev, "InputDevice", FakeDevice)
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: stable_paths[path])
+        monkeypatch.setattr(dm, "get_interface_id", lambda path: "kbd" if "raw" in path else path)
+
+        result = manager._list_devices_sync()
+        result_devices = cast(list[dict[str, object]], result["devices"])
+        devices = {device["path"]: device for device in result_devices}
+
+        raw = devices["/dev/input/event0"]
+        assert raw["recording_id"] == "physical:/dev/input/by-id/raw-kbd"
+        assert raw["recording_kind"] == "physical"
+        assert raw["grabbed_by_keymasq"] is True
+        assert raw["source_hardware_id"] == "1234:5678"
+        assert raw["source_interface_id"] == "kbd"
+
+        output = devices["/dev/input/event10"]
+        assert output["recording_id"] == "keymasq:output:keyboard"
+        assert output["recording_kind"] == "keymasq_output"
+        assert output["keymasq_output"] == "keyboard"
+
+        passthrough = devices["/dev/input/event20"]
+        assert passthrough["recording_id"] == "keymasq:passthrough:1234:5678:kbd"
+        assert passthrough["recording_kind"] == "keymasq_passthrough"
+        assert passthrough["source_stable_path"] == "/dev/input/by-id/raw-kbd"
+        assert passthrough["source_path"] == "/dev/input/event0"
+
     @pytest.mark.asyncio
     async def test_list_devices_offloads_scan_to_thread(
         self,

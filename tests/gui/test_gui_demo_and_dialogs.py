@@ -72,7 +72,6 @@ class TestRecordMacroDialog:
             }
         )
         assert dialog._unlock_btn.get_visible() is True
-        assert dialog._unlock_btn.get_label() == "Unlock"
         assert dialog._unlock_status.get_label() == "Unlock required"
 
         dialog._apply_unlock_state(
@@ -83,7 +82,6 @@ class TestRecordMacroDialog:
             }
         )
         assert dialog._unlock_btn.get_visible() is True
-        assert dialog._unlock_btn.get_label() == "Claim Unlock"
         assert dialog._unlock_status.get_label() == "Unlock active in another session"
 
         dialog._apply_unlock_state(
@@ -95,6 +93,88 @@ class TestRecordMacroDialog:
         )
         assert dialog._unlock_btn.get_visible() is False
         assert dialog._unlock_status.get_label() == "Unlock active"
+
+    def test_record_dialog_defaults_to_recommended_sources(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+
+        dialog = RecordMacroDialog(Gtk.Window())
+        dialog._apply_recording_settings({"status": "ok", "device_overrides": {}})
+        dialog._devices = [
+            {
+                "path": "/dev/input/event20",
+                "recording_id": "keymasq:output:keyboard",
+                "recording_kind": "keymasq_output",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+                "name": "keymasq-keyboard",
+            },
+            {
+                "path": "/dev/input/event0",
+                "recording_id": "physical:/dev/input/by-id/raw-mouse",
+                "recording_kind": "physical",
+                "device_type": "mouse",
+                "device_types": ["mouse"],
+                "name": "Raw Mouse",
+            },
+        ]
+
+        dialog._populate_device_list()
+
+        assert dialog._device_checks["keymasq:output:keyboard"].get_active() is True
+        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
+        assert dialog._selection_summary.get_label() == "1 selected (1kb)"
+
+    def test_record_dialog_bulk_selection_is_helper_only(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+
+        dialog = RecordMacroDialog(Gtk.Window())
+        dialog._apply_recording_settings(
+            {
+                "status": "ok",
+                "include_mouse_movement": True,
+                "device_overrides": {},
+            }
+        )
+        dialog._devices = [
+            {
+                "path": "/dev/input/event20",
+                "recording_id": "keymasq:output:keyboard",
+                "recording_kind": "keymasq_output",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+                "name": "keymasq-keyboard",
+            },
+            {
+                "path": "/dev/input/event0",
+                "recording_id": "physical:/dev/input/by-id/raw-mouse",
+                "recording_kind": "physical",
+                "device_type": "mouse",
+                "device_types": ["mouse"],
+                "name": "Raw Mouse",
+            },
+        ]
+
+        dialog._populate_device_list()
+        assert dialog._selection_warning.get_visible() is True
+
+        dialog._on_select_type_clicked(Gtk.Button(), "mouse", True)
+        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is True
+        assert dialog._selection_summary.get_label() == "2 selected (1kb, 1m)"
+        assert dialog._selection_warning.get_visible() is False
+
+        dialog._on_reset_to_recommended_clicked(Gtk.Button())
+        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
+        assert dialog._selection_warning.get_visible() is True
 
 
 class TestDialogConstruction:

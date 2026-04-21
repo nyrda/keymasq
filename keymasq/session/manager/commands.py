@@ -435,9 +435,7 @@ async def _handle_capture_commands(
             ["keyboard", "gamepad", "mouse"],
             include_grabbed=True,
         )
-        manager.recording_state.devices_cache = [
-            d for d in devices if not d.get("grabbed_by_keymasq")
-        ]
+        manager.recording_state.devices_cache = devices
         return {"status": "ok", "devices": devices}
 
     if command == "begin_capture":

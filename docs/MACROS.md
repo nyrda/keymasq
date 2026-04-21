@@ -87,6 +87,24 @@ reach them will be captured too, which is rarely what you want.
 | Move to start | Before playback, move the cursor to the position it was at when recording began. |
 | Block mouse movement | Prevent accidental mouse movement during playback (requires a grabbed mouse device). |
 
+**Recording sources:** the recording settings dialog separates Keymasq output
+devices from direct physical input sources.
+
+- Prefer **Recommended: Remapped Output** if you want the macro to capture what
+  Keymasq emits after your mappings, combos, and passthrough handling.
+- Use **Direct Input Sources** only when you explicitly need raw hardware events
+  before Keymasq remapping.
+- **Selected sources below are authoritative.** The quick-selection buttons for
+  keyboards, mice, and gamepads only update the source list below; they are not
+  separate recording state.
+- If both a managed physical device and its matching Keymasq passthrough device
+  are selected, Keymasq records the passthrough stream and skips the matching
+  raw stream to avoid duplicate events.
+
+Recording preferences are stored in
+`~/.config/keymasq/recording_settings.toml`. Device-specific overrides use
+stable recording IDs instead of volatile `/dev/input/eventN` paths.
+
 ![Recording settings — Move to start and Block mouse movement options](assets/screenshots/keymasq_macro_recording_settings.png)
 
 ![Save dialog — name your recorded macro before saving](assets/screenshots/keymasq_save_macro_dialog.png)

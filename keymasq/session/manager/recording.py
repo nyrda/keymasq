@@ -1,10 +1,12 @@
 import asyncio
-import json
 import logging
 import re
 import secrets
+import tomllib
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
+
+import tomli_w
 
 from keymasq.common.devices import normalize_input_classes
 from keymasq.common.ipc import Command, CommandType
@@ -739,7 +741,7 @@ def update_recording_settings(manager: "SessionManager", request: JsonObject) ->
         overrides = json_object(request.get("device_overrides"))
         if overrides is not None:
             settings["device_overrides"] = {
-                str(path): bool(enabled) for path, enabled in overrides.items()
+                str(recording_id): bool(enabled) for recording_id, enabled in overrides.items()
             }
     queue_recording_settings_save(manager, dict(settings))
 
@@ -771,9 +773,8 @@ def load_recording_settings_from_disk(manager: "SessionManager") -> None:
     try:
         if not manager.RECORDING_SETTINGS_PATH.exists():
             return
-        data = json_object(json.loads(manager.RECORDING_SETTINGS_PATH.read_text()))
-        if data is None:
-            return
+        with manager.RECORDING_SETTINGS_PATH.open("rb") as f:
+            data = cast(JsonObject, tomllib.load(f))
         settings = manager.recording_state.settings
         settings["include_mouse_movement"] = bool(data.get("include_mouse_movement", False))
         settings["include_mouse_clicks"] = bool(data.get("include_mouse_clicks", False))
@@ -784,10 +785,13 @@ def load_recording_settings_from_disk(manager: "SessionManager") -> None:
         overrides = json_object(data.get("device_overrides"))
         if overrides is not None:
             settings["device_overrides"] = {
-                str(path): bool(enabled) for path, enabled in overrides.items()
+                str(recording_id): bool(enabled) for recording_id, enabled in overrides.items()
             }
     except Exception:
-        pass
+        log.exception(
+            "Failed to load recording settings from %s",
+            manager.RECORDING_SETTINGS_PATH,
+        )
 
 
 def save_recording_settings_to_disk(
@@ -796,20 +800,29 @@ def save_recording_settings_to_disk(
 ) -> None:
     settings = settings or manager.recording_state.settings
     try:
-        existing: JsonObject = {}
-        if manager.RECORDING_SETTINGS_PATH.exists():
-            loaded = json_object(json.loads(manager.RECORDING_SETTINGS_PATH.read_text()))
-            if loaded is not None:
-                existing = dict(loaded)
-
-        existing["include_mouse_movement"] = bool(settings.get("include_mouse_movement", False))
-        existing["include_mouse_clicks"] = bool(settings.get("include_mouse_clicks", False))
-        existing["record_start_position"] = bool(settings.get("record_start_position", False))
+        data: JsonObject = {
+            "include_mouse_movement": bool(settings.get("include_mouse_movement", False)),
+            "include_mouse_clicks": bool(settings.get("include_mouse_clicks", False)),
+            "record_start_position": bool(settings.get("record_start_position", False)),
+            "record_keyboard": bool(settings.get("record_keyboard", True)),
+            "record_mouse": bool(settings.get("record_mouse", False)),
+            "record_gamepad": bool(settings.get("record_gamepad", True)),
+            "device_overrides": {
+                str(recording_id): bool(enabled)
+                for recording_id, enabled in (
+                    json_object(settings.get("device_overrides")) or {}
+                ).items()
+            },
+        }
 
         manager.RECORDING_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        manager.RECORDING_SETTINGS_PATH.write_text(json.dumps(existing))
+        with manager.RECORDING_SETTINGS_PATH.open("wb") as f:
+            tomli_w.dump(data, f)
     except Exception:
-        pass
+        log.exception(
+            "Failed to save recording settings to %s",
+            manager.RECORDING_SETTINGS_PATH,
+        )
 
 
 async def start_recording(
@@ -832,46 +845,34 @@ async def start_recording(
     include_mouse_movement = settings.get("include_mouse_movement", False)
     include_mouse_clicks = settings.get("include_mouse_clicks", False)
     record_start_position = settings.get("record_start_position", False)
-    device_types: list[str] = []
-    if settings.get("record_keyboard", True):
-        device_types.append("keyboard")
-    if settings.get("record_gamepad", True):
-        device_types.append("gamepad")
-    if settings.get("record_mouse", False) or (include_mouse_movement or include_mouse_clicks):
-        device_types.append("mouse")
+    device_types = ["keyboard", "gamepad", "mouse"]
 
     devices: list[JsonObject]
     if manager.recording_state.devices_cache:
-        devices = [
-            d
-            for d in manager.recording_state.devices_cache
-            if _recording_device_matches_types(d, device_types)
-        ]
+        devices = list(manager.recording_state.devices_cache)
     else:
         try:
             devices = await asyncio.wait_for(
-                get_devices_for_recording(manager, device_types),
+                get_devices_for_recording(manager, device_types, include_grabbed=True),
                 timeout=1.5,
             )
         except Exception:
             devices = []
 
-    overrides = json_object(settings.get("device_overrides"))
-    if overrides:
-        devices = [
-            d
+    overrides = json_object(settings.get("device_overrides")) or {}
+    devices = [d for d in devices if _recording_device_enabled(d, overrides)]
+    recording_ids = list(
+        dict.fromkeys(
+            recording_id
             for d in devices
-            if bool(
-                overrides.get(
-                    str(d.get("path", "")),
-                    _recording_device_matches_types(d, device_types),
-                )
-            )
-        ]
+            if (recording_id := _recording_device_id(d))
+        )
+    )
     log.debug(
-        "recording start device selection: types=%s overrides=%r devices=%s",
+        "recording start device selection: types=%s overrides=%r recording_ids=%s devices=%s",
         device_types,
         overrides,
+        recording_ids,
         [str(d.get("path", "")) for d in devices],
     )
 
@@ -903,7 +904,7 @@ async def start_recording(
             Command(
                 command=CommandType.START_RECORDING,
                 data={
-                    "devices": devices,
+                    "recording_ids": recording_ids,
                     "include_mouse_movement": include_mouse_movement,
                     "include_mouse_clicks": include_mouse_clicks,
                     "start_x": start_x,
@@ -928,7 +929,11 @@ async def start_recording(
 
 async def refresh_recording_devices_cache(manager: "SessionManager") -> None:
     try:
-        devices = await get_devices_for_recording(manager, ["keyboard", "gamepad", "mouse"])
+        devices = await get_devices_for_recording(
+            manager,
+            ["keyboard", "gamepad", "mouse"],
+            include_grabbed=True,
+        )
         manager.recording_state.devices_cache = devices
     except Exception:
         pass
@@ -940,9 +945,32 @@ def _recording_device_types(device: JsonObject) -> list[str]:
         str_value(device.get("device_type"), "other"),
     )
 
+def _recording_device_id(device: JsonObject) -> str:
+    recording_id = str_value(device.get("recording_id"), "")
+    if recording_id:
+        return recording_id
+    stable_path = str_value(device.get("stable_path"), "")
+    if stable_path:
+        return f"physical:{stable_path}"
+    path = str_value(device.get("path"), "")
+    return f"physical:{path}" if path else ""
 
-def _recording_device_matches_types(device: JsonObject, device_types: list[str]) -> bool:
-    return bool(set(device_types).intersection(_recording_device_types(device)))
+
+def _recording_device_selected_by_default(device: JsonObject) -> bool:
+    return str_value(device.get("recording_kind"), "physical") in {
+        "keymasq_output",
+        "keymasq_passthrough",
+    }
+
+
+def _recording_device_enabled(
+    device: JsonObject,
+    overrides: JsonObject,
+) -> bool:
+    recording_id = _recording_device_id(device)
+    if recording_id in overrides:
+        return bool(overrides.get(recording_id))
+    return _recording_device_selected_by_default(device)
 
 
 async def get_devices_for_recording(
@@ -970,24 +998,37 @@ async def get_devices_for_recording(
         if d is None:
             continue
         path = str_value(d.get("path"), "")
+        stable_path = str_value(d.get("stable_path"), path)
         dtype = str_value(d.get("device_type"), "other")
         resolved_types = _recording_device_types(d)
         if not path or not set(device_types).intersection(resolved_types):
             continue
 
-        is_grabbed = path in grabbed_paths
+        is_grabbed = bool(d.get("grabbed_by_keymasq", False)) or path in grabbed_paths
+        if stable_path in grabbed_paths:
+            is_grabbed = True
         if is_grabbed and not include_grabbed:
             continue
 
         devices.append(
             {
                 "path": path,
+                "open_path": str_value(d.get("open_path"), path),
+                "stable_path": stable_path,
+                "interface_id": str_value(d.get("interface_id"), ""),
                 "name": str_value(d.get("name"), path),
                 "vendor_id": str(d.get("vendor_id", "") or ""),
                 "product_id": str(d.get("product_id", "") or ""),
                 "device_type": dtype,
                 "device_types": resolved_types,
+                "recording_id": str_value(d.get("recording_id"), f"physical:{stable_path}"),
+                "recording_kind": str_value(d.get("recording_kind"), "physical"),
                 "grabbed_by_keymasq": is_grabbed,
+                "source_hardware_id": str_value(d.get("source_hardware_id"), ""),
+                "source_interface_id": str_value(d.get("source_interface_id"), ""),
+                "source_stable_path": str_value(d.get("source_stable_path"), ""),
+                "source_path": str_value(d.get("source_path"), ""),
+                "keymasq_output": str_value(d.get("keymasq_output"), ""),
             }
         )
 

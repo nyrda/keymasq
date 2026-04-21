@@ -260,7 +260,8 @@ class ComboEditorDialog(Adw.Dialog):
         self.add_step_button.connect("clicked", self._on_add_step_clicked)
         top_row.append(self.add_step_button)
 
-        self.unlock_button = Gtk.Button(label="Unlock Capture")
+        self.unlock_button = Gtk.Button()
+        self.unlock_button.set_child(self._make_unlock_button_content())
         self.unlock_button.add_css_class("flat")
         self.unlock_button.connect("clicked", self._on_unlock_clicked)
         top_row.append(self.unlock_button)
@@ -663,6 +664,14 @@ class ComboEditorDialog(Adw.Dialog):
                 "Original-input capture uses privileged raw events. "
                 "Unlock to capture original keys."
             )
+
+    def _make_unlock_button_content(self) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
+        box.append(icon)
+        lbl = Gtk.Label(label="Unlock Capture")
+        box.append(lbl)
+        return box
 
     def _on_unlock_clicked(self, _button: Gtk.Button) -> None:
         root = self.get_root()

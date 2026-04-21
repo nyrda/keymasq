@@ -58,7 +58,7 @@ TOPOLOGY_REFRESH_RETRY_S = 1.0
 
 
 class SessionManager:
-    RECORDING_SETTINGS_PATH = CONFIG_DIR / "recording_settings.json"
+    RECORDING_SETTINGS_PATH = CONFIG_DIR / "recording_settings.toml"
     MAX_SESSION_CLIENT_BUFFER_BYTES = 16 * 1024 * 1024
 
     def __init__(self, verbosity: int = 0) -> None:

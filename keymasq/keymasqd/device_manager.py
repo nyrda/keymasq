@@ -119,6 +119,18 @@ def _device_paths() -> list[str]:
     return cast(Callable[[], list[str]], evdev.list_devices)()
 
 
+def _uinput_device_path(uinput_dev: object | None) -> str | None:
+    input_device = getattr(uinput_dev, "device", None)
+    path = getattr(input_device, "path", None)
+    return path if isinstance(path, str) and path else None
+
+
+def _is_virtual_input(device: object) -> bool:
+    phys = str(getattr(device, "phys", "") or "").lower()
+    name = str(getattr(device, "name", "") or "").lower()
+    return phys == "py-evdev-uinput" or name.startswith("keymasq-")
+
+
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
     task = asyncio.ensure_future(coro)
 
@@ -554,6 +566,8 @@ class DeviceManager:
     def _list_devices_sync(self) -> JsonObject:
         clear_device_path_cache()
         devices: list[JsonObject] = []
+        virtual_metadata = self._recording_virtual_device_metadata()
+        grabbed_metadata = self._recording_grabbed_source_metadata()
 
         for path in _device_paths():
             try:
@@ -570,10 +584,30 @@ class DeviceManager:
 
                 device_types = self._detect_device_types(device)
                 device_type = primary_input_class(device_types)
+                stable_path = resolve_stable_path(path)
+                interface_id = get_interface_id(stable_path)
+                metadata = virtual_metadata.get(path, {})
+                grabbed_source = grabbed_metadata.get(stable_path)
+                is_grabbed = grabbed_source is not None
+                recording_kind = str(metadata.get("recording_kind", "") or "")
+                if not recording_kind:
+                    recording_kind = (
+                        "physical" if not _is_virtual_input(device) else "other_virtual"
+                    )
+                recording_id = str(metadata.get("recording_id", "") or "")
+                if not recording_id:
+                    recording_id = (
+                        f"physical:{stable_path}"
+                        if recording_kind == "physical"
+                        else f"virtual:{device.name or path}:{stable_path}"
+                    )
 
                 devices.append(
                     {
                         "path": path,
+                        "open_path": path,
+                        "stable_path": stable_path,
+                        "interface_id": str(interface_id or ""),
                         "name": device.name,
                         "phys": _optional_str(getattr(device, "phys", None)),
                         "uniq": _optional_str(getattr(device, "uniq", None)),
@@ -582,12 +616,65 @@ class DeviceManager:
                         "capabilities": capabilities,
                         "device_types": device_types,
                         "device_type": device_type.value,
+                        "recording_id": recording_id,
+                        "recording_kind": recording_kind,
+                        "grabbed_by_keymasq": is_grabbed,
+                        **metadata,
+                        **(grabbed_source or {}),
                     }
                 )
             except Exception as e:
                 log.debug(f"Could not read device {path}: {e}")
 
         return {"devices": devices}
+
+    def _recording_virtual_device_metadata(self) -> dict[str, JsonObject]:
+        metadata: dict[str, JsonObject] = {}
+        output_devices = {
+            "keyboard": self.output_state.keyboard_uinput,
+            "mouse": self.output_state.mouse_uinput,
+            "gamepad": self.output_state.gamepad_uinput,
+        }
+        for output_class, uinput_dev in output_devices.items():
+            path = _uinput_device_path(uinput_dev)
+            if not path:
+                continue
+            metadata[path] = {
+                "recording_id": f"keymasq:output:{output_class}",
+                "recording_kind": "keymasq_output",
+                "keymasq_output": output_class,
+            }
+
+        for devices in self.grabbed_devices.values():
+            for grabbed in devices:
+                path = _uinput_device_path(getattr(grabbed, "uinput", None))
+                if not path:
+                    continue
+                hardware_id = str(getattr(grabbed, "hardware_id", "") or "")
+                interface_id = str(getattr(grabbed, "interface_id", "") or "")
+                stable_path = str(getattr(grabbed, "stable_path", "") or "")
+                metadata[path] = {
+                    "recording_id": f"keymasq:passthrough:{hardware_id}:{interface_id}",
+                    "recording_kind": "keymasq_passthrough",
+                    "source_hardware_id": hardware_id,
+                    "source_interface_id": interface_id,
+                    "source_stable_path": stable_path,
+                    "source_path": str(getattr(grabbed, "path", "") or ""),
+                }
+        return metadata
+
+    def _recording_grabbed_source_metadata(self) -> dict[str, JsonObject]:
+        metadata: dict[str, JsonObject] = {}
+        for devices in self.grabbed_devices.values():
+            for grabbed in devices:
+                stable_path = str(getattr(grabbed, "stable_path", "") or "")
+                if not stable_path:
+                    continue
+                metadata[stable_path] = {
+                    "source_hardware_id": str(getattr(grabbed, "hardware_id", "") or ""),
+                    "source_interface_id": str(getattr(grabbed, "interface_id", "") or ""),
+                }
+        return metadata
 
     def _detect_device_types(self, device: _ManagedInputDevice) -> list[str]:
         return detect_input_classes(_capability_device(device))

@@ -8,6 +8,7 @@ from keymasq.keymasqd.daemon_helpers import (
     JsonObjectList,
     float_like,
     int_like,
+    json_object_list,
     str_list,
 )
 
@@ -18,6 +19,8 @@ class _GrabbedDeviceRef(Protocol):
 
 class _CaptureCommandDeviceManager(Protocol):
     grabbed_devices: dict[str, list[_GrabbedDeviceRef]]
+
+    async def list_devices(self) -> JsonObject: ...
 
     def begin_combo_capture(
         self, token: str, hardware_ids: set[str], notify_event: asyncio.Event
@@ -72,8 +75,12 @@ async def handle_capture_command(
     data: JsonObject,
 ) -> JsonObject | None:
     if command_type == CommandType.START_RECORDING:
+        devices = cast(JsonObjectList, data.get("devices", []))
+        recording_ids = str_list(data.get("recording_ids", []))
+        if recording_ids:
+            devices = await resolve_recording_devices(daemon, recording_ids)
         return await daemon.recording_manager.start(
-            cast(JsonObjectList, data.get("devices", [])),
+            devices,
             include_mouse_movement=bool(data.get("include_mouse_movement", False)),
             include_mouse_clicks=bool(data.get("include_mouse_clicks", False)),
         )
@@ -103,6 +110,23 @@ async def handle_capture_command(
         return await capture_combo(daemon, hardware_ids, timeout_s)
 
     return None
+
+
+async def resolve_recording_devices(
+    daemon: _CaptureCommandDaemon,
+    recording_ids: list[str],
+) -> JsonObjectList:
+    wanted = {str(recording_id) for recording_id in recording_ids if str(recording_id)}
+    if not wanted:
+        return []
+
+    result = await daemon.device_manager.list_devices()
+    devices: JsonObjectList = []
+    for device in json_object_list(result.get("devices", [])):
+        recording_id = str(device.get("recording_id", "") or "")
+        if recording_id in wanted:
+            devices.append(device)
+    return devices
 
 
 async def capture_combo(

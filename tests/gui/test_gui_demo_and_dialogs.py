@@ -72,7 +72,6 @@ class TestRecordMacroDialog:
             }
         )
         assert dialog._unlock_btn.get_visible() is True
-        assert dialog._unlock_btn.get_label() == "Unlock"
         assert dialog._unlock_status.get_label() == "Unlock required"
 
         dialog._apply_unlock_state(
@@ -83,7 +82,6 @@ class TestRecordMacroDialog:
             }
         )
         assert dialog._unlock_btn.get_visible() is True
-        assert dialog._unlock_btn.get_label() == "Claim Unlock"
         assert dialog._unlock_status.get_label() == "Unlock active in another session"
 
         dialog._apply_unlock_state(

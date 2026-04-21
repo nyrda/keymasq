@@ -1058,8 +1058,8 @@ class DeviceTab(ProfileManagedTab):
         start_btn = Gtk.Button(label="Start Capture")
         start_btn.add_css_class("suggested-action")
 
-        unlock_btn = Gtk.Button(label="Unlock")
-        unlock_btn.add_css_class("destructive-action")
+        unlock_btn = Gtk.Button()
+        unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
         unlock_btn.connect(
             "clicked",
             self._on_add_inputs_unlock_clicked,
@@ -1299,7 +1299,8 @@ class DeviceTab(ProfileManagedTab):
             return
 
         unlock_btn.set_visible(True)
-        unlock_btn.set_label("Claim Unlock" if recording_unlocked else "Unlock")
+        label = "Claim" if recording_unlocked else "Unlock"
+        unlock_btn.set_child(self._make_unlock_button_content(label))
         if recording_unlocked:
             privilege_status.set_text(
                 "Unlock active in another session. Claim unlock to add additional keys and "
@@ -1310,6 +1311,14 @@ class DeviceTab(ProfileManagedTab):
                 "Original-input capture uses privileged raw events. Unlock to add additional "
                 "keys and mouse buttons."
             )
+
+    def _make_unlock_button_content(self, label: str) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
+        box.append(icon)
+        lbl = Gtk.Label(label=label)
+        box.append(lbl)
+        return box
 
     def _on_add_inputs_unlock_clicked(
         self,

@@ -129,7 +129,7 @@ class TestRecordMacroDialog:
 
         assert dialog._device_checks["keymasq:output:keyboard"].get_active() is True
         assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
-        assert dialog._selection_summary.get_label() == "Selected sources: 1 (Keyboard 1)"
+        assert dialog._selection_summary.get_label() == "1 selected (1kb)"
 
     def test_record_dialog_bulk_selection_is_helper_only(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -171,7 +171,7 @@ class TestRecordMacroDialog:
 
         dialog._on_select_type_clicked(Gtk.Button(), "mouse", True)
         assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is True
-        assert dialog._selection_summary.get_label() == "Selected sources: 2 (Keyboard 1, Mouse 1)"
+        assert dialog._selection_summary.get_label() == "2 selected (1kb, 1m)"
         assert dialog._selection_warning.get_visible() is False
 
         dialog._on_reset_to_recommended_clicked(Gtk.Button())

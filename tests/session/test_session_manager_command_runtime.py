@@ -162,6 +162,51 @@ async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not
 
 
 @pytest.mark.asyncio
+async def test_start_macro_trigger_warns_when_gui_is_missing() -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    start_recording = AsyncMock(return_value={"status": "ok"})
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+
+    await session_events_module.handle_start_macro_trigger(manager)
+
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Recording Unavailable",
+        "Macro recording from triggers requires Keymasq GUI to be open.",
+    )
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "recording_auth_requested"}
+    )
+    start_recording.assert_not_awaited()
+    monkeypatch.undo()
+
+
+@pytest.mark.asyncio
+async def test_start_macro_trigger_warns_when_gui_is_open_but_locked() -> None:
+    manager = SessionManager()
+    manager.session_clients.add(object())  # type: ignore[arg-type]
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    start_recording = AsyncMock(return_value={"status": "ok"})
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+
+    await session_events_module.handle_start_macro_trigger(manager)
+
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Recording Locked",
+        "Unlock macro recording in Keymasq GUI before using recording triggers.",
+    )
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "recording_auth_requested"}
+    )
+    start_recording.assert_not_awaited()
+    monkeypatch.undo()
+
+
+@pytest.mark.asyncio
 async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

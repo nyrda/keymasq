@@ -6,7 +6,7 @@ Before the first public release, Keymasq used internal milestone versions.
 Those milestones are not listed here as public releases. The notes below
 summarize user-visible changes accumulated toward the first public release.
 
-## [Unreleased]
+## [0.8.0] - 2026-04-21
 
 ### Added
 
@@ -35,6 +35,8 @@ summarize user-visible changes accumulated toward the first public release.
   Niri actions in the GUI.
 - Added `keymasq status --json` so automation and scripts can inspect runtime
   state without scraping human-readable CLI output.
+- Added saved macro recording preferences with separate remapped-output and
+  direct-input source selection.
 
 ### Improved
 
@@ -49,6 +51,9 @@ summarize user-visible changes accumulated toward the first public release.
   backends.
 - Tightened slurp capture handling and macro editor updates for point-capture
   and absolute-position editing flows.
+- Reworked macro recording and macro manager flows with clearer source
+  selection, more direct controls, and cleaner recording unlock handling.
+- Let Add Device and Add Input capture flows continue cleanly after unlocking.
 
 ### Changed
 
@@ -58,5 +63,3 @@ summarize user-visible changes accumulated toward the first public release.
 - Stop offering wheel-only pseudo inputs during device setup and clean up
   deleted button mappings more predictably.
 - Removed obsolete CLI device and hardware commands.
-- Split GitHub Actions checks into faster static, typecheck, non-GUI, and GUI
-  paths with leaner cached Nix shells.

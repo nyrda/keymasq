@@ -35,9 +35,10 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.7.0" date="2026-04-20">
+    <release version="0.8.0" date="2026-04-21">
       <description>
-        <p>Adds machine-readable CLI status output, routes absolute cursor moves through compositor-aware listeners, and improves slurp-based capture plus macro editor workflows.</p>
+        <p>First public release of Keymasq with the GTK4 app, CLI, layered profiles, macros, superkeys, combos, and compositor-aware desktop integration.</p>
+        <p>Adds machine-readable CLI status output, improves absolute cursor positioning and screen-position capture, and reworks macro recording with clearer source selection, saved preferences, and cleaner unlock handling.</p>
       </description>
     </release>
     <release version="0.3" date="2026-04-10">

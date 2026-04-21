@@ -193,11 +193,18 @@ async def handle_start_macro_trigger(manager: "SessionManager") -> None:
         return
 
     if not runtime_recording.has_active_gui_recording_owner(manager):
-        log.info("Ignored start_macro_recording trigger: no active GUI recording owner")
-        manager.send_notification(
-            "Keymasq: Recording Unavailable",
-            "Macro recording from triggers requires Keymasq GUI to be open.",
-        )
+        if manager.session_clients:
+            log.info("Ignored start_macro_recording trigger: GUI recording is locked")
+            manager.send_notification(
+                "Keymasq: Recording Locked",
+                "Unlock macro recording in Keymasq GUI before using recording triggers.",
+            )
+        else:
+            log.info("Ignored start_macro_recording trigger: no active GUI recording owner")
+            manager.send_notification(
+                "Keymasq: Recording Unavailable",
+                "Macro recording from triggers requires Keymasq GUI to be open.",
+            )
         manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
         return
 

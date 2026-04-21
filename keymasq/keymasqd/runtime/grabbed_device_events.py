@@ -453,7 +453,10 @@ async def process_event(
         record_grabbed_event = True
         if callable(should_record_grabbed_event):
             record_grabbed_event = bool(
-                should_record_grabbed_event(device_runtime.path, device_runtime.device_types)
+                should_record_grabbed_event(
+                    device_runtime.stable_path,
+                    device_runtime.device_types,
+                )
             )
         if record_grabbed_event:
             input_event = cast(evdev.InputEvent, event)

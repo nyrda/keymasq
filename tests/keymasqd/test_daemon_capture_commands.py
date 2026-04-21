@@ -42,6 +42,46 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
 
 
 @pytest.mark.asyncio
+async def test_start_recording_resolves_recording_ids_before_start(daemon_testbed):
+    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    selected = {
+        "path": "/dev/input/event10",
+        "recording_id": "keymasq:passthrough:1234:5678:mouse",
+        "recording_kind": "keymasq_passthrough",
+        "device_type": "mouse",
+        "device_types": ["mouse"],
+    }
+    device_manager.list_devices.return_value = {
+        "devices": [
+            selected,
+            {
+                "path": "/dev/input/event0",
+                "recording_id": "physical:/dev/input/by-id/raw",
+                "recording_kind": "physical",
+                "device_type": "mouse",
+                "device_types": ["mouse"],
+            },
+        ]
+    }
+
+    result = await daemon._handle_command(
+        CommandType.START_RECORDING,
+        {
+            "recording_ids": ["keymasq:passthrough:1234:5678:mouse"],
+            "include_mouse_movement": True,
+            "include_mouse_clicks": False,
+        },
+    )
+
+    assert result == {"recording": "started"}
+    recording_manager.start.assert_awaited_once_with(
+        [selected],
+        include_mouse_movement=True,
+        include_mouse_clicks=False,
+    )
+
+
+@pytest.mark.asyncio
 async def test_set_cursor_position_command_forwards_to_device_manager(daemon_testbed):
     daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     device_manager.set_cursor_position.return_value = {"status": "ok", "x": 123, "y": 456}

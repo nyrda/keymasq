@@ -185,7 +185,8 @@ class RecordMacroDialog(Adw.Dialog):
         footer.set_margin_start(12)
         footer.set_margin_end(12)
 
-        self._unlock_btn = Gtk.Button(label="Unlock")
+        self._unlock_btn = Gtk.Button()
+        self._unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
         self._unlock_btn.connect("clicked", self._on_unlock_clicked)
         footer.append(self._unlock_btn)
 
@@ -567,6 +568,14 @@ class RecordMacroDialog(Adw.Dialog):
         self._update_selection_ui()
         self._sync_settings_async()
 
+    def _make_unlock_button_content(self, label: str) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
+        box.append(icon)
+        lbl = Gtk.Label(label=label)
+        box.append(lbl)
+        return box
+
     def _update_unlock_ui(self) -> None:
         if not self._recording_unlock_required:
             self._unlock_btn.set_visible(False)
@@ -574,7 +583,8 @@ class RecordMacroDialog(Adw.Dialog):
 
         has_active_unlock = self._recording_unlocked and self._recording_refresh_owner
         self._unlock_btn.set_visible(not has_active_unlock)
-        self._unlock_btn.set_label("Claim Unlock" if self._recording_unlocked else "Unlock")
+        label = "Claim" if self._recording_unlocked else "Unlock"
+        self._unlock_btn.set_child(self._make_unlock_button_content(label))
 
     def _device_types(self, device: dict) -> list[str]:
         return normalize_input_classes(

@@ -83,10 +83,53 @@ class MacroManagerDialog(Adw.Dialog):
         content.set_margin_start(12)
         content.set_margin_end(12)
 
+        # Toolbar row for create actions
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        toolbar.set_margin_bottom(4)
+
+        record_btn = Gtk.Button()
+        record_btn.set_child(
+            self._make_button_content("media-record-symbolic", "Record", "error")
+        )
+        record_btn.set_tooltip_text("Record a new macro")
+        record_btn.connect("clicked", self._on_record_new)
+        toolbar.append(record_btn)
+        self._record_btn = record_btn
+
+        empty_btn = Gtk.Button()
+        empty_btn.set_child(
+            self._make_button_content("document-new-symbolic", "Empty")
+        )
+        empty_btn.set_tooltip_text("Create an empty macro to edit")
+        empty_btn.connect("clicked", self._on_create_empty_macro)
+        toolbar.append(empty_btn)
+
+        type_btn = Gtk.Button()
+        type_btn.set_child(
+            self._make_button_content("input-keyboard-symbolic", "Type")
+        )
+        type_btn.set_tooltip_text("Create a macro that types text")
+        type_btn.connect("clicked", self._on_create_type_macro)
+        toolbar.append(type_btn)
+
+        toolbar_spacer = Gtk.Box()
+        toolbar_spacer.set_hexpand(True)
+        toolbar.append(toolbar_spacer)
+
+        settings_btn = Gtk.Button()
+        settings_btn.set_child(
+            self._make_button_content("emblem-system-symbolic", "Settings")
+        )
+        settings_btn.set_tooltip_text("Recording settings")
+        settings_btn.connect("clicked", self._on_record_settings)
+        toolbar.append(settings_btn)
+
+        content.append(toolbar)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_min_content_height(180)
-        scrolled.set_max_content_height(360)
+        scrolled.set_min_content_height(240)
+        scrolled.set_max_content_height(400)
         scrolled.set_vexpand(True)
 
         self._listbox = Gtk.ListBox()
@@ -105,62 +148,25 @@ class MacroManagerDialog(Adw.Dialog):
         inner.append(content)
         inner.append(Gtk.Separator())
 
-        footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         footer.set_margin_top(8)
         footer.set_margin_bottom(8)
         footer.set_margin_start(12)
         footer.set_margin_end(12)
 
-        action_size_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
-        utility_size_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
-
-        create_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-
-        record_btn = Gtk.Button(label="Record Macro…")
-        record_btn.connect("clicked", self._on_record_new)
-        action_size_group.add_widget(record_btn)
-        create_row.append(record_btn)
-        self._record_btn = record_btn
-
-        empty_btn = Gtk.Button(label="Empty Macro…")
-        empty_btn.add_css_class("suggested-action")
-        empty_btn.connect("clicked", self._on_create_empty_macro)
-        action_size_group.add_widget(empty_btn)
-        create_row.append(empty_btn)
-
-        type_btn = Gtk.Button(label="Type Macro…")
-        type_btn.connect("clicked", self._on_create_type_macro)
-        action_size_group.add_widget(type_btn)
-        create_row.append(type_btn)
-
-        footer.append(create_row)
-
-        utility_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-
-        settings_btn = Gtk.Button(label="Recording Settings…")
-        settings_btn.connect("clicked", self._on_record_settings)
-        utility_size_group.add_widget(settings_btn)
-        utility_row.append(settings_btn)
-
         cancel_playback_btn = Gtk.Button(label="Cancel Playback")
         cancel_playback_btn.add_css_class("destructive-action")
         cancel_playback_btn.connect("clicked", self._on_cancel_playback)
-        utility_size_group.add_widget(cancel_playback_btn)
-        utility_row.append(cancel_playback_btn)
+        footer.append(cancel_playback_btn)
         self._cancel_playback_btn = cancel_playback_btn
 
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        utility_row.append(spacer)
+        footer_spacer = Gtk.Box()
+        footer_spacer.set_hexpand(True)
+        footer.append(footer_spacer)
 
-        close_wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        close_wrap.set_halign(Gtk.Align.END)
         close_btn = Gtk.Button(label="Close")
         close_btn.connect("clicked", self._on_close_clicked)
-        close_wrap.append(close_btn)
-        utility_row.append(close_wrap)
-
-        footer.append(utility_row)
+        footer.append(close_btn)
 
         inner.append(footer)
         frame.set_child(inner)
@@ -169,6 +175,21 @@ class MacroManagerDialog(Adw.Dialog):
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
         self.close()
+
+    def _make_button_content(
+        self,
+        icon_name: str,
+        label: str,
+        icon_css_class: str | None = None,
+    ) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        if icon_css_class:
+            icon.add_css_class(icon_css_class)
+        box.append(icon)
+        lbl = Gtk.Label(label=label)
+        box.append(lbl)
+        return box
 
     def _load_initial_state(self) -> bool:
         run_gui_task(self._fetch_initial_state, self._on_initial_state_loaded)
@@ -514,16 +535,25 @@ class MacroManagerDialog(Adw.Dialog):
             return
 
         if self._recording_active:
-            self._record_btn.set_label("Stop Recording")
+            self._record_btn.set_child(
+                self._make_button_content("media-playback-stop-symbolic", "Stop")
+            )
+            self._record_btn.set_tooltip_text("Stop recording")
             self._record_btn.add_css_class("destructive-action")
             return
 
-        self._record_btn.add_css_class("destructive-action")
+        self._record_btn.remove_css_class("destructive-action")
 
         if not self._recording_unlocked:
-            self._record_btn.set_label("Unlock Recording")
+            self._record_btn.set_child(
+                self._make_button_content("channel-insecure-symbolic", "Unlock")
+            )
+            self._record_btn.set_tooltip_text("Unlock recording")
         else:
-            self._record_btn.set_label("Record Macro…")
+            self._record_btn.set_child(
+                self._make_button_content("media-record-symbolic", "Record", "error")
+            )
+            self._record_btn.set_tooltip_text("Record a new macro")
 
     def _on_unlock_success(self) -> None:
         session_request_async({"command": "get_status"}, self._on_status_after_unlock)

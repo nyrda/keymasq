@@ -726,7 +726,6 @@ class TestDeviceTabWidget:
         assert isinstance(start_btn, Gtk.Button)
         assert start_btn.get_sensitive() is False
         assert unlock_btn.get_visible() is True
-        assert unlock_btn.has_css_class("destructive-action") is True
         assert "Unlock to add additional keys and mouse buttons." in privilege_status.get_text()
 
         unlock_btn.emit("clicked")

@@ -1,4 +1,5 @@
 # ruff: noqa: F403, F405, I001
+import logging
 import tomllib
 
 from tests.session.profile_support import *
@@ -77,6 +78,45 @@ def test_recording_settings_save_load_toml_uses_recording_ids(tmp_path) -> None:
     session_recording_module.load_recording_settings_from_disk(loaded_manager)
 
     assert loaded_manager.recording_state.settings == manager.recording_state.settings
+
+
+def test_recording_settings_load_logs_errors(tmp_path, caplog) -> None:
+    manager = SessionManager()
+    manager.RECORDING_SETTINGS_PATH = tmp_path / "recording_settings.toml"
+    manager.RECORDING_SETTINGS_PATH.write_text("not = [valid toml", encoding="utf-8")
+
+    caplog.set_level(logging.ERROR, logger="keymasq-session")
+
+    session_recording_module.load_recording_settings_from_disk(manager)
+
+    assert (
+        f"Failed to load recording settings from {manager.RECORDING_SETTINGS_PATH}"
+        in caplog.text
+    )
+
+
+def test_recording_settings_save_logs_errors(tmp_path, caplog, monkeypatch) -> None:
+    manager = SessionManager()
+    manager.RECORDING_SETTINGS_PATH = tmp_path / "recording_settings.toml"
+    manager.recording_state.settings = {
+        "include_mouse_movement": True,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {},
+    }
+
+    def raise_dump_error(_data, _fp) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(session_recording_module.tomli_w, "dump", raise_dump_error)
+    caplog.set_level(logging.ERROR, logger="keymasq-session")
+
+    session_recording_module.save_recording_settings_to_disk(manager)
+
+    assert (
+        f"Failed to save recording settings to {manager.RECORDING_SETTINGS_PATH}"
+        in caplog.text
+    )
 
 
 @pytest.mark.asyncio

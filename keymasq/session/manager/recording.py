@@ -788,7 +788,10 @@ def load_recording_settings_from_disk(manager: "SessionManager") -> None:
                 str(recording_id): bool(enabled) for recording_id, enabled in overrides.items()
             }
     except Exception:
-        pass
+        log.exception(
+            "Failed to load recording settings from %s",
+            manager.RECORDING_SETTINGS_PATH,
+        )
 
 
 def save_recording_settings_to_disk(
@@ -816,7 +819,10 @@ def save_recording_settings_to_disk(
         with manager.RECORDING_SETTINGS_PATH.open("wb") as f:
             tomli_w.dump(data, f)
     except Exception:
-        pass
+        log.exception(
+            "Failed to save recording settings to %s",
+            manager.RECORDING_SETTINGS_PATH,
+        )
 
 
 async def start_recording(

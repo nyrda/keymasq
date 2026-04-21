@@ -119,6 +119,55 @@ async def test_real_recording_manager_skips_grabbed_device_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recording_manager_snapshot_does_not_skip_action_execution() -> None:
+    class _FlakyRecordingGrabbedDevice(GrabbedDevice):
+        def __init__(self, *args: object, recorder: _FakeRecorder, **kwargs: object) -> None:
+            super().__init__(*args, recording_manager=recorder, **kwargs)
+            self._recording_manager_read_count = 0
+
+        def __getattribute__(self, name: str) -> object:
+            if name == "recording_manager":
+                read_count = object.__getattribute__(self, "_recording_manager_read_count")
+                object.__setattr__(
+                    self,
+                    "_recording_manager_read_count",
+                    int(read_count) + 1,
+                )
+                if int(read_count) >= 1:
+                    return None
+            return super().__getattribute__(name)
+
+    recorder = _FakeRecorder()
+    event_callback = AsyncMock()
+    keyboard_uinput = MagicMock()
+    mapping = {
+        "btn_macro": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+    }
+    grabbed = _FlakyRecordingGrabbedDevice(
+        path="/dev/input/event0",
+        hardware_id="test",
+        button_map={"btn_macro": "key_f14"},
+        mapping_getter=lambda: mapping,
+        event_callback=event_callback,
+        device_type=DeviceType.KEYBOARD,
+        keyboard_uinput=keyboard_uinput,
+        recorder=recorder,
+    )
+
+    await _process_grabbed_event(
+        grabbed,
+        evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+    )
+
+    assert len(recorder.calls) == 1
+    assert keyboard_uinput.write.call_args_list[0].args == (
+        evdev.ecodes.EV_KEY,
+        evdev.ecodes.KEY_A,
+        1,
+    )
+
+
+@pytest.mark.asyncio
 async def test_play_macro_allows_concurrent_playback() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()

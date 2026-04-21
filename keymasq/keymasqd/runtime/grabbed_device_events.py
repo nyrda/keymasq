@@ -410,9 +410,8 @@ async def process_event(
         _record_diagnostics(device_runtime, "combo_passthrough_held", started_ns, time_mod=time_mod)
         return
 
-    recording_active = bool(
-        device_runtime.recording_manager and device_runtime.recording_manager.is_recording
-    )
+    recording_manager = device_runtime.recording_manager
+    recording_active = bool(recording_manager and recording_manager.is_recording)
     mapping = device_runtime.mapping_getter()
     has_held_source_action = (
         event.type == evdev_mod.ecodes.EV_KEY
@@ -443,12 +442,9 @@ async def process_event(
         elif int(event.value) in (0, 2) and event_name in device_runtime.state.held_source_actions:
             action = held_action
 
-    if recording_active and not _is_recording_control_action(
+    if recording_active and recording_manager is not None and not _is_recording_control_action(
         action,
     ):
-        recording_manager = device_runtime.recording_manager
-        if recording_manager is None:
-            return
         should_record_grabbed_event = getattr(
             recording_manager,
             "should_record_grabbed_event",

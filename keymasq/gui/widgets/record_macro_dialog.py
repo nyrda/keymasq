@@ -54,112 +54,103 @@ class RecordMacroDialog(Adw.Dialog):
         content.set_margin_start(16)
         content.set_margin_end(16)
 
-        intro_label = Gtk.Label(
-            label=(
-                "The selected sources below are what will actually be recorded. "
-                "Quick actions only update those source selections."
-            )
-        )
-        intro_label.set_wrap(True)
-        intro_label.set_halign(Gtk.Align.START)
-        intro_label.add_css_class("dim-label")
-        content.append(intro_label)
+        # Recording options in a compact boxed list
+        options_frame = Gtk.ListBox()
+        options_frame.set_selection_mode(Gtk.SelectionMode.NONE)
+        options_frame.add_css_class("boxed-list")
 
-        quick_label = Gtk.Label(label="Quick Selection")
-        quick_label.add_css_class("heading")
-        quick_label.set_halign(Gtk.Align.START)
-        content.append(quick_label)
+        self._record_movement_check = Gtk.CheckButton()
+        self._record_movement_check.set_active(self._record_mouse_movement)
+        self._record_movement_check.connect("toggled", self._on_record_options_changed)
+        movement_row = Adw.ActionRow(title="Record mouse movement")
+        movement_row.add_prefix(self._record_movement_check)
+        movement_row.set_activatable_widget(self._record_movement_check)
+        options_frame.append(movement_row)
 
-        quick_help = Gtk.Label(
-            label=(
-                "Use these actions to update the source list below. "
-                "They are helpers only, not separate recording state."
-            )
+        self._record_clicks_check = Gtk.CheckButton()
+        self._record_clicks_check.set_active(self._record_mouse_clicks)
+        self._record_clicks_check.connect("toggled", self._on_record_options_changed)
+        clicks_row = Adw.ActionRow(title="Record mouse clicks")
+        clicks_row.add_prefix(self._record_clicks_check)
+        clicks_row.set_activatable_widget(self._record_clicks_check)
+        options_frame.append(clicks_row)
+
+        self._record_start_pos_check = Gtk.CheckButton()
+        self._record_start_pos_check.set_active(self._record_start_position)
+        self._record_start_pos_check.connect("toggled", self._on_record_options_changed)
+        start_pos_row = Adw.ActionRow(
+            title="Record initial mouse position",
+            subtitle="For 'move to start' playback",
         )
-        quick_help.set_wrap(True)
-        quick_help.set_halign(Gtk.Align.START)
-        quick_help.add_css_class("dim-label")
-        quick_help.add_css_class("caption")
-        content.append(quick_help)
+        start_pos_row.add_prefix(self._record_start_pos_check)
+        start_pos_row.set_activatable_widget(self._record_start_pos_check)
+        options_frame.append(start_pos_row)
+
+        content.append(options_frame)
+
+        # Quick Selection as a collapsed expander with compact inline controls
+        quick_expander = Gtk.Expander(label="Quick Selection")
+        quick_expander.set_expanded(False)
 
         quick_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        quick_box.set_margin_top(8)
+
+        quick_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        quick_row.set_halign(Gtk.Align.START)
+
         for label, device_type in (
             ("Keyboards", "keyboard"),
             ("Mice", "mouse"),
             ("Gamepads", "gamepad"),
         ):
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            row.set_halign(Gtk.Align.START)
+            type_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
 
             type_label = Gtk.Label(label=label)
-            type_label.set_width_chars(10)
-            type_label.set_halign(Gtk.Align.START)
-            row.append(type_label)
+            type_box.append(type_label)
 
-            select_btn = Gtk.Button(label="Select All")
+            select_btn = Gtk.Button()
+            select_btn.set_icon_name("object-select-symbolic")
+            select_btn.set_tooltip_text(f"Select all {label.lower()}")
+            select_btn.add_css_class("flat")
             select_btn.connect("clicked", self._on_select_type_clicked, device_type, True)
-            row.append(select_btn)
+            type_box.append(select_btn)
 
-            clear_btn = Gtk.Button(label="Clear")
+            clear_btn = Gtk.Button()
+            clear_btn.set_icon_name("edit-clear-symbolic")
+            clear_btn.set_tooltip_text(f"Clear all {label.lower()}")
+            clear_btn.add_css_class("flat")
             clear_btn.connect("clicked", self._on_select_type_clicked, device_type, False)
-            row.append(clear_btn)
+            type_box.append(clear_btn)
 
-            quick_box.append(row)
+            quick_row.append(type_box)
 
-        reset_btn = Gtk.Button(label="Reset to Recommended")
-        reset_btn.set_halign(Gtk.Align.START)
-        reset_btn.connect("clicked", self._on_reset_to_recommended_clicked)
-        quick_box.append(reset_btn)
-        content.append(quick_box)
+        quick_box.append(quick_row)
+        quick_expander.set_child(quick_box)
+        content.append(quick_expander)
 
-        options_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        options_row.set_halign(Gtk.Align.START)
+        sources_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        sources_header.set_margin_top(4)
 
-        self._record_movement_check = Gtk.CheckButton(label="Record mouse movement")
-        self._record_movement_check.set_active(self._record_mouse_movement)
-        self._record_movement_check.connect("toggled", self._on_record_options_changed)
-        options_row.append(self._record_movement_check)
-
-        self._record_clicks_check = Gtk.CheckButton(label="Record mouse clicks")
-        self._record_clicks_check.set_active(self._record_mouse_clicks)
-        self._record_clicks_check.connect("toggled", self._on_record_options_changed)
-        options_row.append(self._record_clicks_check)
-
-        content.append(options_row)
-
-        start_pos_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        start_pos_row.set_halign(Gtk.Align.START)
-
-        self._record_start_pos_check = Gtk.CheckButton(
-            label="Record initial mouse position (for 'move to start' playback)"
-        )
-        self._record_start_pos_check.set_active(self._record_start_position)
-        self._record_start_pos_check.connect("toggled", self._on_record_options_changed)
-        start_pos_row.append(self._record_start_pos_check)
-
-        content.append(start_pos_row)
-
-        devices_label = Gtk.Label(label="Recording sources:")
+        devices_label = Gtk.Label(label="Recording sources")
         devices_label.add_css_class("heading")
         devices_label.set_halign(Gtk.Align.START)
-        content.append(devices_label)
+        sources_header.append(devices_label)
 
-        sources_help = Gtk.Label(
-            label=(
-                "Recommended sources are Keymasq outputs and passthrough devices. "
-                "Direct sources capture raw input before remapping."
-            )
-        )
-        sources_help.set_wrap(True)
-        sources_help.set_halign(Gtk.Align.START)
-        sources_help.add_css_class("dim-label")
-        content.append(sources_help)
-
-        self._selection_summary = Gtk.Label(label="Selected sources: 0")
-        self._selection_summary.set_wrap(True)
+        self._selection_summary = Gtk.Label(label="0 selected")
         self._selection_summary.set_halign(Gtk.Align.START)
         self._selection_summary.add_css_class("caption")
-        content.append(self._selection_summary)
+        self._selection_summary.add_css_class("dim-label")
+        sources_header.append(self._selection_summary)
+
+        reset_btn = Gtk.Button(label="Reset")
+        reset_btn.set_tooltip_text("Reset to recommended sources")
+        reset_btn.add_css_class("flat")
+        reset_btn.set_hexpand(True)
+        reset_btn.set_halign(Gtk.Align.END)
+        reset_btn.connect("clicked", self._on_reset_to_recommended_clicked)
+        sources_header.append(reset_btn)
+
+        content.append(sources_header)
 
         self._selection_warning = Gtk.Label(label="")
         self._selection_warning.set_wrap(True)
@@ -171,8 +162,9 @@ class RecordMacroDialog(Adw.Dialog):
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_min_content_height(280)
-        scrolled.set_max_content_height(420)
+        scrolled.set_vexpand(True)
+        scrolled.set_min_content_height(200)
+        scrolled.set_max_content_height(500)
 
         self._device_listbox = Gtk.ListBox()
         self._device_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -308,23 +300,24 @@ class RecordMacroDialog(Adw.Dialog):
 
         header_row = Gtk.ListBoxRow()
         header_row.set_selectable(False)
-        header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        header_box.set_margin_top(10)
+        header_row.set_tooltip_text(description)
+
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_box.set_margin_top(6)
         header_box.set_margin_bottom(4)
         header_box.set_margin_start(12)
         header_box.set_margin_end(12)
 
         title_label = Gtk.Label(label=title)
         title_label.set_halign(Gtk.Align.START)
-        title_label.add_css_class("heading")
+        title_label.add_css_class("caption")
+        title_label.add_css_class("dim-label")
         header_box.append(title_label)
 
-        desc_label = Gtk.Label(label=description)
-        desc_label.set_wrap(True)
-        desc_label.set_halign(Gtk.Align.START)
-        desc_label.add_css_class("dim-label")
-        desc_label.add_css_class("caption")
-        header_box.append(desc_label)
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.set_hexpand(True)
+        separator.set_valign(Gtk.Align.CENTER)
+        header_box.append(separator)
 
         header_row.set_child(header_box)
         self._device_listbox.append(header_row)
@@ -606,15 +599,16 @@ class RecordMacroDialog(Adw.Dialog):
 
         detail_parts: list[str] = []
         if counts["keyboard"]:
-            detail_parts.append(f"Keyboard {counts['keyboard']}")
+            detail_parts.append(f"{counts['keyboard']}kb")
         if counts["mouse"]:
-            detail_parts.append(f"Mouse {counts['mouse']}")
+            detail_parts.append(f"{counts['mouse']}m")
         if counts["gamepad"]:
-            detail_parts.append(f"Gamepad {counts['gamepad']}")
+            detail_parts.append(f"{counts['gamepad']}gp")
 
-        summary = f"Selected sources: {len(selected_devices)}"
         if detail_parts:
-            summary = f"{summary} ({', '.join(detail_parts)})"
+            summary = f"{len(selected_devices)} selected ({', '.join(detail_parts)})"
+        else:
+            summary = f"{len(selected_devices)} selected"
         self._selection_summary.set_label(summary)
 
         has_selected_mouse = any(

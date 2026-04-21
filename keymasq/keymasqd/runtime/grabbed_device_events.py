@@ -450,11 +450,12 @@ async def process_event(
             "should_record_grabbed_event",
             None,
         )
-        if callable(should_record_grabbed_event) and not bool(
-            should_record_grabbed_event(device_runtime.path, device_runtime.device_types)
-        ):
-            pass
-        else:
+        record_grabbed_event = True
+        if callable(should_record_grabbed_event):
+            record_grabbed_event = bool(
+                should_record_grabbed_event(device_runtime.path, device_runtime.device_types)
+            )
+        if record_grabbed_event:
             input_event = cast(evdev.InputEvent, event)
             recording_manager.record_event(
                 deps.classify_event_device_type_fn(input_event, device_runtime.device_types),

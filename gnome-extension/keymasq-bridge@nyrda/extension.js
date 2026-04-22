@@ -1,3 +1,4 @@
+import Clutter from 'gi://Clutter'
 import GLib from 'gi://GLib'
 import Gio from 'gi://Gio'
 import Meta from 'gi://Meta'
@@ -6,7 +7,7 @@ import Shell from 'gi://Shell'
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js'
 
 class KeymasqBridge {
-    static PROTOCOL_VERSION = 2
+    static PROTOCOL_VERSION = 3
 
     constructor() {
         this._socketPath = GLib.build_filenamev([
@@ -182,6 +183,8 @@ class KeymasqBridge {
                 y,
                 mods,
             })
+        } else if (message.type === 'set_pointer') {
+            this._handleSetPointer(message)
         } else if (message.type === 'get_active_window') {
             const requestId = Number(message.request_id || 0)
             this._sendMessage({
@@ -210,6 +213,40 @@ class KeymasqBridge {
         } else if (message.type === 'dispatch') {
             this._handleDispatch(message)
         }
+    }
+
+    _handleSetPointer(message) {
+        const requestId = Number(message.request_id || 0)
+        const x = Math.trunc(Number(message.x))
+        const y = Math.trunc(Number(message.y))
+
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            this._pointerSetResult(requestId, false, 'invalid pointer coordinates', 0, 0)
+            return
+        }
+
+        try {
+            const seat = Clutter.get_default_backend()?.get_default_seat?.() || null
+            if (!seat || typeof seat.warp_pointer !== 'function') {
+                this._pointerSetResult(requestId, false, 'GNOME pointer warp unavailable', x, y)
+                return
+            }
+            seat.warp_pointer(x, y)
+            this._pointerSetResult(requestId, true, 'ok', x, y)
+        } catch (e) {
+            this._pointerSetResult(requestId, false, String(e), x, y)
+        }
+    }
+
+    _pointerSetResult(requestId, ok, message, x, y) {
+        this._sendMessage({
+            type: 'pointer_set_result',
+            request_id: requestId,
+            ok,
+            message,
+            x,
+            y,
+        })
     }
 
     _handleDispatch(message) {

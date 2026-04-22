@@ -31,7 +31,7 @@ def _int_value(value: object, default: int = 0) -> int:
 
 class GnomeListener(WindowListener):
     _EXTENSION_UUID = "keymasq-bridge@nyrda"
-    _BRIDGE_PROTOCOL_VERSION = 2
+    _BRIDGE_PROTOCOL_VERSION = 3
     _NO_ARG_DISPATCHERS = frozenset({"close_active"})
     _TOGGLE_DISPATCHERS = frozenset({"fullscreen", "maximize"})
     _WORKSPACE_DISPATCHERS = frozenset({"workspace", "move_to_workspace"})
@@ -48,6 +48,7 @@ class GnomeListener(WindowListener):
         self._reader_task: asyncio.Task[None] | None = None
         self._request_id = 0
         self._pending_pointer: dict[int, asyncio.Future[JsonObject | None]] = {}
+        self._pending_pointer_set: dict[int, asyncio.Future[JsonObject | None]] = {}
         self._pending_activate: dict[int, asyncio.Future[JsonObject | None]] = {}
         self._pending_window: dict[int, asyncio.Future[JsonObject | None]] = {}
         self._pending_dispatch: dict[int, asyncio.Future[JsonObject | None]] = {}
@@ -64,6 +65,10 @@ class GnomeListener(WindowListener):
 
     @property
     def supports_compositor_dispatch(self) -> bool:
+        return True
+
+    @property
+    def supports_native_cursor_position_set(self) -> bool:
         return True
 
     @property
@@ -406,6 +411,11 @@ class GnomeListener(WindowListener):
                 future.set_result(None)
         self._pending_pointer.clear()
 
+        for future in list(self._pending_pointer_set.values()):
+            if not future.done():
+                future.set_result(None)
+        self._pending_pointer_set.clear()
+
         for future in list(self._pending_activate.values()):
             if not future.done():
                 future.set_result(None)
@@ -535,6 +545,14 @@ class GnomeListener(WindowListener):
             future.set_result(payload)
             return
 
+        if msg_type == "pointer_set_result":
+            request_id = _int_value(payload.get("request_id"), 0)
+            future = self._pending_pointer_set.pop(request_id, None)
+            if future is None or future.done():
+                return
+            future.set_result(payload)
+            return
+
         if msg_type == "activated":
             request_id = _int_value(payload.get("request_id"), 0)
             future = self._pending_activate.pop(request_id, None)
@@ -621,7 +639,7 @@ class GnomeListener(WindowListener):
             elif self._bridge_protocol < self._BRIDGE_PROTOCOL_VERSION:
                 details["warning"] = (
                     "GNOME bridge update detected. Log out and back in to reload the "
-                    "updated GNOME Shell extension and enable new GNOME actions."
+                    "updated GNOME Shell extension and enable new GNOME bridge features."
                 )
             else:
                 details["warning"] = (
@@ -645,6 +663,8 @@ class GnomeListener(WindowListener):
             self._pending_window[request_id] = future
         elif msg_type == "get_pointer":
             self._pending_pointer[request_id] = future
+        elif msg_type == "set_pointer":
+            self._pending_pointer_set[request_id] = future
         elif msg_type == "activate_title":
             self._pending_activate[request_id] = future
         elif msg_type == "dispatch":
@@ -659,6 +679,7 @@ class GnomeListener(WindowListener):
         except Exception:
             self._pending_window.pop(request_id, None)
             self._pending_pointer.pop(request_id, None)
+            self._pending_pointer_set.pop(request_id, None)
             self._pending_activate.pop(request_id, None)
             self._pending_dispatch.pop(request_id, None)
             return None
@@ -727,6 +748,25 @@ class GnomeListener(WindowListener):
         x = _int_value(result.get("x"), 0)
         y = _int_value(result.get("y"), 0)
         return x, y
+
+    async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
+        if self._writer is None or not self._bridge_connected:
+            return False, "GNOME bridge not connected"
+        if not self._bridge_protocol_compatible:
+            warning = str(self.runtime_support_details().get("warning", "") or "").strip()
+            return False, warning or "GNOME bridge protocol is not ready"
+
+        result = await self._send_request(
+            {
+                "type": "set_pointer",
+                "x": int(x),
+                "y": int(y),
+            },
+            timeout=0.6,
+        )
+        if result is None:
+            return False, "GNOME bridge not connected"
+        return bool(result.get("ok")), _str_value(result.get("message"), "")
 
     async def health_check(self) -> bool:
         if not self.running:

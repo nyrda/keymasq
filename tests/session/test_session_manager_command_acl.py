@@ -251,8 +251,8 @@ async def test_handle_session_request_get_compositor_merges_listener_runtime_war
         def runtime_support_details(self) -> dict[str, bool | str | int]:
             return {
                 "warning": "GNOME bridge update detected. Log out and back in.",
-                "bridge_protocol": 1,
-                "bridge_protocol_expected": 2,
+                "bridge_protocol": 2,
+                "bridge_protocol_expected": 3,
             }
 
     manager.compositor_state.window_listener = _Listener()  # type: ignore[assignment]
@@ -281,5 +281,5 @@ async def test_handle_session_request_get_compositor_merges_listener_runtime_war
     assert result["supported"] is True
     assert result["compositor_dispatch_available"] is False
     details = cast(dict[str, object], result["details"])
-    assert details["bridge_protocol"] == 1
+    assert details["bridge_protocol"] == 2
     assert "Log out and back in" in str(details["warning"])

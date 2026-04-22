@@ -49,6 +49,9 @@ summarize user-visible changes accumulated toward the first public release.
 - Routed absolute mouse move actions through compositor-aware cursor position
   setters so screen-position workflows behave consistently across session
   backends.
+- Added an X11-native absolute cursor position setter via the X11 listener, so
+  XFCE/X11 sessions no longer need to fall back to keymasqd's virtual mouse for
+  absolute pointer moves.
 - Tightened slurp capture handling and macro editor updates for point-capture
   and absolute-position editing flows.
 - Reworked macro recording and macro manager flows with clearer source

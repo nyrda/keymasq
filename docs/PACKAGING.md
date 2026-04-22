@@ -362,6 +362,16 @@ The RPM build flow now splits by distro:
 are emitted per Fedora release, for example `fc43` and `fc44`, rather than as
 a single generic Fedora artifact.
 
+Repository publishing keeps those Fedora artifacts in matching release-specific
+RPM repositories:
+
+- `https://repo.keymasq.tools/fedora/43`
+- `https://repo.keymasq.tools/fedora/44`
+
+Fedora and Fedora-based Atomic desktops should configure the repository with
+`$releasever` in the base URL so DNF or `rpm-ostree` only sees the RPM built
+for the running Fedora base.
+
 Build RPMs with:
 
 ```bash

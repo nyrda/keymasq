@@ -268,7 +268,7 @@ async def test_gnome_hello_marks_bridge_protocol_compatible() -> None:
     listener._writer = _FakeWriter()
     listener._bridge_connected = True
 
-    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
+    await listener._handle_bridge_message({"type": "hello", "protocol": 3})
 
     assert listener.compositor_dispatch_available is True
     assert listener.runtime_support_details()["warning"] == ""
@@ -281,11 +281,11 @@ async def test_gnome_hello_reports_stale_bridge_protocol_warning() -> None:
     listener._writer = _FakeWriter()
     listener._bridge_connected = True
 
-    await listener._handle_bridge_message({"type": "hello", "protocol": 1})
+    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
 
     details = listener.runtime_support_details()
     assert listener.compositor_dispatch_available is False
-    assert details["bridge_protocol"] == 1
+    assert details["bridge_protocol"] == 2
     assert "Log out and back in" in str(details["warning"])
 
 
@@ -346,7 +346,7 @@ async def test_gnome_dispatch_sends_bridge_request_and_resolves_result() -> None
     listener = GnomeListener(_callback)
     listener._writer = _FakeWriter()
     listener._bridge_connected = True
-    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
+    await listener._handle_bridge_message({"type": "hello", "protocol": 3})
 
     async def _respond() -> None:
         await asyncio.sleep(0)
@@ -373,6 +373,64 @@ async def test_gnome_dispatch_sends_bridge_request_and_resolves_result() -> None
         }
     ]
     assert observed == [("org.gnome.Nautilus", "Home", [])]
+
+
+@pytest.mark.asyncio
+async def test_gnome_set_cursor_position_sends_bridge_request_and_resolves_result() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener._writer = _FakeWriter()
+    listener._bridge_connected = True
+    await listener._handle_bridge_message({"type": "hello", "protocol": 3})
+
+    async def _respond() -> None:
+        await asyncio.sleep(0)
+        await listener._handle_bridge_message(
+            {
+                "type": "pointer_set_result",
+                "request_id": 1,
+                "ok": True,
+                "message": "ok",
+                "x": 123,
+                "y": 456,
+            }
+        )
+
+    asyncio.create_task(_respond())
+
+    assert listener.supports_native_cursor_position_set is True
+    assert await listener.set_cursor_position(123, 456) == (True, "ok")
+    assert listener._writer.payloads == [
+        {
+            "type": "set_pointer",
+            "request_id": 1,
+            "x": 123,
+            "y": 456,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gnome_set_cursor_position_rejects_stale_bridge_protocol() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener._writer = _FakeWriter()
+    listener._bridge_connected = True
+    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
+
+    ok, message = await listener.set_cursor_position(123, 456)
+
+    assert ok is False
+    assert "Log out and back in" in message
+    assert listener._writer.payloads == []
+
+
+@pytest.mark.asyncio
+async def test_gnome_set_cursor_position_fails_when_bridge_missing() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+
+    assert await listener.set_cursor_position(123, 456) == (
+        False,
+        "GNOME bridge not connected",
+    )
 
 
 @pytest.mark.asyncio

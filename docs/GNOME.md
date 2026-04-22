@@ -54,7 +54,10 @@ when switching windows.
 GNOME does not expose window information the same way other Wayland compositors
 do. The extension runs inside GNOME Shell and forwards the focused window name
 and pointer position to Keymasq so that window-aware profiles and pointer
-features work.
+features work. It also accepts an allowlisted pointer-position request from
+`keymasq-session`, letting absolute mouse moves and macro playback ask GNOME
+Shell to position the cursor through Mutter instead of relying on uinput
+relative-motion fallback.
 
 The same bridge also handles GNOME compositor actions. These are allowlisted
 bridge RPCs, not arbitrary shell commands. Keymasq currently supports:
@@ -67,7 +70,8 @@ bridge RPCs, not arbitrary shell commands. Keymasq currently supports:
 
 If the extension is missing or disconnected, Keymasq keeps running but
 window-based profile activation is unavailable until the extension reconnects.
-GNOME compositor actions are also unavailable until the bridge reconnects.
+GNOME compositor actions and compositor-side cursor positioning are also
+unavailable until the bridge reconnects.
 
 If Keymasq updates the installed bridge files but your current GNOME session is
 still running the old extension code, Keymasq now shows a warning telling you

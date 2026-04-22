@@ -122,6 +122,7 @@ The `activate_title` bridge command is used by the GNOME VM test to switch focus
 - `hello` handshake
 - `focus_changed` messages
 - pointer request/response
+- pointer set request/response through the GNOME Shell bridge
 
 The full `listener-vm-gnome` test exercises the keymasq-session GNOME listener end-to-end (compositor detection → bridge connection → window tracking → cursor position). The two tests are separate to avoid socket conflicts between the probe and `keymasq-session`.
 

@@ -47,7 +47,7 @@ What they are used for:
   integrations
 - `evdev`: input device access, recording, capture, and remap runtime
 - `uvloop`: default `asyncio` event loop policy
-- `python-xlib`: X11 listener support
+- `python-xlib`: X11 listener support, including cursor position read/write
 - `tomli-w`: writing profile, hardware, and superkey TOML files
 
 

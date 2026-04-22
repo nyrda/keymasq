@@ -60,7 +60,7 @@ Add the Keymasq repository and install:
 sudo tee /etc/yum.repos.d/keymasq.repo << 'EOF'
 [keymasq]
 name=Keymasq
-baseurl=https://repo.keymasq.tools/fedora
+baseurl=https://repo.keymasq.tools/fedora/$releasever
 enabled=1
 gpgcheck=1
 gpgkey=https://repo.keymasq.tools/gpg-key.asc
@@ -76,8 +76,50 @@ Alternatively, import the signing key and install the RPM from the
 
 ```bash
 sudo rpm --import https://repo.keymasq.tools/gpg-key.asc
-sudo dnf install ./keymasq-*.fedora.*.rpm
+sudo dnf install ./keymasq-*.fc*.rpm
 ```
+
+### Bazzite
+
+Bazzite is supported through Fedora RPM layering. Add the Fedora-versioned
+Keymasq repository and layer the package with `rpm-ostree` so future Keymasq
+updates can arrive through normal Bazzite upgrades:
+
+```bash
+sudo tee /etc/yum.repos.d/keymasq.repo << 'EOF'
+[keymasq]
+name=Keymasq
+baseurl=https://repo.keymasq.tools/fedora/$releasever
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.keymasq.tools/gpg-key.asc
+metadata_expire=1h
+EOF
+sudo rpm-ostree install keymasq
+systemctl reboot
+```
+
+After reboot, enable the services:
+
+```bash
+sudo systemctl enable --now keymasqd
+systemctl --user enable --now keymasq-session
+```
+
+Alternatively, download the Fedora RPM that matches the Fedora base used by
+your Bazzite image and layer it manually. For example, Bazzite 43 should use the
+`fc43` RPM:
+
+```bash
+sudo rpm --import https://repo.keymasq.tools/gpg-key.asc
+sudo rpm-ostree install ./keymasq-*.fc43.*.rpm
+systemctl reboot
+```
+
+Bazzite follows the normal Atomic Desktop model: package layering changes take
+effect after reboot. Locally layered RPMs are not updated automatically by the
+Keymasq repository, so prefer the repository-backed install unless you are
+testing a specific release artifact.
 
 ### openSUSE Tumbleweed / Leap
 
@@ -291,7 +333,7 @@ over the existing one:
 
 ```bash
 sudo apt install ./keymasq_*_all.deb
-sudo dnf install ./keymasq-*.fedora.*.rpm
+sudo dnf install ./keymasq-*.fc*.rpm
 sudo zypper install ./keymasq-*.opensuse.*.rpm
 ```
 

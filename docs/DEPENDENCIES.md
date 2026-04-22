@@ -17,7 +17,9 @@ If you are packaging Keymasq, check the package definitions directly:
 - `pyproject.toml`
 - `PKGBUILD`
 - `debian/control`
-- `nfpm.yaml`
+- `packaging/rpm/metadata.env`
+- `packaging/rpm/build-fedora-rpm.sh`
+- `packaging/rpm/build-opensuse-rpm.sh`
 - `flake.nix`
 
 ## Python Version
@@ -132,6 +134,8 @@ See `docs/SECURITY.md` and `docs/PACKAGING.md` for details.
 
 Defined in `pyproject.toml` under `[project.optional-dependencies]`:
 
+- `speedups`
+  - `uvloop`
 - `test`
   - `pytest>=8.0.0`
   - `pytest-asyncio>=0.23.0`
@@ -197,7 +201,9 @@ Defined in `debian/control` under `Suggests`:
 
 ### Fedora / openSUSE RPM packaging
 
-Defined in `nfpm.yaml`:
+Defined by `packaging/rpm/metadata.env` and the distro-specific RPM build
+scripts. Fedora additionally relies on Fedora's `%pyproject_*` macros, so it
+is built per Fedora release rather than as one cross-release RPM:
 
 - `acl`
 - `python3 >= 3.12`
@@ -205,14 +211,13 @@ Defined in `nfpm.yaml`:
   - `evdev`
   - `tomli-w`
   - `dbus-next`
-  - `uvloop`
   - `python-xlib`
   - `PyGObject`
 - distro-specific GTK4 and libadwaita package names
 - `polkit`
 - `systemd`
 
-Defined in `nfpm.yaml` under `recommends`:
+Defined in the generated RPM spec under weak dependencies:
 
 - `slurp`
 - distro-specific `uvloop` package name

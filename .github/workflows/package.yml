@@ -405,6 +405,7 @@ jobs:
                 systemd-rpm-macros \
                 shadow-utils \
                 tar
+              git config --global --add safe.directory /workspace
               PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install build setuptools wheel
               bash packaging/rpm/ci-build.sh
             '
@@ -497,6 +498,7 @@ jobs:
                 rpm-build \
                 shadow \
                 tar
+              git config --global --add safe.directory /workspace
               PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install build setuptools wheel
               bash packaging/rpm/ci-build.sh
             '

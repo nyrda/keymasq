@@ -54,9 +54,9 @@ def _build_rules(
             f'version = "{version}"',
         ),
         RewriteRule(
-            root / "nfpm.yaml",
-            re.compile(r"(?m)^version: .+$"),
-            f"version: {version}",
+            root / "packaging/rpm/metadata.env",
+            re.compile(r'(?m)^VERSION=".*"$'),
+            f'VERSION="{version}"',
         ),
         RewriteRule(
             root / "flake.nix",

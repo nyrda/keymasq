@@ -23,7 +23,10 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+RuntimeDirectory=keymasq
+RuntimeDirectoryMode=0755
 StateDirectory=keymasq
+StateDirectoryMode=0750
 ReadWritePaths=/run/keymasq /var/lib/keymasq
 
 [Install]

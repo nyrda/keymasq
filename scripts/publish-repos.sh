@@ -68,7 +68,7 @@ rpm_count=0
 for rpm in dist/*.rpm; do
     [ -f "$rpm" ] || continue
     name="$(basename "$rpm")"
-    if [[ "$name" == *".fedora."* ]]; then
+    if [[ "$name" == *.fc*.rpm || "$name" == *".fedora."* ]]; then
         cp "$rpm" "$FEDORA_DIR/"
         echo "Added $name to fedora repo"
     elif [[ "$name" == *".opensuse."* ]]; then

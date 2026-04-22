@@ -398,10 +398,15 @@ jobs:
                 git \
                 pyproject-rpm-macros \
                 python3 \
+                python3-dbus-next \
                 python3-pip \
                 python3-devel \
+                python3-evdev \
+                python3-gobject-base \
                 python3-setuptools \
+                python3-tomli-w \
                 python3-wheel \
+                python3-xlib \
                 rpm-build \
                 systemd-rpm-macros \
                 shadow-utils \

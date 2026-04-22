@@ -76,7 +76,7 @@ Alternatively, import the signing key and install the RPM from the
 
 ```bash
 sudo rpm --import https://repo.keymasq.tools/gpg-key.asc
-sudo dnf install ./keymasq-*.fedora.*.rpm
+sudo dnf install ./keymasq-*.fc*.rpm
 ```
 
 ### openSUSE Tumbleweed / Leap
@@ -291,7 +291,7 @@ over the existing one:
 
 ```bash
 sudo apt install ./keymasq_*_all.deb
-sudo dnf install ./keymasq-*.fedora.*.rpm
+sudo dnf install ./keymasq-*.fc*.rpm
 sudo zypper install ./keymasq-*.opensuse.*.rpm
 ```
 

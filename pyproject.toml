@@ -35,7 +35,6 @@ dependencies = [
     "PyGObject>=3.42.0",
     "dbus-next>=0.2.3",
     "evdev>=1.6.0",
-    "uvloop",
     "python-xlib>=0.33",
     "tomli-w>=1.0.0",
 ]
@@ -48,6 +47,9 @@ Documentation = "https://github.com/nyrda/keymasq/tree/master/docs"
 Changelog = "https://github.com/nyrda/keymasq/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
+speedups = [
+    "uvloop",
+]
 test = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",

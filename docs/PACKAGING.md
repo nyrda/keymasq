@@ -29,8 +29,8 @@ The repository currently maintains these package outputs:
 | Arch local checkout package | Arch users testing/installing the current worktree | `PKGBUILD`, `keymasq.install` | `.pkg.tar.zst` |
 | Arch AUR package | AUR publication and release packaging | `packaging/aur/` | AUR Git repo contents |
 | Debian package | Debian, Ubuntu, Mint, and derivatives | `debian/` | `.deb` |
-| Fedora RPM | Fedora systems | `nfpm.yaml` | `.fedora.x86_64.rpm` |
-| openSUSE RPM | openSUSE systems | `nfpm.yaml` | `.opensuse.x86_64.rpm` |
+| Fedora RPM | Fedora systems | `packaging/rpm/` | `.fc<release>.x86_64.rpm` |
+| openSUSE RPM | openSUSE systems | `packaging/rpm/` | `.opensuse.x86_64.rpm` |
 
 ## Release channels
 
@@ -59,7 +59,7 @@ updates:
 
 - `pyproject.toml`
 - `flake.nix`
-- `nfpm.yaml`
+- `packaging/rpm/metadata.env`
 - `debian/changelog`
 - `CHANGELOG.md`
 - `assets/tools.keymasq.keymasq.metainfo.xml`
@@ -183,8 +183,8 @@ nix develop
 ```
 
 The dev shell provides the repo's standard quality tools and local packaging
-helpers, including `pytest`, `ruff`, `basedpyright`, `nfpm`, Python wheel build
-tools, `git`, and `ssh`.
+helpers, including `pytest`, `ruff`, `basedpyright`, RPM build tools, Python
+wheel build tools, `git`, and `ssh`.
 
 For NixOS, the intended consumption path is the module. It exposes:
 
@@ -330,12 +330,13 @@ That is the same path used by `packaging/debian/ci-build.sh` and the
 
 ### Fedora and openSUSE RPMs
 
-RPM packaging is driven by `nfpm.yaml`. The repository uses a single shared
-definition and applies distro-specific dependency overrides when generating the
-Fedora and openSUSE variants.
+RPM packaging is driven by `packaging/rpm/metadata.env`,
+`scripts/build-packages.sh`, and separate distro-native build paths for Fedora
+and openSUSE.
 
 This packaging path exists because the payload is mostly identical across the
-RPM-based targets, while dependency names and Python library paths differ.
+RPM-based targets, while dependency names, Python library paths, and build
+tooling differ.
 
 That includes the new `uvloop` runtime package recommendation:
 
@@ -349,17 +350,27 @@ package remains installable on Fedora releases where `uvloop` is not yet
 available in the tested repositories. At runtime, Keymasq still prefers
 `uvloop` and logs a warning before falling back to the stdlib `asyncio` loop.
 
-The RPM build flow:
+The RPM build flow now splits by distro:
 
-1. Builds a Python wheel
-2. Installs that wheel into a staging directory
-3. Resolves the target distro's Python `site-packages` path
-4. Runs `nfpm` with distro-specific dependency values
+1. Fedora builds a release-specific source tarball and runs a Fedora spec with
+   `%pyproject_buildrequires`, `%pyproject_wheel`, `%pyproject_install`, and
+   `%pyproject_save_files`
+2. openSUSE builds a wheel, stages the shared payload, resolves the target
+   Python `site-packages` path, and runs its own rpmbuild wrapper
 
-`scripts/build-packages.sh` builds the wheel directly from the current working
-tree. Unlike the release source tarball flow, it does not archive only tracked
-Git files first, so uncommitted changes in `keymasq/`, packaging metadata, and
-other referenced files are included in the generated RPM payload.
+`scripts/build-packages.sh` builds from the current working tree. Fedora RPMs
+are emitted per Fedora release, for example `fc43` and `fc44`, rather than as
+a single generic Fedora artifact.
+
+Repository publishing keeps those Fedora artifacts in matching release-specific
+RPM repositories:
+
+- `https://repo.keymasq.tools/fedora/43`
+- `https://repo.keymasq.tools/fedora/44`
+
+Fedora and Fedora-based Atomic desktops should configure the repository with
+`$releasever` in the base URL so DNF or `rpm-ostree` only sees the RPM built
+for the running Fedora base.
 
 Build RPMs with:
 
@@ -381,7 +392,8 @@ nix develop -c bash -lc '
 
 Common current-worktree examples:
 
-Build only the Fedora RPM using a reachable Fedora host for metadata resolution:
+Build only the Fedora RPM using a reachable Fedora host for the actual Fedora
+build:
 
 ```bash
 nix develop -c bash -lc '
@@ -409,7 +421,7 @@ nix develop -c bash -lc 'bash scripts/build-packages.sh'
 Typical output:
 
 ```text
-dist/keymasq-0.1.0-1.fedora.x86_64.rpm
+dist/keymasq-0.1.0-1.fc43.x86_64.rpm
 dist/keymasq-0.1.0-1.opensuse.x86_64.rpm
 ```
 
@@ -550,10 +562,12 @@ act -j test-rpm-fedora -W .github/workflows/package.yml
 
 ## Known packaging notes
 
-- Fedora and openSUSE RPMs are generated from the same `nfpm.yaml`, but they
-  still need distro-specific dependency names and Python paths.
+- Fedora and openSUSE RPMs now have separate build paths: Fedora uses a
+  Fedora-native spec and release-specific buildroots, while openSUSE keeps its
+  own rpmbuild wrapper around the shared staged payload.
 - The GNOME bridge extension files are installed by the package, but GNOME users
   must enable the extension explicitly after installation. Packages install the
   files; they do not enable the GNOME Shell extension on the user's behalf.
 - Debian packaging is native and repo-local under `debian/`, while RPM
-  packaging stays on the `nfpm` flow. This split is intentional.
+  packaging stays under `packaging/rpm/` with distro-specific rpmbuild
+  wrappers. This split is intentional.

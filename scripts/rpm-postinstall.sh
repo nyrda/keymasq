@@ -1,21 +1,9 @@
 #!/bin/sh
 set -e
 
-# Create keymasq system user and group
-systemd-sysusers 2>/dev/null || {
-    if ! id keymasq >/dev/null 2>&1; then
-        useradd -r -s /usr/sbin/nologin -M keymasq
-    fi
-    if ! getent group input | grep -q keymasq; then
-        usermod -aG input keymasq 2>/dev/null || true
-    fi
-}
-
-# Create runtime and state directories
-systemd-tmpfiles --create 2>/dev/null || {
-    install -d -m 0755 -o keymasq -g keymasq /run/keymasq
-    install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
-}
+# Apply packaged sysusers/tmpfiles data when the host allows it.
+systemd-sysusers /usr/lib/sysusers.d/keymasq.conf >/dev/null 2>&1 || true
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/keymasq.conf >/dev/null 2>&1 || true
 
 # Reload udev rules
 udevadm control --reload-rules 2>/dev/null || true

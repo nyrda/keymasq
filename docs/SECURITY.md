@@ -265,7 +265,7 @@ With the GitHub CLI, verify an artifact:
 
 ```bash
 gh attestation verify ./keymasq_*_all.deb -R nyrda/keymasq
-gh attestation verify ./keymasq-*.fedora.*.rpm -R nyrda/keymasq
+gh attestation verify ./keymasq-*.fc*.rpm -R nyrda/keymasq
 gh attestation verify ./SHA256SUMS -R nyrda/keymasq
 ```
 

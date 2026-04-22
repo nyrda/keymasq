@@ -62,9 +62,9 @@ def _build_rules(
     if rpm_version is not None:
         rules.append(
             RewriteRule(
-                root / "nfpm.yaml",
-                re.compile(r"(?m)^version: .+$"),
-                f"version: {rpm_version}",
+                root / "packaging/rpm/metadata.env",
+                re.compile(r'(?m)^VERSION=".*"$'),
+                f'VERSION="{rpm_version}"',
             )
         )
 
@@ -77,7 +77,9 @@ def main() -> int:
     )
     parser.add_argument("--python-version", help="PEP 440 version for pyproject.toml")
     parser.add_argument("--debian-version", help="Package version for debian/changelog")
-    parser.add_argument("--rpm-version", help="Package version for nfpm.yaml")
+    parser.add_argument(
+        "--rpm-version", help="Package version for packaging/rpm/metadata.env"
+    )
     args = parser.parse_args()
 
     if not any((args.python_version, args.debian_version, args.rpm_version)):

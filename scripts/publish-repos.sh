@@ -49,10 +49,10 @@ fi
 DEB_POOL="$REPO_DIR/debian/pool/main/k/keymasq"
 DEB_DIST="$REPO_DIR/debian/dists/stable"
 DEB_BINARY="$DEB_DIST/main/binary-all"
-FEDORA_DIR="$REPO_DIR/fedora"
+FEDORA_ROOT="$REPO_DIR/fedora"
 OPENSUSE_DIR="$REPO_DIR/opensuse"
 
-mkdir -p "$DEB_POOL" "$DEB_BINARY" "$FEDORA_DIR" "$OPENSUSE_DIR"
+mkdir -p "$DEB_POOL" "$DEB_BINARY" "$FEDORA_ROOT" "$OPENSUSE_DIR"
 
 # -- Copy new packages --
 
@@ -68,9 +68,17 @@ rpm_count=0
 for rpm in dist/*.rpm; do
     [ -f "$rpm" ] || continue
     name="$(basename "$rpm")"
-    if [[ "$name" == *".fedora."* ]]; then
-        cp "$rpm" "$FEDORA_DIR/"
-        echo "Added $name to fedora repo"
+    if [[ "$name" =~ \.fc([0-9]+)\. ]]; then
+        fedora_release="${BASH_REMATCH[1]}"
+        fedora_dir="$FEDORA_ROOT/$fedora_release"
+        mkdir -p "$fedora_dir"
+        cp "$rpm" "$fedora_dir/"
+        echo "Added $name to fedora $fedora_release repo"
+    elif [[ "$name" == *".fedora."* ]]; then
+        fedora_dir="$FEDORA_ROOT/generic"
+        mkdir -p "$fedora_dir"
+        cp "$rpm" "$fedora_dir/"
+        echo "Added $name to generic fedora repo"
     elif [[ "$name" == *".opensuse."* ]]; then
         cp "$rpm" "$OPENSUSE_DIR/"
         echo "Added $name to opensuse repo"
@@ -112,18 +120,18 @@ fi
 
 # -- Rebuild RPM metadata --
 
-for rpm_dir in "$FEDORA_DIR" "$OPENSUSE_DIR"; do
-    dir_name="$(basename "$rpm_dir")"
+while IFS= read -r -d '' rpm_dir; do
+    relative_dir="${rpm_dir#"$REPO_DIR"/}"
     if ! ls "$rpm_dir"/*.rpm &>/dev/null; then
         continue
     fi
-    echo "Rebuilding RPM metadata for $dir_name..."
+    echo "Rebuilding RPM metadata for $relative_dir..."
     createrepo_c --update "$rpm_dir"
     gpg --batch --yes --detach-sign --armor \
         --output "$rpm_dir/repodata/repomd.xml.asc" \
         "$rpm_dir/repodata/repomd.xml"
-    echo "RPM metadata signed for $dir_name"
-done
+    echo "RPM metadata signed for $relative_dir"
+done < <(find "$FEDORA_ROOT" "$OPENSUSE_DIR" -mindepth 0 -maxdepth 1 -type d -print0)
 
 # -- Export public key --
 

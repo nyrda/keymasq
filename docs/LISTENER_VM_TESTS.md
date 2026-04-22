@@ -178,6 +178,12 @@ The Sway test validates the wlroots fallback listener (`WlrootsWaylandListener`)
 
 The XFCE test uses the X11 listener backed by `python-xlib`. The listener reads `_NET_ACTIVE_WINDOW` from the X root window and watches `PropertyNotify` events for title and class changes. On X11, GTK's `window.present()` works for focus switching, so no compositor-specific activation helpers are needed.
 
+**Cursor position**: The X11 listener reads cursor coordinates with
+`query_pointer()` and sets absolute cursor positions through XWarpPointer on
+the root window. This keeps absolute mouse move playback in the X server's
+screen coordinate space instead of relying on keymasqd's virtual mouse
+fallback.
+
 ## Focus Switching Summary
 
 | Compositor | `present()` works? | Activation method |

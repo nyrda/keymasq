@@ -4,6 +4,7 @@ import contextlib
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import cast
 
@@ -125,31 +126,52 @@ class GnomeListener(WindowListener):
         return False
 
     @classmethod
+    def _gsettings_candidates(cls) -> list[str]:
+        candidates = [
+            "/usr/bin/gsettings",
+            "/run/current-system/sw/bin/gsettings",
+        ]
+        path_candidate = shutil.which("gsettings")
+        if path_candidate:
+            candidates.append(path_candidate)
+
+        unique: list[str] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            unique.append(candidate)
+        return unique
+
+    @classmethod
     async def _gsettings_get(cls, schema: str, key: str) -> str | None:
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "gsettings",
-                "get",
-                schema,
-                key,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except Exception:
-            return None
+        for candidate in cls._gsettings_candidates():
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    candidate,
+                    "get",
+                    schema,
+                    key,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except Exception:
+                continue
 
-        try:
-            stdout, _stderr = await asyncio.wait_for(process.communicate(), timeout=0.8)
-        except Exception:
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
-            with contextlib.suppress(Exception):
-                await process.communicate()
-            return None
+            try:
+                stdout, _stderr = await asyncio.wait_for(process.communicate(), timeout=0.8)
+            except Exception:
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
+                with contextlib.suppress(Exception):
+                    await process.communicate()
+                continue
 
-        if process.returncode != 0:
-            return None
-        return stdout.decode("utf-8", errors="replace").strip()
+            if process.returncode != 0:
+                continue
+            return stdout.decode("utf-8", errors="replace").strip()
+        return None
 
     @classmethod
     def _parse_enabled_extensions(cls, raw_value: str | None) -> list[str] | None:

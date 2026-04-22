@@ -141,6 +141,56 @@ def test_gnome_probe_shell_process_uses_to_thread(monkeypatch) -> None:
     assert len(calls) == 1
 
 
+def test_gnome_gsettings_candidates_prefer_host_paths(monkeypatch) -> None:
+    monkeypatch.setattr(gnome_module.shutil, "which", lambda _name: "/nix/store/fake/bin/gsettings")
+
+    assert GnomeListener._gsettings_candidates() == [
+        "/usr/bin/gsettings",
+        "/run/current-system/sw/bin/gsettings",
+        "/nix/store/fake/bin/gsettings",
+    ]
+
+
+def test_gnome_gsettings_get_prefers_first_successful_candidate(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class _FakeProcess:
+        def __init__(self, returncode: int, stdout: bytes) -> None:
+            self.returncode = returncode
+            self._stdout = stdout
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return self._stdout, b""
+
+        def kill(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        GnomeListener,
+        "_gsettings_candidates",
+        classmethod(lambda cls: ["/usr/bin/gsettings", "/nix/store/fake/bin/gsettings"]),
+    )
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        assert kwargs["stdout"] == asyncio.subprocess.PIPE
+        assert kwargs["stderr"] == asyncio.subprocess.PIPE
+        calls.append(str(args[0]))
+        if args[0] == "/usr/bin/gsettings":
+            raise FileNotFoundError(args[0])
+        return _FakeProcess(0, b"['keymasq-bridge@nyrda']\n")
+
+    monkeypatch.setattr(
+        gnome_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+
+    result = asyncio.run(GnomeListener._gsettings_get("org.gnome.shell", "enabled-extensions"))
+
+    assert result == "['keymasq-bridge@nyrda']"
+    assert calls == ["/usr/bin/gsettings", "/nix/store/fake/bin/gsettings"]
+
+
 def test_gnome_probe_requires_extension(monkeypatch, tmp_path) -> None:
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)

@@ -395,6 +395,7 @@ jobs:
                 desktop-file-utils \
                 findutils \
                 gcc \
+                git \
                 pyproject-rpm-macros \
                 python3 \
                 python3-pip \
@@ -490,6 +491,7 @@ jobs:
               zypper --non-interactive install \
                 findutils \
                 gcc \
+                git \
                 python3 \
                 python3-pip \
                 rpm-build \

@@ -49,6 +49,7 @@ def main() -> int:
     result: dict[str, object] = {
         "hello": False,
         "pointer": None,
+        "pointer_set": None,
         "focus_titles": [],
         "messages": [],
     }
@@ -64,6 +65,7 @@ def main() -> int:
 
         deadline = time.monotonic() + args.timeout
         request_id = 1
+        pointer_set_requested = False
         buffer = bytearray()
 
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
@@ -90,6 +92,20 @@ def main() -> int:
                         request_id += 1
                     elif message_type == "pointer":
                         result["pointer"] = message
+                        if not pointer_set_requested:
+                            pointer_set_requested = True
+                            send_message(
+                                conn,
+                                {
+                                    "type": "set_pointer",
+                                    "request_id": request_id,
+                                    "x": int(message.get("x", 0)),
+                                    "y": int(message.get("y", 0)),
+                                },
+                            )
+                            request_id += 1
+                    elif message_type == "pointer_set_result":
+                        result["pointer_set"] = message
                     elif message_type == "focus_changed":
                         title = str(message.get("title", "") or "")
                         result["focus_titles"].append(title)
@@ -98,6 +114,7 @@ def main() -> int:
                     if (
                         result["hello"] is True
                         and result["pointer"] is not None
+                        and result["pointer_set"] is not None
                         and (not args.require_focus or bool(result["focus_titles"]))
                         and all(title in focus_titles for title in args.expect_title)
                     ):
@@ -107,6 +124,9 @@ def main() -> int:
         if result["hello"] is not True:
             exit_code = 1
         if result["pointer"] is None:
+            exit_code = 1
+        pointer_set = result.get("pointer_set")
+        if not isinstance(pointer_set, dict) or pointer_set.get("ok") is not True:
             exit_code = 1
         if args.require_focus and not result["focus_titles"]:
             exit_code = 1

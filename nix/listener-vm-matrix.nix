@@ -694,8 +694,12 @@ EOF
 
             with subtest("cursor position"):
                 uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic", "niri")
-                if uses_slurp:
+                x11_native_cursor_set = "${expectedCompositor}" == "x11"
+                x11_target_x = 160
+                x11_target_y = 120
+                if uses_slurp or x11_native_cursor_set:
                     # Slurp-based compositors need keymasqd uinput devices and a __slurp_trigger macro.
+                    # X11 uses the same grabbed-keyboard setup so macro playback has output devices.
                     # Create a hardware config for the QEMU AT keyboard so keymasqd grabs it.
                     import base64
                     hw_toml = (
@@ -802,6 +806,46 @@ EOF
                 assert cy >= 0, f"cursor y={cy} is negative"
                 assert cx < 4096, f"cursor x={cx} is implausibly large"
                 assert cy < 4096, f"cursor y={cy} is implausibly large"
+
+                if x11_native_cursor_set:
+                    create_macro = session_query_json(
+                        "create_macro",
+                        {
+                            "macro": {
+                                "name": "x11-cursor-set",
+                                "events": [],
+                                "move_to_start": True,
+                                "start_x": x11_target_x,
+                                "start_y": x11_target_y,
+                            }
+                        },
+                    )
+                    machine.log(f"create_macro: {create_macro}")
+                    assert create_macro.get("status") == "ok", create_macro
+
+                    play_macro = session_query_json(
+                        "play_macro",
+                        {"name": "x11-cursor-set"},
+                    )
+                    machine.log(f"play_macro: {play_macro}")
+                    assert play_macro.get("status") == "ok", play_macro
+
+                    moved = None
+                    deadline = time.time() + 10
+                    while time.time() < deadline:
+                        moved = session_query("get_cursor_position")
+                        machine.log(f"get_cursor_position after X11 set: {moved}")
+                        if (
+                            moved.get("status") == "ok"
+                            and moved.get("x") == x11_target_x
+                            and moved.get("y") == x11_target_y
+                        ):
+                            break
+                        time.sleep(1)
+
+                    assert moved is not None and moved.get("status") == "ok", moved
+                    assert moved.get("x") == x11_target_x, moved
+                    assert moved.get("y") == x11_target_y, moved
       '';
     };
 

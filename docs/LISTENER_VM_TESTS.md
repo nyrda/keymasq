@@ -64,7 +64,7 @@ Each desktop test validates:
 4. **Focus switching** — a second window is opened, then focus moves back to the first; the listener tracks each change.
 5. **Title change** — an existing window is retitled; the listener picks up the new title.
 6. **Window close** — a window is closed; the listener reports focus moving to the remaining window.
-7. **Cursor position** — where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
+7. **Cursor position** — where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range. The XFCE/X11 job also issues a native cursor-set request through macro playback and confirms that the pointer lands at the requested coordinates through the X11 listener.
 8. **Listener-scoped dispatch** — compositor-specific tests can trigger a compositor dispatch through Keymasq and verify the observable result.
 
 The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, Sway, and Niri. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
@@ -180,9 +180,13 @@ The XFCE test uses the X11 listener backed by `python-xlib`. The listener reads 
 
 **Cursor position**: The X11 listener reads cursor coordinates with
 `query_pointer()` and sets absolute cursor positions through XWarpPointer on
-the root window. This keeps absolute mouse move playback in the X server's
-screen coordinate space instead of relying on keymasqd's virtual mouse
-fallback.
+the root window. The XFCE VM test validates both directions: it checks
+`get_cursor_position` against a known on-screen pointer location, then plays a
+macro with `move_to_start` enabled and verifies that the pointer jumps to the
+exact requested coordinates. This exercises the same native
+`set_cursor_position` path that absolute cursor workflows use and keeps cursor
+placement in the X server's screen coordinate space instead of relying on
+keymasqd's virtual mouse fallback.
 
 ## Focus Switching Summary
 

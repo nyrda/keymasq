@@ -99,6 +99,15 @@ sudo rpm-ostree install keymasq
 systemctl reboot
 ```
 
+If `rpm-ostree` reports a 404 for an older Keymasq RPM after the repository has
+changed, clear cached rpm-md metadata and retry:
+
+```bash
+sudo rpm-ostree cleanup -m
+sudo rpm-ostree install keymasq
+systemctl reboot
+```
+
 After reboot, enable the services:
 
 ```bash
@@ -111,7 +120,6 @@ your Bazzite image and layer it manually. For example, Bazzite 43 should use the
 `fc43` RPM:
 
 ```bash
-sudo rpm --import https://repo.keymasq.tools/gpg-key.asc
 sudo rpm-ostree install ./keymasq-*.fc43.*.rpm
 systemctl reboot
 ```

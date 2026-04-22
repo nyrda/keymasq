@@ -73,6 +73,8 @@ class _XWindow(Protocol):
 
     def query_pointer(self) -> _XPointer: ...
 
+    def warp_pointer(self, x: int, y: int) -> None: ...
+
 
 class _XEvent(Protocol):
     type: int
@@ -237,6 +239,13 @@ class X11Listener(WindowListener):
         except Exception:
             log.debug("X11 cursor get failed", exc_info=True)
             return None
+
+    @property
+    def supports_native_cursor_position_set(self) -> bool:
+        return True
+
+    async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
+        return await asyncio.to_thread(self._warp_cursor_position, int(x), int(y))
 
     async def _listen(self) -> None:
         if self._xdisplay is None:
@@ -504,3 +513,14 @@ class X11Listener(WindowListener):
                 return int(pointer.root_x), int(pointer.root_y)
             except Exception:
                 return None
+
+    def _warp_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
+        with self._x_lock:
+            if self._root is None or self._xdisplay is None:
+                return False, "X11 display unavailable"
+            try:
+                self._root.warp_pointer(int(x), int(y))
+                self._xdisplay.sync()
+                return True, "ok"
+            except Exception as exc:
+                return False, str(exc)

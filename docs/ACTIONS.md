@@ -115,6 +115,10 @@ Capture opens a crosshair overlay — click anywhere to set the coordinates.
 On other platforms, Capture gives you 2 seconds to move your cursor to the
 desired position, then reads the coordinates automatically.
 
+Absolute mouse moves use a session-native cursor setter when the active
+listener provides one, including Hyprland and X11. Other sessions fall back to
+keymasqd's virtual mouse output.
+
 ![Mouse tab — buttons and Move Cursor with Relative/Absolute mode](assets/screenshots/keymasq_key_action_mouse.png)
 
 ## Gamepad

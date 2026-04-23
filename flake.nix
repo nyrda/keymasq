@@ -358,7 +358,6 @@
               pkgs.hicolor-icon-theme
               pkgs.git
               pkgs.openssh
-              pkgs.nfpm
               pkgs.gnupg
               pkgs.rpm
               pkgs.python312Packages.mypy

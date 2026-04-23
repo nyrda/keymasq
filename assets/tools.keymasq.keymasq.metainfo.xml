@@ -34,22 +34,4 @@
     <keyword>combo</keyword>
   </keywords>
   <content_rating type="oars-1.1"/>
-  <releases>
-    <release version="0.8.0" date="2026-04-21">
-      <description>
-        <p>First public release of Keymasq with the GTK4 app, CLI, layered profiles, macros, superkeys, combos, and compositor-aware desktop integration.</p>
-        <p>Adds machine-readable CLI status output, improves absolute cursor positioning and screen-position capture, and reworks macro recording with clearer source selection, saved preferences, and cleaner unlock handling.</p>
-      </description>
-    </release>
-    <release version="0.3" date="2026-04-10">
-      <description>
-        <p>Adds first-class Niri support and expands superkeys with pattern/overload modes plus value-aware bindings.</p>
-      </description>
-    </release>
-    <release version="0.2" date="2026-04-07">
-      <description>
-        <p>Improves first-run setup with an editable default profile and a cleaner device setup flow.</p>
-      </description>
-    </release>
-  </releases>
 </component>

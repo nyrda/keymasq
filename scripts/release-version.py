@@ -13,6 +13,11 @@ from pathlib import Path
 from types import ModuleType
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+CHANGELOG_RELEASE_RE_TEMPLATE = r"(?m)^## {version}(?: - \d{{4}}-\d{{2}}-\d{{2}})?$"
+METAINFO_RELEASE_LINE_RE_TEMPLATE = (
+    r'(?m)^    <release version="{version}" date="[^"]+">$'
+)
+METAINFO_PLACEHOLDER_SUMMARY = "Update release notes."
 
 
 @dataclass(frozen=True)
@@ -68,16 +73,6 @@ def _build_rules(
             re.compile(r"(?m)^keymasq \(([^-]+)(-\d+)\)"),
             rf"keymasq ({version}\2)",
         ),
-        RewriteRule(
-            root / "CHANGELOG.md",
-            re.compile(r"(?m)^## \[[^\]]+\] - .+$"),
-            f"## [{version}] - {release_date}",
-        ),
-        RewriteRule(
-            root / "assets/tools.keymasq.keymasq.metainfo.xml",
-            re.compile(r'(?m)^ {4}<release version="[^"]+" date="[^"]+">$'),
-            f'    <release version="{version}" date="{release_date}">',
-        ),
     ]
     if current_version != version:
         rules.append(
@@ -101,6 +96,102 @@ def _rewrite_file(rule: RewriteRule, dry_run: bool) -> bool:
         return False
     if not dry_run:
         rule.path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _rewrite_changelog(
+    root: Path, version: str, release_date: str, current_version: str, dry_run: bool
+) -> bool:
+    path = root / "CHANGELOG.md"
+    content = path.read_text(encoding="utf-8")
+    if current_version == version:
+        return False
+
+    release_header = f"## {version}"
+    release_pattern = re.compile(
+        CHANGELOG_RELEASE_RE_TEMPLATE.format(version=re.escape(version))
+    )
+    updated, replacements = release_pattern.subn(release_header, content, count=1)
+    if replacements == 1:
+        if updated == content:
+            return False
+        if not dry_run:
+            path.write_text(updated, encoding="utf-8")
+        return True
+
+    first_section = re.search(r"(?m)^## ", content)
+    if first_section is not None:
+        updated = (
+            content[: first_section.start()]
+            + f"{release_header}\n\n"
+            + content[first_section.start() :]
+        )
+    else:
+        updated = content.rstrip() + f"\n\n{release_header}\n"
+    if updated == content:
+        return False
+    if not dry_run:
+        path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _build_metainfo_release(version: str, release_date: str) -> str:
+    return "\n".join(
+        [
+            f'    <release version="{version}" date="{release_date}">',
+            "      <description>",
+            f"        <p>{METAINFO_PLACEHOLDER_SUMMARY}</p>",
+            "      </description>",
+            "    </release>",
+        ]
+    )
+
+
+def _rewrite_metainfo(
+    root: Path, version: str, release_date: str, current_version: str, dry_run: bool
+) -> bool:
+    path = root / "assets/tools.keymasq.keymasq.metainfo.xml"
+    content = path.read_text(encoding="utf-8")
+    if current_version == version:
+        return False
+
+    release_line = f'    <release version="{version}" date="{release_date}">'
+    release_pattern = re.compile(
+        METAINFO_RELEASE_LINE_RE_TEMPLATE.format(version=re.escape(version))
+    )
+    updated, replacements = release_pattern.subn(release_line, content, count=1)
+    if replacements == 1:
+        if updated == content:
+            return False
+        if not dry_run:
+            path.write_text(updated, encoding="utf-8")
+        return True
+
+    new_release = _build_metainfo_release(version, release_date)
+    releases_block_match = re.search(r"(?s)  <releases>\n(?P<body>.*?)\n  </releases>", content)
+    if releases_block_match is not None:
+        block_body = releases_block_match.group("body").strip("\n")
+        replacement = "  <releases>\n"
+        replacement += f"{new_release}\n"
+        if block_body:
+            replacement += f"{block_body}\n"
+        replacement += "  </releases>"
+        updated = (
+            content[: releases_block_match.start()]
+            + replacement
+            + content[releases_block_match.end() :]
+        )
+    else:
+        insert_at = content.rfind("</component>")
+        if insert_at == -1:
+            raise RuntimeError(f"missing closing </component> tag in {path}")
+        insertion = f"  <releases>\n{new_release}\n  </releases>\n"
+        updated = content[:insert_at] + insertion + content[insert_at:]
+
+    if updated == content:
+        return False
+    if not dry_run:
+        path.write_text(updated, encoding="utf-8")
     return True
 
 
@@ -168,7 +259,7 @@ def main() -> int:
     parser.add_argument(
         "--release-date",
         default=_release_date(),
-        help="Release date to stamp into changelog and metainfo files (YYYY-MM-DD).",
+        help="Release date to stamp into Debian changelog and AppStream metainfo (YYYY-MM-DD).",
     )
     args = parser.parse_args()
 
@@ -187,6 +278,10 @@ def main() -> int:
     for rule in _build_rules(root, version, release_date, current_version):
         if _rewrite_file(rule, dry_run=args.dry_run):
             changed_paths.append(rule.path.relative_to(root))
+    if _rewrite_changelog(root, version, release_date, current_version, dry_run=args.dry_run):
+        changed_paths.append(Path("CHANGELOG.md"))
+    if _rewrite_metainfo(root, version, release_date, current_version, dry_run=args.dry_run):
+        changed_paths.append(Path("assets/tools.keymasq.keymasq.metainfo.xml"))
     changed_paths.extend(_render_pacman_outputs(root, version, dry_run=args.dry_run))
     changed_paths = list(dict.fromkeys(changed_paths))
 

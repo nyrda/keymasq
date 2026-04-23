@@ -570,6 +570,23 @@ class TestDialogConstruction:
         assert dialog.get_child() is not None
         assert callable(dialog._on_close_clicked)
 
+    def test_macro_manager_closes_when_recording_starts(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        dialog = MacroManagerDialog(Gtk.Window())
+        closed: list[bool] = []
+        monkeypatch.setattr(dialog, "close", lambda: closed.append(True))
+
+        dialog._on_recording_started({"event": "recording_started"})
+
+        assert dialog._recording_active is True
+        assert closed == [True]
+
     def test_macro_manager_opens_locked_recording_mode_after_recording_locked(
         self,
         monkeypatch,

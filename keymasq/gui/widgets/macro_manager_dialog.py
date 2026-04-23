@@ -525,6 +525,7 @@ class MacroManagerDialog(Adw.Dialog):
         self._recording_active = True
         self._recording_unlocked = True
         self._sync_record_button_state()
+        self.close()
 
     def _on_recording_stopped(self, data: dict) -> None:
         self._recording_active = False

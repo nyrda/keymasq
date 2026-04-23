@@ -72,6 +72,11 @@ net.
 5. Press **Toggle Recording** again to stop.
 6. The GUI opens a save dialog — give the macro a name and save it.
 
+Until that save dialog is saved or discarded, Keymasq blocks new macro
+recordings. If you try to record again, the session sends a desktop
+notification and the GUI presents the existing save dialog. Closing the GUI or
+the save dialog discards the unsaved recording.
+
 Starting and stopping from a hotkey keeps the recording clean. If you click
 buttons in the GUI to start or stop, those clicks and any mouse movement to
 reach them will be captured too, which is rarely what you want.

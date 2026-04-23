@@ -4,6 +4,7 @@ import re
 import secrets
 import tomllib
 from datetime import datetime
+from time import monotonic
 from typing import TYPE_CHECKING, cast
 
 import tomli_w
@@ -27,6 +28,11 @@ if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
+MACRO_SAVE_PENDING_ERROR_CODE = "macro_save_pending"
+MACRO_SAVE_PENDING_MESSAGE = (
+    "Save or discard the current recording before starting another recording."
+)
+MACRO_SAVE_PENDING_NOTIFICATION_COOLDOWN_S = 8.0
 
 
 def is_sensitive_session_command(
@@ -64,6 +70,121 @@ def has_active_gui_recording_owner(manager: "SessionManager") -> bool:
     if owner is None:
         return False
     return bool(str(owner.get("lease_id", "") or "").strip())
+
+
+def has_pending_macro_save(manager: "SessionManager") -> bool:
+    state = manager.recording_state
+    return state.pending_data is not None and bool(state.pending_save_token)
+
+
+def macro_save_pending_response(manager: "SessionManager") -> JsonObject:
+    state = manager.recording_state
+    response: JsonObject = {
+        "status": "error",
+        "error_code": MACRO_SAVE_PENDING_ERROR_CODE,
+        "message": MACRO_SAVE_PENDING_MESSAGE,
+    }
+    if state.pending_save_token:
+        response["pending_save_token"] = state.pending_save_token
+    return response
+
+
+def notify_macro_save_pending(manager: "SessionManager") -> None:
+    token = manager.recording_state.pending_save_token or ""
+    now = monotonic()
+    if (
+        token
+        and manager.recording_state.pending_save_notification_token == token
+        and now - manager.recording_state.pending_save_notification_at
+        < MACRO_SAVE_PENDING_NOTIFICATION_COOLDOWN_S
+    ):
+        return
+
+    manager.recording_state.pending_save_notification_token = token
+    manager.recording_state.pending_save_notification_at = now
+    manager.send_notification(
+        "Keymasq: Macro Save Pending",
+        MACRO_SAVE_PENDING_MESSAGE,
+    )
+
+
+def _set_active_recording_owner(
+    manager: "SessionManager",
+    *,
+    peer: PeerCredentials | None = None,
+    writer: asyncio.StreamWriter | None = None,
+) -> None:
+    state = manager.recording_state
+    if peer is not None and writer is not None:
+        state.active_owner_writer_id = id(writer)
+        state.active_owner_pid = int(peer.pid)
+        state.active_owner_uid = int(peer.uid)
+        return
+
+    owner = manager.unlock_state.refresh_owner
+    if owner is not None:
+        state.active_owner_writer_id = int_value(owner.get("writer_id"), 0) or None
+        state.active_owner_pid = int_value(owner.get("pid"), 0) or None
+        state.active_owner_uid = int_value(owner.get("uid"), 0) or None
+        return
+
+    state.active_owner_writer_id = None
+    state.active_owner_pid = None
+    state.active_owner_uid = None
+
+
+def _clear_active_recording_owner(manager: "SessionManager") -> None:
+    state = manager.recording_state
+    state.active_owner_writer_id = None
+    state.active_owner_pid = None
+    state.active_owner_uid = None
+
+
+def begin_pending_macro_save(manager: "SessionManager", recording_data: JsonObject) -> str:
+    state = manager.recording_state
+    token = secrets.token_urlsafe(16)
+    state.pending_data = recording_data
+    state.pending_save_token = token
+    state.pending_save_owner_writer_id = state.active_owner_writer_id
+    state.pending_save_owner_pid = state.active_owner_pid
+    state.pending_save_owner_uid = state.active_owner_uid
+    state.pending_save_created_at = monotonic()
+    state.pending_save_notification_token = None
+    state.pending_save_notification_at = 0.0
+    _clear_active_recording_owner(manager)
+    return token
+
+
+def clear_pending_macro_save(manager: "SessionManager") -> None:
+    state = manager.recording_state
+    state.pending_data = None
+    state.pending_save_token = None
+    state.pending_save_owner_writer_id = None
+    state.pending_save_owner_pid = None
+    state.pending_save_owner_uid = None
+    state.pending_save_created_at = 0.0
+    state.pending_save_notification_token = None
+    state.pending_save_notification_at = 0.0
+
+
+def clear_pending_macro_save_if_writer(
+    manager: "SessionManager",
+    writer: asyncio.StreamWriter,
+) -> None:
+    state = manager.recording_state
+    if not has_pending_macro_save(manager):
+        return
+    owner_writer_id = state.pending_save_owner_writer_id
+    if owner_writer_id == id(writer) or owner_writer_id is None:
+        clear_pending_macro_save(manager)
+
+
+def pending_macro_save_token_matches(
+    manager: "SessionManager",
+    token: str,
+) -> bool:
+    current = manager.recording_state.pending_save_token
+    return bool(current) and token == current
 
 
 async def resolve_unlock_status_async(
@@ -598,12 +719,16 @@ async def stop_recording(
                 recording_data["start_x"] = int(manager.recording_state.start_cursor[0])
                 recording_data["start_y"] = int(manager.recording_state.start_cursor[1])
                 recording_data["move_to_start"] = True
-            manager.recording_state.pending_data = recording_data
+            if has_pending_macro_save(manager):
+                manager.recording_state.pending_data = recording_data
+            else:
+                begin_pending_macro_save(manager, recording_data)
             manager.recording_state.active = False
             manager.recording_state.start_cursor = None
             return {"status": "ok", **recording_data}
         manager.recording_state.active = False
         manager.recording_state.start_cursor = None
+        _clear_active_recording_owner(manager)
         return {"status": "ok"}
     return {"status": "error", "message": result.error or "Failed to stop recording"}
 
@@ -828,7 +953,14 @@ def save_recording_settings_to_disk(
 async def start_recording(
     manager: "SessionManager",
     reset_if_active: bool = False,
+    *,
+    owner_peer: PeerCredentials | None = None,
+    owner_writer: asyncio.StreamWriter | None = None,
 ) -> JsonObject:
+    if has_pending_macro_save(manager):
+        notify_macro_save_pending(manager)
+        return macro_save_pending_response(manager)
+
     if manager.recording_state.active:
         if not reset_if_active:
             return {"status": "error", "message": "Recording already in progress"}
@@ -840,6 +972,7 @@ async def start_recording(
         except Exception:
             pass
         manager.recording_state.active = False
+        _clear_active_recording_owner(manager)
 
     settings = manager.recording_state.settings
     include_mouse_movement = settings.get("include_mouse_movement", False)
@@ -917,6 +1050,11 @@ async def start_recording(
 
     if result.status == "ok":
         manager.recording_state.active = True
+        _set_active_recording_owner(
+            manager,
+            peer=owner_peer,
+            writer=owner_writer,
+        )
         response_data = json_object(result.data)
         return response_data if response_data else {"status": "ok"}
 
@@ -1076,7 +1214,7 @@ async def save_recording(
         if created is not None:
             created_name = str(created.get("name", safe_name))
 
-    manager.recording_state.pending_data = None
+    clear_pending_macro_save(manager)
     manager.broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
     return {"status": "ok", "name": created_name}
 

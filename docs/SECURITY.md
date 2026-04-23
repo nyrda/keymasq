@@ -83,6 +83,12 @@ Keymasq treats recording and capture features as sensitive because they can obse
 
 When locked, recording/capture requests fail with `recording_locked`.
 
+When a recorded macro is waiting in the Save Macro dialog, new macro recording
+requests fail with `macro_save_pending` until the recording is saved,
+discarded, or the owning GUI connection closes. The pending recording payload
+is held in `keymasq-session` memory only; it is written to disk only after an
+explicit save.
+
 If `macro_edit_requires_unlock = true`, macro inspection and edit operations are promoted into the same sensitive class.
 
 ## Runtime Unlock Ownership Chain

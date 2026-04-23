@@ -32,7 +32,7 @@ MACRO_SAVE_PENDING_ERROR_CODE = "macro_save_pending"
 MACRO_SAVE_PENDING_MESSAGE = (
     "Save or discard the current recording before starting another recording."
 )
-MACRO_SAVE_PENDING_NOTIFICATION_COOLDOWN_S = 8.0
+MACRO_SAVE_PENDING_NOTIFICATION_COOLDOWN_S = 5.0
 
 
 def is_sensitive_session_command(

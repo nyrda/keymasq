@@ -195,5 +195,5 @@ async def test_send_notification_logs_even_when_dbus_notification_fails(
         "Keymasq: Grab Pending",
         "Test Keyboard is waiting.",
         app_name="keymasq",
-        timeout_ms=2000,
+        timeout_ms=5000,
     )

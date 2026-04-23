@@ -474,7 +474,7 @@ class SessionManager:
 
     async def _send_notification_async(self, title: str, message: str) -> None:
         try:
-            await self.dbus.notify(title, message, app_name="keymasq", timeout_ms=2000)
+            await self.dbus.notify(title, message, app_name="keymasq", timeout_ms=5000)
         except Exception as e:
             log.debug(f"Failed to send notification: {e}")
 

@@ -27,6 +27,9 @@ class RecordMacroDialog(Adw.Dialog):
         self._recording_unlock_required = True
         self._recording_refresh_owner = False
         self._applying_settings = False
+        self._settings_sync_lock = threading.Lock()
+        self._settings_sync_generation = 0
+        self._settings_sync_worker_running = False
         self._build_ui()
         self._load_initial_state_async()
 
@@ -657,9 +660,26 @@ class RecordMacroDialog(Adw.Dialog):
         return False
 
     def _sync_settings_to_session(self) -> None:
-        session_request(self._settings_payload(), timeout=0.5)
+        while True:
+            with self._settings_sync_lock:
+                generation = self._settings_sync_generation
+
+            try:
+                session_request(self._settings_payload(), timeout=0.5)
+            except Exception:
+                pass
+
+            with self._settings_sync_lock:
+                if generation == self._settings_sync_generation:
+                    self._settings_sync_worker_running = False
+                    return
 
     def _sync_settings_async(self) -> None:
+        with self._settings_sync_lock:
+            self._settings_sync_generation += 1
+            if self._settings_sync_worker_running:
+                return
+            self._settings_sync_worker_running = True
         threading.Thread(target=self._sync_settings_to_session, daemon=True).start()
 
     def _settings_payload(self) -> dict[str, object]:
@@ -668,7 +688,7 @@ class RecordMacroDialog(Adw.Dialog):
             "include_mouse_movement": self._record_mouse_movement,
             "include_mouse_clicks": self._record_mouse_clicks,
             "record_start_position": self._record_start_position,
-            "device_overrides": self._device_overrides,
+            "device_overrides": dict(self._device_overrides),
         }
 
     def _apply_recording_settings(self, result: dict | None) -> None:

@@ -37,8 +37,7 @@
   <releases>
     <release version="0.8.1" date="2026-04-23">
       <description>
-        <p>Adds native cursor positioning for GNOME and X11, improving absolute pointer moves and screen-position workflows on those desktops.</p>
-        <p>Also improves GNOME bridge probing across more gsettings layouts and clarifies Fedora Atomic and Bazzite RPM install troubleshooting.</p>
+        <p>Adds native cursor positioning for GNOME and X11 so absolute pointer moves work directly on those desktops instead of falling back to the virtual mouse path.</p>
       </description>
     </release>
   </releases>

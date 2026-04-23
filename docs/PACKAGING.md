@@ -86,6 +86,15 @@ AppStream metadata, and refreshes the generated packaging files. Use
 `--dry-run` to preview the file set, or `--release-date YYYY-MM-DD` when a
 non-today date is required.
 
+When writing `CHANGELOG.md`, only include user-facing software changes:
+
+- include new features, removed features, user-visible fixes, and meaningful
+  changes in runtime behavior
+- exclude docs, troubleshooting notes, tests, CI, refactors, release tooling,
+  and packaging implementation changes
+- do not treat broader test coverage as user-facing
+- describe the user-visible outcome rather than the internal implementation
+
 ## Shared package payload
 
 Most package formats reuse the same top-level asset directories. The packaging

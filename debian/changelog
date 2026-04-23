@@ -1,10 +1,7 @@
 keymasq (0.8.1-1) unstable; urgency=medium
 
   * Add native cursor positioning for GNOME and X11 so absolute pointer moves
-    can use desktop-aware positioning paths on those sessions.
-  * Improve GNOME bridge probing across more gsettings layouts and expand VM
-    coverage for native cursor-setting flows.
-  * Clarify Fedora Atomic and Bazzite RPM install troubleshooting for the
-    native RPM packaging path.
+    work directly on those desktops instead of falling back to the virtual
+    mouse path.
 
  -- nyrda <nyrda@keymasq.tools>  Thu, 23 Apr 2026 01:44:09 +0000

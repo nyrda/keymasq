@@ -1,11 +1,10 @@
-keymasq (0.8.0-1) unstable; urgency=medium
+keymasq (0.8.1-1) unstable; urgency=medium
 
-  * Rework macro recording and unlock flows with clearer source selection,
-    saved recording preferences, and better handling around locked recording
-    triggers.
-  * Let Add Device and Add Input capture continue after unlocking instead of
-    forcing the user to restart those flows.
-  * Split RPM packaging into native Fedora and openSUSE builds and update the
-    related Fedora/Bazzite install path documentation.
+  * Add native cursor positioning for GNOME and X11 so absolute pointer moves
+    can use desktop-aware positioning paths on those sessions.
+  * Improve GNOME bridge probing across more gsettings layouts and expand VM
+    coverage for native cursor-setting flows.
+  * Clarify Fedora Atomic and Bazzite RPM install troubleshooting for the
+    native RPM packaging path.
 
- -- nyrda <nyrda@keymasq.tools>  Tue, 21 Apr 2026 04:21:52 +0000
+ -- nyrda <nyrda@keymasq.tools>  Thu, 23 Apr 2026 01:44:09 +0000

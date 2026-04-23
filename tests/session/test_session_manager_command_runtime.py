@@ -157,7 +157,12 @@ async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not
     )
 
     assert result == {"status": "ok"}
-    start_recording.assert_awaited_once_with(manager, reset_if_active=False)
+    start_recording.assert_awaited_once_with(
+        manager,
+        reset_if_active=False,
+        owner_peer=peer,
+        owner_writer=writer,
+    )
     monkeypatch.undo()
 
 
@@ -204,6 +209,31 @@ async def test_start_macro_trigger_warns_when_gui_is_open_but_locked() -> None:
     )
     start_recording.assert_not_awaited()
     monkeypatch.undo()
+
+
+@pytest.mark.asyncio
+async def test_start_macro_trigger_blocks_when_macro_save_is_pending() -> None:
+    manager = SessionManager()
+    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
+    manager.recording_state.pending_save_token = "pending-1"
+    manager.unlock_state.refresh_owner = {
+        "uid": 1000,
+        "pid": 111,
+        "writer_id": 222,
+        "lease_id": "lease-1",
+    }
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.client.send_command = AsyncMock()
+
+    await session_events_module.handle_start_macro_trigger(manager)
+
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Macro Save Pending",
+        "Save or discard the current recording before starting another recording.",
+    )
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+    manager.client.send_command.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -300,6 +330,80 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event() -> N
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "macro_saved", "name": "Speedrun"}
     )
+
+
+@pytest.mark.asyncio
+async def test_save_recording_clears_pending_macro_save_state() -> None:
+    manager = SessionManager()
+    manager.recording_state.pending_data = {
+        "duration_ms": 10,
+        "device_types": ["keyboard"],
+        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+    }
+    manager.recording_state.pending_save_token = "pending-1"
+    manager.recording_state.pending_save_owner_writer_id = 123
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"macro": {"name": "Saved"}})
+    )
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {
+            "command": "save_recording",
+            "name": "Saved",
+            "pending_save_token": "pending-1",
+        },
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok", "name": "Saved"}
+    assert manager.recording_state.pending_data is None
+    assert manager.recording_state.pending_save_token is None
+    assert manager.recording_state.pending_save_owner_writer_id is None
+
+
+@pytest.mark.asyncio
+async def test_discard_recording_rejects_stale_pending_macro_save_token() -> None:
+    manager = SessionManager()
+    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
+    manager.recording_state.pending_save_token = "current"
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "discard_recording", "pending_save_token": "stale"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "stale_pending_macro_save"
+    assert manager.recording_state.pending_data == {"events": [{"t_us": 0}]}
+    assert manager.recording_state.pending_save_token == "current"
+
+
+@pytest.mark.asyncio
+async def test_discard_recording_clears_pending_macro_save_state() -> None:
+    manager = SessionManager()
+    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
+    manager.recording_state.pending_save_token = "pending-1"
+    manager.recording_state.pending_save_owner_writer_id = 123
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "discard_recording", "pending_save_token": "pending-1"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok"}
+    assert manager.recording_state.pending_data is None
+    assert manager.recording_state.pending_save_token is None
+    assert manager.recording_state.pending_save_owner_writer_id is None
 
 
 @pytest.mark.asyncio

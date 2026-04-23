@@ -216,3 +216,39 @@ async def test_start_recording_defaults_to_recommended_sources_only() -> None:
         "keymasq:output:keyboard",
         "keymasq:passthrough:1234:5678:mouse",
     ]
+
+
+@pytest.mark.asyncio
+async def test_start_recording_blocks_when_macro_save_is_pending() -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.client = SimpleNamespace(send_command=AsyncMock())  # type: ignore[assignment]
+    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
+    manager.recording_state.pending_save_token = "pending-1"
+
+    result = await session_recording_module.start_recording(manager)
+
+    assert result == {
+        "status": "error",
+        "error_code": "macro_save_pending",
+        "message": "Save or discard the current recording before starting another recording.",
+        "pending_save_token": "pending-1",
+    }
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Macro Save Pending",
+        "Save or discard the current recording before starting another recording.",
+    )
+    manager.client.send_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_recording_pending_save_notification_is_rate_limited() -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
+    manager.recording_state.pending_save_token = "pending-1"
+
+    await session_recording_module.start_recording(manager)
+    await session_recording_module.start_recording(manager)
+
+    manager.send_notification.assert_called_once()  # type: ignore[attr-defined]

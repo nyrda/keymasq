@@ -15,6 +15,7 @@ class SaveMacroDialog(Adw.Dialog):
         self._parent = parent
         self._recording_data = recording_data
         self._saved = False
+        self._pending_save_token = str(recording_data.get("pending_save_token", "") or "")
         has_start_pos = ("start_x" in recording_data) and ("start_y" in recording_data)
         self._move_to_start = bool(recording_data.get("move_to_start", has_start_pos))
         self._start_x = int(recording_data.get("start_x", 0) or 0)
@@ -256,6 +257,8 @@ class SaveMacroDialog(Adw.Dialog):
                 "block_mouse_movement": self._block_mouse_check.get_active(),
             }
         )
+        if self._pending_save_token:
+            payload["pending_save_token"] = self._pending_save_token
         session_request_with_hooks(
             payload,
             self._on_save_finished,
@@ -281,9 +284,15 @@ class SaveMacroDialog(Adw.Dialog):
 
     def _on_discard_clicked(self, btn: Gtk.Button) -> None:
         self._saved = True  # Prevent double-discard in _on_dialog_closed
-        session_request_async({"command": "discard_recording"}, lambda _result: False)
+        session_request_async(self._discard_payload(), lambda _result: False)
         self.close()
 
     def _on_dialog_closed(self, dialog) -> None:
         if not self._saved:
-            session_request_async({"command": "discard_recording"}, lambda _result: False)
+            session_request_async(self._discard_payload(), lambda _result: False)
+
+    def _discard_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {"command": "discard_recording"}
+        if self._pending_save_token:
+            payload["pending_save_token"] = self._pending_save_token
+        return payload

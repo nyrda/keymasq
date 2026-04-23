@@ -426,6 +426,79 @@ class TestRecordingOverlay:
         assert overlay._stop_btn.get_sensitive() is True
 
 
+class TestSaveMacroDialog:
+    def test_save_macro_dialog_sends_pending_save_token(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        captured: dict[str, object] = {}
+
+        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+            captured.update(payload)
+            if on_start:
+                on_start()
+            callback({"status": "ok"})
+            if on_done:
+                on_done()
+
+        monkeypatch.setattr(
+            save_macro_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+                "pending_save_token": "pending-1",
+            },
+        )
+        dialog._name_entry.set_text("macro_1")
+        dialog._on_save_clicked(dialog._save_btn)
+
+        assert captured["command"] == "save_recording"
+        assert captured["pending_save_token"] == "pending-1"
+
+    def test_save_macro_dialog_discard_sends_pending_save_token(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            save_macro_dialog_module,
+            "session_request_async",
+            lambda payload, callback: captured.update(payload),
+        )
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+                "pending_save_token": "pending-1",
+            },
+        )
+
+        dialog._on_discard_clicked(Gtk.Button())
+
+        assert captured == {
+            "command": "discard_recording",
+            "pending_save_token": "pending-1",
+        }
+
+
 class TestDialogConstruction:
     def test_about_dialog_uses_packaged_app_identity(self, monkeypatch):
         from keymasq import __version__
@@ -616,6 +689,39 @@ class TestDialogConstruction:
 
         assert result is False
         assert captured["reason"] == "recording_locked"
+
+    def test_macro_manager_presents_pending_save_dialog_after_macro_save_pending(
+        self,
+        monkeypatch,
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        presented: list[bool] = []
+
+        class Parent(Gtk.Window):
+            def present_pending_macro_save_dialog(self) -> bool:
+                presented.append(True)
+                return True
+
+        dialog = MacroManagerDialog(Parent())
+
+        result = dialog._on_record_request_finished(
+            {
+                "status": "error",
+                "error_code": "macro_save_pending",
+                "message": (
+                    "Save or discard the current recording before starting another recording."
+                ),
+            },
+            "start_recording",
+        )
+
+        assert result is False
+        assert presented == [True]
 
     def test_macro_manager_edit_opens_editor_with_closed_handler(self, monkeypatch):
         gi.require_version("Gtk", "4.0")

@@ -197,8 +197,20 @@ async def _handle_recording_commands(
     writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
     if command == "start_recording":
+        if runtime_recording.has_pending_macro_save(manager):
+            return await runtime_recording.start_recording(
+                manager,
+                reset_if_active=False,
+                owner_peer=peer,
+                owner_writer=writer,
+            )
         runtime_recording.update_recording_settings(manager, request)
-        start_result = await runtime_recording.start_recording(manager, reset_if_active=False)
+        start_result = await runtime_recording.start_recording(
+            manager,
+            reset_if_active=False,
+            owner_peer=peer,
+            owner_writer=writer,
+        )
         runtime_recording.notify_recording_unlock_required(manager, start_result)
         return start_result
 
@@ -238,6 +250,16 @@ async def _handle_recording_commands(
             return {"status": "error", "message": "Name required"}
         if not manager.recording_state.pending_data:
             return {"status": "error", "message": "No pending recording"}
+        pending_save_token = str_value(request.get("pending_save_token"), "").strip()
+        if pending_save_token and not runtime_recording.pending_macro_save_token_matches(
+            manager,
+            pending_save_token,
+        ):
+            return {
+                "status": "error",
+                "error_code": "stale_pending_macro_save",
+                "message": "Pending recording has already changed.",
+            }
         save_result = await runtime_recording.save_recording(
             manager,
             name,
@@ -251,7 +273,17 @@ async def _handle_recording_commands(
         return {"status": "ok", "name": save_result.get("name", name)}
 
     if command == "discard_recording":
-        manager.recording_state.pending_data = None
+        pending_save_token = str_value(request.get("pending_save_token"), "").strip()
+        if pending_save_token and not runtime_recording.pending_macro_save_token_matches(
+            manager,
+            pending_save_token,
+        ):
+            return {
+                "status": "error",
+                "error_code": "stale_pending_macro_save",
+                "message": "Pending recording has already changed.",
+            }
+        runtime_recording.clear_pending_macro_save(manager)
         return {"status": "ok"}
 
     return None

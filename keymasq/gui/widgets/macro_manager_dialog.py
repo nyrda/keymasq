@@ -497,6 +497,11 @@ class MacroManagerDialog(Adw.Dialog):
             self._open_recording_settings_dialog(reason="recording_locked")
             return False
 
+        if command == "start_recording" and self._is_macro_save_pending(result):
+            present_pending_save = getattr(self._parent, "present_pending_macro_save_dialog", None)
+            if callable(present_pending_save) and present_pending_save():
+                return False
+
         fallback = (
             "Failed to stop recording"
             if command == "stop_recording"
@@ -587,6 +592,13 @@ class MacroManagerDialog(Adw.Dialog):
             return True
         message = str(result.get("message", "") or "").strip().lower()
         return "recording_locked" in message
+
+    def _is_macro_save_pending(self, result: dict) -> bool:
+        error_code = str(result.get("error_code", "") or "").strip().lower()
+        if error_code == "macro_save_pending":
+            return True
+        message = str(result.get("message", "") or "").strip().lower()
+        return "save or discard" in message and "recording" in message
 
     def _on_create_type_macro(self, btn: Gtk.Button) -> None:
         dialog = TypeMacroDialog(self._parent, on_created=self._load_macros)

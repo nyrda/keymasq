@@ -297,6 +297,7 @@ class SessionManager:
         except Exception as e:
             log.debug(f"Session client error: {e}")
         finally:
+            runtime_recording.clear_pending_macro_save_if_writer(self, writer)
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
             self.session_clients.discard(writer)
             self.session_client_peers.pop(writer, None)

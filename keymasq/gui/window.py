@@ -69,6 +69,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._connection_body_label: Gtk.Label | None = None
         self._macro_manager_dialog: Adw.Dialog | None = None
         self._record_macro_dialog: Adw.Dialog | None = None
+        self._save_macro_dialog: Adw.Dialog | None = None
         self._recording_unlocked = False
         self._recording_unlock_required = True
         self._recording_unlock_source = "none"
@@ -292,9 +293,24 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_recording_stopped(self, event: dict) -> None:
         from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
 
-        parent = self._macro_manager_dialog if self._macro_manager_dialog else self
-        dialog = SaveMacroDialog(parent, event)
-        dialog.present(parent)
+        if self._save_macro_dialog is not None:
+            self._save_macro_dialog.present(self)
+            return
+
+        dialog = SaveMacroDialog(self, event)
+        dialog.connect("closed", self._on_save_macro_dialog_closed)
+        self._save_macro_dialog = dialog
+        dialog.present(self)
+
+    def present_pending_macro_save_dialog(self) -> bool:
+        if self._save_macro_dialog is None:
+            return False
+        self._save_macro_dialog.present(self)
+        return True
+
+    def _on_save_macro_dialog_closed(self, dialog) -> None:
+        if dialog is self._save_macro_dialog:
+            self._save_macro_dialog = None
 
     def _close_dialogs_for_recording_start(self) -> None:
         for dialog in (self._record_macro_dialog, self._macro_manager_dialog):

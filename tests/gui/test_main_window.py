@@ -545,6 +545,47 @@ class TestMainWindow:
         assert closed == ["settings", "macros"]
         assert overlay_events == [{"visible": True}, {"event": "recording_started"}]
 
+    def test_main_window_recording_stopped_tracks_single_save_macro_dialog(self, monkeypatch):
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        created: list[dict] = []
+        presented: list[object] = []
+
+        class DummySaveMacroDialog:
+            def __init__(self, parent, event: dict) -> None:
+                self.parent = parent
+                self.event = event
+                created.append(event)
+
+            def connect(self, signal: str, callback) -> None:
+                self.signal = signal
+                self.callback = callback
+
+            def present(self, parent) -> None:
+                presented.append(parent)
+
+        monkeypatch.setattr(save_macro_dialog_module, "SaveMacroDialog", DummySaveMacroDialog)
+
+        window._on_recording_stopped(
+            {"event": "recording_stopped", "pending_save_token": "pending-1"}
+        )
+        first_dialog = window._save_macro_dialog
+        window._on_recording_stopped(
+            {"event": "recording_stopped", "pending_save_token": "pending-1"}
+        )
+
+        assert len(created) == 1
+        assert first_dialog is window._save_macro_dialog
+        assert presented == [window, window]
+
+        assert window.present_pending_macro_save_dialog() is True
+        assert presented == [window, window, window]
+
+        window._on_save_macro_dialog_closed(first_dialog)
+        assert window._save_macro_dialog is None
+
     def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
         from keymasq.gui.window import MainWindow
 

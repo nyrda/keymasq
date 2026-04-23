@@ -3,7 +3,7 @@
 
 # Maintainer: nyrda <nyrda@keymasq.tools>
 pkgname=keymasq
-pkgver=0.8.0
+pkgver=0.8.1
 pkgrel=1
 pkgdesc="A key remapping tool for Linux using evdev and uinput"
 arch=(
@@ -35,7 +35,7 @@ makedepends=(
     'python-installer'
 )
 install="$pkgname.install"
-source=("$pkgname-$pkgver.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.8.0/keymasq-0.8.0.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.8.1/keymasq-0.8.1.tar.gz")
 sha256sums=('SKIP')
 
 

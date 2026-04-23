@@ -1,4 +1,7 @@
 # ruff: noqa: F403, F405, I001
+import threading
+import time
+
 from tests.gui.support import *
 
 class TestDemoDevice:
@@ -175,6 +178,54 @@ class TestRecordMacroDialog:
         dialog._on_reset_to_recommended_clicked(Gtk.Button())
         assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
         assert dialog._selection_warning.get_visible() is True
+
+    def test_record_dialog_reset_sync_wins_over_inflight_selection(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.record_macro_dialog as record_macro_dialog_module
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+
+        first_started = threading.Event()
+        release_first = threading.Event()
+        captured_payloads: list[dict[str, object]] = []
+
+        def fake_session_request(payload, timeout=5.0):
+            snapshot = dict(payload)
+            snapshot["device_overrides"] = dict(payload.get("device_overrides", {}))
+            captured_payloads.append(snapshot)
+            if len(captured_payloads) == 1:
+                first_started.set()
+                assert release_first.wait(2.0)
+            return {"status": "ok"}
+
+        monkeypatch.setattr(record_macro_dialog_module, "session_request", fake_session_request)
+
+        dialog = RecordMacroDialog(Gtk.Window())
+        dialog._device_overrides = {"physical:/dev/input/by-id/raw-mouse": True}
+
+        dialog._sync_settings_async()
+        assert first_started.wait(2.0)
+
+        dialog._device_overrides.clear()
+        dialog._sync_settings_async()
+        release_first.set()
+
+        for _ in range(100):
+            with dialog._settings_sync_lock:
+                worker_running = dialog._settings_sync_worker_running
+            if not worker_running:
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("settings sync worker did not finish")
+
+        assert [payload["device_overrides"] for payload in captured_payloads] == [
+            {"physical:/dev/input/by-id/raw-mouse": True},
+            {},
+        ]
 
 
 class TestDialogConstruction:

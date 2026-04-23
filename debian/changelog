@@ -1,34 +1,11 @@
 keymasq (0.8.0-1) unstable; urgency=medium
 
-  * First public release of Keymasq with the GTK4 app, CLI, layered profiles,
-    macros, superkeys, combos, and compositor-aware desktop integration.
-  * Add machine-readable `keymasq status --json` output and improve absolute
-    cursor positioning plus screen-position capture workflows.
-  * Rework macro recording with clearer source selection, saved recording
-    preferences, and cleaner unlock handling.
-  * Let Add Device and Add Input capture continue after unlocking, and remove
-    obsolete CLI device and hardware commands.
+  * Rework macro recording and unlock flows with clearer source selection,
+    saved recording preferences, and better handling around locked recording
+    triggers.
+  * Let Add Device and Add Input capture continue after unlocking instead of
+    forcing the user to restart those flows.
+  * Split RPM packaging into native Fedora and openSUSE builds and update the
+    related Fedora/Bazzite install path documentation.
 
  -- nyrda <nyrda@keymasq.tools>  Tue, 21 Apr 2026 04:21:52 +0000
-
-keymasq (0.3-1) unstable; urgency=medium
-
-  * Add first-class Niri compositor support, including direct action dispatch.
-  * Expand superkeys into pattern and overload modes with stricter validation.
-  * Make superkey bindings value-aware so wheel directions and similar inputs map cleanly.
-  * Split stable tagged releases from manual prerelease packaging.
-
- -- nyrda <nyrda@keymasq.tools>  Fri, 10 Apr 2026 00:00:00 +0000
-
-keymasq (0.2-1) unstable; urgency=medium
-
-  * Seed a default editable profile on first startup.
-  * Refine first-run device setup UX.
-
- -- nyrda <nyrda@keymasq.tools>  Tue, 07 Apr 2026 00:00:00 +0000
-
-keymasq (0.1.0-1) unstable; urgency=medium
-
-  * Initial Debian packaging.
-
- -- nyrda <nyrda@keymasq.tools>  Mon, 23 Mar 2026 00:00:00 +0000

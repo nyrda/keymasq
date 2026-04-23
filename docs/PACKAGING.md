@@ -74,13 +74,17 @@ that renderer with the final release tarball checksum before publishing to AUR.
 Before running the script for a release, update the top release notes content
 that should be preserved in place:
 
-- the top entry body in `CHANGELOG.md`
+- the top `CHANGELOG.md` section body for the new version if you are writing it
+  before the bump
 - the top entry bullet list in `debian/changelog`
 - the top `<release>` description in `assets/tools.keymasq.keymasq.metainfo.xml`
+  if you are writing it before the bump
 
-The script then stamps the requested version, updates the current release date,
-and refreshes the generated packaging files. Use `--dry-run` to preview the
-file set, or `--release-date YYYY-MM-DD` when a non-today date is required.
+The script then normalizes or inserts the top `CHANGELOG.md` section for the
+requested version, updates the current release date in Debian changelog and
+AppStream metadata, and refreshes the generated packaging files. Use
+`--dry-run` to preview the file set, or `--release-date YYYY-MM-DD` when a
+non-today date is required.
 
 ## Shared package payload
 

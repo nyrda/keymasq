@@ -494,7 +494,7 @@ class MacroManagerDialog(Adw.Dialog):
         if command == "start_recording" and self._is_recording_locked(result):
             self._recording_unlocked = False
             self._sync_record_button_state()
-            self._open_recording_settings_dialog()
+            self._open_recording_settings_dialog(reason="recording_locked")
             return False
 
         fallback = (
@@ -570,14 +570,14 @@ class MacroManagerDialog(Adw.Dialog):
     def _on_record_settings(self, btn: Gtk.Button) -> None:
         self._open_recording_settings_dialog()
 
-    def _open_recording_settings_dialog(self) -> None:
+    def _open_recording_settings_dialog(self, reason: str = "settings") -> None:
         present_settings = getattr(self._parent, "present_recording_settings_dialog", None)
         if callable(present_settings):
-            present_settings()
+            present_settings(reason=reason)
             return
         from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 
-        record_dialog = RecordMacroDialog(self._parent)
+        record_dialog = RecordMacroDialog(self._parent, reason=reason)
         record_dialog.present(self._parent)
 
     def _is_recording_locked(self, result: dict) -> bool:

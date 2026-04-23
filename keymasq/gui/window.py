@@ -271,6 +271,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._apply_profile_runtime_state(event)
             self._queue_profile_reload()
         elif event_type == "recording_started":
+            self._close_dialogs_for_recording_start()
             self._recording_overlay.set_visible(True)
             self._recording_overlay.on_started(event)
         elif event_type == "recording_stopped":
@@ -294,6 +295,11 @@ class MainWindow(Adw.ApplicationWindow):
         parent = self._macro_manager_dialog if self._macro_manager_dialog else self
         dialog = SaveMacroDialog(parent, event)
         dialog.present(parent)
+
+    def _close_dialogs_for_recording_start(self) -> None:
+        for dialog in (self._record_macro_dialog, self._macro_manager_dialog):
+            if dialog is not None:
+                dialog.close()
 
     def set_macro_manager_dialog(self, dialog: Adw.Dialog | None) -> None:
         self._macro_manager_dialog = dialog

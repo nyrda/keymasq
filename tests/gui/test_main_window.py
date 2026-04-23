@@ -515,6 +515,36 @@ class TestMainWindow:
 
         assert captured["reason"] == "recording_locked"
 
+    def test_main_window_recording_started_closes_tracked_dialogs(self):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        closed: list[str] = []
+        overlay_events: list[dict] = []
+
+        class DummyDialog:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+            def close(self) -> None:
+                closed.append(self.name)
+
+        class DummyOverlay:
+            def set_visible(self, visible: bool) -> None:
+                overlay_events.append({"visible": visible})
+
+            def on_started(self, event: dict) -> None:
+                overlay_events.append(event)
+
+        window._record_macro_dialog = DummyDialog("settings")  # type: ignore[assignment]
+        window._macro_manager_dialog = DummyDialog("macros")  # type: ignore[assignment]
+        window._recording_overlay = DummyOverlay()  # type: ignore[assignment]
+
+        window._handle_session_event({"event": "recording_started"})
+
+        assert closed == ["settings", "macros"]
+        assert overlay_events == [{"visible": True}, {"event": "recording_started"}]
+
     def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
         from keymasq.gui.window import MainWindow
 

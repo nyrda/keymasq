@@ -500,6 +500,21 @@ class TestMainWindow:
         }
         assert window._profile_runtime_state["window"] == {"class": "steam"}
 
+    def test_main_window_recording_auth_event_opens_locked_recording_dialog(self, monkeypatch):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            window,
+            "present_recording_settings_dialog",
+            lambda reason="settings": captured.setdefault("reason", reason),
+        )
+
+        window._handle_session_event({"event": "recording_auth_requested"})
+
+        assert captured["reason"] == "recording_locked"
+
     def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
         from keymasq.gui.window import MainWindow
 

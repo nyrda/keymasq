@@ -13,10 +13,16 @@ from keymasq.gui.session_client import session_request
 
 
 class RecordMacroDialog(Adw.Dialog):
-    def __init__(self, parent: Gtk.Window, on_saved: Callable | None = None):
+    def __init__(
+        self,
+        parent: Gtk.Window,
+        on_saved: Callable | None = None,
+        reason: str = "settings",
+    ):
         super().__init__(title="Macro Recording Settings", content_width=480)
         self._parent = parent
         self._on_saved = on_saved
+        self._reason = reason
         self._devices: list[dict] = []
         self._device_checks: dict[str, Gtk.CheckButton] = {}
         self._record_mouse_movement = False
@@ -31,6 +37,9 @@ class RecordMacroDialog(Adw.Dialog):
         self._settings_sync_generation = 0
         self._settings_sync_worker_running = False
         self._build_ui()
+        self.set_presentation_reason(reason)
+        self._register_parent_events()
+        self.connect("closed", self._on_dialog_closed)
         self._load_initial_state_async()
 
     def _build_ui(self) -> None:
@@ -43,12 +52,12 @@ class RecordMacroDialog(Adw.Dialog):
         frame = Gtk.Frame()
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        title_label = Gtk.Label(label="Macro Recording Settings")
-        title_label.add_css_class("title-3")
-        title_label.set_halign(Gtk.Align.CENTER)
-        title_label.set_margin_top(12)
-        title_label.set_margin_bottom(12)
-        inner.append(title_label)
+        self._title_label = Gtk.Label(label="Macro Recording Settings")
+        self._title_label.add_css_class("title-3")
+        self._title_label.set_halign(Gtk.Align.CENTER)
+        self._title_label.set_margin_top(12)
+        self._title_label.set_margin_bottom(12)
+        inner.append(self._title_label)
         inner.append(Gtk.Separator())
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -56,6 +65,9 @@ class RecordMacroDialog(Adw.Dialog):
         content.set_margin_bottom(12)
         content.set_margin_start(16)
         content.set_margin_end(16)
+
+        self._locked_notice = self._build_locked_notice()
+        content.append(self._locked_notice)
 
         # Recording options in a compact boxed list
         options_frame = Gtk.ListBox()
@@ -172,6 +184,7 @@ class RecordMacroDialog(Adw.Dialog):
         self._device_listbox = Gtk.ListBox()
         self._device_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         self._device_listbox.add_css_class("boxed-list")
+        self._device_listbox.connect("row-activated", self._on_device_row_activated)
         scrolled.set_child(self._device_listbox)
         content.append(scrolled)
 
@@ -199,11 +212,7 @@ class RecordMacroDialog(Adw.Dialog):
         self._unlock_status.set_halign(Gtk.Align.START)
         footer.append(self._unlock_status)
 
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", self._on_cancel_clicked)
-        footer.append(cancel_btn)
-
-        self._save_btn = Gtk.Button(label="Save Settings")
+        self._save_btn = Gtk.Button(label="Done")
         self._save_btn.add_css_class("suggested-action")
         self._save_btn.connect("clicked", self._on_save_settings)
         footer.append(self._save_btn)
@@ -213,7 +222,56 @@ class RecordMacroDialog(Adw.Dialog):
         main_box.append(frame)
         self.set_child(main_box)
 
-    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
+    def _build_locked_notice(self) -> Gtk.Box:
+        notice = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        notice.add_css_class("recording-locked-notice")
+        notice.set_margin_bottom(2)
+        notice.set_visible(False)
+
+        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
+        icon.set_valign(Gtk.Align.START)
+        notice.append(icon)
+
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box.set_hexpand(True)
+
+        title = Gtk.Label(label="Recording was blocked")
+        title.add_css_class("heading")
+        title.set_halign(Gtk.Align.START)
+        text_box.append(title)
+
+        body = Gtk.Label(
+            label=(
+                "Macro recording is locked. Unlock recording before starting a live "
+                "recording."
+            )
+        )
+        body.set_wrap(True)
+        body.set_halign(Gtk.Align.START)
+        text_box.append(body)
+
+        notice.append(text_box)
+        return notice
+
+    def set_presentation_reason(self, reason: str = "settings") -> None:
+        self._reason = reason
+        locked = reason == "recording_locked"
+        title = "Unlock Macro Recording" if locked else "Macro Recording Settings"
+        self.set_title(title)
+        self._title_label.set_label(title)
+        self._locked_notice.set_visible(locked)
+
+    def _register_parent_events(self) -> None:
+        register_event_handler = getattr(self._parent, "register_event_handler", None)
+        if callable(register_event_handler):
+            register_event_handler("recording_started", self._on_recording_started)
+
+    def _on_dialog_closed(self, _dialog: Adw.Dialog) -> None:
+        unregister_event_handler = getattr(self._parent, "unregister_event_handler", None)
+        if callable(unregister_event_handler):
+            unregister_event_handler("recording_started", self._on_recording_started)
+
+    def _on_recording_started(self, _event: dict) -> None:
         self.close()
 
     def _load_initial_state_async(self) -> None:
@@ -337,6 +395,7 @@ class RecordMacroDialog(Adw.Dialog):
     ) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row.set_selectable(False)
+        row.set_activatable(selectable)
 
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         row_box.set_margin_top(6)
@@ -351,6 +410,7 @@ class RecordMacroDialog(Adw.Dialog):
             check.set_active(self._is_selected_device(device))
             check.connect("toggled", self._on_device_check_toggled)
             self._device_checks[recording_id] = check
+            row._recording_id = recording_id  # type: ignore[attr-defined]
             row_box.append(check)
         else:
             status_icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
@@ -401,6 +461,20 @@ class RecordMacroDialog(Adw.Dialog):
 
         row.set_child(row_box)
         return row
+
+    def _on_device_row_activated(
+        self,
+        _listbox: Gtk.ListBox,
+        row: Gtk.ListBoxRow,
+    ) -> None:
+        recording_id = str(getattr(row, "_recording_id", "") or "")
+        if not recording_id:
+            return
+
+        check = self._device_checks.get(recording_id)
+        if check is None:
+            return
+        check.set_active(not check.get_active())
 
     def _device_recording_id(self, device: dict) -> str:
         recording_id = str(device.get("recording_id", "") or "")

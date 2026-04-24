@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from keymasq.common.combos import GENERIC_MODIFIER_MAP, normalize_combo_evdev
+from keymasq.common.combos import (
+    GENERIC_MODIFIER_MAP,
+    is_combo_pulse_evdev,
+    normalize_combo_evdev,
+)
 from keymasq.common.models import MappingAction
 
 DEFAULT_COMBO_STEP_TIMEOUT_MS = 600
@@ -70,6 +74,7 @@ class TrackedPress:
     binding: RuntimeComboBinding
     press_order: int
     passed_through: bool
+    is_pulse: bool = False
 
 
 @dataclass
@@ -209,6 +214,28 @@ class ComboEngine:
             self._candidates.pop(combo_id, None)
         return True
 
+    def would_consume_pulse(self, binding: RuntimeComboBinding) -> bool:
+        if not self._binding_is_pulse(binding):
+            return False
+
+        for candidate in self._candidates.values():
+            if candidate.releasing:
+                continue
+            if not self._step_matches_binding(candidate.current_step(), binding):
+                continue
+            if len(candidate.pressed_bindings) + 1 == len(candidate.current_step().bindings):
+                return True
+
+        for combo in self._candidate_first_step_combos(binding):
+            if combo.id in self._candidates:
+                continue
+            held_bindings = self._held_bindings_for_step(combo.steps[0], binding)
+            if held_bindings is None:
+                continue
+            if self._pulse_can_complete_first_step(combo, binding, held_bindings):
+                return True
+        return False
+
     def handle_event(self, event: ComboInputEvent, now_monotonic: float) -> ComboDecision:
         decision = ComboDecision()
         expired = self.expire_timeouts(now_monotonic)
@@ -220,7 +247,8 @@ class ComboEngine:
 
         had_candidates = bool(self._candidates)
         if value == 1:
-            self._record_held_press(event.binding)
+            if not self._binding_is_pulse(event.binding):
+                self._record_held_press(event.binding)
             decision = self._handle_press_event(event, now_monotonic)
         else:
             decision = self._handle_release_event(event, now_monotonic)
@@ -242,7 +270,7 @@ class ComboEngine:
         now_monotonic: float,
     ) -> ComboDecision:
         waiting = self._handle_waiting_candidate_press(event, now_monotonic)
-        first_step = self._activate_satisfied_first_steps(event)
+        first_step = self._activate_satisfied_first_steps(event, now_monotonic)
         decision = self._merge_decisions(waiting, first_step)
         if not decision.consume_current_event and not decision.passthrough_current_event:
             if self._binding_matches_any_first_step(event.binding):
@@ -294,33 +322,44 @@ class ComboEngine:
         transitions: list[ComboActionTransition] = []
         recall_events: list[ComboSyntheticEvent] = []
         partial_match = False
+        completed_step = False
         for combo_id in sorted(
             matching_ids,
             key=lambda combo_id: self._combo_order.get(combo_id, 0),
         ):
             candidate = self._candidates[combo_id]
             if len(candidate.pressed_bindings) + 1 == len(candidate.current_step().bindings):
+                completed_step = True
                 self._complete_current_step(
                     candidate,
                     event.binding,
                     is_final=candidate.step_index >= len(candidate.combo.steps) - 1,
+                    passed_through=False,
                 )
+                self._advance_pulse_completed_step(candidate, now_monotonic)
                 recall_events.extend(self._recall_events(candidate))
                 if candidate.action_active:
                     transitions.append(
                         ComboActionTransition(
                             combo_id=candidate.combo.id,
                             action=candidate.combo.action,
-                            kind="press",
+                            kind=(
+                                "pulse"
+                                if self._binding_is_pulse(event.binding)
+                                else "press"
+                            ),
                             trigger_binding=event.binding,
                             trigger_bindings=self._trigger_bindings(candidate),
                         )
                     )
+                    if self._binding_is_pulse(event.binding):
+                        self._candidates.pop(combo_id, None)
             else:
                 partial_match = True
-                self._track_press(candidate, event.binding, passed_through=True)
+                if not self._binding_is_pulse(event.binding):
+                    self._track_press(candidate, event.binding, passed_through=True)
 
-        decision.consume_current_event = bool(transitions) or any(
+        decision.consume_current_event = bool(transitions) or completed_step or any(
             self._candidates[combo_id].releasing
             for combo_id in matching_ids
             if combo_id in self._candidates
@@ -438,16 +477,19 @@ class ComboEngine:
         binding: RuntimeComboBinding,
         passed_through: bool,
     ) -> None:
-        if binding in candidate.pressed_bindings:
+        if any(tracked.binding == binding for tracked in candidate.tracked_presses):
             return
         self._press_counter += 1
-        candidate.pressed_bindings.add(binding)
+        is_pulse = self._binding_is_pulse(binding)
+        if not is_pulse:
+            candidate.pressed_bindings.add(binding)
         candidate.next_step_deadline_monotonic = None
         candidate.tracked_presses.append(
             TrackedPress(
                 binding=binding,
                 press_order=self._press_counter,
                 passed_through=passed_through,
+                is_pulse=is_pulse,
             )
         )
 
@@ -456,8 +498,16 @@ class ComboEngine:
         candidate: ActiveCandidate,
         completing_binding: RuntimeComboBinding,
         is_final: bool,
+        passed_through: bool = False,
     ) -> None:
-        if completing_binding not in candidate.pressed_bindings:
+        if not any(
+            tracked.binding == completing_binding for tracked in candidate.tracked_presses
+        ):
+            self._track_press(candidate, completing_binding, passed_through=passed_through)
+        if (
+            not self._binding_is_pulse(completing_binding)
+            and completing_binding not in candidate.pressed_bindings
+        ):
             candidate.pressed_bindings.add(completing_binding)
         candidate.releasing = True
         candidate.next_step_deadline_monotonic = None
@@ -468,7 +518,28 @@ class ComboEngine:
             candidate.final_completing_binding = None
             candidate.action_active = False
 
-    def _activate_satisfied_first_steps(self, event: ComboInputEvent) -> ComboDecision:
+    def _advance_pulse_completed_step(
+        self,
+        candidate: ActiveCandidate,
+        now_monotonic: float,
+    ) -> None:
+        if candidate.action_active or not candidate.releasing or candidate.pressed_bindings:
+            return
+        if candidate.step_index >= len(candidate.combo.steps) - 1:
+            return
+        candidate.step_index += 1
+        candidate.tracked_presses.clear()
+        candidate.releasing = False
+        candidate.final_completing_binding = None
+        candidate.next_step_deadline_monotonic = (
+            now_monotonic + self._effective_timeout_ms(candidate.current_step()) / 1000.0
+        )
+
+    def _activate_satisfied_first_steps(
+        self,
+        event: ComboInputEvent,
+        now_monotonic: float,
+    ) -> ComboDecision:
         decision = ComboDecision()
         transitions: list[ComboActionTransition] = []
         recall_events: list[ComboSyntheticEvent] = []
@@ -479,18 +550,28 @@ class ComboEngine:
             if combo.id in self._candidates:
                 matched_existing_or_activated = True
                 continue
-            held_bindings = self._held_bindings_for_step(combo.steps[0])
+            held_bindings = self._held_bindings_for_step(combo.steps[0], event.binding)
             if held_bindings is None:
+                continue
+            if self._binding_is_pulse(event.binding) and not self._pulse_can_complete_first_step(
+                combo,
+                event.binding,
+                held_bindings,
+            ):
                 continue
             matched_existing_or_activated = True
             candidate = self._new_candidate(combo)
             ordered_bindings = sorted(
                 held_bindings,
-                key=lambda binding: self._held_press_order.get(binding, 0),
+                key=lambda binding: self._held_press_order.get(
+                    binding,
+                    self._press_counter + 1,
+                ),
             )
             for binding in ordered_bindings:
                 self._track_press(candidate, binding, passed_through=binding != event.binding)
             self._complete_current_step(candidate, event.binding, is_final=len(combo.steps) == 1)
+            self._advance_pulse_completed_step(candidate, now_monotonic)
             self._candidates[combo.id] = candidate
             recall_events.extend(self._recall_events(candidate))
             if candidate.action_active:
@@ -498,11 +579,17 @@ class ComboEngine:
                     ComboActionTransition(
                         combo_id=combo.id,
                         action=combo.action,
-                        kind="press",
+                        kind=(
+                            "pulse"
+                            if self._binding_is_pulse(event.binding)
+                            else "press"
+                        ),
                         trigger_binding=event.binding,
                         trigger_bindings=self._trigger_bindings(candidate),
                     )
                 )
+                if self._binding_is_pulse(event.binding):
+                    self._candidates.pop(combo.id, None)
 
         if not transitions and not matched_existing_or_activated:
             return ComboDecision()
@@ -532,6 +619,7 @@ class ComboEngine:
                     for tracked in candidate.tracked_presses
                     if tracked.binding != candidate.final_completing_binding
                     and not self._binding_is_modifier(tracked.binding)
+                    and not tracked.is_pulse
                 ),
                 key=lambda tracked: tracked.press_order,
                 reverse=True,
@@ -540,6 +628,21 @@ class ComboEngine:
 
     def _binding_is_modifier(self, binding: RuntimeComboBinding) -> bool:
         return _normalized_binding_parts(binding)[1] in GENERIC_MODIFIERS
+
+    def _binding_is_pulse(self, binding: RuntimeComboBinding) -> bool:
+        return is_combo_pulse_evdev(binding.evdev)
+
+    def _pulse_can_complete_first_step(
+        self,
+        combo: RuntimeCombo,
+        binding: RuntimeComboBinding,
+        held_bindings: set[RuntimeComboBinding],
+    ) -> bool:
+        if not self._binding_is_pulse(binding):
+            return True
+        if len(combo.steps) == 1 and len(combo.steps[0].bindings) == 1:
+            return True
+        return any(not self._binding_is_pulse(held) for held in held_bindings if held != binding)
 
     def _binding_was_passed_through(
         self,
@@ -649,9 +752,19 @@ class ComboEngine:
     def _held_bindings_for_step(
         self,
         step: RuntimeComboStep,
+        current_binding: RuntimeComboBinding | None = None,
     ) -> set[RuntimeComboBinding] | None:
         matched: set[RuntimeComboBinding] = set()
+        current_matched = False
         for expected in step.bindings:
+            if (
+                current_binding is not None
+                and not current_matched
+                and self._binding_matches(expected, current_binding)
+            ):
+                matched.add(current_binding)
+                current_matched = True
+                continue
             actual = next(
                 (
                     held

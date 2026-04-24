@@ -9,6 +9,7 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": 3,
+        "loop_stop_behavior": "cancel_run",
         "move_to_start": True,
         "start_x": 111,
         "start_y": 222,
@@ -29,6 +30,7 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
     assert action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert action["macro_loop_mode"] == "count"
     assert action["macro_loop_count"] == 3
+    assert action["macro_loop_stop_behavior"] == "cancel_run"
     assert action["macro_move_to_start"] is True
     assert action["macro_start_x"] == 111
     assert action["macro_start_y"] == 222
@@ -43,6 +45,7 @@ async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(dae
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": 3,
+        "loop_stop_behavior": "cancel_run",
         "move_to_start": True,
         "start_x": 111,
         "start_y": 222,
@@ -69,6 +72,7 @@ async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(dae
     assert hold_action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert hold_action["macro_loop_mode"] == "count"
     assert hold_action["macro_loop_count"] == 3
+    assert hold_action["macro_loop_stop_behavior"] == "cancel_run"
     assert hold_action["macro_move_to_start"] is True
     assert hold_action["macro_start_x"] == 111
     assert hold_action["macro_start_y"] == 222
@@ -220,6 +224,7 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "hold",
         "loop_count": 5,
+        "loop_stop_behavior": "cancel_run",
         "move_to_start": True,
         "start_x": 7,
         "start_y": 8,
@@ -264,6 +269,7 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
     assert hold_action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert hold_action["macro_loop_mode"] == "hold"
     assert hold_action["macro_loop_count"] == 5
+    assert hold_action["macro_loop_stop_behavior"] == "cancel_run"
     assert hold_action["macro_move_to_start"] is True
     assert hold_action["macro_start_x"] == 7
     assert hold_action["macro_start_y"] == 8

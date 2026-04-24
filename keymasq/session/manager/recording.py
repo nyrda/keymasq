@@ -11,6 +11,7 @@ import tomli_w
 
 from keymasq.common.devices import normalize_input_classes
 from keymasq.common.ipc import Command, CommandType
+from keymasq.common.models import normalize_macro_loop_stop_behavior
 from keymasq.common.recording_guard import resolve_unlock_status
 from keymasq.common.security import PeerCredentials, SecurityPolicy
 from keymasq.session.profiles import ResolvedDeviceProfile
@@ -792,6 +793,15 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Non
                     data.get("loop_count", (macro or {}).get("loop_count")),
                 ),
                 1,
+            ),
+            "loop_stop_behavior": normalize_macro_loop_stop_behavior(
+                data.get(
+                    "macro_loop_stop_behavior",
+                    data.get(
+                        "loop_stop_behavior",
+                        (macro or {}).get("loop_stop_behavior"),
+                    ),
+                )
             ),
             "move_to_start": bool(
                 data.get(

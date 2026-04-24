@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from keymasq.common.ipc import CommandType
+from keymasq.common.models import (
+    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+    normalize_macro_loop_stop_behavior,
+)
 
 type JsonObject = dict[str, object]
 type IntValueFn = Callable[[object, int], int]
@@ -33,6 +37,7 @@ async def play_macro(
     speed: float,
     loop_mode: str,
     loop_count: int,
+    loop_stop_behavior: str,
     move_to_start: bool,
     start_x: int,
     start_y: int,
@@ -54,6 +59,9 @@ async def play_macro(
     normalized_loop = str(loop_mode or "none").lower()
     if normalized_loop not in {"none", "count", "hold", "toggle"}:
         normalized_loop = "none"
+    normalized_loop_stop_behavior = normalize_macro_loop_stop_behavior(
+        loop_stop_behavior
+    )
     count = max(1, int(loop_count or 1))
     source_key = (str(source_device), str(source_button))
 
@@ -64,11 +72,12 @@ async def play_macro(
             source_key=source_key,
         )
         if hold_instances:
-            cancelled = await cancel_macro_instances(
-                manager,
-                hold_instances,
-                deps=deps,
-            )
+            cancel_instances = loop_stop_cancel_instance_ids(manager, hold_instances)
+            finish_instances = [
+                instance_id for instance_id in hold_instances if instance_id not in cancel_instances
+            ]
+            mark_loop_instances_stopping(manager, finish_instances)
+            cancelled = await cancel_macro_instances(manager, cancel_instances, deps=deps)
             return {"status": "ok", "cancelled": cancelled > 0}
         return {"status": "ok", "cancelled": False}
 
@@ -82,11 +91,14 @@ async def play_macro(
             source_key=source_key,
         )
         if toggle_instances:
-            cancelled = await cancel_macro_instances(
-                manager,
-                toggle_instances,
-                deps=deps,
-            )
+            cancel_instances = loop_stop_cancel_instance_ids(manager, toggle_instances)
+            finish_instances = [
+                instance_id
+                for instance_id in toggle_instances
+                if instance_id not in cancel_instances
+            ]
+            mark_loop_instances_stopping(manager, finish_instances)
+            cancelled = await cancel_macro_instances(manager, cancel_instances, deps=deps)
             return {"status": "ok", "cancelled": cancelled > 0}
 
     if normalized_loop == "hold":
@@ -107,6 +119,8 @@ async def play_macro(
         "source_device": source_key[0],
         "source_button": source_key[1],
         "macro_name": str(macro_name or ""),
+        "loop_active": normalized_loop in {"hold", "toggle"},
+        "loop_stop_behavior": normalized_loop_stop_behavior,
     }
 
     task = asyncio_mod.create_task(
@@ -176,6 +190,30 @@ def find_matching_macro_instances(
             continue
         ids.append(instance_id)
     return ids
+
+
+def loop_stop_cancel_instance_ids(manager: _MacroManager, instance_ids: list[int]) -> list[int]:
+    cancel_instances: list[int] = []
+    for instance_id in instance_ids:
+        meta = manager.macro_state.instance_meta.get(instance_id, {})
+        behavior = normalize_macro_loop_stop_behavior(
+            meta.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
+        )
+        if behavior == "cancel_run":
+            cancel_instances.append(instance_id)
+    return cancel_instances
+
+
+def mark_loop_instances_stopping(manager: _MacroManager, instance_ids: list[int]) -> None:
+    for instance_id in instance_ids:
+        meta = manager.macro_state.instance_meta.get(instance_id)
+        if meta is not None:
+            meta["loop_active"] = False
+
+
+def is_loop_instance_active(manager: _MacroManager, instance_id: int) -> bool:
+    meta = manager.macro_state.instance_meta.get(instance_id, {})
+    return bool(meta.get("loop_active", True))
 
 
 async def cancel_macro_instances(
@@ -351,7 +389,11 @@ async def play_macro_task(
 
                 if event_type == evdev_mod.ecodes.EV_SYN:
                     continue
-                if event_type == evdev_mod.ecodes.EV_REL and not replay_mouse_movement:
+                if (
+                    event_type == evdev_mod.ecodes.EV_REL
+                    and not replay_mouse_movement
+                    and not _is_wheel_event(event_type, event_code, evdev_mod=evdev_mod)
+                ):
                     continue
                 if (
                     event_type == evdev_mod.ecodes.EV_KEY
@@ -401,6 +443,9 @@ async def play_macro_task(
             if loop_mode == "count":
                 if iterations >= max(1, loop_count):
                     break
+            elif loop_mode in {"hold", "toggle"}:
+                if not is_loop_instance_active(manager, instance_id):
+                    break
             elif loop_mode == "none":
                 break
     except asyncio_mod.CancelledError:
@@ -420,6 +465,23 @@ async def play_macro_task(
             release_macro_mouse_inhibit(manager)
         if manager.verbosity >= 1:
             deps.log.debug("Macro playback finished: %s", macro_name or "<unnamed>")
+
+
+def _is_wheel_event(event_type: int, event_code: int, *, evdev_mod: Any) -> bool:
+    if int(event_type) != int(evdev_mod.ecodes.EV_REL):
+        return False
+    return int(event_code) in {
+        int(evdev_mod.ecodes.REL_WHEEL),
+        int(evdev_mod.ecodes.REL_HWHEEL),
+        *(
+            int(code)
+            for code in (
+                getattr(evdev_mod.ecodes, "REL_WHEEL_HI_RES", None),
+                getattr(evdev_mod.ecodes, "REL_HWHEEL_HI_RES", None),
+            )
+            if code is not None
+        ),
+    }
 
 
 def track_macro_key_press(

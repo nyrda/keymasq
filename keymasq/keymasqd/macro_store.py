@@ -43,6 +43,8 @@ class MacroStore:
     - ``move_to_start``         – whether to reposition the cursor before playback.
     - ``start_x`` / ``start_y`` – cursor position at the start of recording.
     - ``block_mouse_movement``  – whether to suppress mouse movement during playback.
+    - ``loop_stop_behavior`` – whether Hold/Toggle stop input finishes or
+      cancels the current run.
     - ``revision``              – version counter for optimistic concurrency.
     - ``created_at``            – ISO timestamp of initial creation.
 

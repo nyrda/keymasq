@@ -283,3 +283,75 @@ def test_overlapping_multi_step_combos_with_shared_first_step_can_hold_outputs_t
     assert engine._candidates == {}
 
 
+def test_single_step_combo_with_wheel_pulse_fires_without_sticking():
+    engine = ComboEngine()
+    meta = _binding("key_leftmeta")
+    wheel_up = _binding("wheel_up", source="mouse")
+    engine.set_combos([_combo("combo-1", (meta, wheel_up))])
+
+    _handle(engine, meta, 1, 0.0)
+    first_tick = _handle(engine, wheel_up, 1, 0.1)
+    second_tick = _handle(engine, wheel_up, 1, 0.2)
+
+    assert first_tick.consume_current_event is True
+    assert first_tick.action_transition is not None
+    assert first_tick.action_transition.kind == "pulse"
+    assert first_tick.action_transition.combo_id == "combo-1"
+    assert second_tick.action_transition is not None
+    assert second_tick.action_transition.kind == "pulse"
+    assert engine._candidates == {}
+
+
+def test_multistep_combo_accepts_wheel_pulse_as_final_step():
+    engine = ComboEngine()
+    meta = _binding("key_leftmeta")
+    key_a = _binding("key_a")
+    wheel_down = _binding("wheel_down", source="mouse")
+    engine.set_combos([_combo("combo-1", (meta, key_a), (wheel_down,))])
+
+    _handle(engine, meta, 1, 0.0)
+    _handle(engine, key_a, 1, 0.1)
+    _handle(engine, key_a, 0, 0.2)
+    _handle(engine, meta, 0, 0.3)
+    decision = _handle(engine, wheel_down, 1, 0.4)
+
+    assert decision.consume_current_event is True
+    assert decision.action_transition is not None
+    assert decision.action_transition.combo_id == "combo-1"
+    assert decision.action_transition.kind == "pulse"
+    assert engine._candidates == {}
+
+
+def test_multistep_combo_rejects_wheel_only_first_step():
+    engine = ComboEngine()
+    wheel_up = _binding("wheel_up", source="mouse")
+    key_a = _binding("key_a")
+    engine.set_combos([_combo("combo-1", (wheel_up,), (key_a,))])
+
+    first_step = _handle(engine, wheel_up, 1, 0.0)
+    decision = _handle(engine, key_a, 1, 0.1)
+
+    assert first_step.consume_current_event is False
+    assert first_step.passthrough_current_event is True
+    assert first_step.action_transition is None
+    assert decision.action_transition is None
+    assert engine._candidates == {}
+
+
+def test_multistep_combo_accepts_leader_plus_wheel_as_first_step():
+    engine = ComboEngine()
+    meta = _binding("key_leftmeta")
+    wheel_up = _binding("wheel_up", source="mouse")
+    key_a = _binding("key_a")
+    engine.set_combos([_combo("combo-1", (meta, wheel_up), (key_a,))])
+
+    _handle(engine, meta, 1, 0.0)
+    first_step = _handle(engine, wheel_up, 1, 0.1)
+    _handle(engine, meta, 0, 0.2)
+    decision = _handle(engine, key_a, 1, 0.3)
+
+    assert first_step.consume_current_event is True
+    assert first_step.action_transition is None
+    assert decision.consume_current_event is True
+    assert decision.action_transition is not None
+    assert decision.action_transition.combo_id == "combo-1"

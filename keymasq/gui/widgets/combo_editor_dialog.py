@@ -64,6 +64,14 @@ def combo_key_label(key: str) -> str:
         return "Alt"
     if key == "meta":
         return "Meta"
+    if key == "wheel_up":
+        return "Scroll Up"
+    if key == "wheel_down":
+        return "Scroll Down"
+    if key == "wheel_left":
+        return "Scroll Left"
+    if key == "wheel_right":
+        return "Scroll Right"
 
     token = key.upper()
     if token.startswith("KEY_"):

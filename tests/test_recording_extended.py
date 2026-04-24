@@ -38,6 +38,40 @@ async def test_recording_event_filtering_for_mouse_controls():
 
 
 @pytest.mark.asyncio
+async def test_recording_keeps_wheel_events_without_mouse_movement_enabled() -> None:
+    recorder = RecordingManager()
+
+    await recorder.start(
+        [],
+        include_mouse_movement=False,
+        include_mouse_clicks=False,
+    )
+
+    recorder.record_event(
+        "mouse",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1),
+    )
+    rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)
+    if rel_wheel_hi_res is not None:
+        recorder.record_event(
+            "mouse",
+            evdev.InputEvent(10, 200, evdev.ecodes.EV_REL, int(rel_wheel_hi_res), 120),
+        )
+    recorder.record_event(
+        "mouse",
+        evdev.InputEvent(10, 300, evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 50),
+    )
+
+    result = await recorder.stop()
+    events = cast(list[dict[str, object]], result["events"])
+
+    assert [event["code"] for event in events] == [
+        evdev.ecodes.REL_WHEEL,
+        *([int(rel_wheel_hi_res)] if rel_wheel_hi_res is not None else []),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_recording_callback_fires_on_start_and_stop(monkeypatch):
     callback = AsyncMock()
     recorder = RecordingManager(broadcast_callback=callback)

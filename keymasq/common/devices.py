@@ -48,6 +48,13 @@ _TOUCHPAD_MT_ABS_CODES = frozenset(
         evdev.ecodes.ABS_MT_POSITION_Y,
     }
 )
+LOW_RES_WHEEL_EVDEVS = frozenset({"rel_wheel", "rel_hwheel"})
+WHEEL_BINDINGS = {
+    ("rel_wheel", 1): ("wheel_up", "Scroll Up"),
+    ("rel_wheel", -1): ("wheel_down", "Scroll Down"),
+    ("rel_hwheel", -1): ("wheel_left", "Scroll Left"),
+    ("rel_hwheel", 1): ("wheel_right", "Scroll Right"),
+}
 GAMEPAD_BUTTON_ORDER = (
     "btn_tl2",
     "btn_tl",
@@ -232,6 +239,57 @@ def normalize_evdev_binding_value(event_type: int, value: int | None) -> int | N
             return None
         return 1 if normalized > 0 else -1
     return normalized
+
+
+def normalize_wheel_value(value: int | None) -> int | None:
+    if value is None:
+        return None
+    normalized = int(value)
+    if normalized == 0:
+        return None
+    return 1 if normalized > 0 else -1
+
+
+def is_low_res_wheel_evdev(evdev_name: str | None) -> bool:
+    return str(evdev_name or "").strip().lower() in LOW_RES_WHEEL_EVDEVS
+
+
+def wheel_button_id(evdev_name: str | None, value: int | None) -> str | None:
+    normalized_value = normalize_wheel_value(value)
+    if normalized_value is None:
+        return None
+    spec = WHEEL_BINDINGS.get((str(evdev_name or "").strip().lower(), normalized_value))
+    return spec[0] if spec else None
+
+
+def wheel_label(evdev_name: str | None, value: int | None) -> str | None:
+    normalized_value = normalize_wheel_value(value)
+    if normalized_value is None:
+        return None
+    spec = WHEEL_BINDINGS.get((str(evdev_name or "").strip().lower(), normalized_value))
+    return spec[1] if spec else None
+
+
+def wheel_duplicate_key(
+    evdev_name: str | None,
+    code: int | None,
+    value: int | None,
+) -> tuple[str, int | None, int] | None:
+    label = str(evdev_name or "").strip().lower()
+    normalized_value = normalize_wheel_value(value)
+    if label not in LOW_RES_WHEEL_EVDEVS or normalized_value is None:
+        return None
+    return (label, code, normalized_value)
+
+
+def high_res_wheel_low_res_code(code: int) -> int | None:
+    rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)
+    rel_hwheel_hi_res = getattr(evdev.ecodes, "REL_HWHEEL_HI_RES", None)
+    if rel_wheel_hi_res is not None and int(code) == int(rel_wheel_hi_res):
+        return int(evdev.ecodes.REL_WHEEL)
+    if rel_hwheel_hi_res is not None and int(code) == int(rel_hwheel_hi_res):
+        return int(evdev.ecodes.REL_HWHEEL)
+    return None
 
 
 def capability_names_from_capabilities(caps: Mapping[int, Sequence[object]]) -> list[str]:

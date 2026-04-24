@@ -105,6 +105,7 @@ class _DaemonDeviceManager(Protocol):
         speed: float = 1.0,
         loop_mode: str = "none",
         loop_count: int = 1,
+        loop_stop_behavior: str = "finish_run",
         move_to_start: bool = False,
         start_x: int = 0,
         start_y: int = 0,

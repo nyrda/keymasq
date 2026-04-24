@@ -149,6 +149,11 @@ class TestDeviceManagerHelpers:
         assert created[1].kwargs["name"] == "keymasq-test-mouse"
         assert created[1].kwargs["vendor"] == 0x4B46
         assert created[1].kwargs["product"] == 0x1002
+        mouse_rel_caps = created[1].kwargs["events"][evdev.ecodes.EV_REL]
+        assert evdev.ecodes.REL_WHEEL in mouse_rel_caps
+        rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)
+        if rel_wheel_hi_res is not None:
+            assert int(rel_wheel_hi_res) in mouse_rel_caps
         assert created[2].kwargs["name"] == "keymasq-test-gamepad"
         assert created[2].kwargs["vendor"] == 0x4B46
         assert created[2].kwargs["product"] == 0x1003

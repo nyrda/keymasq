@@ -3,7 +3,11 @@ from collections.abc import Awaitable, Callable
 from typing import TypedDict
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.models import (
+    ActionType,
+    MappingAction,
+    normalize_macro_loop_stop_behavior,
+)
 
 type JsonObject = dict[str, object]
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
@@ -18,6 +22,7 @@ class MacroPlaybackRequest(TypedDict):
     speed: float
     loop_mode: str
     loop_count: int
+    loop_stop_behavior: str
     move_to_start: bool
     start_x: int
     start_y: int
@@ -98,6 +103,9 @@ def build_macro_playback_request(
         "speed": action.macro_speed,
         "loop_mode": action.macro_loop_mode,
         "loop_count": action.macro_loop_count,
+        "loop_stop_behavior": normalize_macro_loop_stop_behavior(
+            action.macro_loop_stop_behavior
+        ),
         "move_to_start": action.macro_move_to_start,
         "start_x": action.macro_start_x,
         "start_y": action.macro_start_y,

@@ -416,7 +416,8 @@ async def test_hold_macro_block_mouse_movement_refreshes_suppression_until_relea
     )
 
     assert result["status"] == "ok"
-    assert result["cancelled"] is True
+    assert result["cancelled"] is False
+    await asyncio.sleep(0.02)
     assert begin_mouse_rel_suppression.call_count > 1
     assert end_mouse_rel_suppression.called
     monkeypatch.undo()
@@ -483,6 +484,7 @@ async def test_macro_switch_interrupt_releases_held_state_for_previous_instance(
         ],
         macro_name="toggle_a",
         loop_mode="toggle",
+        loop_stop_behavior="cancel_run",
         source_device="dev1",
         source_button="btn_toggle",
         trigger_value=1,
@@ -674,6 +676,20 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
             },
             {
                 "t_us": 0,
+                "type": evdev.ecodes.EV_REL,
+                "code": evdev.ecodes.REL_WHEEL,
+                "value": -1,
+                "device_type": "mouse",
+            },
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_REL,
+                "code": getattr(evdev.ecodes, "REL_WHEEL_HI_RES", evdev.ecodes.REL_WHEEL),
+                "value": -120,
+                "device_type": "mouse",
+            },
+            {
+                "t_us": 0,
                 "type": evdev.ecodes.EV_KEY,
                 "code": evdev.ecodes.BTN_LEFT,
                 "value": 1,
@@ -719,6 +735,12 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 0),
     ]
     assert [call.args for call in manager.output_state.mouse_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
+        (
+            evdev.ecodes.EV_REL,
+            getattr(evdev.ecodes, "REL_WHEEL_HI_RES", evdev.ecodes.REL_WHEEL),
+            -120,
+        ),
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 123)
     ]
 

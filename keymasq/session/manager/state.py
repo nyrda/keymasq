@@ -61,6 +61,7 @@ class ProfileRuntimeState:
     grab_waiting_devices: set[str] = field(default_factory=set)
     grab_retry_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     topology_refresh_task: asyncio.Task[None] | None = None
+    last_sent_grab_signatures: dict[str, str] = field(default_factory=dict)
     last_sent_mapping_signatures: dict[str, str] = field(default_factory=dict)
     last_sent_combo_signature: str = ""
     active_profile_names: list[str] = field(default_factory=list)

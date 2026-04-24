@@ -195,6 +195,16 @@ async def test_apply_resolved_device_profile_skips_same_interface_noop_without_m
     )
     manager.profile_state.grabbed_devices.add(hardware_id)
     manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
+    grab_payload = session_profiles_module.build_grab_device_payload(
+        manager,
+        hardware_id,
+        manager.hardware.get_hardware(hardware_id),
+        resolved,
+        {"mouse": "/dev/input/event10"},
+    )
+    manager.profile_state.last_sent_grab_signatures[
+        hardware_id
+    ] = session_profiles_module.grab_device_payload_signature(grab_payload)
     manager.profile_state.last_sent_mapping_signatures[
         hardware_id
     ] = session_payloads_module.resolved_mapping_signature(manager, resolved, hardware_id)
@@ -244,6 +254,16 @@ async def test_apply_resolved_device_profile_skips_profile_only_change_without_m
     )
     manager.profile_state.grabbed_devices.add(hardware_id)
     manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
+    grab_payload = session_profiles_module.build_grab_device_payload(
+        manager,
+        hardware_id,
+        manager.hardware.get_hardware(hardware_id),
+        resolved,
+        {"mouse": "/dev/input/event10"},
+    )
+    manager.profile_state.last_sent_grab_signatures[
+        hardware_id
+    ] = session_profiles_module.grab_device_payload_signature(grab_payload)
     manager.profile_state.last_sent_mapping_signatures[
         hardware_id
     ] = session_payloads_module.resolved_mapping_signature(manager, resolved, hardware_id)
@@ -267,4 +287,81 @@ async def test_apply_resolved_device_profile_skips_profile_only_change_without_m
     maybe_notify.assert_called_once_with(manager, "Test Mouse", ["Desktop"], resolved)
     assert "Same interfaces for 1234:5678, updating mapping only" not in caplog.text
 
+
+@pytest.mark.asyncio
+async def test_apply_resolved_device_profile_refreshes_same_interface_grab_config() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    old_hardware = SimpleNamespace(
+        hardware_id=hardware_id,
+        name="Test Mouse",
+        evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/event10")],
+        buttons=[SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse")],
+    )
+    new_hardware = SimpleNamespace(
+        hardware_id=hardware_id,
+        name="Test Mouse",
+        evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/event10")],
+        buttons=[
+            SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse"),
+            SimpleNamespace(
+                id="wheel_up",
+                evdev="rel_wheel",
+                evdev_code=8,
+                evdev_value=1,
+                source="mouse",
+            ),
+        ],
+    )
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={
+            "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_f13"),
+            "wheel_up": MappingAction(action_type=ActionType.KEYBOARD, target="key_f14"),
+        },
+    )
+    old_resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={"btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_f13")},
+    )
+    manager.hardware.get_hardware = lambda _hardware_id: new_hardware  # type: ignore[assignment]
+    manager.profile_state.resolved_devices[hardware_id] = old_resolved
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
+    old_grab_payload = session_profiles_module.build_grab_device_payload(
+        manager,
+        hardware_id,
+        old_hardware,
+        old_resolved,
+        {"mouse": "/dev/input/event10"},
+    )
+    manager.profile_state.last_sent_grab_signatures[
+        hardware_id
+    ] = session_profiles_module.grab_device_payload_signature(old_grab_payload)
+    manager.profile_state.last_sent_mapping_signatures[
+        hardware_id
+    ] = session_payloads_module.resolved_mapping_signature(manager, old_resolved, hardware_id)
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            Response(status="ok", data={"grabbed_count": 1}),
+            Response(status="ok", data={"updated": True}),
+        ]
+    )
+
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+
+    sent = manager.client.send_command.await_args_list
+    assert [call.args[0].command for call in sent] == [
+        CommandType.GRAB_DEVICE,
+        CommandType.SET_MAPPING,
+    ]
+    grab_data = sent[0].args[0].data
+    assert grab_data["button_map"]["wheel_up"] == "rel_wheel"
+    assert grab_data["button_codes"]["wheel_up"] == 8
+    assert grab_data["button_values"]["wheel_up"] == 1
+    assert manager.profile_state.last_sent_grab_signatures[hardware_id] == (
+        session_profiles_module.grab_device_payload_signature(grab_data)
+    )
 

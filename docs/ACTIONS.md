@@ -100,6 +100,15 @@ convenience for finding these keys faster.
 Map to a mouse button press: Left, Right, Middle, Side, Extra, Forward, or
 Back.
 
+Mouse wheel directions can also be remapped from the device tab when the
+hardware profile contains wheel inputs. Keymasq treats each wheel tick as a
+pulse input, so `Scroll Up`, `Scroll Down`, and supported horizontal scroll
+directions can trigger normal actions without exposing raw evdev values in the
+GUI.
+
+Mouse actions can output wheel movement too. Select a wheel target such as
+Scroll Up or Scroll Down to emit a virtual `REL_WHEEL` pulse.
+
 ### Mouse Move
 
 Move the cursor when the key is pressed. Two modes are available:

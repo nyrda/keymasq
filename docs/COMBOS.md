@@ -64,6 +64,11 @@ activates independently. For example, if you define `Alt+C`, `Alt+V`, and
 `Alt+C+V`, then pressing `V` while `Alt+C` is still held will activate both
 `Alt+V` and `Alt+C+V`.
 
+Mouse wheel directions can be used as pulse inputs in combos. For example,
+`Meta+Scroll Up` or `Mouse Back+Scroll Up` fires once for each wheel tick while
+the other trigger input is held. Wheel directions do not stay held, so
+wheel-triggered combo actions are pressed and released immediately.
+
 ### Multi-Step Combos
 
 Multi-step combos also use held-state matching for step 1, then advance one
@@ -73,6 +78,10 @@ step at a time:
 2. Release all keys from step 1.
 3. Complete step 2 (e.g. press `1`) before the timeout expires.
 4. The action fires.
+
+Wheel directions can also complete a later step, such as `Alt+R`, then
+`Scroll Down`. A wheel-only first step is only valid for a single-step combo;
+multi-step combos need a held key or button with the wheel in step 1.
 
 **Timeouts:** step 1 has no timeout — you can take as long as you need. Steps
 2 and onward each have a timeout (default 600 ms). If you don't complete the
@@ -120,6 +129,9 @@ output. This means:
   currently remapped to.
 - Capture works across all connected devices, so you can build combos that
   span a keyboard and a mouse, or two keyboards.
+- Capture supports scroll directions as `Scroll Up`, `Scroll Down`, and
+  supported horizontal scroll directions. A wheel tick finishes the captured
+  step immediately.
 - The captured trigger is stored with the exact device identity (`hardware_id`,
   input source, and evdev code), so matching at runtime is precise.
 
@@ -147,6 +159,10 @@ of the combo controls the lifecycle:
 
 - The action starts when the final step completes.
 - The action stops when any key from the final step is released.
+
+If the final combo input is a wheel direction, Keymasq treats it as an
+instantaneous pulse: the action starts and then stops immediately for that
+wheel tick.
 
 One-shot actions (commands, profile toggles) fire once when the combo
 completes.

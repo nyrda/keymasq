@@ -296,7 +296,14 @@ class TestHardwareSetupDialog:
                 "name": "Combo Mouse",
                 "device_type": DeviceType.MOUSE,
                 "device_types": ["mouse"],
-                "capabilities": ["btn_left", "btn_right", "btn_middle", "btn_side", "btn_extra"],
+                "capabilities": [
+                    "btn_left",
+                    "btn_right",
+                    "btn_middle",
+                    "btn_side",
+                    "btn_extra",
+                    "rel_wheel",
+                ],
             },
             "kbd": {
                 "id": "kbd",
@@ -336,9 +343,43 @@ class TestHardwareSetupDialog:
             "btn_extra",
         ]
         assert all(button.source == "mouse" for button in saved.buttons[:5])
-        assert saved.buttons[5].source == "kbd"
-        assert saved.buttons[5].id == "key_esc"
+        assert [button.id for button in saved.buttons[5:7]] == ["wheel_up", "wheel_down"]
+        assert [button.evdev for button in saved.buttons[5:7]] == ["rel_wheel", "rel_wheel"]
+        assert [button.evdev_value for button in saved.buttons[5:7]] == [1, -1]
+        assert all(button.source == "mouse" for button in saved.buttons[5:7])
+        assert saved.buttons[7].source == "kbd"
+        assert saved.buttons[7].id == "key_esc"
         assert emitted == [("device-created", saved)]
+
+    def test_standard_mouse_template_adds_horizontal_wheel_when_supported(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        import evdev
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        buttons = dialog._build_standard_mouse_buttons(
+            "mouse",
+            include_horizontal=True,
+        )
+
+        wheel_buttons = [button for button in buttons if button.type == "wheel"]
+        assert [button.id for button in wheel_buttons] == [
+            "wheel_up",
+            "wheel_down",
+            "wheel_left",
+            "wheel_right",
+        ]
+        assert [button.evdev_code for button in wheel_buttons] == [
+            evdev.ecodes.REL_WHEEL,
+            evdev.ecodes.REL_WHEEL,
+            evdev.ecodes.REL_HWHEEL,
+            evdev.ecodes.REL_HWHEEL,
+        ]
+        assert [button.evdev_value for button in wheel_buttons] == [1, -1, -1, 1]
 
     def test_keyboard_template_excludes_key_102nd(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -466,5 +507,3 @@ def test_keyboard_device_tab_prepends_extra_buttons_section():
     assert isinstance(first_section, Gtk.Expander)
     assert first_section.get_label() == "Extra Buttons (2)"
     assert first_section.get_expanded() is True
-
-

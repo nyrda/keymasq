@@ -66,6 +66,29 @@ Hardware definitions are still separate:
 ~/.config/keymasq/hardware/<hardware_id>.toml
 ```
 
+Mouse wheel directions are stored in hardware definitions as normal buttons
+with an `evdev_value` direction. For example:
+
+```toml
+[[hardware.layout.buttons]]
+id = "wheel_up"
+label = "Scroll Up"
+evdev = "rel_wheel"
+evdev_code = 8
+evdev_value = 1
+type = "wheel"
+source = "mouse"
+
+[[hardware.layout.buttons]]
+id = "wheel_down"
+label = "Scroll Down"
+evdev = "rel_wheel"
+evdev_code = 8
+evdev_value = -1
+type = "wheel"
+source = "mouse"
+```
+
 ## Profile Types
 
 There are two profile types.

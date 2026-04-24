@@ -220,7 +220,7 @@ class CursorPositionRuntimeState:
 @dataclass
 class MacroRuntimeState:
     tasks: dict[int, asyncio.Task[None]] = field(default_factory=dict)
-    instance_meta: dict[int, dict[str, str]] = field(default_factory=dict)
+    instance_meta: dict[int, dict[str, object]] = field(default_factory=dict)
     instance_seq: int = 0
     instance_held: dict[int, set[tuple[str, int]]] = field(default_factory=dict)
     held_refcount: dict[tuple[str, int], int] = field(default_factory=dict)
@@ -691,6 +691,7 @@ class DeviceManager:
         speed: float = 1.0,
         loop_mode: str = "none",
         loop_count: int = 1,
+        loop_stop_behavior: str = "finish_run",
         move_to_start: bool = False,
         start_x: int = 0,
         start_y: int = 0,
@@ -708,6 +709,7 @@ class DeviceManager:
             speed,
             loop_mode,
             loop_count,
+            loop_stop_behavior,
             move_to_start,
             start_x,
             start_y,

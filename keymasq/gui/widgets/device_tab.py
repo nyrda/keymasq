@@ -11,7 +11,13 @@ from keymasq.common.devices import (
     canonical_gamepad_button_name,
     gamepad_button_label,
     is_gamepad_button_name,
+    is_low_res_wheel_evdev,
+    normalize_wheel_value,
     resolve_evdev_code,
+    resolve_evdev_event_type,
+    wheel_button_id,
+    wheel_duplicate_key,
+    wheel_label,
 )
 from keymasq.common.models import (
     ActionType,
@@ -1215,11 +1221,12 @@ class DeviceTab(ProfileManagedTab):
 
         evdev_name = str(captured.get("evdev", ""))
         captured_code = captured.get("code")
+        captured_value = captured.get("value")
         if not self._is_supported_added_input(evdev_name):
             status_label.set_text(f"Unsupported input '{evdev_name}', press another input")
             return False
 
-        if self._button_already_exists(evdev_name, captured_code):
+        if self._button_already_exists(evdev_name, captured_code, captured_value):
             status_label.set_text(f"{evdev_name} already exists, press another input")
             if evdev_name == "key_esc":
                 self._cancel_add_inputs(parent_dialog)
@@ -1228,12 +1235,26 @@ class DeviceTab(ProfileManagedTab):
         source = captured.get("source")
         stable_path = captured.get("stable_path")
         button_type = self._added_input_button_type(evdev_name, source)
+        button_id = evdev_name
+        button_label = self._label_from_evdev(evdev_name)
+        captured_display = evdev_name
+        evdev_value: int | None = None
+        if is_low_res_wheel_evdev(evdev_name):
+            normalized_value = normalize_wheel_value(
+                int(cast(int, captured_value)) if captured_value is not None else None
+            )
+            button_id = wheel_button_id(evdev_name, normalized_value) or evdev_name
+            button_label = wheel_label(evdev_name, normalized_value) or button_label
+            captured_display = button_label
+            evdev_value = normalized_value
+            button_type = "wheel"
         self.device.buttons.append(
             ButtonDefinition(
-                id=evdev_name,
+                id=button_id,
                 evdev=evdev_name,
-                label=self._label_from_evdev(evdev_name),
+                label=button_label,
                 evdev_code=int(captured_code) if captured_code is not None else None,
+                evdev_value=evdev_value,
                 type=button_type,
                 source=source,
             )
@@ -1243,7 +1264,7 @@ class DeviceTab(ProfileManagedTab):
         if self._add_keys_pending_ids:
             self._add_keys_pending_ids.pop(0)
         remaining = len(self._add_keys_pending_ids)
-        status_label.set_text(f"Captured {evdev_name} ({remaining} remaining)")
+        status_label.set_text(f"Captured {captured_display} ({remaining} remaining)")
 
         if remaining == 0:
             self._finish_add_keys(parent_dialog)
@@ -1255,6 +1276,7 @@ class DeviceTab(ProfileManagedTab):
         self._stop_add_keys_capture()
         assert self.hardware_manager is not None
         self.hardware_manager.save_hardware(self.device)
+        session_request_async({"command": "reload"}, self._ignore_session_response)
         parent_dialog.close()
         self._reload_ui()
 
@@ -1452,24 +1474,55 @@ class DeviceTab(ProfileManagedTab):
         return (
             evdev_name.startswith("key_")
             or evdev_name.startswith("btn_")
+            or is_low_res_wheel_evdev(evdev_name)
         )
 
-    def _button_already_exists(self, evdev_name: str, evdev_code: object | None) -> bool:
+    def _button_already_exists(
+        self,
+        evdev_name: str,
+        evdev_code: object | None,
+        evdev_value: object | None = None,
+    ) -> bool:
         try:
             captured_code = int(cast(int, evdev_code)) if evdev_code is not None else None
         except Exception:
             captured_code = None
+        try:
+            captured_value = int(cast(int, evdev_value)) if evdev_value is not None else None
+        except Exception:
+            captured_value = None
 
         captured_name = canonical_gamepad_button_name(evdev_name)
+        captured_event_type = resolve_evdev_event_type(evdev_name)
+        captured_wheel_key = wheel_duplicate_key(evdev_name, captured_code, captured_value)
         for button in self.device.buttons:
             existing_code = button.evdev_code
             if existing_code is None:
                 existing_code = resolve_evdev_code(button.evdev)
+            existing_event_type = resolve_evdev_event_type(button.evdev)
+
+            if captured_wheel_key is not None:
+                existing_wheel_key = wheel_duplicate_key(
+                    button.evdev,
+                    existing_code,
+                    button.evdev_value,
+                )
+                if existing_wheel_key == captured_wheel_key:
+                    return True
+                if (
+                    existing_event_type == captured_event_type
+                    and existing_code == captured_code
+                    and is_low_res_wheel_evdev(button.evdev)
+                    and button.evdev_value is None
+                ):
+                    return True
+                continue
 
             if (
                 captured_code is not None
                 and existing_code is not None
                 and existing_code == captured_code
+                and existing_event_type == captured_event_type
             ):
                 return True
 

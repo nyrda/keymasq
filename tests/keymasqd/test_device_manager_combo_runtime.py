@@ -658,3 +658,322 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
         ]
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_mouse_button_plus_wheel_pulse_fires_once(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel",
+                    "name": "Back Wheel",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "btn_side",
+                                },
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "wheel_up",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f5"},
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+
+        await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.BTN_SIDE,
+            1,
+        )
+        decision = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+
+        assert decision is not None and decision.consume_current_event is True
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_runtime_wheel_pulse_waits_for_tap_action_to_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel-tap",
+                    "name": "Wheel Tap",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "wheel_up",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "keyboard",
+                        "target": "key_f5",
+                        "tap_enabled": True,
+                        "tap_hold_ms": 1000,
+                    },
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+
+        decision = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+
+        assert decision is not None and decision.consume_current_event is True
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
+        ]
+        assert manager.combo_state.active_actions == {}
+
+    @pytest.mark.asyncio
+    async def test_runtime_wheel_pulse_waits_for_overload_tap_child_to_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel-overload-tap",
+                    "name": "Wheel Overload Tap",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "wheel_up",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "superkey",
+                        "superkey": {
+                            "name": "wheel-overload",
+                            "mode": "overload",
+                            "overload_actions": [
+                                {
+                                    "action": "keyboard",
+                                    "target": "key_f5",
+                                    "tap_enabled": True,
+                                    "tap_hold_ms": 1000,
+                                }
+                            ],
+                        },
+                    },
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+
+        decision = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+
+        assert decision is not None and decision.consume_current_event is True
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
+        ]
+        assert manager.combo_state.active_actions == {}
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_wheel_suppresses_matching_high_res_event(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)
+        if rel_wheel_hi_res is None:
+            pytest.skip("kernel headers do not expose REL_WHEEL_HI_RES")
+
+        manager = DeviceManager()
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel",
+                    "name": "Wheel",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "wheel_down",
+                                }
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f5"},
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+
+        consumed = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            int(rel_wheel_hi_res),
+            -120,
+        )
+        unmapped = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            int(rel_wheel_hi_res),
+            120,
+        )
+
+        assert consumed is True
+        assert unmapped is None
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_wheel_passthrough_until_it_completes_combo(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)
+        if rel_wheel_hi_res is None:
+            pytest.skip("kernel headers do not expose REL_WHEEL_HI_RES")
+
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel",
+                    "name": "Back Wheel",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "btn_side",
+                                },
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "wheel_down",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f5"},
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+
+        idle_high_res = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            int(rel_wheel_hi_res),
+            -120,
+        )
+        idle_low_res = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            -1,
+        )
+        await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.BTN_SIDE,
+            1,
+        )
+        completing_high_res = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            int(rel_wheel_hi_res),
+            -120,
+        )
+        completing_low_res = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            -1,
+        )
+
+        assert idle_high_res is None
+        assert idle_low_res is not None and idle_low_res.passthrough_current_event is True
+        assert completing_high_res is True
+        assert completing_low_res is not None and completing_low_res.consume_current_event is True
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
+        ]

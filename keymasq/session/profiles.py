@@ -22,6 +22,7 @@ from keymasq.common.models import (
     MappingAction,
     ProfileConfig,
     WindowRule,
+    normalize_macro_loop_stop_behavior,
     parse_rapidfire_fields,
     resolve_rapidfire_fields,
 )
@@ -305,6 +306,9 @@ class ProfileManager:
                 macro_speed=_float_value(action_data.get("speed"), 1.0),
                 macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
                 macro_loop_count=_int_value(action_data.get("loop_count"), 1),
+                macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
+                    action_data.get("loop_stop_behavior")
+                ),
                 macro_move_to_start=bool(action_data.get("move_to_start", False)),
                 macro_start_x=_int_value(action_data.get("start_x"), 0),
                 macro_start_y=_int_value(action_data.get("start_y"), 0),
@@ -400,6 +404,7 @@ class ProfileManager:
             action_data["speed"] = action.macro_speed
             action_data["loop_mode"] = action.macro_loop_mode
             action_data["loop_count"] = int(action.macro_loop_count)
+            action_data["loop_stop_behavior"] = action.macro_loop_stop_behavior
             action_data["move_to_start"] = bool(action.macro_move_to_start)
             action_data["start_x"] = int(action.macro_start_x)
             action_data["start_y"] = int(action.macro_start_y)

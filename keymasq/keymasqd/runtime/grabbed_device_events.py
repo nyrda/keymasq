@@ -3,6 +3,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import cast
 
 import evdev
@@ -11,7 +12,10 @@ from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.devices import (
     canonical_gamepad_button_name,
     classify_event_device_type,
+    high_res_wheel_low_res_code,
     normalize_evdev_binding_value,
+    normalize_wheel_value,
+    wheel_button_id,
 )
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
@@ -29,6 +33,13 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     identity_uinput_writer,
     runtime_is_running,
 )
+
+
+@dataclass
+class _SyntheticInputEvent:
+    type: int
+    code: int
+    value: int
 
 
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
@@ -417,6 +428,47 @@ async def process_event(
         event.type == evdev_mod.ecodes.EV_KEY
         and event_name in device_runtime.state.held_source_actions
     )
+    if event.type == evdev_mod.ecodes.EV_REL:
+        high_res_wheel_action = _find_high_res_wheel_low_res_action(
+            device_runtime,
+            event,
+            mapping,
+            evdev_mod=evdev_mod,
+        )
+        if (
+            high_res_wheel_action is not None
+            and high_res_wheel_action.action_type != ActionType.PASSTHROUGH
+        ):
+            if not _is_recording_control_action(high_res_wheel_action):
+                _record_grabbed_event_if_allowed(
+                    device_runtime,
+                    event,
+                    recording_manager=recording_manager,
+                    deps=deps,
+                )
+            _record_diagnostics(
+                device_runtime,
+                "wheel_high_res_suppressed",
+                started_ns,
+                time_mod=time_mod,
+            )
+            return
+        wheel_diag_label = await _process_wheel_pulse_event(
+            device_runtime,
+            event,
+            event_name,
+            mapping,
+            recording_manager=recording_manager,
+            deps=deps,
+        )
+        if wheel_diag_label is not None:
+            _record_diagnostics(
+                device_runtime,
+                wheel_diag_label,
+                started_ns,
+                time_mod=time_mod,
+            )
+            return
     if not mapping and not recording_active and not has_held_source_action:
         if (
             combo_passthrough_requested
@@ -442,28 +494,13 @@ async def process_event(
         elif int(event.value) in (0, 2) and event_name in device_runtime.state.held_source_actions:
             action = held_action
 
-    if recording_active and recording_manager is not None and not _is_recording_control_action(
-        action,
-    ):
-        should_record_grabbed_event = getattr(
-            recording_manager,
-            "should_record_grabbed_event",
-            None,
+    if not _is_recording_control_action(action):
+        _record_grabbed_event_if_allowed(
+            device_runtime,
+            event,
+            recording_manager=recording_manager,
+            deps=deps,
         )
-        record_grabbed_event = True
-        if callable(should_record_grabbed_event):
-            record_grabbed_event = bool(
-                should_record_grabbed_event(
-                    device_runtime.stable_path,
-                    device_runtime.device_types,
-                )
-            )
-        if record_grabbed_event:
-            input_event = cast(evdev.InputEvent, event)
-            recording_manager.record_event(
-                deps.classify_event_device_type_fn(input_event, device_runtime.device_types),
-                input_event,
-            )
 
     _log_mapped_action(
         device_runtime,
@@ -522,6 +559,43 @@ def _is_recording_control_action(
     )
 
 
+def _record_grabbed_event_if_allowed(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    *,
+    recording_manager: object | None = None,
+    deps: EventProcessingDeps,
+) -> None:
+    if recording_manager is None:
+        recording_manager = device_runtime.recording_manager
+    if not (recording_manager and bool(getattr(recording_manager, "is_recording", False))):
+        return
+
+    should_record_grabbed_event = getattr(
+        recording_manager,
+        "should_record_grabbed_event",
+        None,
+    )
+    record_grabbed_event = True
+    if callable(should_record_grabbed_event):
+        record_grabbed_event = bool(
+            should_record_grabbed_event(
+                device_runtime.stable_path,
+                device_runtime.device_types,
+            )
+        )
+    if not record_grabbed_event:
+        return
+
+    input_event = cast(evdev.InputEvent, event)
+    record_event = getattr(recording_manager, "record_event", None)
+    if callable(record_event):
+        record_event(
+            deps.classify_event_device_type_fn(input_event, device_runtime.device_types),
+            input_event,
+        )
+
+
 def find_action_for_event(
     device_runtime: GrabbedDeviceRuntime,
     event: InputEventLike,
@@ -563,6 +637,141 @@ def find_action_for_code(
         mapping,
         canonical_gamepad_button_name_fn=canonical_gamepad_button_name,
     )
+
+
+async def _process_wheel_pulse_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    event_name: str,
+    mapping: dict[str, MappingAction],
+    *,
+    recording_manager: object | None,
+    deps: EventProcessingDeps,
+) -> str | None:
+    evdev_mod = deps.evdev_mod
+    if not _is_low_res_wheel_event(event, evdev_mod=evdev_mod):
+        return None
+    normalized_value = normalize_wheel_value(int(event.value))
+    if normalized_value is None:
+        return None
+
+    action = find_action_for_code(
+        device_runtime,
+        int(event.type),
+        int(event.code),
+        int(event.value),
+        event_name,
+        mapping,
+    )
+    if action is None:
+        return None
+
+    if not _is_recording_control_action(action):
+        _record_grabbed_event_if_allowed(
+            device_runtime,
+            event,
+            recording_manager=recording_manager,
+            deps=deps,
+        )
+
+    if action.action_type == ActionType.PASSTHROUGH:
+        runtime_outputs.passthrough(
+            device_runtime,
+            event,
+            evdev_mod=evdev_mod,
+            uinput_writer=identity_uinput_writer,
+        )
+        return "wheel_passthrough"
+    if action.action_type == ActionType.SUPPRESS:
+        return "action_suppress"
+
+    button_id = find_button_id_for_code(
+        device_runtime,
+        int(event.type),
+        int(event.code),
+        int(event.value),
+        mapping,
+    )
+    pulse_event_name = button_id or wheel_button_id(event_name, normalized_value) or event_name
+    pulse_count = max(1, abs(int(event.value)))
+    for _ in range(pulse_count):
+        await runtime_actions.execute_action(
+            device_runtime,
+            action,
+            _SyntheticInputEvent(int(event.type), int(event.code), 1),
+            pulse_event_name,
+            deps=deps.action_deps,
+        )
+        await runtime_actions.execute_action(
+            device_runtime,
+            action,
+            _SyntheticInputEvent(int(event.type), int(event.code), 0),
+            pulse_event_name,
+            deps=deps.action_deps,
+        )
+    return f"action_{action.action_type.value}"
+
+
+def _is_low_res_wheel_event(
+    event: InputEventLike,
+    *,
+    evdev_mod: EvdevModule,
+) -> bool:
+    return int(event.type) == evdev_mod.ecodes.EV_REL and int(event.code) in {
+        int(evdev_mod.ecodes.REL_WHEEL),
+        int(evdev_mod.ecodes.REL_HWHEEL),
+    }
+
+
+def _find_high_res_wheel_low_res_action(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    mapping: dict[str, MappingAction],
+    *,
+    evdev_mod: EvdevModule,
+) -> MappingAction | None:
+    if int(event.type) != evdev_mod.ecodes.EV_REL:
+        return None
+    low_res_code = high_res_wheel_low_res_code(int(event.code))
+    if low_res_code is None:
+        return None
+    normalized_value = normalize_wheel_value(int(event.value))
+    if normalized_value is None:
+        return None
+    return find_action_for_code(
+        device_runtime,
+        int(evdev_mod.ecodes.EV_REL),
+        low_res_code,
+        normalized_value,
+        get_event_name(
+            _SyntheticInputEvent(
+                int(evdev_mod.ecodes.EV_REL),
+                low_res_code,
+                normalized_value,
+            ),
+            evdev_mod=evdev_mod,
+        ),
+        mapping,
+    )
+
+
+def find_button_id_for_code(
+    device_runtime: GrabbedDeviceRuntime,
+    event_type: int,
+    event_code: int,
+    event_value: int,
+    mapping: dict[str, MappingAction],
+) -> str | None:
+    normalized_value = normalize_evdev_binding_value(int(event_type), int(event_value))
+    button_id = device_runtime.event_binding_to_button.get(
+        (int(event_type), int(event_code), normalized_value)
+    )
+    if button_id and button_id in mapping:
+        return button_id
+    button_id = device_runtime.event_code_to_button.get((int(event_type), int(event_code)))
+    if button_id and button_id in mapping:
+        return button_id
+    return None
 
 
 def find_action_for_name(

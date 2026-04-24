@@ -392,6 +392,14 @@ def create_global_uinputs(
             ],
             evdev_mod.ecodes.EV_SYN: [],
         }
+        mouse_rel_caps = list(mouse_caps[evdev_mod.ecodes.EV_REL])
+        for high_res_code in (
+            getattr(evdev_mod.ecodes, "REL_WHEEL_HI_RES", None),
+            getattr(evdev_mod.ecodes, "REL_HWHEEL_HI_RES", None),
+        ):
+            if high_res_code is not None and high_res_code not in mouse_rel_caps:
+                mouse_rel_caps.append(high_res_code)
+        mouse_caps[evdev_mod.ecodes.EV_REL] = mouse_rel_caps
         mouse_name, mouse_vendor, mouse_product = uinput_identity(
             "keymasq-mouse",
             "mouse",

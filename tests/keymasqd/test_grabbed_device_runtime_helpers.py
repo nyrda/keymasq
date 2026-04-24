@@ -1,6 +1,26 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.device_manager_support import *
 
+
+class _FakeGrabbedRecorder:
+    def __init__(self, *, should_record: bool = True) -> None:
+        self.is_recording = True
+        self.should_record = should_record
+        self.calls: list[tuple[str, evdev.InputEvent]] = []
+        self.should_record_calls: list[tuple[str, list[str]]] = []
+
+    def should_record_grabbed_event(
+        self,
+        device_path: str,
+        device_types: list[str],
+    ) -> bool:
+        self.should_record_calls.append((device_path, list(device_types)))
+        return self.should_record
+
+    def record_event(self, device_type: str, event: evdev.InputEvent) -> None:
+        self.calls.append((device_type, event))
+
+
 class TestGrabbedDeviceHelpers:
     def test_find_action_for_event_prefers_evdev_code_over_alias_name(
         self,
@@ -106,6 +126,340 @@ class TestGrabbedDeviceHelpers:
             mapping,
         ) == mapping["wheel_down"]
         assert _runtime_find_grabbed_action_for_event(device, up_event, mapping) is None
+
+    @pytest.mark.asyncio
+    async def test_process_grabbed_wheel_event_executes_mapped_action_as_pulse(
+        self,
+        monkeypatch,
+    ) -> None:
+        keyboard = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={
+                "wheel_up": "rel_wheel",
+                "wheel_down": "rel_wheel",
+            },
+            button_codes={
+                "wheel_up": evdev.ecodes.REL_WHEEL,
+                "wheel_down": evdev.ecodes.REL_WHEEL,
+            },
+            button_values={"wheel_up": 1, "wheel_down": -1},
+            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+        )
+        mapping = {
+            "wheel_down": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            "wheel_up": MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+        }
+        device.mapping_getter = lambda: mapping  # type: ignore[method-assign]
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL,
+                -1,
+            ),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL,
+                1,
+            ),
+        )
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_process_grabbed_wheel_passthrough_and_suppress(
+        self,
+        monkeypatch,
+    ) -> None:
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={
+                "wheel_up": "rel_wheel",
+                "wheel_down": "rel_wheel",
+            },
+            button_codes={
+                "wheel_up": evdev.ecodes.REL_WHEEL,
+                "wheel_down": evdev.ecodes.REL_WHEEL,
+            },
+            button_values={"wheel_up": 1, "wheel_down": -1},
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+        device.mapping_getter = lambda: {  # type: ignore[method-assign]
+            "wheel_up": MappingAction(action_type=ActionType.PASSTHROUGH),
+            "wheel_down": MappingAction(action_type=ActionType.SUPPRESS),
+        }
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL,
+                1,
+            ),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL,
+                -1,
+            ),
+        )
+
+        assert passthrough.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1)]
+
+    @pytest.mark.asyncio
+    async def test_process_grabbed_wheel_mapping_suppresses_only_matching_high_res_direction(
+        self,
+        monkeypatch,
+    ) -> None:
+        passthrough = _FakeUInput()
+        keyboard = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={
+                "wheel_up": "rel_wheel",
+                "wheel_down": "rel_wheel",
+            },
+            button_codes={
+                "wheel_up": evdev.ecodes.REL_WHEEL,
+                "wheel_down": evdev.ecodes.REL_WHEEL,
+            },
+            button_values={"wheel_up": 1, "wheel_down": -1},
+            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+        device.mapping_getter = lambda: {  # type: ignore[method-assign]
+            "wheel_down": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+        }
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL_HI_RES,
+                -120,
+            ),
+        )
+
+        assert keyboard.writes == []
+        assert passthrough.writes == []
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL_HI_RES,
+                120,
+            ),
+        )
+
+        assert keyboard.writes == []
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL_HI_RES, 120),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_process_grabbed_wheel_mapping_records_original_event(
+        self,
+        monkeypatch,
+    ) -> None:
+        recorder = _FakeGrabbedRecorder()
+        keyboard = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={
+                "wheel_up": "rel_wheel",
+                "wheel_down": "rel_wheel",
+            },
+            button_codes={
+                "wheel_up": evdev.ecodes.REL_WHEEL,
+                "wheel_down": evdev.ecodes.REL_WHEEL,
+            },
+            button_values={"wheel_up": 1, "wheel_down": -1},
+            device_type=DeviceType.MOUSE,
+            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+            recording_manager=recorder,
+        )
+        device.mapping_getter = lambda: {  # type: ignore[method-assign]
+            "wheel_up": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            "wheel_down": MappingAction(action_type=ActionType.SUPPRESS),
+        }
+
+        up_event = evdev.InputEvent(
+            0,
+            0,
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+        down_event = evdev.InputEvent(
+            0,
+            1,
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            -1,
+        )
+        await _runtime_process_grabbed_event(device, up_event)
+        await _runtime_process_grabbed_event(device, down_event)
+
+        recorded_events = [
+            (device_type, event.code, event.value)
+            for device_type, event in recorder.calls
+        ]
+        assert recorded_events == [
+            ("mouse", evdev.ecodes.REL_WHEEL, 1),
+            ("mouse", evdev.ecodes.REL_WHEEL, -1),
+        ]
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_process_grabbed_mapped_wheel_records_suppressed_high_res_event(
+        self,
+        monkeypatch,
+    ) -> None:
+        recorder = _FakeGrabbedRecorder()
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"wheel_down": "rel_wheel"},
+            button_codes={"wheel_down": evdev.ecodes.REL_WHEEL},
+            button_values={"wheel_down": -1},
+            device_type=DeviceType.MOUSE,
+            recording_manager=recorder,
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+        device.mapping_getter = lambda: {  # type: ignore[method-assign]
+            "wheel_down": MappingAction(action_type=ActionType.SUPPRESS),
+        }
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL_HI_RES,
+                -120,
+            ),
+        )
+
+        assert [
+            (device_type, event.code, event.value)
+            for device_type, event in recorder.calls
+        ] == [
+            ("mouse", evdev.ecodes.REL_WHEEL_HI_RES, -120),
+        ]
+        assert passthrough.writes == []
+
+    @pytest.mark.asyncio
+    async def test_process_grabbed_wheel_passthrough_records_once(
+        self,
+        monkeypatch,
+    ) -> None:
+        recorder = _FakeGrabbedRecorder()
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"wheel_up": "rel_wheel"},
+            button_codes={"wheel_up": evdev.ecodes.REL_WHEEL},
+            button_values={"wheel_up": 1},
+            device_type=DeviceType.MOUSE,
+            recording_manager=recorder,
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+        device.mapping_getter = lambda: {  # type: ignore[method-assign]
+            "wheel_up": MappingAction(action_type=ActionType.PASSTHROUGH),
+        }
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL,
+                1,
+            ),
+        )
+
+        recorded_events = [
+            (device_type, event.code, event.value)
+            for device_type, event in recorder.calls
+        ]
+        assert recorded_events == [
+            ("mouse", evdev.ecodes.REL_WHEEL, 1),
+        ]
+        assert passthrough.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1)]
+
+    @pytest.mark.asyncio
+    async def test_process_grabbed_high_res_wheel_passthrough_when_unmapped_or_explicit(
+        self,
+        monkeypatch,
+    ) -> None:
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"wheel_down": "rel_wheel"},
+            button_codes={"wheel_down": evdev.ecodes.REL_WHEEL},
+            button_values={"wheel_down": -1},
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL_HI_RES,
+                -120,
+            ),
+        )
+        device.mapping_getter = lambda: {  # type: ignore[method-assign]
+            "wheel_down": MappingAction(action_type=ActionType.PASSTHROUGH),
+        }
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_REL,
+                evdev.ecodes.REL_WHEEL_HI_RES,
+                -120,
+            ),
+        )
+
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL_HI_RES, -120),
+            (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL_HI_RES, -120),
+        ]
     def test_bucket_tracking_and_release_all_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         device = _make_grabbed_device(monkeypatch)
         passthrough = _FakeUInput()

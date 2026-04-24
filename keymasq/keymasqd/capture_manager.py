@@ -12,7 +12,13 @@ from typing import Protocol, cast
 
 import evdev
 
-from keymasq.common.devices import clear_device_path_cache, get_interface_id, resolve_stable_path
+from keymasq.common.devices import (
+    clear_device_path_cache,
+    get_interface_id,
+    normalize_wheel_value,
+    resolve_stable_path,
+    wheel_button_id,
+)
 
 log = logging.getLogger("keymasq.keymasqd.capture_manager")
 type JsonObject = dict[str, object]
@@ -423,21 +429,29 @@ class CaptureManager:
 
         if event.type == evdev.ecodes.EV_REL:
             if event.code == evdev.ecodes.REL_WHEEL:
-                direction = "up" if event.value > 0 else "down"
+                value = normalize_wheel_value(int(event.value))
+                if value is None:
+                    return None
+                direction = "up" if value > 0 else "down"
                 return {
                     "evdev": "rel_wheel",
+                    "code": int(event.code),
                     "direction": direction,
-                    "value": int(event.value),
+                    "value": value,
                     "source": self._source_for_path(device.path),
                     "stable_path": resolve_stable_path(device.path),
                     "device_path": device.path,
                 }
             if event.code == evdev.ecodes.REL_HWHEEL:
-                direction = "right" if event.value > 0 else "left"
+                value = normalize_wheel_value(int(event.value))
+                if value is None:
+                    return None
+                direction = "right" if value > 0 else "left"
                 return {
                     "evdev": "rel_hwheel",
+                    "code": int(event.code),
                     "direction": direction,
-                    "value": int(event.value),
+                    "value": value,
                     "source": self._source_for_path(device.path),
                     "stable_path": resolve_stable_path(device.path),
                     "device_path": device.path,
@@ -448,6 +462,27 @@ class CaptureManager:
     def _parse_combo_event(
         self, device: _CaptureInputDevice, event: evdev.InputEvent
     ) -> JsonObject | None:
+        if event.type == evdev.ecodes.EV_REL:
+            if event.code == evdev.ecodes.REL_WHEEL:
+                normalized_value = normalize_wheel_value(int(event.value))
+                evdev_name = wheel_button_id("rel_wheel", normalized_value)
+            elif event.code == evdev.ecodes.REL_HWHEEL:
+                normalized_value = normalize_wheel_value(int(event.value))
+                evdev_name = wheel_button_id("rel_hwheel", normalized_value)
+            else:
+                return None
+            if evdev_name is None:
+                return None
+            return {
+                "evdev": evdev_name,
+                "code": int(event.code),
+                "value": 1,
+                "hardware_id": f"{device.info.vendor:04x}:{device.info.product:04x}",
+                "source": self._source_for_path(device.path),
+                "stable_path": resolve_stable_path(device.path),
+                "device_path": device.path,
+            }
+
         if event.type != evdev.ecodes.EV_KEY or event.value not in {0, 1}:
             return None
 

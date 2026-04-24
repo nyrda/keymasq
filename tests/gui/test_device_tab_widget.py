@@ -741,8 +741,62 @@ class TestDeviceTabWidget:
         assert unlock_btn.get_visible() is False
         assert "Add inputs reads raw key events before remapping." in privilege_status.get_text()
 
-    def test_device_tab_add_keys_capture_read_rejects_wheel_input(self, temp_config_dir):
+    def test_device_tab_finish_add_keys_reloads_session_runtime(
+        self, temp_config_dir, monkeypatch
+    ):
+        from gi.repository import Adw
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="wheel_down", label="Scroll Down", evdev="rel_wheel")],
+        )
+        hardware_manager = _HardwareManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=True,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+        reloaded: list[bool] = []
+        tab._reload_ui = lambda: reloaded.append(True)  # type: ignore[method-assign]
+        stopped: list[bool] = []
+        tab._stop_add_keys_capture = lambda: stopped.append(True)  # type: ignore[method-assign]
+        dialog = Adw.Dialog()
+        closed: list[bool] = []
+        dialog.close = lambda: closed.append(True)  # type: ignore[method-assign]
+
+        tab._finish_add_keys(dialog)
+
+        assert stopped == [True]
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+        assert closed == [True]
+        assert reloaded == [True]
+
+    def test_device_tab_add_keys_capture_read_accepts_wheel_input(self, temp_config_dir):
         from gi.repository import Adw, Gtk
+
+        import evdev
 
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.widgets.device_tab import DeviceTab
@@ -761,11 +815,115 @@ class TestDeviceTabWidget:
         tab._add_keys_capturing = True
         tab._capture_active_hardware_id = "1234:5678"
         tab._add_keys_pending_ids = ["added_1"]
+        finished: list[str] = []
+        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
 
         captured = {
             "status": "ok",
             "captured": {
                 "evdev": "rel_wheel",
+                "code": evdev.ecodes.REL_WHEEL,
+                "direction": "down",
+                "value": -1,
+                "source": "mouse",
+            },
+        }
+        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+
+        assert finished == ["finished"]
+        assert len(tab.device.buttons) == 2
+        assert tab.device.buttons[-1].id == "wheel_down"
+        assert tab.device.buttons[-1].label == "Scroll Down"
+        assert tab.device.buttons[-1].evdev == "rel_wheel"
+        assert tab.device.buttons[-1].evdev_code == evdev.ecodes.REL_WHEEL
+        assert tab.device.buttons[-1].evdev_value == -1
+        assert tab.device.buttons[-1].type == "wheel"
+        assert status.get_text() == "Captured Scroll Down (0 remaining)"
+
+    def test_device_tab_add_keys_allows_opposite_wheel_direction(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        import evdev
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[
+                ButtonDefinition(
+                    id="wheel_up",
+                    label="Scroll Up",
+                    evdev="rel_wheel",
+                    evdev_code=evdev.ecodes.REL_WHEEL,
+                    evdev_value=1,
+                )
+            ],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+        status = Gtk.Label()
+        dialog = Adw.Dialog()
+        finished: list[str] = []
+        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
+        tab._add_keys_capturing = True
+        tab._capture_active_hardware_id = "1234:5678"
+        tab._add_keys_pending_ids = ["added_1"]
+
+        captured = {
+            "status": "ok",
+            "captured": {
+                "evdev": "rel_wheel",
+                "code": evdev.ecodes.REL_WHEEL,
+                "direction": "down",
+                "value": -1,
+                "source": "mouse",
+            },
+        }
+        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+
+        assert finished == ["finished"]
+        assert [button.id for button in tab.device.buttons] == ["wheel_up", "wheel_down"]
+
+    def test_device_tab_add_keys_rejects_duplicate_wheel_direction(self, temp_config_dir):
+        from gi.repository import Adw, Gtk
+
+        import evdev
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[
+                ButtonDefinition(
+                    id="wheel_down",
+                    label="Scroll Down",
+                    evdev="rel_wheel",
+                    evdev_code=evdev.ecodes.REL_WHEEL,
+                    evdev_value=-1,
+                )
+            ],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+        status = Gtk.Label()
+        dialog = Adw.Dialog()
+        tab._add_keys_capturing = True
+        tab._capture_active_hardware_id = "1234:5678"
+        tab._add_keys_pending_ids = ["added_1"]
+
+        captured = {
+            "status": "ok",
+            "captured": {
+                "evdev": "rel_wheel",
+                "code": evdev.ecodes.REL_WHEEL,
                 "direction": "down",
                 "value": -1,
                 "source": "mouse",
@@ -774,7 +932,7 @@ class TestDeviceTabWidget:
         assert tab._on_add_keys_capture_read(captured, status, dialog) is False
 
         assert len(tab.device.buttons) == 1
-        assert "Unsupported input" in status.get_text()
+        assert "already exists" in status.get_text()
 
     def test_device_tab_duplicate_key_esc_cancels_capture(self, temp_config_dir):
         from gi.repository import Adw, Gtk

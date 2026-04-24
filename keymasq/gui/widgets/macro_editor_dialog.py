@@ -12,6 +12,10 @@ from typing import Any
 import evdev
 from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.models import (
+    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+    normalize_macro_loop_stop_behavior,
+)
 from keymasq.common.slurp import get_slurp_capture
 from keymasq.gui.session_client import (
     GuiTaskResult,
@@ -1644,6 +1648,7 @@ class MacroEditorDialog(Adw.Dialog):
         self._duration_us: int = 0
         self._macro_loop_mode: str = "none"
         self._macro_loop_count: int = 1
+        self._macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
         self._macro_move_to_start: bool = False
         self._macro_start_x: int = 0
         self._macro_start_y: int = 0
@@ -1778,6 +1783,9 @@ class MacroEditorDialog(Adw.Dialog):
         self._macro_block_mouse_movement = bool(self._macro_data.get("block_mouse_movement", False))
         self._macro_loop_mode = str(self._macro_data.get("loop_mode", "none") or "none")
         self._macro_loop_count = max(1, int(self._macro_data.get("loop_count", 1) or 1))
+        self._macro_loop_stop_behavior = normalize_macro_loop_stop_behavior(
+            self._macro_data.get("loop_stop_behavior")
+        )
         for note in self._macro_data.get("gap_notes", []):
             if not isinstance(note, dict):
                 continue
@@ -1816,6 +1824,7 @@ class MacroEditorDialog(Adw.Dialog):
     def _sync_macro_settings_controls(self) -> None:
         loop_mode = self._macro_loop_mode
         loop_count = self._macro_loop_count
+        loop_stop_behavior = self._macro_loop_stop_behavior
         move_to_start = self._macro_move_to_start
         start_x = self._macro_start_x
         start_y = self._macro_start_y
@@ -1828,6 +1837,7 @@ class MacroEditorDialog(Adw.Dialog):
             loop_mode,
         )
         self._macro_loop_count_spin.set_value(loop_count)
+        self._macro_loop_finish_check.set_active(loop_stop_behavior == "finish_run")
         self._macro_move_to_start_check.set_active(move_to_start)
         self._macro_start_x_spin.set_value(start_x)
         self._macro_start_y_spin.set_value(start_y)
@@ -2374,6 +2384,21 @@ class MacroEditorDialog(Adw.Dialog):
         self._macro_loop_count_spin.set_width_chars(6)
         self._macro_loop_count_spin.connect("value-changed", self._on_macro_loop_count_changed)
         loop_row.append(self._macro_loop_count_spin)
+
+        self._macro_loop_finish_check = Gtk.CheckButton(
+            label="Finish current run before stopping"
+        )
+        self._macro_loop_finish_check.set_active(
+            self._macro_loop_stop_behavior == "finish_run"
+        )
+        self._macro_loop_finish_check.set_tooltip_text(
+            "When disabled, release or toggle stop cancels the macro immediately."
+        )
+        self._macro_loop_finish_check.connect(
+            "toggled",
+            self._on_macro_loop_stop_toggled,
+        )
+        loop_row.append(self._macro_loop_finish_check)
         outer.append(loop_row)
 
         self._exec_summary_label = Gtk.Label()
@@ -2462,10 +2487,15 @@ class MacroEditorDialog(Adw.Dialog):
     def _on_macro_loop_count_changed(self, spin: Gtk.SpinButton) -> None:
         self._macro_loop_count = max(1, int(spin.get_value()))
 
+    def _on_macro_loop_stop_toggled(self, check: Gtk.CheckButton) -> None:
+        self._macro_loop_stop_behavior = "finish_run" if check.get_active() else "cancel_run"
+
     def _update_loop_controls(self) -> None:
         is_count = self._macro_loop_mode == "count"
+        is_stoppable_loop = self._macro_loop_mode in {"hold", "toggle"}
         self._macro_loop_count_label.set_visible(is_count)
         self._macro_loop_count_spin.set_visible(is_count)
+        self._macro_loop_finish_check.set_visible(is_stoppable_loop)
 
     def _on_macro_move_to_start_toggled(self, check: Gtk.CheckButton) -> None:
         self._macro_move_to_start = check.get_active()
@@ -4605,6 +4635,9 @@ class MacroEditorDialog(Adw.Dialog):
             "none",
         )
         data["loop_count"] = max(1, int(self._macro_loop_count_spin.get_value()))
+        data["loop_stop_behavior"] = (
+            "finish_run" if self._macro_loop_finish_check.get_active() else "cancel_run"
+        )
         data["move_to_start"] = bool(self._macro_move_to_start_check.get_active())
         data["start_x"] = int(self._macro_start_x_spin.get_value())
         data["start_y"] = int(self._macro_start_y_spin.get_value())

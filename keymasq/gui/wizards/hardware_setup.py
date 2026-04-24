@@ -20,10 +20,13 @@ from keymasq.common.devices import (
     gamepad_button_label,
     get_interface_id,
     input_class_label,
+    is_low_res_wheel_evdev,
     normalize_input_classes,
     ordered_gamepad_button_names,
     primary_input_class,
     resolve_stable_path,
+    wheel_button_id,
+    wheel_label,
 )
 from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
 from keymasq.gui.session_client import (
@@ -167,7 +170,7 @@ class HardwareSetupDialog(Adw.Window):
 
         self.mouse_mode_info = Gtk.Label(
             label=(
-                "Mouse template creates a standard 5-button mouse profile."
+                "Mouse template creates standard mouse buttons and scroll wheel directions."
             )
         )
         self.mouse_mode_info.add_css_class("dim-label")
@@ -178,7 +181,7 @@ class HardwareSetupDialog(Adw.Window):
         self.mouse_keyboard_mode_info = Gtk.Label(
             label=(
                 "Mouse + Keyboard template creates a full standard keyboard profile plus a "
-                "standard 5-button mouse."
+                "standard mouse with scroll wheel directions."
             )
         )
         self.mouse_keyboard_mode_info.add_css_class("dim-label")
@@ -1172,7 +1175,13 @@ class HardwareSetupDialog(Adw.Window):
             product_id=selected_device["product_id"],
             name=selected_device["name"],
             evdev_devices=self._build_evdev_devices(mouse_interfaces),
-            buttons=self._build_standard_mouse_buttons(primary_mouse_source),
+            buttons=self._build_standard_mouse_buttons(
+                primary_mouse_source,
+                include_horizontal=self._interfaces_have_capability(
+                    mouse_interfaces,
+                    "rel_hwheel",
+                ),
+            ),
         )
 
         self.hardware_manager.save_hardware(config)
@@ -1196,7 +1205,13 @@ class HardwareSetupDialog(Adw.Window):
             primary_mouse_source = str(mouse_interfaces[0].get("id", "") or "")
 
         interfaces = self._merge_interface_lists(mouse_interfaces, keyboard_interfaces)
-        buttons = self._build_standard_mouse_buttons(primary_mouse_source)
+        buttons = self._build_standard_mouse_buttons(
+            primary_mouse_source,
+            include_horizontal=self._interfaces_have_capability(
+                mouse_interfaces,
+                "rel_hwheel",
+            ),
+        )
         buttons.extend(self._build_standard_keyboard_buttons(primary_keyboard_source))
 
         config = HardwareConfig(
@@ -1260,6 +1275,21 @@ class HardwareSetupDialog(Adw.Window):
                 merged.append(iface)
         return merged
 
+    def _interfaces_have_capability(self, interfaces: list[dict], capability: str) -> bool:
+        capability_l = capability.strip().lower()
+        for iface in interfaces:
+            capabilities = {str(name).strip().lower() for name in iface.get("capabilities", [])}
+            if capability_l in capabilities:
+                return True
+            raw_capabilities = iface.get("raw_capabilities") or {}
+            if not isinstance(raw_capabilities, dict):
+                continue
+            for code in raw_capabilities.get(evdev.ecodes.EV_REL, []):
+                name = capability_name(evdev.ecodes.EV_REL, code)
+                if name == capability_l:
+                    return True
+        return False
+
     def _build_evdev_devices(self, interfaces: list[dict]) -> list[EvdevDevice]:
         evdev_devices = []
         for iface in interfaces:
@@ -1277,8 +1307,13 @@ class HardwareSetupDialog(Adw.Window):
             )
         return evdev_devices
 
-    def _build_standard_mouse_buttons(self, source_id: str) -> list[ButtonDefinition]:
-        return [
+    def _build_standard_mouse_buttons(
+        self,
+        source_id: str,
+        *,
+        include_horizontal: bool = False,
+    ) -> list[ButtonDefinition]:
+        buttons = [
             ButtonDefinition(
                 id="btn_left",
                 label="Left Click",
@@ -1320,6 +1355,38 @@ class HardwareSetupDialog(Adw.Window):
                 zone="thumb",
             ),
         ]
+        buttons.extend(self._standard_wheel_buttons(source_id, include_horizontal))
+        return buttons
+
+    def _standard_wheel_buttons(
+        self,
+        source_id: str,
+        include_horizontal: bool,
+    ) -> list[ButtonDefinition]:
+        specs = [("rel_wheel", 1), ("rel_wheel", -1)]
+        if include_horizontal:
+            specs.extend([("rel_hwheel", -1), ("rel_hwheel", 1)])
+
+        buttons: list[ButtonDefinition] = []
+        for evdev_name, value in specs:
+            button_id = wheel_button_id(evdev_name, value)
+            label = wheel_label(evdev_name, value)
+            if button_id is None or label is None or not is_low_res_wheel_evdev(evdev_name):
+                continue
+            code = getattr(evdev.ecodes, evdev_name.upper(), None)
+            buttons.append(
+                ButtonDefinition(
+                    id=button_id,
+                    label=label,
+                    evdev=evdev_name,
+                    evdev_code=int(code) if code is not None else None,
+                    evdev_value=value,
+                    source=source_id or None,
+                    type="wheel",
+                    zone="wheel",
+                )
+            )
+        return buttons
 
     def _build_gamepad_buttons(self, interfaces: list[dict]) -> list[ButtonDefinition]:
         button_specs: dict[str, tuple[int, str | None]] = {}

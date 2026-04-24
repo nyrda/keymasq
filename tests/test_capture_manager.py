@@ -220,11 +220,25 @@ def test_capture_manager_parse_helpers(monkeypatch) -> None:
     )
     hwheel = manager._parse_event(
         device,
-        evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, evdev.ecodes.REL_HWHEEL, 1),
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, evdev.ecodes.REL_HWHEEL, 3),
+    )
+    hi_res_wheel = manager._parse_event(
+        device,
+        evdev.InputEvent(
+            0,
+            0,
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL_HI_RES,
+            -120,
+        ),
     )
     combo_press = manager._parse_combo_event(
         device,
         evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+    combo_wheel = manager._parse_combo_event(
+        device,
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
     )
     combo_unsupported = manager._parse_combo_event(
         device,
@@ -233,6 +247,7 @@ def test_capture_manager_parse_helpers(monkeypatch) -> None:
 
     assert wheel == {
         "evdev": "rel_wheel",
+        "code": evdev.ecodes.REL_WHEEL,
         "direction": "down",
         "value": -1,
         "source": "iface:event3",
@@ -242,9 +257,21 @@ def test_capture_manager_parse_helpers(monkeypatch) -> None:
     assert hwheel is not None
     assert combo_press is not None
     assert hwheel["direction"] == "right"
+    assert hwheel["code"] == evdev.ecodes.REL_HWHEEL
+    assert hwheel["value"] == 1
+    assert hi_res_wheel is None
     assert combo_press == {
         "evdev": "key_a",
         "code": evdev.ecodes.KEY_A,
+        "value": 1,
+        "hardware_id": "1234:5678",
+        "source": "iface:event3",
+        "stable_path": "/stable/dev/input/event3",
+        "device_path": "/dev/input/event3",
+    }
+    assert combo_wheel == {
+        "evdev": "wheel_down",
+        "code": evdev.ecodes.REL_WHEEL,
         "value": 1,
         "hardware_id": "1234:5678",
         "source": "iface:event3",

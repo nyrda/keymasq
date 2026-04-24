@@ -120,12 +120,14 @@ Suggested superkey timing:
 Use shorter timings if the key feels sluggish. Use longer timings if double
 tap or tap + hold is hard to trigger reliably.
 
-## Bind It To A Key
+## Bind It To A Key Or Combo
 
-Go to the **Device** tab, choose the key or button you want to use, and set
-its action to **Super Key**.
+Bind `volume_rocker` anywhere a superkey can be used:
 
-Select:
+- **Device tab**: choose a key or button and set its action to **Super Key**.
+- **Combos tab**: create a combo and set its action to **Super Key**.
+
+In either place, select:
 
 ```text
 volume_rocker

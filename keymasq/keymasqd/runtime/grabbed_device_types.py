@@ -121,6 +121,8 @@ class Ecodes(Protocol):
     EV_ABS: Final[int]
     REL_X: Final[int]
     REL_Y: Final[int]
+    REL_WHEEL: Final[int]
+    REL_HWHEEL: Final[int]
     ABS_Z: Final[int]
     ABS_RZ: Final[int]
     bytype: Final[Mapping[int, Mapping[int, object]]]

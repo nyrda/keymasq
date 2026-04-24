@@ -7,7 +7,12 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
-from keymasq.common.combos import normalize_combo_evdev
+from keymasq.common.combos import is_combo_pulse_evdev, normalize_combo_evdev
+from keymasq.common.devices import (
+    high_res_wheel_low_res_code,
+    normalize_wheel_value,
+    wheel_button_id,
+)
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -146,6 +151,20 @@ async def on_device_event(
     str_value_fn: StrValueFn,
     deps: ComboRuntimeDeps,
 ) -> ComboDecision | bool | None:
+    event_source = str(source or "").lower()
+    if not event_source:
+        resolved_path = stable_path or resolve_stable_path_fn(evdev_path)
+        event_source = str(get_interface_id_fn(resolved_path) or "").lower()
+    if should_suppress_high_res_combo_wheel_event(
+        manager,
+        hardware_id,
+        event_type,
+        event_code,
+        event_value,
+        event_source,
+        evdev_mod=deps.evdev_mod,
+    ):
+        return True
     combo_payload = build_combo_event_payload(
         hardware_id,
         evdev_path,
@@ -153,7 +172,7 @@ async def on_device_event(
         event_code,
         event_value,
         stable_path=stable_path,
-        source=source,
+        source=event_source,
         evdev_mod=deps.evdev_mod,
         resolve_stable_path_fn=resolve_stable_path_fn,
         get_interface_id_fn=get_interface_id_fn,
@@ -183,26 +202,96 @@ def build_combo_event_payload(
     resolve_stable_path_fn: ResolveStablePathFn,
     get_interface_id_fn: GetInterfaceIdFn,
 ) -> dict[str, object] | None:
-    if event_type != evdev_mod.ecodes.EV_KEY or int(event_value) not in {0, 1, 2}:
-        return None
+    payload_value = int(event_value)
+    if event_type == evdev_mod.ecodes.EV_KEY:
+        if payload_value not in {0, 1, 2}:
+            return None
 
-    raw_code_name: object = evdev_mod.ecodes.bytype.get(event_type, {}).get(
-        event_code, str(event_code)
-    )
-    evdev_name = _evdev_code_name(raw_code_name, event_code)
-    if not evdev_name.startswith(("key_", "btn_")):
+        raw_code_name: object = evdev_mod.ecodes.bytype.get(event_type, {}).get(
+            event_code, str(event_code)
+        )
+        evdev_name = _evdev_code_name(raw_code_name, event_code)
+        if not evdev_name.startswith(("key_", "btn_")):
+            return None
+    elif event_type == evdev_mod.ecodes.EV_REL:
+        evdev_name = combo_wheel_evdev_for_rel_event(
+            event_code,
+            event_value,
+            evdev_mod=evdev_mod,
+        )
+        if evdev_name is None:
+            return None
+        payload_value = 1
+    else:
         return None
 
     resolved_stable_path = stable_path or resolve_stable_path_fn(evdev_path)
     return {
         "evdev": evdev_name,
         "code": int(event_code),
-        "value": int(event_value),
+        "value": payload_value,
         "source": str(source or get_interface_id_fn(resolved_stable_path) or "").lower(),
         "stable_path": resolved_stable_path,
         "device_path": evdev_path,
         "hardware_id": str(hardware_id).lower(),
     }
+
+
+def combo_wheel_evdev_for_rel_event(
+    event_code: int,
+    event_value: int,
+    *,
+    evdev_mod: runtime_adapters.ComboEvdevAdapter,
+) -> str | None:
+    rel_evdev = low_res_wheel_evdev_name(event_code, evdev_mod=evdev_mod)
+    if rel_evdev is None:
+        return None
+    normalized_value = normalize_wheel_value(int(event_value))
+    if normalized_value is None:
+        return None
+    return wheel_button_id(rel_evdev, normalized_value)
+
+
+def low_res_wheel_evdev_name(
+    event_code: int,
+    *,
+    evdev_mod: runtime_adapters.ComboEvdevAdapter,
+) -> str | None:
+    if int(event_code) == int(evdev_mod.ecodes.REL_WHEEL):
+        return "rel_wheel"
+    if int(event_code) == int(evdev_mod.ecodes.REL_HWHEEL):
+        return "rel_hwheel"
+    return None
+
+
+def should_suppress_high_res_combo_wheel_event(
+    manager: _ComboManager,
+    hardware_id: str,
+    event_type: int,
+    event_code: int,
+    event_value: int,
+    source: str | None,
+    *,
+    evdev_mod: runtime_adapters.ComboEvdevAdapter,
+) -> bool:
+    if int(event_type) != int(evdev_mod.ecodes.EV_REL):
+        return False
+    low_res_code = high_res_wheel_low_res_code(int(event_code))
+    if low_res_code is None:
+        return False
+    evdev_name = combo_wheel_evdev_for_rel_event(
+        low_res_code,
+        event_value,
+        evdev_mod=evdev_mod,
+    )
+    if evdev_name is None:
+        return False
+    binding = RuntimeComboBinding(
+        hardware_id=str(hardware_id or "").lower(),
+        evdev=evdev_name,
+        source=str(source or "").lower(),
+    )
+    return bool(manager.combo_state.engine.would_consume_pulse(binding))
 
 
 def queue_combo_capture_event(
@@ -244,7 +333,7 @@ async def process_runtime_combo_event(
         evdev=str_value_fn(payload.get("evdev"), ""),
         source=str_value_fn(payload.get("source"), ""),
     )
-    if value == 1:
+    if value == 1 and not is_combo_pulse_evdev(binding.evdev):
         held_modifiers = held_combo_modifier_bindings_for_scope(
             manager,
             binding.hardware_id,
@@ -383,6 +472,21 @@ async def apply_combo_action_transition(
             transition.action,
             transition.trigger_binding,
             transition.trigger_bindings,
+            deps=deps,
+        )
+    elif transition.kind == "pulse":
+        await start_combo_action(
+            manager,
+            transition.combo_id,
+            transition.action,
+            transition.trigger_binding,
+            transition.trigger_bindings,
+            deps=deps,
+        )
+        await deps.asyncio_mod.sleep(0)
+        await stop_combo_action(
+            manager,
+            transition.combo_id,
             deps=deps,
         )
     elif transition.kind == "release":

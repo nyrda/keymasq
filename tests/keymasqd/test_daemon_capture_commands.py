@@ -235,6 +235,49 @@ async def test_capture_combo_waits_on_event_not_sleep(daemon_testbed, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_capture_combo_returns_immediately_on_wheel_pulse(daemon_testbed):
+    daemon, device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+    notify: dict[str, asyncio.Event] = {}
+    queued_events: list[dict] = []
+
+    def begin_combo_capture(
+        _token: str,
+        _hardware_ids: set[str],
+        notify_event: asyncio.Event,
+    ) -> dict:
+        notify["event"] = notify_event
+        return {"token": "combo-token", "grabbed_devices": 0}
+
+    device_manager.begin_combo_capture = Mock(side_effect=begin_combo_capture)
+    device_manager.read_combo_capture = Mock(
+        side_effect=lambda _token: {"event": queued_events.pop(0) if queued_events else None}
+    )
+    capture_manager.read_combo_nowait = Mock(return_value={"event": None})
+
+    task = asyncio.create_task(daemon_capture_commands.capture_combo(daemon, {"1234:5678"}, 1.0))
+    while "event" not in notify:
+        await asyncio.sleep(0)
+
+    queued_events.append(
+        {"evdev": "key_leftmeta", "hardware_id": "1234:5678", "source": "kbd", "value": 1}
+    )
+    notify["event"].set()
+    await asyncio.sleep(0)
+    queued_events.append(
+        {"evdev": "wheel_up", "hardware_id": "1234:5678", "source": "mouse", "value": 1}
+    )
+    notify["event"].set()
+
+    assert await task == {
+        "events": [
+            {"evdev": "key_leftmeta", "hardware_id": "1234:5678", "source": "kbd"},
+            {"evdev": "wheel_up", "hardware_id": "1234:5678", "source": "mouse"},
+        ],
+        "warnings": [],
+    }
+
+
+@pytest.mark.asyncio
 async def test_start_offloads_macro_store_prep_to_thread(
     daemon_testbed,
     monkeypatch,

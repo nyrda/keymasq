@@ -2,6 +2,7 @@ import asyncio
 import uuid
 from typing import Protocol, cast
 
+from keymasq.common.combos import is_combo_pulse_evdev
 from keymasq.common.ipc import CommandType
 from keymasq.keymasqd.daemon_helpers import (
     JsonObject,
@@ -171,7 +172,10 @@ async def capture_combo(
             evdev_name = str(event.get("evdev", "") or "")
             raw_value = event.get("value")
             value = int_like(raw_value, -1) if raw_value is not None else -1
-            if not evdev_name.startswith(("key_", "btn_")) or value not in {0, 1}:
+            is_pulse = is_combo_pulse_evdev(evdev_name)
+            if not (
+                evdev_name.startswith(("key_", "btn_")) or is_pulse
+            ) or value not in {0, 1}:
                 continue
 
             if value == 1:
@@ -196,6 +200,11 @@ async def capture_combo(
                             "source": str(event.get("source", "") or ""),
                         }
                     )
+                if is_pulse:
+                    return {
+                        "events": events,
+                        "warnings": warnings,
+                    }
                 continue
 
             if not events:

@@ -676,6 +676,20 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
             },
             {
                 "t_us": 0,
+                "type": evdev.ecodes.EV_REL,
+                "code": evdev.ecodes.REL_WHEEL,
+                "value": -1,
+                "device_type": "mouse",
+            },
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_REL,
+                "code": getattr(evdev.ecodes, "REL_WHEEL_HI_RES", evdev.ecodes.REL_WHEEL),
+                "value": -120,
+                "device_type": "mouse",
+            },
+            {
+                "t_us": 0,
                 "type": evdev.ecodes.EV_KEY,
                 "code": evdev.ecodes.BTN_LEFT,
                 "value": 1,
@@ -721,6 +735,12 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 0),
     ]
     assert [call.args for call in manager.output_state.mouse_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
+        (
+            evdev.ecodes.EV_REL,
+            getattr(evdev.ecodes, "REL_WHEEL_HI_RES", evdev.ecodes.REL_WHEEL),
+            -120,
+        ),
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 123)
     ]
 

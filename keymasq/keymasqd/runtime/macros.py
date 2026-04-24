@@ -389,7 +389,11 @@ async def play_macro_task(
 
                 if event_type == evdev_mod.ecodes.EV_SYN:
                     continue
-                if event_type == evdev_mod.ecodes.EV_REL and not replay_mouse_movement:
+                if (
+                    event_type == evdev_mod.ecodes.EV_REL
+                    and not replay_mouse_movement
+                    and not _is_wheel_event(event_type, event_code, evdev_mod=evdev_mod)
+                ):
                     continue
                 if (
                     event_type == evdev_mod.ecodes.EV_KEY
@@ -461,6 +465,23 @@ async def play_macro_task(
             release_macro_mouse_inhibit(manager)
         if manager.verbosity >= 1:
             deps.log.debug("Macro playback finished: %s", macro_name or "<unnamed>")
+
+
+def _is_wheel_event(event_type: int, event_code: int, *, evdev_mod: Any) -> bool:
+    if int(event_type) != int(evdev_mod.ecodes.EV_REL):
+        return False
+    return int(event_code) in {
+        int(evdev_mod.ecodes.REL_WHEEL),
+        int(evdev_mod.ecodes.REL_HWHEEL),
+        *(
+            int(code)
+            for code in (
+                getattr(evdev_mod.ecodes, "REL_WHEEL_HI_RES", None),
+                getattr(evdev_mod.ecodes, "REL_HWHEEL_HI_RES", None),
+            )
+            if code is not None
+        ),
+    }
 
 
 def track_macro_key_press(

@@ -563,7 +563,8 @@ class TestDeviceTabWidget:
         finally:
             Adw.Dialog.present = original_present  # type: ignore[method-assign]
 
-        assert tab.add_keys_btn.get_label() == "Add..."
+        assert tab.add_keys_btn.get_icon_name() == "list-add-symbolic"
+        assert tab.add_keys_btn.get_tooltip_text() == "Add extra buttons or keys to this device"
         assert not hasattr(tab, "listen_btn")
         assert len(presented) == 1
 

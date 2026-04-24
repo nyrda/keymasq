@@ -5,7 +5,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.devices import (
     canonical_gamepad_button_name,
@@ -38,6 +38,66 @@ from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileInfo, ProfileManager
+
+_KEYBOARD_BUTTON_CARD_WIDTH = 96
+_KEYBOARD_LABEL_CHARS = 12
+_KEYBOARD_ACTION_SUMMARY_CHARS = 14
+_POINTER_BUTTON_CARD_WIDTH = 187
+_POINTER_NAME_LABEL_CHARS = 20
+_POINTER_ACTION_SUMMARY_CHARS = 31
+_ACTION_SUMMARY_MARKER = " [...] "
+
+
+def _middle_shorten_text(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+
+    marker = _ACTION_SUMMARY_MARKER
+    if max_chars <= len(marker) + 2:
+        return text[:max(1, max_chars - 3)] + "..."
+
+    words = text.split()
+    if len(words) < 3:
+        budget = max_chars - len(marker)
+        head_len = max(1, budget // 2)
+        tail_len = max(1, budget - head_len)
+        return f"{text[:head_len]}{marker}{text[-tail_len:]}"
+
+    budget = max_chars - len(marker)
+    suffix_words: list[str] = []
+    suffix_len = 0
+    suffix_target = max(9, min(12, budget // 3))
+    for word in reversed(words):
+        next_len = len(word) + (1 if suffix_words else 0)
+        if suffix_words and suffix_len + next_len > suffix_target:
+            break
+        if suffix_len + next_len > budget - 4:
+            break
+        suffix_words.insert(0, word)
+        suffix_len += next_len
+
+    if not suffix_words:
+        suffix_words = [words[-1]]
+        suffix_len = len(words[-1])
+
+    prefix_budget = budget - suffix_len
+    prefix_words: list[str] = []
+    prefix_len = 0
+    prefix_limit = len(words) - len(suffix_words)
+    for word in words[:prefix_limit]:
+        next_len = len(word) + (1 if prefix_words else 0)
+        if prefix_words and prefix_len + next_len > prefix_budget:
+            break
+        if not prefix_words and next_len > prefix_budget:
+            break
+        prefix_words.append(word)
+        prefix_len += next_len
+
+    if not prefix_words:
+        prefix_chars = max(1, prefix_budget)
+        return f"{text[:prefix_chars]}{marker}{' '.join(suffix_words)}"
+
+    return f"{' '.join(prefix_words)}{marker}{' '.join(suffix_words)}"
 
 
 class DeviceTab(ProfileManagedTab):
@@ -174,8 +234,9 @@ class DeviceTab(ProfileManagedTab):
         header_box.set_hexpand(True)
 
         if not self.demo_mode:
-            self.add_keys_btn = Gtk.Button(label="Add...")
+            self.add_keys_btn = Gtk.Button(icon_name="list-add-symbolic")
             self.add_keys_btn.add_css_class("flat")
+            self.add_keys_btn.set_tooltip_text("Add extra buttons or keys to this device")
             self.add_keys_btn.connect("clicked", self._on_add_keys_clicked)
             header_box.append(self.add_keys_btn)
 
@@ -619,6 +680,18 @@ class DeviceTab(ProfileManagedTab):
 
         name_label = Gtk.Label(label=button.label)
         name_label.add_css_class("heading")
+        name_label.set_xalign(0.0)
+        name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        name_label.set_width_chars(
+            _KEYBOARD_LABEL_CHARS
+            if self._keyboard_layout_mode
+            else _POINTER_NAME_LABEL_CHARS
+        )
+        name_label.set_max_width_chars(
+            _KEYBOARD_LABEL_CHARS
+            if self._keyboard_layout_mode
+            else _POINTER_NAME_LABEL_CHARS
+        )
         header.append(name_label)
 
         name_right_click = Gtk.GestureClick()
@@ -636,6 +709,19 @@ class DeviceTab(ProfileManagedTab):
         action_label = Gtk.Label(label=self._describe_passthrough_output(button))
         action_label.add_css_class("caption")
         action_label.set_halign(Gtk.Align.START)
+        action_label.set_xalign(0.0)
+        action_label.set_single_line_mode(True)
+        action_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        action_label.set_width_chars(
+            _KEYBOARD_ACTION_SUMMARY_CHARS
+            if self._keyboard_layout_mode
+            else _POINTER_ACTION_SUMMARY_CHARS
+        )
+        action_label.set_max_width_chars(
+            _KEYBOARD_ACTION_SUMMARY_CHARS
+            if self._keyboard_layout_mode
+            else _POINTER_ACTION_SUMMARY_CHARS
+        )
         box.append(action_label)
 
         action_right_click = Gtk.GestureClick()
@@ -648,7 +734,12 @@ class DeviceTab(ProfileManagedTab):
         box._button_id = button.id
         box._protected = protected
 
-        box.set_size_request(96 if self._keyboard_layout_mode else 140, -1)
+        box.set_size_request(
+            _KEYBOARD_BUTTON_CARD_WIDTH
+            if self._keyboard_layout_mode
+            else _POINTER_BUTTON_CARD_WIDTH,
+            -1,
+        )
 
         click = Gtk.GestureClick()
         click.connect("pressed", self._on_button_clicked, button, protected)
@@ -951,6 +1042,16 @@ class DeviceTab(ProfileManagedTab):
             return "→ Scroll Right" if button.evdev_value > 0 else "← Scroll Left"
         return f"→ {self._label_from_evdev(button.evdev)}"
 
+    def _set_action_label_text(self, label: Gtk.Label, text: str) -> None:
+        max_chars = (
+            _KEYBOARD_ACTION_SUMMARY_CHARS
+            if self._keyboard_layout_mode
+            else _POINTER_ACTION_SUMMARY_CHARS
+        )
+        shortened = _middle_shorten_text(text, max_chars)
+        label.set_text(shortened)
+        label.set_tooltip_text(text if shortened != text else None)
+
     def _update_button_display(self, button_id: str) -> None:
         widget = self._button_widgets.get(button_id)
         if not widget:
@@ -985,7 +1086,8 @@ class DeviceTab(ProfileManagedTab):
             name_label.remove_css_class(cls)
 
         if mapping:
-            action_label.set_text(self._describe_mapping(mapping, button))
+            description = self._describe_mapping(mapping, button)
+            self._set_action_label_text(action_label, description)
             if self._selected_profile and winner_profile_name == self._selected_profile.config.name:
                 action_label.add_css_class("success")
                 widget.add_css_class("button-card-mapped-active")
@@ -1005,7 +1107,10 @@ class DeviceTab(ProfileManagedTab):
                 else:
                     widget.set_tooltip_text("This binding is not currently active")
         else:
-            action_label.set_text(self._describe_passthrough_output(button))
+            self._set_action_label_text(
+                action_label,
+                self._describe_passthrough_output(button),
+            )
             action_label.add_css_class("dim-label")
             widget.add_css_class("button-card-passthrough")
             if winner_profile_name and winner_mapping is not None:

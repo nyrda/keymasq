@@ -1276,6 +1276,7 @@ class DeviceTab(ProfileManagedTab):
         self._stop_add_keys_capture()
         assert self.hardware_manager is not None
         self.hardware_manager.save_hardware(self.device)
+        session_request_async({"command": "reload"}, self._ignore_session_response)
         parent_dialog.close()
         self._reload_ui()
 

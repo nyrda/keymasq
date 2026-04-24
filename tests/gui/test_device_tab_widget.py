@@ -741,6 +741,58 @@ class TestDeviceTabWidget:
         assert unlock_btn.get_visible() is False
         assert "Add inputs reads raw key events before remapping." in privilege_status.get_text()
 
+    def test_device_tab_finish_add_keys_reloads_session_runtime(
+        self, temp_config_dir, monkeypatch
+    ):
+        from gi.repository import Adw
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="wheel_down", label="Scroll Down", evdev="rel_wheel")],
+        )
+        hardware_manager = _HardwareManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=True,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+        reloaded: list[bool] = []
+        tab._reload_ui = lambda: reloaded.append(True)  # type: ignore[method-assign]
+        stopped: list[bool] = []
+        tab._stop_add_keys_capture = lambda: stopped.append(True)  # type: ignore[method-assign]
+        dialog = Adw.Dialog()
+        closed: list[bool] = []
+        dialog.close = lambda: closed.append(True)  # type: ignore[method-assign]
+
+        tab._finish_add_keys(dialog)
+
+        assert stopped == [True]
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+        assert closed == [True]
+        assert reloaded == [True]
+
     def test_device_tab_add_keys_capture_read_accepts_wheel_input(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 

@@ -416,7 +416,8 @@ async def test_hold_macro_block_mouse_movement_refreshes_suppression_until_relea
     )
 
     assert result["status"] == "ok"
-    assert result["cancelled"] is True
+    assert result["cancelled"] is False
+    await asyncio.sleep(0.02)
     assert begin_mouse_rel_suppression.call_count > 1
     assert end_mouse_rel_suppression.called
     monkeypatch.undo()

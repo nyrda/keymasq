@@ -218,12 +218,17 @@ automatically.
 |---|---|
 | **None** | Play once and stop. |
 | **Count** | Play a fixed number of times, then stop. |
-| **Hold** | Keep replaying for as long as you hold the trigger key down. Release to stop. |
+| **Hold** | Keep replaying for as long as you hold the trigger key down. Release stops after the current run by default. |
 | **Toggle** | Press the trigger once to start looping. Press it again to stop. |
 
 **Hold** and **Toggle** are especially useful for repeated actions — auto-fire
 in a game, continuous scrolling, or any workflow where you want the macro to
 keep running without pressing the trigger again and again.
+
+For **Hold** macros, the editor has a **Finish current run on release** option.
+When it is enabled, releasing the trigger lets the current macro pass complete
+and only prevents the next repeat. When it is disabled, releasing the trigger
+cancels playback immediately.
 
 ![Loop mode dropdown — None, Count, Hold, or Toggle](assets/screenshots/keymasq_macro_edit_loop_modes.png)
 
@@ -234,7 +239,8 @@ works:
 
 - **None** and **Count** macros can overlap freely with other running macros.
 - **Hold** macros will not start a second copy from the same trigger while one
-  is already running. Releasing the trigger stops the running instance.
+  is already running. Releasing the trigger either finishes the current run or
+  cancels it immediately, depending on the macro's hold release behavior.
 - **Toggle** macros use the trigger as an on/off switch — pressing it while
   the macro is running stops it instead of starting another copy.
 - **Cancel All** (from the GUI or CLI) stops every running macro at once, not

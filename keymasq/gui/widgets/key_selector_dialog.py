@@ -18,6 +18,7 @@ from keymasq.common.models import (
     ActionType,
     MappingAction,
     SuperkeyAction,
+    SuperkeyConfig,
     action_type_supports_rapidfire,
 )
 from keymasq.common.slurp import get_slurp_capture
@@ -287,6 +288,9 @@ class KeySelectorDialog(Adw.Dialog):
         self._tap_hold = 50
         self._macro_list: list[dict] = []
         self._selected_macro: str | None = None
+        self._superkey_list: list[SuperkeyConfig] = []
+        self._superkey_names: list[str] = []
+        self._selected_superkey: str | None = None
         self._macro_replay_movement: bool = True
         self._macro_replay_clicks: bool = True
         self._macro_speed: float = 1.0
@@ -317,6 +321,8 @@ class KeySelectorDialog(Adw.Dialog):
                 self._macro_replay_movement = current_action.macro_replay_mouse_movement
                 self._macro_replay_clicks = current_action.macro_replay_mouse_clicks
                 self._macro_speed = current_action.macro_speed
+            elif current_action.action_type == ActionType.SUPERKEY:
+                self._selected_superkey = current_action.superkey_name
             elif current_action.action_type == ActionType.EXEC:
                 self._exec_cmd = current_action.cmd or ""
             elif current_action.action_type in (
@@ -372,6 +378,8 @@ class KeySelectorDialog(Adw.Dialog):
         for page in self._compositor_action_pages:
             self.stack.add_titled(page.widget, page.page_id, page.title)
         self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
+        if self._allow_superkey:
+            self.stack.add_titled(self._build_superkey_tab(), "superkey", "Super Keys")
         self.stack.add_titled(self._build_macro_tab(), "macro", "Macro")
         self.stack.add_titled(self._build_profile_tab(), "profile", "Profile")
 
@@ -490,40 +498,10 @@ class KeySelectorDialog(Adw.Dialog):
             box.append(suppress_btn)
             special_buttons_added = True
 
-        if special_buttons_added and self._allow_superkey:
-            box.append(Gtk.Separator())
-
-        if self._allow_superkey:
-            superkey_label = Gtk.Label(label="Super Keys")
-            superkey_label.add_css_class("dim-label")
-            box.append(superkey_label)
-
-            superkey_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            superkey_box.set_halign(Gtk.Align.CENTER)
-
-            self.superkey_dropdown = Gtk.DropDown()
-            superkey_model = Gtk.StringList()
-
-            manager = SuperkeyManager()
-            self._superkey_names = manager.list_superkeys()
-            for name in self._superkey_names:
-                superkey_model.append(name)
-            self.superkey_dropdown.set_model(superkey_model)
-            self.superkey_dropdown.set_size_request(200, -1)
-            superkey_box.append(self.superkey_dropdown)
-
-            superkey_btn = Gtk.Button(label="Map")
-            superkey_btn.add_css_class("suggested-action")
-            superkey_btn.connect("clicked", self._on_superkey_clicked)
-            superkey_box.append(superkey_btn)
-
-            box.append(superkey_box)
-            box.append(Gtk.Separator())
-        else:
-            self._superkey_names = []
-
         exec_label = Gtk.Label(label="Execute Shell Command")
         exec_label.add_css_class("dim-label")
+        if special_buttons_added:
+            box.append(Gtk.Separator())
         box.append(exec_label)
 
         exec_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -545,6 +523,39 @@ class KeySelectorDialog(Adw.Dialog):
         box.append(exec_box)
 
         return box
+
+    def _build_superkey_tab(self) -> Gtk.Widget:
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        toolbar_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        toolbar_row.set_margin_top(8)
+        toolbar_row.set_margin_bottom(4)
+        toolbar_row.set_margin_start(12)
+        toolbar_row.set_margin_end(12)
+        toolbar_row.set_halign(Gtk.Align.START)
+
+        refresh_btn = Gtk.Button(label="Refresh")
+        refresh_btn.add_css_class("flat")
+        refresh_btn.connect("clicked", self._on_superkey_refresh)
+        toolbar_row.append(refresh_btn)
+        outer.append(toolbar_row)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+
+        self._superkey_listbox = Gtk.ListBox()
+        self._superkey_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._superkey_listbox.set_valign(Gtk.Align.START)
+        self._superkey_listbox.add_css_class("boxed-list")
+        self._superkey_listbox.set_margin_start(12)
+        self._superkey_listbox.set_margin_end(12)
+        self._superkey_listbox.connect("row-selected", self._on_superkey_row_selected)
+        scrolled.set_child(self._superkey_listbox)
+        outer.append(scrolled)
+
+        self._load_superkey_list()
+        return outer
 
     def _build_keyboard_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -904,6 +915,7 @@ class KeySelectorDialog(Adw.Dialog):
     def _on_tab_changed(self, stack, param):
         child_name = self.stack.get_visible_child_name()
         is_special = child_name == "special"
+        is_superkey = child_name == "superkey"
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
         is_exec = child_name == "exec"
@@ -911,6 +923,7 @@ class KeySelectorDialog(Adw.Dialog):
         has_options = self._allow_rapidfire or self._allow_tap
         options_enabled = (
             not is_special
+            and not is_superkey
             and not is_macro
             and not is_profile
             and not is_exec
@@ -919,13 +932,16 @@ class KeySelectorDialog(Adw.Dialog):
         self.options_box.set_sensitive(options_enabled and has_options)
         self.options_box.set_visible(
             has_options
+            and not is_superkey
             and not is_macro
             and not is_profile
             and not is_exec
             and not is_compositor_action
         )
-        self.map_btn.set_visible(is_macro or is_profile)
-        if is_macro:
+        self.map_btn.set_visible(is_superkey or is_macro or is_profile)
+        if is_superkey:
+            self.map_btn.set_sensitive(self._selected_superkey is not None)
+        elif is_macro:
             self.map_btn.set_sensitive(self._selected_macro is not None)
         elif is_profile:
             self.map_btn.set_sensitive(bool(self._selected_profile_name))
@@ -1004,18 +1020,6 @@ class KeySelectorDialog(Adw.Dialog):
         self._warn_and_clear_unsupported_rapidfire(ActionType.COMPOSITOR_DISPATCH)
         self.emit("key-selected", action)
         self.close()
-
-    def _on_superkey_clicked(self, btn):
-        idx = self.superkey_dropdown.get_selected()
-        if idx < len(self._superkey_names):
-            name = self._superkey_names[idx]
-            self._warn_and_clear_unsupported_rapidfire(ActionType.SUPERKEY)
-            action = MappingAction(
-                action_type=ActionType.SUPERKEY,
-                superkey_name=name,
-            )
-            self.emit("key-selected", action)
-            self.close()
 
     def _on_keyboard_clicked(self, btn, evdev_name: str):
         action = MappingAction(
@@ -1235,6 +1239,7 @@ class KeySelectorDialog(Adw.Dialog):
 
         self._macro_listbox = Gtk.ListBox()
         self._macro_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._macro_listbox.set_valign(Gtk.Align.START)
         self._macro_listbox.add_css_class("boxed-list")
         self._macro_listbox.set_margin_start(12)
         self._macro_listbox.set_margin_end(12)
@@ -1421,6 +1426,93 @@ class KeySelectorDialog(Adw.Dialog):
         }.get(self._selected_profile_action, "Toggle")
         self._profile_hint_label.set_label(f"{verb} profile '{self._selected_profile_name}'.")
 
+    def _load_superkey_list(self) -> None:
+        manager = SuperkeyManager()
+        configs = manager.get_all_superkeys()
+        self._superkey_names = manager.list_superkeys()
+        self._superkey_list = [
+            config for name in self._superkey_names if (config := configs.get(name)) is not None
+        ]
+        self._populate_superkey_listbox()
+
+    def _populate_superkey_listbox(self) -> None:
+        while self._superkey_listbox.get_first_child():
+            self._superkey_listbox.remove(self._superkey_listbox.get_first_child())
+
+        if not self._superkey_list:
+            self._selected_superkey = None
+            row = Gtk.ListBoxRow()
+            row.set_selectable(False)
+            lbl = Gtk.Label(label="No super keys saved yet")
+            lbl.add_css_class("dim-label")
+            lbl.set_margin_top(12)
+            lbl.set_margin_bottom(12)
+            row.set_child(lbl)
+            self._superkey_listbox.append(row)
+            return
+
+        selected_row: Gtk.ListBoxRow | None = None
+        for config in self._superkey_list:
+            row = Gtk.ListBoxRow()
+            row._superkey_name = config.name
+
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            row_box.set_margin_top(8)
+            row_box.set_margin_bottom(8)
+            row_box.set_margin_start(12)
+            row_box.set_margin_end(12)
+
+            name_label = Gtk.Label(label=config.name)
+            name_label.set_halign(Gtk.Align.START)
+            name_label.set_hexpand(True)
+            row_box.append(name_label)
+
+            info_label = Gtk.Label(label=self._describe_superkey_row(config))
+            info_label.add_css_class("dim-label")
+            info_label.add_css_class("caption")
+            row_box.append(info_label)
+
+            row.set_child(row_box)
+            self._superkey_listbox.append(row)
+
+            if self._selected_superkey and config.name == self._selected_superkey:
+                selected_row = row
+
+        if selected_row is not None:
+            self._superkey_listbox.select_row(selected_row)
+        elif self._selected_superkey:
+            self._selected_superkey = None
+
+    def _describe_superkey_row(self, config: SuperkeyConfig) -> str:
+        if config.mode.value == "overload":
+            count = len(config.overload_actions)
+            noun = "action" if count == 1 else "actions"
+            return f"Overload · {count} {noun}"
+
+        slots = sum(
+            1
+            for actions in (
+                config.tap_actions,
+                config.double_tap_actions,
+                config.hold_actions,
+                config.tap_hold_actions,
+            )
+            if actions
+        )
+        noun = "slot" if slots == 1 else "slots"
+        return f"Pattern · {slots} {noun}"
+
+    def _on_superkey_refresh(self, btn) -> None:
+        self._load_superkey_list()
+
+    def _on_superkey_row_selected(self, listbox, row) -> None:
+        if row and hasattr(row, "_superkey_name"):
+            self._selected_superkey = row._superkey_name
+        else:
+            self._selected_superkey = None
+        if self.stack.get_visible_child_name() == "superkey":
+            self.map_btn.set_sensitive(self._selected_superkey is not None)
+
     def _load_macro_list(self) -> bool:
         session_request_async({"command": "list_macros"}, self._on_macro_list_loaded)
         return False
@@ -1513,10 +1605,23 @@ class KeySelectorDialog(Adw.Dialog):
 
     def _on_map_clicked(self, btn) -> None:
         child_name = self.stack.get_visible_child_name()
-        if child_name == "macro":
+        if child_name == "superkey":
+            self._on_superkey_map_clicked(btn)
+        elif child_name == "macro":
             self._on_macro_map_clicked(btn)
         elif child_name == "profile":
             self._on_profile_map_clicked(btn)
+
+    def _on_superkey_map_clicked(self, btn) -> None:
+        if not self._selected_superkey:
+            return
+        self._warn_and_clear_unsupported_rapidfire(ActionType.SUPERKEY)
+        action = MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_name=self._selected_superkey,
+        )
+        self.emit("key-selected", action)
+        self.close()
 
     def _on_macro_map_clicked(self, btn) -> None:
         if not self._selected_macro:
@@ -1562,7 +1667,7 @@ class KeySelectorDialog(Adw.Dialog):
         tab_map = {
             ActionType.PASSTHROUGH: "special",
             ActionType.SUPPRESS: "special",
-            ActionType.SUPERKEY: "special",
+            ActionType.SUPERKEY: "superkey",
             ActionType.START_MACRO_RECORDING: "macro",
             ActionType.STOP_MACRO_RECORDING: "macro",
             ActionType.CANCEL_MACRO_PLAYBACK: "macro",
@@ -1578,6 +1683,8 @@ class KeySelectorDialog(Adw.Dialog):
             ActionType.PROFILE_TOGGLE: "profile",
         }
         name = compositor_tab or tab_map.get(self._current_action.action_type)
+        if name == "superkey" and not self._allow_superkey:
+            return
         if name:
             self.stack.set_visible_child_name(name)
 
@@ -1607,14 +1714,6 @@ class KeySelectorDialog(Adw.Dialog):
                     if isinstance(value, (bool, str)) or value is None:
                         resolved[key] = value
         return resolved
-
-        if self._current_action.action_type == ActionType.SUPERKEY:
-            if self._current_action.superkey_name and hasattr(self, "superkey_dropdown"):
-                try:
-                    idx = self._superkey_names.index(self._current_action.superkey_name)
-                    self.superkey_dropdown.set_selected(idx)
-                except ValueError:
-                    pass
 
     def _describe_current_action(self) -> str:
         return describe_mapping_action_verbose(

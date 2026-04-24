@@ -632,6 +632,20 @@ async def _process_wheel_pulse_event(
         return None
 
     if action.action_type == ActionType.PASSTHROUGH:
+        recording_manager = device_runtime.recording_manager
+        if recording_manager and recording_manager.is_recording:
+            should_record = getattr(recording_manager, "should_record_grabbed_event", None)
+            if not callable(should_record) or should_record(
+                device_runtime.stable_path,
+                device_runtime.device_types,
+            ):
+                recording_manager.record_event(
+                    deps.classify_event_device_type_fn(
+                        cast(evdev.InputEvent, event),
+                        device_runtime.device_types,
+                    ),
+                    cast(evdev.InputEvent, event),
+                )
         runtime_outputs.passthrough(
             device_runtime,
             event,

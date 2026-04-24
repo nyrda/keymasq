@@ -443,6 +443,7 @@ class SessionManager:
                     if not task.done():
                         task.cancel()
                 self.profile_state.grab_retry_tasks.clear()
+                self.profile_state.last_sent_grab_signatures.clear()
                 self.profile_state.last_sent_mapping_signatures.clear()
                 self.profile_state.last_sent_combo_signature = ""
                 self.profile_state.active_profile_names.clear()

@@ -3,8 +3,8 @@ from typing import Protocol, cast
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
-    DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR,
-    normalize_macro_hold_release_behavior,
+    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+    normalize_macro_loop_stop_behavior,
 )
 from keymasq.keymasqd.daemon_helpers import (
     JsonObject,
@@ -26,7 +26,7 @@ class _MacroCommandDeviceManager(Protocol):
         speed: float = 1.0,
         loop_mode: str = "none",
         loop_count: int = 1,
-        hold_release_behavior: str = DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR,
+        loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
         move_to_start: bool = False,
         start_x: int = 0,
         start_y: int = 0,
@@ -144,8 +144,8 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
     macro_name = str_value(data.get("macro_name", ""))
     loop_mode = str_value(data.get("loop_mode", "none"), "none") or "none"
     loop_count = int_like(data.get("loop_count", 1), 1)
-    hold_release_behavior = normalize_macro_hold_release_behavior(
-        data.get("hold_release_behavior", DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR)
+    loop_stop_behavior = normalize_macro_loop_stop_behavior(
+        data.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
     )
     move_to_start = bool(data.get("move_to_start", False))
     start_x = int_like(data.get("start_x", 0), 0)
@@ -157,8 +157,8 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
         macro_events = json_object_list(macro_data.get("events", []))
         loop_mode = str_value(macro_data.get("loop_mode", loop_mode), loop_mode) or loop_mode
         loop_count = int_like(macro_data.get("loop_count", loop_count), loop_count)
-        hold_release_behavior = normalize_macro_hold_release_behavior(
-            macro_data.get("hold_release_behavior", hold_release_behavior)
+        loop_stop_behavior = normalize_macro_loop_stop_behavior(
+            macro_data.get("loop_stop_behavior", loop_stop_behavior)
         )
         move_to_start = bool(macro_data.get("move_to_start", move_to_start))
         start_x = int_like(macro_data.get("start_x", start_x), start_x)
@@ -175,7 +175,7 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
         speed=float_like(data.get("speed", 1.0), 1.0),
         loop_mode=loop_mode,
         loop_count=loop_count,
-        hold_release_behavior=hold_release_behavior,
+        loop_stop_behavior=loop_stop_behavior,
         move_to_start=move_to_start,
         start_x=start_x,
         start_y=start_y,
@@ -197,8 +197,8 @@ async def play_macro_by_name(daemon: _MacroCommandDaemon, data: JsonObject) -> J
         speed=float_like(data.get("speed", 1.0), 1.0),
         loop_mode=str_value(macro_data.get("loop_mode", "none"), "none") or "none",
         loop_count=int_like(macro_data.get("loop_count", 1), 1),
-        hold_release_behavior=normalize_macro_hold_release_behavior(
-            macro_data.get("hold_release_behavior", DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR)
+        loop_stop_behavior=normalize_macro_loop_stop_behavior(
+            macro_data.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
         ),
         move_to_start=bool(macro_data.get("move_to_start", False)),
         start_x=int_like(macro_data.get("start_x", 0), 0),
@@ -230,8 +230,8 @@ def apply_macro_definition(action_data: JsonObject, macro: JsonObject) -> JsonOb
     updated["macro_events"] = json_object_list(macro.get("events", []))
     updated["macro_loop_mode"] = str_value(macro.get("loop_mode", "none"), "none") or "none"
     updated["macro_loop_count"] = int_like(macro.get("loop_count", 1), 1)
-    updated["macro_hold_release_behavior"] = normalize_macro_hold_release_behavior(
-        macro.get("hold_release_behavior", DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR)
+    updated["macro_loop_stop_behavior"] = normalize_macro_loop_stop_behavior(
+        macro.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
     )
     updated["macro_move_to_start"] = bool(macro.get("move_to_start", False))
     updated["macro_start_x"] = int_like(macro.get("start_x", 0), 0)

@@ -99,7 +99,7 @@ async def test_hold_release_cancel_run_stops_immediately() -> None:
         ],
         macro_name="hold_any_release",
         loop_mode="hold",
-        hold_release_behavior="cancel_run",
+        loop_stop_behavior="cancel_run",
         source_device="dev1",
         source_button="btn_hold",
         trigger_value=1,
@@ -201,7 +201,7 @@ async def test_cancel_macro_playback_interrupts_tight_toggle_loop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_toggle_second_press_cancels_by_source_even_if_name_differs() -> None:
+async def test_toggle_second_press_finishes_current_run_by_default() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()
 
@@ -236,6 +236,55 @@ async def test_toggle_second_press_cancels_by_source_even_if_name_differs() -> N
         loop_mode="toggle",
         source_device="dev1",
         source_button="btn_toggle",
+        trigger_value=1,
+    )
+
+    assert result["status"] == "ok"
+    assert result["cancelled"] is False
+    await asyncio.wait_for(_wait_for_no_running_macros(manager), timeout=0.5)
+    assert any(
+        c.args == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_G, 0)
+        for c in manager.output_state.keyboard_uinput.write.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_toggle_second_press_cancel_run_stops_immediately() -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+
+    await manager.play_macro(
+        macro_events=[
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.KEY_B,
+                "value": 1,
+                "device_type": "keyboard",
+            },
+            {
+                "t_us": 100_000,
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.KEY_B,
+                "value": 0,
+                "device_type": "keyboard",
+            },
+        ],
+        macro_name="toggle_cancel",
+        loop_mode="toggle",
+        loop_stop_behavior="cancel_run",
+        source_device="dev1",
+        source_button="btn_toggle_cancel",
+        trigger_value=1,
+    )
+
+    await asyncio.sleep(0.02)
+    result = await manager.play_macro(
+        macro_events=[],
+        macro_name="toggle_cancel",
+        loop_mode="toggle",
+        source_device="dev1",
+        source_button="btn_toggle_cancel",
         trigger_value=1,
     )
 
@@ -314,7 +363,7 @@ def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatc
                         macro_replay_mouse_clicks=True,
                         macro_speed=1.25,
                         macro_loop_mode="hold",
-                        macro_hold_release_behavior="cancel_run",
+                        macro_loop_stop_behavior="cancel_run",
                     ),
                     "btn_start": MappingAction(action_type=ActionType.START_MACRO_RECORDING),
                     "btn_stop": MappingAction(action_type=ActionType.STOP_MACRO_RECORDING),
@@ -336,7 +385,7 @@ def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatc
     assert macro_action.macro_replay_mouse_clicks is True
     assert macro_action.macro_speed == 1.25
     assert macro_action.macro_loop_mode == "hold"
-    assert macro_action.macro_hold_release_behavior == "cancel_run"
+    assert macro_action.macro_loop_stop_behavior == "cancel_run"
 
     assert layer.mappings["btn_start"].action_type == ActionType.START_MACRO_RECORDING
     assert layer.mappings["btn_stop"].action_type == ActionType.STOP_MACRO_RECORDING

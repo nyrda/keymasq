@@ -6,7 +6,7 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
     ActionType,
     MappingAction,
-    normalize_macro_hold_release_behavior,
+    normalize_macro_loop_stop_behavior,
 )
 
 type JsonObject = dict[str, object]
@@ -22,7 +22,7 @@ class MacroPlaybackRequest(TypedDict):
     speed: float
     loop_mode: str
     loop_count: int
-    hold_release_behavior: str
+    loop_stop_behavior: str
     move_to_start: bool
     start_x: int
     start_y: int
@@ -103,8 +103,8 @@ def build_macro_playback_request(
         "speed": action.macro_speed,
         "loop_mode": action.macro_loop_mode,
         "loop_count": action.macro_loop_count,
-        "hold_release_behavior": normalize_macro_hold_release_behavior(
-            action.macro_hold_release_behavior
+        "loop_stop_behavior": normalize_macro_loop_stop_behavior(
+            action.macro_loop_stop_behavior
         ),
         "move_to_start": action.macro_move_to_start,
         "start_x": action.macro_start_x,

@@ -4,6 +4,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
 import logging
+import unicodedata
 from datetime import datetime
 
 import evdev
@@ -19,6 +20,45 @@ from keymasq.gui.session_client import (
 )
 
 log = logging.getLogger("keymasq.gui.widgets.macro_manager_dialog")
+
+_TYPE_MACRO_TEXT_TRANSLATION = str.maketrans(
+    {
+        "\u00a0": " ",
+        "\u00ad": "",
+        "\u2007": " ",
+        "\u200b": "",
+        "\u200c": "",
+        "\u200d": "",
+        "\u2010": "-",
+        "\u2011": "-",
+        "\u2012": "-",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2015": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201a": "'",
+        "\u201b": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\u201f": '"',
+        "\u2026": "...",
+        "\u202f": " ",
+        "\u2212": "-",
+        "\ufeff": "",
+    }
+)
+
+
+def _normalize_type_macro_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized.translate(_TYPE_MACRO_TEXT_TRANSLATION)
+
+
+def _normalize_unicode_type_macro_text(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _suggest_unique_macro_name(existing_names: set[str]) -> str:
@@ -651,8 +691,18 @@ class TypeMacroDialog(Adw.Dialog):
 
         self.text_view = Gtk.TextView()
         self.text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.text_view.get_buffer().connect("changed", self._on_text_changed)
         text_scrolled.set_child(self.text_view)
         main.append(text_scrolled)
+
+        self.unicode_check = Gtk.CheckButton(
+            label="Use Ctrl+Shift+U for detected Unicode characters"
+        )
+        self.unicode_check.set_tooltip_text(
+            "Best-effort Linux Unicode input. Works in many text fields, but not every app."
+        )
+        self.unicode_check.set_visible(False)
+        main.append(self.unicode_check)
 
         timing = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         timing.set_halign(Gtk.Align.START)
@@ -699,6 +749,32 @@ class TypeMacroDialog(Adw.Dialog):
         main.append(btn_row)
         self.set_child(main)
 
+    def _on_text_changed(self, _buffer: Gtk.TextBuffer) -> None:
+        self._sync_unicode_warning()
+
+    def _sync_unicode_warning(self) -> None:
+        text = self._text_buffer_text()
+        needs_unicode = self._text_needs_unicode_option(text)
+        was_visible = self.unicode_check.get_visible()
+        self.unicode_check.set_visible(needs_unicode)
+        if needs_unicode and not was_visible:
+            self.unicode_check.set_active(True)
+        elif not needs_unicode:
+            self.unicode_check.set_active(False)
+
+    def _text_buffer_text(self) -> str:
+        buffer = self.text_view.get_buffer()
+        start = buffer.get_start_iter()
+        end = buffer.get_end_iter()
+        return buffer.get_text(start, end, False)
+
+    def _text_needs_unicode_option(self, text: str) -> bool:
+        exact_text = _normalize_unicode_type_macro_text(text)
+        direct_text = _normalize_type_macro_text(text)
+        if exact_text != direct_text:
+            return True
+        return any(not self._can_type_directly(ch) for ch in direct_text)
+
     def _on_create(self, btn: Gtk.Button) -> None:
         import re
 
@@ -710,10 +786,15 @@ class TypeMacroDialog(Adw.Dialog):
             self._show_error("Only letters, numbers, underscores and hyphens")
             return
 
-        buffer = self.text_view.get_buffer()
-        start = buffer.get_start_iter()
-        end = buffer.get_end_iter()
-        text = buffer.get_text(start, end, False)
+        text = self._text_buffer_text()
+        use_unicode_input = (
+            self.unicode_check.get_visible() and self.unicode_check.get_active()
+        )
+        text = (
+            _normalize_unicode_type_macro_text(text)
+            if use_unicode_input
+            else _normalize_type_macro_text(text)
+        )
         if not text:
             self._show_error("Please enter text to type")
             return
@@ -722,7 +803,12 @@ class TypeMacroDialog(Adw.Dialog):
         pause_ms = int(self.pause_spin.get_value())
 
         try:
-            events = self._build_type_events(text, down_ms, pause_ms)
+            events = self._build_type_events(
+                text,
+                down_ms,
+                pause_ms,
+                use_unicode_input=use_unicode_input,
+            )
         except ValueError as e:
             self._show_error(str(e))
             return
@@ -767,64 +853,148 @@ class TypeMacroDialog(Adw.Dialog):
         self.error_label.set_label(message)
         self.error_label.set_visible(True)
 
-    def _build_type_events(self, text: str, down_ms: int, pause_ms: int) -> list[dict]:
+    def _build_type_events(
+        self,
+        text: str,
+        down_ms: int,
+        pause_ms: int,
+        *,
+        use_unicode_input: bool = False,
+    ) -> list[dict]:
         events: list[dict] = []
         t_us = 0
         modifier_settle_us = 1_000
+        text = (
+            _normalize_unicode_type_macro_text(text)
+            if use_unicode_input
+            else _normalize_type_macro_text(text)
+        )
 
         for i, ch in enumerate(text):
-            code, needs_shift = self._char_to_key(ch)
+            try:
+                code, needs_shift = self._char_to_key(ch)
+            except ValueError as exc:
+                if use_unicode_input:
+                    t_us = self._append_unicode_char_events(
+                        events,
+                        ch,
+                        t_us,
+                        down_ms,
+                        modifier_settle_us,
+                    )
+                    if i < len(text) - 1 and pause_ms > 0:
+                        t_us += pause_ms * 1000
+                    continue
 
-            if needs_shift:
-                events.append(
-                    {
-                        "device_type": "keyboard",
-                        "type": evdev.ecodes.EV_KEY,
-                        "code": evdev.ecodes.KEY_LEFTSHIFT,
-                        "value": 1,
-                        "t_us": t_us,
-                    }
-                )
-                t_us += modifier_settle_us
+                char_name = unicodedata.name(ch, "UNKNOWN")
+                raise ValueError(
+                    f"Unsupported character at position {i + 1}: {ch!r} ({char_name})"
+                ) from exc
 
-            events.append(
-                {
-                    "device_type": "keyboard",
-                    "type": evdev.ecodes.EV_KEY,
-                    "code": code,
-                    "value": 1,
-                    "t_us": t_us,
-                }
+            t_us = self._append_direct_key_events(
+                events,
+                code,
+                needs_shift,
+                t_us,
+                down_ms,
+                modifier_settle_us,
             )
-
-            t_us += down_ms * 1000
-
-            events.append(
-                {
-                    "device_type": "keyboard",
-                    "type": evdev.ecodes.EV_KEY,
-                    "code": code,
-                    "value": 0,
-                    "t_us": t_us,
-                }
-            )
-
-            if needs_shift:
-                t_us += modifier_settle_us
-                events.append(
-                    {
-                        "device_type": "keyboard",
-                        "type": evdev.ecodes.EV_KEY,
-                        "code": evdev.ecodes.KEY_LEFTSHIFT,
-                        "value": 0,
-                        "t_us": t_us,
-                    }
-                )
 
             if i < len(text) - 1 and pause_ms > 0:
                 t_us += pause_ms * 1000
 
         return events
+
+    def _append_key_event(
+        self,
+        events: list[dict],
+        code: int,
+        value: int,
+        t_us: int,
+    ) -> None:
+        events.append(
+            {
+                "device_type": "keyboard",
+                "type": evdev.ecodes.EV_KEY,
+                "code": code,
+                "value": value,
+                "t_us": t_us,
+            }
+        )
+
+    def _append_direct_key_events(
+        self,
+        events: list[dict],
+        code: int,
+        needs_shift: bool,
+        t_us: int,
+        down_ms: int,
+        modifier_settle_us: int,
+    ) -> int:
+        if needs_shift:
+            self._append_key_event(events, evdev.ecodes.KEY_LEFTSHIFT, 1, t_us)
+            t_us += modifier_settle_us
+
+        self._append_key_event(events, code, 1, t_us)
+        t_us += down_ms * 1000
+        self._append_key_event(events, code, 0, t_us)
+
+        if needs_shift:
+            t_us += modifier_settle_us
+            self._append_key_event(events, evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
+
+        return t_us
+
+    def _append_unicode_char_events(
+        self,
+        events: list[dict],
+        ch: str,
+        t_us: int,
+        down_ms: int,
+        modifier_settle_us: int,
+    ) -> int:
+        self._append_key_event(events, evdev.ecodes.KEY_LEFTCTRL, 1, t_us)
+        t_us += modifier_settle_us
+        self._append_key_event(events, evdev.ecodes.KEY_LEFTSHIFT, 1, t_us)
+        t_us += modifier_settle_us
+
+        self._append_key_event(events, evdev.ecodes.KEY_U, 1, t_us)
+        t_us += down_ms * 1000
+        self._append_key_event(events, evdev.ecodes.KEY_U, 0, t_us)
+
+        t_us += modifier_settle_us
+        self._append_key_event(events, evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
+        t_us += modifier_settle_us
+        self._append_key_event(events, evdev.ecodes.KEY_LEFTCTRL, 0, t_us)
+        t_us += modifier_settle_us
+
+        for hex_digit in f"{ord(ch):x}":
+            code, needs_shift = self._char_to_key(hex_digit)
+            t_us = self._append_direct_key_events(
+                events,
+                code,
+                needs_shift,
+                t_us,
+                down_ms,
+                modifier_settle_us,
+            )
+
+        code, needs_shift = self._char_to_key("\n")
+        return self._append_direct_key_events(
+            events,
+            code,
+            needs_shift,
+            t_us,
+            down_ms,
+            modifier_settle_us,
+        )
+
+    def _can_type_directly(self, ch: str) -> bool:
+        try:
+            self._char_to_key(ch)
+        except ValueError:
+            return False
+        return True
 
     def _char_to_key(self, ch: str) -> tuple[int, bool]:
         letters = "abcdefghijklmnopqrstuvwxyz"

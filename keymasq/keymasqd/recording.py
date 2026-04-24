@@ -6,6 +6,7 @@ import evdev
 
 from keymasq.common.devices import (
     classify_event_device_type,
+    high_res_wheel_low_res_code,
     normalize_input_classes,
     resolve_stable_path,
 )
@@ -112,7 +113,11 @@ class RecordingManager:
             return
 
         if device_type == "mouse":
-            if event.type == evdev.ecodes.EV_REL and not self._include_mouse_movement:
+            if (
+                event.type == evdev.ecodes.EV_REL
+                and not self._include_mouse_movement
+                and not _is_wheel_event(event)
+            ):
                 return
             if event.type == evdev.ecodes.EV_KEY and not self._include_mouse_clicks:
                 return
@@ -193,7 +198,15 @@ class RecordingManager:
                     "event_count": len(self._events),
                     "duration_ms": duration_ms,
                 },
-            )
+        )
+
+
+def _is_wheel_event(event: evdev.InputEvent) -> bool:
+    if event.type != evdev.ecodes.EV_REL:
+        return False
+    return event.code in (evdev.ecodes.REL_WHEEL, evdev.ecodes.REL_HWHEEL) or (
+        high_res_wheel_low_res_code(int(event.code)) is not None
+    )
 
 
 def _str_value(value: object, default: str = "") -> str:

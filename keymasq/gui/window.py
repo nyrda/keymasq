@@ -283,6 +283,8 @@ class MainWindow(Adw.ApplicationWindow):
             self._recording_overlay.on_progress(event)
         elif event_type == "recording_auth_requested":
             self.present_recording_settings_dialog(reason="recording_locked")
+        elif event_type == "macro_save_pending":
+            self.present_pending_macro_save_dialog()
 
         callbacks = self._event_handlers.get(event_type)
         if callbacks is None:

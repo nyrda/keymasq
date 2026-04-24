@@ -53,6 +53,7 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
             "block_mouse_movement": True,
             "loop_mode": "count",
             "loop_count": 3,
+            "hold_release_behavior": "cancel_run",
         },
     }
 
@@ -79,6 +80,8 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     )
     assert dialog._macro_loop_count_spin.get_value_as_int() == 3
     assert dialog._macro_loop_count_spin.get_visible() is True
+    assert dialog._macro_hold_finish_check.get_active() is False
+    assert dialog._macro_hold_finish_check.get_visible() is False
     assert dialog._macro_move_to_start_check.get_active() is True
     assert dialog._macro_start_x_spin.get_value_as_int() == 320
     assert dialog._macro_start_y_spin.get_value_as_int() == 240
@@ -268,6 +271,7 @@ def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> N
     assert dialog._macro_loop_mode == "count"
     assert dialog._macro_loop_count == 4
     assert dialog._macro_loop_count_spin.get_visible() is True
+    assert dialog._macro_hold_finish_check.get_visible() is False
     assert dialog._macro_start_x_spin.get_sensitive() is True
     assert dialog._macro_start_y_spin.get_sensitive() is True
     assert dialog._macro_start_x_spin.get_value_as_int() == 640
@@ -445,6 +449,7 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     assert payload["name"] == "saved_macro"
     assert payload["loop_mode"] == "toggle"
     assert payload["loop_count"] == 2
+    assert payload["hold_release_behavior"] == "finish_run"
     assert payload["move_to_start"] is True
     assert payload["start_x"] == 10
     assert payload["start_y"] == 20
@@ -480,6 +485,7 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
         "duration_ms": 3,
         "loop_mode": "hold",
         "loop_count": 1,
+        "hold_release_behavior": "cancel_run",
         "move_to_start": False,
         "start_x": 0,
         "start_y": 0,
@@ -515,6 +521,7 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     dialog._macro_loop_count_spin.set_value(5)
     dialog._macro_move_to_start_check.set_active(True)
     dialog._macro_start_x_spin.set_value(99)
+    dialog._macro_hold_finish_check.set_active(True)
 
     dialog._on_undo_all_changes(None)
 
@@ -525,5 +532,7 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
         "none",
     ) == "hold"
     assert dialog._macro_loop_count_spin.get_value_as_int() == 1
+    assert dialog._macro_hold_finish_check.get_visible() is True
+    assert dialog._macro_hold_finish_check.get_active() is False
     assert dialog._macro_move_to_start_check.get_active() is False
     assert dialog._macro_start_x_spin.get_value_as_int() == 0

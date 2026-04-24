@@ -64,6 +64,9 @@ RAPIDFIRE_ACTION_TYPES = frozenset(
     }
 )
 
+MACRO_HOLD_RELEASE_BEHAVIORS = frozenset({"finish_run", "cancel_run"})
+DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR = "finish_run"
+
 
 class DeviceType(Enum):
     MOUSE = "mouse"
@@ -145,6 +148,13 @@ def parse_rapidfire_fields(
     )
 
 
+def normalize_macro_hold_release_behavior(value: object) -> str:
+    behavior = str(value or DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR).lower()
+    if behavior in MACRO_HOLD_RELEASE_BEHAVIORS:
+        return behavior
+    return DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR
+
+
 @dataclass
 class EvdevDevice:
     path: str
@@ -197,6 +207,7 @@ class MappingAction:
     macro_speed: float = 1.0
     macro_loop_mode: str = "none"
     macro_loop_count: int = 1
+    macro_hold_release_behavior: str = DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR
     macro_move_to_start: bool = False
     macro_start_x: int = 0
     macro_start_y: int = 0
@@ -230,6 +241,7 @@ class SuperkeyAction:
     macro_speed: float = 1.0
     macro_loop_mode: str = "none"
     macro_loop_count: int = 1
+    macro_hold_release_behavior: str = DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR
     macro_move_to_start: bool = False
     macro_start_x: int = 0
     macro_start_y: int = 0
@@ -259,6 +271,7 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
     "macro_speed",
     "macro_loop_mode",
     "macro_loop_count",
+    "macro_hold_release_behavior",
     "macro_move_to_start",
     "macro_start_x",
     "macro_start_y",
@@ -290,6 +303,10 @@ def superkey_action_shared_kwargs(action: object) -> dict[str, Any]:
     kwargs["rapidfire_enabled"] = rapidfire_enabled
     kwargs["rapidfire_hold_ms"] = rapidfire_hold_ms
     kwargs["rapidfire_wait_ms"] = rapidfire_wait_ms
+    if typed_action.action_type == ActionType.MACRO:
+        kwargs["macro_hold_release_behavior"] = normalize_macro_hold_release_behavior(
+            kwargs["macro_hold_release_behavior"]
+        )
     return kwargs
 
 

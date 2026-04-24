@@ -219,6 +219,13 @@ async def handle_start_macro_trigger(manager: "SessionManager") -> None:
     result = await runtime_recording.start_recording(manager, reset_if_active=False)
     if result.get("status") != "ok":
         if result.get("error_code") == runtime_recording.MACRO_SAVE_PENDING_ERROR_CODE:
+            manager.broadcast_to_session_clients(
+                {
+                    "event": "macro_save_pending",
+                    "message": result.get("message", ""),
+                    "pending_save_token": result.get("pending_save_token", ""),
+                }
+            )
             return
         runtime_recording.notify_recording_unlock_required(manager, result)
         manager.broadcast_to_session_clients({"event": "recording_auth_requested"})

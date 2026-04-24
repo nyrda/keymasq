@@ -232,7 +232,13 @@ async def test_start_macro_trigger_blocks_when_macro_save_is_pending() -> None:
         "Keymasq: Macro Save Pending",
         "Save or discard the current recording before starting another recording.",
     )
-    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {
+            "event": "macro_save_pending",
+            "message": "Save or discard the current recording before starting another recording.",
+            "pending_save_token": "pending-1",
+        }
+    )
     manager.client.send_command.assert_not_awaited()
 
 

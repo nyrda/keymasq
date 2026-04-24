@@ -475,10 +475,19 @@ class TestSaveMacroDialog:
 
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
         captured: dict[str, object] = {}
+
+        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+            captured.update(payload)
+            if on_start:
+                on_start()
+            callback({"status": "ok"})
+            if on_done:
+                on_done()
+
         monkeypatch.setattr(
             save_macro_dialog_module,
-            "session_request_async",
-            lambda payload, callback: captured.update(payload),
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
         )
 
         dialog = SaveMacroDialog(
@@ -497,6 +506,47 @@ class TestSaveMacroDialog:
             "command": "discard_recording",
             "pending_save_token": "pending-1",
         }
+
+    def test_save_macro_dialog_discard_failure_keeps_dialog_open(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+            if on_start:
+                on_start()
+            callback({"status": "error", "message": "discard failed"})
+            if on_done:
+                on_done()
+
+        monkeypatch.setattr(
+            save_macro_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+                "pending_save_token": "pending-1",
+            },
+        )
+        force_closed: list[bool] = []
+        monkeypatch.setattr(dialog, "force_close", lambda: force_closed.append(True))
+
+        dialog._on_discard_clicked(Gtk.Button())
+
+        assert force_closed == []
+        assert dialog._saved is False
+        assert dialog._error_label.get_label() == "discard failed"
+        assert dialog.get_can_close() is True
 
 
 class TestDialogConstruction:

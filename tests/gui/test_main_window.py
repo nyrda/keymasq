@@ -515,6 +515,22 @@ class TestMainWindow:
 
         assert captured["reason"] == "recording_locked"
 
+    def test_main_window_macro_save_pending_event_presents_existing_save_dialog(self):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        presented: list[bool] = []
+
+        class DummyDialog:
+            def present(self, parent) -> None:
+                presented.append(True)
+
+        window._save_macro_dialog = DummyDialog()  # type: ignore[assignment]
+
+        window._handle_session_event({"event": "macro_save_pending"})
+
+        assert presented == [True]
+
     def test_main_window_recording_started_closes_tracked_dialogs(self):
         from keymasq.gui.window import MainWindow
 

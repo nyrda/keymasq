@@ -693,6 +693,84 @@ class TestDialogConstruction:
         assert dialog.get_child() is not None
         assert callable(dialog._on_close_clicked)
 
+    def test_type_macro_builder_normalizes_common_pasted_text(self):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+        import evdev
+
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        dialog = TypeMacroDialog(Gtk.Window())
+
+        events = dialog._build_type_events("A\u00a0\u201cHi\u201d\u2026\r\nx\u2014y", 10, 0)
+
+        press_codes = [
+            event["code"]
+            for event in events
+            if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
+        ]
+        assert evdev.ecodes.KEY_SPACE in press_codes
+        assert evdev.ecodes.KEY_APOSTROPHE in press_codes
+        assert press_codes.count(evdev.ecodes.KEY_DOT) == 3
+        assert press_codes.count(evdev.ecodes.KEY_ENTER) == 1
+        assert evdev.ecodes.KEY_MINUS in press_codes
+
+    def test_type_macro_builder_reports_unsupported_character_position(self):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        dialog = TypeMacroDialog(Gtk.Window())
+
+        with pytest.raises(ValueError, match=r"position 2: 'é'"):
+            dialog._build_type_events("aé", 10, 0)
+
+    def test_type_macro_dialog_shows_unicode_input_option_enabled_by_default(self):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        dialog = TypeMacroDialog(Gtk.Window())
+        buffer = dialog.text_view.get_buffer()
+
+        buffer.set_text("hello")
+        assert dialog.unicode_check.get_visible() is False
+
+        buffer.set_text("hello \u2014")
+        assert dialog.unicode_check.get_visible() is True
+        assert dialog.unicode_check.get_active() is True
+        assert (
+            dialog.unicode_check.get_label()
+            == "Use Ctrl+Shift+U for detected Unicode characters"
+        )
+
+    def test_type_macro_builder_can_emit_unicode_input_sequence(self):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+        import evdev
+
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        dialog = TypeMacroDialog(Gtk.Window())
+
+        events = dialog._build_type_events("é", 10, 0, use_unicode_input=True)
+
+        press_codes = [
+            event["code"]
+            for event in events
+            if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
+        ]
+        assert press_codes == [
+            evdev.ecodes.KEY_LEFTCTRL,
+            evdev.ecodes.KEY_LEFTSHIFT,
+            evdev.ecodes.KEY_U,
+            evdev.ecodes.KEY_E,
+            evdev.ecodes.KEY_9,
+            evdev.ecodes.KEY_ENTER,
+        ]
+
     def test_macro_manager_closes_when_recording_starts(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk

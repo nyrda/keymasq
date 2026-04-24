@@ -23,6 +23,7 @@ multi-step automation.
 - [Profiles](PROFILES.md) — the layered, window-aware profile model that
   everything else builds on.
 - [Actions](ACTIONS.md) — what each mapping can do.
+- [Examples](EXAMPLES.md) — small task-focused recipes for common workflows.
 - [Macros](MACROS.md) — record, edit, and play back input sequences, including autoclicker-style loops.
 
 ## User guide

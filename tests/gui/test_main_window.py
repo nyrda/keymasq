@@ -500,6 +500,108 @@ class TestMainWindow:
         }
         assert window._profile_runtime_state["window"] == {"class": "steam"}
 
+    def test_main_window_recording_auth_event_opens_locked_recording_dialog(self, monkeypatch):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            window,
+            "present_recording_settings_dialog",
+            lambda reason="settings": captured.setdefault("reason", reason),
+        )
+
+        window._handle_session_event({"event": "recording_auth_requested"})
+
+        assert captured["reason"] == "recording_locked"
+
+    def test_main_window_macro_save_pending_event_presents_existing_save_dialog(self):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        presented: list[bool] = []
+
+        class DummyDialog:
+            def present(self, parent) -> None:
+                presented.append(True)
+
+        window._save_macro_dialog = DummyDialog()  # type: ignore[assignment]
+
+        window._handle_session_event({"event": "macro_save_pending"})
+
+        assert presented == [True]
+
+    def test_main_window_recording_started_closes_tracked_dialogs(self):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        closed: list[str] = []
+        overlay_events: list[dict] = []
+
+        class DummyDialog:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+            def close(self) -> None:
+                closed.append(self.name)
+
+        class DummyOverlay:
+            def set_visible(self, visible: bool) -> None:
+                overlay_events.append({"visible": visible})
+
+            def on_started(self, event: dict) -> None:
+                overlay_events.append(event)
+
+        window._record_macro_dialog = DummyDialog("settings")  # type: ignore[assignment]
+        window._macro_manager_dialog = DummyDialog("macros")  # type: ignore[assignment]
+        window._recording_overlay = DummyOverlay()  # type: ignore[assignment]
+
+        window._handle_session_event({"event": "recording_started"})
+
+        assert closed == ["settings", "macros"]
+        assert overlay_events == [{"visible": True}, {"event": "recording_started"}]
+
+    def test_main_window_recording_stopped_tracks_single_save_macro_dialog(self, monkeypatch):
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        created: list[dict] = []
+        presented: list[object] = []
+
+        class DummySaveMacroDialog:
+            def __init__(self, parent, event: dict) -> None:
+                self.parent = parent
+                self.event = event
+                created.append(event)
+
+            def connect(self, signal: str, callback) -> None:
+                self.signal = signal
+                self.callback = callback
+
+            def present(self, parent) -> None:
+                presented.append(parent)
+
+        monkeypatch.setattr(save_macro_dialog_module, "SaveMacroDialog", DummySaveMacroDialog)
+
+        window._on_recording_stopped(
+            {"event": "recording_stopped", "pending_save_token": "pending-1"}
+        )
+        first_dialog = window._save_macro_dialog
+        window._on_recording_stopped(
+            {"event": "recording_stopped", "pending_save_token": "pending-1"}
+        )
+
+        assert len(created) == 1
+        assert first_dialog is window._save_macro_dialog
+        assert presented == [window, window]
+
+        assert window.present_pending_macro_save_dialog() is True
+        assert presented == [window, window, window]
+
+        window._on_save_macro_dialog_closed(first_dialog)
+        assert window._save_macro_dialog is None
+
     def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
         from keymasq.gui.window import MainWindow
 

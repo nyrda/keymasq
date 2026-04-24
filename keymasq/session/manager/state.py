@@ -30,6 +30,16 @@ class CaptureRuntimeState:
 class RecordingRuntimeState:
     active: bool = False
     pending_data: JsonObject | None = None
+    pending_save_token: str | None = None
+    pending_save_owner_writer_id: int | None = None
+    pending_save_owner_pid: int | None = None
+    pending_save_owner_uid: int | None = None
+    pending_save_created_at: float = 0.0
+    pending_save_notification_token: str | None = None
+    pending_save_notification_at: float = 0.0
+    active_owner_writer_id: int | None = None
+    active_owner_pid: int | None = None
+    active_owner_uid: int | None = None
     start_cursor: tuple[int, int] | None = None
     settings: JsonObject = field(default_factory=default_recording_settings)
     settings_pending_save: JsonObject | None = None

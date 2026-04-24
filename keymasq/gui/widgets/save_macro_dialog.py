@@ -15,6 +15,10 @@ class SaveMacroDialog(Adw.Dialog):
         self._parent = parent
         self._recording_data = recording_data
         self._saved = False
+        self._closing_after_resolution = False
+        self._request_inflight = False
+        self._request_error_message: str | None = None
+        self._pending_save_token = str(recording_data.get("pending_save_token", "") or "")
         has_start_pos = ("start_x" in recording_data) and ("start_y" in recording_data)
         self._move_to_start = bool(recording_data.get("move_to_start", has_start_pos))
         self._start_x = int(recording_data.get("start_x", 0) or 0)
@@ -155,6 +159,7 @@ class SaveMacroDialog(Adw.Dialog):
         discard_btn.add_css_class("destructive-action")
         discard_btn.add_css_class("flat")
         discard_btn.connect("clicked", self._on_discard_clicked)
+        self._discard_btn = discard_btn
         footer.append(discard_btn)
 
         self._save_btn = Gtk.Button(label="Save")
@@ -168,6 +173,14 @@ class SaveMacroDialog(Adw.Dialog):
         main_box.append(frame)
         self.set_child(main_box)
         self._update_start_pos_controls()
+
+    def do_close_attempt(self) -> None:
+        if self._saved or self._closing_after_resolution:
+            self.force_close()
+            return
+        if self._request_inflight:
+            return
+        self._begin_discard_request()
 
     def _on_move_to_start_toggled(self, check: Gtk.CheckButton) -> None:
         self._move_to_start = check.get_active()
@@ -256,6 +269,8 @@ class SaveMacroDialog(Adw.Dialog):
                 "block_mouse_movement": self._block_mouse_check.get_active(),
             }
         )
+        if self._pending_save_token:
+            payload["pending_save_token"] = self._pending_save_token
         session_request_with_hooks(
             payload,
             self._on_save_finished,
@@ -264,26 +279,79 @@ class SaveMacroDialog(Adw.Dialog):
         )
 
     def _on_save_request_start(self) -> None:
-        self._save_btn.set_sensitive(False)
+        self._request_error_message = None
+        self._set_request_inflight(True)
 
     def _on_save_request_done(self) -> None:
         if not self._saved:
-            self._save_btn.set_sensitive(True)
+            self._set_request_inflight(False)
+            if self._request_error_message:
+                self._show_error(self._request_error_message)
+                self._request_error_message = None
 
     def _on_save_finished(self, result: dict | None) -> bool:
         if result and result.get("status") == "ok":
             self._saved = True
-            self.close()
+            self._closing_after_resolution = True
+            self.force_close()
         else:
-            msg = (result or {}).get("message", "Failed to save macro")
-            self._show_error(msg)
+            self._request_error_message = (result or {}).get("message", "Failed to save macro")
         return False
 
     def _on_discard_clicked(self, btn: Gtk.Button) -> None:
-        self._saved = True  # Prevent double-discard in _on_dialog_closed
-        session_request_async({"command": "discard_recording"}, lambda _result: False)
-        self.close()
+        self._begin_discard_request()
 
     def _on_dialog_closed(self, dialog) -> None:
+        return
+
+    def _begin_discard_request(self) -> None:
+        self._hide_error()
+        self._request_error_message = None
+        self._set_request_inflight(True)
+        session_request_with_hooks(
+            self._discard_payload(),
+            self._on_discard_finished,
+            on_start=lambda: None,
+            on_done=self._on_discard_request_done,
+        )
+
+    def _on_discard_request_done(self) -> None:
         if not self._saved:
-            session_request_async({"command": "discard_recording"}, lambda _result: False)
+            self._set_request_inflight(False)
+            if self._request_error_message:
+                self._show_error(self._request_error_message)
+                self._request_error_message = None
+
+    def _on_discard_finished(self, result: dict | None) -> bool:
+        if result and result.get("status") == "ok":
+            self._saved = True
+            self._closing_after_resolution = True
+            self.force_close()
+        else:
+            self._request_error_message = (result or {}).get(
+                "message",
+                "Failed to discard recording",
+            )
+        return False
+
+    def _discard_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {"command": "discard_recording"}
+        if self._pending_save_token:
+            payload["pending_save_token"] = self._pending_save_token
+        return payload
+
+    def _set_request_inflight(self, inflight: bool) -> None:
+        self._request_inflight = inflight
+        self.set_can_close(not inflight)
+        self._save_btn.set_sensitive(False if inflight else self._save_btn.get_sensitive())
+        self._discard_btn.set_sensitive(not inflight)
+        self._name_entry.set_sensitive(not inflight)
+        self._move_to_start_check.set_sensitive(not inflight)
+        self._block_mouse_check.set_sensitive(not inflight)
+        if inflight:
+            self._start_x_spin.set_sensitive(False)
+            self._start_y_spin.set_sensitive(False)
+            return
+
+        self._update_start_pos_controls()
+        self._validate_name(self._name_entry.get_text().strip())

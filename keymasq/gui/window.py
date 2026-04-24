@@ -69,6 +69,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._connection_body_label: Gtk.Label | None = None
         self._macro_manager_dialog: Adw.Dialog | None = None
         self._record_macro_dialog: Adw.Dialog | None = None
+        self._save_macro_dialog: Adw.Dialog | None = None
         self._recording_unlocked = False
         self._recording_unlock_required = True
         self._recording_unlock_source = "none"
@@ -271,15 +272,19 @@ class MainWindow(Adw.ApplicationWindow):
             self._apply_profile_runtime_state(event)
             self._queue_profile_reload()
         elif event_type == "recording_started":
+            self._close_dialogs_for_recording_start()
             self._recording_overlay.set_visible(True)
             self._recording_overlay.on_started(event)
         elif event_type == "recording_stopped":
+            self._recording_overlay.on_stopped()
             self._recording_overlay.set_visible(False)
             self._on_recording_stopped(event)
         elif event_type == "recording_progress":
             self._recording_overlay.on_progress(event)
         elif event_type == "recording_auth_requested":
-            self.present_recording_settings_dialog()
+            self.present_recording_settings_dialog(reason="recording_locked")
+        elif event_type == "macro_save_pending":
+            self.present_pending_macro_save_dialog()
 
         callbacks = self._event_handlers.get(event_type)
         if callbacks is None:
@@ -290,9 +295,29 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_recording_stopped(self, event: dict) -> None:
         from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
 
-        parent = self._macro_manager_dialog if self._macro_manager_dialog else self
-        dialog = SaveMacroDialog(parent, event)
-        dialog.present(parent)
+        if self._save_macro_dialog is not None:
+            self._save_macro_dialog.present(self)
+            return
+
+        dialog = SaveMacroDialog(self, event)
+        dialog.connect("closed", self._on_save_macro_dialog_closed)
+        self._save_macro_dialog = dialog
+        dialog.present(self)
+
+    def present_pending_macro_save_dialog(self) -> bool:
+        if self._save_macro_dialog is None:
+            return False
+        self._save_macro_dialog.present(self)
+        return True
+
+    def _on_save_macro_dialog_closed(self, dialog) -> None:
+        if dialog is self._save_macro_dialog:
+            self._save_macro_dialog = None
+
+    def _close_dialogs_for_recording_start(self) -> None:
+        for dialog in (self._record_macro_dialog, self._macro_manager_dialog):
+            if dialog is not None:
+                dialog.close()
 
     def set_macro_manager_dialog(self, dialog: Adw.Dialog | None) -> None:
         self._macro_manager_dialog = dialog
@@ -666,10 +691,8 @@ class MainWindow(Adw.ApplicationWindow):
         from keymasq.gui.widgets.recording_overlay import RecordingOverlay
 
         self._recording_overlay = RecordingOverlay(self)
-        self._recording_overlay.set_halign(Gtk.Align.END)
-        self._recording_overlay.set_valign(Gtk.Align.START)
-        self._recording_overlay.set_margin_top(8)
-        self._recording_overlay.set_margin_end(8)
+        self._recording_overlay.set_halign(Gtk.Align.FILL)
+        self._recording_overlay.set_valign(Gtk.Align.FILL)
         self._recording_overlay.set_visible(False)
 
         content_overlay = Gtk.Overlay()
@@ -1186,14 +1209,15 @@ class MainWindow(Adw.ApplicationWindow):
         self._unlock_status_label.set_label(text)
         self._unlock_status_label.set_tooltip_text(tooltip)
 
-    def present_recording_settings_dialog(self) -> None:
+    def present_recording_settings_dialog(self, reason: str = "settings") -> None:
         if self._record_macro_dialog is not None:
+            self._record_macro_dialog.set_presentation_reason(reason)
             self._record_macro_dialog.present(self)
             return
 
         from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 
-        dialog = RecordMacroDialog(self)
+        dialog = RecordMacroDialog(self, reason=reason)
         dialog.connect("closed", self._on_record_macro_dialog_closed)
         self._record_macro_dialog = dialog
         dialog.present(self)

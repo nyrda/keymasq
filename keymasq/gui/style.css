@@ -31,6 +31,46 @@
 .status-inactive { background: alpha(@error_color, 0.15); color: @error_color; }
 .status-standby { background: alpha(@shade_color, 0.08); }
 
+.recording-locked-notice {
+  background: alpha(@warning_color, 0.12);
+  border-left: 3px solid @warning_color;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.recording-overlay {
+  background: transparent;
+}
+
+.recording-overlay-panel {
+  background: @window_bg_color;
+  border: 1px solid alpha(@borders, 0.7);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px alpha(black, 0.35);
+  padding: 28px 30px;
+}
+
+.recording-overlay-dot {
+  background: @error_color;
+  border-radius: 999px;
+}
+
+.recording-overlay-stats {
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+.recording-overlay-stat {
+  min-width: 128px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: alpha(@shade_color, 0.08);
+}
+
+.recording-stop-button {
+  font-weight: 700;
+}
+
 /* Mouse button section titles */
 .button-section-title {
   margin-top: 8px;

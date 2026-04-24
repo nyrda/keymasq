@@ -37,6 +37,23 @@ async def test_owner_disconnect_cleans_runtime_unlock() -> None:
     )
 
 
+def test_owner_disconnect_discards_pending_macro_save() -> None:
+    manager = SessionManager()
+    writer = object()
+    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
+    manager.recording_state.pending_save_token = "pending-1"
+    manager.recording_state.pending_save_owner_writer_id = id(writer)
+
+    session_recording_module.clear_pending_macro_save_if_writer(
+        manager,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert manager.recording_state.pending_data is None
+    assert manager.recording_state.pending_save_token is None
+    assert manager.recording_state.pending_save_owner_writer_id is None
+
+
 @pytest.mark.asyncio
 async def test_last_client_disconnect_cleans_runtime_unlock_without_owner() -> None:
     manager = SessionManager()

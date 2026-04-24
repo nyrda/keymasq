@@ -53,19 +53,7 @@ user session (delegated to keymasq-session, not the privileged daemon).
 
 Enter the command text and click **Map**.
 
-### Super Key
-
-Assign a [super key](SUPERKEYS.md) to this button. Select one from the
-dropdown.
-
-Super keys have two modes:
-
-- **Pattern**: Tap, Double Tap, Hold, and Tap + Hold choose one slot, and each
-  slot can run an ordered bundle of actions.
-- **Overload**: the source key behaves like a one-to-many normal mapping and
-  forwards its down, repeat, and up cycle to multiple child actions.
-
-![Special tab — Passthrough, No Override, Suppress, Super Keys, and Execute Shell Command](assets/screenshots/keymasq_key_action_special.png)
+![Special tab — Passthrough, No Override, Suppress, and Execute Shell Command](assets/screenshots/keymasq_key_action_special.png)
 
 ## Keyboard
 
@@ -246,6 +234,18 @@ so only a small allowlisted set of actions is available.
 | `fullscreen` | `toggle`, `on`, `off` |
 | `maximize` | `toggle`, `on`, `off` |
 
+## Super Keys
+
+Assign a [super key](SUPERKEYS.md) to this button. Select one from the Super
+Keys tab, then click **Map**.
+
+Super keys have two modes:
+
+- **Pattern**: Tap, Double Tap, Hold, and Tap + Hold choose one slot, and each
+  slot can run an ordered bundle of actions.
+- **Overload**: the source key behaves like a one-to-many normal mapping and
+  forwards its down, repeat, and up cycle to multiple child actions.
+
 ## Macro
 
 Trigger macro recording controls or play a saved macro.
@@ -306,8 +306,8 @@ Rapidfire and tap are **mutually exclusive** — enabling one disables the
 other.
 
 They are available for: Keyboard, Mouse, Navigation, Gamepad, and Mouse Move
-actions. They are not available for: Special, Macro, Profile, or Compositor
-actions.
+actions. They are not available for: Special, Super Keys, Macro, Profile, or
+Compositor actions.
 
 ### Rapidfire
 

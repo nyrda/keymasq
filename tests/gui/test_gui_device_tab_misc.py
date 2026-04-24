@@ -419,6 +419,53 @@ def test_key_selector_dialog_distinguishes_explicit_passthrough_and_no_override(
     assert clear_results == [None]
 
 
+def test_key_selector_dialog_uses_dedicated_superkey_tab(temp_config_dir, monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common import paths
+    from keymasq.common.models import (
+        ActionType,
+        MappingAction,
+        SuperkeyAction,
+        SuperkeyConfig,
+        SuperkeyMode,
+    )
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.superkeys import SuperkeyManager
+
+    superkeys_dir = temp_config_dir / "superkeys"
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+    SuperkeyManager().save_superkey(
+        SuperkeyConfig(
+            name="volume_rocker",
+            mode=SuperkeyMode.PATTERN,
+            tap_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_volumeup")],
+        )
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        current_action=MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_name="volume_rocker",
+        ),
+    )
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    assert dialog.stack.get_visible_child_name() == "superkey"
+    assert dialog._superkey_names == ["volume_rocker"]
+    assert dialog.map_btn.get_visible() is True
+    assert dialog.map_btn.get_sensitive() is True
+
+    dialog._on_map_clicked(dialog.map_btn)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.SUPERKEY
+    assert results[0].superkey_name == "volume_rocker"
+
+
 def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     from gi.repository import Gtk
 

@@ -718,6 +718,120 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
         ]
+
+    @pytest.mark.asyncio
+    async def test_runtime_wheel_pulse_waits_for_tap_action_to_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel-tap",
+                    "name": "Wheel Tap",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "wheel_up",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "keyboard",
+                        "target": "key_f5",
+                        "tap_enabled": True,
+                        "tap_hold_ms": 1000,
+                    },
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+
+        decision = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+
+        assert decision is not None and decision.consume_current_event is True
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
+        ]
+        assert manager.combo_state.active_actions == {}
+
+    @pytest.mark.asyncio
+    async def test_runtime_wheel_pulse_waits_for_overload_tap_child_to_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel-overload-tap",
+                    "name": "Wheel Overload Tap",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "wheel_up",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "superkey",
+                        "superkey": {
+                            "name": "wheel-overload",
+                            "mode": "overload",
+                            "overload_actions": [
+                                {
+                                    "action": "keyboard",
+                                    "target": "key_f5",
+                                    "tap_enabled": True,
+                                    "tap_hold_ms": 1000,
+                                }
+                            ],
+                        },
+                    },
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+
+        decision = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+
+        assert decision is not None and decision.consume_current_event is True
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
+        ]
         assert manager.combo_state.active_actions == {}
 
     @pytest.mark.asyncio

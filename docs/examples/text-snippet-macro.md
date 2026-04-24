@@ -11,7 +11,8 @@ the timing in the macro editor.
 ## When To Use Type Macro
 
 Use **Type Macro** for simple snippets made from standard letters, numbers, and
-common symbols.
+common symbols. If the snippet contains Unicode characters, the dialog can also
+build best-effort Linux Unicode input sequences with `Ctrl+Shift+U`.
 
 For example:
 
@@ -20,7 +21,8 @@ support@example.com
 ```
 
 For text in your preferred language, text with accented characters, or text
-that depends on your keyboard layout, use a recording instead.
+that depends on your keyboard layout, test Type Macro's Unicode option first.
+If the target app does not accept those sequences, use a recording instead.
 
 ## Record The Snippet
 
@@ -77,4 +79,3 @@ the macro.
 The recording captures the exact key events your layout produces. The editor
 then turns that human recording into a fast, reusable macro without Keymasq
 needing to understand your language or keyboard layout.
-

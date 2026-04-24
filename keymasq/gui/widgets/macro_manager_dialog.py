@@ -494,8 +494,13 @@ class MacroManagerDialog(Adw.Dialog):
         if command == "start_recording" and self._is_recording_locked(result):
             self._recording_unlocked = False
             self._sync_record_button_state()
-            self._open_recording_settings_dialog()
+            self._open_recording_settings_dialog(reason="recording_locked")
             return False
+
+        if command == "start_recording" and self._is_macro_save_pending(result):
+            present_pending_save = getattr(self._parent, "present_pending_macro_save_dialog", None)
+            if callable(present_pending_save) and present_pending_save():
+                return False
 
         fallback = (
             "Failed to stop recording"
@@ -525,6 +530,7 @@ class MacroManagerDialog(Adw.Dialog):
         self._recording_active = True
         self._recording_unlocked = True
         self._sync_record_button_state()
+        self.close()
 
     def _on_recording_stopped(self, data: dict) -> None:
         self._recording_active = False
@@ -570,14 +576,14 @@ class MacroManagerDialog(Adw.Dialog):
     def _on_record_settings(self, btn: Gtk.Button) -> None:
         self._open_recording_settings_dialog()
 
-    def _open_recording_settings_dialog(self) -> None:
+    def _open_recording_settings_dialog(self, reason: str = "settings") -> None:
         present_settings = getattr(self._parent, "present_recording_settings_dialog", None)
         if callable(present_settings):
-            present_settings()
+            present_settings(reason=reason)
             return
         from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 
-        record_dialog = RecordMacroDialog(self._parent)
+        record_dialog = RecordMacroDialog(self._parent, reason=reason)
         record_dialog.present(self._parent)
 
     def _is_recording_locked(self, result: dict) -> bool:
@@ -586,6 +592,13 @@ class MacroManagerDialog(Adw.Dialog):
             return True
         message = str(result.get("message", "") or "").strip().lower()
         return "recording_locked" in message
+
+    def _is_macro_save_pending(self, result: dict) -> bool:
+        error_code = str(result.get("error_code", "") or "").strip().lower()
+        if error_code == "macro_save_pending":
+            return True
+        message = str(result.get("message", "") or "").strip().lower()
+        return "save or discard" in message and "recording" in message
 
     def _on_create_type_macro(self, btn: Gtk.Button) -> None:
         dialog = TypeMacroDialog(self._parent, on_created=self._load_macros)

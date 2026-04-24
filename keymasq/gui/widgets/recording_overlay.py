@@ -10,48 +10,89 @@ from keymasq.gui.session_client import session_request_async
 
 class RecordingOverlay(Gtk.Box):
     def __init__(self, window):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._window = window
         self._start_ms: int = 0
         self._event_count: int = 0
         self._timer_id: int = 0
-        self.add_css_class("card")
-        self.set_margin_top(8)
-        self.set_margin_end(8)
+        self._stop_btn: Gtk.Button | None = None
+        self.add_css_class("recording-overlay")
+        self.set_hexpand(True)
+        self.set_vexpand(True)
         self._build_ui()
 
     def _build_ui(self) -> None:
-        self.set_margin_top(10)
-        self.set_margin_bottom(10)
-        self.set_margin_start(14)
-        self.set_margin_end(14)
+        self.set_halign(Gtk.Align.FILL)
+        self.set_valign(Gtk.Align.FILL)
 
-        top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        panel.add_css_class("recording-overlay-panel")
+        panel.set_halign(Gtk.Align.CENTER)
+        panel.set_valign(Gtk.Align.CENTER)
+        panel.set_size_request(420, -1)
+        panel.set_margin_top(24)
+        panel.set_margin_bottom(24)
+        panel.set_margin_start(24)
+        panel.set_margin_end(24)
+        self.append(panel)
 
-        indicator_label = Gtk.Label(label="⏺ Recording")
-        indicator_label.add_css_class("heading")
-        indicator_label.set_hexpand(True)
-        top_row.append(indicator_label)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        header.set_halign(Gtk.Align.CENTER)
+        panel.append(header)
 
-        stop_btn = Gtk.Button(label="Stop")
+        dot = Gtk.Box()
+        dot.add_css_class("recording-overlay-dot")
+        dot.set_size_request(12, 12)
+        dot.set_valign(Gtk.Align.CENTER)
+        header.append(dot)
+
+        title = Gtk.Label(label="Recording macro")
+        title.add_css_class("title-2")
+        title.set_valign(Gtk.Align.CENTER)
+        header.append(title)
+
+        body = Gtk.Label(label="Input is being captured until recording is stopped.")
+        body.add_css_class("dim-label")
+        body.set_wrap(True)
+        body.set_justify(Gtk.Justification.CENTER)
+        body.set_halign(Gtk.Align.CENTER)
+        panel.append(body)
+
+        stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        stats.add_css_class("recording-overlay-stats")
+        stats.set_halign(Gtk.Align.CENTER)
+        panel.append(stats)
+
+        duration_stat, self._duration_label = self._build_stat("Duration", "00:00.000")
+        stats.append(duration_stat)
+
+        events_stat, self._events_label = self._build_stat("Events", "0")
+        stats.append(events_stat)
+
+        stop_btn = Gtk.Button(label="Stop Recording")
         stop_btn.add_css_class("destructive-action")
-        stop_btn.add_css_class("flat")
+        stop_btn.add_css_class("recording-stop-button")
+        stop_btn.set_halign(Gtk.Align.CENTER)
+        stop_btn.set_size_request(220, 48)
         stop_btn.connect("clicked", self._on_stop_clicked)
-        top_row.append(stop_btn)
+        self._stop_btn = stop_btn
+        panel.append(stop_btn)
 
-        self.append(top_row)
+    def _build_stat(self, title: str, value: str) -> tuple[Gtk.Box, Gtk.Label]:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        box.add_css_class("recording-overlay-stat")
 
-        self._duration_label = Gtk.Label(label="00:00.000")
-        self._duration_label.add_css_class("caption")
-        self._duration_label.add_css_class("dim-label")
-        self._duration_label.set_halign(Gtk.Align.START)
-        self.append(self._duration_label)
+        title_label = Gtk.Label(label=title)
+        title_label.add_css_class("caption")
+        title_label.add_css_class("dim-label")
+        title_label.set_halign(Gtk.Align.CENTER)
+        box.append(title_label)
 
-        self._events_label = Gtk.Label(label="0 events")
-        self._events_label.add_css_class("caption")
-        self._events_label.add_css_class("dim-label")
-        self._events_label.set_halign(Gtk.Align.START)
-        self.append(self._events_label)
+        value_label = Gtk.Label(label=value)
+        value_label.add_css_class("title-3")
+        value_label.set_halign(Gtk.Align.CENTER)
+        box.append(value_label)
+        return box, value_label
 
     def on_started(self, data: dict) -> None:
         import time
@@ -59,7 +100,10 @@ class RecordingOverlay(Gtk.Box):
         self._start_ms = int(time.monotonic() * 1000)
         self._event_count = 0
         self._duration_label.set_label("00:00.000")
-        self._events_label.set_label("0 events")
+        self._events_label.set_label("0")
+        if self._stop_btn:
+            self._stop_btn.set_label("Stop Recording")
+            self._stop_btn.set_sensitive(True)
         if self._timer_id:
             GLib.source_remove(self._timer_id)
         self._timer_id = GLib.timeout_add(100, self._update_timer)
@@ -69,10 +113,19 @@ class RecordingOverlay(Gtk.Box):
         self._event_count = data.get("event_count", self._event_count)
         self._update_display(duration_ms)
 
+    def on_stopped(self) -> None:
+        if self._timer_id:
+            GLib.source_remove(self._timer_id)
+            self._timer_id = 0
+        if self._stop_btn:
+            self._stop_btn.set_label("Stop Recording")
+            self._stop_btn.set_sensitive(True)
+
     def _update_timer(self) -> bool:
         import time
 
         if not self.get_visible():
+            self._timer_id = 0
             return False
         elapsed_ms = int(time.monotonic() * 1000) - self._start_ms
         self._update_display(elapsed_ms)
@@ -84,13 +137,14 @@ class RecordingOverlay(Gtk.Box):
         minutes = total_s // 60
         seconds = total_s % 60
         self._duration_label.set_label(f"{minutes:02d}:{seconds:02d}.{ms:03d}")
-        self._events_label.set_label(f"{self._event_count} events")
+        self._events_label.set_label(str(self._event_count))
 
     def _on_stop_clicked(self, btn: Gtk.Button) -> None:
         if self._timer_id:
             GLib.source_remove(self._timer_id)
             self._timer_id = 0
         btn.set_sensitive(False)
+        btn.set_label("Stopping...")
         session_request_async(
             {"command": "stop_recording"},
             lambda _result: self._on_stop_done(btn),
@@ -98,4 +152,5 @@ class RecordingOverlay(Gtk.Box):
 
     def _on_stop_done(self, btn: Gtk.Button) -> bool:
         btn.set_sensitive(True)
+        btn.set_label("Stop Recording")
         return False

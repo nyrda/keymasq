@@ -1,4 +1,7 @@
 # ruff: noqa: F403, F405, I001
+import threading
+import time
+
 from tests.gui.support import *
 
 class TestDemoDevice:
@@ -61,6 +64,7 @@ class TestRecordMacroDialog:
         from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 
         monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+        monkeypatch.setattr(RecordMacroDialog, "_sync_settings_async", lambda self: None)
 
         dialog = RecordMacroDialog(Gtk.Window())
 
@@ -94,6 +98,84 @@ class TestRecordMacroDialog:
         assert dialog._unlock_btn.get_visible() is False
         assert dialog._unlock_status.get_label() == "Unlock active"
 
+    def test_record_dialog_live_settings_footer_uses_done_without_cancel(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+        monkeypatch.setattr(RecordMacroDialog, "_sync_settings_async", lambda self: None)
+
+        dialog = RecordMacroDialog(Gtk.Window())
+
+        labels: list[str] = []
+
+        def collect_button_labels(widget) -> None:
+            if isinstance(widget, Gtk.Button):
+                label = widget.get_label()
+                if label:
+                    labels.append(label)
+
+            child = widget.get_first_child()
+            while child is not None:
+                collect_button_labels(child)
+                child = child.get_next_sibling()
+
+        collect_button_labels(dialog.get_child())
+
+        assert "Done" in labels
+        assert "Cancel" not in labels
+        assert "Save Settings" not in labels
+
+    def test_record_dialog_locked_reason_explains_blocked_recording(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+
+        dialog = RecordMacroDialog(Gtk.Window(), reason="recording_locked")
+
+        assert dialog._title_label.get_label() == "Unlock Macro Recording"
+        assert dialog._locked_notice.get_visible() is True
+
+        dialog.set_presentation_reason("settings")
+
+        assert dialog._title_label.get_label() == "Macro Recording Settings"
+        assert dialog._locked_notice.get_visible() is False
+
+    def test_record_dialog_closes_when_recording_starts(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+        registered: dict[str, object] = {}
+        unregistered: list[tuple[str, object]] = []
+
+        class Parent(Gtk.Window):
+            def register_event_handler(self, event_type: str, callback) -> None:
+                registered[event_type] = callback
+
+            def unregister_event_handler(self, event_type: str, callback) -> None:
+                unregistered.append((event_type, callback))
+
+        dialog = RecordMacroDialog(Parent())
+        closed: list[bool] = []
+        monkeypatch.setattr(dialog, "close", lambda: closed.append(True))
+
+        callback = dialog._on_recording_started
+        callback({"event": "recording_started"})
+
+        assert closed == [True]
+
+        dialog._on_dialog_closed(dialog)
+
+        assert unregistered == [("recording_started", callback)]
+
     def test_record_dialog_defaults_to_recommended_sources(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
@@ -101,6 +183,7 @@ class TestRecordMacroDialog:
         from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 
         monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+        monkeypatch.setattr(RecordMacroDialog, "_sync_settings_async", lambda self: None)
 
         dialog = RecordMacroDialog(Gtk.Window())
         dialog._apply_recording_settings({"status": "ok", "device_overrides": {}})
@@ -129,6 +212,57 @@ class TestRecordMacroDialog:
         assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
         assert dialog._selection_summary.get_label() == "1 selected (1kb)"
 
+    def test_record_dialog_source_row_activation_toggles_checkbox(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+        monkeypatch.setattr(RecordMacroDialog, "_sync_settings_async", lambda self: None)
+
+        dialog = RecordMacroDialog(Gtk.Window())
+        dialog._apply_recording_settings({"status": "ok", "device_overrides": {}})
+        dialog._devices = [
+            {
+                "path": "/dev/input/event20",
+                "recording_id": "keymasq:output:keyboard",
+                "recording_kind": "keymasq_output",
+                "device_type": "keyboard",
+                "device_types": ["keyboard"],
+                "name": "keymasq-keyboard",
+            },
+            {
+                "path": "/dev/input/event0",
+                "recording_id": "physical:/dev/input/by-id/raw-mouse",
+                "recording_kind": "physical",
+                "device_type": "mouse",
+                "device_types": ["mouse"],
+                "name": "Raw Mouse",
+            },
+        ]
+
+        dialog._populate_device_list()
+
+        raw_row = None
+        row = dialog._device_listbox.get_first_child()
+        while row is not None:
+            if getattr(row, "_recording_id", "") == "physical:/dev/input/by-id/raw-mouse":
+                raw_row = row
+                break
+            row = row.get_next_sibling()
+
+        assert raw_row is not None
+        dialog._on_device_row_activated(dialog._device_listbox, raw_row)
+        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is True
+        assert dialog._device_overrides == {"physical:/dev/input/by-id/raw-mouse": True}
+        assert dialog._selection_summary.get_label() == "2 selected (1kb, 1m)"
+
+        dialog._on_device_row_activated(dialog._device_listbox, raw_row)
+        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
+        assert dialog._device_overrides == {}
+        assert dialog._selection_summary.get_label() == "1 selected (1kb)"
+
     def test_record_dialog_bulk_selection_is_helper_only(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
@@ -136,6 +270,7 @@ class TestRecordMacroDialog:
         from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 
         monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+        monkeypatch.setattr(RecordMacroDialog, "_sync_settings_async", lambda self: None)
 
         dialog = RecordMacroDialog(Gtk.Window())
         dialog._apply_recording_settings(
@@ -175,6 +310,243 @@ class TestRecordMacroDialog:
         dialog._on_reset_to_recommended_clicked(Gtk.Button())
         assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
         assert dialog._selection_warning.get_visible() is True
+
+    def test_record_dialog_reset_sync_wins_over_inflight_selection(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.record_macro_dialog as record_macro_dialog_module
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+
+        first_started = threading.Event()
+        release_first = threading.Event()
+        captured_payloads: list[dict[str, object]] = []
+
+        def fake_session_request(payload, timeout=5.0):
+            snapshot = dict(payload)
+            snapshot["device_overrides"] = dict(payload.get("device_overrides", {}))
+            captured_payloads.append(snapshot)
+            if len(captured_payloads) == 1:
+                first_started.set()
+                assert release_first.wait(2.0)
+            return {"status": "ok"}
+
+        monkeypatch.setattr(record_macro_dialog_module, "session_request", fake_session_request)
+
+        dialog = RecordMacroDialog(Gtk.Window())
+        dialog._device_overrides = {"physical:/dev/input/by-id/raw-mouse": True}
+
+        dialog._sync_settings_async()
+        assert first_started.wait(2.0)
+
+        dialog._device_overrides.clear()
+        dialog._sync_settings_async()
+        release_first.set()
+
+        for _ in range(100):
+            with dialog._settings_sync_lock:
+                worker_running = dialog._settings_sync_worker_running
+            if not worker_running:
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("settings sync worker did not finish")
+
+        assert [payload["device_overrides"] for payload in captured_payloads] == [
+            {"physical:/dev/input/by-id/raw-mouse": True},
+            {},
+        ]
+
+
+class TestRecordingOverlay:
+    def test_recording_overlay_uses_prominent_centered_panel(self):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.recording_overlay import RecordingOverlay
+
+        overlay = RecordingOverlay(Gtk.Window())
+
+        assert overlay.has_css_class("recording-overlay")
+        assert overlay.get_hexpand() is True
+        assert overlay.get_vexpand() is True
+
+        panel = overlay.get_first_child()
+        assert panel is not None
+        assert panel.has_css_class("recording-overlay-panel")
+        assert panel.has_css_class("card") is False
+        assert panel.get_halign() == Gtk.Align.CENTER
+        assert panel.get_valign() == Gtk.Align.CENTER
+        width_request, _height_request = panel.get_size_request()
+        assert width_request >= 420
+
+        assert overlay._stop_btn is not None
+        assert overlay._stop_btn.get_label() == "Stop Recording"
+
+    def test_recording_overlay_updates_status_and_stop_feedback(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.recording_overlay as recording_overlay_module
+        from keymasq.gui.widgets.recording_overlay import RecordingOverlay
+
+        callbacks = []
+
+        def fake_session_request_async(payload, callback, timeout=5.0):
+            callbacks.append((payload, callback))
+
+        monkeypatch.setattr(
+            recording_overlay_module, "session_request_async", fake_session_request_async
+        )
+
+        overlay = RecordingOverlay(Gtk.Window())
+        overlay.on_started({"event": "recording_started"})
+        overlay.on_progress({"duration_ms": 62025, "event_count": 444})
+
+        assert overlay._duration_label.get_label() == "01:02.025"
+        assert overlay._events_label.get_label() == "444"
+
+        assert overlay._stop_btn is not None
+        overlay._on_stop_clicked(overlay._stop_btn)
+
+        assert callbacks[0][0] == {"command": "stop_recording"}
+        assert overlay._stop_btn.get_sensitive() is False
+        assert overlay._stop_btn.get_label() == "Stopping..."
+
+        assert callbacks[0][1]({"status": "ok"}) is False
+        assert overlay._stop_btn.get_sensitive() is True
+        assert overlay._stop_btn.get_label() == "Stop Recording"
+
+        overlay.on_started({"event": "recording_started"})
+        assert overlay._timer_id != 0
+        overlay.on_stopped()
+        assert overlay._timer_id == 0
+        assert overlay._stop_btn.get_sensitive() is True
+
+
+class TestSaveMacroDialog:
+    def test_save_macro_dialog_sends_pending_save_token(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        captured: dict[str, object] = {}
+
+        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+            captured.update(payload)
+            if on_start:
+                on_start()
+            callback({"status": "ok"})
+            if on_done:
+                on_done()
+
+        monkeypatch.setattr(
+            save_macro_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+                "pending_save_token": "pending-1",
+            },
+        )
+        dialog._name_entry.set_text("macro_1")
+        dialog._on_save_clicked(dialog._save_btn)
+
+        assert captured["command"] == "save_recording"
+        assert captured["pending_save_token"] == "pending-1"
+
+    def test_save_macro_dialog_discard_sends_pending_save_token(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        captured: dict[str, object] = {}
+
+        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+            captured.update(payload)
+            if on_start:
+                on_start()
+            callback({"status": "ok"})
+            if on_done:
+                on_done()
+
+        monkeypatch.setattr(
+            save_macro_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+                "pending_save_token": "pending-1",
+            },
+        )
+
+        dialog._on_discard_clicked(Gtk.Button())
+
+        assert captured == {
+            "command": "discard_recording",
+            "pending_save_token": "pending-1",
+        }
+
+    def test_save_macro_dialog_discard_failure_keeps_dialog_open(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+            if on_start:
+                on_start()
+            callback({"status": "error", "message": "discard failed"})
+            if on_done:
+                on_done()
+
+        monkeypatch.setattr(
+            save_macro_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+                "pending_save_token": "pending-1",
+            },
+        )
+        force_closed: list[bool] = []
+        monkeypatch.setattr(dialog, "force_close", lambda: force_closed.append(True))
+
+        dialog._on_discard_clicked(Gtk.Button())
+
+        assert force_closed == []
+        assert dialog._saved is False
+        assert dialog._error_label.get_label() == "discard failed"
+        assert dialog.get_can_close() is True
 
 
 class TestDialogConstruction:
@@ -320,6 +692,86 @@ class TestDialogConstruction:
 
         assert dialog.get_child() is not None
         assert callable(dialog._on_close_clicked)
+
+    def test_macro_manager_closes_when_recording_starts(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        dialog = MacroManagerDialog(Gtk.Window())
+        closed: list[bool] = []
+        monkeypatch.setattr(dialog, "close", lambda: closed.append(True))
+
+        dialog._on_recording_started({"event": "recording_started"})
+
+        assert dialog._recording_active is True
+        assert closed == [True]
+
+    def test_macro_manager_opens_locked_recording_mode_after_recording_locked(
+        self,
+        monkeypatch,
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        captured: dict[str, object] = {}
+
+        class Parent(Gtk.Window):
+            def present_recording_settings_dialog(self, reason: str = "settings") -> None:
+                captured["reason"] = reason
+
+        dialog = MacroManagerDialog(Parent())
+
+        result = dialog._on_record_request_finished(
+            {
+                "status": "error",
+                "error_code": "recording_locked",
+                "message": "recording_locked",
+            },
+            "start_recording",
+        )
+
+        assert result is False
+        assert captured["reason"] == "recording_locked"
+
+    def test_macro_manager_presents_pending_save_dialog_after_macro_save_pending(
+        self,
+        monkeypatch,
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        presented: list[bool] = []
+
+        class Parent(Gtk.Window):
+            def present_pending_macro_save_dialog(self) -> bool:
+                presented.append(True)
+                return True
+
+        dialog = MacroManagerDialog(Parent())
+
+        result = dialog._on_record_request_finished(
+            {
+                "status": "error",
+                "error_code": "macro_save_pending",
+                "message": (
+                    "Save or discard the current recording before starting another recording."
+                ),
+            },
+            "start_recording",
+        )
+
+        assert result is False
+        assert presented == [True]
 
     def test_macro_manager_edit_opens_editor_with_closed_handler(self, monkeypatch):
         gi.require_version("Gtk", "4.0")

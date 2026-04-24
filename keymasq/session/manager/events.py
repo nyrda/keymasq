@@ -103,11 +103,19 @@ async def handle_event(
             recording_data["start_x"] = int(manager.recording_state.start_cursor[0])
             recording_data["start_y"] = int(manager.recording_state.start_cursor[1])
             recording_data["move_to_start"] = True
-        manager.recording_state.pending_data = recording_data
+        if runtime_recording.has_pending_macro_save(manager):
+            manager.recording_state.pending_data = recording_data
+            pending_save_token = str(manager.recording_state.pending_save_token or "")
+        else:
+            pending_save_token = runtime_recording.begin_pending_macro_save(
+                manager,
+                recording_data,
+            )
         manager.recording_state.start_cursor = None
         manager.broadcast_to_session_clients(
             {
                 "event": "recording_stopped",
+                "pending_save_token": pending_save_token,
                 "duration_ms": recording_data.get("duration_ms", 0),
                 "event_count": len(_json_list(recording_data.get("events"))),
                 "device_types": recording_data.get("device_types", []),
@@ -210,6 +218,15 @@ async def handle_start_macro_trigger(manager: "SessionManager") -> None:
 
     result = await runtime_recording.start_recording(manager, reset_if_active=False)
     if result.get("status") != "ok":
+        if result.get("error_code") == runtime_recording.MACRO_SAVE_PENDING_ERROR_CODE:
+            manager.broadcast_to_session_clients(
+                {
+                    "event": "macro_save_pending",
+                    "message": result.get("message", ""),
+                    "pending_save_token": result.get("pending_save_token", ""),
+                }
+            )
+            return
         runtime_recording.notify_recording_unlock_required(manager, result)
         manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
 

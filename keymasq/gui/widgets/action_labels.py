@@ -38,7 +38,7 @@ def describe_mapping_action_compact(
         parts.append(f"🎮 {action.target or '?'}")
     elif action.action_type == ActionType.EXEC:
         cmd = action.cmd or "exec"
-        parts.append(f"▶ {cmd[:20] + '...' if len(cmd) > 20 else cmd}")
+        parts.append(f"▶ {cmd}")
     elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
         dispatcher = action.compositor_dispatcher or "dispatch"
         args = str(action.compositor_args or "").strip()

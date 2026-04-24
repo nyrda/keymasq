@@ -141,6 +141,12 @@ Type macro templates are a shortcut for creating simple text-typing macros
 without recording. You type the text you want, choose a delay between
 keystrokes, and Keymasq builds the macro automatically.
 
+If the text contains Unicode or formatted characters, the dialog shows an
+optional Unicode input mode. When enabled, unsupported characters are emitted
+with the Linux `Ctrl+Shift+U`, hexadecimal codepoint, `Enter` sequence. This is
+best-effort: it works in many text fields, but some apps, games, terminals,
+remote sessions, or input method setups may not accept it.
+
 **How to create one:**
 
 1. Open **Macro Manager**.
@@ -151,9 +157,9 @@ keystrokes, and Keymasq builds the macro automatically.
 **When to use it:** quick typed phrases, email signatures, chat responses, or
 any short text that doesn't need precise timing.
 
-**When to prefer live recording instead:** if you use special characters, a
-non-QWERTY layout, or need exact control over timing, live recording will
-give more reliable results.
+**When to prefer live recording instead:** if you use a non-QWERTY layout, if
+the target app does not accept Unicode input sequences, or if you need exact
+control over timing, live recording will give more reliable results.
 
 ![Type Macro dialog — enter text, set key-down and pause timing](assets/screenshots/keymasq_type_macro_creation.png)
 
@@ -407,7 +413,8 @@ do not need to change these — they are intended for system administrators:
 - **Slow down for fragile UIs.** If a target app drops inputs, lower the speed
   multiplier.
 - **Record layout-specific text.** Type macro templates assume a standard
-  QWERTY layout. If you use special characters or a different keyboard layout,
-  record the macro live instead.
+  QWERTY layout. Optional Unicode input can preserve many special characters,
+  but record the macro live if the target app does not accept those sequences
+  or if you use a different keyboard layout.
 - **Use gap notes for timing tweaks.** They're faster and more reliable than
   manually nudging individual events.

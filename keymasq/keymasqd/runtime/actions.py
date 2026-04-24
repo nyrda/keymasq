@@ -6,7 +6,7 @@ from keymasq.common.models import (
     ActionType,
     MappingAction,
     SuperkeyMode,
-    normalize_macro_hold_release_behavior,
+    normalize_macro_loop_stop_behavior,
     parse_rapidfire_fields,
 )
 from keymasq.common.models import (
@@ -100,8 +100,8 @@ def parse_action(
         macro_speed=float_value(action_data.get("macro_speed"), 1.0),
         macro_loop_mode=str_value(action_data.get("macro_loop_mode"), "none") or "none",
         macro_loop_count=int_value(action_data.get("macro_loop_count"), 1),
-        macro_hold_release_behavior=normalize_macro_hold_release_behavior(
-            action_data.get("macro_hold_release_behavior")
+        macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
+            action_data.get("macro_loop_stop_behavior")
         ),
         macro_move_to_start=bool(action_data.get("macro_move_to_start", False)),
         macro_start_x=int_value(action_data.get("macro_start_x"), 0),
@@ -371,8 +371,8 @@ def parse_superkey_action(
         else float(cast(int | float | str | bytes, macro_speed_value)),
         macro_loop_mode=str_value(action.get("macro_loop_mode"), "none") or "none",
         macro_loop_count=int_value(action.get("macro_loop_count"), 1),
-        macro_hold_release_behavior=normalize_macro_hold_release_behavior(
-            action.get("macro_hold_release_behavior")
+        macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
+            action.get("macro_loop_stop_behavior")
         ),
         macro_move_to_start=bool(action.get("macro_move_to_start", False)),
         macro_start_x=int_value(action.get("macro_start_x"), 0),

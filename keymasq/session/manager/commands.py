@@ -3,7 +3,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.ipc import Command, CommandType
-from keymasq.common.models import normalize_macro_hold_release_behavior
+from keymasq.common.models import normalize_macro_loop_stop_behavior
 from keymasq.common.security import PeerCredentials, command_allowed
 
 from . import compositor as runtime_compositor
@@ -425,8 +425,8 @@ async def _handle_macro_commands(
             "speed": float_value(request.get("speed"), 1.0),
             "loop_mode": str(macro.get("loop_mode", "none") or "none"),
             "loop_count": int_value(macro.get("loop_count"), 1),
-            "hold_release_behavior": normalize_macro_hold_release_behavior(
-                macro.get("hold_release_behavior")
+            "loop_stop_behavior": normalize_macro_loop_stop_behavior(
+                macro.get("loop_stop_behavior")
             ),
             "move_to_start": bool(macro.get("move_to_start", False)),
             "start_x": int_value(macro.get("start_x"), 0),

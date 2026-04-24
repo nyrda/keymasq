@@ -49,7 +49,7 @@ class SuperkeyActionData:
     macro_speed: float = 1.0
     macro_loop_mode: str = "none"
     macro_loop_count: int = 1
-    macro_hold_release_behavior: str = "finish_run"
+    macro_loop_stop_behavior: str = "finish_run"
     macro_move_to_start: bool = False
     macro_start_x: int = 0
     macro_start_y: int = 0

@@ -484,6 +484,7 @@ async def test_macro_switch_interrupt_releases_held_state_for_previous_instance(
         ],
         macro_name="toggle_a",
         loop_mode="toggle",
+        loop_stop_behavior="cancel_run",
         source_device="dev1",
         source_button="btn_toggle",
         trigger_value=1,

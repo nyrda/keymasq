@@ -178,7 +178,7 @@ async def test_macro_action_broadcasts_full_playback_payload_on_press_and_releas
                     macro_speed=2.5,
                     macro_loop_mode="hold",
                     macro_loop_count=3,
-                    macro_hold_release_behavior="cancel_run",
+                    macro_loop_stop_behavior="cancel_run",
                     macro_move_to_start=True,
                     macro_start_x=11,
                     macro_start_y=22,
@@ -207,7 +207,7 @@ async def test_macro_action_broadcasts_full_playback_payload_on_press_and_releas
     assert press_payload["speed"] == 2.5
     assert press_payload["loop_mode"] == "hold"
     assert press_payload["loop_count"] == 3
-    assert press_payload["hold_release_behavior"] == "cancel_run"
+    assert press_payload["loop_stop_behavior"] == "cancel_run"
     assert press_payload["move_to_start"] is True
     assert press_payload["start_x"] == 11
     assert press_payload["start_y"] == 22

@@ -202,7 +202,7 @@ def action_signature_payload(
         data["macro_speed"] = float(action.macro_speed)
         data["macro_loop_mode"] = action.macro_loop_mode
         data["macro_loop_count"] = int(action.macro_loop_count)
-        data["macro_hold_release_behavior"] = action.macro_hold_release_behavior
+        data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
         data["macro_move_to_start"] = bool(action.macro_move_to_start)
         data["macro_start_x"] = int(action.macro_start_x)
         data["macro_start_y"] = int(action.macro_start_y)
@@ -314,8 +314,8 @@ def profile_to_mapping(
                 action_data["macro_speed"] = action.macro_speed
                 action_data["macro_loop_mode"] = action.macro_loop_mode
                 action_data["macro_loop_count"] = int(action.macro_loop_count)
-                action_data["macro_hold_release_behavior"] = (
-                    action.macro_hold_release_behavior
+                action_data["macro_loop_stop_behavior"] = (
+                    action.macro_loop_stop_behavior
                 )
                 action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
                 action_data["macro_start_x"] = int(action.macro_start_x)
@@ -463,7 +463,7 @@ def combo_action_to_payload(
             action_data["macro_speed"] = action.macro_speed
             action_data["macro_loop_mode"] = action.macro_loop_mode
             action_data["macro_loop_count"] = int(action.macro_loop_count)
-            action_data["macro_hold_release_behavior"] = action.macro_hold_release_behavior
+            action_data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
             action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
             action_data["macro_start_x"] = int(action.macro_start_x)
             action_data["macro_start_y"] = int(action.macro_start_y)
@@ -714,7 +714,7 @@ def serialize_overload_action(
             action_data["macro_speed"] = action.macro_speed
             action_data["macro_loop_mode"] = action.macro_loop_mode
             action_data["macro_loop_count"] = int(action.macro_loop_count)
-            action_data["macro_hold_release_behavior"] = action.macro_hold_release_behavior
+            action_data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
             action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
             action_data["macro_start_x"] = int(action.macro_start_x)
             action_data["macro_start_y"] = int(action.macro_start_y)

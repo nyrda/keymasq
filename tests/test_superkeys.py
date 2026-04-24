@@ -141,7 +141,7 @@ def test_superkey_action_roundtrip_strips_unsupported_rapidfire() -> None:
     action = MappingAction(
         action_type=ActionType.MACRO,
         macro_name="demo",
-        macro_hold_release_behavior="cancel_run",
+        macro_loop_stop_behavior="cancel_run",
         rapidfire_enabled=True,
         rapidfire_hold_ms=40,
         rapidfire_wait_ms=60,
@@ -152,7 +152,7 @@ def test_superkey_action_roundtrip_strips_unsupported_rapidfire() -> None:
 
     assert superkey_action.rapidfire_enabled is False
     assert round_tripped.rapidfire_enabled is False
-    assert round_tripped.macro_hold_release_behavior == "cancel_run"
+    assert round_tripped.macro_loop_stop_behavior == "cancel_run"
     assert round_tripped.rapidfire_hold_ms == 20
     assert round_tripped.rapidfire_wait_ms == 20
 

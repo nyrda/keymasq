@@ -8,8 +8,8 @@ from typing import Any
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
-    DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR,
-    normalize_macro_hold_release_behavior,
+    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+    normalize_macro_loop_stop_behavior,
 )
 
 type JsonObject = dict[str, object]
@@ -37,7 +37,7 @@ async def play_macro(
     speed: float,
     loop_mode: str,
     loop_count: int,
-    hold_release_behavior: str,
+    loop_stop_behavior: str,
     move_to_start: bool,
     start_x: int,
     start_y: int,
@@ -59,8 +59,8 @@ async def play_macro(
     normalized_loop = str(loop_mode or "none").lower()
     if normalized_loop not in {"none", "count", "hold", "toggle"}:
         normalized_loop = "none"
-    normalized_hold_release_behavior = normalize_macro_hold_release_behavior(
-        hold_release_behavior
+    normalized_loop_stop_behavior = normalize_macro_loop_stop_behavior(
+        loop_stop_behavior
     )
     count = max(1, int(loop_count or 1))
     source_key = (str(source_device), str(source_button))
@@ -72,11 +72,11 @@ async def play_macro(
             source_key=source_key,
         )
         if hold_instances:
-            cancel_instances = hold_release_cancel_instance_ids(manager, hold_instances)
+            cancel_instances = loop_stop_cancel_instance_ids(manager, hold_instances)
             finish_instances = [
                 instance_id for instance_id in hold_instances if instance_id not in cancel_instances
             ]
-            mark_hold_instances_released(manager, finish_instances)
+            mark_loop_instances_stopping(manager, finish_instances)
             cancelled = await cancel_macro_instances(manager, cancel_instances, deps=deps)
             return {"status": "ok", "cancelled": cancelled > 0}
         return {"status": "ok", "cancelled": False}
@@ -91,11 +91,14 @@ async def play_macro(
             source_key=source_key,
         )
         if toggle_instances:
-            cancelled = await cancel_macro_instances(
-                manager,
-                toggle_instances,
-                deps=deps,
-            )
+            cancel_instances = loop_stop_cancel_instance_ids(manager, toggle_instances)
+            finish_instances = [
+                instance_id
+                for instance_id in toggle_instances
+                if instance_id not in cancel_instances
+            ]
+            mark_loop_instances_stopping(manager, finish_instances)
+            cancelled = await cancel_macro_instances(manager, cancel_instances, deps=deps)
             return {"status": "ok", "cancelled": cancelled > 0}
 
     if normalized_loop == "hold":
@@ -116,8 +119,8 @@ async def play_macro(
         "source_device": source_key[0],
         "source_button": source_key[1],
         "macro_name": str(macro_name or ""),
-        "hold_active": normalized_loop == "hold",
-        "hold_release_behavior": normalized_hold_release_behavior,
+        "loop_active": normalized_loop in {"hold", "toggle"},
+        "loop_stop_behavior": normalized_loop_stop_behavior,
     }
 
     task = asyncio_mod.create_task(
@@ -189,28 +192,28 @@ def find_matching_macro_instances(
     return ids
 
 
-def hold_release_cancel_instance_ids(manager: _MacroManager, instance_ids: list[int]) -> list[int]:
+def loop_stop_cancel_instance_ids(manager: _MacroManager, instance_ids: list[int]) -> list[int]:
     cancel_instances: list[int] = []
     for instance_id in instance_ids:
         meta = manager.macro_state.instance_meta.get(instance_id, {})
-        behavior = normalize_macro_hold_release_behavior(
-            meta.get("hold_release_behavior", DEFAULT_MACRO_HOLD_RELEASE_BEHAVIOR)
+        behavior = normalize_macro_loop_stop_behavior(
+            meta.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
         )
         if behavior == "cancel_run":
             cancel_instances.append(instance_id)
     return cancel_instances
 
 
-def mark_hold_instances_released(manager: _MacroManager, instance_ids: list[int]) -> None:
+def mark_loop_instances_stopping(manager: _MacroManager, instance_ids: list[int]) -> None:
     for instance_id in instance_ids:
         meta = manager.macro_state.instance_meta.get(instance_id)
         if meta is not None:
-            meta["hold_active"] = False
+            meta["loop_active"] = False
 
 
-def is_hold_instance_active(manager: _MacroManager, instance_id: int) -> bool:
+def is_loop_instance_active(manager: _MacroManager, instance_id: int) -> bool:
     meta = manager.macro_state.instance_meta.get(instance_id, {})
-    return bool(meta.get("hold_active", True))
+    return bool(meta.get("loop_active", True))
 
 
 async def cancel_macro_instances(
@@ -436,8 +439,8 @@ async def play_macro_task(
             if loop_mode == "count":
                 if iterations >= max(1, loop_count):
                     break
-            elif loop_mode == "hold":
-                if not is_hold_instance_active(manager, instance_id):
+            elif loop_mode in {"hold", "toggle"}:
+                if not is_loop_instance_active(manager, instance_id):
                     break
             elif loop_mode == "none":
                 break

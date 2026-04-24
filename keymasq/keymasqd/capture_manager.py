@@ -17,6 +17,7 @@ from keymasq.common.devices import (
     get_interface_id,
     normalize_wheel_value,
     resolve_stable_path,
+    wheel_button_id,
 )
 
 log = logging.getLogger("keymasq.keymasqd.capture_manager")
@@ -461,6 +462,27 @@ class CaptureManager:
     def _parse_combo_event(
         self, device: _CaptureInputDevice, event: evdev.InputEvent
     ) -> JsonObject | None:
+        if event.type == evdev.ecodes.EV_REL:
+            if event.code == evdev.ecodes.REL_WHEEL:
+                normalized_value = normalize_wheel_value(int(event.value))
+                evdev_name = wheel_button_id("rel_wheel", normalized_value)
+            elif event.code == evdev.ecodes.REL_HWHEEL:
+                normalized_value = normalize_wheel_value(int(event.value))
+                evdev_name = wheel_button_id("rel_hwheel", normalized_value)
+            else:
+                return None
+            if evdev_name is None:
+                return None
+            return {
+                "evdev": evdev_name,
+                "code": int(event.code),
+                "value": 1,
+                "hardware_id": f"{device.info.vendor:04x}:{device.info.product:04x}",
+                "source": self._source_for_path(device.path),
+                "stable_path": resolve_stable_path(device.path),
+                "device_path": device.path,
+            }
+
         if event.type != evdev.ecodes.EV_KEY or event.value not in {0, 1}:
             return None
 

@@ -15,7 +15,7 @@ the compositor sees Keymasq's output as normal hardware input.
 - The daemon runs as a dedicated `keymasq` system user, not root
 - GUI and CLI never touch input devices directly — they talk to a per-user
   session broker, which talks to the daemon
-- Recording and capture features require an explicit unlock prompt to prevent
+- Recording and capture features require an explicit Polkit unlock to prevent
   silent keylogging
 - The daemon accepts only one session connection at a time, preventing rogue
   processes from issuing commands
@@ -104,7 +104,6 @@ Keymasq treats recording and capture features as sensitive because they can obse
 - Tier 1: recording and capture commands require an active unlock lease by default
 - Unlock is per-user and time-bounded by default
 - GUI can keep a runtime unlock lease refreshed while it remains the active owner
-- "Don't ask again" GUI flows use a longer-lived lease
 - Permanent unlock is an explicit administrative decision outside normal runtime flow
 
 When locked, recording/capture requests fail with `recording_locked`.

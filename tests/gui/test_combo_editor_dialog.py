@@ -17,6 +17,8 @@ class TestComboEditorDialog:
         closed: list[str] = []
         dialog.connect("closed", lambda *_args: closed.append("closed"))
 
+        assert "raw original-input capture" in (dialog.unlock_button.get_tooltip_text() or "")
+
         parent.present()
         dialog.present(parent)
         flush_gtk_events()
@@ -507,5 +509,4 @@ class TestComboEditorDialog:
         assert dialog.validation_label.get_visible() is True
         assert "could not be loaded" in dialog.validation_label.get_text().lower()
         assert dialog.save_button.get_sensitive() is False
-
 

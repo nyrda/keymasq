@@ -77,6 +77,7 @@ class TestRecordMacroDialog:
         )
         assert dialog._unlock_btn.get_visible() is True
         assert dialog._unlock_status.get_label() == "Unlock required"
+        assert "raw original-input capture" in (dialog._unlock_btn.get_tooltip_text() or "")
 
         dialog._apply_unlock_state(
             {
@@ -87,6 +88,7 @@ class TestRecordMacroDialog:
         )
         assert dialog._unlock_btn.get_visible() is True
         assert dialog._unlock_status.get_label() == "Unlock active in another session"
+        assert "active owner" in (dialog._unlock_btn.get_tooltip_text() or "")
 
         dialog._apply_unlock_state(
             {
@@ -692,6 +694,9 @@ class TestDialogConstruction:
 
         assert dialog.get_child() is not None
         assert callable(dialog._on_close_clicked)
+        dialog._recording_unlocked = False
+        dialog._sync_record_button_state()
+        assert "raw original-input capture" in (dialog._record_btn.get_tooltip_text() or "")
 
     def test_type_macro_builder_normalizes_common_pasted_text(self):
         gi.require_version("Gtk", "4.0")

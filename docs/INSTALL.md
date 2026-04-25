@@ -269,8 +269,8 @@ a warning when this happens so the missing optimization is visible.
 ### Recording and capture unlock
 
 Packaged installs handle this automatically. For manual installs, if macro
-recording prompts do not appear or fail, you can disable the unlock requirement
-in `/etc/keymasq/security.toml`:
+recording unlock requests do not appear or fail, you can disable the unlock
+requirement in `/etc/keymasq/security.toml`:
 
 ```toml
 [recording_guard]

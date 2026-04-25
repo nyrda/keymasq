@@ -108,31 +108,71 @@ class TestMainWindow:
         assert add_calls == [True]
         assert unlock_calls == []
 
-    def test_main_window_unlock_dialog_copy_mentions_additional_keys(self, temp_config_dir):
-        from gi.repository import Adw, Gtk
-
+    def test_main_window_unlock_uses_runtime_polkit_without_prompt(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.gui import window as window_module
+        from keymasq.gui.session_client import GuiTaskResult
         from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
-        presented: list[Adw.Dialog] = []
+        window.demo_mode = False
+        commands: list[list[str]] = []
+        alerts: list[object] = []
+        success_calls: list[bool] = []
 
-        def monkeypatch_present(self, root) -> None:
-            presented.append(self)
+        monkeypatch.setattr(
+            window_module,
+            "resolve_keymasq_record_helper_path",
+            lambda: "/usr/bin/keymasq-record",
+        )
+        monkeypatch.setattr(
+            window_module,
+            "run_gui_task",
+            lambda worker, callback: callback(GuiTaskResult(value=worker())),
+        )
 
-        original_present = Adw.Dialog.present
-        Adw.Dialog.present = monkeypatch_present  # type: ignore[method-assign]
-        try:
-            window._present_unlock_dialog()
-        finally:
-            Adw.Dialog.present = original_present  # type: ignore[method-assign]
+        def fake_run(cmd, capture_output, text):
+            commands.append(cmd)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        assert len(presented) == 1
-        content = presented[0].get_child()
-        assert isinstance(content, Gtk.Box)
-        message = content.get_first_child()
-        assert isinstance(message, Gtk.Label)
-        assert "additional keys and buttons" in message.get_label()
-        assert "device setup" not in message.get_label()
+        monkeypatch.setattr(window_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(
+            window_module,
+            "session_request",
+            lambda payload, timeout=3.0: {
+                "status": "ok",
+                "lease_id": "lease-1",
+                "recording_unlocked": True,
+                "recording_unlock_required": True,
+                "recording_unlock_source": "runtime",
+                "recording_unlock_expires_at": 123,
+                "recording_refresh_owner": True,
+            },
+        )
+        monkeypatch.setattr(
+            window_module.Adw.AlertDialog,
+            "present",
+            lambda self, root: alerts.append(self),
+        )
+
+        window.present_unlock_dialog(on_success=lambda: success_calls.append(True))
+
+        assert commands == [
+            [
+                "pkexec",
+                "/usr/bin/keymasq-record",
+                "unlock-runtime",
+                "--uid",
+                str(window_module.os.getuid()),
+                "--ttl",
+                "60",
+            ]
+        ]
+        assert all("unlock-persistent" not in cmd for cmd in commands)
+        assert window._recording_refresh_lease_id == "lease-1"
+        assert success_calls == [True]
+        assert alerts == []
 
     def test_main_window_syncs_manual_profile_selection_across_tabs(self, temp_config_dir):
         from keymasq.common.models import (

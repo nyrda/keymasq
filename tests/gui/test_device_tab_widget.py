@@ -559,11 +559,24 @@ class TestDeviceTabWidget:
         Adw.Dialog.present = monkeypatch_present  # type: ignore[method-assign]
         try:
             tab.get_root = lambda: Gtk.Window()  # type: ignore[method-assign]
-            tab._on_add_keys_clicked(tab.add_keys_btn)
+            tab._on_add_keys_clicked(None)
         finally:
             Adw.Dialog.present = original_present  # type: ignore[method-assign]
 
-        assert tab.add_keys_btn.get_label() == "Add..."
+        learn_tile = tab._create_learn_tile()
+        add_button_content = learn_tile.get_child()
+        assert isinstance(add_button_content, Gtk.Box)
+        add_button_icon = add_button_content.get_first_child()
+        add_button_label = add_button_icon.get_next_sibling() if add_button_icon else None
+        assert isinstance(add_button_icon, Gtk.Image)
+        assert add_button_icon.get_icon_name() == "list-add-symbolic"
+        assert isinstance(add_button_label, Gtk.Label)
+        assert add_button_label.get_text() == "Learn Keys"
+        assert (
+            learn_tile.get_tooltip_text()
+            == "Capture additional physical buttons or keys for this device"
+        )
+        assert not hasattr(tab, "add_keys_btn")
         assert not hasattr(tab, "listen_btn")
         assert len(presented) == 1
 
@@ -696,7 +709,7 @@ class TestDeviceTabWidget:
         original_present = Adw.Dialog.present
         Adw.Dialog.present = monkeypatch_present  # type: ignore[method-assign]
         try:
-            tab._on_add_keys_clicked(tab.add_keys_btn)
+            tab._on_add_keys_clicked(None)
         finally:
             Adw.Dialog.present = original_present  # type: ignore[method-assign]
 

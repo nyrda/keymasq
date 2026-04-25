@@ -396,6 +396,56 @@ def test_describe_mapping_action_compact_includes_runtime_markers():
     assert describe_mapping_action_compact(action, include_state=True) == "→ key_a ⚡ ↓"
 
 
+def test_device_tab_shortens_long_action_summary_in_the_middle(temp_config_dir):
+    from keymasq.common.models import (
+        ActionType,
+        ButtonDefinition,
+        DeviceProfileLayer,
+        HardwareConfig,
+        MappingAction,
+        ProfileConfig,
+    )
+    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.session.profiles import ProfileManager
+
+    profile_manager = ProfileManager()
+    profile_manager.save_profile(
+        ProfileConfig(
+            name="Desktop",
+            enabled=True,
+            is_permanent=True,
+            device_layers={
+                "1234:5678": DeviceProfileLayer(
+                    hardware_id="1234:5678",
+                    mappings={
+                        "btn_extra": MappingAction(
+                            action_type=ActionType.EXEC,
+                            cmd="grimblast --freeze --notify copy area",
+                        )
+                    },
+                )
+            },
+        )
+    )
+    device = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Test Mouse",
+        evdev_devices=[],
+        buttons=[ButtonDefinition(id="btn_extra", label="Extra Button 10", evdev="btn_extra")],
+    )
+
+    tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=True)
+    tab._update_button_display("btn_extra")
+
+    widget = tab._button_widgets["btn_extra"]
+    assert widget.get_size_request()[0] == 187
+    assert widget._action_label.get_text() == "▶ grimblast [...] copy area"
+    assert widget._action_label.get_tooltip_text() == (
+        "▶ grimblast --freeze --notify copy area"
+    )
+
+
 def test_key_selector_dialog_distinguishes_explicit_passthrough_and_no_override():
     from gi.repository import Gtk
 

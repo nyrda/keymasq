@@ -740,6 +740,7 @@ class TestDeviceTabWidget:
         assert start_btn.get_sensitive() is False
         assert unlock_btn.get_visible() is True
         assert "Unlock to add additional keys and mouse buttons." in privilege_status.get_text()
+        assert "raw original-input capture" in (unlock_btn.get_tooltip_text() or "")
 
         unlock_btn.emit("clicked")
         assert len(unlock_callbacks) == 1

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from keymasq.common.recording_guard import (
     parse_unlock_expires_at,
-    persistent_unlock_path,
     resolve_unlock_status,
     runtime_unlock_path,
 )
@@ -62,17 +61,6 @@ def main() -> None:
     runtime_lock_parser = subparsers.add_parser("lock-runtime", help="Clear runtime unlock")
     runtime_lock_parser.add_argument("--uid", type=int, required=True)
 
-    persistent_unlock_parser = subparsers.add_parser(
-        "unlock-persistent", help="Set persistent unlock"
-    )
-    persistent_unlock_parser.add_argument("--uid", type=int, required=True)
-    persistent_unlock_parser.add_argument("--ttl", type=int, default=0)
-
-    persistent_lock_parser = subparsers.add_parser(
-        "lock-persistent", help="Clear persistent unlock"
-    )
-    persistent_lock_parser.add_argument("--uid", type=int, required=True)
-
     args = parser.parse_args()
 
     try:
@@ -100,17 +88,6 @@ def main() -> None:
         if args.command == "lock-runtime":
             _remove_lease(runtime_unlock_path(args.uid))
             print(json.dumps({"status": "ok", "scope": "runtime", "locked": True}))
-            return
-
-        if args.command == "unlock-persistent":
-            expires_at = 0 if int(args.ttl) == 0 else int(time.time()) + max(1, int(args.ttl))
-            _write_lease(persistent_unlock_path(args.uid), expires_at)
-            print(json.dumps({"status": "ok", "scope": "persistent", "expires_at": expires_at}))
-            return
-
-        if args.command == "lock-persistent":
-            _remove_lease(persistent_unlock_path(args.uid))
-            print(json.dumps({"status": "ok", "scope": "persistent", "locked": True}))
             return
 
         raise ValueError("Unknown command")

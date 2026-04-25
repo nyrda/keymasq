@@ -3,6 +3,16 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.9.0
+
+### Improved
+
+- Added scroll wheel remapping support
+- Added scroll wheel combo support
+- Improved macro recording and saving flows
+- Moved superkey mappings into a dedicated selector tab for clearer editing.
+- Added Unicode support for type macros
+
 ## 0.8.1
 
 ### Improved

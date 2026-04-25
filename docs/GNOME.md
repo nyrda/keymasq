@@ -1,6 +1,10 @@
 # GNOME Support
 
-Keymasq supports GNOME 46 and newer through a GNOME Shell extension.
+Keymasq supports GNOME 46 and newer through a GNOME Shell extension. Tested on
+GNOME 46 (Ubuntu 24.04 LTS) and GNOME 50. The extension uses stable Shell APIs
+with no breaking changes across this range.
+
+GNOME 45 and older are not supported.
 
 ## Enable the extension
 

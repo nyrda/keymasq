@@ -26,7 +26,7 @@ setting it up again each time.
 
 ## Modes
 
-### Pattern
+### Pattern (Gesture Recognition)
 
 Keymasq watches how you press the source key and chooses one of four
 slots:
@@ -47,7 +47,7 @@ Each slot can run an ordered bundle of actions. When a slot fires:
 That makes bundles like `Ctrl` then `C`, or `Shift` then `Tab`, behave
 correctly.
 
-### Overload
+### Overload (Multi-Output)
 
 Overload mode does not do gesture recognition. Instead, the source key
 behaves like a one-to-many normal mapping and forwards its down, repeat,

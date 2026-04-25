@@ -180,15 +180,9 @@ For Xbox-style naming, use: `btn_a`, `btn_b`, `btn_x`, `btn_y`
 
 ## Limitations
 
-- **Analog axes**: Physical gamepad axes still passthrough, but they are not editable remap sources yet
-- **Triggers**: Virtual gamepad output is still digital only (on/off, not pressure-sensitive)
-- **Sticks**: No analog stick emulation for virtual output yet
-
-## Future Enhancements
-
-Planned features for gamepad support:
-
-- [ ] Analog trigger support (pressure-sensitive)
-- [ ] Analog stick emulation from mouse movement
-- [ ] Multi-button combos
-- [ ] Gamepad-to-gamepad remapping
+- **Analog axes**: physical gamepad axes pass through, but they are not
+  editable remap sources
+- **Triggers**: virtual gamepad output is digital only (on/off, not
+  pressure-sensitive)
+- **Sticks**: no analog stick emulation for virtual output
+- **Gamepad-to-gamepad**: remapping one gamepad to another is not supported

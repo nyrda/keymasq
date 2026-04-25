@@ -19,7 +19,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-.codex/*
+.codex
+.codex/
 .claude/*
 result
 .consult

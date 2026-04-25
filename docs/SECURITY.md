@@ -1,5 +1,31 @@
 # Security Model
 
+## How Keymasq Works Around Wayland Restrictions
+
+Wayland intentionally prevents applications from reading or injecting input
+across windows. Keymasq bypasses this by operating at the kernel level using
+evdev and uinput — the same layer where compositors themselves read input.
+
+A privileged system daemon (`keymasqd`) reads from `/dev/input/*` devices and
+writes to a virtual device via `/dev/uinput`. This happens below Wayland, so
+the compositor sees Keymasq's output as normal hardware input.
+
+**Why this is still safe:**
+
+- The daemon runs as a dedicated `keymasq` system user, not root
+- GUI and CLI never touch input devices directly — they talk to a per-user
+  session broker, which talks to the daemon
+- Recording and capture features require an explicit unlock prompt to prevent
+  silent keylogging
+- The daemon accepts only one session connection at a time, preventing rogue
+  processes from issuing commands
+
+The rest of this document covers the security model in detail.
+
+---
+
+## Architecture
+
 Keymasq uses a two-broker design:
 
 - `keymasqd`: privileged daemon for evdev/uinput, macro storage, recording, and capture

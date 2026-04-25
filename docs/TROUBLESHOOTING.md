@@ -158,6 +158,13 @@ sudo journalctl -u keymasqd --rotate --vacuum-time=1s
 
 ## Common problems
 
+### Services not running
+
+If `keymasqd` or `keymasq-session` stops or crashes, your input devices continue
+working normally. Keymasq only intercepts input when both services are running
+and a profile is active. No remapping means passthrough—your keyboard and mouse
+behave as if Keymasq were not installed.
+
 ### `uinput` or input-device access problems
 
 Symptoms:

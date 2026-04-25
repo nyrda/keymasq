@@ -5,17 +5,14 @@ Keymasq supports any Wayland compositor that implements the
 the active window's application ID and title, which is required for
 window-aware profile activation.
 
-## Tested Compositors
+## Compatible Compositors
 
-| Compositor | Status  |
-| ---------- | ------- |
-| Sway       | Tested  |
+Any compositor that implements the protocol should work. Known examples include
+Sway, Wayfire, river, labwc, and other wlroots-based compositors. Sway is the
+primary tested compositor for this integration.
 
-## Other Compositors
-
-Any compositor that implements this protocol should work out of the box. Known
-examples include Wayfire, river, labwc, and wlroots-based compositors like dwl. If your compositor supports
-the protocol and you run into problems, please open an issue.
+If your compositor supports the protocol and you run into problems, please
+open an issue.
 
 ## Compositors With Dedicated Support
 

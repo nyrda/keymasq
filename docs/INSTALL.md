@@ -1,7 +1,8 @@
 # Installation Guide
 
-Pick your distribution below. Most users will install from a package and enable
-two services—one system daemon and one user session service.
+Pick your distribution below. Keymasq runs as two services: a
+privileged system daemon that accesses input devices, and a per-user
+service that manages your profiles, window tracking, and GUI requests.
 
 ## 1. Package Installs (Recommended)
 

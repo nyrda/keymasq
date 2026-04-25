@@ -7,6 +7,9 @@ Keymasq can activate more than one profile at the same time, then merge those
 profiles into the final mapping for each device based on profile type,
 priority, and active window rules.
 
+> **Profiles are global, not per-device.** A single profile can contain
+> mappings for your keyboard, mouse, and gamepad together.
+
 ## Mental Model
 
 The easiest way to think about profiles is:
@@ -14,6 +17,26 @@ The easiest way to think about profiles is:
 - a profile is a named layer of remaps
 - more than one profile can be active at once
 - for each device, Keymasq merges the matching layers from the active profiles
+
+```mermaid
+flowchart LR
+    subgraph stack["Profile merge stack"]
+        direction TB
+        B["<b>Gaming</b> (conditional)<br/>🖱 extra → key_1"]
+        A["<b>Base</b> (permanent)<br/>⌨ caps → esc<br/>🖱 extra → key_m"]
+    end
+
+    stack --> keyboard["⌨ Keyboard<br/>caps → <b>esc</b><br/>(Base only)"]
+    stack --> mouse["🖱 Mouse<br/>extra → <b>key_1</b><br/>(Gaming wins)"]
+
+    classDef permanent stroke:#2563eb,stroke-width:2px
+    classDef conditional stroke:#d97706,stroke-width:2px
+    classDef result stroke:#059669,stroke-width:2px
+
+    class A permanent
+    class B conditional
+    class keyboard,mouse result
+```
 
 What "matching layers" means:
 
@@ -164,8 +187,8 @@ Typical fields are:
 Each profile file contains:
 
 - one `[profile]` section for global profile metadata
-- one `[devices."<hardware_id>"]` section per device layer (the hardware ID
-  identifies your device — shown in the GUI device tab header, e.g. `1234:5678`)
+- one `[devices."<hardware_id>"]` section per device layer (the hardware ID is
+  the USB vendor:product ID shown in the GUI device tab header, e.g. `046d:c548`)
 - one `[devices."<hardware_id>".mapping.<button_id>]` section per mapped button
 
 Example:

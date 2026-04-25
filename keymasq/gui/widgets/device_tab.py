@@ -39,6 +39,7 @@ from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileInfo, ProfileManager
 
+_ADD_INPUTS_TOOLTIP = "Capture additional physical buttons or keys for this device"
 _KEYBOARD_BUTTON_CARD_WIDTH = 96
 _KEYBOARD_LABEL_CHARS = 12
 _KEYBOARD_ACTION_SUMMARY_CHARS = 14
@@ -232,13 +233,6 @@ class DeviceTab(ProfileManagedTab):
 
         header_box.append(info_box)
         header_box.set_hexpand(True)
-
-        if not self.demo_mode:
-            self.add_keys_btn = Gtk.Button(icon_name="list-add-symbolic")
-            self.add_keys_btn.add_css_class("flat")
-            self.add_keys_btn.set_tooltip_text("Add extra buttons or keys to this device")
-            self.add_keys_btn.connect("clicked", self._on_add_keys_clicked)
-            header_box.append(self.add_keys_btn)
 
         self.append(header_box)
 
@@ -466,6 +460,7 @@ class DeviceTab(ProfileManagedTab):
                     prepend=True,
                 )
 
+            self._append_learn_tile(content)
             scrolled.set_child(content)
             self.append(scrolled)
             return
@@ -546,6 +541,7 @@ class DeviceTab(ProfileManagedTab):
                     prepend=True,
                 )
 
+            self._append_learn_tile(content)
             scrolled.set_child(content)
             self.append(scrolled)
             return
@@ -562,8 +558,48 @@ class DeviceTab(ProfileManagedTab):
         _add_section("Scroll", scroll_buttons, content)
         _add_section("Side Buttons", other_buttons, content)
 
+        self._append_learn_tile(content)
         scrolled.set_child(content)
         self.append(scrolled)
+
+    def _learn_label_noun(self) -> str:
+        if self.is_keyboard_hardware():
+            return "Keys"
+        return "Buttons"
+
+    def _learn_label_text(self) -> str:
+        return f"Learn {self._learn_label_noun()}"
+
+    def _make_icon_label_box(self, icon_name: str, label_text: str) -> Gtk.Box:
+        inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        inner.set_halign(Gtk.Align.CENTER)
+        inner.set_valign(Gtk.Align.CENTER)
+
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        icon.set_pixel_size(16)
+        inner.append(icon)
+
+        label = Gtk.Label(label=label_text)
+        inner.append(label)
+        return inner
+
+    def _create_learn_tile(self) -> Gtk.Button:
+        btn = Gtk.Button()
+        btn.add_css_class("button-card-learn")
+        btn.set_halign(Gtk.Align.START)
+        btn.set_tooltip_text(_ADD_INPUTS_TOOLTIP)
+        btn.connect("clicked", self._on_add_keys_clicked)
+        inner = self._make_icon_label_box("list-add-symbolic", self._learn_label_text())
+        btn.set_child(inner)
+        return btn
+
+    def _append_learn_tile(self, parent: Gtk.Box) -> None:
+        if self.demo_mode:
+            return
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        row.set_margin_top(8)
+        row.append(self._create_learn_tile())
+        parent.append(row)
 
     def is_keyboard_hardware(self) -> bool:
         key_count = sum(1 for b in self.device.buttons if b.id.startswith("key_"))
@@ -1121,7 +1157,7 @@ class DeviceTab(ProfileManagedTab):
             else:
                 widget.set_tooltip_text(None)
 
-    def _on_add_keys_clicked(self, btn: Gtk.Button) -> None:
+    def _on_add_keys_clicked(self, _button: Gtk.Button | None) -> None:
         dialog = Adw.Dialog(
             title="Add Inputs",
             content_width=420,

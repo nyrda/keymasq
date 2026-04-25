@@ -15,6 +15,25 @@ The easiest way to think about profiles is:
 - more than one profile can be active at once
 - for each device, Keymasq merges the matching layers from the active profiles
 
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Inter, sans-serif", "textColor": "#111827", "nodeTextColor": "#111827", "primaryTextColor": "#111827", "secondaryTextColor": "#111827", "tertiaryTextColor": "#111827", "titleColor": "#111827", "lineColor": "#475569", "clusterBkg": "#f8fafc", "clusterBorder": "#94a3b8", "edgeLabelBackground": "#f8fafc"}}}%%
+flowchart LR
+    subgraph stack["Profile merge stack"]
+        direction TB
+        B["<b>Gaming</b> (conditional)<br/>🖱 extra → key_1"]
+        A["<b>Base</b> (permanent)<br/>⌨ caps → esc<br/>🖱 extra → key_m"]
+    end
+
+    stack --> keyboard["⌨ Keyboard<br/>caps → <b>esc</b><br/>(Base only)"]
+    stack --> mouse["🖱 Mouse<br/>extra → <b>key_1</b><br/>(Gaming wins)"]
+
+    style stack fill:#f8fafc,stroke:#94a3b8,color:#111827
+    style A fill:#dbeafe,stroke:#2563eb,color:#111827
+    style B fill:#fef3c7,stroke:#d97706,color:#111827
+    style keyboard fill:#dcfce7,stroke:#059669,color:#111827
+    style mouse fill:#dcfce7,stroke:#059669,color:#111827
+```
+
 What "matching layers" means:
 
 - a profile can contain a keyboard layer, a mouse layer, a gamepad layer, or

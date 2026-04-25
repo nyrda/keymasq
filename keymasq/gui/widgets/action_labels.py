@@ -62,7 +62,7 @@ def describe_mapping_action_compact(
     elif action.action_type == ActionType.SUPPRESS:
         parts.append("× suppress")
     elif action.action_type == ActionType.PASSTHROUGH:
-        parts.append("→ explicit passthrough")
+        parts.append("→ legacy passthrough")
     else:
         parts.append("→ passthrough")
 
@@ -90,7 +90,7 @@ def describe_mapping_action_verbose(
     if action is None:
         return "No action selected"
     if action.action_type == ActionType.PASSTHROUGH:
-        return "Explicit Passthrough"
+        return "Legacy Passthrough"
     if action.action_type == ActionType.SUPPRESS:
         return "Suppress"
     if action.action_type == ActionType.SUPERKEY:

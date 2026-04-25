@@ -473,22 +473,13 @@ class KeySelectorDialog(Adw.Dialog):
 
         special_buttons_added = False
 
-        if self._allow_passthrough:
-            passthrough_btn = self._create_key_button("Passthrough", "passthrough", large=True)
-            passthrough_btn.connect("clicked", self._on_special_clicked, "explicit_passthrough")
+        if self._allow_clear_mapping:
+            passthrough_btn = self._create_key_button("Passthrough", "clear_mapping", large=True)
+            passthrough_btn.connect("clicked", self._on_special_clicked, "clear_mapping")
             passthrough_btn.set_tooltip_text(
-                "Explicitly mask lower-priority remaps and send the original input through"
+                "Do not store a mapping here, so lower-priority profiles can still apply"
             )
             box.append(passthrough_btn)
-            special_buttons_added = True
-
-        if self._allow_clear_mapping:
-            clear_btn = self._create_key_button("No Override", "clear_mapping", large=True)
-            clear_btn.connect("clicked", self._on_special_clicked, "clear_mapping")
-            clear_btn.set_tooltip_text(
-                "Do not store a mapping here, so lower-priority profiles can still apply one"
-            )
-            box.append(clear_btn)
             special_buttons_added = True
 
         if self._allow_suppress:

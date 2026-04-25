@@ -47,9 +47,6 @@ extra:
       link: https://github.com/nyrda/keymasq
   generator: false
 
-extra_css:
-  - assets/stylesheets/extra.css
-
 markdown_extensions:
   - admonition
   - attr_list

@@ -90,34 +90,25 @@ timeouts in the combo editor.
 
 ### Trigger Recall And Restore
 
-By default, combo trigger keys keep their current passthrough behavior.
+Sometimes a held modifier interferes with the combo action. For example:
 
-If needed, a combo can also manage its own trigger state explicitly:
+- Combo trigger: `Shift+Meta+V`
+- Action: run `ydotool type` to type clipboard contents
+- Problem: Shift is still held when the action runs, so the typed text comes
+  out UPPERCASE
 
-- **Recall Trigger Keys** releases that combo's trigger keys before the combo
-  action runs.
-- **Restore Trigger Keys** re-presses selected trigger keys after the combo
-  action finishes, but only if those keys are still physically held.
+**Recall Trigger Keys** fixes this by releasing the combo's trigger keys before
+the action runs. The action executes without interference from held modifiers.
 
-Restore is per trigger key. In the combo editor you can choose exactly which
-captured trigger keys should be re-pressed. This is useful for non-standard
-"modifier-like" setups such as using `CapsLock` as a combo leader.
+**Restore Trigger Keys** optionally re-presses selected trigger keys after the
+action finishes, but only if those keys are still physically held. This is
+useful when you want the modifier to remain active for subsequent input.
 
-When a key is restored, Keymasq restores that trigger key through its normal
-mapping behavior rather than blindly sending the raw physical key. For example,
-if the trigger key is mapped to **Suppress**, restore keeps it suppressed; if
-the trigger key is remapped to another output key, restore re-presses that
-mapped output instead.
+In the combo editor, you can enable recall and choose exactly which trigger
+keys should be restored afterward.
 
-While a trigger key is recalled, physical auto-repeat events for that key are
-suppressed. Restore only recreates the held-down state with a fresh key press;
-it does not replay missed repeats or preserve continuity of source `value=2`
-repeat events across the recall. Some compositors and toolkits may still
-continue repeating a restored key based on its held state.
-
-This is useful when a held trigger key would interfere with the combo action
-itself, for example when a held `Meta` key changes how a triggered super key or
-synthetic shortcut is interpreted by the desktop.
+By default, combo trigger keys keep their normal passthrough behavior and are
+not recalled.
 
 ## Combo Capture
 

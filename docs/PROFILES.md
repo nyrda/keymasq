@@ -7,6 +7,9 @@ Keymasq can activate more than one profile at the same time, then merge those
 profiles into the final mapping for each device based on profile type,
 priority, and active window rules.
 
+> **Profiles are global, not per-device.** A single profile can contain
+> mappings for your keyboard, mouse, and gamepad together.
+
 ## Mental Model
 
 The easiest way to think about profiles is:
@@ -16,7 +19,6 @@ The easiest way to think about profiles is:
 - for each device, Keymasq merges the matching layers from the active profiles
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Inter, sans-serif", "textColor": "#111827", "nodeTextColor": "#111827", "primaryTextColor": "#111827", "secondaryTextColor": "#111827", "tertiaryTextColor": "#111827", "titleColor": "#111827", "lineColor": "#475569", "clusterBkg": "#f8fafc", "clusterBorder": "#94a3b8", "edgeLabelBackground": "#f8fafc"}}}%%
 flowchart LR
     subgraph stack["Profile merge stack"]
         direction TB
@@ -27,11 +29,13 @@ flowchart LR
     stack --> keyboard["⌨ Keyboard<br/>caps → <b>esc</b><br/>(Base only)"]
     stack --> mouse["🖱 Mouse<br/>extra → <b>key_1</b><br/>(Gaming wins)"]
 
-    style stack fill:#f8fafc,stroke:#94a3b8,color:#111827
-    style A fill:#dbeafe,stroke:#2563eb,color:#111827
-    style B fill:#fef3c7,stroke:#d97706,color:#111827
-    style keyboard fill:#dcfce7,stroke:#059669,color:#111827
-    style mouse fill:#dcfce7,stroke:#059669,color:#111827
+    classDef permanent stroke:#2563eb,stroke-width:2px
+    classDef conditional stroke:#d97706,stroke-width:2px
+    classDef result stroke:#059669,stroke-width:2px
+
+    class A permanent
+    class B conditional
+    class keyboard,mouse result
 ```
 
 What "matching layers" means:
@@ -183,8 +187,8 @@ Typical fields are:
 Each profile file contains:
 
 - one `[profile]` section for global profile metadata
-- one `[devices."<hardware_id>"]` section per device layer (the hardware ID
-  identifies your device — shown in the GUI device tab header, e.g. `1234:5678`)
+- one `[devices."<hardware_id>"]` section per device layer (the hardware ID is
+  the USB vendor:product ID shown in the GUI device tab header, e.g. `046d:c548`)
 - one `[devices."<hardware_id>".mapping.<button_id>]` section per mapped button
 
 Example:

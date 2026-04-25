@@ -108,12 +108,34 @@ extract_pytest_report() {
   '
 }
 
+extract_pytest_final_summary() {
+  awk '
+    NF {
+      last = $0
+    }
+    END {
+      if (last != "") {
+        print last
+      } else {
+        exit 1
+      }
+    }
+  '
+}
+
 run_pytest_host() {
-  local pytest_args="tests -v"
+  local pytest_args="tests -q -ra --tb=short"
   local command=""
+  local raw_log="$tmp_dir/pytest-host.raw.log"
+  local clean_log="$tmp_dir/pytest-host.clean.log"
+  local summary_log="$tmp_dir/pytest-host.summary.log"
 
   if [[ -n "$PYTEST_MARK_EXPR" ]]; then
     pytest_args="$pytest_args -m $PYTEST_MARK_EXPR"
+  fi
+
+  if [[ "$CATEGORY" == "keymasqd" || "$CATEGORY" == "session" ]]; then
+    pytest_args="$pytest_args --ignore=tests/gui"
   fi
 
   if [[ "$CATEGORY" == "gui" || "$CATEGORY" == "full" ]]; then
@@ -134,7 +156,21 @@ EOF
   fi
 
   echo "pytest (${CATEGORY}):"
-  bash -lc "$command"
+  if bash -lc "$command" >"$raw_log" 2>&1; then
+    strip_log_noise <"$raw_log" >"$clean_log"
+    if extract_pytest_final_summary <"$clean_log" >"$summary_log"; then
+      printf 'pytest: ok - '
+      cat "$summary_log"
+    else
+      printf 'pytest: ok\n'
+    fi
+    return 0
+  fi
+
+  strip_log_noise <"$raw_log" >"$clean_log"
+  printf 'pytest: failed\n'
+  cat "$clean_log"
+  return 1
 }
 
 run_pytest_vm() {

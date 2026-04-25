@@ -1,3 +1,13 @@
+keymasq (0.9.0-1) unstable; urgency=medium
+
+  * Add scroll wheel remapping support.
+  * Add scroll wheel combo support.
+  * Improve macro recording and saving flows.
+  * Move superkey mappings into a dedicated selector tab for clearer editing.
+  * Add Unicode support for type macros.
+
+ -- nyrda <nyrda@keymasq.tools>  Sat, 25 Apr 2026 01:11:44 +0000
+
 keymasq (0.8.1-1) unstable; urgency=medium
 
   * Add native cursor positioning for GNOME and X11 so absolute pointer moves

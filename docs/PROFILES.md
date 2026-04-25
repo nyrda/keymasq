@@ -155,10 +155,9 @@ Conditional profiles always override permanent profiles, even if the permanent p
 
 Buttons not listed in a device layer pass through unchanged.
 
-If a higher-priority profile explicitly sets a button to `passthrough`, that
-cancels any remap from a lower-priority profile for that button. This is useful
-when a conditional profile needs to restore a button's original behavior that a
-permanent profile normally remaps.
+If a higher-priority profile does not map a button, lower-priority profiles can
+still map it. To override a lower-priority remap and restore the button's
+original behavior, bind the button to its own original key or button.
 
 ## Exclusive Input Capture
 
@@ -245,13 +244,15 @@ Use one profile when a workflow spans several devices. Example:
 
 All of those can live in one `Streaming` profile.
 
-### Explicitly removing a base mapping
+### Restoring a button's original behavior
 
-If `Base` maps `btn_extra` to `key_m`, a higher conditional profile can restore normal behavior:
+If `Base` maps `btn_extra` to `key_m`, a higher conditional profile can restore
+normal behavior by mapping that button to its own original input:
 
 ```toml
 [devices."1234:5678".mapping.btn_extra]
-action = "passthrough"
+action = "mouse"
+target = "btn_extra"
 ```
 
 ## GUI Behavior
@@ -262,9 +263,7 @@ In the GUI:
 - each device tab edits that device's layer inside the selected profile
 - enabling or disabling a profile affects every device layer in that profile
 - active-state displays show the active profiles contributing to that device
-- button mapping offers both `Explicit Passthrough` and `No Override`
-- `Explicit Passthrough` stores `action = "passthrough"` and masks lower-profile remaps
-- `No Override` removes the mapping from the current profile so lower profiles can still apply one
+- `Passthrough` removes the mapping from the selected profile so lower profiles can still apply one
 - deleting a button from the device tab removes it from the hardware config and clears saved mappings for that button across profiles
 
 Deleting a hardware definition does not delete global profiles. Any layers for that hardware remain in the profile file and stay dormant until that hardware exists again.

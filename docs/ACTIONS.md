@@ -30,21 +30,14 @@ The Special tab contains actions that don't send input to apps.
 
 ### Passthrough
 
-Send the original input through without modification. This is useful when a
-lower-priority profile remaps a key and you want a higher-priority profile to
-explicitly undo that remap and let the original key through.
+Clear the mapping from the current profile. If no lower-priority profile maps
+the key, the original input passes through unchanged. If a lower-priority
+profile does map the key, that lower-priority mapping still applies.
 
 ### Suppress
 
 Block the key entirely. Nothing is sent — the key press is silently consumed.
 Use this to disable a key you never want to fire.
-
-### No Override
-
-Clear the mapping so that lower-priority profiles can apply theirs. This is
-different from Passthrough: Passthrough always sends the original key, while
-No Override removes the mapping from this profile entirely and lets the next
-profile in the stack decide.
 
 ### Execute Shell Command
 
@@ -53,7 +46,7 @@ user session (delegated to keymasq-session, not the privileged daemon).
 
 Enter the command text and click **Map**.
 
-![Special tab — Passthrough, No Override, Suppress, and Execute Shell Command](assets/screenshots/keymasq_key_action_special.png)
+![Special tab — Passthrough, Suppress, and Execute Shell Command](assets/screenshots/keymasq_key_action_special.png)
 
 ## Keyboard
 

@@ -57,8 +57,8 @@ The dialog closes and the key now shows its new mapping: "→ Esc".
 Open any text editor and press Caps Lock. It should send Escape instead. Your
 remap is working.
 
-If you want to undo the remap, click the key again and choose **No Override**
-from the Special tab to clear the mapping.
+If you want to undo the remap, click the key again and choose **Passthrough**
+from the Special tab to clear the mapping from this profile.
 
 ## Create a Profile (Optional)
 

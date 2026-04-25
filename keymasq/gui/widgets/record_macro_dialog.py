@@ -203,6 +203,10 @@ class RecordMacroDialog(Adw.Dialog):
 
         self._unlock_btn = Gtk.Button()
         self._unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
+        self._unlock_btn.set_tooltip_text(
+            "Authorize raw original-input capture before live macro recording can read "
+            "keyboard, mouse, and gamepad events."
+        )
         self._unlock_btn.connect("clicked", self._on_unlock_clicked)
         footer.append(self._unlock_btn)
 
@@ -662,6 +666,15 @@ class RecordMacroDialog(Adw.Dialog):
         self._unlock_btn.set_visible(not has_active_unlock)
         label = "Claim" if self._recording_unlocked else "Unlock"
         self._unlock_btn.set_child(self._make_unlock_button_content(label))
+        if self._recording_unlocked:
+            self._unlock_btn.set_tooltip_text(
+                "Claim this GUI as the active owner before recording macros with raw input."
+            )
+        else:
+            self._unlock_btn.set_tooltip_text(
+                "Authorize raw original-input capture before live macro recording can read "
+                "keyboard, mouse, and gamepad events."
+            )
 
     def _device_types(self, device: dict) -> list[str]:
         return normalize_input_classes(

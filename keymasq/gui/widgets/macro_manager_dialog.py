@@ -594,7 +594,9 @@ class MacroManagerDialog(Adw.Dialog):
             self._record_btn.set_child(
                 self._make_button_content("channel-insecure-symbolic", "Unlock")
             )
-            self._record_btn.set_tooltip_text("Unlock recording")
+            self._record_btn.set_tooltip_text(
+                "Authorize raw original-input capture before starting live macro recording."
+            )
         else:
             self._record_btn.set_child(
                 self._make_button_content("media-record-symbolic", "Record", "error")

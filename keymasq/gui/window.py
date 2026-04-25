@@ -78,6 +78,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._gui_allow_left_right_click_remap = False
         self._recording_refresh_lease_id: str = ""
         self._recording_claim_attempt_key: tuple[str, int] | None = None
+        self._unlock_request_inflight = False
         self._unlock_refresh_inflight = False
         self._placeholder_subtitle: Gtk.Label | None = None
         self._menu_unlock_btn: Gtk.Button | None = None
@@ -645,6 +646,10 @@ class MainWindow(Adw.ApplicationWindow):
 
         menu_unlock_btn = Gtk.Button(label="Unlock Recording")
         menu_unlock_btn.set_halign(Gtk.Align.FILL)
+        menu_unlock_btn.set_tooltip_text(
+            "Authorize raw original-input capture for adding inputs, combo capture, "
+            "and live macro recording. Uses Polkit and stays tied to this GUI session."
+        )
         menu_unlock_btn.connect("clicked", self._on_menu_unlock_clicked, menu_popover)
         menu_box.append(menu_unlock_btn)
         self._menu_unlock_btn = menu_unlock_btn
@@ -984,60 +989,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._on_add_device(_button)
 
     def present_unlock_dialog(self, on_success=None) -> None:
-        self._present_unlock_dialog(on_success=on_success)
-
-    def _present_unlock_dialog(self, on_success=None) -> None:
-        dialog = Adw.Dialog(title="Unlock Recording", content_width=420, content_height=-1)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(16)
-        box.set_margin_bottom(16)
-        box.set_margin_start(16)
-        box.set_margin_end(16)
-
-        message = Gtk.Label(
-            label=(
-                "Unlock input capture while running the GUI.\n"
-                "This is used for adding additional keys and buttons, combo capture, "
-                "and macro recording."
-            )
-        )
-        message.set_wrap(True)
-        message.set_halign(Gtk.Align.START)
-        box.append(message)
-
-        remember_check = Gtk.CheckButton(label="Don't ask again for 24 hours")
-        remember_check.set_halign(Gtk.Align.START)
-        box.append(remember_check)
-
-        status_label = Gtk.Label()
-        status_label.set_halign(Gtk.Align.START)
-        status_label.add_css_class("dim-label")
-        box.append(status_label)
-
-        button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        button_row.set_halign(Gtk.Align.END)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
-        button_row.append(cancel_btn)
-
-        unlock_btn = Gtk.Button(label="Unlock")
-        unlock_btn.add_css_class("suggested-action")
-        unlock_btn.connect(
-            "clicked",
-            self._on_confirm_unlock_clicked,
-            dialog,
-            remember_check,
-            status_label,
-            unlock_btn,
-            cancel_btn,
-            on_success,
-        )
-        button_row.append(unlock_btn)
-
-        box.append(button_row)
-        dialog.set_child(box)
-        dialog.present(self)
+        self._start_recording_unlock(on_success=on_success)
 
     def _on_quit_clicked(self, _button: Gtk.Button) -> None:
         self.get_application().quit()
@@ -1045,23 +997,17 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_retry_connection_clicked(self, _button: Gtk.Button) -> None:
         self._retry_connection_check()
 
-    def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
-        dialog.close()
+    def _start_recording_unlock(self, on_success=None) -> None:
+        if self._unlock_request_inflight:
+            return
 
-    def _on_confirm_unlock_clicked(
-        self,
-        _button: Gtk.Button,
-        dialog: Adw.Dialog,
-        remember_check: Gtk.CheckButton,
-        status_label: Gtk.Label,
-        unlock_btn: Gtk.Button,
-        cancel_btn: Gtk.Button,
-        on_success,
-    ) -> None:
-        unlock_btn.set_sensitive(False)
-        cancel_btn.set_sensitive(False)
-        remember = bool(remember_check.get_active())
-        status_label.set_label("Requesting authorization...")
+        if self.demo_mode:
+            self._show_unlock_error_dialog("Recording unlock is unavailable in demo mode.")
+            return
+
+        self._unlock_request_inflight = True
+        if self._menu_unlock_btn is not None:
+            self._menu_unlock_btn.set_sensitive(False)
 
         def worker() -> tuple[str, dict | None]:
             error_msg = ""
@@ -1088,32 +1034,21 @@ class MainWindow(Adw.ApplicationWindow):
                     or "Authorization failed"
                 )
 
-            if not error_msg and remember:
-                completed = subprocess.run(
-                    [
-                        "pkexec",
-                        helper_path,
-                        "unlock-persistent",
-                        "--uid",
-                        str(uid),
-                        "--ttl",
-                        "86400",
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                if completed.returncode != 0:
-                    error_msg = (
-                        completed.stderr.strip()
-                        or completed.stdout.strip()
-                        or "Authorization failed"
-                    )
-
             if not error_msg:
                 claim_response = session_request(
                     {"command": "claim_recording_unlock_refresh"},
                     timeout=3.0,
                 )
+                if not isinstance(claim_response, dict):
+                    error_msg = (
+                        "Authorization succeeded, but keymasq-session did not grant "
+                        "the recording unlock lease."
+                    )
+                elif claim_response.get("status") != "ok":
+                    error_msg = str(
+                        claim_response.get("message")
+                        or "keymasq-session did not grant the recording unlock lease."
+                    )
 
             return error_msg, claim_response
 
@@ -1130,10 +1065,6 @@ class MainWindow(Adw.ApplicationWindow):
             return self._on_unlock_finished(
                 success,
                 error_msg,
-                dialog,
-                status_label,
-                unlock_btn,
-                cancel_btn,
                 on_success,
                 claim_response,
             )
@@ -1147,13 +1078,13 @@ class MainWindow(Adw.ApplicationWindow):
         self,
         success: bool,
         error_msg: str,
-        dialog: Adw.Dialog,
-        status_label: Gtk.Label,
-        unlock_btn: Gtk.Button,
-        cancel_btn: Gtk.Button,
         on_success,
         claim_response: dict | None = None,
     ) -> bool:
+        self._unlock_request_inflight = False
+        if self._menu_unlock_btn is not None:
+            self._menu_unlock_btn.set_sensitive(True)
+
         if success:
             lease_id = ""
             if isinstance(claim_response, dict) and claim_response.get("status") == "ok":
@@ -1166,16 +1097,23 @@ class MainWindow(Adw.ApplicationWindow):
             else:
                 self._update_unlock_state(None)
                 self._request_recording_refresh_lease()
-            dialog.close()
             if callable(on_success):
                 on_success()
             return False
 
-        unlock_btn.set_sensitive(True)
-        cancel_btn.set_sensitive(True)
-        status_label.set_label(error_msg or "Authorization failed")
-        status_label.add_css_class("error")
+        self._show_unlock_error_dialog(error_msg or "Authorization failed")
         return False
+
+    def _show_unlock_error_dialog(self, message: str) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Unlock Failed",
+            body=(
+                message
+                or "Keymasq could not authorize raw original-input capture for this GUI."
+            ),
+        )
+        dialog.add_response("ok", "OK")
+        dialog.present(self)
 
     def _refresh_macro_menu_state(self) -> None:
         if self._menu_unlock_btn is not None:
@@ -1197,7 +1135,7 @@ class MainWindow(Adw.ApplicationWindow):
             if self._recording_unlock_source == "runtime":
                 text = "unlock: 🟢 runtime"
             elif self._recording_unlock_source == "persistent":
-                text = "unlock: 🟢 24h"
+                text = "unlock: 🟢 persistent"
             else:
                 text = "unlock: 🟢"
 

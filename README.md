@@ -67,6 +67,10 @@ integration or Wayland fallback at runtime.
 
 ## Quick Start
 
+Keymasq uses two services: `keymasqd` handles the hardware (it needs elevated access to
+input devices), and `keymasq-session` handles your profiles and window tracking
+as your normal user.
+
 ### Arch Linux
 
 ```bash

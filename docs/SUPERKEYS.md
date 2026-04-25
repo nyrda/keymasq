@@ -112,7 +112,6 @@ In overload mode, the editor shows one ordered list: **Overload Actions**.
 Those children use the normal mapping action picker, so overload keys can mix
 the same kinds of actions that regular mappings can use, except:
 
-- **No Override** is not available
 - **Passthrough** is not available
 - **Suppress** is not available
 - **Super Key** is not available

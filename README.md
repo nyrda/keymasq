@@ -140,6 +140,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 
 ## Documentation
 
+- Getting started: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
 - Installation guide: [docs/INSTALL.md](docs/INSTALL.md)
 - Profile system: [docs/PROFILES.md](docs/PROFILES.md)
 - Actions explained: [docs/ACTIONS.md](docs/ACTIONS.md)

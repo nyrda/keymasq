@@ -198,7 +198,7 @@ def test_device_tab_refresh_profiles_does_not_save_on_programmatic_settings_upda
     assert save_calls == []
 
 
-def test_device_tab_explicit_passthrough_is_shown_as_active_mask(temp_config_dir):
+def test_device_tab_legacy_passthrough_is_shown_as_active_mask(temp_config_dir):
     from keymasq.common.models import (
         ActionType,
         ButtonDefinition,
@@ -446,27 +446,33 @@ def test_device_tab_shortens_long_action_summary_in_the_middle(temp_config_dir):
     )
 
 
-def test_key_selector_dialog_distinguishes_explicit_passthrough_and_no_override():
+def test_key_selector_dialog_passthrough_clears_current_profile_mapping():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
-    explicit_results: list[MappingAction | None] = []
-    explicit_dialog = KeySelectorDialog(Gtk.Box(), "Back")
-    explicit_dialog.connect("key-selected", lambda _dialog, action: explicit_results.append(action))
-    explicit_dialog._on_special_clicked(None, "explicit_passthrough")
+    def collect_buttons(widget):
+        buttons = []
+        child = widget.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Button):
+                buttons.append(child)
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
 
-    assert len(explicit_results) == 1
-    assert isinstance(explicit_results[0], MappingAction)
-    assert explicit_results[0].action_type == ActionType.PASSTHROUGH
+    results = []
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
 
-    clear_results: list[MappingAction | None] = []
-    clear_dialog = KeySelectorDialog(Gtk.Box(), "Back")
-    clear_dialog.connect("key-selected", lambda _dialog, action: clear_results.append(action))
-    clear_dialog._on_special_clicked(None, "clear_mapping")
+    special_tab = dialog._build_special_tab()
+    buttons_by_label = {button.get_label(): button for button in collect_buttons(special_tab)}
 
-    assert clear_results == [None]
+    assert "Passthrough" in buttons_by_label
+    assert "No Override" not in buttons_by_label
+
+    buttons_by_label["Passthrough"].emit("clicked")
+    assert results == [None]
 
 
 def test_key_selector_dialog_uses_dedicated_superkey_tab(temp_config_dir, monkeypatch):

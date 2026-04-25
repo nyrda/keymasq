@@ -650,6 +650,18 @@ class TestMainWindow:
         placeholder_page = window.stack.get_page(window.placeholder)
         assert placeholder_page.get_icon_name() == resolve_icon_name(*device_icon_names(False))
 
+        window.stack.remove(window.placeholder)
+        window._placeholder_title.set_label("Loading devices...")
+        window._placeholder_subtitle.set_label(
+            "Checking compositor support and loading saved hardware"
+        )
+
+        window._check_empty_state()
+
+        assert window.placeholder in window.stack
+        assert window._placeholder_title.get_label() == "No devices configured"
+        assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
+
         demo_window = MainWindow(demo_mode=True)
         demo_window._apply_loaded_devices([])
 

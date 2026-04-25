@@ -365,10 +365,10 @@ Keymasq treats macros with care because recording captures raw input, which
 could be misused as a keylogger.
 
 - **Recording is allowed by default**, but guarded by an unlock step. Before
-  you can record a macro, Keymasq asks you to confirm through a one-time
-  unlock prompt. This is intentional — recording captures your raw keystrokes,
-  so the unlock prevents anything from silently recording in the background
-  without your knowledge.
+  you can record a macro, Keymasq asks Polkit to authorize a runtime unlock
+  for the active GUI. This is intentional — recording captures your raw
+  keystrokes, so the unlock prevents anything from silently recording in the
+  background without your knowledge.
 
 - **Macros are stored in `/var/lib/keymasq/macros/`**, owned by the `keymasq`
   system user, not mixed into your profile files. The GUI asks Keymasq to save

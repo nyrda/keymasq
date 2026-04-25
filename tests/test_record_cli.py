@@ -97,6 +97,22 @@ def test_main_unlock_runtime_extends_previous_expiry(
     assert payload["expires_at"] == 21
 
 
+def test_main_rejects_persistent_unlock_command(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "unlock-persistent", "--uid", "1000", "--ttl", "86400"],
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        record.main()
+
+    assert excinfo.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
 def test_main_error_emits_json_and_exits(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

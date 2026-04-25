@@ -1207,6 +1207,10 @@ class DeviceTab(ProfileManagedTab):
 
         unlock_btn = Gtk.Button()
         unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
+        unlock_btn.set_tooltip_text(
+            "Authorize raw original-input capture so Keymasq can detect additional "
+            "keys and mouse buttons before remapping."
+        )
         unlock_btn.connect(
             "clicked",
             self._on_add_inputs_unlock_clicked,
@@ -1465,11 +1469,18 @@ class DeviceTab(ProfileManagedTab):
         label = "Claim" if recording_unlocked else "Unlock"
         unlock_btn.set_child(self._make_unlock_button_content(label))
         if recording_unlocked:
+            unlock_btn.set_tooltip_text(
+                "Claim this GUI as the active owner before capturing additional inputs."
+            )
             privilege_status.set_text(
                 "Unlock active in another session. Claim unlock to add additional keys and "
                 "mouse buttons."
             )
         else:
+            unlock_btn.set_tooltip_text(
+                "Authorize raw original-input capture so Keymasq can detect additional "
+                "keys and mouse buttons before remapping."
+            )
             privilege_status.set_text(
                 "Original-input capture uses privileged raw events. Unlock to add additional "
                 "keys and mouse buttons."

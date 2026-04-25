@@ -795,16 +795,19 @@ class MainWindow(Adw.ApplicationWindow):
             resolve_icon_name(*device_icon_names(False)),
         )
 
+    def _set_empty_placeholder_state(self) -> None:
+        if self._placeholder_title is not None:
+            self._placeholder_title.set_label("No devices configured")
+        if self._placeholder_subtitle is not None:
+            self._placeholder_subtitle.set_label("Click + to add a new device")
+
     def _apply_loaded_devices(self, devices: list) -> None:
         if self.demo_mode and not devices:
             self._load_demo_devices()
             return
 
         if not devices:
-            if self._placeholder_title is not None:
-                self._placeholder_title.set_label("No devices configured")
-            if self._placeholder_subtitle is not None:
-                self._placeholder_subtitle.set_label("Click + to add a new device")
+            self._set_empty_placeholder_state()
             return
 
         self.stack.remove(self.placeholder)
@@ -1351,6 +1354,7 @@ class MainWindow(Adw.ApplicationWindow):
                 break
 
         if not has_device_tabs:
+            self._set_empty_placeholder_state()
             self._ensure_placeholder_page()
 
     def _update_compositor_status(self) -> None:

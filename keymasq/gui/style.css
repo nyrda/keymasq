@@ -123,3 +123,24 @@ button.square-key-button {
   min-width: 0;
   min-height: 0;
 }
+
+/* Learn-keys placeholder tile: dashed border, dim, accent on hover */
+.button-card-learn {
+  border: 1.5px dashed alpha(@borders, 0.7);
+  border-radius: 8px;
+  padding: 10px 16px;
+  opacity: 0.65;
+  background: transparent;
+  min-height: 0;
+}
+
+.button-card-learn:hover {
+  opacity: 1;
+  border-color: @accent_color;
+  background: alpha(@accent_color, 0.08);
+}
+
+.button-card-learn:focus {
+  opacity: 1;
+  border-color: @accent_color;
+}

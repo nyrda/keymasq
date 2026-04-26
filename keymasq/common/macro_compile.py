@@ -62,27 +62,36 @@ def build_type_macro_events(
         if use_unicode_input
         else normalize_type_macro_text(text)
     )
+    tokens = _type_macro_tokens(normalized)
 
-    for i, ch in enumerate(normalized):
-        try:
-            code, needs_shift = char_to_key(ch)
-        except ValueError as exc:
-            if use_unicode_input:
-                t_us = _append_unicode_char_events(
-                    events,
-                    ch,
-                    t_us,
-                    down_ms,
-                    modifier_settle_us,
-                )
-                if i < len(normalized) - 1 and pause_ms > 0:
-                    t_us += pause_ms * 1000
-                continue
+    for i, (kind, value) in enumerate(tokens):
+        if kind == "wait":
+            _append_wait_event(events, value.split(":"), t_us)
+            continue
 
-            char_name = unicodedata.name(ch, "UNKNOWN")
-            raise ValueError(
-                f"Unsupported character at position {i + 1}: {ch!r} ({char_name})"
-            ) from exc
+        if kind == "key":
+            code, needs_shift = char_to_key(value)
+        else:
+            ch = value
+            try:
+                code, needs_shift = char_to_key(ch)
+            except ValueError as exc:
+                if use_unicode_input:
+                    t_us = _append_unicode_char_events(
+                        events,
+                        ch,
+                        t_us,
+                        down_ms,
+                        modifier_settle_us,
+                    )
+                    if _should_add_type_pause(tokens, i, pause_ms):
+                        t_us += pause_ms * 1000
+                    continue
+
+                char_name = unicodedata.name(ch, "UNKNOWN")
+                raise ValueError(
+                    f"Unsupported character at position {i + 1}: {ch!r} ({char_name})"
+                ) from exc
 
         t_us = _append_direct_key_events(
             events,
@@ -93,10 +102,55 @@ def build_type_macro_events(
             modifier_settle_us,
         )
 
-        if i < len(normalized) - 1 and pause_ms > 0:
+        if _should_add_type_pause(tokens, i, pause_ms):
             t_us += pause_ms * 1000
 
     return events
+
+
+def _type_macro_tokens(text: str) -> list[tuple[str, str]]:
+    tokens: list[tuple[str, str]] = []
+    index = 0
+    while index < len(text):
+        if text.startswith(r"\<", index):
+            tokens.append(("char", "<"))
+            index += 2
+            continue
+
+        if text[index] != "<":
+            tokens.append(("char", text[index]))
+            index += 1
+            continue
+
+        end = text.find(">", index + 1)
+        if end < 0:
+            tokens.append(("char", text[index]))
+            index += 1
+            continue
+
+        raw_tag = text[index + 1 : end]
+        tag = raw_tag.strip().lower()
+        if tag == "enter":
+            tokens.append(("key", "\n"))
+            index = end + 1
+            continue
+        if tag == "tab":
+            tokens.append(("key", "\t"))
+            index = end + 1
+            continue
+        if tag.startswith("wait:"):
+            tokens.append(("wait", tag.removeprefix("wait:")))
+            index = end + 1
+            continue
+
+        tokens.extend(("char", ch) for ch in text[index : end + 1])
+        index = end + 1
+
+    return tokens
+
+
+def _should_add_type_pause(tokens: list[tuple[str, str]], index: int, pause_ms: int) -> bool:
+    return pause_ms > 0 and index < len(tokens) - 1 and tokens[index + 1][0] != "wait"
 
 
 def can_type_directly(ch: str) -> bool:
@@ -319,10 +373,7 @@ def macro_definition_from_events(
     device_types: list[str] | None = None,
 ) -> JsonObject:
     inferred_device_types = device_types or _infer_device_types(events)
-    duration_ms = (
-        max((int(cast(IntLike, event.get("t_us", 0))) for event in events), default=0)
-        // 1000
-    )
+    duration_ms = max((_event_end_us(event) for event in events), default=0) // 1000
     data: JsonObject = {
         "duration_ms": duration_ms,
         "device_types": inferred_device_types,
@@ -331,6 +382,16 @@ def macro_definition_from_events(
     if name:
         data["name"] = name
     return data
+
+
+def _event_end_us(event: JsonObject) -> int:
+    t_us = int(cast(IntLike, event.get("t_us", 0)))
+    action = str(event.get("macro_action", "") or "")
+    if action == "wait_fixed":
+        return t_us + int(cast(IntLike, event.get("duration_ms", 0))) * 1000
+    if action == "wait_random":
+        return t_us + int(cast(IntLike, event.get("max_ms", 0))) * 1000
+    return t_us
 
 
 def _append_key_event(

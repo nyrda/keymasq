@@ -4,6 +4,8 @@ import sys
 from keymasq import __version__
 from keymasq.cli.commands import (
     cancel_macro_cli,
+    create_macro_cli,
+    delete_macro_cli,
     list_macros_cli,
     list_profiles_cli,
     play_adhoc_cli,
@@ -62,9 +64,9 @@ def main() -> None:
     type_parser.add_argument("--down-ms", type=int, default=10, help="Key down duration")
     type_parser.add_argument("--pause-ms", type=int, default=20, help="Pause between characters")
     type_parser.add_argument(
-        "--unicode",
+        "--no-unicode",
         action="store_true",
-        help="Use Linux Ctrl+Shift+U input for unsupported characters",
+        help="Fail on unsupported characters instead of using Linux Ctrl+Shift+U input",
     )
     type_parser.add_argument("--speed", type=_positive_float, default=1.0, help="Playback speed")
     type_parser.add_argument(
@@ -98,6 +100,21 @@ def main() -> None:
     macros_list_parser = macros_sub.add_parser("list", help="List available macros")
     _add_json_output(macros_list_parser)
 
+    macros_create_parser = macros_sub.add_parser("create", help="Create a macro from JSON")
+    macros_create_parser.add_argument("name", help="Macro name")
+    macros_create_parser.add_argument(
+        "json",
+        nargs="*",
+        help="Macro JSON payload; stdin is used when omitted",
+    )
+    macros_create_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Overwrite an existing macro",
+    )
+    _add_json_output(macros_create_parser)
+
     macros_play_parser = macros_sub.add_parser("play", help="Play a macro by name")
     macros_play_parser.add_argument("name", help="Macro name")
     macros_play_parser.add_argument(
@@ -110,6 +127,10 @@ def main() -> None:
 
     macros_cancel_parser = macros_sub.add_parser("cancel", help="Cancel running macro playback")
     _add_json_output(macros_cancel_parser)
+
+    macros_delete_parser = macros_sub.add_parser("delete", help="Delete a macro")
+    macros_delete_parser.add_argument("name", help="Macro name")
+    _add_json_output(macros_delete_parser)
 
     diagnostics_parser = subparsers.add_parser("diagnostics", help="Toggle keymasqd diagnostics")
     diagnostics_parser.add_argument("state", choices=["on", "off"], help="Enable or disable")
@@ -155,7 +176,7 @@ def main() -> None:
             down_ms=args.down_ms,
             pause_ms=args.pause_ms,
             speed=args.speed,
-            use_unicode_input=args.unicode,
+            use_unicode_input=not args.no_unicode,
             print_json=args.print_json,
             json_output=json_output,
         )
@@ -170,10 +191,19 @@ def main() -> None:
     elif args.command == "macros":
         if args.macros_command == "list":
             list_macros_cli(json_output=json_output)
+        elif args.macros_command == "create":
+            create_macro_cli(
+                args.name,
+                args.json,
+                force=args.force,
+                json_output=json_output,
+            )
         elif args.macros_command == "play":
             play_macro_cli(args.name, args.speed, json_output=json_output)
         elif args.macros_command == "cancel":
             cancel_macro_cli(json_output=json_output)
+        elif args.macros_command == "delete":
+            delete_macro_cli(args.name, json_output=json_output)
     elif args.command == "diagnostics":
         set_diagnostics_cli(args.state == "on", args.interval, json_output=json_output)
     elif args.command == "profiles":

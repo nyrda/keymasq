@@ -168,11 +168,26 @@ def test_cli_main_type_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None
             "down_ms": 5,
             "pause_ms": 20,
             "speed": 1.25,
-            "use_unicode_input": False,
+            "use_unicode_input": True,
             "print_json": False,
             "json_output": False,
         }
     ]
+
+
+def test_cli_main_type_no_unicode_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _type_cli(text: list[str], **kwargs: object) -> None:
+        calls.append({"text": text, **kwargs})
+
+    monkeypatch.setattr(cli_main, "type_cli", _type_cli)
+    monkeypatch.setattr(sys, "argv", ["keymasq", "type", "--no-unicode", "café"])
+
+    cli_main.main()
+    assert calls[0]["use_unicode_input"] is False
 
 
 def test_cli_main_play_routes_json_input_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -200,3 +215,44 @@ def test_cli_main_play_routes_json_input_to_helper(monkeypatch: pytest.MonkeyPat
             "json_output": True,
         }
     ]
+
+
+def test_cli_main_macros_create_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _create_macro(name: str, json_parts: list[str], **kwargs: object) -> None:
+        calls.append({"name": name, "json_parts": json_parts, **kwargs})
+
+    monkeypatch.setattr(cli_main, "create_macro_cli", _create_macro)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq", "macros", "create", "--force", "stored", '{"events":[]}'],
+    )
+
+    cli_main.main()
+    assert calls == [
+        {
+            "name": "stored",
+            "json_parts": ['{"events":[]}'],
+            "force": True,
+            "json_output": False,
+        }
+    ]
+
+
+def test_cli_main_macros_delete_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _delete_macro(name: str, **kwargs: object) -> None:
+        calls.append({"name": name, **kwargs})
+
+    monkeypatch.setattr(cli_main, "delete_macro_cli", _delete_macro)
+    monkeypatch.setattr(sys, "argv", ["keymasq", "macros", "delete", "stored"])
+
+    cli_main.main()
+    assert calls == [{"name": "stored", "json_output": False}]

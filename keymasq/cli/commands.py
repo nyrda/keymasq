@@ -180,13 +180,45 @@ def play_macro_cli(name: str, speed: float = 1.0, *, json_output: bool = False) 
     print(f"Played macro: {name}")
 
 
+def create_macro_cli(
+    name: str,
+    json_parts: list[str],
+    *,
+    force: bool = False,
+    json_output: bool = False,
+) -> None:
+    try:
+        macro = _macro_definition_from_json_input(name, json_parts)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    command = "update_macro" if force else "create_macro"
+    request: JsonObject = {"command": command, "macro": macro}
+    if force:
+        request["name"] = name
+
+    result = _request_or_error(request)
+    if _handled_json_or_error(result, json_output):
+        return
+    action = "Updated" if force else "Created"
+    print(f"{action} macro: {name}")
+
+
+def delete_macro_cli(name: str, *, json_output: bool = False) -> None:
+    result = _request_or_error({"command": "delete_macro", "name": name})
+    if _handled_json_or_error(result, json_output):
+        return
+    print(f"Deleted macro: {name}")
+
+
 def type_cli(
     text_parts: list[str],
     *,
     down_ms: int = 10,
     pause_ms: int = 20,
     speed: float = 1.0,
-    use_unicode_input: bool = False,
+    use_unicode_input: bool = True,
     print_json: bool = False,
     json_output: bool = False,
 ) -> None:
@@ -292,6 +324,40 @@ def _json_input_from_args_or_stdin(parts: list[str]) -> str:
     if parts:
         return " ".join(parts)
     return _read_stdin_or_exit("No macro JSON provided")
+
+
+def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonObject:
+    macro_data = parse_macro_json(_json_input_from_args_or_stdin(json_parts))
+    raw_events = macro_data.get("events", [])
+    if not isinstance(raw_events, list):
+        raise ValueError("macro JSON events must be a list")
+    events = [cast(JsonObject, event) for event in raw_events if isinstance(event, dict)]
+    macro = macro_definition_from_events(
+        events,
+        name=name,
+        device_types=_macro_device_types(macro_data),
+    )
+    for key in (
+        "created_at",
+        "loop_mode",
+        "loop_count",
+        "loop_stop_behavior",
+        "move_to_start",
+        "start_x",
+        "start_y",
+        "block_mouse_movement",
+        "gap_notes",
+    ):
+        if key in macro_data:
+            macro[key] = macro_data[key]
+    return macro
+
+
+def _macro_device_types(macro_data: JsonObject) -> list[str] | None:
+    raw_device_types = macro_data.get("device_types")
+    if not isinstance(raw_device_types, list):
+        return None
+    return [str(device_type) for device_type in raw_device_types if str(device_type)]
 
 
 def set_diagnostics_cli(

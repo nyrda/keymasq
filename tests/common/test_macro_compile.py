@@ -96,6 +96,101 @@ def test_type_macro_builder_normalizes_common_pasted_text() -> None:
     assert evdev.ecodes.KEY_MINUS in press_codes
 
 
+def test_type_macro_builder_expands_enter_and_tab_controls() -> None:
+    events = build_type_macro_events("a<enter>b<tab>c", 10, 0)
+
+    press_codes = [
+        event["code"]
+        for event in events
+        if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
+    ]
+    assert press_codes == [
+        evdev.ecodes.KEY_A,
+        evdev.ecodes.KEY_ENTER,
+        evdev.ecodes.KEY_B,
+        evdev.ecodes.KEY_TAB,
+        evdev.ecodes.KEY_C,
+    ]
+
+
+def test_type_macro_builder_adds_fixed_and_random_wait_controls() -> None:
+    events = build_type_macro_events("a<wait:10>b<wait:20:30>c", 10, 0)
+
+    waits = [event for event in events if event.get("macro_action")]
+    assert waits == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 10_000,
+            "macro_action": "wait_fixed",
+            "duration_ms": 10,
+        },
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 20_000,
+            "macro_action": "wait_random",
+            "min_ms": 20,
+            "max_ms": 30,
+        },
+    ]
+
+
+def test_type_macro_builder_keeps_backslash_sequences_literal() -> None:
+    events = build_type_macro_events(r"a\nb", 10, 0)
+
+    press_codes = [
+        event["code"]
+        for event in events
+        if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
+    ]
+    assert press_codes == [
+        evdev.ecodes.KEY_A,
+        evdev.ecodes.KEY_BACKSLASH,
+        evdev.ecodes.KEY_N,
+        evdev.ecodes.KEY_B,
+    ]
+
+
+def test_type_macro_builder_escapes_literal_less_than_before_control() -> None:
+    events = build_type_macro_events(r"a\<tab>b\\<tab>c", 10, 0)
+
+    press_codes = [
+        event["code"]
+        for event in events
+        if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
+    ]
+    assert press_codes == [
+        evdev.ecodes.KEY_A,
+        evdev.ecodes.KEY_LEFTSHIFT,
+        evdev.ecodes.KEY_COMMA,
+        evdev.ecodes.KEY_T,
+        evdev.ecodes.KEY_A,
+        evdev.ecodes.KEY_B,
+        evdev.ecodes.KEY_LEFTSHIFT,
+        evdev.ecodes.KEY_DOT,
+        evdev.ecodes.KEY_B,
+        evdev.ecodes.KEY_BACKSLASH,
+        evdev.ecodes.KEY_LEFTSHIFT,
+        evdev.ecodes.KEY_COMMA,
+        evdev.ecodes.KEY_T,
+        evdev.ecodes.KEY_A,
+        evdev.ecodes.KEY_B,
+        evdev.ecodes.KEY_LEFTSHIFT,
+        evdev.ecodes.KEY_DOT,
+        evdev.ecodes.KEY_C,
+    ]
+
+
+def test_type_macro_builder_rejects_invalid_wait_control() -> None:
+    with pytest.raises(ValueError, match="wait duration must be an integer"):
+        build_type_macro_events("a<wait:soon>b", 10, 0)
+
+
 def test_type_macro_builder_reports_unsupported_character_position() -> None:
     with pytest.raises(ValueError, match=r"position 2: 'é'"):
         build_type_macro_events("aé", 10, 0)

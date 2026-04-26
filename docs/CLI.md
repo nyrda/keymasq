@@ -34,7 +34,10 @@ Compile text into a temporary keyboard macro and play it immediately.
 keymasq type "hello"
 echo "hello" | keymasq type
 keymasq type --speed 1.5 "hello"
-keymasq type --unicode "é"
+keymasq type "café"
+keymasq type "user<tab>password<enter>"
+keymasq type "user<tab><wait:100:250>password<enter>"
+keymasq type --no-unicode "café"
 keymasq type --print-json "hello"
 ```
 
@@ -43,10 +46,24 @@ keymasq type --print-json "hello"
 | `--down-ms MS` | Key down duration for each typed key. Default: `10` |
 | `--pause-ms MS` | Pause between typed characters. Default: `20` |
 | `--speed SPEED` | Playback speed multiplier. The compiler does not rewrite waits or timestamps |
-| `--unicode` | Use Linux Ctrl+Shift+U input for unsupported characters |
+| `--no-unicode` | Fail on unsupported characters instead of using Linux Ctrl+Shift+U input |
 | `--print-json` | Print the compiled macro JSON instead of playing it |
 
-When no text argument is given, `type` reads the full text from stdin.
+When no text argument is given, `type` reads the full text from stdin. By
+default, unsupported characters fall back to Linux Unicode input
+(`Ctrl+Shift+U`). Use `--no-unicode` when you want direct key events only.
+
+The type compiler supports a small set of inline controls:
+
+| Control | Description |
+|---|---|
+| `<tab>` | Press Tab |
+| `<enter>` | Press Enter |
+| `<wait:MS>` | Wait a fixed number of milliseconds |
+| `<wait:MIN:MAX>` | Wait a random number of milliseconds in the inclusive range |
+
+Use `\<` to type a literal `<`. Backslashes are otherwise treated as normal
+text, so `\\<tab>` types `\<tab>`.
 
 ### play
 
@@ -124,14 +141,18 @@ Control macro playback.
 
 ```bash
 keymasq macros list
+keymasq macros create <name> [--force] [JSON]
 keymasq macros play <name> [--speed SPEED]
+keymasq macros delete <name>
 keymasq macros cancel
 ```
 
 | Subcommand | Description |
 |---|---|
 | `list` | List available macros |
+| `create <name>` | Create a stored macro from JSON |
 | `play <name>` | Play a macro by name |
+| `delete <name>` | Delete a stored macro |
 | `cancel` | Cancel all running macro playback |
 
 **Options for `play`:**
@@ -139,6 +160,24 @@ keymasq macros cancel
 | Option | Description |
 |---|---|
 | `--speed SPEED` | Playback speed multiplier |
+
+**Options for `create`:**
+
+| Option | Description |
+|---|---|
+| `-f, --force` | Overwrite an existing macro by updating it |
+
+`macros create` reads macro JSON from stdin when no JSON argument is provided.
+It accepts either a macro object with an `events` field or a raw event list. The
+CLI-provided name is always used for the stored macro.
+
+```bash
+keymasq type "test123üäß<tab><wait:20>12345<tab><wait:20>" --print-json \
+  | keymasq macros create type_stuff
+
+keymasq play key_a wait:20 key_b --print-json \
+  | keymasq macros create demo_sequence --force
+```
 
 ### diagnostics
 

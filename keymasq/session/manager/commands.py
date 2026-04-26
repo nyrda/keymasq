@@ -13,6 +13,7 @@ from .common import (
     JsonObject,
     float_value,
     int_value,
+    json_list,
     json_object,
     str_value,
 )
@@ -417,7 +418,7 @@ async def _handle_macro_commands(
             return {"status": "error", "message": "Macro not found"}
 
         macro = runtime_recording.sanitize_macro_for_policy(manager, macro)
-        payload: JsonObject = {
+        named_payload: JsonObject = {
             "macro_name": str(macro.get("name", name) or name),
             "macro_events": macro.get("events", []),
             "replay_mouse_movement": request.get("replay_mouse_movement", True),
@@ -436,7 +437,46 @@ async def _handle_macro_commands(
 
         try:
             result = await manager.client.send_command(
-                Command(command=CommandType.PLAY_MACRO, data=payload)
+                Command(command=CommandType.PLAY_MACRO, data=named_payload)
+            )
+        except Exception:
+            return {"status": "error", "message": "Daemon unavailable"}
+        if result.status == "ok":
+            response_data = json_object(result.data)
+            return response_data if response_data else {"status": "ok"}
+        return {"status": "error", "message": result.error or "playback failed"}
+
+    if command == "play_macro_payload":
+        macro_events = [
+            event
+            for raw_event in json_list(request.get("macro_events"))
+            if (event := json_object(raw_event)) is not None
+        ]
+        if not macro_events:
+            return {"status": "error", "message": "macro_events required"}
+
+        macro = runtime_recording.sanitize_macro_for_policy(manager, {"events": macro_events})
+        sanitized_events = json_list(macro.get("events"))
+        adhoc_payload: JsonObject = {
+            "macro_name": str_value(request.get("macro_name"), ""),
+            "macro_events": sanitized_events,
+            "replay_mouse_movement": bool(request.get("replay_mouse_movement", True)),
+            "replay_mouse_clicks": bool(request.get("replay_mouse_clicks", True)),
+            "speed": float_value(request.get("speed"), 1.0),
+            "loop_mode": str_value(request.get("loop_mode", "none"), "none") or "none",
+            "loop_count": int_value(request.get("loop_count"), 1),
+            "loop_stop_behavior": normalize_macro_loop_stop_behavior(
+                request.get("loop_stop_behavior")
+            ),
+            "move_to_start": bool(request.get("move_to_start", False)),
+            "start_x": int_value(request.get("start_x"), 0),
+            "start_y": int_value(request.get("start_y"), 0),
+            "block_mouse_movement": bool(request.get("block_mouse_movement", False)),
+        }
+
+        try:
+            result = await manager.client.send_command(
+                Command(command=CommandType.PLAY_MACRO, data=adhoc_payload)
             )
         except Exception:
             return {"status": "error", "message": "Daemon unavailable"}

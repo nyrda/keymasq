@@ -109,3 +109,73 @@ def test_set_diagnostics_cli_exits_on_error(monkeypatch: pytest.MonkeyPatch) -> 
         commands.set_diagnostics_cli(True, interval=3.0)
 
     assert excinfo.value.code == 1
+
+
+def test_type_cli_compiles_and_sends_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(commands, "_session_request", _session_request)
+
+    commands.type_cli(["Hi"], speed=1.5)
+
+    payload = sent[0]
+    assert payload["command"] == "play_macro_payload"
+    assert payload["speed"] == 1.5
+    assert len(payload["macro_events"]) > 0
+
+
+def test_play_adhoc_cli_compiles_compact_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(commands, "_session_request", _session_request)
+
+    commands.play_adhoc_cli(["key_a", "wait:10:20", "btn_left"], speed=0.5)
+
+    payload = sent[0]
+    assert payload["command"] == "play_macro_payload"
+    assert payload["speed"] == 0.5
+    events = payload["macro_events"]
+    assert isinstance(events, list)
+    assert any(event.get("macro_action") == "wait_random" for event in events)
+
+
+def test_play_adhoc_cli_reads_json_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(commands, "_session_request", _session_request)
+
+    commands.play_adhoc_cli(
+        ['{"events":[{"device_type":"keyboard","type":1,"code":30,"value":1,"t_us":0}]}'],
+        input_json=True,
+    )
+
+    payload = sent[0]
+    assert payload["command"] == "play_macro_payload"
+    assert payload["macro_events"] == [
+        {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}
+    ]
+
+
+def test_play_adhoc_cli_print_json_does_not_send(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(commands, "_session_request", lambda payload: pytest.fail("sent request"))
+
+    commands.play_adhoc_cli(["key_a"], print_json=True)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["device_types"] == ["keyboard"]
+    assert len(payload["events"]) == 2

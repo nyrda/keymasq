@@ -339,6 +339,61 @@ class TestDeviceTabWidget:
         assert root.checked == 1
         assert closed == [True]
 
+    def test_device_tab_rename_device_updates_hardware_runtime_and_header(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.session.hardware import HardwareManager
+
+        class _MainWindow:
+            def __init__(self) -> None:
+                self.renamed: list[tuple[str, str]] = []
+
+            def update_device_display_name(self, hardware_id: str, name: str) -> None:
+                self.renamed.append((hardware_id, name))
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        hardware_manager = HardwareManager()
+        hardware_manager.save_hardware(device)
+        main_window = _MainWindow()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            main_window=main_window,
+            demo_mode=False,
+        )
+
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        assert tab._rename_device("  Work Mouse  ") is True
+
+        assert device.name == "Work Mouse"
+        reloaded = HardwareManager().get_hardware(device.hardware_id)
+        assert reloaded is not None
+        assert reloaded.name == "Work Mouse"
+        assert reload_requests == [{"command": "reload"}]
+        assert tab.device_name_label.get_text() == "Work Mouse"
+        assert tab.always_grab_check.get_label() == "Always grab Work Mouse"
+        assert main_window.renamed == [("1234:5678", "Work Mouse")]
+
+        assert tab._rename_device("   ") is False
+        assert reload_requests == [{"command": "reload"}]
+
     def test_device_tab_delete_button_updates_hardware_profiles_and_ui(
         self, temp_config_dir, monkeypatch
     ):

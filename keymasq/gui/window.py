@@ -904,6 +904,15 @@ class MainWindow(Adw.ApplicationWindow):
             )
             self._apply_profile_runtime_state_to_widget(self.combo_tab)
 
+    def update_device_display_name(self, hardware_id: str, name: str) -> None:
+        child = self.stack.get_child_by_name(hardware_id)
+        if child is None:
+            return
+
+        page = self.stack.get_page(child)
+        if page is not None:
+            page.set_title(name)
+
     def _queue_profile_reload(self) -> None:
         if self._destroyed:
             return

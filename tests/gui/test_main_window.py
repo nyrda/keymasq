@@ -240,6 +240,29 @@ class TestMainWindow:
         assert tab2._selected_profile is not None
         assert tab2._selected_profile.config.name == "Desktop"
 
+    def test_main_window_update_device_display_name_updates_stack_page(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        window._add_device_tab(device)
+        child = window.stack.get_child_by_name(device.hardware_id)
+        assert child is not None
+        page = window.stack.get_page(child)
+        assert page.get_title() == "Mouse One"
+
+        window.update_device_display_name(device.hardware_id, "Desk Mouse")
+
+        assert page.get_title() == "Desk Mouse"
+
     def test_main_window_startup_probe_applies_compositor_state_and_devices(self, temp_config_dir):
         from keymasq.common.models import (
             ButtonDefinition,

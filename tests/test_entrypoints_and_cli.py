@@ -144,3 +144,59 @@ def test_cli_main_status_routes_json_flag(monkeypatch: pytest.MonkeyPatch) -> No
 
     cli_main.main()
     assert calls == [True]
+
+
+def test_cli_main_type_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _type_cli(text: list[str], **kwargs: object) -> None:
+        calls.append({"text": text, **kwargs})
+
+    monkeypatch.setattr(cli_main, "type_cli", _type_cli)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq", "type", "--speed", "1.25", "--down-ms", "5", "hello"],
+    )
+
+    cli_main.main()
+    assert calls == [
+        {
+            "text": ["hello"],
+            "down_ms": 5,
+            "pause_ms": 20,
+            "speed": 1.25,
+            "use_unicode_input": False,
+            "print_json": False,
+            "json_output": False,
+        }
+    ]
+
+
+def test_cli_main_play_routes_json_input_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _play_cli(events: list[str], **kwargs: object) -> None:
+        calls.append({"events": events, **kwargs})
+
+    monkeypatch.setattr(cli_main, "play_adhoc_cli", _play_cli)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq", "--json", "play", "--json", "--speed", "2", '{"events":[]}'],
+    )
+
+    cli_main.main()
+    assert calls == [
+        {
+            "events": ['{"events":[]}'],
+            "input_json": True,
+            "speed": 2.0,
+            "print_json": False,
+            "json_output": True,
+        }
+    ]

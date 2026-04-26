@@ -26,6 +26,80 @@ keymasq status
 keymasq --json status
 ```
 
+### type
+
+Compile text into a temporary keyboard macro and play it immediately.
+
+```bash
+keymasq type "hello"
+echo "hello" | keymasq type
+keymasq type --speed 1.5 "hello"
+keymasq type --unicode "é"
+keymasq type --print-json "hello"
+```
+
+| Option | Description |
+|---|---|
+| `--down-ms MS` | Key down duration for each typed key. Default: `10` |
+| `--pause-ms MS` | Pause between typed characters. Default: `20` |
+| `--speed SPEED` | Playback speed multiplier. The compiler does not rewrite waits or timestamps |
+| `--unicode` | Use Linux Ctrl+Shift+U input for unsupported characters |
+| `--print-json` | Print the compiled macro JSON instead of playing it |
+
+When no text argument is given, `type` reads the full text from stdin.
+
+### play
+
+Compile compact event tokens into a temporary macro and play it immediately.
+
+```bash
+keymasq play key_a
+keymasq play key_leftctrl:1 wait:20 key_c wait:20 key_leftctrl:0
+keymasq play move_abs:100:200 wait:10 btn_left
+keymasq play key_a wait:10:20 key_b
+keymasq play --speed 0.5 key_a wait:20 key_b
+keymasq play --print-json key_a wait:20 key_b
+```
+
+The compact grammar uses `:` for all parameters:
+
+| Token | Description |
+|---|---|
+| `key_a` | Tap a key: down then up |
+| `key_a:1` / `key_a:down` | Press and hold a key |
+| `key_a:0` / `key_a:up` | Release a held key |
+| `btn_left` | Click a button: down then up |
+| `btn_left:1` / `btn_left:down` | Press and hold a button |
+| `btn_left:0` / `btn_left:up` | Release a held button |
+| `move_abs:X:Y` | Move the pointer to absolute coordinates |
+| `move_rel:DX:DY` | Move the pointer relative to the current position |
+| `wait:MS` | Wait a fixed number of milliseconds |
+| `wait:MIN:MAX` | Wait a random number of milliseconds in the inclusive range |
+
+The compact compiler automatically releases any held keys/buttons at the end of
+the macro, in reverse press order. It rejects duplicate explicit presses and
+releases without matching presses.
+
+For full macro support, pass canonical macro JSON:
+
+```bash
+keymasq play --json '[{"device_type":"keyboard","type":1,"code":30,"value":1,"t_us":0}]'
+cat macro.json | keymasq play --json
+keymasq --json play --json < macro.json
+```
+
+`play --json` accepts either an event list or a macro object with an `events`
+field. JSON playback uses the existing macro runtime and supports the full macro
+event schema. The compact token grammar intentionally does not support `exec`.
+
+| Option | Description |
+|---|---|
+| `--json` | Read macro JSON instead of compact event tokens |
+| `--speed SPEED` | Playback speed multiplier. The compiler does not rewrite waits or timestamps |
+| `--print-json` | Print the compiled macro JSON instead of playing it |
+
+When no compact tokens or JSON payload are given, `play` reads from stdin.
+
 ### profiles
 
 Manage profile state.

@@ -4,12 +4,17 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
 import logging
-import unicodedata
 from datetime import datetime
 
-import evdev
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.macro_compile import (
+    build_type_macro_events,
+    can_type_directly,
+    char_to_key,
+    normalize_type_macro_text,
+    normalize_unicode_type_macro_text,
+)
 from keymasq.gui.session_client import (
     GuiTaskResult,
     JsonDict,
@@ -21,44 +26,8 @@ from keymasq.gui.session_client import (
 
 log = logging.getLogger("keymasq.gui.widgets.macro_manager_dialog")
 
-_TYPE_MACRO_TEXT_TRANSLATION = str.maketrans(
-    {
-        "\u00a0": " ",
-        "\u00ad": "",
-        "\u2007": " ",
-        "\u200b": "",
-        "\u200c": "",
-        "\u200d": "",
-        "\u2010": "-",
-        "\u2011": "-",
-        "\u2012": "-",
-        "\u2013": "-",
-        "\u2014": "-",
-        "\u2015": "-",
-        "\u2018": "'",
-        "\u2019": "'",
-        "\u201a": "'",
-        "\u201b": "'",
-        "\u201c": '"',
-        "\u201d": '"',
-        "\u201e": '"',
-        "\u201f": '"',
-        "\u2026": "...",
-        "\u202f": " ",
-        "\u2212": "-",
-        "\ufeff": "",
-    }
-)
-
-
-def _normalize_type_macro_text(text: str) -> str:
-    normalized = unicodedata.normalize("NFKC", text)
-    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
-    return normalized.translate(_TYPE_MACRO_TEXT_TRANSLATION)
-
-
-def _normalize_unicode_type_macro_text(text: str) -> str:
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+_normalize_type_macro_text = normalize_type_macro_text
+_normalize_unicode_type_macro_text = normalize_unicode_type_macro_text
 
 
 def _suggest_unique_macro_name(existing_names: set[str]) -> str:
@@ -863,199 +832,17 @@ class TypeMacroDialog(Adw.Dialog):
         *,
         use_unicode_input: bool = False,
     ) -> list[dict]:
-        events: list[dict] = []
-        t_us = 0
-        modifier_settle_us = 1_000
-        text = (
-            _normalize_unicode_type_macro_text(text)
-            if use_unicode_input
-            else _normalize_type_macro_text(text)
-        )
-
-        for i, ch in enumerate(text):
-            try:
-                code, needs_shift = self._char_to_key(ch)
-            except ValueError as exc:
-                if use_unicode_input:
-                    t_us = self._append_unicode_char_events(
-                        events,
-                        ch,
-                        t_us,
-                        down_ms,
-                        modifier_settle_us,
-                    )
-                    if i < len(text) - 1 and pause_ms > 0:
-                        t_us += pause_ms * 1000
-                    continue
-
-                char_name = unicodedata.name(ch, "UNKNOWN")
-                raise ValueError(
-                    f"Unsupported character at position {i + 1}: {ch!r} ({char_name})"
-                ) from exc
-
-            t_us = self._append_direct_key_events(
-                events,
-                code,
-                needs_shift,
-                t_us,
+        return list(
+            build_type_macro_events(
+                text,
                 down_ms,
-                modifier_settle_us,
+                pause_ms,
+                use_unicode_input=use_unicode_input,
             )
-
-            if i < len(text) - 1 and pause_ms > 0:
-                t_us += pause_ms * 1000
-
-        return events
-
-    def _append_key_event(
-        self,
-        events: list[dict],
-        code: int,
-        value: int,
-        t_us: int,
-    ) -> None:
-        events.append(
-            {
-                "device_type": "keyboard",
-                "type": evdev.ecodes.EV_KEY,
-                "code": code,
-                "value": value,
-                "t_us": t_us,
-            }
-        )
-
-    def _append_direct_key_events(
-        self,
-        events: list[dict],
-        code: int,
-        needs_shift: bool,
-        t_us: int,
-        down_ms: int,
-        modifier_settle_us: int,
-    ) -> int:
-        if needs_shift:
-            self._append_key_event(events, evdev.ecodes.KEY_LEFTSHIFT, 1, t_us)
-            t_us += modifier_settle_us
-
-        self._append_key_event(events, code, 1, t_us)
-        t_us += down_ms * 1000
-        self._append_key_event(events, code, 0, t_us)
-
-        if needs_shift:
-            t_us += modifier_settle_us
-            self._append_key_event(events, evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
-
-        return t_us
-
-    def _append_unicode_char_events(
-        self,
-        events: list[dict],
-        ch: str,
-        t_us: int,
-        down_ms: int,
-        modifier_settle_us: int,
-    ) -> int:
-        self._append_key_event(events, evdev.ecodes.KEY_LEFTCTRL, 1, t_us)
-        t_us += modifier_settle_us
-        self._append_key_event(events, evdev.ecodes.KEY_LEFTSHIFT, 1, t_us)
-        t_us += modifier_settle_us
-
-        self._append_key_event(events, evdev.ecodes.KEY_U, 1, t_us)
-        t_us += down_ms * 1000
-        self._append_key_event(events, evdev.ecodes.KEY_U, 0, t_us)
-
-        t_us += modifier_settle_us
-        self._append_key_event(events, evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
-        t_us += modifier_settle_us
-        self._append_key_event(events, evdev.ecodes.KEY_LEFTCTRL, 0, t_us)
-        t_us += modifier_settle_us
-
-        for hex_digit in f"{ord(ch):x}":
-            code, needs_shift = self._char_to_key(hex_digit)
-            t_us = self._append_direct_key_events(
-                events,
-                code,
-                needs_shift,
-                t_us,
-                down_ms,
-                modifier_settle_us,
-            )
-
-        code, needs_shift = self._char_to_key("\n")
-        return self._append_direct_key_events(
-            events,
-            code,
-            needs_shift,
-            t_us,
-            down_ms,
-            modifier_settle_us,
         )
 
     def _can_type_directly(self, ch: str) -> bool:
-        try:
-            self._char_to_key(ch)
-        except ValueError:
-            return False
-        return True
+        return can_type_directly(ch)
 
     def _char_to_key(self, ch: str) -> tuple[int, bool]:
-        letters = "abcdefghijklmnopqrstuvwxyz"
-        if ch.lower() in letters:
-            return getattr(evdev.ecodes, f"KEY_{ch.upper()}"), ch.isupper()
-
-        digits = {
-            "1": evdev.ecodes.KEY_1,
-            "2": evdev.ecodes.KEY_2,
-            "3": evdev.ecodes.KEY_3,
-            "4": evdev.ecodes.KEY_4,
-            "5": evdev.ecodes.KEY_5,
-            "6": evdev.ecodes.KEY_6,
-            "7": evdev.ecodes.KEY_7,
-            "8": evdev.ecodes.KEY_8,
-            "9": evdev.ecodes.KEY_9,
-            "0": evdev.ecodes.KEY_0,
-        }
-        if ch in digits:
-            return digits[ch], False
-
-        specials = {
-            " ": (evdev.ecodes.KEY_SPACE, False),
-            "\n": (evdev.ecodes.KEY_ENTER, False),
-            "\t": (evdev.ecodes.KEY_TAB, False),
-            "-": (evdev.ecodes.KEY_MINUS, False),
-            "_": (evdev.ecodes.KEY_MINUS, True),
-            "=": (evdev.ecodes.KEY_EQUAL, False),
-            "+": (evdev.ecodes.KEY_EQUAL, True),
-            "[": (evdev.ecodes.KEY_LEFTBRACE, False),
-            "{": (evdev.ecodes.KEY_LEFTBRACE, True),
-            "]": (evdev.ecodes.KEY_RIGHTBRACE, False),
-            "}": (evdev.ecodes.KEY_RIGHTBRACE, True),
-            "\\": (evdev.ecodes.KEY_BACKSLASH, False),
-            "|": (evdev.ecodes.KEY_BACKSLASH, True),
-            ";": (evdev.ecodes.KEY_SEMICOLON, False),
-            ":": (evdev.ecodes.KEY_SEMICOLON, True),
-            "'": (evdev.ecodes.KEY_APOSTROPHE, False),
-            '"': (evdev.ecodes.KEY_APOSTROPHE, True),
-            ",": (evdev.ecodes.KEY_COMMA, False),
-            "<": (evdev.ecodes.KEY_COMMA, True),
-            ".": (evdev.ecodes.KEY_DOT, False),
-            ">": (evdev.ecodes.KEY_DOT, True),
-            "/": (evdev.ecodes.KEY_SLASH, False),
-            "?": (evdev.ecodes.KEY_SLASH, True),
-            "`": (evdev.ecodes.KEY_GRAVE, False),
-            "~": (evdev.ecodes.KEY_GRAVE, True),
-            "!": (evdev.ecodes.KEY_1, True),
-            "@": (evdev.ecodes.KEY_2, True),
-            "#": (evdev.ecodes.KEY_3, True),
-            "$": (evdev.ecodes.KEY_4, True),
-            "%": (evdev.ecodes.KEY_5, True),
-            "^": (evdev.ecodes.KEY_6, True),
-            "&": (evdev.ecodes.KEY_7, True),
-            "*": (evdev.ecodes.KEY_8, True),
-            "(": (evdev.ecodes.KEY_9, True),
-            ")": (evdev.ecodes.KEY_0, True),
-        }
-        if ch in specials:
-            return specials[ch]
-
-        raise ValueError(f"Unsupported character for typing macro: {repr(ch)}")
+        return char_to_key(ch)

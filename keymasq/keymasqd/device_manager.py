@@ -5,7 +5,7 @@ import logging
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import evdev
 
@@ -37,6 +37,7 @@ from keymasq.keymasqd.runtime import combos as runtime_combos
 from keymasq.keymasqd.runtime import grab_lifecycle as runtime_grab_lifecycle
 from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
+from keymasq.keymasqd.runtime import outputs as runtime_outputs
 from keymasq.keymasqd.runtime import topology as runtime_topology
 
 log = logging.getLogger("keymasqd.devices")
@@ -294,6 +295,17 @@ class DeviceManager:
         self._command_type = CommandType
         self._desired_grab_config_cls = DesiredGrabConfig
         self._device_input = _device_input
+
+    def initialize_output_devices(self) -> None:
+        runtime_outputs.create_global_uinputs(
+            cast(Any, self),
+            evdev_mod=evdev,  # pyright: ignore[reportArgumentType]
+            log=log,
+            uinput_writer=runtime_adapters.identity_uinput_writer,
+        )
+
+    def shutdown_output_devices(self) -> None:
+        runtime_outputs.destroy_global_uinputs(cast(Any, self), log=log)
 
     @property
     def active_combos(self) -> list[RuntimeCombo]:

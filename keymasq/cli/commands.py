@@ -3,9 +3,17 @@ import socket
 import sys
 from typing import Any, cast
 
+from keymasq.common.macro_compile import (
+    build_compact_macro_events,
+    build_macro_payload,
+    build_type_macro_events,
+    macro_definition_from_events,
+    parse_macro_json,
+)
 from keymasq.common.paths import SESSION_SOCKET_PATH
 
 JsonObject = dict[str, Any]
+IntLike = int | float | str | bytes
 
 
 def _session_unavailable() -> JsonObject:
@@ -172,6 +180,119 @@ def play_macro_cli(name: str, speed: float = 1.0, *, json_output: bool = False) 
     print(f"Played macro: {name}")
 
 
+def create_macro_cli(
+    name: str,
+    json_parts: list[str],
+    *,
+    force: bool = False,
+    json_output: bool = False,
+) -> None:
+    try:
+        macro = _macro_definition_from_json_input(name, json_parts)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    command = "update_macro" if force else "create_macro"
+    request: JsonObject = {"command": command, "macro": macro}
+    if force:
+        request["name"] = name
+
+    result = _request_or_error(request)
+    if _handled_json_or_error(result, json_output):
+        return
+    action = "Updated" if force else "Created"
+    print(f"{action} macro: {name}")
+
+
+def delete_macro_cli(name: str, *, json_output: bool = False) -> None:
+    result = _request_or_error({"command": "delete_macro", "name": name})
+    if _handled_json_or_error(result, json_output):
+        return
+    print(f"Deleted macro: {name}")
+
+
+def type_cli(
+    text_parts: list[str],
+    *,
+    down_ms: int = 10,
+    pause_ms: int = 20,
+    speed: float = 1.0,
+    use_unicode_input: bool = True,
+    print_json: bool = False,
+    json_output: bool = False,
+) -> None:
+    text = " ".join(text_parts) if text_parts else _read_stdin_or_exit("No text provided")
+    try:
+        events = build_type_macro_events(
+            text,
+            max(1, int(down_ms)),
+            max(0, int(pause_ms)),
+            use_unicode_input=use_unicode_input,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    if print_json:
+        _print_json(macro_definition_from_events(events, device_types=["keyboard"]))
+        return
+
+    payload = build_macro_payload(events, speed=float(speed))
+    result = _request_or_error({"command": "play_macro_payload", **payload})
+    if _handled_json_or_error(result, json_output):
+        return
+    print(f"Played type macro: {len(text)} chars")
+
+
+def play_adhoc_cli(
+    tokens: list[str],
+    *,
+    input_json: bool = False,
+    speed: float = 1.0,
+    print_json: bool = False,
+    json_output: bool = False,
+) -> None:
+    try:
+        if input_json:
+            macro_data = parse_macro_json(_json_input_from_args_or_stdin(tokens))
+            raw_events = macro_data.get("events", [])
+            if not isinstance(raw_events, list):
+                raise ValueError("macro JSON events must be a list")
+            events = [cast(JsonObject, event) for event in raw_events if isinstance(event, dict)]
+            payload = build_macro_payload(
+                events,
+                name=str(macro_data.get("name", "") or ""),
+                speed=float(speed),
+                loop_mode=str(macro_data.get("loop_mode", "none") or "none"),
+                loop_count=int(cast(IntLike, macro_data.get("loop_count", 1) or 1)),
+                loop_stop_behavior=str(
+                    macro_data.get("loop_stop_behavior", "finish_run") or "finish_run"
+                ),
+                move_to_start=bool(macro_data.get("move_to_start", False)),
+                start_x=int(cast(IntLike, macro_data.get("start_x", 0) or 0)),
+                start_y=int(cast(IntLike, macro_data.get("start_y", 0) or 0)),
+                block_mouse_movement=bool(macro_data.get("block_mouse_movement", False)),
+            )
+        else:
+            event_tokens = tokens or _read_stdin_tokens_or_exit("No macro events provided")
+            events = build_compact_macro_events(event_tokens)
+            payload = build_macro_payload(events, speed=float(speed))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    if print_json:
+        _print_json(macro_definition_from_events(cast(list[JsonObject], payload["macro_events"])))
+        return
+
+    result = _request_or_error({"command": "play_macro_payload", **payload})
+    if _handled_json_or_error(result, json_output):
+        return
+    event_count = len(cast(list[JsonObject], payload["macro_events"]))
+    print(f"Played ad-hoc macro: {event_count} events")
+
+
 def cancel_macro_cli(*, json_output: bool = False) -> None:
     result = _request_or_error({"command": "cancel_macro_playback"})
     if _handled_json_or_error(result, json_output):
@@ -181,6 +302,62 @@ def cancel_macro_cli(*, json_output: bool = False) -> None:
         print("Cancelled running macro playback")
     else:
         print("No macro playback was running")
+
+
+def _read_stdin_or_exit(message: str) -> str:
+    if sys.stdin.isatty():
+        print(f"Error: {message}")
+        sys.exit(1)
+    return sys.stdin.read()
+
+
+def _read_stdin_tokens_or_exit(message: str) -> list[str]:
+    text = _read_stdin_or_exit(message)
+    tokens = text.split()
+    if not tokens:
+        print(f"Error: {message}")
+        sys.exit(1)
+    return tokens
+
+
+def _json_input_from_args_or_stdin(parts: list[str]) -> str:
+    if parts:
+        return " ".join(parts)
+    return _read_stdin_or_exit("No macro JSON provided")
+
+
+def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonObject:
+    macro_data = parse_macro_json(_json_input_from_args_or_stdin(json_parts))
+    raw_events = macro_data.get("events", [])
+    if not isinstance(raw_events, list):
+        raise ValueError("macro JSON events must be a list")
+    events = [cast(JsonObject, event) for event in raw_events if isinstance(event, dict)]
+    macro = macro_definition_from_events(
+        events,
+        name=name,
+        device_types=_macro_device_types(macro_data),
+    )
+    for key in (
+        "created_at",
+        "loop_mode",
+        "loop_count",
+        "loop_stop_behavior",
+        "move_to_start",
+        "start_x",
+        "start_y",
+        "block_mouse_movement",
+        "gap_notes",
+    ):
+        if key in macro_data:
+            macro[key] = macro_data[key]
+    return macro
+
+
+def _macro_device_types(macro_data: JsonObject) -> list[str] | None:
+    raw_device_types = macro_data.get("device_types")
+    if not isinstance(raw_device_types, list):
+        return None
+    return [str(device_type) for device_type in raw_device_types if str(device_type)]
 
 
 def set_diagnostics_cli(

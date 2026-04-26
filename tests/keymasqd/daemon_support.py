@@ -38,6 +38,8 @@ def daemon_testbed(monkeypatch):
         cancel_macro_playback=AsyncMock(return_value={"canceled": True}),
         set_diagnostics=AsyncMock(return_value={"status": "ok"}),
         complete_macro_exec_wait=Mock(return_value={"completed": True}),
+        initialize_output_devices=Mock(return_value=None),
+        shutdown_output_devices=Mock(return_value=None),
         start_topology_watcher=AsyncMock(return_value=None),
         stop_topology_watcher=AsyncMock(return_value=None),
         release_all_devices=AsyncMock(return_value=None),

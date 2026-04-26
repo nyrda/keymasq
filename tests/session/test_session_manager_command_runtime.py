@@ -1,5 +1,6 @@
 # ruff: noqa: F403, F405, I001
 from tests.session.command_support import *
+from keymasq.common.ipc import CommandType
 
 @pytest.mark.asyncio
 async def test_handle_session_request_get_compositor_reports_kde_dispatch_availability() -> None:
@@ -137,6 +138,58 @@ async def test_get_recording_settings_uses_unlock_and_owner_state_only() -> None
     assert "authorized" not in result
     resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
     monkeypatch.undo()
+
+
+@pytest.mark.asyncio
+async def test_play_macro_payload_forwards_sanitized_events() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    sent_commands = []
+
+    async def send_command(command):
+        sent_commands.append(command)
+        return Response(status="ok", data={"status": "ok", "played": True})
+
+    manager.client.send_command = send_command  # type: ignore[method-assign]
+    manager.security_policy.macro_exec_timeout_max_ms = 100
+
+    result = await manager._handle_session_request(
+        {
+            "command": "play_macro_payload",
+            "macro_events": [
+                {
+                    "device_type": "macro",
+                    "macro_action": "exec_sync",
+                    "timeout_ms": 999,
+                    "t_us": 0,
+                }
+            ],
+            "speed": 1.5,
+        },
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok", "played": True}
+    assert sent_commands[0].command == CommandType.PLAY_MACRO
+    assert sent_commands[0].data["speed"] == 1.5
+    assert sent_commands[0].data["macro_events"][0]["timeout_ms"] == 100
+
+
+@pytest.mark.asyncio
+async def test_play_macro_payload_requires_events() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "play_macro_payload", "macro_events": []},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "error", "message": "macro_events required"}
 
 
 @pytest.mark.asyncio

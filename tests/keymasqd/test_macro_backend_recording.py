@@ -325,6 +325,41 @@ async def test_play_macro_allows_concurrent_playback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_play_macro_uses_daemon_lifetime_outputs_without_active_grab(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    created: list[bool] = []
+    destroyed: list[bool] = []
+
+    def fake_create_global_uinputs(_manager: DeviceManager, **_kwargs: object) -> None:
+        created.append(True)
+        _manager.output_state.keyboard_uinput = MagicMock()
+        _manager.output_state.device_count += 1
+
+    def fake_destroy_global_uinputs(_manager: DeviceManager, **_kwargs: object) -> None:
+        destroyed.append(True)
+        _manager.output_state.device_count = max(0, _manager.output_state.device_count - 1)
+        if _manager.output_state.device_count == 0:
+            _manager.output_state.keyboard_uinput = None
+
+    monkeypatch.setattr(dm.runtime_outputs, "create_global_uinputs", fake_create_global_uinputs)
+    monkeypatch.setattr(dm.runtime_outputs, "destroy_global_uinputs", fake_destroy_global_uinputs)
+
+    manager.initialize_output_devices()
+    result = await manager.play_macro(macro_events=[], macro_name="adhoc")
+    await asyncio.sleep(0.02)
+
+    assert result["status"] == "ok"
+    assert created == [True]
+    assert destroyed == []
+    assert manager.output_state.keyboard_uinput is not None
+    manager.shutdown_output_devices()
+    assert destroyed == [True]
+    assert manager.output_state.keyboard_uinput is None
+
+
+@pytest.mark.asyncio
 async def test_play_macro_can_move_mouse_to_saved_start() -> None:
     manager = DeviceManager()
     manager.output_state.mouse_uinput = MagicMock()
@@ -611,7 +646,8 @@ async def test_play_macro_count_loop_repeats_events() -> None:
         loop_count=2,
     )
 
-    await asyncio.sleep(0.01)
+    if manager.macro_state.tasks:
+        await asyncio.gather(*manager.macro_state.tasks.values())
 
     press_calls = [
         c
@@ -628,7 +664,7 @@ async def test_play_macro_count_loop_repeats_events() -> None:
 
 
 @pytest.mark.asyncio
-async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing() -> None:
+async def test_play_macro_handles_macro_moves_and_unusual_device_type_routing() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()
     manager.output_state.mouse_uinput = MagicMock()
@@ -639,26 +675,24 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         instance_id=1,
         macro_events=[
             {
+                "device_type": "macro",
+                "type": 0,
+                "code": 0,
+                "value": 0,
                 "t_us": 0,
-                "type": evdev.ecodes.EV_REL,
-                "code": evdev.ecodes.REL_X,
-                "value": 320,
-                "device_type": "mouse",
-                "synthetic_move": True,
-                "move_mode": "abs",
-                "move_id": "abs-1",
-                "move_step": 1,
+                "macro_action": "mouse_move_abs",
+                "x": 320,
+                "y": 240,
             },
             {
+                "device_type": "macro",
+                "type": 0,
+                "code": 0,
+                "value": 0,
                 "t_us": 0,
-                "type": evdev.ecodes.EV_REL,
-                "code": evdev.ecodes.REL_Y,
-                "value": 240,
-                "device_type": "mouse",
-                "synthetic_move": True,
-                "move_mode": "abs",
-                "move_id": "abs-1",
-                "move_step": 1,
+                "macro_action": "mouse_move_rel",
+                "x": 7,
+                "y": -3,
             },
             {
                 "t_us": 0,
@@ -717,8 +751,8 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
                 "device_type": "other",
             },
         ],
-        macro_name="synthetic",
-        replay_mouse_movement=False,
+        macro_name="macro-moves",
+        replay_mouse_movement=True,
         replay_mouse_clicks=False,
         speed=1.0,
         loop_mode="none",
@@ -735,6 +769,9 @@ async def test_play_macro_handles_synthetic_abs_and_unusual_device_type_routing(
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Q, 0),
     ]
     assert [call.args for call in manager.output_state.mouse_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 7),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, -3),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 5),
         (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
         (
             evdev.ecodes.EV_REL,

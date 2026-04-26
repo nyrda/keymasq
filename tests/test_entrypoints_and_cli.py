@@ -92,6 +92,42 @@ def test_cli_main_version_uses_package_version(
     assert capsys.readouterr().out.strip() == "keymasq 9.9.9"
 
 
+def test_cli_main_type_help_includes_inline_controls_and_docs(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    monkeypatch.setattr(cli_main, "__version__", "1.2.3")
+    monkeypatch.setattr(sys, "argv", ["keymasq", "type", "--help"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main.main()
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "<tab>, <enter>, <wait:MS>, <wait:MIN:MAX>" in out
+    assert "https://keymasq.tools/docs/1.2.3/CLI.md" in out
+
+
+def test_cli_main_play_help_includes_compact_tokens_and_docs(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    monkeypatch.setattr(cli_main, "__version__", "1.2.3")
+    monkeypatch.setattr(sys, "argv", ["keymasq", "play", "--help"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main.main()
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "move_abs:X:Y, move_rel:DX:DY, wait:MS, wait:MIN:MAX" in out
+    assert "https://keymasq.tools/docs/1.2.3/CLI.md" in out
+
+
 def test_keymasqd_script_entrypoint_calls_daemon_main(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[str] = []
     monkeypatch.setitem(
@@ -144,3 +180,115 @@ def test_cli_main_status_routes_json_flag(monkeypatch: pytest.MonkeyPatch) -> No
 
     cli_main.main()
     assert calls == [True]
+
+
+def test_cli_main_type_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _type_cli(text: list[str], **kwargs: object) -> None:
+        calls.append({"text": text, **kwargs})
+
+    monkeypatch.setattr(cli_main, "type_cli", _type_cli)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq", "type", "--speed", "1.25", "--down-ms", "5", "hello"],
+    )
+
+    cli_main.main()
+    assert calls == [
+        {
+            "text": ["hello"],
+            "down_ms": 5,
+            "pause_ms": 20,
+            "speed": 1.25,
+            "use_unicode_input": True,
+            "print_json": False,
+            "json_output": False,
+        }
+    ]
+
+
+def test_cli_main_type_no_unicode_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _type_cli(text: list[str], **kwargs: object) -> None:
+        calls.append({"text": text, **kwargs})
+
+    monkeypatch.setattr(cli_main, "type_cli", _type_cli)
+    monkeypatch.setattr(sys, "argv", ["keymasq", "type", "--no-unicode", "café"])
+
+    cli_main.main()
+    assert calls[0]["use_unicode_input"] is False
+
+
+def test_cli_main_play_routes_json_input_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _play_cli(events: list[str], **kwargs: object) -> None:
+        calls.append({"events": events, **kwargs})
+
+    monkeypatch.setattr(cli_main, "play_adhoc_cli", _play_cli)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq", "--json", "play", "--json", "--speed", "2", '{"events":[]}'],
+    )
+
+    cli_main.main()
+    assert calls == [
+        {
+            "events": ['{"events":[]}'],
+            "input_json": True,
+            "speed": 2.0,
+            "print_json": False,
+            "json_output": True,
+        }
+    ]
+
+
+def test_cli_main_macros_create_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _create_macro(name: str, json_parts: list[str], **kwargs: object) -> None:
+        calls.append({"name": name, "json_parts": json_parts, **kwargs})
+
+    monkeypatch.setattr(cli_main, "create_macro_cli", _create_macro)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq", "macros", "create", "--force", "stored", '{"events":[]}'],
+    )
+
+    cli_main.main()
+    assert calls == [
+        {
+            "name": "stored",
+            "json_parts": ['{"events":[]}'],
+            "force": True,
+            "json_output": False,
+        }
+    ]
+
+
+def test_cli_main_macros_delete_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    calls: list[dict[str, object]] = []
+
+    def _delete_macro(name: str, **kwargs: object) -> None:
+        calls.append({"name": name, **kwargs})
+
+    monkeypatch.setattr(cli_main, "delete_macro_cli", _delete_macro)
+    monkeypatch.setattr(sys, "argv", ["keymasq", "macros", "delete", "stored"])
+
+    cli_main.main()
+    assert calls == [{"name": "stored", "json_output": False}]

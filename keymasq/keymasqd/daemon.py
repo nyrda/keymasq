@@ -60,6 +60,10 @@ class _DaemonDeviceManager(Protocol):
     recording_manager: object | None
     grabbed_devices: dict[str, list[_GrabbedDeviceRef]]
 
+    def initialize_output_devices(self) -> None: ...
+
+    def shutdown_output_devices(self) -> None: ...
+
     async def start_topology_watcher(self) -> None: ...
 
     async def stop_topology_watcher(self) -> None: ...
@@ -240,6 +244,7 @@ class Daemon:
 
         log.info(f"Starting keymasqd (socket: {SOCKET_PATH})")
 
+        self.device_manager.initialize_output_devices()
         await self.socket_server.start()
         await self.device_manager.start_topology_watcher()
 
@@ -261,6 +266,7 @@ class Daemon:
         await self.device_manager.stop_topology_watcher()
         await self.device_manager.cancel_macro_playback()
         await self.device_manager.release_all_devices()
+        self.device_manager.shutdown_output_devices()
 
         if self.socket_server:
             await self.socket_server.stop()

@@ -325,6 +325,41 @@ async def test_play_macro_allows_concurrent_playback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_play_macro_uses_daemon_lifetime_outputs_without_active_grab(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    created: list[bool] = []
+    destroyed: list[bool] = []
+
+    def fake_create_global_uinputs(_manager: DeviceManager, **_kwargs: object) -> None:
+        created.append(True)
+        _manager.output_state.keyboard_uinput = MagicMock()
+        _manager.output_state.device_count += 1
+
+    def fake_destroy_global_uinputs(_manager: DeviceManager, **_kwargs: object) -> None:
+        destroyed.append(True)
+        _manager.output_state.device_count = max(0, _manager.output_state.device_count - 1)
+        if _manager.output_state.device_count == 0:
+            _manager.output_state.keyboard_uinput = None
+
+    monkeypatch.setattr(dm.runtime_outputs, "create_global_uinputs", fake_create_global_uinputs)
+    monkeypatch.setattr(dm.runtime_outputs, "destroy_global_uinputs", fake_destroy_global_uinputs)
+
+    manager.initialize_output_devices()
+    result = await manager.play_macro(macro_events=[], macro_name="adhoc")
+    await asyncio.sleep(0.02)
+
+    assert result["status"] == "ok"
+    assert created == [True]
+    assert destroyed == []
+    assert manager.output_state.keyboard_uinput is not None
+    manager.shutdown_output_devices()
+    assert destroyed == [True]
+    assert manager.output_state.keyboard_uinput is None
+
+
+@pytest.mark.asyncio
 async def test_play_macro_can_move_mouse_to_saved_start() -> None:
     manager = DeviceManager()
     manager.output_state.mouse_uinput = MagicMock()
@@ -611,7 +646,8 @@ async def test_play_macro_count_loop_repeats_events() -> None:
         loop_count=2,
     )
 
-    await asyncio.sleep(0.01)
+    if manager.macro_state.tasks:
+        await asyncio.gather(*manager.macro_state.tasks.values())
 
     press_calls = [
         c

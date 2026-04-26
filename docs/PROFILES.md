@@ -264,6 +264,8 @@ In the GUI:
 - enabling or disabling a profile affects every device layer in that profile
 - active-state displays show the active profiles contributing to that device
 - `Passthrough` removes the mapping from the selected profile so lower profiles can still apply one
+- right-clicking the device name in a device tab lets you rename the hardware
+  definition; this updates the device tab and saved hardware config
 - deleting a button from the device tab removes it from the hardware config and clears saved mappings for that button across profiles
 
 Deleting a hardware definition does not delete global profiles. Any layers for that hardware remain in the profile file and stay dormant until that hardware exists again.

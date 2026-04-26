@@ -144,19 +144,12 @@ class DeviceTab(ProfileManagedTab):
         return self._selected_profile.config.get_layer(self.device.hardware_id)
 
     def _append_profile_settings_rows(self, settings_grid: Gtk.Grid, row: int) -> int:
-        iface_count = len(self.device.evdev_devices)
-        device_name = self.device.name
-
         grab_label = Gtk.Label(label="Grab Mode")
         grab_label.set_halign(Gtk.Align.START)
         grab_label.set_valign(Gtk.Align.CENTER)
         settings_grid.attach(grab_label, 0, row, 1, 1)
 
-        if iface_count > 1:
-            grab_text = f"Always grab all {iface_count} interfaces of {device_name}"
-        else:
-            grab_text = f"Always grab {device_name}"
-        self.always_grab_check = Gtk.CheckButton(label=grab_text)
+        self.always_grab_check = Gtk.CheckButton(label=self._device_grab_label_text())
         self.always_grab_check.set_active(False)
         self.always_grab_check.set_tooltip_text(
             "Grab all device interfaces even if not all are used. "
@@ -205,10 +198,17 @@ class DeviceTab(ProfileManagedTab):
 
         name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
-        name_label = Gtk.Label(label=self.device.name)
-        name_label.add_css_class("title-2")
-        name_label.set_halign(Gtk.Align.START)
-        name_row.append(name_label)
+        self.device_name_label = Gtk.Label(label=self.device.name)
+        self.device_name_label.add_css_class("title-2")
+        self.device_name_label.set_halign(Gtk.Align.START)
+        self.device_name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        if not self.demo_mode:
+            self.device_name_label.set_tooltip_text("Right-click to rename device")
+            name_right_click = Gtk.GestureClick()
+            name_right_click.set_button(Gdk.BUTTON_SECONDARY)
+            name_right_click.connect("pressed", self._on_device_name_right_clicked)
+            self.device_name_label.add_controller(name_right_click)
+        name_row.append(self.device_name_label)
 
         if not self.demo_mode:
             delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
@@ -237,6 +237,82 @@ class DeviceTab(ProfileManagedTab):
         self.append(header_box)
 
         self.set_focusable(True)
+
+    def _device_grab_label_text(self) -> str:
+        iface_count = len(self.device.evdev_devices)
+        if iface_count > 1:
+            return f"Always grab all {iface_count} interfaces of {self.device.name}"
+        return f"Always grab {self.device.name}"
+
+    def _on_device_name_right_clicked(self, click, n_press, x, y) -> None:
+        if n_press != 1 or self.demo_mode:
+            return
+        self._show_device_rename_dialog()
+
+    def _show_device_rename_dialog(self) -> None:
+        dialog = Adw.Dialog(title="Rename Device", content_width=420, content_height=-1)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(16)
+        box.set_margin_bottom(16)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+
+        label = Gtk.Label(label=f"Rename '{self.device.name}'")
+        label.set_halign(Gtk.Align.START)
+        box.append(label)
+
+        entry = Gtk.Entry()
+        entry.set_text(self.device.name)
+        entry.set_activates_default(True)
+        box.append(entry)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row.set_halign(Gtk.Align.END)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
+        btn_row.append(cancel_btn)
+
+        save_btn = Gtk.Button(label="Save")
+        save_btn.add_css_class("suggested-action")
+        save_btn.set_receives_default(True)
+
+        def on_save(_btn) -> None:
+            if self._rename_device(entry.get_text()):
+                dialog.close()
+
+        save_btn.connect("clicked", on_save)
+        btn_row.append(save_btn)
+
+        box.append(btn_row)
+        dialog.set_child(box)
+        dialog.present(self.get_root())
+
+    def _rename_device(self, new_name: str) -> bool:
+        new_name = new_name.strip()
+        if not new_name:
+            return False
+        if new_name == self.device.name:
+            return True
+
+        self.device.name = new_name
+        assert self.hardware_manager is not None
+        self.hardware_manager.save_hardware(self.device)
+        session_request_async({"command": "reload"}, lambda _result: False)
+        self._update_device_name_display()
+        self._notify_device_renamed()
+        return True
+
+    def _update_device_name_display(self) -> None:
+        self.device_name_label.set_text(self.device.name)
+        if hasattr(self, "always_grab_check"):
+            self.always_grab_check.set_label(self._device_grab_label_text())
+
+    def _notify_device_renamed(self) -> None:
+        target = self.main_window or self.get_root()
+        updater = getattr(target, "update_device_display_name", None)
+        if callable(updater):
+            updater(self.device.hardware_id, self.device.name)
 
     def _on_delete_device(self, button: Gtk.Button) -> None:
         dialog = Adw.Dialog(title="Delete Device", content_width=360, content_height=-1)

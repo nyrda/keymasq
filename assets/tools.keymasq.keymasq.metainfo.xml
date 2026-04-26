@@ -35,6 +35,11 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.10.1" date="2026-04-26">
+      <description>
+        <p>Adds device renaming in device tabs.</p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-04-26">
       <description>
         <p>Adds ad hoc macro CLI commands for one-off macro playback and compilation.</p>

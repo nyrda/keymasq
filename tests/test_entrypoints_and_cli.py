@@ -92,6 +92,42 @@ def test_cli_main_version_uses_package_version(
     assert capsys.readouterr().out.strip() == "keymasq 9.9.9"
 
 
+def test_cli_main_type_help_includes_inline_controls_and_docs(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    monkeypatch.setattr(cli_main, "__version__", "1.2.3")
+    monkeypatch.setattr(sys, "argv", ["keymasq", "type", "--help"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main.main()
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "<tab>, <enter>, <wait:MS>, <wait:MIN:MAX>" in out
+    assert "https://keymasq.tools/docs/1.2.3/CLI.md" in out
+
+
+def test_cli_main_play_help_includes_compact_tokens_and_docs(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    monkeypatch.setattr(cli_main, "__version__", "1.2.3")
+    monkeypatch.setattr(sys, "argv", ["keymasq", "play", "--help"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main.main()
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "move_abs:X:Y, move_rel:DX:DY, wait:MS, wait:MIN:MAX" in out
+    assert "https://keymasq.tools/docs/1.2.3/CLI.md" in out
+
+
 def test_keymasqd_script_entrypoint_calls_daemon_main(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[str] = []
     monkeypatch.setitem(

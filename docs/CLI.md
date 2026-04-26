@@ -107,7 +107,9 @@ keymasq --json play --json < macro.json
 
 `play --json` accepts either an event list or a macro object with an `events`
 field. JSON playback uses the existing macro runtime and supports the full macro
-event schema. The compact token grammar intentionally does not support `exec`.
+event schema. Pointer moves compiled from `move_abs` and `move_rel` are semantic
+macro actions, for example `{"macro_action":"mouse_move_abs","x":100,"y":200}`.
+The compact token grammar intentionally does not support `exec`.
 
 | Option | Description |
 |---|---|

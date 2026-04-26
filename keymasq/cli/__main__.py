@@ -34,6 +34,10 @@ def _add_json_output(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _docs_url() -> str:
+    return f"https://keymasq.tools/docs/{__version__}/CLI.md"
+
+
 def main() -> None:
     ensure_uvloop()
     argv = sys.argv[1:]
@@ -41,6 +45,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="keymasq",
         description="Keymasq CLI - Key remapping tool",
+        epilog=f"Full CLI reference: {_docs_url()}",
     )
     parser.add_argument(
         "--json",
@@ -59,7 +64,17 @@ def main() -> None:
     status_parser = subparsers.add_parser("status", help="Show Keymasq runtime status")
     _add_json_output(status_parser)
 
-    type_parser = subparsers.add_parser("type", help="Type text using an ad-hoc macro")
+    type_parser = subparsers.add_parser(
+        "type",
+        help="Type text using an ad-hoc macro",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Inline controls: <tab>, <enter>, <wait:MS>, <wait:MIN:MAX>\n"
+            r"Use \< to type a literal <." "\n"
+            'Example: keymasq type "user<tab><wait:100:250>password<enter>"\n'
+            f"Full reference: {_docs_url()}"
+        ),
+    )
     type_parser.add_argument("text", nargs="*", help="Text to type; stdin is used when omitted")
     type_parser.add_argument("--down-ms", type=int, default=10, help="Key down duration")
     type_parser.add_argument("--pause-ms", type=int, default=20, help="Pause between characters")
@@ -75,7 +90,17 @@ def main() -> None:
         help="Print the compiled macro JSON instead of playing it",
     )
 
-    play_parser = subparsers.add_parser("play", help="Play an ad-hoc macro")
+    play_parser = subparsers.add_parser(
+        "play",
+        help="Play an ad-hoc macro",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Compact tokens: key_a, key_a:1, key_a:0, btn_left,\n"
+            "move_abs:X:Y, move_rel:DX:DY, wait:MS, wait:MIN:MAX\n"
+            'Example: keymasq play key_leftctrl:1 wait:20 key_c wait:20 key_leftctrl:0\n'
+            f"Full reference: {_docs_url()}"
+        ),
+    )
     play_parser.add_argument(
         "--json",
         dest="input_json",
@@ -94,7 +119,11 @@ def main() -> None:
         help="Compact event tokens or JSON payload; stdin is used when omitted",
     )
 
-    macros_parser = subparsers.add_parser("macros", help="Macro commands")
+    macros_parser = subparsers.add_parser(
+        "macros",
+        help="Macro commands",
+        epilog=f"Full reference: {_docs_url()}",
+    )
     macros_sub = macros_parser.add_subparsers(dest="macros_command", required=True)
 
     macros_list_parser = macros_sub.add_parser("list", help="List available macros")

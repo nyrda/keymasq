@@ -195,14 +195,12 @@ def parse_events(
 
     EV_KEY press/release pairs → EditableEvent.
     EV_REL events → movement waveform (read-only).
-    Synthetic mouse-move REL events are parsed into EditableMove.
+    Semantic mouse-move macro actions are parsed into EditableMove.
     Any unsupported/unmatched events are preserved in passthrough_events.
     EV_SYN events are discarded.
     """
     ev_key = evdev.ecodes.EV_KEY
     ev_rel = evdev.ecodes.EV_REL
-    rel_x = evdev.ecodes.REL_X
-    rel_y = evdev.ecodes.REL_Y
 
     editable: list[EditableEvent] = []
     rel_events: list[MacroEvent] = []
@@ -210,10 +208,19 @@ def parse_events(
     editable_moves: list[EditableMove] = []
     control_events: list[EditableControl] = []
     open_presses: dict[tuple, list[int]] = {}  # (device_type, code) -> press_t_us stack
-    synthetic_rel_by_move_id: dict[str, list[MacroEvent]] = {}
 
     for ev in raw_events:
         macro_action = str(ev.get("macro_action", "") or "")
+        if macro_action in {"mouse_move_abs", "mouse_move_rel"}:
+            editable_moves.append(
+                EditableMove(
+                    mode="abs" if macro_action == "mouse_move_abs" else "rel",
+                    t_us=int(ev.get("t_us", 0)),
+                    x=int(ev.get("x", 0) or 0),
+                    y=int(ev.get("y", 0) or 0),
+                )
+            )
+            continue
         if macro_action:
             control_events.append(
                 EditableControl(
@@ -251,14 +258,7 @@ def parse_events(
             else:
                 passthrough_events.append(ev)
         elif ev["type"] == ev_rel:
-            if ev.get("synthetic_move"):
-                move_id = str(ev.get("move_id", ""))
-                if move_id:
-                    synthetic_rel_by_move_id.setdefault(move_id, []).append(ev)
-                else:
-                    passthrough_events.append(ev)
-            else:
-                rel_events.append(ev)
+            rel_events.append(ev)
         else:
             passthrough_events.append(ev)
 
@@ -273,37 +273,6 @@ def parse_events(
                     "t_us": press_t,
                 }
             )
-
-    for move_events in synthetic_rel_by_move_id.values():
-        mode = str(move_events[0].get("move_mode", "rel"))
-        if mode == "abs":
-            target_x = None
-            target_y = None
-            t_us = None
-            for ev in move_events:
-                if ev.get("move_step") == 1:
-                    if ev.get("code") == rel_x:
-                        target_x = int(ev.get("value", 0))
-                        t_us = int(ev.get("t_us", 0)) - 1
-                    elif ev.get("code") == rel_y:
-                        target_y = int(ev.get("value", 0))
-                        t_us = int(ev.get("t_us", 0)) - 1
-            if target_x is not None and target_y is not None and t_us is not None:
-                editable_moves.append(EditableMove(mode="abs", t_us=t_us, x=target_x, y=target_y))
-            else:
-                passthrough_events.extend(move_events)
-        else:
-            rel_x = next(
-                (int(e.get("value", 0)) for e in move_events if e.get("code") == rel_x), None
-            )
-            rel_y = next(
-                (int(e.get("value", 0)) for e in move_events if e.get("code") == rel_y), None
-            )
-            t_us = next((int(e.get("t_us", 0)) for e in move_events), None)
-            if rel_x is not None and rel_y is not None and t_us is not None:
-                editable_moves.append(EditableMove(mode="rel", t_us=t_us, x=rel_x, y=rel_y))
-            else:
-                passthrough_events.extend(move_events)
 
     editable.sort(key=lambda e: e.press_t_us)
     editable_moves.sort(key=lambda m: m.t_us)
@@ -321,9 +290,6 @@ def reconstruct_events(
 ) -> list[MacroEvent]:
     """Reconstruct raw event list from editable, REL and passthrough events."""
     ev_key = evdev.ecodes.EV_KEY
-    ev_rel = evdev.ecodes.EV_REL
-    rel_x = evdev.ecodes.REL_X
-    rel_y = evdev.ecodes.REL_Y
     raw: list[MacroEvent] = []
 
     for ev in editable:
@@ -348,84 +314,21 @@ def reconstruct_events(
 
     raw.extend(rel_events)
 
-    for idx, move in enumerate(editable_moves):
+    for move in editable_moves:
         if move.mode == "gap":
             continue
-        move_id = f"m{idx}"
-        if move.mode == "abs":
-            raw.extend(
-                [
-                    {
-                        "device_type": "mouse",
-                        "type": ev_rel,
-                        "code": rel_x,
-                        "value": -2147483648,
-                        "t_us": int(move.t_us),
-                        "synthetic_move": True,
-                        "move_id": move_id,
-                        "move_mode": "abs",
-                        "move_step": 0,
-                    },
-                    {
-                        "device_type": "mouse",
-                        "type": ev_rel,
-                        "code": rel_y,
-                        "value": -2147483648,
-                        "t_us": int(move.t_us),
-                        "synthetic_move": True,
-                        "move_id": move_id,
-                        "move_mode": "abs",
-                        "move_step": 0,
-                    },
-                    {
-                        "device_type": "mouse",
-                        "type": ev_rel,
-                        "code": rel_x,
-                        "value": int(move.x),
-                        "t_us": int(move.t_us) + 1,
-                        "synthetic_move": True,
-                        "move_id": move_id,
-                        "move_mode": "abs",
-                        "move_step": 1,
-                    },
-                    {
-                        "device_type": "mouse",
-                        "type": ev_rel,
-                        "code": rel_y,
-                        "value": int(move.y),
-                        "t_us": int(move.t_us) + 1,
-                        "synthetic_move": True,
-                        "move_id": move_id,
-                        "move_mode": "abs",
-                        "move_step": 1,
-                    },
-                ]
-            )
-        else:
-            raw.extend(
-                [
-                    {
-                        "device_type": "mouse",
-                        "type": ev_rel,
-                        "code": rel_x,
-                        "value": int(move.x),
-                        "t_us": int(move.t_us),
-                        "synthetic_move": True,
-                        "move_id": move_id,
-                        "move_mode": "rel",
-                    },
-                    {
-                        "device_type": "mouse",
-                        "type": ev_rel,
-                        "code": rel_y,
-                        "value": int(move.y),
-                        "t_us": int(move.t_us),
-                        "synthetic_move": True,
-                        "move_id": move_id,
-                        "move_mode": "rel",
-                    },
-                ]
-            )
+        raw.append(
+            {
+                "device_type": "macro",
+                "type": 0,
+                "code": 0,
+                "value": 0,
+                "t_us": int(move.t_us),
+                "macro_action": "mouse_move_abs" if move.mode == "abs" else "mouse_move_rel",
+                "x": int(move.x),
+                "y": int(move.y),
+            }
+        )
 
     for control in control_events:
         event = {
@@ -1813,7 +1716,7 @@ class MacroEditorDialog(Adw.Dialog):
         if self._synthetic_moves:
             self._duration_us = max(
                 self._duration_us,
-                max(m.t_us + (1 if m.mode == "abs" else 0) for m in self._synthetic_moves),
+                max(m.t_us for m in self._synthetic_moves),
             )
         if self._control_events:
             self._duration_us = max(
@@ -2777,9 +2680,7 @@ class MacroEditorDialog(Adw.Dialog):
 
     def _update_stats(self) -> None:
         duration_s = self._duration_us / 1e6
-        synthetic_count = sum(
-            4 if m.mode == "abs" else 2 for m in self._synthetic_moves if m.mode != "gap"
-        )
+        synthetic_count = sum(1 for m in self._synthetic_moves if m.mode != "gap")
         event_count = (
             len(self._events) * 2
             + len(self._rel_events)
@@ -2970,7 +2871,7 @@ class MacroEditorDialog(Adw.Dialog):
         if self._synthetic_moves:
             latest = max(
                 latest,
-                max(m.t_us + (1 if m.mode == "abs" else 0) for m in self._synthetic_moves),
+                max(m.t_us for m in self._synthetic_moves),
             )
         timed_controls = [c for c in self._control_events if self._control_affects_timing(c)]
         if timed_controls:

@@ -244,6 +244,7 @@ class TestMainWindow:
         from keymasq.common.models import ButtonDefinition, HardwareConfig, ProfileConfig
         from keymasq.gui.widgets import profile_managed_tab as profile_tab_module
         from keymasq.gui.window import MainWindow
+        from keymasq.session.profiles import ProfileManager
 
         reload_calls = []
         monkeypatch.setattr(
@@ -261,7 +262,10 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
         window._add_device_tab(device)
-        window.profile_manager.save_profile(
+        original_profile_manager = window.profile_manager
+        window._set_profile_manager(ProfileManager(auto_create_default_if_empty=True))
+        assert window.profile_manager.get_profile("Gaming") is None
+        original_profile_manager.save_profile(
             ProfileConfig(name="Gaming", enabled=True, is_permanent=True)
         )
 

@@ -1063,6 +1063,11 @@ class ProfileManagedTab(Gtk.Box):
         dialog.present()
 
     def _on_profile_created(self, _dialog, profile_name: str) -> None:
+        root = self.main_window or self.get_root()
+        if root and hasattr(root, "_set_selected_profile_name"):
+            root._set_selected_profile_name(profile_name)
+        if self.profile_manager is not None:
+            self.profile_manager.reload()
         self.refresh_profiles(preferred_profile_name=profile_name)
         self.settings_frame.set_expanded(True)
         notify_session_reload_async()

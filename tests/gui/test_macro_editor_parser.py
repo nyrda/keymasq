@@ -93,7 +93,7 @@ def test_parse_handles_overlapping_same_key_presses() -> None:
     assert editable[1].release_t_us == 140
 
 
-def test_parse_reconstruct_synthetic_moves_separate_from_waveform() -> None:
+def test_parse_reconstruct_macro_move_actions_separate_from_waveform() -> None:
     raw = [
         {
             "device_type": "mouse",
@@ -110,24 +110,14 @@ def test_parse_reconstruct_synthetic_moves_separate_from_waveform() -> None:
             "t_us": 100,
         },
         {
-            "device_type": "mouse",
-            "type": evdev.ecodes.EV_REL,
-            "code": evdev.ecodes.REL_X,
-            "value": 300,
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
             "t_us": 200,
-            "synthetic_move": True,
-            "move_id": "m1",
-            "move_mode": "rel",
-        },
-        {
-            "device_type": "mouse",
-            "type": evdev.ecodes.EV_REL,
-            "code": evdev.ecodes.REL_Y,
-            "value": 200,
-            "t_us": 200,
-            "synthetic_move": True,
-            "move_id": "m1",
-            "move_mode": "rel",
+            "macro_action": "mouse_move_rel",
+            "x": 300,
+            "y": 200,
         },
     ]
 
@@ -142,7 +132,19 @@ def test_parse_reconstruct_synthetic_moves_separate_from_waveform() -> None:
     assert synthetic_moves[0].y == 200
 
     rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
-    assert sum(1 for e in rebuilt if e.get("synthetic_move")) == 2
+    move_actions = [e for e in rebuilt if e.get("macro_action") == "mouse_move_rel"]
+    assert move_actions == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 200,
+            "macro_action": "mouse_move_rel",
+            "x": 300,
+            "y": 200,
+        }
+    ]
 
 
 def test_unmatched_key_press_is_classified_for_keyboard_track() -> None:
@@ -164,5 +166,4 @@ def test_unmatched_key_press_is_classified_for_keyboard_track() -> None:
     assert control_events == []
     assert len(passthrough) == 1
     assert _passthrough_track(passthrough[0]) == "keyboard"
-
 

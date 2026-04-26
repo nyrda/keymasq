@@ -291,7 +291,6 @@ async def play_macro_task(
     str_value_fn = deps.str_value_fn
     uinput_writer = deps.uinput_writer
     mouse_btn_codes = frozenset(range(0x110, 0x118))
-    pending_abs_moves: dict[str, dict[str, int]] = {}
 
     if manager.verbosity >= 1:
         deps.log.debug("Macro playback started: %s", macro_name or "<unnamed>")
@@ -321,7 +320,6 @@ async def play_macro_task(
                     deps=deps,
                 )
             iterations += 1
-            pending_abs_moves.clear()
             if move_to_start:
                 await manager.set_cursor_position(int(start_x), int(start_y))
 
@@ -355,6 +353,29 @@ async def play_macro_task(
                     await asyncio_mod.sleep(remaining)
 
                 action_type = str(ev.get("macro_action", "") or "")
+                if action_type in {"mouse_move_abs", "mouse_move_rel"}:
+                    if not replay_mouse_movement:
+                        continue
+                    x = int_value_fn(ev.get("x"), 0)
+                    y = int_value_fn(ev.get("y"), 0)
+                    if action_type == "mouse_move_abs":
+                        await manager.set_cursor_position(x, y)
+                    else:
+                        uinput = manager.output_state.mouse_uinput
+                        output = uinput_writer(uinput) if uinput else None
+                        if output is not None:
+                            output.write(
+                                evdev_mod.ecodes.EV_REL,
+                                evdev_mod.ecodes.REL_X,
+                                x,
+                            )
+                            output.write(
+                                evdev_mod.ecodes.EV_REL,
+                                evdev_mod.ecodes.REL_Y,
+                                y,
+                            )
+                            output.syn()
+                    continue
                 if action_type:
                     timeline_offset_s += await run_macro_control_action(
                         manager,
@@ -368,24 +389,6 @@ async def play_macro_task(
                 event_code = int_value_fn(ev.get("code"), 0)
                 event_value = int_value_fn(ev.get("value"), 0)
                 device_type = str_value_fn(ev.get("device_type"), "other")
-
-                if (
-                    event_type == evdev_mod.ecodes.EV_REL
-                    and ev.get("synthetic_move")
-                    and ev.get("move_mode") == "abs"
-                ):
-                    move_id = str_value_fn(ev.get("move_id"), "")
-                    if move_id:
-                        slot = pending_abs_moves.setdefault(move_id, {})
-                        if ev.get("move_step") == 1:
-                            if event_code == evdev_mod.ecodes.REL_X:
-                                slot["x"] = event_value
-                            elif event_code == evdev_mod.ecodes.REL_Y:
-                                slot["y"] = event_value
-                            if "x" in slot and "y" in slot:
-                                await manager.set_cursor_position(slot["x"], slot["y"])
-                                pending_abs_moves.pop(move_id, None)
-                    continue
 
                 if event_type == evdev_mod.ecodes.EV_SYN:
                     continue

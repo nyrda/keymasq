@@ -230,7 +230,6 @@ def build_compact_macro_events(tokens: list[str]) -> list[JsonObject]:
     held_order: list[tuple[str, int]] = []
     t_us = 0
     sequence_step_us = 1
-    move_seq = 0
 
     def advance_sequence() -> None:
         nonlocal t_us
@@ -257,12 +256,10 @@ def build_compact_macro_events(tokens: list[str]) -> list[JsonObject]:
                 raise ValueError(f"{name} requires x and y arguments")
             x = _parse_int(args[0], f"{name} x")
             y = _parse_int(args[1], f"{name} y")
-            move_id = f"cli{move_seq}"
-            move_seq += 1
             if name == "move_abs":
-                _append_abs_move_events(events, x, y, t_us, move_id)
+                _append_mouse_move_event(events, "mouse_move_abs", x, y, t_us)
             else:
-                _append_rel_move_events(events, x, y, t_us, move_id)
+                _append_mouse_move_event(events, "mouse_move_rel", x, y, t_us)
             advance_sequence()
             continue
 
@@ -517,93 +514,24 @@ def _append_wait_event(events: list[JsonObject], args: list[str], t_us: int) -> 
     raise ValueError("wait requires one duration or min:max arguments")
 
 
-def _append_abs_move_events(
+def _append_mouse_move_event(
     events: list[JsonObject],
+    action: str,
     x: int,
     y: int,
     t_us: int,
-    move_id: str,
 ) -> None:
-    events.extend(
-        [
-            {
-                "device_type": "mouse",
-                "type": evdev.ecodes.EV_REL,
-                "code": evdev.ecodes.REL_X,
-                "value": -2147483648,
-                "t_us": int(t_us),
-                "synthetic_move": True,
-                "move_id": move_id,
-                "move_mode": "abs",
-                "move_step": 0,
-            },
-            {
-                "device_type": "mouse",
-                "type": evdev.ecodes.EV_REL,
-                "code": evdev.ecodes.REL_Y,
-                "value": -2147483648,
-                "t_us": int(t_us),
-                "synthetic_move": True,
-                "move_id": move_id,
-                "move_mode": "abs",
-                "move_step": 0,
-            },
-            {
-                "device_type": "mouse",
-                "type": evdev.ecodes.EV_REL,
-                "code": evdev.ecodes.REL_X,
-                "value": int(x),
-                "t_us": int(t_us) + 1,
-                "synthetic_move": True,
-                "move_id": move_id,
-                "move_mode": "abs",
-                "move_step": 1,
-            },
-            {
-                "device_type": "mouse",
-                "type": evdev.ecodes.EV_REL,
-                "code": evdev.ecodes.REL_Y,
-                "value": int(y),
-                "t_us": int(t_us) + 1,
-                "synthetic_move": True,
-                "move_id": move_id,
-                "move_mode": "abs",
-                "move_step": 1,
-            },
-        ]
-    )
-
-
-def _append_rel_move_events(
-    events: list[JsonObject],
-    x: int,
-    y: int,
-    t_us: int,
-    move_id: str,
-) -> None:
-    events.extend(
-        [
-            {
-                "device_type": "mouse",
-                "type": evdev.ecodes.EV_REL,
-                "code": evdev.ecodes.REL_X,
-                "value": int(x),
-                "t_us": int(t_us),
-                "synthetic_move": True,
-                "move_id": move_id,
-                "move_mode": "rel",
-            },
-            {
-                "device_type": "mouse",
-                "type": evdev.ecodes.EV_REL,
-                "code": evdev.ecodes.REL_Y,
-                "value": int(y),
-                "t_us": int(t_us),
-                "synthetic_move": True,
-                "move_id": move_id,
-                "move_mode": "rel",
-            },
-        ]
+    events.append(
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": int(t_us),
+            "macro_action": action,
+            "x": int(x),
+            "y": int(y),
+        }
     )
 
 
@@ -624,6 +552,10 @@ def _parse_non_negative_int(value: str, label: str) -> int:
 def _infer_device_types(events: list[JsonObject]) -> list[str]:
     found: list[str] = []
     for event in events:
+        if str(event.get("macro_action", "") or "") in {"mouse_move_abs", "mouse_move_rel"}:
+            if "mouse" not in found:
+                found.append("mouse")
+            continue
         device_type = str(event.get("device_type", "") or "")
         if device_type and device_type != "macro" and device_type not in found:
             found.append(device_type)

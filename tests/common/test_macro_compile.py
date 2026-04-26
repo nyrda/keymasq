@@ -51,15 +51,31 @@ def test_compact_random_wait() -> None:
     ]
 
 
-def test_compact_move_events_use_synthetic_macro_shape() -> None:
+def test_compact_move_events_use_macro_action_shape() -> None:
     events = build_compact_macro_events(["move_abs:100:200", "move_rel:-5:2"])
 
-    abs_events = [event for event in events if event.get("move_mode") == "abs"]
-    rel_events = [event for event in events if event.get("move_mode") == "rel"]
-    assert len(abs_events) == 4
-    assert len(rel_events) == 2
-    assert {event["value"] for event in abs_events if event.get("move_step") == 1} == {100, 200}
-    assert {event["value"] for event in rel_events} == {-5, 2}
+    assert events == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 0,
+            "macro_action": "mouse_move_abs",
+            "x": 100,
+            "y": 200,
+        },
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 1,
+            "macro_action": "mouse_move_rel",
+            "x": -5,
+            "y": 2,
+        },
+    ]
 
 
 def test_compact_releases_held_keys_at_end_in_reverse_order() -> None:

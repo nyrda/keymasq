@@ -58,6 +58,53 @@ processing. Disable when done:
 keymasq diagnostics off
 ```
 
+## Rapidfire Throughput
+
+You can measure rapidfire output rate externally on the Keymasq virtual output
+device with `evtest` and `pv`.
+
+First, identify the relevant Keymasq virtual device:
+
+```bash
+sudo evtest
+```
+
+Then count emitted key state changes on that device:
+
+```bash
+sudo evtest /dev/input/eventX \
+  | rg --line-buffered 'EV_KEY.*value [01]' \
+  | pv -l -i 1 > /dev/null
+```
+
+This reports total press and release events per second. If you only want
+activation rate, count key-down events only:
+
+```bash
+sudo evtest /dev/input/eventX \
+  | rg --line-buffered 'EV_KEY.*value 1' \
+  | pv -l -i 1 > /dev/null
+```
+
+### Informal Result
+
+On one local test system, six concurrent rapidfire mouse-button mappings
+reached roughly **2.8k mouse events/sec** on the `keymasq-mouse` virtual
+device while using about **11% of one CPU core**.
+
+That is an informal measurement, not a guaranteed minimum or maximum across
+systems. It is included here as a practical data point showing that very fast
+rapidfire settings do not immediately hit an obvious Python-side throughput
+limit.
+
+### Caveat
+
+Multiple rapidfire mappings targeting the same logical output, such as several
+`BTN_LEFT` mappings, do not necessarily scale linearly. Those mappings all
+share one output code, so their press and release streams can overlap. Mixed
+outputs such as `BTN_LEFT` and `BTN_RIGHT` can scale more cleanly because they
+do not collapse onto the same logical button state.
+
 ## Detailed Benchmarks
 
 For methodology and full results, see:

@@ -367,7 +367,8 @@
               pkgs.nodejs
               pkgs.cloc
               pkgs.glow
-	      pkgs.slurp
+              pkgs.slurp
+              pkgs.pv
               # GitHub Actions
               pkgs.gh           # GitHub CLI - manage workflows, PRs, releases
               pkgs.act          # run GitHub Actions locally

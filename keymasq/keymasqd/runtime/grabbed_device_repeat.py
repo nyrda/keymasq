@@ -4,7 +4,11 @@ from typing import cast
 
 import evdev
 
-from keymasq.common.models import MappingAction
+from keymasq.common.models import (
+    MappingAction,
+    clamp_rapidfire_hold_ms,
+    clamp_rapidfire_wait_ms,
+)
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     emit_configured_mouse_move,
     ensure_key_released,
@@ -136,8 +140,8 @@ async def rapidfire_trigger(
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
 ) -> None:
-    hold = hold_ms / 1000.0
-    wait = wait_ms / 1000.0
+    hold = clamp_rapidfire_hold_ms(hold_ms) / 1000.0
+    wait = clamp_rapidfire_wait_ms(wait_ms) / 1000.0
     task = asyncio_mod.current_task()
     pressed = False
 
@@ -213,8 +217,8 @@ async def rapidfire_key(
     *,
     asyncio_mod: AsyncioModule,
 ) -> None:
-    hold = hold_ms / 1000.0
-    wait = wait_ms / 1000.0
+    hold = clamp_rapidfire_hold_ms(hold_ms) / 1000.0
+    wait = clamp_rapidfire_wait_ms(wait_ms) / 1000.0
     task = asyncio_mod.current_task()
     pressed = False
 
@@ -303,8 +307,8 @@ async def rapidfire_relative(
     *,
     asyncio_mod: AsyncioModule,
 ) -> None:
-    hold = hold_ms / 1000.0
-    wait = wait_ms / 1000.0
+    hold = clamp_rapidfire_hold_ms(hold_ms) / 1000.0
+    wait = clamp_rapidfire_wait_ms(wait_ms) / 1000.0
     task = asyncio_mod.current_task()
 
     try:
@@ -370,8 +374,8 @@ async def rapidfire_move(
     *,
     asyncio_mod: AsyncioModule,
 ) -> None:
-    hold = hold_ms / 1000.0
-    wait = wait_ms / 1000.0
+    hold = clamp_rapidfire_hold_ms(hold_ms) / 1000.0
+    wait = clamp_rapidfire_wait_ms(wait_ms) / 1000.0
     task = asyncio_mod.current_task()
 
     try:

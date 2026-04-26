@@ -311,8 +311,10 @@ This continues for as long as the key is physically held down.
 
 | Setting | What it controls | Default | Range |
 |---|---|---|---|
-| **Hold (ms)** | How long each pulse is held. | 20 ms | 10–1000 ms |
-| **Wait (ms)** | Pause between pulses. | 20 ms | 10–1000 ms |
+| **Hold (ms)** | How long each pulse is held. | 20 ms | 0–1000 ms |
+| **Wait (ms)** | Pause between pulses. | 20 ms | 1–1000 ms |
+
+`0 ms` hold with `1 ms` wait is the fastest supported rapidfire pattern.
 
 **Use cases:** auto-fire in games, Linux autoclicker setups, repeated key
 presses, and continuous mouse movement.

@@ -17,6 +17,8 @@ from keymasq.common.models import (
     ActionType,
     MappingAction,
     SuperkeyMode,
+    clamp_rapidfire_hold_ms,
+    clamp_rapidfire_wait_ms,
     combo_effective_superkey_config,
 )
 from keymasq.keymasqd.combo_engine import (
@@ -1410,11 +1412,11 @@ async def combo_rapidfire_key(
             if not started_set:
                 mark_combo_action_started(started)
                 started_set = True
-            await deps.asyncio_mod.sleep(max(0.001, hold_ms / 1000.0))
+            await deps.asyncio_mod.sleep(clamp_rapidfire_hold_ms(hold_ms) / 1000.0)
             if not _combo_action_active(manager, combo_id):
                 break
             write_combo_key(uinput_dev, code, 0, deps=deps)
-            await deps.asyncio_mod.sleep(max(0.001, wait_ms / 1000.0))
+            await deps.asyncio_mod.sleep(clamp_rapidfire_wait_ms(wait_ms) / 1000.0)
     except deps.asyncio_mod.CancelledError:
         raise
     finally:
@@ -1493,8 +1495,8 @@ async def combo_rapidfire_relative(
         await rapidfire_relative_pulses(
             emit_pulse=emit_started_pulse,
             is_active=lambda: _combo_action_active(manager, combo_id),
-            hold_s=max(0.001, hold_ms / 1000.0),
-            wait_s=max(0.001, wait_ms / 1000.0),
+            hold_s=clamp_rapidfire_hold_ms(hold_ms) / 1000.0,
+            wait_s=clamp_rapidfire_wait_ms(wait_ms) / 1000.0,
             asyncio_mod=deps.asyncio_mod,
         )
     except deps.asyncio_mod.CancelledError:
@@ -1527,7 +1529,7 @@ async def combo_rapidfire_trigger(
             if not started_set:
                 mark_combo_action_started(started)
                 started_set = True
-            await deps.asyncio_mod.sleep(max(0.001, hold_ms / 1000.0))
+            await deps.asyncio_mod.sleep(clamp_rapidfire_hold_ms(hold_ms) / 1000.0)
             if not _combo_action_active(manager, combo_id):
                 break
             write_combo_trigger(
@@ -1536,7 +1538,7 @@ async def combo_rapidfire_trigger(
                 0,
                 deps=deps,
             )
-            await deps.asyncio_mod.sleep(max(0.001, wait_ms / 1000.0))
+            await deps.asyncio_mod.sleep(clamp_rapidfire_wait_ms(wait_ms) / 1000.0)
     except deps.asyncio_mod.CancelledError:
         raise
     finally:

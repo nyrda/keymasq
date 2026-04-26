@@ -15,6 +15,8 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
 )
 
 from keymasq.common.models import (
+    MIN_RAPIDFIRE_HOLD_MS,
+    MIN_RAPIDFIRE_WAIT_MS,
     ActionType,
     MappingAction,
     SuperkeyAction,
@@ -814,7 +816,10 @@ class KeySelectorDialog(Adw.Dialog):
 
         self.hold_spin = Gtk.SpinButton()
         hold_adj = Gtk.Adjustment(
-            value=self._rapidfire_hold, lower=10, upper=1000, step_increment=10
+            value=self._rapidfire_hold,
+            lower=MIN_RAPIDFIRE_HOLD_MS,
+            upper=1000,
+            step_increment=1,
         )
         self.hold_spin.set_adjustment(hold_adj)
         row1.append(self.hold_spin)
@@ -827,7 +832,10 @@ class KeySelectorDialog(Adw.Dialog):
 
         self.wait_spin = Gtk.SpinButton()
         wait_adj = Gtk.Adjustment(
-            value=self._rapidfire_wait, lower=10, upper=1000, step_increment=10
+            value=self._rapidfire_wait,
+            lower=MIN_RAPIDFIRE_WAIT_MS,
+            upper=1000,
+            step_increment=1,
         )
         self.wait_spin.set_adjustment(wait_adj)
         row1.append(self.wait_spin)
@@ -1852,7 +1860,10 @@ class SuperkeyActionDialog(Adw.Dialog):
 
             self.hold_spin = Gtk.SpinButton()
             hold_adj = Gtk.Adjustment(
-                value=self._rapidfire_hold, lower=10, upper=1000, step_increment=10
+                value=self._rapidfire_hold,
+                lower=MIN_RAPIDFIRE_HOLD_MS,
+                upper=1000,
+                step_increment=1,
             )
             self.hold_spin.set_adjustment(hold_adj)
             row.append(self.hold_spin)
@@ -1865,7 +1876,10 @@ class SuperkeyActionDialog(Adw.Dialog):
 
             self.wait_spin = Gtk.SpinButton()
             wait_adj = Gtk.Adjustment(
-                value=self._rapidfire_wait, lower=10, upper=1000, step_increment=10
+                value=self._rapidfire_wait,
+                lower=MIN_RAPIDFIRE_WAIT_MS,
+                upper=1000,
+                step_increment=1,
             )
             self.wait_spin.set_adjustment(wait_adj)
             row.append(self.wait_spin)

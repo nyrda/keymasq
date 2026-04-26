@@ -64,6 +64,11 @@ RAPIDFIRE_ACTION_TYPES = frozenset(
     }
 )
 
+DEFAULT_RAPIDFIRE_HOLD_MS = 20
+DEFAULT_RAPIDFIRE_WAIT_MS = 20
+MIN_RAPIDFIRE_HOLD_MS = 0
+MIN_RAPIDFIRE_WAIT_MS = 1
+
 MACRO_LOOP_STOP_BEHAVIORS = frozenset({"finish_run", "cancel_run"})
 DEFAULT_MACRO_LOOP_STOP_BEHAVIOR = "finish_run"
 
@@ -98,6 +103,14 @@ def action_type_supports_rapidfire(action_type: ActionType) -> bool:
     return action_type in RAPIDFIRE_ACTION_TYPES
 
 
+def clamp_rapidfire_hold_ms(rapidfire_hold_ms: int) -> int:
+    return max(MIN_RAPIDFIRE_HOLD_MS, int(rapidfire_hold_ms))
+
+
+def clamp_rapidfire_wait_ms(rapidfire_wait_ms: int) -> int:
+    return max(MIN_RAPIDFIRE_WAIT_MS, int(rapidfire_wait_ms))
+
+
 def normalize_rapidfire_fields(
     action_type: ActionType,
     *,
@@ -106,8 +119,12 @@ def normalize_rapidfire_fields(
     rapidfire_wait_ms: int,
 ) -> tuple[bool, int, int]:
     if not action_type_supports_rapidfire(action_type):
-        return False, 20, 20
-    return rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms
+        return False, DEFAULT_RAPIDFIRE_HOLD_MS, DEFAULT_RAPIDFIRE_WAIT_MS
+    return (
+        rapidfire_enabled,
+        clamp_rapidfire_hold_ms(rapidfire_hold_ms),
+        clamp_rapidfire_wait_ms(rapidfire_wait_ms),
+    )
 
 
 def resolve_rapidfire_fields(
@@ -143,8 +160,8 @@ def parse_rapidfire_fields(
     return resolve_rapidfire_fields(
         action_type,
         rapidfire_enabled=bool(rapidfire_enabled),
-        rapidfire_hold_ms=int_value(rapidfire_hold_ms, 20),
-        rapidfire_wait_ms=int_value(rapidfire_wait_ms, 20),
+        rapidfire_hold_ms=int_value(rapidfire_hold_ms, DEFAULT_RAPIDFIRE_HOLD_MS),
+        rapidfire_wait_ms=int_value(rapidfire_wait_ms, DEFAULT_RAPIDFIRE_WAIT_MS),
     )
 
 
@@ -222,11 +239,22 @@ class MappingAction:
     move_jitter: float = 0.3
 
     rapidfire_enabled: bool = False
-    rapidfire_hold_ms: int = 20
-    rapidfire_wait_ms: int = 20
+    rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
+    rapidfire_wait_ms: int = DEFAULT_RAPIDFIRE_WAIT_MS
 
     tap_enabled: bool = False
     tap_hold_ms: int = 10
+
+    def __post_init__(self) -> None:
+        rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
+            self.action_type,
+            rapidfire_enabled=bool(self.rapidfire_enabled),
+            rapidfire_hold_ms=int(self.rapidfire_hold_ms),
+            rapidfire_wait_ms=int(self.rapidfire_wait_ms),
+        )
+        self.rapidfire_enabled = rapidfire_enabled
+        self.rapidfire_hold_ms = rapidfire_hold_ms
+        self.rapidfire_wait_ms = rapidfire_wait_ms
 
 
 @dataclass
@@ -254,11 +282,22 @@ class SuperkeyAction:
     move_y: int = 0
 
     rapidfire_enabled: bool = False
-    rapidfire_hold_ms: int = 20
-    rapidfire_wait_ms: int = 20
+    rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
+    rapidfire_wait_ms: int = DEFAULT_RAPIDFIRE_WAIT_MS
 
     def is_valid(self) -> bool:
         return self.action_type in SUPERKEY_ACTION_TYPES
+
+    def __post_init__(self) -> None:
+        rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
+            self.action_type,
+            rapidfire_enabled=bool(self.rapidfire_enabled),
+            rapidfire_hold_ms=int(self.rapidfire_hold_ms),
+            rapidfire_wait_ms=int(self.rapidfire_wait_ms),
+        )
+        self.rapidfire_enabled = rapidfire_enabled
+        self.rapidfire_hold_ms = rapidfire_hold_ms
+        self.rapidfire_wait_ms = rapidfire_wait_ms
 
 
 SUPERKEY_ACTION_SHARED_FIELDS = (

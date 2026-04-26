@@ -12,6 +12,8 @@ from keymasq.common.models import (
     ActionType,
     MappingAction,
     SuperkeyMode,
+    clamp_rapidfire_hold_ms,
+    clamp_rapidfire_wait_ms,
     superkey_action_shared_kwargs,
 )
 from keymasq.keymasqd.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
@@ -63,6 +65,10 @@ class SuperkeyActionData:
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = 20
     rapidfire_wait_ms: int = 20
+
+    def __post_init__(self) -> None:
+        self.rapidfire_hold_ms = clamp_rapidfire_hold_ms(self.rapidfire_hold_ms)
+        self.rapidfire_wait_ms = clamp_rapidfire_wait_ms(self.rapidfire_wait_ms)
 
 
 @dataclass
@@ -272,8 +278,8 @@ class SuperkeyMachine:
             await self._execute_actions_up(self.config.tap_hold_actions)
 
     async def _rapidfire_loop(self, action: SuperkeyActionData) -> None:
-        hold = action.rapidfire_hold_ms / 1000.0
-        wait = action.rapidfire_wait_ms / 1000.0
+        hold = clamp_rapidfire_hold_ms(action.rapidfire_hold_ms) / 1000.0
+        wait = clamp_rapidfire_wait_ms(action.rapidfire_wait_ms) / 1000.0
         mouse_target = (
             self._resolve_mouse_target(action.target) if action.action_type == "mouse" else None
         )

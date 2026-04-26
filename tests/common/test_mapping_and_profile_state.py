@@ -22,6 +22,19 @@ class TestMappingAction:
         assert action.rapidfire_hold_ms == 50
         assert action.rapidfire_wait_ms == 30
 
+    def test_rapidfire_clamps_to_fastest_supported_pattern(self):
+        action = MappingAction(
+            action_type=ActionType.KEYBOARD,
+            target="key_a",
+            rapidfire_enabled=True,
+            rapidfire_hold_ms=-5,
+            rapidfire_wait_ms=0,
+        )
+
+        assert action.rapidfire_enabled is True
+        assert action.rapidfire_hold_ms == 0
+        assert action.rapidfire_wait_ms == 1
+
     def test_mouse_action(self):
         action = MappingAction(action_type=ActionType.MOUSE, target="btn_left")
 

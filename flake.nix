@@ -50,7 +50,7 @@
         in
         runtimePythonPackages.buildPythonPackage {
           pname = "keymasq";
-          version = "0.9.0";
+          version = "0.10.0";
           pyproject = true;
 
           src = mkCleanSrc pkgs;

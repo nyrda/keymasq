@@ -3,6 +3,16 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.10.0
+
+### Improved
+
+- Added ad hoc macro CLI commands for one-off macro playback and compilation.
+- Switched recording unlock to a runtime Polkit lease so recording access
+  follows the active permission state more directly.
+- Renamed passthrough actions to Clear Current-Profile Mapping for clearer
+  mapping reset behavior.
+
 ## 0.9.0
 
 ### Improved

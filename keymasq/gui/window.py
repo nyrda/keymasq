@@ -732,15 +732,21 @@ class MainWindow(Adw.ApplicationWindow):
         )
         self.status_bar.append(self.session_status)
 
-        unlock_status_label = Gtk.Label(label="unlock: 🔒")
-        unlock_status_label.add_css_class("caption")
-        self.status_bar.append(unlock_status_label)
-        self._unlock_status_label = unlock_status_label
-
         self.compositor_status = Gtk.Label()
         self.compositor_status.add_css_class("caption")
         self._update_compositor_status()
         self.status_bar.append(self.compositor_status)
+
+        status_spacer = Gtk.Box()
+        status_spacer.set_hexpand(True)
+        self.status_bar.append(status_spacer)
+
+        unlock_status_label = Gtk.Label(label="")
+        unlock_status_label.add_css_class("caption")
+        unlock_status_label.set_halign(Gtk.Align.END)
+        unlock_status_label.set_visible(False)
+        self.status_bar.append(unlock_status_label)
+        self._unlock_status_label = unlock_status_label
 
         toolbar.add_bottom_bar(self.status_bar)
 
@@ -1129,15 +1135,19 @@ class MainWindow(Adw.ApplicationWindow):
         if self._unlock_status_label is None:
             return
 
-        if not self._recording_unlocked:
-            text = "unlock: 🔒"
+        show_unlock_status = self._recording_unlock_required and self._recording_unlocked
+        self._unlock_status_label.set_visible(show_unlock_status)
+        if not show_unlock_status:
+            self._unlock_status_label.set_label("")
+            self._unlock_status_label.set_tooltip_text(None)
+            return
+
+        if self._recording_unlock_source == "runtime":
+            text = "capture: 🟢 runtime unlock"
+        elif self._recording_unlock_source == "persistent":
+            text = "capture: 🟢 persistent unlock"
         else:
-            if self._recording_unlock_source == "runtime":
-                text = "unlock: 🟢 runtime"
-            elif self._recording_unlock_source == "persistent":
-                text = "unlock: 🟢 persistent"
-            else:
-                text = "unlock: 🟢"
+            text = "capture: 🟢 unlocked"
 
         owner_text = "owner=yes" if self._recording_refresh_owner else "owner=no"
         lease_text = "lease=claimed" if self._recording_refresh_lease_id else "lease=none"

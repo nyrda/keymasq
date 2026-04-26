@@ -240,6 +240,50 @@ class TestMainWindow:
         assert tab2._selected_profile is not None
         assert tab2._selected_profile.config.name == "Desktop"
 
+    def test_created_profile_is_selected_and_reloaded(self, temp_config_dir, monkeypatch):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig, ProfileConfig
+        from keymasq.gui.widgets import profile_managed_tab as profile_tab_module
+        from keymasq.gui.window import MainWindow
+        from keymasq.session.profiles import ProfileManager
+
+        reload_calls = []
+        monkeypatch.setattr(
+            profile_tab_module,
+            "notify_session_reload_async",
+            lambda *args, **kwargs: reload_calls.append((args, kwargs)),
+        )
+
+        window = MainWindow(demo_mode=True)
+        device = HardwareConfig(
+            vendor_id="2234",
+            product_id="6678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        window._add_device_tab(device)
+        original_profile_manager = window.profile_manager
+        window._set_profile_manager(ProfileManager(auto_create_default_if_empty=True))
+        assert window.profile_manager.get_profile("Gaming") is None
+        original_profile_manager.save_profile(
+            ProfileConfig(name="Gaming", enabled=True, is_permanent=True)
+        )
+
+        tab = window.stack.get_page(
+            window.stack.get_child_by_name(device.hardware_id)
+        ).get_child()
+
+        tab._on_profile_created(None, "Gaming")
+
+        assert reload_calls
+        assert window._selected_profile_name == "Gaming"
+        assert tab._selected_profile is not None
+        assert tab._selected_profile.config.name == "Gaming"
+        assert tab.settings_frame.get_expanded() is True
+        assert window.combo_tab is not None
+        assert window.combo_tab._selected_profile is not None
+        assert window.combo_tab._selected_profile.config.name == "Gaming"
+
     def test_main_window_update_device_display_name_updates_stack_page(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.window import MainWindow

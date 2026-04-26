@@ -3,6 +3,12 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.10.1
+
+### Improved
+
+- Added device renaming in device tabs.
+
 ## 0.10.0
 
 ### Improved

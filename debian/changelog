@@ -1,3 +1,9 @@
+keymasq (0.10.1-1) unstable; urgency=medium
+
+  * Add device renaming in device tabs.
+
+ -- nyrda <nyrda@keymasq.tools>  Sun, 26 Apr 2026 15:38:41 +0000
+
 keymasq (0.10.0-1) unstable; urgency=medium
 
   * Add ad hoc macro CLI commands for one-off macro playback and compilation.

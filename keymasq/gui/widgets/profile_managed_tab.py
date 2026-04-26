@@ -1063,9 +1063,9 @@ class ProfileManagedTab(Gtk.Box):
         dialog.present()
 
     def _on_profile_created(self, _dialog, profile_name: str) -> None:
-        self._refresh_other_profile_tabs(preferred_profile_name=profile_name)
-        self.refresh_profiles(preferred_profile_name=profile_name, publish_selection=False)
+        self.refresh_profiles(preferred_profile_name=profile_name)
         self.settings_frame.set_expanded(True)
+        notify_session_reload_async()
 
     def _save_specific_profile(self, profile: ProfileInfo | None) -> bool:
         if profile is None or self.profile_manager is None or self.demo_mode:

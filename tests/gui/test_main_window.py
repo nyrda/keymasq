@@ -834,6 +834,41 @@ class TestMainWindow:
         ]
         assert completed == ["enable_bridge"]
 
+    def test_gnome_setup_dialog_restart_session_treats_missing_response_as_restart(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
+
+        from keymasq.gui.widgets import gnome_setup_dialog as dialog_module
+        from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
+
+        completed: list[str] = []
+
+        def fake_session_request_async(_payload, callback, timeout=5.0):
+            callback(None)
+
+        monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+
+        parent = Gtk.Window()
+        dialog = GnomeSetupDialog(
+            parent,
+            {
+                "gnome_bridge_state": "protocol_newer",
+                "gnome_bridge_action": "restart_session",
+            },
+            on_action_completed=completed.append,
+        )
+
+        dialog._on_primary_clicked(Gtk.Button(), "restart_session")
+
+        assert completed == ["restart_session"]
+        assert dialog._status_label is not None  # pyright: ignore[reportPrivateUsage]
+        assert (  # pyright: ignore[reportPrivateUsage]
+            dialog._status_label.get_text() == "keymasq-session is restarting..."
+        )
+
     def test_gnome_setup_dialog_bridge_disabled_uses_short_prompt(self, temp_config_dir):
         from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 

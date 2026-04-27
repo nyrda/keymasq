@@ -236,6 +236,11 @@ class GnomeSetupDialog(Adw.Dialog):
             self._primary_button.set_sensitive(True)
 
         if response is None:
+            if self._pending_action == "restart_session":
+                self._set_status("keymasq-session is restarting...")
+                if self._on_action_completed is not None:
+                    self._on_action_completed(self._pending_action)
+                return False
             self._set_status("keymasq-session did not respond.", error=True)
             return False
 

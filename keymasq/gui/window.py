@@ -1380,12 +1380,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.warning_banner.set_revealed(False)
             return
 
-        if self._compositor_id == "gnome":
-            msg = (
-                "GNOME Shell detected, but Keymasq cannot access the GNOME bridge. "
-                "Window rules are unavailable on this setup."
-            )
-        elif self._compositor_id:
+        if self._compositor_id:
             msg = (
                 f"⚠️ Compositor '{compositor_name}' has limited support. "
                 "Window rules are unavailable on this setup."

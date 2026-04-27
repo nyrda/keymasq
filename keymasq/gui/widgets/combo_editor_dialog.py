@@ -172,6 +172,8 @@ def combo_action_label(action: MappingAction | None) -> str:
         return "Stop Recording"
     if action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         return "Cancel Playback"
+    if action.action_type == ActionType.EMERGENCY_RESET:
+        return "Emergency Reset"
     if action.action_type == ActionType.MOUSE_MOVE_REL:
         return f"Move {action.move_x}, {action.move_y}"
     if action.action_type == ActionType.MOUSE_MOVE_ABS:

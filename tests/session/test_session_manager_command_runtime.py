@@ -299,6 +299,65 @@ async def test_start_macro_trigger_blocks_when_macro_save_is_pending() -> None:
 
 
 @pytest.mark.asyncio
+async def test_macro_playback_cancelled_event_notifies_user() -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.MACRO_PLAYBACK_CANCELLED,
+        {"reason": "cancel_macro_playback", "cancelled": True},
+    )
+
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {
+            "event": "macro_playback_cancelled",
+            "reason": "cancel_macro_playback",
+            "cancelled": True,
+        }
+    )
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Macro Playback Cancelled",
+        "Stopped all running macro playback.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_reset_event_invalidates_and_reevaluates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.profile_state.grabbed_devices.add("1234:5678")
+    manager.profile_state.last_sent_grab_signatures["1234:5678"] = "grab"
+    manager.profile_state.last_sent_mapping_signatures["1234:5678"] = "mapping"
+    manager.profile_state.last_sent_combo_signature = "combos"
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.RUNTIME_RESET,
+        {"reason": "emergency_reset"},
+    )
+
+    assert manager.profile_state.grabbed_devices == set()
+    assert manager.profile_state.last_sent_grab_signatures == {}
+    assert manager.profile_state.last_sent_mapping_signatures == {}
+    assert manager.profile_state.last_sent_combo_signature == ""
+    reevaluate_profiles.assert_awaited_once_with(manager)
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "runtime_reset", "reason": "emergency_reset"}
+    )
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Emergency Reset",
+        "Released all grabbed devices. Reapplying active profiles.",
+    )
+
+
+@pytest.mark.asyncio
 async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

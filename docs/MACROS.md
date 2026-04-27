@@ -64,8 +64,10 @@ Playback** — it immediately stops every running macro and is a useful safety
 net.
 
 When Keymasq has grabbed a keyboard, `Ctrl+Alt+Esc` is also reserved as an
-emergency cancel chord for macro playback. It is injected by `keymasqd` and
-does not need to be added to your profiles.
+emergency chord. Tap it once to cancel all macro playback. Double-tap it to
+run a full daemon runtime reset, release grabbed devices, and let the session
+reapply active profiles. It is injected by `keymasqd` and does not need to be
+added to your profiles.
 
 **How to record:**
 
@@ -386,8 +388,10 @@ could be misused as a keylogger.
   The GUI asks Keymasq to save or play them; it does not write files there
   directly.
 
-- **Emergency playback cancellation** is enabled by default. Press `Ctrl+Alt+Esc`
+- **Emergency playback cancellation** is enabled by default. Tap `Ctrl+Alt+Esc`
   on a keyboard grabbed by Keymasq to cancel all running macro playback.
+  Double-tap it to release all grabbed devices and rebuild the active runtime
+  mappings.
 
 **Optional security settings** (in `/etc/keymasq/security.toml`). Most users
 do not need to change these — they are intended for system administrators:

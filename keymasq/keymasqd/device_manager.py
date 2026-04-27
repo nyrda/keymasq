@@ -27,6 +27,7 @@ from keymasq.common.models import (
     ActionType,
     DeviceType,
     MappingAction,
+    SuperkeyMode,
 )
 from keymasq.keymasqd.combo_engine import (
     ComboDecision,
@@ -44,6 +45,7 @@ from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 from keymasq.keymasqd.runtime import topology as runtime_topology
+from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 log = logging.getLogger("keymasqd.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
@@ -407,6 +409,26 @@ class DeviceManager:
         async with self._op_lock:
             await self._refresh_combo_runtime_unlocked()
 
+    async def emergency_reset(self) -> JsonObject:
+        await self.release_all_devices()
+        await self._broadcast_runtime_event(
+            CommandType.RUNTIME_RESET,
+            {"reason": "emergency_reset"},
+        )
+        return {"status": "ok", "reset": True}
+
+    async def _broadcast_runtime_event(
+        self,
+        event_type: CommandType,
+        data: JsonObject,
+    ) -> None:
+        if self.broadcast_callback is None:
+            return
+        _fire_and_observe(
+            self.broadcast_callback(event_type, data),
+            f"{event_type.value} broadcast",
+        )
+
     async def set_mapping(
         self,
         hardware_id: str,
@@ -589,7 +611,23 @@ class DeviceManager:
             id=f"{EMERGENCY_CANCEL_COMBO_ID_PREFIX}{hardware_id}",
             name=EMERGENCY_CANCEL_COMBO_NAME,
             steps=[RuntimeComboStep(bindings=bindings)],
-            action=MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK),
+            action=MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=cast(
+                    Any,
+                    SuperkeyConfig(
+                        name=EMERGENCY_CANCEL_COMBO_NAME,
+                        mode=SuperkeyMode.PATTERN,
+                        tap_actions=[
+                            SuperkeyActionData(action_type=ActionType.CANCEL_MACRO_PLAYBACK.value)
+                        ],
+                        double_tap_actions=[
+                            SuperkeyActionData(action_type=ActionType.CANCEL_MACRO_PLAYBACK.value),
+                            SuperkeyActionData(action_type=ActionType.EMERGENCY_RESET.value),
+                        ],
+                    ),
+                ),
+            ),
             profile_name=EMERGENCY_CANCEL_COMBO_PROFILE,
             recall_trigger_keys=True,
             restore_trigger_keys=[],
@@ -957,10 +995,16 @@ class DeviceManager:
         return {"status": "ok", "x": int(x), "y": int(y)}
 
     async def cancel_macro_playback(self) -> JsonObject:
-        return await runtime_macros.cancel_macro_playback(
+        result = await runtime_macros.cancel_macro_playback(
             self,
             deps=_macro_runtime_deps(),
         )
+        if bool(result.get("cancelled", False)):
+            await self._broadcast_runtime_event(
+                CommandType.MACRO_PLAYBACK_CANCELLED,
+                {"reason": "cancel_macro_playback", "cancelled": True},
+            )
+        return result
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:
         return runtime_macros.complete_macro_exec_wait(self, wait_id, returncode)

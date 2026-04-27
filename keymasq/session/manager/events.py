@@ -61,6 +61,8 @@ async def handle_event(
             asyncio.create_task(handle_stop_macro_trigger(manager))
         elif action_type_str == "cancel_macro_playback":
             asyncio.create_task(handle_cancel_macro_trigger(manager))
+        elif action_type_str == "emergency_reset":
+            asyncio.create_task(handle_emergency_reset_trigger(manager))
         elif action_type_str in {"profile_enable", "profile_disable", "profile_toggle"}:
             asyncio.create_task(handle_profile_trigger(manager, data))
         elif action_type_str == "exec" and exec_ref is None:
@@ -89,6 +91,14 @@ async def handle_event(
 
     if event_type == CommandType.DEVICE_GRAB_STATUS:
         handle_device_grab_status_event(manager, data)
+        return
+
+    if event_type == CommandType.MACRO_PLAYBACK_CANCELLED:
+        handle_macro_playback_cancelled_event(manager, data)
+        return
+
+    if event_type == CommandType.RUNTIME_RESET:
+        await handle_runtime_reset_event(manager, data)
         return
 
     if event_type == CommandType.RECORDING_STARTED:
@@ -247,6 +257,13 @@ async def handle_cancel_macro_trigger(manager: "SessionManager") -> None:
         pass
 
 
+async def handle_emergency_reset_trigger(manager: "SessionManager") -> None:
+    try:
+        await manager.client.send_command(Command(command=CommandType.EMERGENCY_RESET))
+    except Exception:
+        pass
+
+
 async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) -> None:
     action_type = str(data.get("action_type", "") or "").strip().lower()
     profile_name = str(data.get("profile_name", "") or "").strip()
@@ -336,6 +353,34 @@ def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject)
             f"{device_name}: keys stayed down too long ({summary}). Retrying automatically.",
         )
         runtime_profiles.schedule_grab_retry(manager, hardware_id, GRAB_RETRY_DELAY_S)
+
+
+def handle_macro_playback_cancelled_event(
+    manager: "SessionManager",
+    data: JsonObject,
+) -> None:
+    manager.broadcast_to_session_clients({"event": "macro_playback_cancelled", **data})
+    manager.send_notification(
+        "Keymasq: Macro Playback Cancelled",
+        "Stopped all running macro playback.",
+    )
+
+
+async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject) -> None:
+    manager.broadcast_to_session_clients({"event": "runtime_reset", **data})
+    manager.send_notification(
+        "Keymasq: Emergency Reset",
+        "Released all grabbed devices. Reapplying active profiles.",
+    )
+    runtime_profiles.invalidate_grabbed_state(manager)
+    try:
+        await runtime_profiles.reevaluate_profiles(manager)
+    except Exception as exc:
+        log.warning("Failed to reapply profiles after runtime reset: %s", exc)
+        manager.send_notification(
+            "Keymasq: Reapply Failed",
+            "Emergency reset completed, but active profiles could not be reapplied.",
+        )
 
 
 async def on_device_connected(manager: "SessionManager", device_info: JsonObject) -> None:

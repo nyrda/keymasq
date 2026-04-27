@@ -73,6 +73,8 @@ class _DaemonDeviceManager(Protocol):
 
     async def cancel_macro_playback(self) -> JsonObject: ...
 
+    async def emergency_reset(self) -> JsonObject: ...
+
     async def release_all_devices(self) -> None: ...
 
     async def grab_device(
@@ -188,6 +190,7 @@ class _DaemonCaptureManager(Protocol):
     def read_combo_nowait(self, token: str) -> JsonObject: ...
 
     def end(self, token: str) -> JsonObject: ...
+
 
 def sd_notify(state: str) -> None:
     notify_socket = os.environ.get("NOTIFY_SOCKET")
@@ -703,9 +706,7 @@ class Daemon:
         try:
             SOCKET_PATH.unlink(missing_ok=True)
         except OSError as exc:
-            raise RuntimeError(
-                f"Failed to remove daemon socket path {SOCKET_PATH}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to remove daemon socket path {SOCKET_PATH}: {exc}") from exc
 
     def _validate_peer(self, peer: PeerCredentials) -> tuple[bool, str, str]:
         if self.security_policy is None:

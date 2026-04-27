@@ -204,9 +204,11 @@ The combo editor won't let you save two combos with the same trigger sequence
 in the same profile. Across profiles, if two combos share the same trigger,
 the one from the last-applied profile wins.
 
-`Ctrl+Alt+Esc` is reserved by default as Keymasq's emergency macro playback
-cancel chord on grabbed keyboards. The daemon injects it into the active combo
-set, and the GUI rejects that exact trigger while the safety chord is enabled.
+`Ctrl+Alt+Esc` is reserved by default as Keymasq's emergency chord on grabbed
+keyboards. The daemon injects it into the active combo set, and the GUI rejects
+that exact trigger while the safety chord is enabled. One tap cancels macro
+playback; a double tap releases all grabbed devices and asks the session to
+reapply active profiles.
 
 ## Overlap And Conflicts
 

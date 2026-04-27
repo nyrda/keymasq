@@ -21,7 +21,17 @@ class TestCombos:
         combo = manager.active_combos[0]
         assert combo.id == f"{dm.EMERGENCY_CANCEL_COMBO_ID_PREFIX}1234:5678"
         assert combo.action is not None
-        assert combo.action.action_type == ActionType.CANCEL_MACRO_PLAYBACK
+        assert combo.action.action_type == ActionType.SUPERKEY
+        assert combo.action.superkey_config is not None
+        assert [action.action_type for action in combo.action.superkey_config.tap_actions] == [
+            ActionType.CANCEL_MACRO_PLAYBACK.value
+        ]
+        assert [
+            action.action_type for action in combo.action.superkey_config.double_tap_actions
+        ] == [
+            ActionType.CANCEL_MACRO_PLAYBACK.value,
+            ActionType.EMERGENCY_RESET.value,
+        ]
         assert combo.recall_trigger_keys is True
         assert [
             (binding.hardware_id, binding.evdev, binding.source)
@@ -138,9 +148,101 @@ class TestCombos:
             evdev.ecodes.KEY_ESC,
             1,
         )
+        await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-kbd",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_ESC,
+            0,
+        )
+        await asyncio.sleep(0.35)
 
         assert decision is not None and decision.consume_current_event is True
         manager.cancel_macro_playback.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_emergency_cancel_combo_double_tap_resets_runtime(self):
+        manager = DeviceManager()
+        manager.cancel_macro_playback = AsyncMock(return_value={"cancelled": True})  # type: ignore[method-assign]
+        manager.emergency_reset = AsyncMock(return_value={"reset": True})  # type: ignore[method-assign]
+        manager.grabbed_devices = {
+            "1234:5678": [
+                SimpleNamespace(
+                    device_type=DeviceType.KEYBOARD,
+                    device_types=["keyboard"],
+                    interface_id="kbd",
+                    combo_passthrough_binding_active=lambda _evdev: True,
+                    emit_combo_release=Mock(),
+                )
+            ]
+        }
+        await manager.set_combos([])
+        combo = manager.active_combos[0]
+        assert combo.action is not None
+        binding = combo.steps[0].bindings[-1]
+
+        await _runtime_start_combo_action(
+            manager,
+            combo.id,
+            combo.action,
+            binding,
+            trigger_bindings=combo.steps[0].bindings,
+        )
+        await _runtime_stop_combo_action(manager, combo.id)
+        await _runtime_start_combo_action(
+            manager,
+            combo.id,
+            combo.action,
+            binding,
+            trigger_bindings=combo.steps[0].bindings,
+        )
+        await _runtime_stop_combo_action(manager, combo.id)
+        await asyncio.sleep(0.02)
+
+        manager.cancel_macro_playback.assert_awaited_once()
+        manager.emergency_reset.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cancel_macro_playback_broadcasts_when_cancelled(self, monkeypatch):
+        events: list[tuple[CommandType, dict[str, object]]] = []
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            events.append((event_type, data))
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        cancel_macro_playback = AsyncMock(return_value={"status": "ok", "cancelled": True})
+        monkeypatch.setattr(dm.runtime_macros, "cancel_macro_playback", cancel_macro_playback)
+
+        result = await manager.cancel_macro_playback()
+        await asyncio.sleep(0)
+
+        assert result == {"status": "ok", "cancelled": True}
+        assert events == [
+            (
+                CommandType.MACRO_PLAYBACK_CANCELLED,
+                {"reason": "cancel_macro_playback", "cancelled": True},
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_emergency_reset_releases_devices_and_broadcasts_runtime_reset(self):
+        events: list[tuple[CommandType, dict[str, object]]] = []
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            events.append((event_type, data))
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        manager.release_all_devices = AsyncMock()  # type: ignore[method-assign]
+
+        result = await manager.emergency_reset()
+        await asyncio.sleep(0)
+
+        assert result == {"status": "ok", "reset": True}
+        manager.release_all_devices.assert_awaited_once()
+        assert events == [
+            (CommandType.RUNTIME_RESET, {"reason": "emergency_reset"}),
+        ]
 
     @pytest.mark.asyncio
     async def test_runtime_combo_tap_trigger_releases_when_runtime_clears(self, monkeypatch):

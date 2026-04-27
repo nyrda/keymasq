@@ -56,13 +56,11 @@ def _describe_pattern_superkey_action(
         label = f"{type_label('Gamepad')}{target_separator}{action.target or ''}"
     elif action.action_type == ActionType.MOUSE_MOVE_REL:
         label = (
-            f"{type_label('Mouse Move (rel)')}"
-            f"{target_separator}{action.move_x}, {action.move_y}"
+            f"{type_label('Mouse Move (rel)')}{target_separator}{action.move_x}, {action.move_y}"
         )
     elif action.action_type == ActionType.MOUSE_MOVE_ABS:
         label = (
-            f"{type_label('Mouse Move (abs)')}"
-            f"{target_separator}{action.move_x}, {action.move_y}"
+            f"{type_label('Mouse Move (abs)')}{target_separator}{action.move_x}, {action.move_y}"
         )
     elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
         dispatcher = action.compositor_dispatcher or "dispatch"
@@ -75,6 +73,8 @@ def _describe_pattern_superkey_action(
         label = type_label("Stop Macro Recording")
     elif action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         label = type_label("Cancel Macro Playback")
+    elif action.action_type == ActionType.EMERGENCY_RESET:
+        label = type_label("Emergency Runtime Reset")
     elif action.action_type == ActionType.PROFILE_ENABLE:
         label = f"{type_label('Enable Profile')}{target_separator}{action.profile_name or ''}"
     elif action.action_type == ActionType.PROFILE_DISABLE:

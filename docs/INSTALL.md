@@ -209,7 +209,7 @@ To change the policy, edit `services.keymasq.securityConfig` and rebuild. For
 example, set `gui.allow_left_right_click_remap = true;` if you intentionally
 want the GUI to allow left/right mouse click remaps. The default
 `gui.emergency_cancel_combo_enabled = true;` reserves `Ctrl+Alt+Esc` on grabbed
-keyboards as an emergency macro playback cancel chord.
+keyboards as an emergency chord.
 
 ### GNOME Wayland: enable the Shell bridge
 
@@ -290,9 +290,10 @@ locking yourself out of the desktop):
 allow_left_right_click_remap = true
 ```
 
-`Ctrl+Alt+Esc` is reserved by default as an emergency macro playback cancel
-chord while Keymasq has a keyboard grabbed. You can disable it if you really
-need that exact combo:
+`Ctrl+Alt+Esc` is reserved by default as an emergency chord while Keymasq has a
+keyboard grabbed. One tap cancels macro playback; a double tap releases all
+grabbed devices and asks the session to reapply active profiles. You can
+disable it if you really need that exact combo:
 
 ```toml
 [gui]

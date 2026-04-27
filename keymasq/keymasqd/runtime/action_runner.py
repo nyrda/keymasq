@@ -62,6 +62,7 @@ def build_action_trigger_payload(
         ActionType.START_MACRO_RECORDING,
         ActionType.STOP_MACRO_RECORDING,
         ActionType.CANCEL_MACRO_PLAYBACK,
+        ActionType.EMERGENCY_RESET,
     }:
         return {
             "action_type": action.action_type.value,
@@ -103,9 +104,7 @@ def build_macro_playback_request(
         "speed": action.macro_speed,
         "loop_mode": action.macro_loop_mode,
         "loop_count": action.macro_loop_count,
-        "loop_stop_behavior": normalize_macro_loop_stop_behavior(
-            action.macro_loop_stop_behavior
-        ),
+        "loop_stop_behavior": normalize_macro_loop_stop_behavior(action.macro_loop_stop_behavior),
         "move_to_start": action.macro_move_to_start,
         "start_x": action.macro_start_x,
         "start_y": action.macro_start_y,

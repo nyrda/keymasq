@@ -266,14 +266,16 @@ This setting exists because remapping the primary or secondary click can leave
 you without a usable pointer button in the desktop UI.
 
 `[gui].emergency_cancel_combo_enabled` controls whether `keymasqd` reserves
-`Ctrl+Alt+Esc` on grabbed keyboards as an emergency macro playback cancel
-chord. The default is `true`.
+`Ctrl+Alt+Esc` on grabbed keyboards as an emergency chord. The default is
+`true`.
 
 When `emergency_cancel_combo_enabled = true`:
 
 - the daemon injects `Ctrl+Alt+Esc` into active keyboard combo runtime state
 - the GUI rejects attempts to save that exact combo trigger
-- pressing the chord cancels all running macro playback directly in `keymasqd`
+- tapping the chord cancels all running macro playback directly in `keymasqd`
+- double-tapping the chord runs a daemon runtime reset, releases all grabbed
+  devices, broadcasts `runtime_reset`, and lets the session reapply profiles
 
 When `emergency_cancel_combo_enabled = false`, the daemon does not inject the
 chord and the GUI allows it to be assigned like any other combo. Disabling it

@@ -216,6 +216,7 @@ class SuperkeyManager:
             ActionType.START_MACRO_RECORDING,
             ActionType.STOP_MACRO_RECORDING,
             ActionType.CANCEL_MACRO_PLAYBACK,
+            ActionType.EMERGENCY_RESET,
         ):
             return MappingAction(action_type=action_type)
 
@@ -356,8 +357,7 @@ class SuperkeyManager:
             for action in actions:
                 if not action.is_valid():
                     raise ValueError(
-                        "invalid pattern superkey action type: "
-                        f"{action.action_type.value}"
+                        f"invalid pattern superkey action type: {action.action_type.value}"
                     )
 
     def _serialize_pattern_action(self, action: SuperkeyAction) -> TomlDict:

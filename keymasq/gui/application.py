@@ -127,13 +127,14 @@ class Application(Adw.Application):
 
     def _on_about(self, action, param) -> None:
         if self.window:
-            dialog = Adw.AboutDialog()
-            dialog.set_application_name("Keymasq")
-            dialog.set_application_icon(APP_ICON_NAME)
-            dialog.set_version(APP_VERSION)
-            dialog.set_comments("A key remapping tool for Linux")
-            dialog.set_developer_name("Keymasq Team")
-            dialog.set_license_type(Gtk.License.MIT_X11)
+            dialog = Adw.AboutDialog(
+                application_name="Keymasq",
+                application_icon=APP_ICON_NAME,
+                version=APP_VERSION,
+            )
+            dialog.add_link("Website", "https://keymasq.tools/")
+            dialog.add_link("Documentation", "https://keymasq.tools/docs/")
+            dialog.add_link("License", "https://github.com/nyrda/keymasq/blob/main/LICENSE")
             dialog.present(self.window)
 
     def _on_quit(self, action, param) -> None:

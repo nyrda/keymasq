@@ -559,23 +559,12 @@ class TestDialogConstruction:
         captured: dict[str, object] = {}
 
         class DummyAboutDialog:
-            def set_application_name(self, value):
-                captured["application_name"] = value
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                captured["links"] = []
 
-            def set_application_icon(self, value):
-                captured["application_icon"] = value
-
-            def set_version(self, value):
-                captured["version"] = value
-
-            def set_comments(self, value):
-                captured["comments"] = value
-
-            def set_developer_name(self, value):
-                captured["developer_name"] = value
-
-            def set_license_type(self, value):
-                captured["license_type"] = value
+            def add_link(self, title, url):
+                captured["links"].append((title, url))
 
             def present(self, parent):
                 captured["parent"] = parent
@@ -593,8 +582,11 @@ class TestDialogConstruction:
         assert captured["application_name"] == "Keymasq"
         assert captured["application_icon"] == application_module.APP_ICON_NAME
         assert captured["version"] == application_module.APP_VERSION
-        assert captured["comments"] == "A key remapping tool for Linux"
-        assert captured["developer_name"] == "Keymasq Team"
+        assert captured["links"] == [
+            ("Website", "https://keymasq.tools/"),
+            ("Documentation", "https://keymasq.tools/docs/"),
+            ("License", "https://github.com/nyrda/keymasq/blob/main/LICENSE"),
+        ]
         assert captured["parent"] is app.window
 
     def test_superkey_dialog_constructs_without_missing_right_panel(self, temp_config_dir):

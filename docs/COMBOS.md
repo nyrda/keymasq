@@ -8,8 +8,8 @@ before it reaches your apps.
 
 A combo can be:
 
-- **Single-step** — one chord, like `Alt+1`.
-- **Multi-step** — a sequence of chords, like `Alt+R` then `1`.
+- **Single-step** — one combo trigger, like `Alt+1`.
+- **Multi-step** — a sequence of combo triggers, like `Alt+R` then `1`.
 
 When a combo matches, it triggers an action — a key press, a mouse click, a
 macro, a shell command, or anything else Keymasq can map to.
@@ -204,9 +204,9 @@ The combo editor won't let you save two combos with the same trigger sequence
 in the same profile. Across profiles, if two combos share the same trigger,
 the one from the last-applied profile wins.
 
-`Ctrl+Alt+Esc` is reserved by default as Keymasq's emergency chord on grabbed
+`Ctrl+Alt+Esc` is reserved by default as Keymasq's emergency combo on grabbed
 keyboards. The daemon injects it into the active combo set, and the GUI rejects
-that exact trigger while the safety chord is enabled. One tap cancels macro
+that exact trigger while the safety combo is enabled. One tap cancels macro
 playback; a double tap releases all grabbed devices and asks the session to
 reapply active profiles.
 
@@ -229,7 +229,7 @@ The combo editor intentionally stays conservative. It blocks:
 - Empty triggers or actions.
 - Invalid timeout values.
 - Exact duplicate triggers within the same profile.
-- `Ctrl+Alt+Esc` while the emergency cancel chord is enabled.
+- `Ctrl+Alt+Esc` while the emergency combo is enabled.
 
 It does **not** try to detect cross-profile exact-trigger conflicts.
 The runtime behavior is the source of truth.

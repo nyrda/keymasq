@@ -64,7 +64,7 @@ Playback** — it immediately stops every running macro and is a useful safety
 net.
 
 When Keymasq has grabbed a keyboard, `Ctrl+Alt+Esc` is also reserved as an
-emergency chord. Tap it once to cancel all macro playback. Double-tap it to
+emergency combo. Tap it once to cancel all macro playback. Double-tap it to
 run a full daemon runtime reset, release grabbed devices, and let the session
 reapply active profiles. It is injected by `keymasqd` and does not need to be
 added to your profiles.
@@ -410,7 +410,7 @@ do not need to change these — they are intended for system administrators:
   macro_edit_requires_unlock = true
   ```
 
-- **Disable the emergency cancel chord** (not recommended):
+- **Disable the emergency combo** (not recommended):
 
   ```toml
   [gui]

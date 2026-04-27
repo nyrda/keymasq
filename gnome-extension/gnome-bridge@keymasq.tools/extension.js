@@ -7,7 +7,7 @@ import Shell from 'gi://Shell'
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js'
 
 class KeymasqBridge {
-    static PROTOCOL_VERSION = 3
+    static PROTOCOL_VERSION = 1
 
     constructor() {
         this._socketPath = GLib.build_filenamev([
@@ -21,6 +21,8 @@ class KeymasqBridge {
         this._out = null
         this._readCancellable = null
         this._connected = false
+        this._enabled = false
+        this._connecting = false
         this._focusSignal = 0
         this._titleSignal = 0
         this._currentFocusWindow = null
@@ -28,6 +30,8 @@ class KeymasqBridge {
     }
 
     enable() {
+        this._enabled = true
+
         if (this._focusSignal === 0)
             this._focusSignal = global.display.connect('notify::focus-window', () => {
                 this._trackFocusedWindow()
@@ -39,6 +43,7 @@ class KeymasqBridge {
     }
 
     disable() {
+        this._enabled = false
         this._untrackFocusedWindow()
 
         if (this._focusSignal !== 0) {
@@ -46,10 +51,7 @@ class KeymasqBridge {
             this._focusSignal = 0
         }
 
-        if (this._reconnectSource !== 0) {
-            GLib.Source.remove(this._reconnectSource)
-            this._reconnectSource = 0
-        }
+        this._clearReconnect()
 
         this._disconnect()
     }
@@ -73,13 +75,29 @@ class KeymasqBridge {
     }
 
     _connect() {
+        if (!this._enabled || this._connected || this._connecting)
+            return
+
+        this._clearReconnect()
         this._disconnect()
 
+        this._connecting = true
         this._client = new Gio.SocketClient()
+        const client = this._client
         const address = Gio.UnixSocketAddress.new(this._socketPath)
-        this._client.connect_async(address, null, (_client, res) => {
+        client.connect_async(address, null, (_client, res) => {
             try {
-                this._connection = this._client.connect_finish(res)
+                this._connecting = false
+                const connection = _client.connect_finish(res)
+                if (!this._enabled || this._client !== client) {
+                    try {
+                        connection.close(null)
+                    } catch (_e) {
+                    }
+                    return
+                }
+
+                this._connection = connection
                 this._in = new Gio.DataInputStream({
                     base_stream: this._connection.get_input_stream(),
                 })
@@ -91,6 +109,7 @@ class KeymasqBridge {
                 this._sendFocusChanged()
                 this._readLoop()
             } catch (_e) {
+                this._connecting = false
                 this._scheduleReconnect()
             }
         })
@@ -131,8 +150,15 @@ class KeymasqBridge {
         this._client = null
     }
 
+    _clearReconnect() {
+        if (this._reconnectSource !== 0) {
+            GLib.Source.remove(this._reconnectSource)
+            this._reconnectSource = 0
+        }
+    }
+
     _scheduleReconnect() {
-        if (this._reconnectSource !== 0)
+        if (!this._enabled || this._connected || this._connecting || this._reconnectSource !== 0)
             return
 
         this._reconnectSource = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, () => {
@@ -146,7 +172,13 @@ class KeymasqBridge {
         if (!this._in || !this._readCancellable)
             return
 
-        this._in.read_line_async(GLib.PRIORITY_DEFAULT, this._readCancellable, (stream, res) => {
+        const activeInput = this._in
+        const activeCancellable = this._readCancellable
+
+        activeInput.read_line_async(GLib.PRIORITY_DEFAULT, activeCancellable, (stream, res) => {
+            if (this._in !== activeInput || this._readCancellable !== activeCancellable)
+                return
+
             try {
                 const [line] = stream.read_line_finish_utf8(res)
                 if (!line) {

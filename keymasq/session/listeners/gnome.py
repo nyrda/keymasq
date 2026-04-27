@@ -31,8 +31,8 @@ def _int_value(value: object, default: int = 0) -> int:
 
 
 class GnomeListener(WindowListener):
-    _EXTENSION_UUID = "keymasq-bridge@nyrda"
-    _BRIDGE_PROTOCOL_VERSION = 3
+    _EXTENSION_UUID = "gnome-bridge@keymasq.tools"
+    _BRIDGE_PROTOCOL_VERSION = 1
     _NO_ARG_DISPATCHERS = frozenset({"close_active"})
     _TOGGLE_DISPATCHERS = frozenset({"fullscreen", "maximize"})
     _WORKSPACE_DISPATCHERS = frozenset({"workspace", "move_to_workspace"})
@@ -311,7 +311,7 @@ class GnomeListener(WindowListener):
                 "warning": (
                     "GNOME Shell detected, but the Keymasq GNOME bridge extension is not "
                     "installed. Reinstall Keymasq or follow the GNOME setup guide to install "
-                    "'keymasq-bridge@nyrda'."
+                    "'gnome-bridge@keymasq.tools'."
                 ),
             }
 
@@ -403,7 +403,7 @@ class GnomeListener(WindowListener):
                 "gnome_bridge_action": "enable_bridge",
                 "warning": (
                     "GNOME Shell detected, but the Keymasq GNOME bridge extension is not "
-                    "enabled. Enable 'keymasq-bridge@nyrda' so Keymasq can use window-aware "
+                    "enabled. Enable 'gnome-bridge@keymasq.tools' so Keymasq can use window-aware "
                     "profiles, GNOME window actions, and native pointer positioning."
                 ),
             }

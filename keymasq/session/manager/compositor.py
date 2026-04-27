@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
+SUPPORT_DETAILS_TIMEOUT_S = 1.0
 
 
 def get_compositor_payload(manager: "SessionManager") -> JsonObject:
@@ -30,7 +31,7 @@ def get_compositor_payload(manager: "SessionManager") -> JsonObject:
 
 async def build_compositor_payload(manager: "SessionManager") -> JsonObject:
     details = merge_support_details(
-        await get_compositor_support_details(manager.compositor_state.compositor_id, manager.dbus),
+        await cached_support_details(manager),
         manager.compositor_state.window_listener,
     )
     return {
@@ -49,7 +50,72 @@ async def build_compositor_payload(manager: "SessionManager") -> JsonObject:
     }
 
 
+def invalidate_support_details_cache(manager: "SessionManager") -> None:
+    manager.compositor_state.support_details_cache = {}
+    manager.compositor_state.support_details_cache_compositor_id = None
+    manager.compositor_state.support_details_cache_at = 0.0
+
+
+def update_support_details_cache(
+    manager: "SessionManager",
+    compositor_id: str | None,
+    details: dict[str, bool | str],
+) -> None:
+    loop = asyncio.get_running_loop()
+    manager.compositor_state.support_details_cache = dict(details)
+    manager.compositor_state.support_details_cache_compositor_id = compositor_id
+    manager.compositor_state.support_details_cache_at = loop.time()
+
+
+def cached_details_fresh(manager: "SessionManager") -> bool:
+    state = manager.compositor_state
+    if state.support_details_cache_compositor_id != state.compositor_id:
+        return False
+    if not state.support_details_cache:
+        return False
+    age = asyncio.get_running_loop().time() - state.support_details_cache_at
+    return age <= state.support_details_cache_ttl_s
+
+
+async def cached_support_details(manager: "SessionManager") -> dict[str, bool | str]:
+    if cached_details_fresh(manager):
+        return cast(
+            dict[str, bool | str],
+            dict(manager.compositor_state.support_details_cache),
+        )
+
+    async with manager.compositor_state.support_details_lock:
+        if cached_details_fresh(manager):
+            return cast(
+                dict[str, bool | str],
+                dict(manager.compositor_state.support_details_cache),
+            )
+
+        compositor_id = manager.compositor_state.compositor_id
+        try:
+            details = await asyncio.wait_for(
+                get_compositor_support_details(compositor_id, manager.dbus),
+                timeout=SUPPORT_DETAILS_TIMEOUT_S,
+            )
+        except TimeoutError:
+            log.debug("Timed out querying compositor support details for %s", compositor_id)
+            details = {
+                "supported": False,
+                "warning": "Compositor support status query timed out.",
+            }
+        except Exception as exc:
+            log.debug("Failed to query compositor support details for %s: %s", compositor_id, exc)
+            details = {
+                "supported": False,
+                "warning": "Compositor support status query failed.",
+            }
+
+        update_support_details_cache(manager, compositor_id, details)
+        return details
+
+
 async def refresh_compositor_binding(manager: "SessionManager") -> JsonObject:
+    invalidate_support_details_cache(manager)
     detected = await detect_compositor(manager.dbus)
     manager.compositor_state.candidate = detected
     manager.compositor_state.candidate_hits = 2 if detected is not None else 0
@@ -267,6 +333,8 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     await stop_window_listener(manager)
 
     manager.compositor_state.compositor_id = compositor_id
+    if previous != compositor_id:
+        invalidate_support_details_cache(manager)
     manager.compositor_state.compositor_capabilities = get_compositor_capabilities(
         manager.compositor_state.compositor_id
     )
@@ -280,6 +348,7 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     support_details: dict[str, bool | str] = {}
     if compositor_id == "gnome":
         support_details = await get_compositor_support_details(compositor_id, manager.dbus)
+        update_support_details_cache(manager, compositor_id, support_details)
         supported = bool(support_details.get("supported", False))
     else:
         supported = await is_compositor_supported(compositor_id, manager.dbus)

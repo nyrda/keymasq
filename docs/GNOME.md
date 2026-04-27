@@ -17,21 +17,21 @@ GUI does not run `gnome-extensions` or inspect the desktop environment itself.
 
 If you install the package while already logged into GNOME, the files may be on
 disk before the current GNOME Shell session notices the new extension. In that
-case, `gnome-extensions enable keymasq-bridge@nyrda` can fail with
-`Extension "keymasq-bridge@nyrda" does not exist` even though the files are
+case, `gnome-extensions enable gnome-bridge@keymasq.tools` can fail with
+`Extension "gnome-bridge@keymasq.tools" does not exist` even though the files are
 present under `/usr/share/gnome-shell/extensions/`.
 
 For packaged installs, log out and back in once after installing Keymasq so
 GNOME Shell rescans system extensions. Then enable the bridge:
 
 ```bash
-gnome-extensions enable keymasq-bridge@nyrda
+gnome-extensions enable gnome-bridge@keymasq.tools
 ```
 
 If you want to verify that GNOME Shell sees it before enabling, check:
 
 ```bash
-gnome-extensions info keymasq-bridge@nyrda
+gnome-extensions info gnome-bridge@keymasq.tools
 ```
 
 After enabling the extension, restart the Keymasq session service:
@@ -45,7 +45,7 @@ systemctl --user restart keymasq-session
 Check extension status:
 
 ```bash
-gnome-extensions info keymasq-bridge@nyrda
+gnome-extensions info gnome-bridge@keymasq.tools
 ```
 
 Watch session logs:
@@ -92,7 +92,7 @@ extension into your user extension directory first. If GNOME Shell does not see
 it immediately, log out and back in before enabling it:
 
 ```bash
-mkdir -p ~/.local/share/gnome-shell/extensions/keymasq-bridge@nyrda
-cp -r gnome-extension/keymasq-bridge@nyrda/* ~/.local/share/gnome-shell/extensions/keymasq-bridge@nyrda/
-gnome-extensions enable keymasq-bridge@nyrda
+mkdir -p ~/.local/share/gnome-shell/extensions/gnome-bridge@keymasq.tools
+cp -r gnome-extension/gnome-bridge@keymasq.tools/* ~/.local/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/
+gnome-extensions enable gnome-bridge@keymasq.tools
 ```

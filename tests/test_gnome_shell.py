@@ -44,7 +44,7 @@ async def test_get_extension_info_uses_gnome_shell_extensions_dbus() -> None:
                 "a{sv}",
                 [
                     {
-                        "uuid": Variant("s", "keymasq-bridge@nyrda"),
+                        "uuid": Variant("s", "gnome-bridge@keymasq.tools"),
                         "enabled": Variant("b", True),
                         "shell-version": Variant("as", ["49"]),
                     }
@@ -54,18 +54,18 @@ async def test_get_extension_info_uses_gnome_shell_extensions_dbus() -> None:
     )
 
     info = await gnome_shell.get_extension_info(
-        "keymasq-bridge@nyrda",
+        "gnome-bridge@keymasq.tools",
         _FakeDBus(bus),
     )
 
-    assert info["uuid"] == "keymasq-bridge@nyrda"
+    assert info["uuid"] == "gnome-bridge@keymasq.tools"
     assert info["enabled"] is True
     assert info["shell-version"] == ["49"]
     assert bus.messages[0].destination == gnome_shell.GNOME_EXTENSIONS_SERVICE
     assert bus.messages[0].path == gnome_shell.GNOME_EXTENSIONS_PATH
     assert bus.messages[0].interface == gnome_shell.GNOME_EXTENSIONS_INTERFACE
     assert bus.messages[0].member == "GetExtensionInfo"
-    assert bus.messages[0].body == ["keymasq-bridge@nyrda"]
+    assert bus.messages[0].body == ["gnome-bridge@keymasq.tools"]
 
 
 @pytest.mark.asyncio
@@ -94,7 +94,7 @@ async def test_extension_enabled_falls_back_to_active_state() -> None:
                 "a{sv}",
                 [
                     {
-                        "uuid": Variant("s", "keymasq-bridge@nyrda"),
+                        "uuid": Variant("s", "gnome-bridge@keymasq.tools"),
                         "state": Variant("d", 1.0),
                     }
                 ],
@@ -102,6 +102,6 @@ async def test_extension_enabled_falls_back_to_active_state() -> None:
         ]
     )
 
-    enabled = await gnome_shell.extension_enabled("keymasq-bridge@nyrda", _FakeDBus(bus))
+    enabled = await gnome_shell.extension_enabled("gnome-bridge@keymasq.tools", _FakeDBus(bus))
 
     assert enabled is True

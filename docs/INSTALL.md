@@ -222,14 +222,14 @@ once so GNOME Shell rescans system extensions. Then enable the bridge and
 restart the session service:
 
 ```bash
-gnome-extensions enable keymasq-bridge@nyrda
+gnome-extensions enable gnome-bridge@keymasq.tools
 systemctl --user restart keymasq-session
 ```
 
 Verify that GNOME Shell sees the extension:
 
 ```bash
-gnome-extensions info keymasq-bridge@nyrda
+gnome-extensions info gnome-bridge@keymasq.tools
 ```
 
 Without the bridge, Keymasq still runs on GNOME, but window-aware profiles,

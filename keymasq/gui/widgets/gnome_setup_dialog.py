@@ -11,7 +11,7 @@ from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue
 from keymasq.gui.session_client import JsonDict, session_request_async
 
 GNOME_SETUP_DOCS_URL = "https://keymasq.tools/docs/latest/GNOME/"
-GNOME_BRIDGE_UUID = "keymasq-bridge@nyrda"
+GNOME_BRIDGE_UUID = "gnome-bridge@keymasq.tools"
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,9 @@ class _DialogCopy:
     body: str
     primary_label: str | None
     action: str | None
+    close_label: str | None = "Not Now"
+    docs_label: str | None = "Setup Guide"
+    show_docs: bool = True
 
 
 def _state_copy(state: str, action: str) -> _DialogCopy:
@@ -39,13 +42,15 @@ def _state_copy(state: str, action: str) -> _DialogCopy:
         )
     if state == "shell_not_rescanned":
         return _DialogCopy(
-            title="GNOME Needs To Reload Extensions",
+            title="Finish GNOME Setup",
             body=(
-                "The bridge files are installed, but GNOME Shell does not see them yet. "
-                "Log out and back in once, then return to Keymasq."
+                "Keymasq needs a GNOME extension for window-aware profiles, GNOME window "
+                "actions, and native pointer positioning. The extension is installed; log "
+                "out and back in once so GNOME can load it."
             ),
-            primary_label="Log Out...",
+            primary_label="Log Out",
             action="logout",
+            close_label=None,
         )
     if state == "extensions_disabled":
         return _DialogCopy(
@@ -59,10 +64,15 @@ def _state_copy(state: str, action: str) -> _DialogCopy:
         )
     if state == "bridge_disabled":
         return _DialogCopy(
-            title="Enable GNOME Shell Bridge",
-            body=bridge_reason,
+            title="Enable GNOME Bridge",
+            body=(
+                "Enable the bridge for window-aware profiles, GNOME window actions, "
+                "and native pointer positioning."
+            ),
             primary_label="Enable Bridge",
             action="enable_bridge",
+            docs_label=None,
+            show_docs=False,
         )
     if state == "shell_dbus_unavailable":
         return _DialogCopy(
@@ -161,13 +171,15 @@ class GnomeSetupDialog(Adw.Dialog):
         button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         button_row.set_halign(Gtk.Align.END)
 
-        docs_btn = Gtk.Button(label="Open Setup Guide")
-        docs_btn.connect("clicked", self._on_open_docs_clicked)
-        button_row.append(docs_btn)
+        if copy.show_docs:
+            docs_btn = Gtk.Button(label=copy.docs_label or "Setup Guide")
+            docs_btn.connect("clicked", self._on_open_docs_clicked)
+            button_row.append(docs_btn)
 
-        close_btn = Gtk.Button(label="Not Now")
-        close_btn.connect("clicked", self._on_close_clicked)
-        button_row.append(close_btn)
+        if copy.close_label:
+            close_btn = Gtk.Button(label=copy.close_label)
+            close_btn.connect("clicked", self._on_close_clicked)
+            button_row.append(close_btn)
 
         if copy.primary_label and copy.action:
             primary = Gtk.Button(label=copy.primary_label)

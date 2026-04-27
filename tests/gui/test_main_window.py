@@ -834,6 +834,93 @@ class TestMainWindow:
         ]
         assert completed == ["enable_bridge"]
 
+    def test_gnome_setup_dialog_bridge_disabled_uses_short_prompt(self, temp_config_dir):
+        from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
+
+        from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
+
+        parent = Gtk.Window()
+        dialog = GnomeSetupDialog(
+            parent,
+            {
+                "gnome_bridge_state": "bridge_disabled",
+                "gnome_bridge_action": "enable_bridge",
+            },
+        )
+
+        labels: list[str] = []
+        buttons: list[str] = []
+
+        def collect(widget) -> None:
+            if isinstance(widget, Gtk.Button):
+                label = widget.get_label()
+                if label:
+                    buttons.append(label)
+            elif isinstance(widget, Gtk.Label):
+                text = widget.get_text()
+                if text:
+                    labels.append(text)
+
+            child = widget.get_first_child()
+            while child is not None:
+                collect(child)
+                child = child.get_next_sibling()
+
+        child = dialog.get_child()
+        assert child is not None
+        collect(child)
+
+        assert "Enable GNOME Bridge" in labels
+        assert (
+            "Enable the bridge for window-aware profiles, GNOME window actions, "
+            "and native pointer positioning."
+        ) in labels
+        assert buttons == ["Not Now", "Enable Bridge"]
+
+    def test_gnome_setup_dialog_shell_rescan_uses_finish_setup_prompt(self, temp_config_dir):
+        from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
+
+        from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
+
+        parent = Gtk.Window()
+        dialog = GnomeSetupDialog(
+            parent,
+            {
+                "gnome_bridge_state": "shell_not_rescanned",
+                "gnome_bridge_action": "logout",
+            },
+        )
+
+        labels: list[str] = []
+        buttons: list[str] = []
+
+        def collect(widget) -> None:
+            if isinstance(widget, Gtk.Button):
+                label = widget.get_label()
+                if label:
+                    buttons.append(label)
+            elif isinstance(widget, Gtk.Label):
+                text = widget.get_text()
+                if text:
+                    labels.append(text)
+
+            child = widget.get_first_child()
+            while child is not None:
+                collect(child)
+                child = child.get_next_sibling()
+
+        child = dialog.get_child()
+        assert child is not None
+        collect(child)
+
+        assert "Finish GNOME Setup" in labels
+        assert (
+            "Keymasq needs a GNOME extension for window-aware profiles, GNOME window "
+            "actions, and native pointer positioning. The extension is installed; log "
+            "out and back in once so GNOME can load it."
+        ) in labels
+        assert buttons == ["Setup Guide", "Log Out"]
+
     def test_gnome_setup_action_starts_status_poll_without_gui_refresh_command(
         self, temp_config_dir, monkeypatch
     ):

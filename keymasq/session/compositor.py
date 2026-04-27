@@ -166,13 +166,17 @@ async def get_compositor_support_details(
     compositor_id: str | None,
     dbus: SessionDBus | None = None,
 ) -> dict[str, bool | str]:
+    if compositor_id == "gnome":
+        details = await GnomeListener.get_support_details(dbus)
+        details.setdefault("supported", bool(details.get("supported", False)))
+        details.setdefault("warning", "")
+        return details
+
     supported = await is_compositor_supported(compositor_id, dbus)
     details: dict[str, bool | str] = {
         "supported": supported,
         "warning": "",
     }
-    if compositor_id == "gnome":
-        details.update(await GnomeListener.get_support_details(dbus))
     return details
 
 

@@ -400,7 +400,7 @@ async def test_gnome_hello_marks_bridge_protocol_compatible() -> None:
     listener._writer = _FakeWriter()
     listener._bridge_connected = True
 
-    await listener._handle_bridge_message({"type": "hello", "protocol": 3})
+    await listener._handle_bridge_message({"type": "hello", "protocol": 1})
 
     assert listener.compositor_dispatch_available is True
     assert listener.runtime_support_details()["warning"] == ""
@@ -413,11 +413,11 @@ async def test_gnome_hello_reports_stale_bridge_protocol_warning() -> None:
     listener._writer = _FakeWriter()
     listener._bridge_connected = True
 
-    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
+    await listener._handle_bridge_message({"type": "hello", "protocol": 0})
 
     details = listener.runtime_support_details()
     assert listener.compositor_dispatch_available is False
-    assert details["bridge_protocol"] == 2
+    assert details["bridge_protocol"] == 0
     assert details["gnome_bridge_state"] == "protocol_stale"
     assert details["gnome_bridge_action"] == "logout"
     assert "Log out and back in" in str(details["warning"])
@@ -442,7 +442,7 @@ async def test_gnome_setup_action_enable_bridge_uses_shell_dbus(monkeypatch) -> 
 
     assert ok is True
     assert "enabled" in message
-    assert calls == [("keymasq-bridge@nyrda", True, dbus)]
+    assert calls == [("gnome-bridge@keymasq.tools", True, dbus)]
 
 
 def test_gnome_probe_requires_missing_native_toplevel_protocols(monkeypatch, tmp_path) -> None:
@@ -502,7 +502,7 @@ async def test_gnome_dispatch_sends_bridge_request_and_resolves_result() -> None
     listener = GnomeListener(_callback)
     listener._writer = _FakeWriter()
     listener._bridge_connected = True
-    await listener._handle_bridge_message({"type": "hello", "protocol": 3})
+    await listener._handle_bridge_message({"type": "hello", "protocol": 1})
 
     async def _respond() -> None:
         await asyncio.sleep(0)
@@ -536,7 +536,7 @@ async def test_gnome_set_cursor_position_sends_bridge_request_and_resolves_resul
     listener = GnomeListener(lambda *_args: asyncio.sleep(0))
     listener._writer = _FakeWriter()
     listener._bridge_connected = True
-    await listener._handle_bridge_message({"type": "hello", "protocol": 3})
+    await listener._handle_bridge_message({"type": "hello", "protocol": 1})
 
     async def _respond() -> None:
         await asyncio.sleep(0)
@@ -570,7 +570,7 @@ async def test_gnome_set_cursor_position_rejects_stale_bridge_protocol() -> None
     listener = GnomeListener(lambda *_args: asyncio.sleep(0))
     listener._writer = _FakeWriter()
     listener._bridge_connected = True
-    await listener._handle_bridge_message({"type": "hello", "protocol": 2})
+    await listener._handle_bridge_message({"type": "hello", "protocol": 0})
 
     ok, message = await listener.set_cursor_position(123, 456)
 

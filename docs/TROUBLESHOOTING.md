@@ -254,7 +254,7 @@ Symptoms:
 Checks:
 
 ```bash
-gnome-extensions info keymasq-bridge@nyrda
+gnome-extensions info gnome-bridge@keymasq.tools
 journalctl --user -u keymasq-session -n 100
 ```
 
@@ -262,7 +262,7 @@ Important:
 
 - after installing the Keymasq package into an already running GNOME session,
   log out and back in before enabling the GNOME Shell bridge extension
-- if `gnome-extensions enable keymasq-bridge@nyrda` says the extension does
+- if `gnome-extensions enable gnome-bridge@keymasq.tools` says the extension does
   not exist, GNOME Shell has usually not rescanned extensions yet; log out and
   back in, then run the enable command again
 - restarting `keymasq-session` alone is not always enough if GNOME Shell has

@@ -64,6 +64,8 @@ class _PersistentSessionConnection:
                 try:
                     response = response_queue.get(timeout=timeout)
                 except queue.Empty:
+                    log.debug("persistent request timed out")
+                    self._close_connection()
                     return None
                 return response
             except Exception as e:

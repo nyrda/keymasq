@@ -92,9 +92,9 @@ package() {
     install -Dm644 "examples/security.toml" \
         "$pkgdir/usr/share/doc/$pkgname/security.toml"
 
-    install -d "$pkgdir/usr/share/gnome-shell/extensions/keymasq-bridge@nyrda"
-    cp -a "gnome-extension/keymasq-bridge@nyrda/." \
-        "$pkgdir/usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/"
+    install -d "$pkgdir/usr/share/gnome-shell/extensions/gnome-bridge@keymasq.tools"
+    cp -a "gnome-extension/gnome-bridge@keymasq.tools/." \
+        "$pkgdir/usr/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/"
 
     rm -f "$pkgdir/usr/bin/keymasq-cli" "$pkgdir/usr/bin/keymasq-gui"
 }

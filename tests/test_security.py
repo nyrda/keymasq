@@ -12,6 +12,7 @@ def test_load_security_policy_defaults_when_missing(tmp_path: Path) -> None:
     assert policy.recording_unlock_required is True
     assert policy.macro_edit_requires_unlock is False
     assert policy.gui_allow_left_right_click_remap is False
+    assert policy.emergency_cancel_combo_enabled is True
 
 
 def test_load_security_policy_overrides_acl(tmp_path: Path) -> None:
@@ -72,6 +73,7 @@ def test_load_security_policy_gui_section(tmp_path: Path) -> None:
             [
                 "[gui]",
                 "allow_left_right_click_remap = true",
+                "emergency_cancel_combo_enabled = false",
             ]
         )
     )
@@ -79,6 +81,7 @@ def test_load_security_policy_gui_section(tmp_path: Path) -> None:
     policy = load_security_policy(policy_path)
 
     assert policy.gui_allow_left_right_click_remap is True
+    assert policy.emergency_cancel_combo_enabled is False
 
 
 def test_allowlist_entries_are_non_blocking(tmp_path: Path) -> None:

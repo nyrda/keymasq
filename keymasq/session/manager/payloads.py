@@ -57,10 +57,9 @@ def mapping_update_needed(
     hardware_id: str,
     resolved: ResolvedDeviceProfile,
 ) -> bool:
-    return (
-        manager.profile_state.last_sent_mapping_signatures.get(hardware_id, "")
-        != resolved_mapping_signature(manager, resolved, hardware_id)
-    )
+    return manager.profile_state.last_sent_mapping_signatures.get(
+        hardware_id, ""
+    ) != resolved_mapping_signature(manager, resolved, hardware_id)
 
 
 def resolved_mapping_signature(
@@ -126,11 +125,7 @@ def resolved_combos_signature(
                 "profile_name": combo.profile_name,
                 "steps": steps,
                 "action": action_data,
-                **(
-                    {"recall_trigger_keys": True}
-                    if combo.recall_trigger_keys
-                    else {}
-                ),
+                **({"recall_trigger_keys": True} if combo.recall_trigger_keys else {}),
                 **(
                     {"restore_trigger_keys": list(combo.restore_trigger_keys)}
                     if combo.restore_trigger_keys
@@ -184,6 +179,7 @@ def action_signature_payload(
         "start_macro_recording",
         "stop_macro_recording",
         "cancel_macro_playback",
+        "emergency_reset",
     ):
         return data
 
@@ -243,9 +239,7 @@ def combo_action_signature_payload(
         return None
     if data.get("action") == "exec" and not str(data.get("cmd", "") or ""):
         return None
-    if data.get("action") == "compositor_dispatch" and not str(
-        data.get("dispatcher", "") or ""
-    ):
+    if data.get("action") == "compositor_dispatch" and not str(data.get("dispatcher", "") or ""):
         return None
     if data.get("action") == "macro" and not str(data.get("macro_name", "") or ""):
         return None
@@ -298,6 +292,7 @@ def profile_to_mapping(
             "start_macro_recording",
             "stop_macro_recording",
             "cancel_macro_playback",
+            "emergency_reset",
         ):
             pass
         elif action.action_type.value in (
@@ -314,15 +309,11 @@ def profile_to_mapping(
                 action_data["macro_speed"] = action.macro_speed
                 action_data["macro_loop_mode"] = action.macro_loop_mode
                 action_data["macro_loop_count"] = int(action.macro_loop_count)
-                action_data["macro_loop_stop_behavior"] = (
-                    action.macro_loop_stop_behavior
-                )
+                action_data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
                 action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
                 action_data["macro_start_x"] = int(action.macro_start_x)
                 action_data["macro_start_y"] = int(action.macro_start_y)
-                action_data["macro_block_mouse_movement"] = bool(
-                    action.macro_block_mouse_movement
-                )
+                action_data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
         elif action.action_type.value == "superkey":
             if action.superkey_name:
                 superkey_config = manager.superkeys.get_superkey(action.superkey_name)
@@ -380,11 +371,7 @@ def resolved_combos_payload(
                 "profile_name": combo.profile_name,
                 "steps": steps,
                 "action": action_data,
-                **(
-                    {"recall_trigger_keys": True}
-                    if combo.recall_trigger_keys
-                    else {}
-                ),
+                **({"recall_trigger_keys": True} if combo.recall_trigger_keys else {}),
                 **(
                     {"restore_trigger_keys": list(combo.restore_trigger_keys)}
                     if combo.restore_trigger_keys
@@ -448,6 +435,7 @@ def combo_action_to_payload(
         "start_macro_recording",
         "stop_macro_recording",
         "cancel_macro_playback",
+        "emergency_reset",
     ):
         return action_data
 

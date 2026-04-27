@@ -10,7 +10,11 @@ from typing import Any, Protocol, cast
 import evdev
 
 from keymasq.common import devices as common_devices
-from keymasq.common.combos import normalize_combo_restore_keys
+from keymasq.common.combos import (
+    EMERGENCY_CANCEL_COMBO_EVDEVS,
+    is_emergency_cancel_combo_evdevs,
+    normalize_combo_restore_keys,
+)
 from keymasq.common.devices import (
     clear_device_path_cache,
     detect_input_classes,
@@ -20,8 +24,10 @@ from keymasq.common.devices import (
 )
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
+    ActionType,
     DeviceType,
     MappingAction,
+    SuperkeyMode,
 )
 from keymasq.keymasqd.combo_engine import (
     ComboDecision,
@@ -39,11 +45,16 @@ from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 from keymasq.keymasqd.runtime import topology as runtime_topology
+from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 log = logging.getLogger("keymasqd.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
 ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
+EMERGENCY_CANCEL_COMBO_ID_PREFIX = "__keymasq_emergency_cancel:"
+EMERGENCY_CANCEL_COMBO_NAME = "Keymasq Emergency Cancel"
+EMERGENCY_CANCEL_COMBO_PROFILE = "__keymasq_internal"
+EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS = 200
 TOPOLOGY_POLL_INTERVAL_S = 0.5
 TOPOLOGY_DEBOUNCE_S = 0.5
 type JsonObject = dict[str, object]
@@ -282,6 +293,7 @@ class DeviceManager:
         self.recording_manager: RecordingManager | None = None
         self.macro_store: Any | None = None
         self.macro_exec_timeout_max_ms = 30000
+        self.emergency_cancel_combo_enabled = True
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
         self.diagnostics_state = DiagnosticsState()
@@ -290,6 +302,7 @@ class DeviceManager:
             held_release_retry_s=max(0.01, float(held_release_retry_s)),
         )
         self.combo_state = runtime_combos.ComboRuntimeState()
+        self._configured_combos: list[RuntimeCombo] = []
         self.topology_state = TopologyRuntimeState(
             poll_s=max(0.05, float(topology_poll_s)),
             debounce_s=max(0.05, float(topology_debounce_s)),
@@ -340,7 +353,7 @@ class DeviceManager:
         force_grab_unmapped: bool = False,
     ) -> JsonObject:
         async with self._op_lock:
-            return await runtime_grab_lifecycle.grab_device_unlocked(
+            result = await runtime_grab_lifecycle.grab_device_unlocked(
                 self,
                 hardware_id,
                 evdev_paths,
@@ -363,20 +376,24 @@ class DeviceManager:
                 fire_and_observe_fn=_fire_and_observe,
                 errno_mod=errno,
             )
+            await self._refresh_combo_runtime_unlocked()
+            return result
 
     async def release_device(
         self,
         hardware_id: str,
         immediate: bool = False,
         grace_s: float | None = None,
-        ) -> JsonObject:
+    ) -> JsonObject:
         async with self._op_lock:
             if immediate:
-                return await runtime_grab_lifecycle.release_device_unlocked(
+                result = await runtime_grab_lifecycle.release_device_unlocked(
                     self,
                     hardware_id,
                     log=log,
                 )
+                await self._refresh_combo_runtime_unlocked()
+                return result
             return runtime_grab_lifecycle.schedule_hardware_release_unlocked(
                 self,
                 hardware_id,
@@ -389,6 +406,28 @@ class DeviceManager:
         await runtime_grab_lifecycle.release_all_devices(
             self,
             fire_and_observe_fn=_fire_and_observe,
+        )
+        async with self._op_lock:
+            await self._refresh_combo_runtime_unlocked()
+
+    async def emergency_reset(self) -> JsonObject:
+        await self.release_all_devices()
+        self._broadcast_runtime_event(
+            CommandType.RUNTIME_RESET,
+            {"reason": "emergency_reset"},
+        )
+        return {"status": "ok", "reset": True}
+
+    def _broadcast_runtime_event(
+        self,
+        event_type: CommandType,
+        data: JsonObject,
+    ) -> None:
+        if self.broadcast_callback is None:
+            return
+        _fire_and_observe(
+            self.broadcast_callback(event_type, data),
+            f"{event_type.value} broadcast",
         )
 
     async def set_mapping(
@@ -489,21 +528,125 @@ class DeviceManager:
                     )
                 )
 
-            self.active_combos = parsed
-            await runtime_combos.clear_combo_runtime(
-                self,
-                deps=_combo_runtime_deps(),
+            self._configured_combos = parsed
+            active_combos = await self._refresh_combo_runtime_unlocked()
+            log.info(
+                "Updated combos (%d active, %d configured)",
+                len(active_combos),
+                len(parsed),
             )
-            self.combo_state.engine.set_combos(parsed)
-            runtime_combos.prime_combo_engine_with_held_bindings(
-                self,
+            return {"updated": True, "combo_count": len(active_combos)}
+
+    async def _refresh_combo_runtime_unlocked(self) -> list[RuntimeCombo]:
+        active_combos = self._with_emergency_cancel_combos(self._configured_combos)
+        self.active_combos = active_combos
+        await runtime_combos.clear_combo_runtime(
+            self,
+            deps=_combo_runtime_deps(),
+        )
+        self.combo_state.engine.set_combos(active_combos)
+        runtime_combos.prime_combo_engine_with_held_bindings(
+            self,
+        )
+        runtime_combos.refresh_combo_timeout_watchdog(
+            self,
+            deps=_combo_runtime_deps(),
+        )
+        return active_combos
+
+    def _with_emergency_cancel_combos(
+        self,
+        combos: list[RuntimeCombo],
+    ) -> list[RuntimeCombo]:
+        if not self.emergency_cancel_combo_enabled:
+            return combos
+
+        hardware_ids = self._grabbed_keyboard_hardware_ids()
+        if not hardware_ids:
+            return combos
+
+        hardware_id_set = set(hardware_ids)
+        user_combos = [
+            combo
+            for combo in combos
+            if not self._is_emergency_cancel_duplicate(combo, hardware_id_set)
+        ]
+        emergency_combos = [
+            self._emergency_cancel_combo(hardware_id) for hardware_id in hardware_ids
+        ]
+        return [*emergency_combos, *user_combos]
+
+    def _grabbed_keyboard_hardware_ids(self) -> list[str]:
+        hardware_ids: list[str] = []
+        for raw_hardware_id, devices in self.grabbed_devices.items():
+            hardware_id = str(raw_hardware_id or "").lower()
+            if not hardware_id:
+                continue
+            if any(self._grabbed_device_is_keyboard(device) for device in devices):
+                hardware_ids.append(hardware_id)
+        return sorted(set(hardware_ids))
+
+    def _grabbed_device_is_keyboard(self, device: object) -> bool:
+        device_type = getattr(device, "device_type", None)
+        if device_type == DeviceType.KEYBOARD:
+            return True
+        if str(getattr(device_type, "value", device_type) or "").lower() == "keyboard":
+            return True
+
+        raw_types = getattr(device, "device_types", ())
+        if not isinstance(raw_types, (list, tuple, set, frozenset)):
+            return False
+        raw_type_items = cast(Sequence[object] | set[object] | frozenset[object], raw_types)
+        return any(str(raw_type or "").lower() == "keyboard" for raw_type in raw_type_items)
+
+    def _emergency_cancel_combo(self, hardware_id: str) -> RuntimeCombo:
+        bindings = tuple(
+            RuntimeComboBinding(
+                hardware_id=hardware_id,
+                evdev=evdev_name,
+                source="",
             )
-            runtime_combos.refresh_combo_timeout_watchdog(
-                self,
-                deps=_combo_runtime_deps(),
-            )
-            log.info("Updated combos (%d active)", len(parsed))
-            return {"updated": True, "combo_count": len(parsed)}
+            for evdev_name in EMERGENCY_CANCEL_COMBO_EVDEVS
+        )
+        return RuntimeCombo(
+            id=f"{EMERGENCY_CANCEL_COMBO_ID_PREFIX}{hardware_id}",
+            name=EMERGENCY_CANCEL_COMBO_NAME,
+            steps=[RuntimeComboStep(bindings=bindings)],
+            action=MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=cast(
+                    Any,
+                    SuperkeyConfig(
+                        name=EMERGENCY_CANCEL_COMBO_NAME,
+                        mode=SuperkeyMode.PATTERN,
+                        double_tap_window_ms=EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS,
+                        tap_actions=[
+                            SuperkeyActionData(action_type=ActionType.CANCEL_MACRO_PLAYBACK.value)
+                        ],
+                        double_tap_actions=[
+                            SuperkeyActionData(action_type=ActionType.EMERGENCY_RESET.value),
+                        ],
+                    ),
+                ),
+            ),
+            profile_name=EMERGENCY_CANCEL_COMBO_PROFILE,
+            recall_trigger_keys=True,
+            restore_trigger_keys=[],
+        )
+
+    def _is_emergency_cancel_duplicate(
+        self,
+        combo: RuntimeCombo,
+        keyboard_hardware_ids: set[str],
+    ) -> bool:
+        if len(combo.steps) != 1:
+            return False
+        step = combo.steps[0]
+        if not step.bindings:
+            return False
+        if not is_emergency_cancel_combo_evdevs(binding.evdev for binding in step.bindings):
+            return False
+        return all(binding.hardware_id in keyboard_hardware_ids for binding in step.bindings)
 
     async def set_diagnostics(self, enabled: bool, interval: float = 5.0) -> JsonObject:
         self.diagnostics_state.enabled = bool(enabled)
@@ -853,10 +996,16 @@ class DeviceManager:
         return {"status": "ok", "x": int(x), "y": int(y)}
 
     async def cancel_macro_playback(self) -> JsonObject:
-        return await runtime_macros.cancel_macro_playback(
+        result = await runtime_macros.cancel_macro_playback(
             self,
             deps=_macro_runtime_deps(),
         )
+        if bool(result.get("cancelled", False)):
+            self._broadcast_runtime_event(
+                CommandType.MACRO_PLAYBACK_CANCELLED,
+                {"reason": "cancel_macro_playback", "cancelled": True},
+            )
+        return result
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:
         return runtime_macros.complete_macro_exec_wait(self, wait_id, returncode)

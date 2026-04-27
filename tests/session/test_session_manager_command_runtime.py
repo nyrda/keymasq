@@ -2,6 +2,7 @@
 from tests.session.command_support import *
 from keymasq.common.ipc import CommandType
 
+
 @pytest.mark.asyncio
 async def test_handle_session_request_get_compositor_reports_kde_dispatch_availability() -> None:
     manager = SessionManager()
@@ -30,6 +31,7 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = True
     manager.security_policy.gui_allow_left_right_click_remap = True
+    manager.security_policy.emergency_cancel_combo_enabled = False
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
     resolve_unlock_status_async = AsyncMock(
@@ -61,6 +63,7 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     assert result["recording_unlocked"] is True
     assert result["recording_unlock_required"] is True
     assert result["gui_allow_left_right_click_remap"] is True
+    assert result["emergency_cancel_combo_enabled"] is False
     assert result["recording_unlock_source"] == "runtime"
     assert result["recording_unlock_expires_at"] == 1234
     resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
@@ -296,6 +299,66 @@ async def test_start_macro_trigger_blocks_when_macro_save_is_pending() -> None:
 
 
 @pytest.mark.asyncio
+async def test_macro_playback_cancelled_event_notifies_user() -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.MACRO_PLAYBACK_CANCELLED,
+        {"reason": "cancel_macro_playback", "cancelled": True},
+    )
+
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {
+            "event": "macro_playback_cancelled",
+            "reason": "cancel_macro_playback",
+            "cancelled": True,
+        }
+    )
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Macro Playback Cancelled",
+        "Stopped all running macro playback.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_reset_event_invalidates_and_reevaluates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.profile_state.grabbed_devices.add("1234:5678")
+    manager.profile_state.last_sent_grab_signatures["1234:5678"] = "grab"
+    manager.profile_state.last_sent_mapping_signatures["1234:5678"] = "mapping"
+    manager.profile_state.last_sent_combo_signature = "combos"
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.RUNTIME_RESET,
+        {"reason": "emergency_reset"},
+    )
+    await asyncio.sleep(0)
+
+    assert manager.profile_state.grabbed_devices == set()
+    assert manager.profile_state.last_sent_grab_signatures == {}
+    assert manager.profile_state.last_sent_mapping_signatures == {}
+    assert manager.profile_state.last_sent_combo_signature == ""
+    reevaluate_profiles.assert_awaited_once_with(manager)
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "runtime_reset", "reason": "emergency_reset"}
+    )
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Emergency Reset",
+        "Released all grabbed devices. Reapplying active profiles.",
+    )
+
+
+@pytest.mark.asyncio
 async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -507,9 +570,7 @@ async def test_capture_combo_session_command_round_trip() -> None:
     manager = SessionManager()
     manager.hardware.list_hardware_ids = lambda: ["1234:5678"]  # type: ignore[assignment]
     manager.profiles.get_profile = Mock(
-        return_value=SimpleNamespace(
-            config=SimpleNamespace(device_layers={"1234:5678": object()})
-        )
+        return_value=SimpleNamespace(config=SimpleNamespace(device_layers={"1234:5678": object()}))
     )
     manager.client.send_command = AsyncMock(
         return_value=Response(

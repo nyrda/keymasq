@@ -8,6 +8,8 @@ exec_timeout_max_ms = 30000
 # Allow remapping left/right click in the GUI.
 # Warning: this can leave the desktop without a usable primary/secondary click.
 allow_left_right_click_remap = false
+# Inject Ctrl+Alt+Esc on grabbed keyboards as the emergency cancel/reset combo.
+emergency_cancel_combo_enabled = true
 
 [recording_guard]
 # Tier 1 (recommended): require explicit unlock for live capture/recording APIs.

@@ -1670,6 +1670,7 @@ class KeySelectorDialog(Adw.Dialog):
             ActionType.START_MACRO_RECORDING: "macro",
             ActionType.STOP_MACRO_RECORDING: "macro",
             ActionType.CANCEL_MACRO_PLAYBACK: "macro",
+            ActionType.EMERGENCY_RESET: "macro",
             ActionType.EXEC: "special",
             ActionType.KEYBOARD: "keyboard",
             ActionType.MOUSE: "mouse",

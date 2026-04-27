@@ -53,6 +53,8 @@ def describe_mapping_action_compact(
         parts.append("⏹ stop recording")
     elif action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         parts.append("⏹ cancel playback")
+    elif action.action_type == ActionType.EMERGENCY_RESET:
+        parts.append("⏹ emergency reset")
     elif action.action_type == ActionType.PROFILE_ENABLE:
         parts.append(f"🗂 enable {action.profile_name or '?'}")
     elif action.action_type == ActionType.PROFILE_DISABLE:
@@ -125,6 +127,8 @@ def describe_mapping_action_verbose(
         return "Stop Macro Recording"
     if action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         return "Cancel Macro Playback"
+    if action.action_type == ActionType.EMERGENCY_RESET:
+        return "Emergency Runtime Reset"
     if action.action_type == ActionType.PROFILE_ENABLE:
         return f"Enable Profile → {action.profile_name or '?'}"
     if action.action_type == ActionType.PROFILE_DISABLE:

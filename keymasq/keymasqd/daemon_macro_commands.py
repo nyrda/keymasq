@@ -42,6 +42,8 @@ class _MacroCommandDeviceManager(Protocol):
 
     async def cancel_macro_playback(self) -> JsonObject: ...
 
+    async def emergency_reset(self) -> JsonObject: ...
+
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject: ...
 
 
@@ -52,7 +54,6 @@ class _MacroDefinitionStore(Protocol):
 
 
 class _MacroCommandStore(_MacroDefinitionStore, Protocol):
-
     def list_meta(self) -> JsonObjectList: ...
 
     def create(self, payload: JsonObject) -> JsonObject: ...
@@ -176,6 +177,9 @@ async def handle_macro_command(
     if command_type == CommandType.CANCEL_MACRO_PLAYBACK:
         return await daemon.device_manager.cancel_macro_playback()
 
+    if command_type == CommandType.EMERGENCY_RESET:
+        return await daemon.device_manager.emergency_reset()
+
     if command_type == CommandType.MACRO_EXEC_COMPLETE:
         wait_id = str_value(data.get("wait_id", ""))
         returncode = int_like(data.get("returncode", 0), 0)
@@ -260,9 +264,7 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
         move_to_start = bool(macro_data.get("move_to_start", move_to_start))
         start_x = int_like(macro_data.get("start_x", start_x), start_x)
         start_y = int_like(macro_data.get("start_y", start_y), start_y)
-        block_mouse_movement = bool(
-            macro_data.get("block_mouse_movement", block_mouse_movement)
-        )
+        block_mouse_movement = bool(macro_data.get("block_mouse_movement", block_mouse_movement))
 
     return await daemon.device_manager.play_macro(
         macro_events=macro_events,

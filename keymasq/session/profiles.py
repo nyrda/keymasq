@@ -319,6 +319,7 @@ class ProfileManager:
             ActionType.START_MACRO_RECORDING,
             ActionType.STOP_MACRO_RECORDING,
             ActionType.CANCEL_MACRO_PLAYBACK,
+            ActionType.EMERGENCY_RESET,
         ):
             return MappingAction(action_type=action_type)
 
@@ -820,7 +821,7 @@ class ProfileManager:
                                     **({"source": event.source} if event.source else {}),
                                 }
                                 for event in step.events
-                            ]
+                            ],
                         }
                         for step in combo.steps
                     ],
@@ -829,11 +830,7 @@ class ProfileManager:
                         if combo.action is not None
                         else {}
                     ),
-                    **(
-                        {"recall_trigger_keys": True}
-                        if combo.recall_trigger_keys
-                        else {}
-                    ),
+                    **({"recall_trigger_keys": True} if combo.recall_trigger_keys else {}),
                     **(
                         {
                             "restore_trigger_keys": normalize_combo_restore_keys(

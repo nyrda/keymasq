@@ -1,5 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedFunction=false, reportUnusedClass=false
 # ruff: noqa: F401, I001
+import asyncio
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -17,19 +18,20 @@ from keymasq.session.listeners.kde import KDEListener
 from keymasq.session.manager import SessionManager
 
 __all__ = [
-    'SimpleNamespace',
-    'cast',
-    'AsyncMock',
-    'Mock',
-    'pytest',
-    'session_compositor_module',
-    'session_events_module',
-    'session_profiles_module',
-    'session_recording_module',
-    'Response',
-    'PeerCredentials',
-    'SecurityPolicy',
-    'HyprlandListener',
-    'KDEListener',
-    'SessionManager',
+    "SimpleNamespace",
+    "asyncio",
+    "cast",
+    "AsyncMock",
+    "Mock",
+    "pytest",
+    "session_compositor_module",
+    "session_events_module",
+    "session_profiles_module",
+    "session_recording_module",
+    "Response",
+    "PeerCredentials",
+    "SecurityPolicy",
+    "HyprlandListener",
+    "KDEListener",
+    "SessionManager",
 ]

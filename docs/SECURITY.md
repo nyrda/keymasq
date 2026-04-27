@@ -214,6 +214,7 @@ Relevant controls:
   - `exec_timeout_max_ms`
 - `[gui]`
   - `allow_left_right_click_remap`
+  - `emergency_cancel_combo_enabled`
 - `[recording_guard]`
   - `unlock_required`
   - `macro_edit_requires_unlock`
@@ -263,6 +264,23 @@ When `allow_left_right_click_remap = true`:
 
 This setting exists because remapping the primary or secondary click can leave
 you without a usable pointer button in the desktop UI.
+
+`[gui].emergency_cancel_combo_enabled` controls whether `keymasqd` reserves
+`Ctrl+Alt+Esc` on grabbed keyboards as an emergency combo. The default is
+`true`.
+
+When `emergency_cancel_combo_enabled = true`:
+
+- the daemon injects `Ctrl+Alt+Esc` into active keyboard combo runtime state
+- the GUI rejects attempts to save that exact combo trigger
+- tapping the combo cancels all running macro playback directly in `keymasqd`
+  after a 200 ms double-tap window
+- double-tapping the combo runs a daemon runtime reset, releases all grabbed
+  devices, broadcasts `runtime_reset`, and lets the session reapply profiles
+
+When `emergency_cancel_combo_enabled = false`, the daemon does not inject the
+combo and the GUI allows it to be assigned like any other combo. Disabling it
+is not recommended unless you intentionally need that exact trigger.
 
 ## Socket Paths
 

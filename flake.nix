@@ -193,6 +193,10 @@
                 daemon_allowed_uids = [ ];
                 session_allowed_uids = [ ];
                 macro.exec_timeout_max_ms = 30000;
+                gui = {
+                  allow_left_right_click_remap = false;
+                  emergency_cancel_combo_enabled = true;
+                };
                 recording_guard = {
                   unlock_required = true;
                   macro_edit_requires_unlock = false;

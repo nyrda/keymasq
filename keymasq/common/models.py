@@ -22,6 +22,7 @@ class ActionType(Enum):
     START_MACRO_RECORDING = "start_macro_recording"
     STOP_MACRO_RECORDING = "stop_macro_recording"
     CANCEL_MACRO_PLAYBACK = "cancel_macro_playback"
+    EMERGENCY_RESET = "emergency_reset"
     MACRO = "macro"
     MOUSE_MOVE_REL = "mouse_move_rel"
     MOUSE_MOVE_ABS = "mouse_move_abs"
@@ -47,6 +48,7 @@ SUPERKEY_ACTION_TYPES = frozenset(
         ActionType.START_MACRO_RECORDING,
         ActionType.STOP_MACRO_RECORDING,
         ActionType.CANCEL_MACRO_PLAYBACK,
+        ActionType.EMERGENCY_RESET,
         ActionType.MACRO,
         ActionType.PROFILE_ENABLE,
         ActionType.PROFILE_DISABLE,
@@ -416,6 +418,7 @@ def combo_effective_superkey_config(
     *,
     step_count: int,
 ) -> "RuntimeSuperkeyConfig": ...
+
 
 def combo_effective_superkey_config[T: _ComboCompatibleSuperkeyConfig](
     config: T,

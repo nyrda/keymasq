@@ -17,6 +17,7 @@ type CursorPositionSetter = Callable[[int, int], Awaitable[dict[str, object]]]
 type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
+type EmergencyResetter = Callable[[], Awaitable[dict[str, object]]]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
 _T = TypeVar("_T")
@@ -237,6 +238,9 @@ class GrabbedDeviceRuntime(Protocol):
 
     @property
     def macro_player(self) -> MacroPlayer | None: ...
+
+    @property
+    def emergency_resetter(self) -> EmergencyResetter | None: ...
 
     @property
     def suppress_rel_getter(self) -> Callable[[], bool] | None: ...

@@ -660,6 +660,16 @@ async def _combo_superkey_machine(
 
     async def combo_superkey_broadcast(data: dict[str, object]) -> None:
         payload = dict(data)
+        action_type = str(payload.get("action_type", "") or "")
+        if action_type == ActionType.CANCEL_MACRO_PLAYBACK.value:
+            await manager.cancel_macro_playback()
+            return
+        if action_type == ActionType.EMERGENCY_RESET.value:
+            deps.fire_and_observe_fn(
+                manager.emergency_reset(),
+                "combo emergency runtime reset",
+            )
+            return
         payload.setdefault("source_device", trigger_binding.hardware_id)
         payload.setdefault("source_button", trigger_name)
         await broadcast_combo_action(
@@ -1048,6 +1058,17 @@ async def _start_combo_action_instance(
                     source_device="combo",
                     source_button=trigger_name,
                 )
+        return
+
+    if action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
+        await manager.cancel_macro_playback()
+        return
+
+    if action.action_type == ActionType.EMERGENCY_RESET:
+        deps.fire_and_observe_fn(
+            manager.emergency_reset(),
+            "combo emergency runtime reset",
+        )
         return
 
     action_payload = build_action_trigger_payload(

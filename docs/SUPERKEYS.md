@@ -8,7 +8,7 @@ on how you press it — or let it do several things at once.
 
 **Example:** you could turn your Caps Lock key into a smart Copy/Paste
 key — tap it quickly to copy, hold it down to paste. One key, two useful
-actions, no awkward finger chords.
+actions, no awkward finger stretching.
 
 Keymasq gives you two ways to set this up:
 
@@ -249,7 +249,7 @@ overload = [
 - Use pattern mode when timing matters and overload mode when you want plain
   one-to-many remapping.
 - Keep bundled actions in the exact order you want them pressed.
-- Prefer testing chords with a text editor or game input viewer after changes.
+- Prefer testing bindings with a text editor or game input viewer after changes.
 
 ## See Also
 

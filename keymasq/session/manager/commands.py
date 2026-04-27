@@ -38,7 +38,7 @@ async def handle_session_request(
         return {
             "status": "error",
             "message": f"{client_class} is not allowed to call '{command}'",
-        }
+    }
 
     if runtime_recording.is_sensitive_session_command(
         manager,
@@ -175,6 +175,7 @@ async def _handle_compositor_commands(
             "recording_active": manager.recording_state.active,
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
             "gui_allow_left_right_click_remap": bool(policy.gui_allow_left_right_click_remap),
+            "emergency_cancel_combo_enabled": bool(policy.emergency_cancel_combo_enabled),
             **runtime_recording.serialize_recording_unlock_state(
                 manager,
                 unlock_status,

@@ -24,8 +24,8 @@ _SORT_NAME = 1
 _SORT_TRIGGER = 2
 _SORT_ACTION = 3
 
-_ARROW_UP = " \u25B4"
-_ARROW_DOWN = " \u25BE"
+_ARROW_UP = " \u25b4"
+_ARROW_DOWN = " \u25be"
 
 
 class ComboTab(ProfileManagedTab):
@@ -255,9 +255,7 @@ class ComboTab(ProfileManagedTab):
         self._update_column_header_labels()
         self._render_combo_list()
 
-    def _on_row_activated(
-        self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow
-    ) -> None:
+    def _on_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         combo_id: str = row._combo_id  # type: ignore[attr-defined]
         combo = next((c for c in self._selected_combos() if c.id == combo_id), None)
         if combo is None:
@@ -265,11 +263,16 @@ class ComboTab(ProfileManagedTab):
         self._open_combo_editor(combo)
 
     def _open_combo_editor(self, combo: ComboConfig | None = None) -> None:
+        emergency_cancel_combo_enabled = True
+        policy_getter = getattr(self.main_window, "emergency_cancel_combo_enabled", None)
+        if callable(policy_getter):
+            emergency_cancel_combo_enabled = bool(policy_getter())
         dialog = ComboEditorDialog(
             self,
             combo,
             profile_name=self.selected_profile_name(),
             sibling_combos=self._selected_combos(),
+            emergency_cancel_combo_enabled=emergency_cancel_combo_enabled,
         )
         dialog.connect("combo-saved", self._on_combo_saved)
         dialog.present(self)

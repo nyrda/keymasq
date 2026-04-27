@@ -238,6 +238,13 @@ async def execute_action(
                 label=f"cancel macro action {event_name}",
             )
 
+    elif action.action_type == ActionType.EMERGENCY_RESET:
+        if event.value == 1 and device_runtime.emergency_resetter is not None:
+            fire_and_observe_fn(
+                device_runtime.emergency_resetter(),
+                f"emergency reset action {event_name}",
+            )
+
     elif action.action_type in (
         ActionType.PROFILE_ENABLE,
         ActionType.PROFILE_DISABLE,

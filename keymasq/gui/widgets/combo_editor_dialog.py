@@ -10,7 +10,11 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.combos import normalize_combo_evdev
+from keymasq.common.combos import (
+    EMERGENCY_CANCEL_COMBO_LABEL,
+    is_emergency_cancel_combo_evdevs,
+    normalize_combo_evdev,
+)
 from keymasq.common.models import (
     ActionType,
     ComboConfig,
@@ -117,6 +121,14 @@ def combo_trigger_label(steps: list[ComboStep]) -> str:
     return " -> ".join(combo_step_label(step) for step in steps if step.events)
 
 
+def combo_is_emergency_cancel_trigger(steps: list[ComboStep]) -> bool:
+    return (
+        len(steps) == 1
+        and bool(steps[0].events)
+        and is_emergency_cancel_combo_evdevs(event.evdev for event in steps[0].events)
+    )
+
+
 def combo_restore_key_options(steps: list[ComboStep]) -> list[str]:
     ordered: list[str] = []
     seen: set[str] = set()
@@ -160,6 +172,8 @@ def combo_action_label(action: MappingAction | None) -> str:
         return "Stop Recording"
     if action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         return "Cancel Playback"
+    if action.action_type == ActionType.EMERGENCY_RESET:
+        return "Emergency Reset"
     if action.action_type == ActionType.MOUSE_MOVE_REL:
         return f"Move {action.move_x}, {action.move_y}"
     if action.action_type == ActionType.MOUSE_MOVE_ABS:
@@ -196,6 +210,7 @@ class ComboEditorDialog(Adw.Dialog):
         combo: ComboConfig | None = None,
         profile_name: str | None = None,
         sibling_combos: list[ComboConfig] | None = None,
+        emergency_cancel_combo_enabled: bool = True,
     ) -> None:
         title = "Edit Combo" if combo else "Add Combo"
         super().__init__(title=title, content_width=720, content_height=840)
@@ -203,6 +218,7 @@ class ComboEditorDialog(Adw.Dialog):
         self._draft = deepcopy(combo) if combo else new_combo_draft()
         self._profile_name = profile_name
         self._sibling_combos = deepcopy(sibling_combos or [])
+        self._emergency_cancel_combo_enabled = bool(emergency_cancel_combo_enabled)
         self._recording_unlocked = False
         self._capture_inflight = False
         self._validation_message = ""
@@ -627,6 +643,13 @@ class ComboEditorDialog(Adw.Dialog):
                     f"Step {index + 1} timeout must be between "
                     f"{MIN_STEP_TIMEOUT_MS} and {MAX_STEP_TIMEOUT_MS} ms."
                 )
+        if self._emergency_cancel_combo_enabled and combo_is_emergency_cancel_trigger(
+            self._draft.steps
+        ):
+            return (
+                f"{EMERGENCY_CANCEL_COMBO_LABEL} is reserved for emergency "
+                "macro playback cancellation."
+            )
         if self._is_exact_duplicate_of_sibling():
             return "A combo with the same trigger already exists in this profile."
         return ""
@@ -649,9 +672,9 @@ class ComboEditorDialog(Adw.Dialog):
     def _on_status_response(self, result: dict | None) -> bool:
         result = result or {}
         unlock_required = bool(result.get("recording_unlock_required", True))
-        self._recording_unlocked = bool(
-            result.get("recording_unlocked", False)
-        ) or not unlock_required
+        self._recording_unlocked = (
+            bool(result.get("recording_unlocked", False)) or not unlock_required
+        )
         self._update_capture_controls()
         return False
 
@@ -747,9 +770,7 @@ class ComboEditorDialog(Adw.Dialog):
         warnings = result.get("warnings") or []
         if warnings:
             warning_text = ", ".join(str(warning) for warning in warnings)
-            self.capture_status.set_text(
-                f"Added step: {combo_step_label(step)} ({warning_text})"
-            )
+            self.capture_status.set_text(f"Added step: {combo_step_label(step)} ({warning_text})")
         else:
             self.capture_status.set_text(f"Added step: {combo_step_label(step)}")
         self._refresh_trigger_display()

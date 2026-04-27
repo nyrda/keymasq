@@ -27,6 +27,56 @@ async def test_handle_session_request_get_compositor_reports_kde_dispatch_availa
 
 
 @pytest.mark.asyncio
+async def test_handle_session_request_refresh_compositor_forces_binding_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    refresh = AsyncMock(return_value={"compositor_id": "gnome", "supported": True})
+    monkeypatch.setattr(session_compositor_module, "refresh_compositor_binding", refresh)
+
+    result = await manager._handle_session_request(
+        {"command": "refresh_compositor"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"compositor_id": "gnome", "supported": True}
+    refresh.assert_awaited_once_with(manager)
+
+
+@pytest.mark.asyncio
+async def test_handle_session_request_run_compositor_setup_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    run_action = AsyncMock(
+        return_value={
+            "status": "ok",
+            "message": "GNOME bridge enabled. Waiting for Keymasq to connect.",
+        }
+    )
+    monkeypatch.setattr(session_compositor_module, "run_compositor_setup_action", run_action)
+
+    result = await manager._handle_session_request(
+        {
+            "command": "run_compositor_setup_action",
+            "compositor": "gnome",
+            "action": "enable_bridge",
+        },
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert "GNOME bridge enabled" in str(result["message"])
+    run_action.assert_awaited_once_with(manager, "gnome", "enable_bridge")
+
+
+@pytest.mark.asyncio
 async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = True

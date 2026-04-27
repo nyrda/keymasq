@@ -11,23 +11,51 @@ GNOME 45 and older are not supported.
 Packaged installs already include the extension files but do not enable it
 automatically. You need to enable it once after installation.
 
+### GUI-guided setup
+
+The Keymasq GUI guides you through the entire setup process. When you first
+launch Keymasq on GNOME, the GUI detects whether the bridge needs setup and
+shows dialogs to walk you through each step.
+
+If the extension files are installed but GNOME Shell has not yet picked them up
+(common when installing while already logged into GNOME), the GUI shows a
+logout prompt:
+
+![Finish GNOME Setup dialog](assets/screenshots/gnome-setup-logout-required.png)
+
+Click **Log Out** to trigger the GNOME logout prompt. After logging out and
+back in, GNOME Shell rescans extensions and sees the bridge.
+
+When you launch Keymasq again after logging back in, the GUI detects that the
+extension is available but not yet enabled:
+
+![Enable GNOME Bridge dialog](assets/screenshots/gnome-setup-enable-bridge-required.png)
+
+Click **Enable Bridge** to enable the extension and complete the setup. The GUI
+handles enabling the extension and restarting the session service automatically.
+
+### Manual setup
+
+If you prefer terminal commands, the manual steps are below. Note that the GUI
+handles all of this automatically.
+
 If you install the package while already logged into GNOME, the files may be on
 disk before the current GNOME Shell session notices the new extension. In that
-case, `gnome-extensions enable keymasq-bridge@nyrda` can fail with
-`Extension "keymasq-bridge@nyrda" does not exist` even though the files are
+case, `gnome-extensions enable gnome-bridge@keymasq.tools` can fail with
+`Extension "gnome-bridge@keymasq.tools" does not exist` even though the files are
 present under `/usr/share/gnome-shell/extensions/`.
 
 For packaged installs, log out and back in once after installing Keymasq so
 GNOME Shell rescans system extensions. Then enable the bridge:
 
 ```bash
-gnome-extensions enable keymasq-bridge@nyrda
+gnome-extensions enable gnome-bridge@keymasq.tools
 ```
 
 If you want to verify that GNOME Shell sees it before enabling, check:
 
 ```bash
-gnome-extensions info keymasq-bridge@nyrda
+gnome-extensions info gnome-bridge@keymasq.tools
 ```
 
 After enabling the extension, restart the Keymasq session service:
@@ -41,7 +69,7 @@ systemctl --user restart keymasq-session
 Check extension status:
 
 ```bash
-gnome-extensions info keymasq-bridge@nyrda
+gnome-extensions info gnome-bridge@keymasq.tools
 ```
 
 Watch session logs:
@@ -88,7 +116,7 @@ extension into your user extension directory first. If GNOME Shell does not see
 it immediately, log out and back in before enabling it:
 
 ```bash
-mkdir -p ~/.local/share/gnome-shell/extensions/keymasq-bridge@nyrda
-cp -r gnome-extension/keymasq-bridge@nyrda/* ~/.local/share/gnome-shell/extensions/keymasq-bridge@nyrda/
-gnome-extensions enable keymasq-bridge@nyrda
+mkdir -p ~/.local/share/gnome-shell/extensions/gnome-bridge@keymasq.tools
+cp -r gnome-extension/gnome-bridge@keymasq.tools/* ~/.local/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/
+gnome-extensions enable gnome-bridge@keymasq.tools
 ```

@@ -1,5 +1,5 @@
 {
-  "uuid": "keymasq-bridge@nyrda",
+  "uuid": "gnome-bridge@keymasq.tools",
   "name": "Keymasq Bridge",
   "description": "Bridge active window and pointer data to keymasq-session",
   "shell-version": ["46", "47", "48", "49", "50"],

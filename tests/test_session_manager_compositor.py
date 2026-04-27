@@ -67,6 +67,38 @@ async def test_run_compositor_dispatch_returns_listener_result() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_compositor_setup_action_delegates_to_gnome_and_refreshes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.compositor_state.compositor_id = "gnome"
+
+    async def run_setup_action(_cls, action: str, dbus=None) -> tuple[bool, str]:
+        assert action == "enable_bridge"
+        assert dbus is manager.dbus
+        return True, "enabled"
+
+    refresh = AsyncMock(return_value={"compositor_id": "gnome", "supported": True})
+    monkeypatch.setattr(
+        session_compositor_module.GnomeListener,
+        "run_setup_action",
+        classmethod(run_setup_action),
+    )
+    monkeypatch.setattr(session_compositor_module, "refresh_compositor_binding", refresh)
+
+    result = await session_compositor_module.run_compositor_setup_action(
+        manager,
+        "gnome",
+        "enable_bridge",
+    )
+
+    assert result["status"] == "ok"
+    assert result["message"] == "enabled"
+    assert result["compositor"] == {"compositor_id": "gnome", "supported": True}
+    refresh.assert_awaited_once_with(manager)
+
+
+@pytest.mark.asyncio
 async def test_sync_cursor_position_backend_reports_native_listener_support() -> None:
     manager = SessionManager()
     manager.connected = True

@@ -148,7 +148,7 @@ The main filesystem layout is:
 /usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml
 /usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
 /usr/share/icons/hicolor/<size>x<size>/apps/tools.keymasq.keymasq.png
-/usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/
+/usr/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/
 /etc/keymasq/security.toml
 ```
 

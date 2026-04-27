@@ -73,6 +73,19 @@ class _FakeSocket:
         self.closed = True
 
 
+class _RequestOnlySocket:
+    def __init__(self) -> None:
+        self.sent = b""
+        self.closed = False
+
+    def send(self, data: bytes) -> int:
+        self.sent += data
+        return len(data)
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class _BlockingSocket:
     def __init__(self, chunk: bytes, ready: threading.Event, release: threading.Event) -> None:
         self._chunk = chunk
@@ -164,6 +177,18 @@ def test_persistent_session_reader_loop_routes_events_and_response(
     queued = response_queue.get_nowait()
     assert queued is not None
     assert queued["status"] == "ok"
+
+
+def test_persistent_session_request_timeout_closes_connection() -> None:
+    connection = gui_session_client._PersistentSessionConnection()
+    sock = _RequestOnlySocket()
+    connection._sock = sock  # pyright: ignore[reportPrivateUsage]
+
+    response = connection.request({"command": "get_status"}, timeout=0.01)
+
+    assert response is None
+    assert sock.closed is True
+    assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
 
 
 def test_persistent_session_reader_thread_survives_socket_swap(

@@ -106,7 +106,7 @@ The VM environments install:
 
 ### GNOME
 
-The GNOME VM installs and enables the `keymasq-bridge@nyrda` Shell extension automatically. The GNOME listener depends on that bridge for active-window and pointer updates.
+The GNOME VM installs and enables the `gnome-bridge@keymasq.tools` Shell extension automatically. The GNOME listener depends on that bridge for active-window and pointer updates.
 
 **Focus and title tracking**: GNOME Wayland has aggressive focus-stealing prevention. GTK's `window.present()` is not sufficient to programmatically switch focus. The bridge extension handles this by:
 

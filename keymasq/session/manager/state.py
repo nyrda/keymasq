@@ -96,3 +96,8 @@ class CompositorRuntimeState:
     listener_retry_interval_s: float = 30.0
     listener_log_interval_s: float = 60.0
     last_listener_start_error: str = ""
+    support_details_cache: JsonObject = field(default_factory=dict)
+    support_details_cache_compositor_id: str | None = None
+    support_details_cache_at: float = 0.0
+    support_details_cache_ttl_s: float = 5.0
+    support_details_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

@@ -94,8 +94,8 @@ install -Dpm0644 LICENSE %{buildroot}%{_datadir}/licenses/%{name}/LICENSE
 install -Dpm0644 README.md %{buildroot}%{_docdir}/%{name}/README.md
 install -Dpm0644 examples/security.toml %{buildroot}%{_sysconfdir}/keymasq/security.toml
 
-mkdir -p %{buildroot}%{_datadir}/gnome-shell/extensions/keymasq-bridge@nyrda
-cp -a gnome-extension/keymasq-bridge@nyrda/. %{buildroot}%{_datadir}/gnome-shell/extensions/keymasq-bridge@nyrda/
+mkdir -p %{buildroot}%{_datadir}/gnome-shell/extensions/gnome-bridge@keymasq.tools
+cp -a gnome-extension/gnome-bridge@keymasq.tools/. %{buildroot}%{_datadir}/gnome-shell/extensions/gnome-bridge@keymasq.tools/
 
 for size in 16 22 24 32 48 64 128 256 512; do
     install -Dpm0644 assets/icons/tools.keymasq.keymasq-\${size}.png \
@@ -144,7 +144,7 @@ cat <<'SPEC_TAIL'
 %{_datadir}/icons/hicolor/128x128/apps/tools.keymasq.keymasq.png
 %{_datadir}/icons/hicolor/256x256/apps/tools.keymasq.keymasq.png
 %{_datadir}/icons/hicolor/512x512/apps/tools.keymasq.keymasq.png
-%{_datadir}/gnome-shell/extensions/keymasq-bridge@nyrda/
+%{_datadir}/gnome-shell/extensions/gnome-bridge@keymasq.tools/
 %{_datadir}/licenses/%{name}/LICENSE
 %{_docdir}/%{name}/README.md
 %config(noreplace) %{_sysconfdir}/keymasq/security.toml

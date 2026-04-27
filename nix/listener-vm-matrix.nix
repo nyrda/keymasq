@@ -2,7 +2,7 @@
 
 let
   lib = pkgs.lib;
-  gnomeBridgeSource = ../gnome-extension + "/keymasq-bridge@nyrda";
+  gnomeBridgeSource = ../gnome-extension + "/gnome-bridge@keymasq.tools";
 
   vmUser = "keymasqvm";
   vmUid = 1000;
@@ -55,11 +55,11 @@ let
 
   windowLab = mkGtkScript "keymasq-listener-window-lab" ./listener-vms/window-lab.py;
   gnomeBridge = pkgs.runCommand "keymasq-gnome-bridge" { } ''
-    mkdir -p "$out/share/gnome-shell/extensions/keymasq-bridge@nyrda"
+    mkdir -p "$out/share/gnome-shell/extensions/gnome-bridge@keymasq.tools"
     cp ${gnomeBridgeSource + "/extension.js"} \
-      "$out/share/gnome-shell/extensions/keymasq-bridge@nyrda/extension.js"
+      "$out/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/extension.js"
     cp ${gnomeBridgeSource + "/metadata.json"} \
-      "$out/share/gnome-shell/extensions/keymasq-bridge@nyrda/metadata.json"
+      "$out/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/metadata.json"
   '';
 
   sessionQuery = pkgs.writeShellApplication {
@@ -869,7 +869,7 @@ EOF
         settings = {
           "org/gnome/shell" = {
             disable-user-extensions = false;
-            enabled-extensions = [ "keymasq-bridge@nyrda" ];
+            enabled-extensions = [ "gnome-bridge@keymasq.tools" ];
           };
         };
       }
@@ -1023,12 +1023,12 @@ in
         wait_for_user_command("GNOME Wayland socket", f"test -S {runtime_dir}/wayland-0")
         wait_for_user_command(
             "GNOME bridge extension visible",
-            "gnome-extensions info keymasq-bridge@nyrda >/dev/null",
+            "gnome-extensions info gnome-bridge@keymasq.tools >/dev/null",
         )
-        machine.succeed(as_user("gnome-extensions enable keymasq-bridge@nyrda"))
+        machine.succeed(as_user("gnome-extensions enable gnome-bridge@keymasq.tools"))
         wait_for_user_command(
             "GNOME bridge extension enabled",
-            "gnome-extensions list --enabled | grep -Fx keymasq-bridge@nyrda",
+            "gnome-extensions list --enabled | grep -Fx gnome-bridge@keymasq.tools",
         )
       '';
       preflightScript = ''
@@ -1044,8 +1044,8 @@ in
             "gnome-bridge-probe debug after launch",
             as_user(f"cat {bridge_debug} || true"),
         )
-        machine.succeed(as_user("gnome-extensions disable keymasq-bridge@nyrda || true"))
-        machine.succeed(as_user("gnome-extensions enable keymasq-bridge@nyrda"))
+        machine.succeed(as_user("gnome-extensions disable gnome-bridge@keymasq.tools || true"))
+        machine.succeed(as_user("gnome-extensions enable gnome-bridge@keymasq.tools"))
         wait_for_user_command("GNOME bridge probe output", f"test -f {bridge_output}")
         log_command_output(
             "gnome-bridge-probe debug",
@@ -1076,12 +1076,12 @@ in
         )
         wait_for_user_command(
             "GNOME bridge extension visible",
-            "gnome-extensions info keymasq-bridge@nyrda >/dev/null",
+            "gnome-extensions info gnome-bridge@keymasq.tools >/dev/null",
         )
-        machine.succeed(as_user("gnome-extensions enable keymasq-bridge@nyrda"))
+        machine.succeed(as_user("gnome-extensions enable gnome-bridge@keymasq.tools"))
         wait_for_user_command(
             "GNOME bridge extension enabled",
-            "gnome-extensions list --enabled | grep -Fx keymasq-bridge@nyrda",
+            "gnome-extensions list --enabled | grep -Fx gnome-bridge@keymasq.tools",
         )
       '';
     };

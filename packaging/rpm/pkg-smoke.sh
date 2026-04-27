@@ -38,7 +38,7 @@ assert_file /usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
 for size in 16 22 24 32 48 64 128 256 512; do
     assert_file "/usr/share/icons/hicolor/${size}x${size}/apps/tools.keymasq.keymasq.png"
 done
-assert_file /usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/metadata.json
+assert_file /usr/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/metadata.json
 assert_file /etc/keymasq/security.toml
 
 assert_cmd "keymasq --help" keymasq --help

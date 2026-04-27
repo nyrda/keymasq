@@ -1,4 +1,10 @@
-from keymasq.session.compositor import detect_compositor_sync, is_compositor_supported_sync
+import asyncio
+
+from keymasq.session.compositor import (
+    detect_compositor_sync,
+    get_compositor_support_details,
+    is_compositor_supported_sync,
+)
 
 
 def _probe_result(value: bool):
@@ -66,6 +72,31 @@ def test_detect_priority_hyprland(monkeypatch) -> None:
         x11=True,
     )
     assert detect_compositor_sync() == "hyprland"
+
+
+def test_gnome_support_details_uses_single_detailed_probe(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def get_support_details(_cls, _dbus=None) -> dict[str, bool | str]:
+        calls.append("details")
+        return {"supported": False, "warning": "bridge disabled"}
+
+    async def probe_available(_cls, _dbus=None) -> bool:
+        raise AssertionError("GNOME support details should not call probe_available")
+
+    monkeypatch.setattr(
+        "keymasq.session.compositor.GnomeListener.get_support_details",
+        classmethod(get_support_details),
+    )
+    monkeypatch.setattr(
+        "keymasq.session.compositor.GnomeListener.probe_available",
+        classmethod(probe_available),
+    )
+
+    result = asyncio.run(get_compositor_support_details("gnome"))
+
+    assert result == {"supported": False, "warning": "bridge disabled"}
+    assert calls == ["details"]
 
 
 def test_detect_priority_niri_over_kde_and_wayland(monkeypatch) -> None:

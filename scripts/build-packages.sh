@@ -128,7 +128,7 @@ stage_rpm_support_files() {
         "$staging_dir/usr/share/applications" \
         "$staging_dir/usr/share/metainfo" \
         "$staging_dir/usr/share/icons/hicolor/scalable/apps" \
-        "$staging_dir/usr/share/gnome-shell/extensions/keymasq-bridge@nyrda" \
+        "$staging_dir/usr/share/gnome-shell/extensions/gnome-bridge@keymasq.tools" \
         "$staging_dir/usr/share/licenses/keymasq" \
         "$staging_dir/usr/share/doc/keymasq"
 
@@ -150,8 +150,8 @@ stage_rpm_support_files() {
         "$staging_dir/usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml"
     cp -f "$REPO_DIR/assets/tools.keymasq.keymasq.svg" \
         "$staging_dir/usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg"
-    cp -a "$REPO_DIR/gnome-extension/keymasq-bridge@nyrda/." \
-        "$staging_dir/usr/share/gnome-shell/extensions/keymasq-bridge@nyrda/"
+    cp -a "$REPO_DIR/gnome-extension/gnome-bridge@keymasq.tools/." \
+        "$staging_dir/usr/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/"
     cp -f "$REPO_DIR/LICENSE" \
         "$staging_dir/usr/share/licenses/keymasq/LICENSE"
     cp -f "$REPO_DIR/README.md" \

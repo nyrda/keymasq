@@ -29,6 +29,7 @@ from keymasq.gui.session_client import (
 )
 from keymasq.gui.widgets.combo_tab import ComboTab
 from keymasq.gui.widgets.device_tab import DeviceTab
+from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
 from keymasq.session.compositor import (
     detect_compositor_sync,
     get_compositor_capabilities,
@@ -67,6 +68,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._connection_issue: str | None = None
         self._connection_title_label: Gtk.Label | None = None
         self._connection_body_label: Gtk.Label | None = None
+        self._gnome_setup_dialog: GnomeSetupDialog | None = None
+        self._gnome_setup_dialog_prompted = False
+        self._gnome_setup_poll_source_id = 0
         self._macro_manager_dialog: Adw.Dialog | None = None
         self._record_macro_dialog: Adw.Dialog | None = None
         self._save_macro_dialog: Adw.Dialog | None = None
@@ -171,6 +175,8 @@ class MainWindow(Adw.ApplicationWindow):
             )
         self._update_compositor_warning_banner()
         self._update_compositor_status()
+        self._close_gnome_setup_dialog_if_ready()
+        self._maybe_present_gnome_setup_dialog()
 
     def _refresh_device_tabs(
         self,
@@ -344,7 +350,7 @@ class MainWindow(Adw.ApplicationWindow):
         session_request_async(
             {"command": "get_status"},
             lambda data, qid=query_id: self._on_status_response(data, qid),
-            timeout=1.0,
+            timeout=2.0,
         )
 
     def _on_status_response(self, data: dict | None, query_id: int) -> bool:
@@ -371,6 +377,7 @@ class MainWindow(Adw.ApplicationWindow):
                     self._compositor_supported = bool(details.get("supported", False))
                 self._update_compositor_warning_banner()
                 self._update_compositor_status()
+                self._close_gnome_setup_dialog_if_ready()
 
             if session_ok:
                 if keymasqd_ok:
@@ -584,6 +591,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._unlock_refresh_source_id = self._remove_timeout_source(
             self._unlock_refresh_source_id
         )
+        self._gnome_setup_poll_source_id = self._remove_timeout_source(
+            self._gnome_setup_poll_source_id
+        )
 
         if self.demo_mode:
             return
@@ -741,6 +751,9 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.compositor_status = Gtk.Label()
         self.compositor_status.add_css_class("caption")
+        compositor_click = Gtk.GestureClick()
+        compositor_click.connect("released", self._on_compositor_status_released)
+        self.compositor_status.add_controller(compositor_click)
         self._update_compositor_status()
         self.status_bar.append(self.compositor_status)
 
@@ -1324,20 +1337,32 @@ class MainWindow(Adw.ApplicationWindow):
     def _update_compositor_status(self) -> None:
         if not self._startup_probe_done:
             self.compositor_status.set_label("compositor: ⚪ checking")
+            self.compositor_status.set_tooltip_text("Checking compositor support")
             return
         if self._compositor_supported:
             icon = "🟢"
             name = get_compositor_name(self._compositor_id)
             self.compositor_status.set_label(f"compositor: {icon} {name}")
+            self.compositor_status.set_tooltip_text(f"{name} support is active")
         elif self._compositor_id:
             icon = "🟡"
             name = get_compositor_name(self._compositor_id)
             self.compositor_status.set_label(f"compositor: {icon} {name} (limited)")
+            if self._compositor_id == "gnome" and self._gnome_setup_needed():
+                self.compositor_status.set_tooltip_text("Click to set up the GNOME Shell bridge")
+            else:
+                self.compositor_status.set_tooltip_text(f"{name} support is limited")
         else:
             self.compositor_status.set_label("compositor: 🔴 none")
+            self.compositor_status.set_tooltip_text("No supported compositor detected")
 
     def _update_compositor_warning_banner(self) -> None:
         if self.demo_mode or not self._startup_probe_done:
+            self.warning_banner.set_visible(False)
+            self.warning_banner.set_revealed(False)
+            return
+
+        if self._compositor_id == "gnome":
             self.warning_banner.set_visible(False)
             self.warning_banner.set_revealed(False)
             return
@@ -1355,12 +1380,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.warning_banner.set_revealed(False)
             return
 
-        if self._compositor_id == "gnome":
-            msg = (
-                "GNOME Shell detected, but Keymasq cannot access the GNOME bridge. "
-                "Window rules are unavailable on this setup."
-            )
-        elif self._compositor_id:
+        if self._compositor_id:
             msg = (
                 f"⚠️ Compositor '{compositor_name}' has limited support. "
                 "Window rules are unavailable on this setup."
@@ -1370,3 +1390,81 @@ class MainWindow(Adw.ApplicationWindow):
         self.warning_banner.set_title(msg)
         self.warning_banner.set_visible(True)
         self.warning_banner.set_revealed(True)
+
+    def _gnome_setup_needed(self) -> bool:
+        if self.demo_mode or self._compositor_id != "gnome":
+            return False
+        state = str(self._compositor_support_details.get("gnome_bridge_state", "") or "")
+        action = str(self._compositor_support_details.get("gnome_bridge_action", "") or "")
+        warning = str(self._compositor_support_details.get("warning", "") or "")
+        if state in {"", "ready", "not_gnome"} and not action and not warning:
+            return False
+        return True
+
+    def _maybe_present_gnome_setup_dialog(self) -> None:
+        if self._gnome_setup_dialog_prompted:
+            return
+        if not self._gnome_setup_needed():
+            return
+        self._gnome_setup_dialog_prompted = True
+        GLib.idle_add(self._present_gnome_setup_dialog)
+
+    def _on_compositor_status_released(
+        self,
+        _gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+    ) -> None:
+        if self._gnome_setup_needed():
+            self._present_gnome_setup_dialog()
+
+    def _present_gnome_setup_dialog(self) -> bool:
+        if not self._gnome_setup_needed():
+            return False
+        if self._gnome_setup_dialog is None:
+            dialog = GnomeSetupDialog(
+                self,
+                dict(self._compositor_support_details),
+                on_action_completed=self._on_gnome_setup_action_completed,
+            )
+            dialog.connect("closed", self._on_gnome_setup_dialog_closed)
+            self._gnome_setup_dialog = dialog
+        self._gnome_setup_dialog.present(self)
+        return False
+
+    def _on_gnome_setup_dialog_closed(self, dialog: Adw.Dialog) -> None:
+        if dialog is self._gnome_setup_dialog:
+            self._gnome_setup_dialog = None
+            self._gnome_setup_poll_source_id = self._remove_timeout_source(
+                self._gnome_setup_poll_source_id
+            )
+
+    def _on_gnome_setup_action_completed(self, action: str) -> None:
+        if action in {"enable_bridge", "enable_extensions", "refresh", "restart_session"}:
+            self._schedule_gnome_setup_status_poll()
+        self._start_startup_probe()
+
+    def _schedule_gnome_setup_status_poll(self) -> None:
+        if self._gnome_setup_poll_source_id:
+            return
+        self._gnome_setup_poll_source_id = GLib.timeout_add(1000, self._poll_gnome_setup_status)
+
+    def _poll_gnome_setup_status(self) -> bool:
+        if self._destroyed or self._gnome_setup_dialog is None:
+            self._gnome_setup_poll_source_id = 0
+            return False
+        self._update_status_from_session()
+        return True
+
+    def _close_gnome_setup_dialog_if_ready(self) -> None:
+        if self._gnome_setup_dialog is None:
+            return
+        if self._gnome_setup_needed():
+            return
+        dialog = self._gnome_setup_dialog
+        self._gnome_setup_dialog = None
+        self._gnome_setup_poll_source_id = self._remove_timeout_source(
+            self._gnome_setup_poll_source_id
+        )
+        dialog.close()

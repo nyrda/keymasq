@@ -71,19 +71,23 @@ async def _call(
     timeout: float = 0.8,
 ) -> Message:
     bus = await dbus.bus()
-    reply = await asyncio.wait_for(
-        bus.call(
-            Message(
-                destination=destination,
-                path=path,
-                interface=interface,
-                member=member,
-                signature=signature,
-                body=body or [],
-            )
-        ),
-        timeout=timeout,
-    )
+    try:
+        reply = await asyncio.wait_for(
+            bus.call(
+                Message(
+                    destination=destination,
+                    path=path,
+                    interface=interface,
+                    member=member,
+                    signature=signature,
+                    body=body or [],
+                )
+            ),
+            timeout=timeout,
+        )
+    except Exception:
+        await dbus.disconnect()
+        raise
     if reply is None:
         raise GnomeShellDBusError("GNOME Shell DBus call returned no reply")
     if reply.message_type == MessageType.ERROR:

@@ -23,6 +23,9 @@ class SessionDBus:
 
     async def connect(self) -> MessageBus:
         async with self._connect_lock:
+            if self._bus is not None and not self._bus.connected:
+                self._bus = None
+                self._introspection_cache.clear()
             if self._bus is None:
                 self._bus = await MessageBus().connect()
             return self._bus
@@ -46,7 +49,11 @@ class SessionDBus:
             return cached
 
         bus = await self.bus()
-        introspection = await bus.introspect(destination, path)
+        try:
+            introspection = await bus.introspect(destination, path)
+        except Exception:
+            await self.disconnect()
+            raise
         self._introspection_cache[key] = introspection
         return introspection
 
@@ -57,9 +64,13 @@ class SessionDBus:
         return proxy.get_interface(interface)
 
     async def name_has_owner(self, name: str, *, timeout: float = 0.6) -> bool:
-        iface = await self.get_interface(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE)
-        has_owner = await asyncio.wait_for(iface.call_name_has_owner(name), timeout=timeout)
-        return bool(has_owner)
+        try:
+            iface = await self.get_interface(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE)
+            has_owner = await asyncio.wait_for(iface.call_name_has_owner(name), timeout=timeout)
+            return bool(has_owner)
+        except Exception:
+            await self.disconnect()
+            raise
 
     async def notify(
         self,
@@ -71,16 +82,20 @@ class SessionDBus:
         app_icon: str = "",
     ) -> int | None:
         bus = await self.bus()
-        reply = await bus.call(
-            Message(
-                destination=NOTIFICATIONS_SERVICE,
-                path=NOTIFICATIONS_PATH,
-                interface=NOTIFICATIONS_INTERFACE,
-                member="Notify",
-                signature="susssasa{sv}i",
-                body=[app_name, 0, app_icon, title, message, [], {}, timeout_ms],
+        try:
+            reply = await bus.call(
+                Message(
+                    destination=NOTIFICATIONS_SERVICE,
+                    path=NOTIFICATIONS_PATH,
+                    interface=NOTIFICATIONS_INTERFACE,
+                    member="Notify",
+                    signature="susssasa{sv}i",
+                    body=[app_name, 0, app_icon, title, message, [], {}, timeout_ms],
+                )
             )
-        )
+        except Exception:
+            await self.disconnect()
+            raise
         if reply is None:
             raise RuntimeError("notification delivery failed")
         if reply.message_type == MessageType.ERROR:

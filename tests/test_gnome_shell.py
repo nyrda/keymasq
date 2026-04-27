@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 import pytest
@@ -20,11 +21,21 @@ class _FakeBus:
 
 
 class _FakeDBus(SessionDBus):
-    def __init__(self, bus: _FakeBus) -> None:
+    def __init__(self, bus: Any) -> None:
         self._fake_bus = bus
+        self.disconnect_calls = 0
 
     async def bus(self) -> Any:
         return self._fake_bus
+
+    async def disconnect(self) -> None:
+        self.disconnect_calls += 1
+
+
+class _HangingBus:
+    async def call(self, _message: Message) -> Message:
+        await asyncio.Future()
+        raise AssertionError("unreachable")
 
 
 def _method_return(signature: str, body: list[object]) -> Message:
@@ -105,3 +116,17 @@ async def test_extension_enabled_falls_back_to_active_state() -> None:
     enabled = await gnome_shell.extension_enabled("gnome-bridge@keymasq.tools", _FakeDBus(bus))
 
     assert enabled is True
+
+
+@pytest.mark.asyncio
+async def test_gnome_shell_dbus_call_disconnects_after_timeout() -> None:
+    dbus = _FakeDBus(_HangingBus())
+
+    with pytest.raises(TimeoutError):
+        await gnome_shell.get_extension_info(
+            "gnome-bridge@keymasq.tools",
+            dbus,
+            timeout=0.01,
+        )
+
+    assert dbus.disconnect_calls == 1

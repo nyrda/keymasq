@@ -350,7 +350,7 @@ class MainWindow(Adw.ApplicationWindow):
         session_request_async(
             {"command": "get_status"},
             lambda data, qid=query_id: self._on_status_response(data, qid),
-            timeout=1.0,
+            timeout=2.0,
         )
 
     def _on_status_response(self, data: dict | None, query_id: int) -> bool:

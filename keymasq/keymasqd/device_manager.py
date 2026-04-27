@@ -3,7 +3,7 @@ import contextlib
 import errno
 import logging
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
@@ -280,6 +280,8 @@ class DeviceManager:
         self.output_state = OutputRuntimeState()
         self.cursor_position_state = CursorPositionRuntimeState()
         self.recording_manager: RecordingManager | None = None
+        self.macro_store: Any | None = None
+        self.macro_exec_timeout_max_ms = 30000
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
         self.diagnostics_state = DiagnosticsState()
@@ -711,7 +713,10 @@ class DeviceManager:
         source_device: str = "",
         source_button: str = "",
         trigger_value: int = 1,
+        macro_event_source: runtime_macros.MacroEventSource | None = None,
     ) -> JsonObject:
+        if macro_event_source is None and macro_name and not macro_events:
+            macro_event_source = await self._stored_macro_event_source(macro_name)
         return await runtime_macros.play_macro(
             self,
             macro_events,
@@ -730,6 +735,33 @@ class DeviceManager:
             source_button,
             trigger_value,
             deps=_macro_runtime_deps(),
+            macro_event_source=macro_event_source,
+        )
+
+    async def _stored_macro_event_source(
+        self,
+        macro_name: str,
+    ) -> runtime_macros.MacroEventSource | None:
+        store = self.macro_store
+        if store is None:
+            return None
+        get_meta = getattr(store, "get_meta", None)
+        iter_events = getattr(store, "iter_events", None)
+        if not callable(get_meta) or not callable(iter_events):
+            return None
+
+        meta_raw = await asyncio.to_thread(get_meta, macro_name)
+        if not isinstance(meta_raw, dict):
+            return None
+        meta = cast(JsonObject, meta_raw)
+
+        def iter_stored_events() -> Iterator[JsonObject]:
+            return cast(Iterator[JsonObject], iter_events(macro_name))
+
+        return runtime_macros.MacroEventSource(
+            event_count=_int_value(meta.get("event_count"), 0),
+            duration_us=_int_value(meta.get("duration_ms"), 0) * 1000,
+            iter_events=iter_stored_events,
         )
 
     def set_cursor_position_backend(self, enabled: bool) -> JsonObject:

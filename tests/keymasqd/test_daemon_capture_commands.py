@@ -28,7 +28,7 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
     assert result == {"played": True}
     macro_store.get.assert_called_once_with("combo")
     device_manager.play_macro.assert_awaited_once_with(
-        macro_events=[{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        macro_events=[],
         macro_name="combo",
         replay_mouse_movement=False,
         replay_mouse_clicks=True,
@@ -41,6 +41,44 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
         start_y=222,
         block_mouse_movement=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_macro_save_recording_claims_snapshot_before_streaming(daemon_testbed):
+    daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
+    stored_events: list[dict[str, object]] = []
+
+    class Snapshot:
+        recording_id = "recording-1"
+        duration_ms = 5
+        device_types = ["keyboard"]
+        event_count = 1
+
+        def iter_events(self):
+            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
+
+    def create_from_events(payload, events, *, return_full: bool = False):
+        assert payload["name"] == "saved"
+        assert return_full is False
+        stored_events.extend(events)
+        return {"name": payload["name"]}
+
+    recording_manager.claim_pending_recording.return_value = Snapshot()
+    macro_store.create_from_events.side_effect = create_from_events
+
+    result = await daemon._handle_command(
+        CommandType.MACRO_SAVE_RECORDING,
+        {"pending_recording_id": "recording-1", "name": "saved"},
+    )
+
+    assert result == {"macro": {"name": "saved"}}
+    recording_manager.claim_pending_recording.assert_awaited_once_with("recording-1")
+    recording_manager.release_pending_recording_claim.assert_awaited_once_with(
+        "recording-1",
+        saved=True,
+    )
+    recording_manager.discard_pending_recording.assert_not_awaited()
+    assert stored_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
 
 
 @pytest.mark.asyncio
@@ -311,6 +349,7 @@ async def test_start_offloads_macro_store_prep_to_thread(
     assert to_thread_calls[0][0].__name__ == "_prepare_macro_store"
     macro_store.ensure.assert_called_once()
     macro_store.register_internal.assert_called_once()
+    recording_manager.cleanup_spool_dir.assert_called_once()
     device_manager.initialize_output_devices.assert_called_once()
     device_manager.shutdown_output_devices.assert_called_once()
     device_manager.start_topology_watcher.assert_awaited_once()

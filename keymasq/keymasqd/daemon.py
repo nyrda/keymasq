@@ -58,6 +58,8 @@ class _GrabbedDeviceRef(Protocol):
 class _DaemonDeviceManager(Protocol):
     broadcast_callback: object | None
     recording_manager: object | None
+    macro_store: object | None
+    macro_exec_timeout_max_ms: int
     grabbed_devices: dict[str, list[_GrabbedDeviceRef]]
 
     def initialize_output_devices(self) -> None: ...
@@ -144,6 +146,10 @@ class _DaemonRecordingManager(Protocol):
 
     async def stop(self) -> JsonObject: ...
 
+    async def discard_all_pending_recordings(self) -> None: ...
+
+    def cleanup_spool_dir(self, *, older_than_s: float | None = None) -> None: ...
+
 
 class _DaemonMacroStore(Protocol):
     def ensure(self) -> None: ...
@@ -217,6 +223,9 @@ class Daemon:
         RUN_DIR.mkdir(parents=True, exist_ok=True)
         self._secure_run_dir()
         self.security_policy = load_security_policy(SECURITY_POLICY_PATH)
+        self.device_manager.macro_exec_timeout_max_ms = int(
+            self.security_policy.macro_exec_timeout_max_ms
+        )
         await asyncio.to_thread(self._prepare_macro_store)
         log.info(
             "Security policy loaded from %s",
@@ -237,6 +246,7 @@ class Daemon:
         self.device_manager.broadcast_callback = self.socket_server.broadcast_event
         self.recording_manager.broadcast_callback = self.socket_server.broadcast_event
         self.device_manager.recording_manager = self.recording_manager
+        self.device_manager.macro_store = self.macro_store
 
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -279,6 +289,7 @@ class Daemon:
     def _prepare_macro_store(self) -> None:
         self.macro_store.ensure()
         self._register_internal_macros()
+        self.recording_manager.cleanup_spool_dir()
 
     def _register_internal_macros(self) -> None:
         ev_rel = 2
@@ -415,6 +426,7 @@ class Daemon:
             CommandType.MACRO_GET,
             CommandType.MACRO_CREATE,
             CommandType.MACRO_UPDATE,
+            CommandType.MACRO_SAVE_RECORDING,
         }
 
         requires_unlock = command_type in tier1_commands
@@ -667,6 +679,7 @@ class Daemon:
     async def _on_client_disconnect(self) -> None:
         log.info("Client disconnected, clearing runtime unlocks and releasing all devices")
         await asyncio.to_thread(self._clear_all_runtime_unlocks, reason="session_disconnect")
+        await self.recording_manager.discard_all_pending_recordings()
         await self.device_manager.release_all_devices()
 
     def _secure_run_dir(self) -> None:

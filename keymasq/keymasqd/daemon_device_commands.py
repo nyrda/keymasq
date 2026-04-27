@@ -51,6 +51,8 @@ class _DeviceCommandManager(Protocol):
 class _DeviceCommandMacroStore(Protocol):
     def get(self, name: str) -> JsonObject: ...
 
+    def get_meta(self, name: str) -> JsonObject: ...
+
 
 class _DeviceCommandDaemon(Protocol):
     device_manager: _DeviceCommandManager

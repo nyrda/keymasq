@@ -27,7 +27,7 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
     )
 
     action = cast(dict[str, object], resolved["btn_side"])
-    assert action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert "macro_events" not in action
     assert action["macro_loop_mode"] == "count"
     assert action["macro_loop_count"] == 3
     assert action["macro_loop_stop_behavior"] == "cancel_run"
@@ -69,7 +69,7 @@ async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(dae
     action = cast(dict[str, object], resolved["btn_side"])
     superkey = cast(dict[str, object], action["superkey"])
     hold_action = cast(dict[str, object], cast(list[object], superkey["hold_actions"])[0])
-    assert hold_action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert "macro_events" not in hold_action
     assert hold_action["macro_loop_mode"] == "count"
     assert hold_action["macro_loop_count"] == 3
     assert hold_action["macro_loop_stop_behavior"] == "cancel_run"
@@ -164,7 +164,7 @@ async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
         device_manager.set_mapping.await_args.kwargs["mapping"],
     )
     resolved = sent_mapping["btn_side"]
-    assert resolved["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert "macro_events" not in resolved
     assert resolved["macro_loop_mode"] == "count"
     assert resolved["macro_loop_count"] == 2
 
@@ -209,9 +209,7 @@ async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
 
     sent_combos = cast(list[dict[str, object]], device_manager.set_combos.await_args.args[0])
     first_action = cast(dict[str, object], sent_combos[0]["action"])
-    assert first_action["macro_events"] == [
-        {"type": 1, "code": 30, "value": 1, "t_us": 0}
-    ]
+    assert "macro_events" not in first_action
     assert first_action["macro_loop_mode"] == "count"
     assert first_action["macro_loop_count"] == 4
 
@@ -266,7 +264,7 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
     combo_action = cast(dict[str, object], sent_combos[0]["action"])
     superkey = cast(dict[str, object], combo_action["superkey"])
     hold_action = cast(dict[str, object], cast(list[object], superkey["hold_actions"])[0])
-    assert hold_action["macro_events"] == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert "macro_events" not in hold_action
     assert hold_action["macro_loop_mode"] == "hold"
     assert hold_action["macro_loop_count"] == 5
     assert hold_action["macro_loop_stop_behavior"] == "cancel_run"

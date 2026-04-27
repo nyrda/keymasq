@@ -533,7 +533,7 @@ class MacroManagerDialog(Adw.Dialog):
     def _is_stop_recording_success(self, result: dict) -> bool:
         if result.get("status") == "error":
             return False
-        return isinstance(result.get("events"), list) and "duration_ms" in result
+        return bool(result.get("pending_recording_id")) and "duration_ms" in result
 
     def _on_recording_started(self, data: dict) -> None:
         self._recording_active = True

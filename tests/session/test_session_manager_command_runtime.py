@@ -395,9 +395,10 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event() -> N
 async def test_save_recording_clears_pending_macro_save_state() -> None:
     manager = SessionManager()
     manager.recording_state.pending_data = {
+        "pending_recording_id": "recording-1",
         "duration_ms": 10,
         "device_types": ["keyboard"],
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        "event_count": 1,
     }
     manager.recording_state.pending_save_token = "pending-1"
     manager.recording_state.pending_save_owner_writer_id = 123
@@ -419,6 +420,9 @@ async def test_save_recording_clears_pending_macro_save_state() -> None:
     )
 
     assert result == {"status": "ok", "name": "Saved"}
+    sent_command = manager.client.send_command.await_args.args[0]
+    assert sent_command.command == CommandType.MACRO_SAVE_RECORDING
+    assert sent_command.data["pending_recording_id"] == "recording-1"
     assert manager.recording_state.pending_data is None
     assert manager.recording_state.pending_save_token is None
     assert manager.recording_state.pending_save_owner_writer_id is None

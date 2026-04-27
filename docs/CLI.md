@@ -171,7 +171,9 @@ keymasq macros cancel
 
 `macros create` reads macro JSON from stdin when no JSON argument is provided.
 It accepts either a macro object with an `events` field or a raw event list. The
-CLI-provided name is always used for the stored macro.
+CLI-provided name is always used for the stored macro. This JSON is the CLI
+interchange format; stored macros are written by keymasqd as compressed
+`.kmacro.xz` files.
 
 ```bash
 keymasq type "test123üäß<tab><wait:20>12345<tab><wait:20>" --print-json \

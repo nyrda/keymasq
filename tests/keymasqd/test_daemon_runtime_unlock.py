@@ -88,7 +88,7 @@ async def test_client_disconnect_clears_owned_and_unowned_runtime_unlocks(
     monkeypatch,
     tmp_path: Path,
 ):
-    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
     owned_uid = 5555
     stray_uid = 7777
     runtime_dir = tmp_path / "runtime-unlocks"
@@ -112,4 +112,5 @@ async def test_client_disconnect_clears_owned_and_unowned_runtime_unlocks(
     assert daemon._unlock_cache[stray_uid] == (500.0, False, 0, "none")
     assert not (runtime_dir / f"recording-unlock-{owned_uid}").exists()
     assert not (runtime_dir / f"recording-unlock-{stray_uid}").exists()
+    recording_manager.discard_all_pending_recordings.assert_awaited_once()
     device_manager.release_all_devices.assert_awaited_once()

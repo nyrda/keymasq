@@ -341,14 +341,21 @@ quick operations — use the GUI for creating and editing.
 
 | Command | What it does |
 |---|---|
-| `keymasq macro list` | Show all saved macros with basic info. |
-| `keymasq macro play <name>` | Play a macro by name. |
-| `keymasq macro cancel` | Stop all currently running macros. |
+| `keymasq macros list` | Show all saved macros with basic info. |
+| `keymasq macros play <name>` | Play a macro by name. |
+| `keymasq macros cancel` | Stop all currently running macros. |
 
 ## Storage
 
 Macros are stored in `/var/lib/keymasq/macros/`, owned by the `keymasq`
-system user. Do not edit these files by hand — use the GUI or CLI instead.
+system user. Persistent macros use compressed `.kmacro.xz` files. Do not edit
+these files by hand — use the GUI or CLI instead.
+
+During live recording, Keymasq keeps the unsaved recording inside keymasqd and
+spills long recordings to daemon-owned temporary files instead of sending the
+full event list through the session. Saving the dialog finalizes that pending
+recording into compressed macro storage; discarding it removes the temporary
+recording.
 
 ### Deleting Macros
 
@@ -371,8 +378,9 @@ could be misused as a keylogger.
   background without your knowledge.
 
 - **Macros are stored in `/var/lib/keymasq/macros/`**, owned by the `keymasq`
-  system user, not mixed into your profile files. The GUI asks Keymasq to save
-  or play them; it does not write files there directly.
+  system user, not mixed into your profile files. They are compressed on disk.
+  The GUI asks Keymasq to save or play them; it does not write files there
+  directly.
 
 **Optional security settings** (in `/etc/keymasq/security.toml`). Most users
 do not need to change these — they are intended for system administrators:

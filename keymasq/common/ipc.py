@@ -37,6 +37,8 @@ class CommandType(Enum):
     MACRO_UPDATE = "macro_update"
     MACRO_RENAME = "macro_rename"
     MACRO_DELETE = "macro_delete"
+    MACRO_SAVE_RECORDING = "macro_save_recording"
+    MACRO_DISCARD_RECORDING = "macro_discard_recording"
     MACRO_PLAY_BY_NAME = "macro_play_by_name"
     CANCEL_MACRO_PLAYBACK = "cancel_macro_playback"
     MACRO_EXEC_COMPLETE = "macro_exec_complete"

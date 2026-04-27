@@ -1,0 +1,213 @@
+import io
+import json
+import lzma
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import cast
+
+from keymasq.common.models import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+
+MACRO_FILE_SUFFIX = ".kmacro.xz"
+MACRO_FILE_FORMAT = "keymasq-macro"
+MACRO_FILE_VERSION = 1
+
+type JsonObject = dict[str, object]
+type MacroEvent = dict[str, object]
+
+
+@dataclass(frozen=True)
+class MacroFileMeta:
+    name: str
+    duration_ms: int = 0
+    device_types: list[str] = field(default_factory=list)
+    event_count: int = 0
+    created_at: str = ""
+    revision: int = 1
+    move_to_start: bool = False
+    start_x: int = 0
+    start_y: int = 0
+    block_mouse_movement: bool = False
+    loop_mode: str = "none"
+    loop_count: int = 1
+    loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+
+    @classmethod
+    def from_payload(cls, payload: JsonObject, *, name: str | None = None) -> "MacroFileMeta":
+        return cls(
+            name=name or _payload_str(payload, "name"),
+            duration_ms=_payload_int(payload, "duration_ms", 0),
+            device_types=_payload_str_list(payload, "device_types"),
+            event_count=_payload_int(payload, "event_count", _event_count(payload)),
+            created_at=_payload_str(payload, "created_at", datetime.now().isoformat()),
+            revision=_payload_int(payload, "revision", 1),
+            move_to_start=bool(payload.get("move_to_start", False)),
+            start_x=_payload_int(payload, "start_x", 0),
+            start_y=_payload_int(payload, "start_y", 0),
+            block_mouse_movement=bool(payload.get("block_mouse_movement", False)),
+            loop_mode=_payload_str(payload, "loop_mode", "none") or "none",
+            loop_count=_payload_int(payload, "loop_count", 1),
+            loop_stop_behavior=_payload_str(
+                payload,
+                "loop_stop_behavior",
+                DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+            )
+            or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+        )
+
+    def to_payload(self) -> JsonObject:
+        return {
+            "name": self.name,
+            "duration_ms": int(self.duration_ms),
+            "device_types": list(self.device_types),
+            "event_count": int(self.event_count),
+            "created_at": self.created_at,
+            "revision": int(self.revision),
+            "move_to_start": bool(self.move_to_start),
+            "start_x": int(self.start_x),
+            "start_y": int(self.start_y),
+            "block_mouse_movement": bool(self.block_mouse_movement),
+            "loop_mode": self.loop_mode,
+            "loop_count": int(self.loop_count),
+            "loop_stop_behavior": self.loop_stop_behavior,
+        }
+
+    def to_record(self) -> JsonObject:
+        return {
+            "format": MACRO_FILE_FORMAT,
+            "version": MACRO_FILE_VERSION,
+            **self.to_payload(),
+        }
+
+
+def read_macro_meta(path: Path) -> MacroFileMeta:
+    with _open_text(path, "rb") as f:
+        first_line = f.readline()
+    if not first_line:
+        raise ValueError("Empty macro file")
+    record = _json_object(json.loads(first_line))
+    _validate_meta_record(record)
+    return MacroFileMeta.from_payload(record)
+
+
+def iter_macro_events(path: Path) -> Iterator[MacroEvent]:
+    with _open_text(path, "rb") as f:
+        first_line = f.readline()
+        if not first_line:
+            raise ValueError("Empty macro file")
+        _validate_meta_record(_json_object(json.loads(first_line)))
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            event = _json_object(json.loads(stripped))
+            yield event
+
+
+def load_macro(path: Path) -> JsonObject:
+    meta = read_macro_meta(path)
+    payload = meta.to_payload()
+    payload["events"] = list(iter_macro_events(path))
+    return payload
+
+
+def write_macro(path: Path, meta: MacroFileMeta, events: Iterable[MacroEvent]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with _open_text(tmp_path, "wb") as f:
+            f.write(_json_line(meta.to_record()))
+            for event in events:
+                f.write(_json_line(event))
+        tmp_path.chmod(0o600)
+        tmp_path.replace(path)
+        path.chmod(0o600)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def macro_payload_from_events(
+    payload: JsonObject,
+    events: list[MacroEvent],
+    *,
+    name: str | None = None,
+    revision: int | None = None,
+    created_at: str | None = None,
+) -> JsonObject:
+    data = dict(payload)
+    data["events"] = events
+    if name is not None:
+        data["name"] = name
+    if revision is not None:
+        data["revision"] = int(revision)
+    if created_at is not None:
+        data["created_at"] = created_at
+    data["event_count"] = len(events)
+    if "duration_ms" not in data:
+        data["duration_ms"] = _duration_ms(events)
+    if "device_types" not in data:
+        data["device_types"] = _device_types(events)
+    return data
+
+
+def _open_text(path: Path, mode: str) -> io.TextIOWrapper:
+    raw = lzma.LZMAFile(path, mode)
+    return io.TextIOWrapper(raw, encoding="utf-8", newline="\n")
+
+
+def _json_line(value: JsonObject) -> str:
+    return json.dumps(value, separators=(",", ":")) + "\n"
+
+
+def _json_object(value: object) -> JsonObject:
+    if not isinstance(value, dict):
+        raise ValueError("Expected JSON object")
+    return cast(JsonObject, value)
+
+
+def _validate_meta_record(record: JsonObject) -> None:
+    if record.get("format") != MACRO_FILE_FORMAT:
+        raise ValueError("Unsupported macro file format")
+    if record.get("version") != MACRO_FILE_VERSION:
+        raise ValueError("Unsupported macro file version")
+
+
+def _payload_str(payload: JsonObject, key: str, default: str = "") -> str:
+    value = payload.get(key, default)
+    return value if isinstance(value, str) else default
+
+
+def _payload_int(payload: JsonObject, key: str, default: int) -> int:
+    value = payload.get(key, default)
+    try:
+        return int(cast(int | float | str, value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _payload_str_list(payload: JsonObject, key: str) -> list[str]:
+    value = payload.get(key, [])
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [str(item) for item in items if str(item)]
+
+
+def _event_count(payload: JsonObject) -> int:
+    events = payload.get("events")
+    return len(cast(list[object], events)) if isinstance(events, list) else 0
+
+
+def _event_t_us(event: MacroEvent) -> int:
+    value = event.get("t_us", 0)
+    return value if isinstance(value, int) else 0
+
+
+def _duration_ms(events: list[MacroEvent]) -> int:
+    return max((_event_t_us(event) for event in events), default=0) // 1000
+
+
+def _device_types(events: list[MacroEvent]) -> list[str]:
+    return sorted({str(event.get("device_type", "other")) for event in events})

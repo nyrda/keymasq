@@ -54,6 +54,7 @@ COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
 EMERGENCY_CANCEL_COMBO_ID_PREFIX = "__keymasq_emergency_cancel:"
 EMERGENCY_CANCEL_COMBO_NAME = "Keymasq Emergency Cancel"
 EMERGENCY_CANCEL_COMBO_PROFILE = "__keymasq_internal"
+EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS = 200
 TOPOLOGY_POLL_INTERVAL_S = 0.5
 TOPOLOGY_DEBOUNCE_S = 0.5
 type JsonObject = dict[str, object]
@@ -411,13 +412,13 @@ class DeviceManager:
 
     async def emergency_reset(self) -> JsonObject:
         await self.release_all_devices()
-        await self._broadcast_runtime_event(
+        self._broadcast_runtime_event(
             CommandType.RUNTIME_RESET,
             {"reason": "emergency_reset"},
         )
         return {"status": "ok", "reset": True}
 
-    async def _broadcast_runtime_event(
+    def _broadcast_runtime_event(
         self,
         event_type: CommandType,
         data: JsonObject,
@@ -618,11 +619,11 @@ class DeviceManager:
                     SuperkeyConfig(
                         name=EMERGENCY_CANCEL_COMBO_NAME,
                         mode=SuperkeyMode.PATTERN,
+                        double_tap_window_ms=EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS,
                         tap_actions=[
                             SuperkeyActionData(action_type=ActionType.CANCEL_MACRO_PLAYBACK.value)
                         ],
                         double_tap_actions=[
-                            SuperkeyActionData(action_type=ActionType.CANCEL_MACRO_PLAYBACK.value),
                             SuperkeyActionData(action_type=ActionType.EMERGENCY_RESET.value),
                         ],
                     ),
@@ -1000,7 +1001,7 @@ class DeviceManager:
             deps=_macro_runtime_deps(),
         )
         if bool(result.get("cancelled", False)):
-            await self._broadcast_runtime_event(
+            self._broadcast_runtime_event(
                 CommandType.MACRO_PLAYBACK_CANCELLED,
                 {"reason": "cancel_macro_playback", "cancelled": True},
             )

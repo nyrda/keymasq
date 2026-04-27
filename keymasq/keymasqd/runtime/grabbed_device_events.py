@@ -555,6 +555,7 @@ def _is_recording_control_action(
             ActionType.START_MACRO_RECORDING,
             ActionType.STOP_MACRO_RECORDING,
             ActionType.CANCEL_MACRO_PLAYBACK,
+            ActionType.EMERGENCY_RESET,
         )
     )
 

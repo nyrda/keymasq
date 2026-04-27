@@ -23,13 +23,16 @@ class TestCombos:
         assert combo.action is not None
         assert combo.action.action_type == ActionType.SUPERKEY
         assert combo.action.superkey_config is not None
+        assert (
+            combo.action.superkey_config.double_tap_window_ms
+            == dm.EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS
+        )
         assert [action.action_type for action in combo.action.superkey_config.tap_actions] == [
             ActionType.CANCEL_MACRO_PLAYBACK.value
         ]
         assert [
             action.action_type for action in combo.action.superkey_config.double_tap_actions
         ] == [
-            ActionType.CANCEL_MACRO_PLAYBACK.value,
             ActionType.EMERGENCY_RESET.value,
         ]
         assert combo.recall_trigger_keys is True
@@ -107,7 +110,7 @@ class TestCombos:
     @pytest.mark.asyncio
     async def test_emergency_cancel_combo_calls_daemon_cancel(self, monkeypatch):
         manager = DeviceManager()
-        manager.cancel_macro_playback = AsyncMock(return_value={"canceled": True})  # type: ignore[method-assign]
+        manager.cancel_macro_playback = AsyncMock(return_value={"cancelled": True})  # type: ignore[method-assign]
         manager.grabbed_devices = {
             "1234:5678": [
                 SimpleNamespace(
@@ -156,7 +159,7 @@ class TestCombos:
             evdev.ecodes.KEY_ESC,
             0,
         )
-        await asyncio.sleep(0.35)
+        await asyncio.sleep(0.25)
 
         assert decision is not None and decision.consume_current_event is True
         manager.cancel_macro_playback.assert_awaited_once()
@@ -200,7 +203,7 @@ class TestCombos:
         await _runtime_stop_combo_action(manager, combo.id)
         await asyncio.sleep(0.02)
 
-        manager.cancel_macro_playback.assert_awaited_once()
+        manager.cancel_macro_playback.assert_not_awaited()
         manager.emergency_reset.assert_awaited_once()
 
     @pytest.mark.asyncio

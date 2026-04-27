@@ -712,12 +712,14 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         callback = AsyncMock()
         macro_player = AsyncMock(return_value={"status": "ok"})
+        emergency_resetter = AsyncMock(return_value={"status": "ok", "reset": True})
         mouse = _FakeUInput()
         gamepad = _FakeUInput()
         device = _make_grabbed_device(
             monkeypatch,
             broadcast_callback=callback,
             macro_player=macro_player,
+            emergency_resetter=emergency_resetter,
             mouse_uinput=mouse,  # type: ignore[arg-type]
             gamepad_uinput=gamepad,  # type: ignore[arg-type]
         )
@@ -837,6 +839,12 @@ class TestGrabbedDeviceHelpers:
         )
         await _runtime_execute_grabbed_action(
             device,
+            dm.MappingAction(action_type=ActionType.EMERGENCY_RESET),
+            press,
+            "emergency_reset",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
             dm.MappingAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
             press,
             "toggle_profile",
@@ -887,6 +895,7 @@ class TestGrabbedDeviceHelpers:
         ]
         assert callback.await_count == 6
         assert macro_player.await_count == 2
+        emergency_resetter.assert_awaited_once_with()
         assert macro_player.await_args_list[0].kwargs["trigger_value"] == 1
         assert macro_player.await_args_list[1].kwargs["trigger_value"] == 0
 

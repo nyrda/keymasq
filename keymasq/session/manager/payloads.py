@@ -180,7 +180,6 @@ def action_signature_payload(
         "stop_macro_recording",
         "cancel_macro_playback",
         "emergency_reset",
-        "emergency_reset",
     ):
         return data
 

@@ -274,6 +274,7 @@ When `emergency_cancel_combo_enabled = true`:
 - the daemon injects `Ctrl+Alt+Esc` into active keyboard combo runtime state
 - the GUI rejects attempts to save that exact combo trigger
 - tapping the combo cancels all running macro playback directly in `keymasqd`
+  after a 200 ms double-tap window
 - double-tapping the combo runs a daemon runtime reset, releases all grabbed
   devices, broadcasts `runtime_reset`, and lets the session reapply profiles
 

@@ -27,6 +27,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     BroadcastCallback,
     CursorPositionSetter,
     DeviceEventCallback,
+    EmergencyResetter,
     GrabbedDeviceState,
     MacroPlayer,
     MappingGetter,
@@ -86,6 +87,7 @@ class GrabbedDevice:
         cursor_position_setter: CursorPositionSetter | None = None,
         recording_manager: RecordingManager | None = None,
         macro_player: MacroPlayer | None = None,
+        emergency_resetter: EmergencyResetter | None = None,
         suppress_rel_getter: Callable[[], bool] | None = None,
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
         diagnostics_recorder: Callable[[str, float], None] | None = None,
@@ -116,6 +118,7 @@ class GrabbedDevice:
         self.cursor_position_setter = cursor_position_setter
         self.recording_manager: RecordingManager | None = recording_manager
         self.macro_player = macro_player
+        self.emergency_resetter = emergency_resetter
         self.suppress_rel_getter = suppress_rel_getter
         self.mouse_rel_suppression_start_callback = mouse_rel_suppression_start_callback
         self.diagnostics_recorder = diagnostics_recorder

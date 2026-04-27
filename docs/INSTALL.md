@@ -180,7 +180,10 @@ settings below:
 
               macro.exec_timeout_max_ms = 30000;
 
-              gui.allow_left_right_click_remap = false;
+              gui = {
+                allow_left_right_click_remap = false;
+                emergency_cancel_combo_enabled = true;
+              };
 
               recording_guard = {
                 unlock_required = true;
@@ -204,7 +207,9 @@ sudo nixos-rebuild switch --flake .#desktop
 
 To change the policy, edit `services.keymasq.securityConfig` and rebuild. For
 example, set `gui.allow_left_right_click_remap = true;` if you intentionally
-want the GUI to allow left/right mouse click remaps.
+want the GUI to allow left/right mouse click remaps. The default
+`gui.emergency_cancel_combo_enabled = true;` reserves `Ctrl+Alt+Esc` on grabbed
+keyboards as an emergency macro playback cancel chord.
 
 ### GNOME Wayland: enable the Shell bridge
 
@@ -283,6 +288,15 @@ locking yourself out of the desktop):
 ```toml
 [gui]
 allow_left_right_click_remap = true
+```
+
+`Ctrl+Alt+Esc` is reserved by default as an emergency macro playback cancel
+chord while Keymasq has a keyboard grabbed. You can disable it if you really
+need that exact combo:
+
+```toml
+[gui]
+emergency_cancel_combo_enabled = false
 ```
 
 For all available settings, see [SECURITY.md](SECURITY.md) and

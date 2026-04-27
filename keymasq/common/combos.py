@@ -11,6 +11,10 @@ COMBO_PULSE_EVDEVS = frozenset(
     }
 )
 
+EMERGENCY_CANCEL_COMBO_LABEL = "Ctrl+Alt+Esc"
+EMERGENCY_CANCEL_COMBO_EVDEVS = ("ctrl", "alt", "key_esc")
+EMERGENCY_CANCEL_COMBO_EVDEV_SET = frozenset(EMERGENCY_CANCEL_COMBO_EVDEVS)
+
 GENERIC_MODIFIER_MAP = {
     "key_leftctrl": "ctrl",
     "key_rightctrl": "ctrl",
@@ -32,6 +36,12 @@ def normalize_combo_evdev(evdev_name: str) -> str:
 
 def is_combo_pulse_evdev(evdev_name: str) -> bool:
     return normalize_combo_evdev(evdev_name) in COMBO_PULSE_EVDEVS
+
+
+def is_emergency_cancel_combo_evdevs(evdev_names: Iterable[object]) -> bool:
+    normalized = {normalize_combo_evdev(str(evdev_name or "")) for evdev_name in evdev_names}
+    normalized.discard("")
+    return frozenset(normalized) == EMERGENCY_CANCEL_COMBO_EVDEV_SET
 
 
 def normalize_combo_restore_keys(keys: Iterable[object]) -> list[str]:

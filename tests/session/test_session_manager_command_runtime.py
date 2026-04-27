@@ -2,6 +2,7 @@
 from tests.session.command_support import *
 from keymasq.common.ipc import CommandType
 
+
 @pytest.mark.asyncio
 async def test_handle_session_request_get_compositor_reports_kde_dispatch_availability() -> None:
     manager = SessionManager()
@@ -30,6 +31,7 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = True
     manager.security_policy.gui_allow_left_right_click_remap = True
+    manager.security_policy.emergency_cancel_combo_enabled = False
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
     resolve_unlock_status_async = AsyncMock(
@@ -61,6 +63,7 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     assert result["recording_unlocked"] is True
     assert result["recording_unlock_required"] is True
     assert result["gui_allow_left_right_click_remap"] is True
+    assert result["emergency_cancel_combo_enabled"] is False
     assert result["recording_unlock_source"] == "runtime"
     assert result["recording_unlock_expires_at"] == 1234
     resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
@@ -507,9 +510,7 @@ async def test_capture_combo_session_command_round_trip() -> None:
     manager = SessionManager()
     manager.hardware.list_hardware_ids = lambda: ["1234:5678"]  # type: ignore[assignment]
     manager.profiles.get_profile = Mock(
-        return_value=SimpleNamespace(
-            config=SimpleNamespace(device_layers={"1234:5678": object()})
-        )
+        return_value=SimpleNamespace(config=SimpleNamespace(device_layers={"1234:5678": object()}))
     )
     manager.client.send_command = AsyncMock(
         return_value=Response(

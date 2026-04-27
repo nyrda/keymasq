@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405, I001
 from tests.gui.support import *
 
+
 class TestComboEditorDialog:
     def test_combo_editor_dialog_present_and_close(self):
         from gi.repository import GLib, Gtk
@@ -285,9 +286,7 @@ class TestComboEditorDialog:
 
         dialog.recall_trigger_keys_row.set_active(True)
         assert dialog.restore_trigger_keys_group.get_visible() is True
-        labels = [
-            dialog._restore_trigger_key_labels[key].get_text() for key in ("ctrl", "key_x")
-        ]
+        labels = [dialog._restore_trigger_key_labels[key].get_text() for key in ("ctrl", "key_x")]
         assert labels == ["Ctrl", "X"]
         dialog._restore_trigger_key_buttons["ctrl"].set_active(True)
         dialog._on_action_selected(
@@ -360,6 +359,76 @@ class TestComboEditorDialog:
         assert dialog.validation_label.get_visible() is True
         assert "same trigger already exists" in dialog.validation_label.get_text().lower()
         assert dialog.save_button.get_sensitive() is False
+
+    def test_combo_editor_rejects_emergency_cancel_chord(self):
+        from gi.repository import Gtk
+
+        from keymasq.common.models import (
+            ActionType,
+            ComboConfig,
+            ComboEvent,
+            ComboStep,
+            MappingAction,
+        )
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        parent = Gtk.Box()
+        dialog = ComboEditorDialog(
+            parent,
+            ComboConfig(
+                id="combo-1",
+                name="Reserved",
+                steps=[
+                    ComboStep(
+                        events=[
+                            ComboEvent(evdev="key_leftctrl", hardware_id="1234:5678", source="kbd"),
+                            ComboEvent(evdev="key_leftalt", hardware_id="1234:5678", source="kbd"),
+                            ComboEvent(evdev="key_esc", hardware_id="1234:5678", source="kbd"),
+                        ]
+                    )
+                ],
+                action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f6"),
+            ),
+        )
+
+        assert dialog.validation_label.get_visible() is True
+        assert "emergency macro playback cancellation" in dialog.validation_label.get_text()
+        assert dialog.save_button.get_sensitive() is False
+
+    def test_combo_editor_allows_emergency_cancel_chord_when_disabled(self):
+        from gi.repository import Gtk
+
+        from keymasq.common.models import (
+            ActionType,
+            ComboConfig,
+            ComboEvent,
+            ComboStep,
+            MappingAction,
+        )
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        parent = Gtk.Box()
+        dialog = ComboEditorDialog(
+            parent,
+            ComboConfig(
+                id="combo-1",
+                name="Reserved",
+                steps=[
+                    ComboStep(
+                        events=[
+                            ComboEvent(evdev="key_leftctrl", hardware_id="1234:5678", source="kbd"),
+                            ComboEvent(evdev="key_leftalt", hardware_id="1234:5678", source="kbd"),
+                            ComboEvent(evdev="key_esc", hardware_id="1234:5678", source="kbd"),
+                        ]
+                    )
+                ],
+                action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f6"),
+            ),
+            emergency_cancel_combo_enabled=False,
+        )
+
+        assert dialog.validation_label.get_visible() is False
+        assert dialog.save_button.get_sensitive() is True
 
     def test_combo_editor_prefix_shadow_does_not_block_save(self):
         from gi.repository import Gtk
@@ -452,9 +521,7 @@ class TestComboEditorDialog:
                 double_tap_actions=[
                     SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_c")
                 ],
-                tap_hold_actions=[
-                    SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_d")
-                ],
+                tap_hold_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_d")],
             )
         )
 
@@ -509,4 +576,3 @@ class TestComboEditorDialog:
         assert dialog.validation_label.get_visible() is True
         assert "could not be loaded" in dialog.validation_label.get_text().lower()
         assert dialog.save_button.get_sensitive() is False
-

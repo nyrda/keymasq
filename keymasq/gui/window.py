@@ -76,6 +76,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._recording_unlock_expires_at = 0
         self._recording_refresh_owner = False
         self._gui_allow_left_right_click_remap = False
+        self._emergency_cancel_combo_enabled = True
         self._recording_refresh_lease_id: str = ""
         self._recording_claim_attempt_key: tuple[str, int] | None = None
         self._unlock_request_inflight = False
@@ -431,6 +432,9 @@ class MainWindow(Adw.ApplicationWindow):
             self._gui_allow_left_right_click_remap = bool(
                 status_data.get("gui_allow_left_right_click_remap", False)
             )
+            self._emergency_cancel_combo_enabled = bool(
+                status_data.get("emergency_cancel_combo_enabled", True)
+            )
 
         if unlocked is None or unlock_required is None or source is None or expires_at is None:
             local_status = resolve_unlock_status(os.getuid())
@@ -479,6 +483,9 @@ class MainWindow(Adw.ApplicationWindow):
 
     def left_right_click_remap_allowed(self) -> bool:
         return bool(self._gui_allow_left_right_click_remap)
+
+    def emergency_cancel_combo_enabled(self) -> bool:
+        return bool(self._emergency_cancel_combo_enabled)
 
     def _set_connection_issue(self, issue: str | None) -> None:
         if self.demo_mode:

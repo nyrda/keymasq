@@ -60,6 +60,7 @@ class _DaemonDeviceManager(Protocol):
     recording_manager: object | None
     macro_store: object | None
     macro_exec_timeout_max_ms: int
+    emergency_cancel_combo_enabled: bool
     grabbed_devices: dict[str, list[_GrabbedDeviceRef]]
 
     def initialize_output_devices(self) -> None: ...
@@ -187,6 +188,7 @@ class _DaemonCaptureManager(Protocol):
     def read_combo_nowait(self, token: str) -> JsonObject: ...
 
     def end(self, token: str) -> JsonObject: ...
+
 def sd_notify(state: str) -> None:
     notify_socket = os.environ.get("NOTIFY_SOCKET")
     if not notify_socket:
@@ -225,6 +227,9 @@ class Daemon:
         self.security_policy = load_security_policy(SECURITY_POLICY_PATH)
         self.device_manager.macro_exec_timeout_max_ms = int(
             self.security_policy.macro_exec_timeout_max_ms
+        )
+        self.device_manager.emergency_cancel_combo_enabled = bool(
+            self.security_policy.emergency_cancel_combo_enabled
         )
         await asyncio.to_thread(self._prepare_macro_store)
         log.info(

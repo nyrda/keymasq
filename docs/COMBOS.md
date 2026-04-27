@@ -204,6 +204,10 @@ The combo editor won't let you save two combos with the same trigger sequence
 in the same profile. Across profiles, if two combos share the same trigger,
 the one from the last-applied profile wins.
 
+`Ctrl+Alt+Esc` is reserved by default as Keymasq's emergency macro playback
+cancel chord on grabbed keyboards. The daemon injects it into the active combo
+set, and the GUI rejects that exact trigger while the safety chord is enabled.
+
 ## Overlap And Conflicts
 
 Combos with overlapping first steps can coexist:
@@ -223,6 +227,7 @@ The combo editor intentionally stays conservative. It blocks:
 - Empty triggers or actions.
 - Invalid timeout values.
 - Exact duplicate triggers within the same profile.
+- `Ctrl+Alt+Esc` while the emergency cancel chord is enabled.
 
 It does **not** try to detect cross-profile exact-trigger conflicts.
 The runtime behavior is the source of truth.

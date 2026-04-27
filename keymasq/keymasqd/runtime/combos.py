@@ -1050,6 +1050,10 @@ async def _start_combo_action_instance(
                 )
         return
 
+    if action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
+        await manager.cancel_macro_playback()
+        return
+
     action_payload = build_action_trigger_payload(
         action,
         source_device=trigger_binding.hardware_id,

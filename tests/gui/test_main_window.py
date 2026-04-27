@@ -722,7 +722,10 @@ class TestMainWindow:
         assert finished is False
         assert window._status_query_inflight is True
 
-    def test_main_window_shows_warning_banner_even_when_compositor_supported(self):
+    def test_main_window_uses_gnome_setup_dialog_instead_of_warning_banner(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.gui import window as window_module
         from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
@@ -732,13 +735,183 @@ class TestMainWindow:
         window._compositor_supported = True
         window._compositor_support_details = {
             "supported": True,
+            "gnome_bridge_state": "protocol_stale",
+            "gnome_bridge_action": "logout",
             "warning": "GNOME bridge update detected. Log out and back in.",
         }
+        presented: list[object] = []
+
+        monkeypatch.setattr(
+            window_module.Adw.Dialog,
+            "present",
+            lambda self, parent: presented.append((self, parent)),
+        )
 
         window._update_compositor_warning_banner()
+        window._present_gnome_setup_dialog()
 
-        assert window.warning_banner.get_revealed() is True
-        assert "Log out and back in" in window.warning_banner.get_title()
+        assert window.warning_banner.get_revealed() is False
+        assert len(presented) == 1
+        assert window._gnome_setup_dialog is not None
+
+    def test_main_window_clicking_gnome_limited_status_reopens_setup_dialog(
+        self, temp_config_dir, monkeypatch
+    ):
+        from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
+
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        window._startup_probe_done = True
+        window._compositor_id = "gnome"
+        window._compositor_supported = False
+        window._compositor_support_details = {
+            "supported": False,
+            "gnome_bridge_state": "bridge_disabled",
+            "gnome_bridge_action": "enable_bridge",
+            "warning": "GNOME bridge disabled.",
+        }
+        presented: list[object] = []
+
+        monkeypatch.setattr(
+            window_module.Adw.Dialog,
+            "present",
+            lambda self, parent: presented.append((self, parent)),
+        )
+
+        window._update_compositor_status()
+        window._on_compositor_status_released(Gtk.GestureClick(), 1, 0.0, 0.0)
+
+        assert len(presented) == 1
+        assert window._gnome_setup_dialog is not None
+        assert "GNOME (limited)" in window.compositor_status.get_label()
+
+    def test_gnome_setup_dialog_enable_bridge_uses_session_ipc(
+        self, temp_config_dir, monkeypatch
+    ):
+        from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
+
+        from keymasq.gui.widgets import gnome_setup_dialog as dialog_module
+        from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
+
+        requests: list[tuple[dict[str, object], float]] = []
+        completed: list[str] = []
+
+        def fake_session_request_async(payload, callback, timeout=5.0):
+            requests.append((payload, timeout))
+            callback(
+                {
+                    "status": "ok",
+                    "message": "GNOME bridge enabled. Waiting for Keymasq to connect.",
+                }
+            )
+
+        monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+
+        parent = Gtk.Window()
+        dialog = GnomeSetupDialog(
+            parent,
+            {
+                "gnome_bridge_state": "bridge_disabled",
+                "gnome_bridge_action": "enable_bridge",
+            },
+            on_action_completed=completed.append,
+        )
+
+        dialog._on_primary_clicked(Gtk.Button(), "enable_bridge")
+
+        assert requests == [
+            (
+                {
+                    "command": "run_compositor_setup_action",
+                    "compositor": "gnome",
+                    "action": "enable_bridge",
+                },
+                5.0,
+            )
+        ]
+        assert completed == ["enable_bridge"]
+
+    def test_gnome_setup_action_starts_status_poll_without_gui_refresh_command(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        requests: list[dict] = []
+        polls: list[object] = []
+
+        monkeypatch.setattr(
+            window_module,
+            "session_request_async",
+            lambda payload, callback, timeout=5.0: requests.append(payload),
+        )
+        monkeypatch.setattr(
+            window_module.GLib,
+            "timeout_add",
+            lambda *_args: polls.append(True) or 9,
+        )
+
+        window._on_gnome_setup_action_completed("enable_bridge")
+
+        assert requests == []
+        assert polls == [True]
+        assert window._gnome_setup_poll_source_id == 9
+
+    def test_gnome_setup_dialog_closes_when_gnome_support_becomes_ready(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        window._startup_probe_done = True
+        window._compositor_id = "gnome"
+        window._compositor_supported = False
+        window._compositor_support_details = {
+            "supported": False,
+            "gnome_bridge_state": "bridge_disabled",
+            "gnome_bridge_action": "enable_bridge",
+            "warning": "GNOME bridge disabled.",
+        }
+        removed: list[int] = []
+
+        monkeypatch.setattr(
+            window_module.Adw.Dialog,
+            "present",
+            lambda self, parent: None,
+        )
+        monkeypatch.setattr(
+            window_module.GLib,
+            "source_remove",
+            lambda source_id: removed.append(source_id),
+        )
+
+        window._present_gnome_setup_dialog()
+        assert window._gnome_setup_dialog is not None
+        window._gnome_setup_poll_source_id = 77
+
+        window._on_status_response(
+            {
+                "status": "ok",
+                "keymasqd_connected": True,
+                "compositor_id": "gnome",
+                "compositor_details": {
+                    "supported": True,
+                    "gnome_bridge_state": "ready",
+                    "gnome_bridge_action": "",
+                    "warning": "",
+                },
+            },
+            window._status_query_id,
+        )
+
+        assert removed == [77]
+        assert window._gnome_setup_dialog is None
 
     def test_main_window_apply_loaded_devices_updates_empty_state_and_demo_devices(
         self, temp_config_dir

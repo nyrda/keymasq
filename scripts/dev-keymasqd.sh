@@ -32,6 +32,16 @@ stop_installed_daemon_service() {
   fi
 }
 
+prepare_runtime_dirs() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    install -d -m 0755 -o keymasq -g keymasq /run/keymasq
+    install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
+  else
+    sudo install -d -m 0755 -o keymasq -g keymasq /run/keymasq
+    sudo install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
+  fi
+}
+
 stage_source_checkout() {
   local repo_id
   local stage_root
@@ -55,6 +65,7 @@ STAGED_PYTHONPATH="$(stage_source_checkout)"
 export PYTHONPATH="${STAGED_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}"
 
 stop_installed_daemon_service
+prepare_runtime_dirs
 
 exec sudo -u keymasq env \
   HOME=/var/lib/keymasq \

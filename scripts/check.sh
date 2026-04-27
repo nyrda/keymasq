@@ -146,7 +146,7 @@ export DISPLAY=:99
 export GDK_BACKEND=x11
 Xvfb :99 -screen 0 1280x1024x24 >/tmp/keymasq-xvfb.log 2>&1 &
 xvfb_pid=\$!
-trap 'kill \"\$xvfb_pid\"' EXIT
+trap 'kill \"\$xvfb_pid\" 2>/dev/null || true' EXIT
 sleep 1
 pytest ${pytest_args}
 EOF

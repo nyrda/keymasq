@@ -11,6 +11,10 @@ GNOME 45 and older are not supported.
 Packaged installs already include the extension files but do not enable it
 automatically. You need to enable it once after installation.
 
+The Keymasq GUI can guide this setup. It sends setup actions to
+`keymasq-session`, and the session process talks to GNOME Shell over DBus; the
+GUI does not run `gnome-extensions` or inspect the desktop environment itself.
+
 If you install the package while already logged into GNOME, the files may be on
 disk before the current GNOME Shell session notices the new extension. In that
 case, `gnome-extensions enable keymasq-bridge@nyrda` can fail with

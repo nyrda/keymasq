@@ -13,6 +13,7 @@ from keymasq.session.compositor import (
     get_listener_class,
     is_compositor_supported,
 )
+from keymasq.session.listeners.gnome import GnomeListener
 
 from . import profiles as runtime_profiles
 from .common import JsonObject, json_list, merge_support_details, str_value
@@ -45,6 +46,46 @@ async def build_compositor_payload(manager: "SessionManager") -> JsonObject:
             else ""
         ),
         "compositor_dispatch_available": compositor_dispatch_available(manager),
+    }
+
+
+async def refresh_compositor_binding(manager: "SessionManager") -> JsonObject:
+    detected = await detect_compositor(manager.dbus)
+    manager.compositor_state.candidate = detected
+    manager.compositor_state.candidate_hits = 2 if detected is not None else 0
+    if detected is not None:
+        manager.compositor_state.listener_retry_after.pop(detected, None)
+
+    await switch_compositor(manager, detected)
+    return await build_compositor_payload(manager)
+
+
+async def run_compositor_setup_action(
+    manager: "SessionManager",
+    compositor_id: str,
+    action: str,
+) -> JsonObject:
+    compositor_id = str(compositor_id or "").strip()
+    action = str(action or "").strip()
+    if not compositor_id:
+        compositor_id = str(manager.compositor_state.compositor_id or "").strip()
+
+    if compositor_id != "gnome":
+        return {
+            "status": "error",
+            "message": f"Unsupported compositor setup action: {compositor_id or 'none'}",
+            "compositor": await build_compositor_payload(manager),
+        }
+
+    ok, message = await GnomeListener.run_setup_action(action, manager.dbus)
+    if action in {"enable_bridge", "enable_extensions", "refresh"}:
+        compositor_payload = await refresh_compositor_binding(manager)
+    else:
+        compositor_payload = await build_compositor_payload(manager)
+    return {
+        "status": "ok" if ok else "error",
+        "message": message,
+        "compositor": compositor_payload,
     }
 
 

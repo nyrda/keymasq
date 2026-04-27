@@ -218,6 +218,7 @@ _CATEGORY_BY_FILE = {
     "test_superkey_state.py": "keymasqd",
     "test_compositor.py": "session",
     "test_base_listener.py": "session",
+    "test_gnome_shell.py": "session",
     "test_gnome_listener.py": "session",
     "test_hyprland_listener.py": "session",
     "test_kde_listener.py": "session",

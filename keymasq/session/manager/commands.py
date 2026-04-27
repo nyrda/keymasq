@@ -135,6 +135,16 @@ async def _handle_compositor_commands(
     if command == "get_compositor":
         return await runtime_compositor.build_compositor_payload(manager)
 
+    if command == "refresh_compositor":
+        return await runtime_compositor.refresh_compositor_binding(manager)
+
+    if command == "run_compositor_setup_action":
+        return await runtime_compositor.run_compositor_setup_action(
+            manager,
+            str_value(request.get("compositor"), "").strip(),
+            str_value(request.get("action"), "").strip(),
+        )
+
     if command == "get_active_window":
         return await runtime_compositor.get_active_window_payload(manager)
 

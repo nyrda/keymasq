@@ -1,16 +1,16 @@
-import ast
 import asyncio
 import contextlib
 import json
 import logging
 import os
-import shutil
 from pathlib import Path
 from typing import cast
 
+import keymasq.session.gnome_shell as gnome_shell
 from keymasq.common.paths import GNOME_BRIDGE_SOCKET_PATH
 from keymasq.common.security import get_peer_credentials
 from keymasq.session.dbus import SessionDBus, name_has_owner
+from keymasq.session.gnome_shell import GnomeShellDBusError
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 from keymasq.session.wayland_protocols.registry_probe import list_registry_globals
 
@@ -36,6 +36,15 @@ class GnomeListener(WindowListener):
     _NO_ARG_DISPATCHERS = frozenset({"close_active"})
     _TOGGLE_DISPATCHERS = frozenset({"fullscreen", "maximize"})
     _WORKSPACE_DISPATCHERS = frozenset({"workspace", "move_to_workspace"})
+    _BRIDGE_STATE_READY = "ready"
+    _BRIDGE_STATE_NOT_GNOME = "not_gnome"
+    _BRIDGE_STATE_MISSING_FILES = "missing_files"
+    _BRIDGE_STATE_SHELL_NOT_RESCANNED = "shell_not_rescanned"
+    _BRIDGE_STATE_EXTENSIONS_DISABLED = "extensions_disabled"
+    _BRIDGE_STATE_BRIDGE_DISABLED = "bridge_disabled"
+    _BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE = "shell_dbus_unavailable"
+    _BRIDGE_STATE_PROTOCOL_STALE = "protocol_stale"
+    _BRIDGE_STATE_PROTOCOL_NEWER = "protocol_newer"
 
     def __init__(
         self,
@@ -126,87 +135,67 @@ class GnomeListener(WindowListener):
         return False
 
     @classmethod
-    def _gsettings_candidates(cls) -> list[str]:
-        candidates = [
-            "/usr/bin/gsettings",
-            "/run/current-system/sw/bin/gsettings",
-        ]
-        path_candidate = shutil.which("gsettings")
-        if path_candidate:
-            candidates.append(path_candidate)
-
-        unique: list[str] = []
-        seen: set[str] = set()
-        for candidate in candidates:
-            if not candidate or candidate in seen:
-                continue
-            seen.add(candidate)
-            unique.append(candidate)
-        return unique
-
-    @classmethod
-    async def _gsettings_get(cls, schema: str, key: str) -> str | None:
-        for candidate in cls._gsettings_candidates():
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    candidate,
-                    "get",
-                    schema,
-                    key,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-            except Exception:
-                continue
-
-            try:
-                stdout, _stderr = await asyncio.wait_for(process.communicate(), timeout=0.8)
-            except Exception:
-                with contextlib.suppress(ProcessLookupError):
-                    process.kill()
-                with contextlib.suppress(Exception):
-                    await process.communicate()
-                continue
-
-            if process.returncode != 0:
-                continue
-            return stdout.decode("utf-8", errors="replace").strip()
-        return None
-
-    @classmethod
-    def _parse_enabled_extensions(cls, raw_value: str | None) -> list[str] | None:
-        if not raw_value:
-            return None
-        value = raw_value.strip()
-        if value.startswith("@as "):
-            value = value[4:].strip()
+    async def _bridge_extension_visible_to_shell(
+        cls,
+        dbus: SessionDBus | None = None,
+    ) -> bool | None:
         try:
-            parsed = ast.literal_eval(value)
+            return await gnome_shell.extension_visible(cls._EXTENSION_UUID, dbus)
         except Exception:
             return None
-        if not isinstance(parsed, list):
-            return None
-        return [str(item) for item in cast(list[object], parsed)]
 
     @classmethod
-    async def _user_extensions_globally_disabled(cls) -> bool | None:
-        raw_value = await cls._gsettings_get("org.gnome.shell", "disable-user-extensions")
-        if raw_value is None:
+    async def _user_extensions_globally_disabled(
+        cls,
+        dbus: SessionDBus | None = None,
+    ) -> bool | None:
+        try:
+            return not await gnome_shell.user_extensions_enabled(dbus)
+        except Exception:
             return None
-        lowered = raw_value.strip().lower()
-        if lowered == "true":
-            return True
-        if lowered == "false":
-            return False
-        return None
 
     @classmethod
-    async def _bridge_extension_enabled(cls) -> bool | None:
-        enabled_raw = await cls._gsettings_get("org.gnome.shell", "enabled-extensions")
-        enabled_extensions = cls._parse_enabled_extensions(enabled_raw)
-        if enabled_extensions is None:
+    async def _bridge_extension_enabled(cls, dbus: SessionDBus | None = None) -> bool | None:
+        try:
+            return await gnome_shell.extension_enabled(cls._EXTENSION_UUID, dbus)
+        except Exception:
             return None
-        return cls._EXTENSION_UUID in enabled_extensions
+
+    @classmethod
+    async def run_setup_action(
+        cls,
+        action: str,
+        dbus: SessionDBus | None = None,
+    ) -> tuple[bool, str]:
+        action = str(action or "").strip()
+        try:
+            if action == "enable_extensions":
+                await gnome_shell.set_user_extensions_enabled(True, dbus)
+                return True, "GNOME Shell extensions are enabled. Enable the Keymasq bridge next."
+
+            if action == "enable_bridge":
+                ok = await gnome_shell.set_extension_enabled(cls._EXTENSION_UUID, True, dbus)
+                if not ok:
+                    return False, "GNOME Shell could not enable the Keymasq bridge extension."
+                return True, "GNOME bridge enabled. Waiting for Keymasq to connect."
+
+            if action == "logout":
+                await gnome_shell.request_logout(dbus)
+                return True, "GNOME logout requested."
+
+            if action == "restart_session":
+                await gnome_shell.request_user_service_restart("keymasq-session.service", dbus)
+                return True, "keymasq-session restart requested."
+
+            if action == "refresh":
+                return True, "GNOME bridge status refreshed."
+
+        except GnomeShellDBusError as exc:
+            return False, str(exc)
+        except Exception as exc:
+            return False, str(exc)
+
+        return False, "Unsupported GNOME setup action."
 
     @classmethod
     def _candidate_wayland_sockets(cls) -> list[Path]:
@@ -304,6 +293,8 @@ class GnomeListener(WindowListener):
                 "extension_enabled": False,
                 "extensions_globally_disabled": False,
                 "supported": False,
+                "gnome_bridge_state": cls._BRIDGE_STATE_NOT_GNOME,
+                "gnome_bridge_action": "",
                 "warning": "",
             }
 
@@ -315,14 +306,61 @@ class GnomeListener(WindowListener):
                 "extension_enabled": False,
                 "extensions_globally_disabled": False,
                 "supported": False,
+                "gnome_bridge_state": cls._BRIDGE_STATE_MISSING_FILES,
+                "gnome_bridge_action": "reinstall",
                 "warning": (
                     "GNOME Shell detected, but the Keymasq GNOME bridge extension is not "
-                    "installed. Install 'keymasq-bridge@nyrda' so Keymasq can read the "
-                    "focused window and cursor position needed for GNOME Wayland window rules."
+                    "installed. Reinstall Keymasq or follow the GNOME setup guide to install "
+                    "'keymasq-bridge@nyrda'."
                 ),
             }
 
-        extensions_disabled = await cls._user_extensions_globally_disabled()
+        visible = await cls._bridge_extension_visible_to_shell(dbus)
+        if visible is None:
+            return {
+                "session_detected": True,
+                "extension_installed": True,
+                "extension_enabled": False,
+                "extensions_globally_disabled": False,
+                "supported": False,
+                "gnome_bridge_state": cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
+                "gnome_bridge_action": "refresh",
+                "warning": (
+                    "GNOME Shell detected, but Keymasq could not query the GNOME Shell "
+                    "extension service over DBus. Refresh GNOME support once Shell is ready."
+                ),
+            }
+        if visible is False:
+            return {
+                "session_detected": True,
+                "extension_installed": True,
+                "extension_enabled": False,
+                "extensions_globally_disabled": False,
+                "supported": False,
+                "gnome_bridge_state": cls._BRIDGE_STATE_SHELL_NOT_RESCANNED,
+                "gnome_bridge_action": "logout",
+                "warning": (
+                    "GNOME Shell detected, and the Keymasq GNOME bridge extension files are "
+                    "installed, but GNOME Shell does not see the extension yet. Log out and "
+                    "back in so GNOME Shell rescans installed extensions."
+                ),
+            }
+
+        extensions_disabled = await cls._user_extensions_globally_disabled(dbus)
+        if extensions_disabled is None:
+            return {
+                "session_detected": True,
+                "extension_installed": True,
+                "extension_enabled": False,
+                "extensions_globally_disabled": False,
+                "supported": False,
+                "gnome_bridge_state": cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
+                "gnome_bridge_action": "refresh",
+                "warning": (
+                    "GNOME Shell detected, but Keymasq could not read GNOME Shell extension "
+                    "settings over DBus. Refresh GNOME support once Shell is ready."
+                ),
+            }
         if extensions_disabled is True:
             return {
                 "session_detected": True,
@@ -330,14 +368,30 @@ class GnomeListener(WindowListener):
                 "extension_enabled": False,
                 "extensions_globally_disabled": True,
                 "supported": False,
+                "gnome_bridge_state": cls._BRIDGE_STATE_EXTENSIONS_DISABLED,
+                "gnome_bridge_action": "enable_extensions",
                 "warning": (
                     "GNOME Shell detected, but GNOME extensions are globally disabled for this "
-                    "session. Re-enable shell extensions so the Keymasq GNOME bridge can report "
-                    "focused windows and cursor position on GNOME Wayland."
+                    "session. Re-enable shell extensions before enabling the Keymasq GNOME "
+                    "bridge."
                 ),
             }
 
-        enabled = await cls._bridge_extension_enabled()
+        enabled = await cls._bridge_extension_enabled(dbus)
+        if enabled is None:
+            return {
+                "session_detected": True,
+                "extension_installed": True,
+                "extension_enabled": False,
+                "extensions_globally_disabled": False,
+                "supported": False,
+                "gnome_bridge_state": cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
+                "gnome_bridge_action": "refresh",
+                "warning": (
+                    "GNOME Shell detected, but Keymasq could not read the bridge extension "
+                    "state over DBus. Refresh GNOME support once Shell is ready."
+                ),
+            }
         if enabled is False:
             return {
                 "session_detected": True,
@@ -345,11 +399,12 @@ class GnomeListener(WindowListener):
                 "extension_enabled": False,
                 "extensions_globally_disabled": False,
                 "supported": False,
+                "gnome_bridge_state": cls._BRIDGE_STATE_BRIDGE_DISABLED,
+                "gnome_bridge_action": "enable_bridge",
                 "warning": (
                     "GNOME Shell detected, but the Keymasq GNOME bridge extension is not "
-                    "enabled. Enable 'keymasq-bridge@nyrda', then log out and log back in so "
-                    "GNOME Shell loads it. Keymasq needs that bridge to receive focused window "
-                    "and cursor updates required for GNOME Wayland window rules."
+                    "enabled. Enable 'keymasq-bridge@nyrda' so Keymasq can use window-aware "
+                    "profiles, GNOME window actions, and native pointer positioning."
                 ),
             }
 
@@ -359,6 +414,8 @@ class GnomeListener(WindowListener):
             "extension_enabled": True,
             "extensions_globally_disabled": False,
             "supported": True,
+            "gnome_bridge_state": cls._BRIDGE_STATE_READY,
+            "gnome_bridge_action": "",
             "warning": "",
         }
 
@@ -658,12 +715,18 @@ class GnomeListener(WindowListener):
         if self._bridge_connected and self._bridge_protocol is not None:
             if self._bridge_protocol == self._BRIDGE_PROTOCOL_VERSION:
                 details["warning"] = ""
+                details["gnome_bridge_state"] = self._BRIDGE_STATE_READY
+                details["gnome_bridge_action"] = ""
             elif self._bridge_protocol < self._BRIDGE_PROTOCOL_VERSION:
+                details["gnome_bridge_state"] = self._BRIDGE_STATE_PROTOCOL_STALE
+                details["gnome_bridge_action"] = "logout"
                 details["warning"] = (
                     "GNOME bridge update detected. Log out and back in to reload the "
                     "updated GNOME Shell extension and enable new GNOME bridge features."
                 )
             else:
+                details["gnome_bridge_state"] = self._BRIDGE_STATE_PROTOCOL_NEWER
+                details["gnome_bridge_action"] = "restart_session"
                 details["warning"] = (
                     "GNOME bridge is newer than keymasq-session. Restart Keymasq and "
                     "ensure both sides are updated together."

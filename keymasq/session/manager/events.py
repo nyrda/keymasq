@@ -98,7 +98,7 @@ async def handle_event(
         return
 
     if event_type == CommandType.RUNTIME_RESET:
-        await handle_runtime_reset_event(manager, data)
+        asyncio.create_task(handle_runtime_reset_event(manager, data))
         return
 
     if event_type == CommandType.RECORDING_STARTED:

@@ -342,6 +342,7 @@ async def test_runtime_reset_event_invalidates_and_reevaluates(
         CommandType.RUNTIME_RESET,
         {"reason": "emergency_reset"},
     )
+    await asyncio.sleep(0)
 
     assert manager.profile_state.grabbed_devices == set()
     assert manager.profile_state.last_sent_grab_signatures == {}

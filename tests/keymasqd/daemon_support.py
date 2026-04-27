@@ -47,11 +47,17 @@ def daemon_testbed(monkeypatch):
     recording_manager = SimpleNamespace(
         start=AsyncMock(return_value={"recording": "started"}),
         stop=AsyncMock(return_value={"recording": "stopped"}),
+        claim_pending_recording=AsyncMock(),
+        release_pending_recording_claim=AsyncMock(return_value=None),
+        discard_pending_recording=AsyncMock(return_value=None),
+        discard_all_pending_recordings=AsyncMock(return_value=None),
+        cleanup_spool_dir=Mock(return_value=None),
     )
     macro_store = SimpleNamespace(
         get=Mock(return_value={"events": []}),
         list_meta=Mock(return_value=[]),
         create=Mock(return_value={"name": "new"}),
+        create_from_events=Mock(return_value={"name": "new"}),
         update=Mock(return_value={"name": "updated"}),
         rename=Mock(return_value={"name": "renamed"}),
         delete=Mock(return_value=None),

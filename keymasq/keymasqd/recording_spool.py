@@ -88,25 +88,29 @@ class RecordingSpool:
             self._queue_memory_chunk()
 
     async def finish(self) -> RecordingSnapshot:
-        if self._fatal_error is not None:
-            raise RuntimeError(
-                f"Recording spool failed: {self._fatal_error}"
-            ) from self._fatal_error
+        try:
+            while True:
+                if self._fatal_error is not None:
+                    raise RuntimeError(
+                        f"Recording spool failed: {self._fatal_error}"
+                    ) from self._fatal_error
 
-        while True:
-            task = self._flush_task
-            if task is not None:
-                await task
+                task = self._flush_task
+                if task is not None:
+                    await task
 
-            if self._fatal_error is not None:
-                raise RuntimeError(
-                    f"Recording spool failed: {self._fatal_error}"
-                ) from self._fatal_error
+                if self._fatal_error is not None:
+                    raise RuntimeError(
+                        f"Recording spool failed: {self._fatal_error}"
+                    ) from self._fatal_error
 
-            if self._spool_path is not None and self._memory_events:
-                self._queue_memory_chunk()
-                continue
-            break
+                if self._spool_path is not None and self._memory_events:
+                    self._queue_memory_chunk()
+                    continue
+                break
+        except Exception:
+            await self.discard()
+            raise
 
         snapshot = RecordingSnapshot(
             recording_id=uuid.uuid4().hex,

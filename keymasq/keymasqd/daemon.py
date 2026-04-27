@@ -146,6 +146,10 @@ class _DaemonRecordingManager(Protocol):
 
     async def stop(self) -> JsonObject: ...
 
+    async def discard_all_pending_recordings(self) -> None: ...
+
+    def cleanup_spool_dir(self, *, older_than_s: float | None = None) -> None: ...
+
 
 class _DaemonMacroStore(Protocol):
     def ensure(self) -> None: ...
@@ -285,6 +289,7 @@ class Daemon:
     def _prepare_macro_store(self) -> None:
         self.macro_store.ensure()
         self._register_internal_macros()
+        self.recording_manager.cleanup_spool_dir()
 
     def _register_internal_macros(self) -> None:
         ev_rel = 2
@@ -674,6 +679,7 @@ class Daemon:
     async def _on_client_disconnect(self) -> None:
         log.info("Client disconnected, clearing runtime unlocks and releasing all devices")
         await asyncio.to_thread(self._clear_all_runtime_unlocks, reason="session_disconnect")
+        await self.recording_manager.discard_all_pending_recordings()
         await self.device_manager.release_all_devices()
 
     def _secure_run_dir(self) -> None:

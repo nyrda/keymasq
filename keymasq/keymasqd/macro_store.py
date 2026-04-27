@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from collections.abc import Iterable, Iterator
@@ -5,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
+from keymasq.common.models import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.keymasqd.macro_file import (
     MACRO_FILE_SUFFIX,
     MacroFileMeta,
@@ -16,6 +18,7 @@ from keymasq.keymasqd.macro_file import (
 )
 
 INTERNAL_MACRO_PREFIX = "__"
+log = logging.getLogger("keymasqd.macros")
 type MacroEvent = dict[str, object]
 type MacroPayload = dict[str, object]
 
@@ -80,7 +83,8 @@ class MacroStore:
                 if meta.name.startswith(INTERNAL_MACRO_PREFIX):
                     continue
                 macros.append(meta.to_payload())
-            except Exception:
+            except Exception as exc:
+                log.warning("Skipping unreadable macro file %s: %s", path, exc)
                 continue
         return macros
 
@@ -112,7 +116,11 @@ class MacroStore:
                 "block_mouse_movement": bool(data.get("block_mouse_movement", False)),
                 "loop_mode": _payload_str(data, "loop_mode", "none") or "none",
                 "loop_count": _payload_int(data, "loop_count", 1),
-                "loop_stop_behavior": _payload_str(data, "loop_stop_behavior", "finish_run"),
+                "loop_stop_behavior": _payload_str(
+                    data,
+                    "loop_stop_behavior",
+                    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+                ),
             }
         path = self._macro_path(name)
         if not path.exists():

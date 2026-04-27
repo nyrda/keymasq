@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -18,6 +19,7 @@ from keymasq.keymasqd.recording_spool import RecordingSnapshot, RecordingSpool
 type RecordingEvent = dict[str, object]
 type RecordingPayload = dict[str, object]
 type RecordingDevice = dict[str, object]
+PENDING_RECORDING_TTL_S = 30 * 60
 
 
 class _RecordingInputDevice(Protocol):
@@ -39,6 +41,11 @@ class RecordingManager:
         self._spool_dir = spool_dir or STATE_DIR / "recording-spool"
         self._spool: RecordingSpool | None = None
         self._pending_recordings: dict[str, RecordingSnapshot] = {}
+        self._pending_recording_created_at: dict[str, float] = {}
+        self._claimed_recordings: dict[str, RecordingSnapshot] = {}
+        self._claimed_recording_created_at: dict[str, float] = {}
+        self._claimed_recording_discard_requested: set[str] = set()
+        self._pending_recording_lock = asyncio.Lock()
         self._start_time_us: int | None = None
         self._extra_devices: list[_RecordingInputDevice] = []
         self._monitoring_tasks: list[asyncio.Task[None]] = []
@@ -63,10 +70,11 @@ class RecordingManager:
         include_mouse_movement: bool = False,
         include_mouse_clicks: bool = False,
     ) -> RecordingPayload:
+        await self.discard_expired_pending_recordings()
         previous = await self.stop()
         pending_id = previous.get("pending_recording_id")
         if isinstance(pending_id, str) and pending_id:
-            self.discard_pending_recording(pending_id)
+            await self.discard_pending_recording(pending_id)
 
         self._spool = RecordingSpool(self._spool_dir)
         self._start_time_us = None
@@ -176,12 +184,22 @@ class RecordingManager:
         self._record_grabbed_source_keys = set()
 
         spool = self._spool
-        self._spool = None
         if spool is None:
             return {"status": "ok"}
 
-        snapshot = await spool.finish()
-        self._pending_recordings[snapshot.recording_id] = snapshot
+        try:
+            snapshot = await spool.finish()
+        except Exception:
+            await spool.discard()
+            raise
+        finally:
+            self._spool = None
+
+        async with self._pending_recording_lock:
+            self._pending_recordings[snapshot.recording_id] = snapshot
+            self._pending_recording_created_at[snapshot.recording_id] = (
+                asyncio.get_running_loop().time()
+            )
 
         payload: RecordingPayload = {
             "pending_recording_id": snapshot.recording_id,
@@ -198,16 +216,120 @@ class RecordingManager:
             **payload,
         }
 
-    def pending_recording(self, recording_id: str) -> RecordingSnapshot:
-        snapshot = self._pending_recordings.get(recording_id)
-        if snapshot is None:
-            raise FileNotFoundError("Pending recording not found")
-        return snapshot
+    async def pending_recording(self, recording_id: str) -> RecordingSnapshot:
+        async with self._pending_recording_lock:
+            snapshot = self._pending_recordings.get(recording_id)
+            if snapshot is None:
+                raise FileNotFoundError("Pending recording not found")
+            return snapshot
 
-    def discard_pending_recording(self, recording_id: str) -> None:
-        snapshot = self._pending_recordings.pop(recording_id, None)
-        if snapshot is not None:
+    async def claim_pending_recording(self, recording_id: str) -> RecordingSnapshot:
+        async with self._pending_recording_lock:
+            snapshot = self._pending_recordings.pop(recording_id, None)
+            created_at = self._pending_recording_created_at.pop(recording_id, None)
+            if snapshot is None:
+                raise FileNotFoundError("Pending recording not found")
+            self._claimed_recordings[recording_id] = snapshot
+            self._claimed_recording_created_at[recording_id] = (
+                created_at
+                if created_at is not None
+                else asyncio.get_running_loop().time()
+            )
+            self._claimed_recording_discard_requested.discard(recording_id)
+            return snapshot
+
+    async def release_pending_recording_claim(
+        self,
+        recording_id: str,
+        *,
+        saved: bool,
+    ) -> None:
+        cleanup_snapshot: RecordingSnapshot | None = None
+        async with self._pending_recording_lock:
+            snapshot = self._claimed_recordings.pop(recording_id, None)
+            created_at = self._claimed_recording_created_at.pop(recording_id, None)
+            discard_requested = recording_id in self._claimed_recording_discard_requested
+            self._claimed_recording_discard_requested.discard(recording_id)
+            if snapshot is None:
+                return
+            if saved or discard_requested:
+                cleanup_snapshot = snapshot
+            else:
+                self._pending_recordings[recording_id] = snapshot
+                self._pending_recording_created_at[recording_id] = (
+                    created_at
+                    if created_at is not None
+                    else asyncio.get_running_loop().time()
+                )
+
+        if cleanup_snapshot is not None:
+            cleanup_snapshot.cleanup()
+
+    async def discard_pending_recording(self, recording_id: str) -> None:
+        cleanup_snapshot: RecordingSnapshot | None = None
+        async with self._pending_recording_lock:
+            snapshot = self._pending_recordings.pop(recording_id, None)
+            self._pending_recording_created_at.pop(recording_id, None)
+            if snapshot is not None:
+                cleanup_snapshot = snapshot
+            elif recording_id in self._claimed_recordings:
+                self._claimed_recording_discard_requested.add(recording_id)
+
+        if cleanup_snapshot is not None:
+            cleanup_snapshot.cleanup()
+
+    async def discard_all_pending_recordings(self) -> None:
+        snapshots = await self._pop_all_pending_recordings()
+        for snapshot in snapshots:
             snapshot.cleanup()
+
+    async def discard_expired_pending_recordings(
+        self,
+        *,
+        ttl_s: float = PENDING_RECORDING_TTL_S,
+    ) -> None:
+        now = asyncio.get_running_loop().time()
+        expired_ids: list[str] = []
+        async with self._pending_recording_lock:
+            for recording_id, created_at in self._pending_recording_created_at.items():
+                if now - created_at >= max(0.0, float(ttl_s)):
+                    expired_ids.append(recording_id)
+            snapshots = [
+                self._pending_recordings.pop(recording_id)
+                for recording_id in expired_ids
+                if recording_id in self._pending_recordings
+            ]
+            for recording_id in expired_ids:
+                self._pending_recording_created_at.pop(recording_id, None)
+
+        for snapshot in snapshots:
+            snapshot.cleanup()
+
+    def cleanup_spool_dir(self, *, older_than_s: float | None = None) -> None:
+        if not self._spool_dir.exists():
+            return
+        cutoff = (
+            datetime.now() - timedelta(seconds=max(0.0, float(older_than_s)))
+            if older_than_s is not None
+            else None
+        )
+        for path in self._spool_dir.glob("recording-*.jsonl"):
+            try:
+                if cutoff is not None:
+                    mtime = datetime.fromtimestamp(path.stat().st_mtime)
+                    if mtime > cutoff:
+                        continue
+                path.unlink(missing_ok=True)
+            except OSError:
+                continue
+
+    async def _pop_all_pending_recordings(self) -> list[RecordingSnapshot]:
+        async with self._pending_recording_lock:
+            snapshots = list(self._pending_recordings.values())
+            self._pending_recordings.clear()
+            self._pending_recording_created_at.clear()
+            self._claimed_recording_discard_requested.update(self._claimed_recordings)
+            return snapshots
 
     async def _monitor_progress(self) -> None:
         while not self._stopped:

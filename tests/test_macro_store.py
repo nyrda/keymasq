@@ -1,7 +1,9 @@
+import logging
 from pathlib import Path
 
 import pytest
 
+from keymasq.common.models import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.keymasqd.macro_store import MacroStore
 
 
@@ -69,3 +71,28 @@ def test_macro_store_create_from_events_returns_metadata_without_loading_full_pa
     assert created["event_count"] == 3
     assert "events" not in created
     assert [event["code"] for event in store.iter_events("streamed")] == [0, 1, 2]
+
+
+def test_macro_store_internal_meta_uses_shared_loop_stop_default(tmp_path: Path) -> None:
+    store = MacroStore(tmp_path / "macros")
+    store.register_internal("__internal", [{"type": 1, "code": 30, "value": 1, "t_us": 0}])
+
+    meta = store.get_meta("__internal")
+
+    assert meta["loop_stop_behavior"] == DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+
+
+def test_macro_store_list_meta_logs_unreadable_files(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    macro_dir = tmp_path / "macros"
+    macro_dir.mkdir()
+    (macro_dir / "broken.kmacro.xz").write_text("not xz")
+    store = MacroStore(macro_dir)
+
+    with caplog.at_level(logging.WARNING, logger="keymasqd.macros"):
+        assert store.list_meta() == []
+
+    assert "Skipping unreadable macro file" in caplog.text
+    assert "broken.kmacro.xz" in caplog.text

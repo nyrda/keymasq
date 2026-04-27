@@ -75,9 +75,16 @@ class _MacroCommandStore(_MacroDefinitionStore, Protocol):
 
 
 class _MacroCommandRecordingManager(Protocol):
-    def pending_recording(self, recording_id: str) -> object: ...
+    async def claim_pending_recording(self, recording_id: str) -> object: ...
 
-    def discard_pending_recording(self, recording_id: str) -> None: ...
+    async def release_pending_recording_claim(
+        self,
+        recording_id: str,
+        *,
+        saved: bool,
+    ) -> None: ...
+
+    async def discard_pending_recording(self, recording_id: str) -> None: ...
 
 
 class _PendingRecording(Protocol):
@@ -160,7 +167,7 @@ async def handle_macro_command(
 
     if command_type == CommandType.MACRO_DISCARD_RECORDING:
         recording_id = str_value(data.get("pending_recording_id", ""))
-        await asyncio.to_thread(daemon.recording_manager.discard_pending_recording, recording_id)
+        await daemon.recording_manager.discard_pending_recording(recording_id)
         return {"status": "ok"}
 
     if command_type == CommandType.MACRO_PLAY_BY_NAME:
@@ -181,21 +188,36 @@ async def save_pending_recording(
     daemon: _MacroCommandDaemon,
     data: JsonObject,
 ) -> JsonObject:
-    return await asyncio.to_thread(_save_pending_recording_sync, daemon, data)
+    recording_id = str_value(data.get("pending_recording_id", ""))
+    if not recording_id:
+        raise ValueError("pending_recording_id required")
+    if not str_value(data.get("name", "")):
+        raise ValueError("name required")
+    snapshot = cast(
+        _PendingRecording,
+        await daemon.recording_manager.claim_pending_recording(recording_id),
+    )
+    saved = False
+    try:
+        result = await asyncio.to_thread(_save_pending_recording_sync, daemon, data, snapshot)
+        saved = True
+        return result
+    finally:
+        await daemon.recording_manager.release_pending_recording_claim(
+            recording_id,
+            saved=saved,
+        )
 
 
 def _save_pending_recording_sync(
     daemon: _MacroCommandDaemon,
     data: JsonObject,
+    snapshot: _PendingRecording,
 ) -> JsonObject:
-    recording_id = str_value(data.get("pending_recording_id", ""))
     name = str_value(data.get("name", ""))
-    if not recording_id:
-        raise ValueError("pending_recording_id required")
     if not name:
         raise ValueError("name required")
 
-    snapshot = cast(_PendingRecording, daemon.recording_manager.pending_recording(recording_id))
     payload: JsonObject = {
         "name": name,
         "created_at": datetime.now().isoformat(),
@@ -212,7 +234,6 @@ def _save_pending_recording_sync(
         snapshot.iter_events(),
         return_full=False,
     )
-    daemon.recording_manager.discard_pending_recording(recording_id)
     return {"macro": macro}
 
 

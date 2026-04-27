@@ -1,6 +1,15 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.macro_backend_support import *
 
+
+def _recorded_events(
+    recorder: RecordingManager,
+    result: dict[str, object],
+) -> list[dict[str, object]]:
+    recording_id = str(result.get("pending_recording_id", ""))
+    return list(recorder.pending_recording(recording_id).iter_events())
+
+
 @pytest.mark.asyncio
 async def test_recording_manager_uses_relative_timestamps() -> None:
     recorder = RecordingManager(broadcast_callback=AsyncMock())
@@ -15,8 +24,9 @@ async def test_recording_manager_uses_relative_timestamps() -> None:
     result = await recorder.stop()
 
     assert result["event_count"] == 2
-    assert recorder._events[0]["t_us"] == 0
-    assert recorder._events[1]["t_us"] == 400
+    events = _recorded_events(recorder, result)
+    assert events[0]["t_us"] == 0
+    assert events[1]["t_us"] == 400
 
 
 @pytest.mark.asyncio
@@ -35,7 +45,7 @@ async def test_recording_manager_drops_msc_and_syn_events() -> None:
     recorder.record_event("keyboard", key_up)
 
     result = await recorder.stop()
-    events = cast(list[dict[str, object]], result["events"])
+    events = _recorded_events(recorder, result)
 
     assert result["event_count"] == 2
     assert all(event["type"] == evdev.ecodes.EV_KEY for event in events)

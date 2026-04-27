@@ -117,7 +117,7 @@ async def handle_event(
                 "event": "recording_stopped",
                 "pending_save_token": pending_save_token,
                 "duration_ms": recording_data.get("duration_ms", 0),
-                "event_count": len(_json_list(recording_data.get("events"))),
+                "event_count": _int_value(recording_data.get("event_count"), 0),
                 "device_types": recording_data.get("device_types", []),
                 "start_x": recording_data.get("start_x"),
                 "start_y": recording_data.get("start_y"),

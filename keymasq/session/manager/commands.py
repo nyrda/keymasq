@@ -285,6 +285,18 @@ async def _handle_recording_commands(
                 "error_code": "stale_pending_macro_save",
                 "message": "Pending recording has already changed.",
             }
+        pending_data = manager.recording_state.pending_data or {}
+        pending_recording_id = str_value(pending_data.get("pending_recording_id"), "")
+        if pending_recording_id:
+            try:
+                await manager.client.send_command(
+                    Command(
+                        command=CommandType.MACRO_DISCARD_RECORDING,
+                        data={"pending_recording_id": pending_recording_id},
+                    )
+                )
+            except Exception:
+                pass
         runtime_recording.clear_pending_macro_save(manager)
         return {"status": "ok"}
 
@@ -403,41 +415,16 @@ async def _handle_macro_commands(
     if command == "play_macro":
         name = str_value(request.get("name"), "")
         try:
-            get_result = await manager.client.send_command(
-                Command(command=CommandType.MACRO_GET, data={"name": name})
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
-
-        get_result_data = json_object(get_result.data)
-        if get_result.status != "ok" or get_result_data is None:
-            return {"status": "error", "message": get_result.error or "Macro not found"}
-
-        macro = json_object(get_result_data.get("macro"))
-        if macro is None:
-            return {"status": "error", "message": "Macro not found"}
-
-        macro = runtime_recording.sanitize_macro_for_policy(manager, macro)
-        named_payload: JsonObject = {
-            "macro_name": str(macro.get("name", name) or name),
-            "macro_events": macro.get("events", []),
-            "replay_mouse_movement": request.get("replay_mouse_movement", True),
-            "replay_mouse_clicks": request.get("replay_mouse_clicks", True),
-            "speed": float_value(request.get("speed"), 1.0),
-            "loop_mode": str(macro.get("loop_mode", "none") or "none"),
-            "loop_count": int_value(macro.get("loop_count"), 1),
-            "loop_stop_behavior": normalize_macro_loop_stop_behavior(
-                macro.get("loop_stop_behavior")
-            ),
-            "move_to_start": bool(macro.get("move_to_start", False)),
-            "start_x": int_value(macro.get("start_x"), 0),
-            "start_y": int_value(macro.get("start_y"), 0),
-            "block_mouse_movement": bool(macro.get("block_mouse_movement", False)),
-        }
-
-        try:
             result = await manager.client.send_command(
-                Command(command=CommandType.PLAY_MACRO, data=named_payload)
+                Command(
+                    command=CommandType.MACRO_PLAY_BY_NAME,
+                    data={
+                        "name": name,
+                        "replay_mouse_movement": request.get("replay_mouse_movement", True),
+                        "replay_mouse_clicks": request.get("replay_mouse_clicks", True),
+                        "speed": float_value(request.get("speed"), 1.0),
+                    },
+                )
             )
         except Exception:
             return {"status": "error", "message": "Daemon unavailable"}

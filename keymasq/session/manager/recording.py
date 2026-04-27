@@ -180,6 +180,32 @@ def clear_pending_macro_save_if_writer(
         clear_pending_macro_save(manager)
 
 
+async def discard_pending_macro_save_if_writer(
+    manager: "SessionManager",
+    writer: asyncio.StreamWriter,
+) -> None:
+    state = manager.recording_state
+    if not has_pending_macro_save(manager):
+        return
+    owner_writer_id = state.pending_save_owner_writer_id
+    if owner_writer_id != id(writer) and owner_writer_id is not None:
+        return
+
+    pending_data = state.pending_data or {}
+    pending_recording_id = str_value(pending_data.get("pending_recording_id"), "")
+    if pending_recording_id:
+        try:
+            await manager.client.send_command(
+                Command(
+                    command=CommandType.MACRO_DISCARD_RECORDING,
+                    data={"pending_recording_id": pending_recording_id},
+                )
+            )
+        except Exception:
+            pass
+    clear_pending_macro_save(manager)
+
+
 def pending_macro_save_token_matches(
     manager: "SessionManager",
     token: str,
@@ -722,8 +748,11 @@ async def stop_recording(
                 recording_data["move_to_start"] = True
             if has_pending_macro_save(manager):
                 manager.recording_state.pending_data = recording_data
+                pending_save_token = str(manager.recording_state.pending_save_token or "")
             else:
-                begin_pending_macro_save(manager, recording_data)
+                pending_save_token = begin_pending_macro_save(manager, recording_data)
+            if pending_save_token:
+                recording_data["pending_save_token"] = pending_save_token
             manager.recording_state.active = False
             manager.recording_state.start_cursor = None
             return {"status": "ok", **recording_data}
@@ -744,20 +773,7 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Non
         macro_events = json_list(data.get("macro_events"))
 
         macro: JsonObject | None = None
-        if macro_name and not macro_events:
-            get_result = await manager.client.send_command(
-                Command(command=CommandType.MACRO_GET, data={"name": macro_name})
-            )
-            get_result_data = json_object(get_result.data)
-            if get_result.status != "ok" or get_result_data is None:
-                return
-            macro = json_object(get_result_data.get("macro"))
-            if macro is None:
-                return
-            macro = sanitize_macro_for_policy(manager, macro)
-            macro_name = str(macro.get("name", macro_name) or macro_name)
-            macro_events = json_list(macro.get("events"))
-        elif macro_events:
+        if macro_events:
             macro = sanitize_macro_for_policy(
                 manager,
                 {"events": macro_events},
@@ -1196,12 +1212,14 @@ async def save_recording(
         raise ValueError("Invalid macro name")
 
     data: JsonObject = manager.recording_state.pending_data or {}
+    pending_recording_id = str_value(data.get("pending_recording_id"), "")
+    if not pending_recording_id:
+        return {"status": "error", "message": "No pending recording"}
+
     macro: JsonObject = {
         "name": safe_name,
         "created_at": datetime.now().isoformat(),
-        "duration_ms": int_value(data.get("duration_ms"), 0),
-        "device_types": json_list(data.get("device_types")),
-        "events": json_list(data.get("events")),
+        "pending_recording_id": pending_recording_id,
         "move_to_start": bool(move_to_start),
         "start_x": int(start_x),
         "start_y": int(start_y),
@@ -1209,7 +1227,7 @@ async def save_recording(
     }
     try:
         result = await manager.client.send_command(
-            Command(command=CommandType.MACRO_CREATE, data={"macro": macro})
+            Command(command=CommandType.MACRO_SAVE_RECORDING, data=macro)
         )
     except Exception:
         return {"status": "error", "message": "Daemon unavailable"}

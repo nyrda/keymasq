@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Iterable
+from datetime import datetime
 from typing import Protocol, cast
 
 from keymasq.common.ipc import CommandType
@@ -14,6 +16,8 @@ from keymasq.keymasqd.daemon_helpers import (
     json_object_list,
     str_value,
 )
+
+type MacroEvent = dict[str, object]
 
 
 class _MacroCommandDeviceManager(Protocol):
@@ -44,6 +48,8 @@ class _MacroCommandDeviceManager(Protocol):
 class _MacroDefinitionStore(Protocol):
     def get(self, name: str) -> JsonObject: ...
 
+    def get_meta(self, name: str) -> JsonObject: ...
+
 
 class _MacroCommandStore(_MacroDefinitionStore, Protocol):
 
@@ -59,10 +65,34 @@ class _MacroCommandStore(_MacroDefinitionStore, Protocol):
 
     def delete(self, name: str, expected_revision: int | None) -> None: ...
 
+    def create_from_events(
+        self,
+        payload: JsonObject,
+        events: Iterable[MacroEvent],
+        *,
+        return_full: bool = False,
+    ) -> JsonObject: ...
+
+
+class _MacroCommandRecordingManager(Protocol):
+    def pending_recording(self, recording_id: str) -> object: ...
+
+    def discard_pending_recording(self, recording_id: str) -> None: ...
+
+
+class _PendingRecording(Protocol):
+    recording_id: str
+    duration_ms: int
+    device_types: list[str]
+    event_count: int
+
+    def iter_events(self) -> Iterable[MacroEvent]: ...
+
 
 class _MacroCommandDaemon(Protocol):
     device_manager: _MacroCommandDeviceManager
     macro_store: _MacroCommandStore
+    recording_manager: _MacroCommandRecordingManager
 
 
 MacroCommandDaemon = _MacroCommandDaemon
@@ -125,6 +155,14 @@ async def handle_macro_command(
         await asyncio.to_thread(daemon.macro_store.delete, name, revision)
         return {"status": "ok"}
 
+    if command_type == CommandType.MACRO_SAVE_RECORDING:
+        return await save_pending_recording(daemon, data)
+
+    if command_type == CommandType.MACRO_DISCARD_RECORDING:
+        recording_id = str_value(data.get("pending_recording_id", ""))
+        await asyncio.to_thread(daemon.recording_manager.discard_pending_recording, recording_id)
+        return {"status": "ok"}
+
     if command_type == CommandType.MACRO_PLAY_BY_NAME:
         return await play_macro_by_name(daemon, data)
 
@@ -137,6 +175,45 @@ async def handle_macro_command(
         return daemon.device_manager.complete_macro_exec_wait(wait_id, returncode)
 
     return None
+
+
+async def save_pending_recording(
+    daemon: _MacroCommandDaemon,
+    data: JsonObject,
+) -> JsonObject:
+    return await asyncio.to_thread(_save_pending_recording_sync, daemon, data)
+
+
+def _save_pending_recording_sync(
+    daemon: _MacroCommandDaemon,
+    data: JsonObject,
+) -> JsonObject:
+    recording_id = str_value(data.get("pending_recording_id", ""))
+    name = str_value(data.get("name", ""))
+    if not recording_id:
+        raise ValueError("pending_recording_id required")
+    if not name:
+        raise ValueError("name required")
+
+    snapshot = cast(_PendingRecording, daemon.recording_manager.pending_recording(recording_id))
+    payload: JsonObject = {
+        "name": name,
+        "created_at": datetime.now().isoformat(),
+        "duration_ms": int(snapshot.duration_ms),
+        "device_types": list(snapshot.device_types),
+        "event_count": int(snapshot.event_count),
+        "move_to_start": bool(data.get("move_to_start", False)),
+        "start_x": int_like(data.get("start_x", 0), 0),
+        "start_y": int_like(data.get("start_y", 0), 0),
+        "block_mouse_movement": bool(data.get("block_mouse_movement", False)),
+    }
+    macro = daemon.macro_store.create_from_events(
+        payload,
+        snapshot.iter_events(),
+        return_full=False,
+    )
+    daemon.recording_manager.discard_pending_recording(recording_id)
+    return {"macro": macro}
 
 
 async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject) -> JsonObject:
@@ -153,8 +230,7 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
     block_mouse_movement = bool(data.get("block_mouse_movement", False))
 
     if macro_name and not macro_events:
-        macro_data = await asyncio.to_thread(daemon.macro_store.get, macro_name)
-        macro_events = json_object_list(macro_data.get("events", []))
+        macro_data = await asyncio.to_thread(_load_macro_meta_sync, daemon.macro_store, macro_name)
         loop_mode = str_value(macro_data.get("loop_mode", loop_mode), loop_mode) or loop_mode
         loop_count = int_like(macro_data.get("loop_count", loop_count), loop_count)
         loop_stop_behavior = normalize_macro_loop_stop_behavior(
@@ -188,9 +264,9 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
 
 async def play_macro_by_name(daemon: _MacroCommandDaemon, data: JsonObject) -> JsonObject:
     name = str_value(data.get("name", ""))
-    macro_data = await asyncio.to_thread(daemon.macro_store.get, name)
+    macro_data = await asyncio.to_thread(_load_macro_meta_sync, daemon.macro_store, name)
     return await daemon.device_manager.play_macro(
-        macro_events=json_object_list(macro_data.get("events", [])),
+        macro_events=[],
         macro_name=name,
         replay_mouse_movement=bool(data.get("replay_mouse_movement", True)),
         replay_mouse_clicks=bool(data.get("replay_mouse_clicks", True)),
@@ -216,7 +292,7 @@ async def load_macro_definitions(
 
     async def load_macro(name: str) -> tuple[str, JsonObject | None]:
         try:
-            macro = await asyncio.to_thread(macro_store.get, name)
+            macro = await asyncio.to_thread(_load_macro_meta_sync, macro_store, name)
         except Exception:
             return name, None
         return name, macro
@@ -225,9 +301,15 @@ async def load_macro_definitions(
     return {name: macro for name, macro in loaded if isinstance(macro, dict)}
 
 
+def _load_macro_meta_sync(macro_store: _MacroDefinitionStore, name: str) -> JsonObject:
+    get_meta = getattr(macro_store, "get_meta", None)
+    if callable(get_meta):
+        return cast(JsonObject, get_meta(name))
+    return macro_store.get(name)
+
+
 def apply_macro_definition(action_data: JsonObject, macro: JsonObject) -> JsonObject:
     updated: JsonObject = dict(action_data)
-    updated["macro_events"] = json_object_list(macro.get("events", []))
     updated["macro_loop_mode"] = str_value(macro.get("loop_mode", "none"), "none") or "none"
     updated["macro_loop_count"] = int_like(macro.get("loop_count", 1), 1)
     updated["macro_loop_stop_behavior"] = normalize_macro_loop_stop_behavior(

@@ -2,7 +2,7 @@ import contextlib
 import logging
 import random
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +16,7 @@ type JsonObject = dict[str, object]
 type IntValueFn = Callable[[object, int], int]
 type StrValueFn = Callable[[object, str], str]
 type _MacroManager = Any
+type MacroEventIteratorFactory = Callable[[], Iterator[dict[str, object]]]
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,25 @@ class MacroRuntimeDeps:
     log: logging.Logger
     int_value_fn: IntValueFn
     str_value_fn: StrValueFn
+
+
+@dataclass(frozen=True)
+class MacroEventSource:
+    event_count: int
+    duration_us: int
+    iter_events: MacroEventIteratorFactory
+
+
+def list_macro_event_source(
+    macro_events: list[dict[str, object]],
+    *,
+    int_value_fn: IntValueFn,
+) -> MacroEventSource:
+    return MacroEventSource(
+        event_count=len(macro_events),
+        duration_us=max((int_value_fn(ev.get("t_us"), 0) for ev in macro_events), default=0),
+        iter_events=lambda: iter(macro_events),
+    )
 
 
 async def play_macro(
@@ -47,6 +67,7 @@ async def play_macro(
     trigger_value: int,
     *,
     deps: MacroRuntimeDeps,
+    macro_event_source: MacroEventSource | None = None,
 ) -> dict[str, object]:
     asyncio_mod = deps.asyncio_mod
     if not (
@@ -128,6 +149,8 @@ async def play_macro(
             manager,
             instance_id=instance_id,
             macro_events=macro_events,
+            macro_event_source=macro_event_source
+            or list_macro_event_source(macro_events, int_value_fn=deps.int_value_fn),
             macro_name=macro_name,
             replay_mouse_movement=replay_mouse_movement,
             replay_mouse_clicks=replay_mouse_clicks,
@@ -284,6 +307,7 @@ async def play_macro_task(
     block_mouse_movement: bool,
     *,
     deps: MacroRuntimeDeps,
+    macro_event_source: MacroEventSource | None = None,
 ) -> None:
     asyncio_mod = deps.asyncio_mod
     evdev_mod = deps.evdev_mod
@@ -291,14 +315,17 @@ async def play_macro_task(
     str_value_fn = deps.str_value_fn
     uinput_writer = deps.uinput_writer
     mouse_btn_codes = frozenset(range(0x110, 0x118))
+    if macro_event_source is None:
+        macro_event_source = list_macro_event_source(
+            macro_events,
+            int_value_fn=int_value_fn,
+        )
 
     if manager.verbosity >= 1:
         deps.log.debug("Macro playback started: %s", macro_name or "<unnamed>")
 
     speed_factor = max(0.01, speed)
-    macro_duration_us = (
-        max(int_value_fn(ev.get("t_us"), 0) for ev in macro_events) if macro_events else 0
-    )
+    macro_duration_us = int(macro_event_source.duration_us)
     suppression_timeout_s = max(2.0, (macro_duration_us / speed_factor) / 1_000_000.0 + 1.0)
     event_loop = asyncio_mod.get_running_loop()
     try:
@@ -333,11 +360,16 @@ async def play_macro_task(
             # sequential semantics.
             iteration_anchor = event_loop.time()
             timeline_offset_s = 0.0
-            for idx, ev in enumerate(macro_events):
+            idx = 0
+            async for ev in iter_macro_source_events(
+                macro_event_source,
+                deps=deps,
+            ):
                 if instance_id in manager.macro_state.cancel_instance_ids:
                     break
                 if (idx & 127) == 127:
                     await asyncio_mod.sleep(0)
+                idx += 1
 
                 t_us = int_value_fn(ev.get("t_us"), 0)
                 deadline = (
@@ -438,7 +470,7 @@ async def play_macro_task(
                     elif event_value == 0:
                         track_macro_key_release(manager, instance_id, output_class, event_code)
 
-            if not macro_events and loop_mode in {"hold", "toggle"}:
+            if macro_event_source.event_count <= 0 and loop_mode in {"hold", "toggle"}:
                 await asyncio_mod.sleep(0.01)
             else:
                 await asyncio_mod.sleep(0)
@@ -468,6 +500,35 @@ async def play_macro_task(
             release_macro_mouse_inhibit(manager)
         if manager.verbosity >= 1:
             deps.log.debug("Macro playback finished: %s", macro_name or "<unnamed>")
+
+
+class _MacroBatchReader:
+    def __init__(self, source: MacroEventSource, batch_size: int = 128) -> None:
+        self._iterator = source.iter_events()
+        self._batch_size = max(1, int(batch_size))
+
+    def next_batch(self) -> list[dict[str, object]]:
+        batch: list[dict[str, object]] = []
+        for _ in range(self._batch_size):
+            try:
+                batch.append(next(self._iterator))
+            except StopIteration:
+                break
+        return batch
+
+
+async def iter_macro_source_events(
+    source: MacroEventSource,
+    *,
+    deps: MacroRuntimeDeps,
+) -> AsyncIterator[dict[str, object]]:
+    reader = _MacroBatchReader(source)
+    while True:
+        batch = await deps.asyncio_mod.to_thread(reader.next_batch)
+        if not batch:
+            break
+        for event in batch:
+            yield event
 
 
 def _is_wheel_event(event_type: int, event_code: int, *, evdev_mod: Any) -> bool:
@@ -627,6 +688,10 @@ async def run_macro_control_action(
             return 0.0
 
         timeout_ms = max(1, int_value_fn(ev.get("timeout_ms"), 30000))
+        timeout_limit = getattr(manager, "macro_exec_timeout_max_ms", None)
+        if timeout_limit is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                timeout_ms = min(timeout_ms, max(1, int(timeout_limit)))
         inhibit_mouse = bool(ev.get("inhibit_mouse", False))
         loop = asyncio_mod.get_running_loop()
         started_at = loop.time()

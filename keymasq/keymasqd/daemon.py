@@ -58,6 +58,8 @@ class _GrabbedDeviceRef(Protocol):
 class _DaemonDeviceManager(Protocol):
     broadcast_callback: object | None
     recording_manager: object | None
+    macro_store: object | None
+    macro_exec_timeout_max_ms: int
     grabbed_devices: dict[str, list[_GrabbedDeviceRef]]
 
     def initialize_output_devices(self) -> None: ...
@@ -217,6 +219,9 @@ class Daemon:
         RUN_DIR.mkdir(parents=True, exist_ok=True)
         self._secure_run_dir()
         self.security_policy = load_security_policy(SECURITY_POLICY_PATH)
+        self.device_manager.macro_exec_timeout_max_ms = int(
+            self.security_policy.macro_exec_timeout_max_ms
+        )
         await asyncio.to_thread(self._prepare_macro_store)
         log.info(
             "Security policy loaded from %s",
@@ -237,6 +242,7 @@ class Daemon:
         self.device_manager.broadcast_callback = self.socket_server.broadcast_event
         self.recording_manager.broadcast_callback = self.socket_server.broadcast_event
         self.device_manager.recording_manager = self.recording_manager
+        self.device_manager.macro_store = self.macro_store
 
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -415,6 +421,7 @@ class Daemon:
             CommandType.MACRO_GET,
             CommandType.MACRO_CREATE,
             CommandType.MACRO_UPDATE,
+            CommandType.MACRO_SAVE_RECORDING,
         }
 
         requires_unlock = command_type in tier1_commands

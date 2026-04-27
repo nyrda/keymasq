@@ -18,6 +18,9 @@ def test_macro_store_crud_and_revision(tmp_path: Path) -> None:
     )
     assert created["name"] == "combo"
     assert created["revision"] == 1
+    assert not (tmp_path / "macros" / "combo.json").exists()
+    assert (tmp_path / "macros" / "combo.kmacro.xz").exists()
+    assert list(store.iter_events("combo")) == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
 
     updated = store.update("combo", {"duration_ms": 20}, expected_revision=1)
     assert updated["duration_ms"] == 20
@@ -40,3 +43,29 @@ def test_macro_store_revision_conflict(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         store.update("macro_a", {"duration_ms": 10}, expected_revision=7)
+
+
+def test_macro_store_create_from_events_returns_metadata_without_loading_full_payload(
+    tmp_path: Path,
+) -> None:
+    store = MacroStore(tmp_path / "macros")
+    events = (
+        {"device_type": "keyboard", "type": 1, "code": code, "value": 1, "t_us": code}
+        for code in range(3)
+    )
+
+    created = store.create_from_events(
+        {
+            "name": "streamed",
+            "duration_ms": 1,
+            "device_types": ["keyboard"],
+            "event_count": 3,
+        },
+        events,
+        return_full=False,
+    )
+
+    assert created["name"] == "streamed"
+    assert created["event_count"] == 3
+    assert "events" not in created
+    assert [event["code"] for event in store.iter_events("streamed")] == [0, 1, 2]

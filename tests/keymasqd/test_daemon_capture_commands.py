@@ -28,7 +28,7 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
     assert result == {"played": True}
     macro_store.get.assert_called_once_with("combo")
     device_manager.play_macro.assert_awaited_once_with(
-        macro_events=[{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        macro_events=[],
         macro_name="combo",
         replay_mouse_movement=False,
         replay_mouse_clicks=True,

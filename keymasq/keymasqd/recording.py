@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
 from typing import Protocol, cast
 
 import evdev
@@ -11,6 +12,8 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.ipc import CommandType
+from keymasq.common.paths import STATE_DIR
+from keymasq.keymasqd.recording_spool import RecordingSnapshot, RecordingSpool
 
 type RecordingEvent = dict[str, object]
 type RecordingPayload = dict[str, object]
@@ -23,20 +26,19 @@ class _RecordingInputDevice(Protocol):
     def async_read_loop(self) -> AsyncIterator[evdev.InputEvent]: ...
 
 
-def _event_time_us(event: RecordingEvent) -> int:
-    value = event.get("t_us", 0)
-    return value if isinstance(value, int) else 0
-
-
 class RecordingManager:
     def __init__(
         self,
         broadcast_callback: (
             Callable[[CommandType, RecordingPayload], Awaitable[None]] | None
         ) = None,
+        *,
+        spool_dir: Path | None = None,
     ) -> None:
         self.broadcast_callback = broadcast_callback
-        self._events: list[RecordingEvent] = []
+        self._spool_dir = spool_dir or STATE_DIR / "recording-spool"
+        self._spool: RecordingSpool | None = None
+        self._pending_recordings: dict[str, RecordingSnapshot] = {}
         self._start_time_us: int | None = None
         self._extra_devices: list[_RecordingInputDevice] = []
         self._monitoring_tasks: list[asyncio.Task[None]] = []
@@ -61,9 +63,12 @@ class RecordingManager:
         include_mouse_movement: bool = False,
         include_mouse_clicks: bool = False,
     ) -> RecordingPayload:
-        await self.stop()
+        previous = await self.stop()
+        pending_id = previous.get("pending_recording_id")
+        if isinstance(pending_id, str) and pending_id:
+            self.discard_pending_recording(pending_id)
 
-        self._events = []
+        self._spool = RecordingSpool(self._spool_dir)
         self._start_time_us = None
         self._extra_devices = []
         self._monitoring_tasks = []
@@ -127,7 +132,11 @@ class RecordingManager:
             self._start_time_us = event_ts_us
 
         t_us = max(0, event_ts_us - self._start_time_us)
-        self._events.append(
+        spool = self._spool
+        if spool is None:
+            return
+
+        spool.append(
             {
                 "device_type": device_type,
                 "type": event.type,
@@ -166,24 +175,39 @@ class RecordingManager:
         self._extra_devices = []
         self._record_grabbed_source_keys = set()
 
-        duration_ms = int(_event_time_us(self._events[-1]) / 1000) if self._events else 0
-        device_types = sorted({str(event.get("device_type", "other")) for event in self._events})
+        spool = self._spool
+        self._spool = None
+        if spool is None:
+            return {"status": "ok"}
+
+        snapshot = await spool.finish()
+        self._pending_recordings[snapshot.recording_id] = snapshot
 
         payload: RecordingPayload = {
-            "duration_ms": duration_ms,
-            "device_types": device_types,
-            "events": list(self._events),
+            "pending_recording_id": snapshot.recording_id,
+            "duration_ms": snapshot.duration_ms,
+            "device_types": snapshot.device_types,
+            "event_count": snapshot.event_count,
         }
 
         if was_recording and self.broadcast_callback:
             await self.broadcast_callback(CommandType.RECORDING_STOPPED, payload)
 
         return {
-            "duration_ms": duration_ms,
-            "device_types": device_types,
-            "event_count": len(self._events),
-            "events": list(self._events),
+            "status": "ok",
+            **payload,
         }
+
+    def pending_recording(self, recording_id: str) -> RecordingSnapshot:
+        snapshot = self._pending_recordings.get(recording_id)
+        if snapshot is None:
+            raise FileNotFoundError("Pending recording not found")
+        return snapshot
+
+    def discard_pending_recording(self, recording_id: str) -> None:
+        snapshot = self._pending_recordings.pop(recording_id, None)
+        if snapshot is not None:
+            snapshot.cleanup()
 
     async def _monitor_progress(self) -> None:
         while not self._stopped:
@@ -191,11 +215,13 @@ class RecordingManager:
             if self._stopped or not self.broadcast_callback:
                 continue
 
-            duration_ms = int(_event_time_us(self._events[-1]) / 1000) if self._events else 0
+            spool = self._spool
+            duration_ms = spool.duration_ms if spool is not None else 0
+            event_count = spool.event_count if spool is not None else 0
             await self.broadcast_callback(
                 CommandType.RECORDING_PROGRESS,
                 {
-                    "event_count": len(self._events),
+                    "event_count": event_count,
                     "duration_ms": duration_ms,
                 },
         )

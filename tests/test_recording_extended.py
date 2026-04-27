@@ -1,10 +1,19 @@
-from typing import cast
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import evdev
 import pytest
 
 from keymasq.keymasqd.recording import RecordingManager
+from keymasq.keymasqd.recording_spool import RecordingSpool
+
+
+def _recorded_events(
+    recorder: RecordingManager,
+    result: dict[str, object],
+) -> list[dict[str, object]]:
+    recording_id = str(result.get("pending_recording_id", ""))
+    return list(recorder.pending_recording(recording_id).iter_events())
 
 
 @pytest.mark.asyncio
@@ -31,7 +40,7 @@ async def test_recording_event_filtering_for_mouse_controls():
     recorder.record_event("keyboard", keyboard)
 
     result = await recorder.stop()
-    events = cast(list[dict[str, object]], result["events"])
+    events = _recorded_events(recorder, result)
 
     assert result["event_count"] == 1
     assert events[0]["type"] == evdev.ecodes.EV_KEY
@@ -63,7 +72,7 @@ async def test_recording_keeps_wheel_events_without_mouse_movement_enabled() -> 
     )
 
     result = await recorder.stop()
-    events = cast(list[dict[str, object]], result["events"])
+    events = _recorded_events(recorder, result)
 
     assert [event["code"] for event in events] == [
         evdev.ecodes.REL_WHEEL,
@@ -86,7 +95,8 @@ async def test_recording_callback_fires_on_start_and_stop(monkeypatch):
     assert callback.await_count == 2
     assert stop_result["event_count"] == 1
     assert callback.await_args_list[1].args[0].value == "recording_stopped"
-    assert callback.await_args_list[1].args[1]["events"][0]["code"] == evdev.ecodes.KEY_A
+    assert "events" not in callback.await_args_list[1].args[1]
+    assert _recorded_events(recorder, stop_result)[0]["code"] == evdev.ecodes.KEY_A
 
 
 @pytest.mark.asyncio
@@ -132,10 +142,19 @@ async def test_recording_event_filters_sync_and_msc_events() -> None:
 async def test_recording_progress_reports_latest_event() -> None:
     callback = AsyncMock()
     recorder = RecordingManager(broadcast_callback=callback)
-    recorder._stopped = False
-    recorder._events = [
-        {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 2500}
-    ]
+    await recorder.start([])
+    if recorder._progress_task:
+        recorder._progress_task.cancel()
+        recorder._progress_task = None
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(1, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(1, 2500, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+    )
+    callback.reset_mock()
     callback.side_effect = lambda *_args: setattr(recorder, "_stopped", True)
 
     with pytest.MonkeyPatch.context() as monkeypatch:
@@ -144,7 +163,7 @@ async def test_recording_progress_reports_latest_event() -> None:
 
     callback.assert_awaited_once()
     assert callback.await_args.args[0].value == "recording_progress"
-    assert callback.await_args.args[1] == {"event_count": 1, "duration_ms": 2}
+    assert callback.await_args.args[1] == {"event_count": 2, "duration_ms": 2}
 
 
 @pytest.mark.asyncio
@@ -162,6 +181,30 @@ async def test_recording_classifies_combo_device_events_per_event_type() -> None
     )
 
     result = await recorder.stop()
-    events = cast(list[dict[str, object]], result["events"])
+    events = _recorded_events(recorder, result)
 
     assert [event["device_type"] for event in events] == ["keyboard", "mouse"]
+
+
+@pytest.mark.asyncio
+async def test_recording_spool_spills_past_memory_event_limit(tmp_path: Path) -> None:
+    spool = RecordingSpool(tmp_path, memory_event_limit=2)
+    for code in range(3):
+        spool.append(
+            {
+                "device_type": "keyboard",
+                "type": evdev.ecodes.EV_KEY,
+                "code": code,
+                "value": 1,
+                "t_us": code * 1000,
+            }
+        )
+
+    snapshot = await spool.finish()
+
+    assert snapshot.spool_path is not None
+    assert snapshot.memory_events == ()
+    assert snapshot.event_count == 3
+    assert [event["code"] for event in snapshot.iter_events()] == [0, 1, 2]
+    snapshot.cleanup()
+    assert not snapshot.spool_path.exists()

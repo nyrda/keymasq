@@ -321,7 +321,7 @@ timestamps, but explicit wait durations remain wall-clock delays.
 Wait controls appear as **W** or **WR** markers on the timeline. You can move
 them, edit their duration, or delete them at any time.
 
-![A wait control on the macro timeline](assets/screenshots/keymasq_macro_edit_gap_note.png)
+![Wait and random-wait controls on the macro timeline](assets/screenshots/macro_edit_wait_wait_random_markers.png)
 
 ### Timing Tools
 
@@ -336,7 +336,7 @@ The **Timing Tools** menu provides bulk adjustments to your macro's timing:
 | **Total Time** | Set the minimum macro duration to the entered time, adding or removing trailing empty time. |
 | **Insert Wait** | Add a real wait control at a specific time. |
 
-![Timing Tools menu — Trim, Scale, Gap Limits, Total Time, and Insert Wait](assets/screenshots/keymasq_macros_timing_tools.png)
+![Timing Tools menu — Trim, Scale, Gap Limits, Total Time, and Insert Wait](assets/screenshots/macro_edit_timing_tools.png)
 
 ## CLI Usage
 

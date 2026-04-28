@@ -85,13 +85,6 @@ def _describe_passthrough_event(ev: MacroEvent) -> tuple[str, str]:
     return type_name, f"Raw {device_type} {type_name} {name} value {value} (code {code})"
 
 
-_SCOPE_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("all", "Everything"),
-    ("keyboard", "Keyboard"),
-    ("mouse", "Mouse"),
-    ("movement", "Movement"),
-)
-
 _LOOP_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("none", "Once"),
     ("count", "Count"),
@@ -166,7 +159,6 @@ class EditableMove:
     t_us: int
     x: int
     y: int
-    scope: str = "all"
 
 
 @dataclass
@@ -315,8 +307,6 @@ def reconstruct_events(
     raw.extend(rel_events)
 
     for move in editable_moves:
-        if move.mode == "gap":
-            continue
         raw.append(
             {
                 "device_type": "macro",
@@ -942,8 +932,6 @@ class TimelineWidget(Gtk.DrawingArea):
 
             if move.mode == "abs":
                 cr.set_source_rgba(0.30, 0.90, 1.00, 0.95)
-            elif move.mode == "gap":
-                cr.set_source_rgba(0.85, 0.45, 1.00, 0.95)
             else:
                 cr.set_source_rgba(1.00, 0.80, 0.20, 0.95)
 
@@ -957,12 +945,7 @@ class TimelineWidget(Gtk.DrawingArea):
                 cr.arc(x, base_y, radius + 2.0, 0, 6.283185307179586)
                 cr.stroke()
 
-            if move.mode == "abs":
-                label = "A"
-            elif move.mode == "gap":
-                label = "G"
-            else:
-                label = "R"
+            label = "A" if move.mode == "abs" else "R"
             extents = cr.text_extents(label)
             cr.set_source_rgba(0.05, 0.05, 0.05, 1.0)
             cr.move_to(x - extents[2] / 2 - extents[0], base_y + extents[3] / 2)
@@ -1230,11 +1213,8 @@ class TimelineWidget(Gtk.DrawingArea):
             self._editor._events.sort(key=lambda e: e.press_t_us)
             self._editor._update_stats()
         elif self._in_drag and self._drag_move:
-            if self._drag_move.mode == "gap":
-                self._editor._move_gap_note(self._drag_move, self._drag_orig_press)
-            else:
-                self._editor._synthetic_moves.sort(key=lambda m: m.t_us)
-                self._editor._update_stats()
+            self._editor._synthetic_moves.sort(key=lambda m: m.t_us)
+            self._editor._update_stats()
         elif self._in_drag and self._drag_control:
             self._editor._refresh_after_timing_edit()
         elif not self._in_drag:
@@ -1474,10 +1454,7 @@ class TimelineWidget(Gtk.DrawingArea):
         if isinstance(ev, EditableMove):
             if box.get_first_child():
                 box.append(Gtk.Separator())
-            if ev.mode == "gap":
-                label = f"Delete Wait ({ev.x}ms, {ev.scope})"
-            else:
-                label = f"Delete Move {ev.mode.upper()} ({ev.x}, {ev.y})"
+            label = f"Delete Move {ev.mode.upper()} ({ev.x}, {ev.y})"
             del_move_btn = Gtk.Button(label=label)
             del_move_btn.add_css_class("flat")
             del_move_btn.add_css_class("destructive-action")
@@ -2121,16 +2098,6 @@ class MacroEditorDialog(Adw.Dialog):
         self._move_capture_row = move_capture_row
         self._move_capture_row.set_visible(False)
 
-        gap_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gap_row.set_halign(Gtk.Align.START)
-        gap_row.append(Gtk.Label(label="Scope:"))
-        self._gap_scope_combo = _build_option_dropdown(_SCOPE_OPTIONS, "all")
-        self._gap_scope_combo.connect("notify::selected", self._on_gap_scope_changed)
-        gap_row.append(self._gap_scope_combo)
-        panel.append(gap_row)
-        self._gap_row = gap_row
-        self._gap_row.set_visible(False)
-
         control_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self._control_mode_label = Gtk.Label()
         self._control_mode_label.add_css_class("dim-label")
@@ -2658,12 +2625,11 @@ class MacroEditorDialog(Adw.Dialog):
 
     def _update_stats(self) -> None:
         duration_s = self._duration_us / 1e6
-        synthetic_count = sum(1 for m in self._synthetic_moves if m.mode != "gap")
         event_count = (
             len(self._events) * 2
             + len(self._rel_events)
             + len(self._passthrough_events)
-            + synthetic_count
+            + len(self._synthetic_moves)
             + len(self._control_events)
         )
         self._stats_label.set_label(f"{duration_s:.3f}s · {event_count} events")
@@ -2910,9 +2876,6 @@ class MacroEditorDialog(Adw.Dialog):
         if not mapping:
             return
         self._apply_time_map(mapping)
-        for move in self._synthetic_moves:
-            if move.mode == "gap":
-                move.x = max(1, int(round(move.x * scale)))
         self._refresh_after_timing_edit()
 
     def _on_apply_gap_limits_clicked(self, _btn) -> None:
@@ -2946,7 +2909,6 @@ class MacroEditorDialog(Adw.Dialog):
             at_us=0,
             delta_us=delta_us,
             scope="all",
-            exclude_gap_note=None,
             exclude_control=None,
         )
         if not changed:
@@ -3039,7 +3001,6 @@ class MacroEditorDialog(Adw.Dialog):
             at_us=at_us,
             delta_us=-at_us,
             scope="all",
-            exclude_gap_note=None,
             exclude_control=None,
         )
 
@@ -3086,7 +3047,6 @@ class MacroEditorDialog(Adw.Dialog):
         at_us: int,
         delta_us: int,
         scope: str,
-        exclude_gap_note: EditableMove | None,
         exclude_control: EditableControl | None,
     ) -> bool:
         if delta_us == 0:
@@ -3114,20 +3074,9 @@ class MacroEditorDialog(Adw.Dialog):
                     ev["t_us"] = max(0, t_us + delta_us)
                     changed = True
             for move in self._synthetic_moves:
-                if move.mode == "gap":
-                    continue
                 if move.t_us >= at_us:
                     move.t_us = max(0, move.t_us + delta_us)
                     changed = True
-
-        for move in self._synthetic_moves:
-            if move.mode != "gap":
-                continue
-            if exclude_gap_note is not None and move is exclude_gap_note:
-                continue
-            if move.t_us >= at_us:
-                move.t_us = max(0, move.t_us + delta_us)
-                changed = True
 
         if scope in ("all", "movement"):
             for control in self._control_events:
@@ -3160,92 +3109,6 @@ class MacroEditorDialog(Adw.Dialog):
 
         return changed
 
-    def _move_gap_note(self, note: EditableMove, old_t_us: int) -> None:
-        if note.mode != "gap":
-            return
-        new_t_us = int(note.t_us)
-        if new_t_us == int(old_t_us):
-            return
-
-        gap_us = max(1, int(note.x) * 1000)
-        self._shift_timeline_for_gap(
-            at_us=int(old_t_us),
-            delta_us=-gap_us,
-            scope=note.scope,
-            exclude_gap_note=note,
-            exclude_control=None,
-        )
-        self._shift_timeline_for_gap(
-            at_us=new_t_us,
-            delta_us=gap_us,
-            scope=note.scope,
-            exclude_gap_note=note,
-            exclude_control=None,
-        )
-
-        self._events.sort(key=lambda e: e.press_t_us)
-        self._synthetic_moves.sort(key=lambda m: m.t_us)
-        self._rel_events.sort(key=lambda e: int(e.get("t_us", 0)))
-        self._passthrough_events.sort(key=lambda e: int(e.get("t_us", 0)))
-        self._refresh_after_timing_edit()
-
-    def _change_gap_note_amount(self, note: EditableMove, old_gap_ms: int) -> None:
-        if note.mode != "gap":
-            return
-        old_gap_us = max(1, int(old_gap_ms) * 1000)
-        new_gap_us = max(1, int(note.x) * 1000)
-        if new_gap_us == old_gap_us:
-            return
-
-        self._shift_timeline_for_gap(
-            at_us=int(note.t_us),
-            delta_us=-old_gap_us,
-            scope=note.scope,
-            exclude_gap_note=note,
-            exclude_control=None,
-        )
-        self._shift_timeline_for_gap(
-            at_us=int(note.t_us),
-            delta_us=new_gap_us,
-            scope=note.scope,
-            exclude_gap_note=note,
-            exclude_control=None,
-        )
-
-        self._events.sort(key=lambda e: e.press_t_us)
-        self._synthetic_moves.sort(key=lambda m: m.t_us)
-        self._rel_events.sort(key=lambda e: int(e.get("t_us", 0)))
-        self._passthrough_events.sort(key=lambda e: int(e.get("t_us", 0)))
-        self._refresh_after_timing_edit()
-
-    def _change_gap_note_scope(self, note: EditableMove, old_scope: str) -> None:
-        if note.mode != "gap":
-            return
-        if note.scope == old_scope:
-            return
-
-        gap_us = max(1, int(note.x) * 1000)
-        self._shift_timeline_for_gap(
-            at_us=int(note.t_us),
-            delta_us=-gap_us,
-            scope=old_scope,
-            exclude_gap_note=note,
-            exclude_control=None,
-        )
-        self._shift_timeline_for_gap(
-            at_us=int(note.t_us),
-            delta_us=gap_us,
-            scope=note.scope,
-            exclude_gap_note=note,
-            exclude_control=None,
-        )
-
-        self._events.sort(key=lambda e: e.press_t_us)
-        self._synthetic_moves.sort(key=lambda m: m.t_us)
-        self._rel_events.sort(key=lambda e: int(e.get("t_us", 0)))
-        self._passthrough_events.sort(key=lambda e: int(e.get("t_us", 0)))
-        self._refresh_after_timing_edit()
-
     # ------------------------------------------------------------------
     # Property panel updates
     # ------------------------------------------------------------------
@@ -3276,7 +3139,6 @@ class MacroEditorDialog(Adw.Dialog):
             self._release_unit_label.set_visible(False)
             self._change_key_btn.set_visible(False)
             self._move_row.set_visible(False)
-            self._gap_row.set_visible(False)
             self._control_row.set_visible(True)
 
             self._updating_props = True
@@ -3287,16 +3149,19 @@ class MacroEditorDialog(Adw.Dialog):
                 self._control_a_spin.set_visible(False)
                 self._control_b_label.set_visible(False)
                 self._control_b_spin.set_visible(False)
+                self._control_ab_row.set_visible(False)
                 self._control_cmd_row.set_visible(False)
                 self._control_sync_row.set_visible(False)
                 self._control_timeout_hint_label.set_visible(False)
 
                 if control.mode == "wait":
+                    self._control_ab_row.set_visible(True)
                     self._control_a_label.set_label("Duration (ms):")
                     self._control_a_label.set_visible(True)
                     self._control_a_spin.set_visible(True)
                     self._control_a_spin.set_value(max(1, int(control.duration_ms)))
                 elif control.mode == "wait_random":
+                    self._control_ab_row.set_visible(True)
                     self._control_a_label.set_label("Min (ms):")
                     self._control_b_label.set_label("Max (ms):")
                     self._control_a_label.set_visible(True)
@@ -3325,12 +3190,8 @@ class MacroEditorDialog(Adw.Dialog):
         self._control_row.set_visible(False)
         if isinstance(selected_obj, EditableMove):
             move = selected_obj
-            if move.mode == "gap":
-                self._prop_title.set_label("Wait")
-                self._key_info_label.set_label(f"Insert {int(move.x)}ms wait ({move.scope})")
-            else:
-                self._prop_title.set_label(f"Mouse Move ({move.mode.upper()})")
-                self._key_info_label.set_label(f"Move {move.mode.upper()} (x={move.x}, y={move.y})")
+            self._prop_title.set_label(f"Mouse Move ({move.mode.upper()})")
+            self._key_info_label.set_label(f"Move {move.mode.upper()} (x={move.x}, y={move.y})")
 
             self._press_label.set_label("At:")
             self._duration_text_label.set_visible(False)
@@ -3341,21 +3202,17 @@ class MacroEditorDialog(Adw.Dialog):
             self._release_unit_label.set_visible(False)
             self._change_key_btn.set_visible(False)
             self._move_row.set_visible(True)
-            self._gap_row.set_visible(move.mode == "gap")
             self._move_capture_row.set_visible(move.mode == "abs")
-            self._move_mode_label.set_label(
-                f"Mode: {move.mode.upper()}" if move.mode != "gap" else "Mode: GAP"
-            )
-            self._move_x_label.set_label("Wait (ms):" if move.mode == "gap" else "X:")
-            self._move_y_label.set_label("Unused:" if move.mode == "gap" else "Y:")
-            self._move_y_spin.set_sensitive(move.mode != "gap")
+            self._move_mode_label.set_label(f"Mode: {move.mode.upper()}")
+            self._move_x_label.set_label("X:")
+            self._move_y_label.set_label("Y:")
+            self._move_y_spin.set_sensitive(True)
 
             self._updating_props = True
             try:
                 self._press_spin.set_value(move.t_us / 1000)
                 self._move_x_spin.set_value(move.x)
                 self._move_y_spin.set_value(move.y)
-                _set_dropdown_selected_id(self._gap_scope_combo, _SCOPE_OPTIONS, move.scope)
             finally:
                 self._updating_props = False
             self._update_selected_move_capture_controls(move)
@@ -3374,7 +3231,6 @@ class MacroEditorDialog(Adw.Dialog):
             self._release_unit_label.set_visible(False)
             self._change_key_btn.set_visible(False)
             self._move_row.set_visible(False)
-            self._gap_row.set_visible(False)
             self._control_row.set_visible(False)
             self._move_capture_row.set_visible(False)
 
@@ -3400,7 +3256,6 @@ class MacroEditorDialog(Adw.Dialog):
         self._release_unit_label.set_visible(True)
         self._change_key_btn.set_visible(True)
         self._move_row.set_visible(False)
-        self._gap_row.set_visible(False)
         self._move_capture_row.set_visible(False)
 
         self._updating_props = True
@@ -3440,15 +3295,11 @@ class MacroEditorDialog(Adw.Dialog):
             self._refresh_after_control_change(selected_obj)
             return
         if isinstance(selected_obj, EditableMove):
-            old_t = int(selected_obj.t_us)
             selected_obj.t_us = max(0, new_t)
-            if selected_obj.mode == "gap":
-                self._move_gap_note(selected_obj, old_t)
-            else:
-                self._synthetic_moves.sort(key=lambda m: m.t_us)
-                self._on_selection_changed(selected_obj)
-                self._update_stats()
-                self._timeline.queue_draw()
+            self._synthetic_moves.sort(key=lambda m: m.t_us)
+            self._on_selection_changed(selected_obj)
+            self._update_stats()
+            self._timeline.queue_draw()
             return
         if isinstance(selected_obj, dict):
             selected_obj["t_us"] = max(0, new_t)
@@ -3574,18 +3425,7 @@ class MacroEditorDialog(Adw.Dialog):
         selected_obj = self._timeline._selected
         if not isinstance(selected_obj, EditableMove):
             return
-        old_gap_ms = int(selected_obj.x)
         selected_obj.x = int(spin.get_value())
-        if selected_obj.mode == "gap" and selected_obj.x < 1:
-            selected_obj.x = 1
-            self._updating_props = True
-            try:
-                spin.set_value(1)
-            finally:
-                self._updating_props = False
-        if selected_obj.mode == "gap":
-            self._change_gap_note_amount(selected_obj, old_gap_ms)
-            return
         self._on_selection_changed(selected_obj)
         self._timeline.queue_draw()
 
@@ -3598,16 +3438,6 @@ class MacroEditorDialog(Adw.Dialog):
         selected_obj.y = int(spin.get_value())
         self._on_selection_changed(selected_obj)
         self._timeline.queue_draw()
-
-    def _on_gap_scope_changed(self, combo: Gtk.DropDown, _pspec=None) -> None:
-        if self._updating_props:
-            return
-        selected_obj = self._timeline._selected
-        if not isinstance(selected_obj, EditableMove) or selected_obj.mode != "gap":
-            return
-        old_scope = selected_obj.scope
-        selected_obj.scope = _get_dropdown_selected_id(combo, _SCOPE_OPTIONS, "all")
-        self._change_gap_note_scope(selected_obj, old_scope)
 
     def _refresh_after_control_change(self, control: EditableControl) -> None:
         self._control_events.sort(key=lambda c: c.t_us)

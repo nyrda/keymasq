@@ -412,7 +412,6 @@ async def play_macro_task(
                     timeline_offset_s += await run_macro_control_action(
                         manager,
                         ev,
-                        speed,
                         renew_mouse_suppression=block_mouse_movement,
                         deps=deps,
                     )
@@ -650,12 +649,10 @@ def release_macro_mouse_inhibit(manager: _MacroManager) -> None:
 async def run_macro_control_action(
     manager: _MacroManager,
     ev: dict[str, object],
-    speed: float,
     *,
     renew_mouse_suppression: bool = False,
     deps: MacroRuntimeDeps,
 ) -> float:
-    _ = speed
     asyncio_mod = deps.asyncio_mod
     str_value_fn = deps.str_value_fn
     int_value_fn = deps.int_value_fn
@@ -809,6 +806,7 @@ async def mouse_rel_suppression_watchdog(
     asyncio_mod = deps.asyncio_mod
     try:
         await asyncio_mod.sleep(timeout_s)
-        manager.macro_state.mouse_rel_suppressed = False
+        if manager.macro_state.mouse_inhibit_count <= 0:
+            manager.macro_state.mouse_rel_suppressed = False
     except asyncio_mod.CancelledError:
         pass

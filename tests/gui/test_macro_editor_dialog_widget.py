@@ -194,6 +194,38 @@ def test_macro_editor_payload_includes_wait_controls(monkeypatch) -> None:
     ]
 
 
+def test_macro_editor_wait_controls_show_edit_fields(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+
+    fixed = EditableControl(mode="wait", t_us=12_000, duration_ms=75)
+    dialog._timeline._selected = fixed
+    dialog._on_selection_changed(fixed)
+
+    assert dialog._press_spin.get_value_as_int() == 12
+    assert dialog._control_ab_row.get_visible() is True
+    assert dialog._control_a_label.get_visible() is True
+    assert dialog._control_a_spin.get_visible() is True
+    assert dialog._control_a_label.get_label() == "Duration (ms):"
+    assert dialog._control_a_spin.get_value_as_int() == 75
+    assert dialog._control_b_label.get_visible() is False
+    assert dialog._control_b_spin.get_visible() is False
+
+    random_wait = EditableControl(mode="wait_random", t_us=34_000, min_ms=10, max_ms=80)
+    dialog._timeline._selected = random_wait
+    dialog._on_selection_changed(random_wait)
+
+    assert dialog._press_spin.get_value_as_int() == 34
+    assert dialog._control_ab_row.get_visible() is True
+    assert dialog._control_a_label.get_visible() is True
+    assert dialog._control_a_spin.get_visible() is True
+    assert dialog._control_b_label.get_visible() is True
+    assert dialog._control_b_spin.get_visible() is True
+    assert dialog._control_a_label.get_label() == "Min (ms):"
+    assert dialog._control_b_label.get_label() == "Max (ms):"
+    assert dialog._control_a_spin.get_value_as_int() == 10
+    assert dialog._control_b_spin.get_value_as_int() == 80
+
+
 def test_macro_editor_abs_move_capture_updates_selected_move(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
     move = EditableMove(mode="abs", t_us=5000, x=10, y=20)

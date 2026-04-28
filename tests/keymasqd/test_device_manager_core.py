@@ -582,7 +582,7 @@ class TestListDevices:
 
 class TestMacroControlActions:
     @pytest.mark.asyncio
-    async def test_run_macro_control_action_wait_ignores_speed(self, monkeypatch):
+    async def test_run_macro_control_action_wait_uses_wall_clock_duration(self, monkeypatch):
         manager = DeviceManager()
         clock = {"now": 10.0}
         sleep_calls: list[float] = []
@@ -601,7 +601,6 @@ class TestMacroControlActions:
         result = await _runtime_run_macro_control_action(
             manager,
             {"macro_action": "wait", "duration_ms": 20},
-            2.0,
         )
 
         assert sleep_calls == [0.02]
@@ -629,13 +628,42 @@ class TestMacroControlActions:
         result = await _runtime_run_macro_control_action(
             manager,
             {"macro_action": "wait", "duration_ms": 10_000},
-            2.0,
             renew_mouse_suppression=True,
         )
 
         begin_mouse_rel_suppression.assert_called_once()
         assert begin_mouse_rel_suppression.call_args.kwargs["timeout_s"] == pytest.approx(11.0)
         assert result == pytest.approx(10.0)
+
+    @pytest.mark.asyncio
+    async def test_mouse_suppression_watchdog_keeps_active_inhibit_count(
+        self, monkeypatch
+    ):
+        manager = DeviceManager()
+
+        async def fake_sleep(_duration: float) -> None:
+            return None
+
+        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+
+        manager.macro_state.mouse_rel_suppressed = True
+        manager.macro_state.mouse_inhibit_count = 1
+        await mdm.mouse_rel_suppression_watchdog(
+            manager,
+            1.0,
+            deps=dm._macro_runtime_deps(),
+        )
+
+        assert manager.macro_state.mouse_rel_suppressed is True
+
+        manager.macro_state.mouse_inhibit_count = 0
+        await mdm.mouse_rel_suppression_watchdog(
+            manager,
+            1.0,
+            deps=dm._macro_runtime_deps(),
+        )
+
+        assert manager.macro_state.mouse_rel_suppressed is False
 
     @pytest.mark.asyncio
     async def test_run_macro_control_action_wait_random_uses_random_range(self, monkeypatch):
@@ -658,7 +686,6 @@ class TestMacroControlActions:
         result = await _runtime_run_macro_control_action(
             manager,
             {"macro_action": "wait_random", "min_ms": 10, "max_ms": 80},
-            10.0,
         )
 
         assert sleep_calls == [0.05]
@@ -681,7 +708,6 @@ class TestMacroControlActions:
                 "macro_action": "exec_async",
                 "command": "echo hi",
             },
-            1.0,
         )
 
         callback.assert_awaited_once()
@@ -733,7 +759,6 @@ class TestMacroControlActions:
                 "inhibit_mouse": True,
                 "timeout_ms": 100,
             },
-            1.0,
         )
 
         assert begin_mouse_rel_suppression.called is True

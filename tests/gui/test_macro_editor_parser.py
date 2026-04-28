@@ -147,6 +147,39 @@ def test_parse_reconstruct_macro_move_actions_separate_from_waveform() -> None:
     ]
 
 
+def test_parse_reconstruct_preserves_wait_controls() -> None:
+    raw = [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 1000,
+            "macro_action": "wait",
+            "duration_ms": 75,
+        },
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 2000,
+            "macro_action": "wait_random",
+            "min_ms": 10,
+            "max_ms": 80,
+        },
+    ]
+
+    editable, rel_events, passthrough, synthetic_moves, control_events = parse_events(raw)
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
+
+    assert editable == []
+    assert rel_events == []
+    assert passthrough == []
+    assert synthetic_moves == []
+    assert rebuilt == raw
+
+
 def test_unmatched_key_press_is_classified_for_keyboard_track() -> None:
     raw = [
         {
@@ -166,4 +199,3 @@ def test_unmatched_key_press_is_classified_for_keyboard_track() -> None:
     assert control_events == []
     assert len(passthrough) == 1
     assert _passthrough_track(passthrough[0]) == "keyboard"
-

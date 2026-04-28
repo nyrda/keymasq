@@ -582,7 +582,7 @@ class TestListDevices:
 
 class TestMacroControlActions:
     @pytest.mark.asyncio
-    async def test_run_macro_control_action_wait_fixed_uses_speed(self, monkeypatch):
+    async def test_run_macro_control_action_wait_ignores_speed(self, monkeypatch):
         manager = DeviceManager()
         clock = {"now": 10.0}
         sleep_calls: list[float] = []
@@ -600,12 +600,42 @@ class TestMacroControlActions:
 
         result = await _runtime_run_macro_control_action(
             manager,
-            {"macro_action": "wait_fixed", "duration_ms": 20},
+            {"macro_action": "wait", "duration_ms": 20},
             2.0,
         )
 
-        assert sleep_calls == [0.01]
-        assert result == pytest.approx(0.01)
+        assert sleep_calls == [0.02]
+        assert result == pytest.approx(0.02)
+
+    @pytest.mark.asyncio
+    async def test_run_macro_control_action_wait_renews_mouse_suppression(
+        self, monkeypatch
+    ):
+        manager = DeviceManager()
+        clock = {"now": 10.0}
+        begin_mouse_rel_suppression = Mock()
+
+        class _FakeLoop:
+            def time(self) -> float:
+                return clock["now"]
+
+        async def fake_sleep(duration: float) -> None:
+            clock["now"] += duration
+
+        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
+        monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
+
+        result = await _runtime_run_macro_control_action(
+            manager,
+            {"macro_action": "wait", "duration_ms": 10_000},
+            2.0,
+            renew_mouse_suppression=True,
+        )
+
+        begin_mouse_rel_suppression.assert_called_once()
+        assert begin_mouse_rel_suppression.call_args.kwargs["timeout_s"] == pytest.approx(11.0)
+        assert result == pytest.approx(10.0)
 
     @pytest.mark.asyncio
     async def test_run_macro_control_action_wait_random_uses_random_range(self, monkeypatch):
@@ -631,8 +661,8 @@ class TestMacroControlActions:
             10.0,
         )
 
-        assert sleep_calls == [0.005]
-        assert result == pytest.approx(0.005)
+        assert sleep_calls == [0.05]
+        assert result == pytest.approx(0.05)
 
     @pytest.mark.asyncio
     async def test_run_macro_control_action_exec_async_broadcasts(self):

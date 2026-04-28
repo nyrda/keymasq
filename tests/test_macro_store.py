@@ -73,6 +73,42 @@ def test_macro_store_create_from_events_returns_metadata_without_loading_full_pa
     assert [event["code"] for event in store.iter_events("streamed")] == [0, 1, 2]
 
 
+def test_macro_store_preserves_wait_controls(tmp_path: Path) -> None:
+    store = MacroStore(tmp_path / "macros")
+    events = [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 1000,
+            "macro_action": "wait",
+            "duration_ms": 50,
+        },
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 2000,
+            "macro_action": "wait_random",
+            "min_ms": 10,
+            "max_ms": 80,
+        },
+    ]
+
+    store.create({"name": "timed", "events": events[:1]})
+    updated = store.update(
+        "timed",
+        {"events": events},
+        expected_revision=1,
+    )
+    loaded = store.get("timed")
+
+    assert loaded["events"] == events
+    assert updated["events"] == events
+
+
 def test_macro_store_internal_meta_uses_shared_loop_stop_default(tmp_path: Path) -> None:
     store = MacroStore(tmp_path / "macros")
     store.register_internal("__internal", [{"type": 1, "code": 30, "value": 1, "t_us": 0}])

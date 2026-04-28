@@ -171,7 +171,7 @@ class EditableMove:
 
 @dataclass
 class EditableControl:
-    mode: str  # wait_fixed | wait_random | exec_sync | exec_async
+    mode: str  # wait | wait_random | exec_sync | exec_async
     t_us: int
     duration_ms: int = 0
     min_ms: int = 0
@@ -339,7 +339,7 @@ def reconstruct_events(
             "t_us": int(control.t_us),
             "macro_action": str(control.mode),
         }
-        if control.mode == "wait_fixed":
+        if control.mode == "wait":
             event["duration_ms"] = int(control.duration_ms)
         elif control.mode == "wait_random":
             event["min_ms"] = int(control.min_ms)
@@ -982,9 +982,9 @@ class TimelineWidget(Gtk.DrawingArea):
             if x < self.LABEL_WIDTH - 4 or x > width + 4:
                 continue
 
-            if control.mode == "wait_fixed":
+            if control.mode == "wait":
                 cr.set_source_rgba(0.25, 0.85, 0.95, 0.95)
-                label = "WF"
+                label = "W"
             elif control.mode == "wait_random":
                 cr.set_source_rgba(0.35, 0.95, 0.45, 0.95)
                 label = "WR"
@@ -1357,25 +1357,17 @@ class TimelineWidget(Gtk.DrawingArea):
             if box.get_first_child():
                 box.append(Gtk.Separator())
 
-            gap_scope = "all"
-            if track == "keyboard":
-                gap_scope = "keyboard"
-            elif track == "mouse":
-                gap_scope = "mouse"
-            elif track == "movement":
-                gap_scope = "movement"
-
             gap_btn = Gtk.Button(label=f"Insert Wait at {t_label}")
             gap_btn.add_css_class("flat")
 
-            def _insert_gap(_b, _t=t_us, _scope=gap_scope, _p=popover):
+            def _insert_gap(_b, _t=t_us, _p=popover):
                 _p.popdown()
                 rect = Gdk.Rectangle()
                 rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
-                self._editor._show_insert_gap_popover(
+                self._editor._show_add_control_popover(
                     self,
+                    "wait",
                     default_t_us=_t,
-                    default_scope=_scope,
                     pointing_to=rect,
                 )
 
@@ -1390,7 +1382,10 @@ class TimelineWidget(Gtk.DrawingArea):
                 rect = Gdk.Rectangle()
                 rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
                 self._editor._show_add_control_popover(
-                    self, "wait_random", default_t_us=_t, pointing_to=rect
+                    self,
+                    "wait_random",
+                    default_t_us=_t,
+                    pointing_to=rect,
                 )
 
             wait_random_btn.connect("clicked", _insert_wait_random)
@@ -1572,7 +1567,6 @@ class MacroEditorDialog(Adw.Dialog):
         self._timing_extend_ms_spin: Gtk.SpinButton | None = None
         self._insert_gap_at_spin: Gtk.SpinButton | None = None
         self._insert_gap_ms_spin: Gtk.SpinButton | None = None
-        self._insert_gap_scope_combo: Gtk.DropDown | None = None
         self._timeline_scroll_x: float = 0.0
         self._timeline_scroll_max: float = 0.0
         self._timeline_scroll_adj: Gtk.Adjustment | None = None
@@ -1689,19 +1683,6 @@ class MacroEditorDialog(Adw.Dialog):
         self._macro_loop_stop_behavior = normalize_macro_loop_stop_behavior(
             self._macro_data.get("loop_stop_behavior")
         )
-        for note in self._macro_data.get("gap_notes", []):
-            if not isinstance(note, dict):
-                continue
-            self._synthetic_moves.append(
-                EditableMove(
-                    mode="gap",
-                    t_us=int(note.get("at_us", 0) or 0),
-                    x=int(note.get("gap_ms", 0) or 0),
-                    y=0,
-                    scope=str(note.get("scope", "all") or "all"),
-                )
-            )
-
         if self._events:
             self._duration_us = max(self._duration_us, max(e.release_t_us for e in self._events))
         if self._rel_events:
@@ -1721,7 +1702,7 @@ class MacroEditorDialog(Adw.Dialog):
         if self._control_events:
             self._duration_us = max(
                 self._duration_us,
-                max(self._control_end_time_us(c) for c in self._control_events),
+                max(c.t_us for c in self._control_events),
             )
 
     def _sync_macro_settings_controls(self) -> None:
@@ -1910,11 +1891,11 @@ class MacroEditorDialog(Adw.Dialog):
         box.append(Gtk.Separator())
 
         extend_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        extend_row.append(Gtk.Label(label="Add time (ms):"))
+        extend_row.append(Gtk.Label(label="Time (ms):"))
         timing_extend_ms_spin = Gtk.SpinButton()
         self._timing_extend_ms_spin = timing_extend_ms_spin
         timing_extend_ms_spin.set_adjustment(
-            Gtk.Adjustment(value=100.0, lower=1.0, upper=600000.0, step_increment=10.0)
+            Gtk.Adjustment(value=100.0, lower=0.0, upper=600000.0, step_increment=10.0)
         )
         timing_extend_ms_spin.set_digits(0)
         timing_extend_ms_spin.set_width_chars(7)
@@ -1928,6 +1909,9 @@ class MacroEditorDialog(Adw.Dialog):
         add_end_btn = Gtk.Button(label="Add at End")
         add_end_btn.connect("clicked", self._on_add_time_end_clicked)
         extend_btn_row.append(add_end_btn)
+        total_time_btn = Gtk.Button(label="Total Time")
+        total_time_btn.connect("clicked", self._on_set_total_time_clicked)
+        extend_btn_row.append(total_time_btn)
         box.append(extend_btn_row)
 
         box.append(Gtk.Separator())
@@ -1960,12 +1944,6 @@ class MacroEditorDialog(Adw.Dialog):
         insert_gap_ms_spin.set_width_chars(7)
         gap_insert_row.append(insert_gap_ms_spin)
         box.append(gap_insert_row)
-
-        scope_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        scope_row.append(Gtk.Label(label="Scope:"))
-        self._insert_gap_scope_combo = _build_option_dropdown(_SCOPE_OPTIONS, "all")
-        scope_row.append(self._insert_gap_scope_combo)
-        box.append(scope_row)
 
         insert_btn = Gtk.Button(label="Insert Wait")
         insert_btn.add_css_class("suggested-action")
@@ -2704,17 +2682,6 @@ class MacroEditorDialog(Adw.Dialog):
             f"Exec actions: {total} (sync {sync_count}, async {async_count})"
         )
 
-    def _control_end_time_us(self, control: EditableControl) -> int:
-        end_t = int(control.t_us)
-        if control.mode == "wait_fixed":
-            end_t += max(0, int(control.duration_ms)) * 1000
-        elif control.mode == "wait_random":
-            end_t += max(int(control.min_ms), int(control.max_ms)) * 1000
-        return end_t
-
-    def _control_affects_timing(self, control: EditableControl) -> bool:
-        return control.mode == "wait_fixed"
-
     def _timeline_end_us(self) -> int:
         stamps = self._all_timestamps(include_passthrough=True)
         if not stamps:
@@ -2806,10 +2773,7 @@ class MacroEditorDialog(Adw.Dialog):
             if move.mode == "abs":
                 stamps.append(int(move.t_us) + 1)
         for control in self._control_events:
-            if not self._control_affects_timing(control):
-                continue
             stamps.append(int(control.t_us))
-            stamps.append(self._control_end_time_us(control))
         return sorted(set(max(0, s) for s in stamps))
 
     def _apply_time_map(self, mapping: dict[int, int]) -> None:
@@ -2873,9 +2837,8 @@ class MacroEditorDialog(Adw.Dialog):
                 latest,
                 max(m.t_us for m in self._synthetic_moves),
             )
-        timed_controls = [c for c in self._control_events if self._control_affects_timing(c)]
-        if timed_controls:
-            latest = max(latest, max(self._control_end_time_us(c) for c in timed_controls))
+        if self._control_events:
+            latest = max(latest, max(c.t_us for c in self._control_events))
         self._duration_us = max(0, int(latest))
 
     def _refresh_after_timing_edit(self) -> None:
@@ -2984,6 +2947,7 @@ class MacroEditorDialog(Adw.Dialog):
             delta_us=delta_us,
             scope="all",
             exclude_gap_note=None,
+            exclude_control=None,
         )
         if not changed:
             return
@@ -3006,44 +2970,31 @@ class MacroEditorDialog(Adw.Dialog):
         self._update_canvas_width()
         self._timeline.queue_draw()
 
+    def _on_set_total_time_clicked(self, _btn) -> None:
+        if not self._timing_extend_ms_spin:
+            return
+        target_us = int(float(self._timing_extend_ms_spin.get_value()) * 1000)
+        if target_us < 0:
+            return
+
+        content_end_us = max(self._all_timestamps(include_passthrough=True), default=0)
+        self._duration_us = max(target_us, content_end_us)
+        self._update_stats()
+        self._update_canvas_width()
+        self._timeline.queue_draw()
+
     def _on_insert_gap_clicked(self, _btn) -> None:
-        if (
-            not self._insert_gap_at_spin
-            or not self._insert_gap_ms_spin
-            or not self._insert_gap_scope_combo
-        ):
+        if not self._insert_gap_at_spin or not self._insert_gap_ms_spin:
             return
 
         at_us = int(float(self._insert_gap_at_spin.get_value()) * 1000)
         gap_us = int(float(self._insert_gap_ms_spin.get_value()) * 1000)
-        scope = _get_dropdown_selected_id(self._insert_gap_scope_combo, _SCOPE_OPTIONS, "all")
-        self._insert_gap(at_us=at_us, gap_us=gap_us, scope=scope, add_note=True)
-
-    def _insert_gap(self, *, at_us: int, gap_us: int, scope: str, add_note: bool) -> None:
-        if gap_us <= 0:
-            return
-
-        changed = self._shift_timeline_for_gap(
-            at_us=at_us,
-            delta_us=gap_us,
-            scope=scope,
-            exclude_gap_note=None,
+        control = EditableControl(
+            mode="wait",
+            t_us=at_us,
+            duration_ms=max(1, gap_us // 1000),
         )
-
-        if add_note:
-            self._synthetic_moves.append(
-                EditableMove(mode="gap", t_us=at_us, x=max(1, gap_us // 1000), y=0, scope=scope)
-            )
-            changed = True
-
-        if not changed:
-            return
-
-        self._events.sort(key=lambda e: e.press_t_us)
-        self._synthetic_moves.sort(key=lambda m: m.t_us)
-        self._rel_events.sort(key=lambda e: int(e.get("t_us", 0)))
-        self._passthrough_events.sort(key=lambda e: int(e.get("t_us", 0)))
-        self._refresh_after_timing_edit()
+        self._insert_control_event(control)
 
     def _clear_selection_if_removed(self) -> None:
         selected = self._timeline._selected
@@ -3089,6 +3040,7 @@ class MacroEditorDialog(Adw.Dialog):
             delta_us=-at_us,
             scope="all",
             exclude_gap_note=None,
+            exclude_control=None,
         )
 
         self._events.sort(key=lambda e: e.press_t_us)
@@ -3135,6 +3087,7 @@ class MacroEditorDialog(Adw.Dialog):
         delta_us: int,
         scope: str,
         exclude_gap_note: EditableMove | None,
+        exclude_control: EditableControl | None,
     ) -> bool:
         if delta_us == 0:
             return False
@@ -3178,6 +3131,8 @@ class MacroEditorDialog(Adw.Dialog):
 
         if scope in ("all", "movement"):
             for control in self._control_events:
+                if exclude_control is not None and control is exclude_control:
+                    continue
                 if control.t_us >= at_us:
                     control.t_us = max(0, control.t_us + delta_us)
                     changed = True
@@ -3218,12 +3173,14 @@ class MacroEditorDialog(Adw.Dialog):
             delta_us=-gap_us,
             scope=note.scope,
             exclude_gap_note=note,
+            exclude_control=None,
         )
         self._shift_timeline_for_gap(
             at_us=new_t_us,
             delta_us=gap_us,
             scope=note.scope,
             exclude_gap_note=note,
+            exclude_control=None,
         )
 
         self._events.sort(key=lambda e: e.press_t_us)
@@ -3245,12 +3202,14 @@ class MacroEditorDialog(Adw.Dialog):
             delta_us=-old_gap_us,
             scope=note.scope,
             exclude_gap_note=note,
+            exclude_control=None,
         )
         self._shift_timeline_for_gap(
             at_us=int(note.t_us),
             delta_us=new_gap_us,
             scope=note.scope,
             exclude_gap_note=note,
+            exclude_control=None,
         )
 
         self._events.sort(key=lambda e: e.press_t_us)
@@ -3271,12 +3230,14 @@ class MacroEditorDialog(Adw.Dialog):
             delta_us=-gap_us,
             scope=old_scope,
             exclude_gap_note=note,
+            exclude_control=None,
         )
         self._shift_timeline_for_gap(
             at_us=int(note.t_us),
             delta_us=gap_us,
             scope=note.scope,
             exclude_gap_note=note,
+            exclude_control=None,
         )
 
         self._events.sort(key=lambda e: e.press_t_us)
@@ -3330,7 +3291,7 @@ class MacroEditorDialog(Adw.Dialog):
                 self._control_sync_row.set_visible(False)
                 self._control_timeout_hint_label.set_visible(False)
 
-                if control.mode == "wait_fixed":
+                if control.mode == "wait":
                     self._control_a_label.set_label("Duration (ms):")
                     self._control_a_label.set_visible(True)
                     self._control_a_spin.set_visible(True)
@@ -3650,8 +3611,7 @@ class MacroEditorDialog(Adw.Dialog):
 
     def _refresh_after_control_change(self, control: EditableControl) -> None:
         self._control_events.sort(key=lambda c: c.t_us)
-        if self._control_affects_timing(control):
-            self._recompute_duration()
+        self._recompute_duration()
         self._update_stats()
         self._update_canvas_width()
         self._timeline.queue_draw()
@@ -3672,7 +3632,7 @@ class MacroEditorDialog(Adw.Dialog):
         selected_obj = self._timeline._selected
         if not isinstance(selected_obj, EditableControl):
             return
-        if selected_obj.mode == "wait_fixed":
+        if selected_obj.mode == "wait":
             selected_obj.duration_ms = max(1, int(spin.get_value()))
         elif selected_obj.mode == "wait_random":
             selected_obj.min_ms = max(1, int(spin.get_value()))
@@ -3780,86 +3740,6 @@ class MacroEditorDialog(Adw.Dialog):
     def _on_add_move_abs(self, btn) -> None:
         self._show_add_move_popover(btn, mode="abs")
 
-    def _show_insert_gap_popover(
-        self,
-        anchor: Gtk.Widget,
-        default_t_us: int | None = None,
-        default_scope: str = "all",
-        pointing_to=None,
-    ) -> None:
-        popover = Gtk.Popover()
-        popover.set_parent(anchor)
-        if pointing_to is not None:
-            popover.set_pointing_to(pointing_to)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-
-        title = Gtk.Label(label="Insert Wait")
-        title.add_css_class("heading")
-        box.append(title)
-
-        at_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        at_row.append(Gtk.Label(label="At:"))
-        at_spin = Gtk.SpinButton()
-        at_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=(default_t_us or 0) / 1000,
-                lower=0,
-                upper=3600000,
-                step_increment=1,
-            )
-        )
-        at_spin.set_digits(0)
-        at_spin.set_width_chars(7)
-        at_row.append(at_spin)
-        at_row.append(Gtk.Label(label="ms"))
-        box.append(at_row)
-
-        gap_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gap_row.append(Gtk.Label(label="Wait:"))
-        gap_spin = Gtk.SpinButton()
-        gap_spin.set_adjustment(Gtk.Adjustment(value=100, lower=1, upper=60000, step_increment=10))
-        gap_spin.set_digits(0)
-        gap_spin.set_width_chars(7)
-        gap_row.append(gap_spin)
-        gap_row.append(Gtk.Label(label="ms"))
-        box.append(gap_row)
-
-        scope_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        scope_row.append(Gtk.Label(label="Scope:"))
-        scope_combo = _build_option_dropdown(_SCOPE_OPTIONS, default_scope,)
-        scope_row.append(scope_combo)
-        box.append(scope_row)
-
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_row.set_halign(Gtk.Align.END)
-        cancel = Gtk.Button(label="Cancel")
-        cancel.connect("clicked", self._on_popover_cancel_clicked, popover)
-        btn_row.append(cancel)
-
-        insert = Gtk.Button(label="Insert")
-        insert.add_css_class("suggested-action")
-
-        def on_insert(_btn) -> None:
-            self._insert_gap(
-                at_us=int(at_spin.get_value() * 1000),
-                gap_us=int(gap_spin.get_value() * 1000),
-                scope=_get_dropdown_selected_id(scope_combo, _SCOPE_OPTIONS, "all"),
-                add_note=True,
-            )
-            popover.popdown()
-
-        insert.connect("clicked", on_insert)
-        btn_row.append(insert)
-        box.append(btn_row)
-
-        popover.set_child(box)
-        popover.popup()
-
     def _show_add_move_popover(
         self,
         anchor: Gtk.Widget,
@@ -3965,13 +3845,7 @@ class MacroEditorDialog(Adw.Dialog):
         self._control_events.append(control)
         self._control_events.sort(key=lambda c: c.t_us)
         self._timeline._selected = control
-        if self._control_affects_timing(control):
-            self._refresh_after_timing_edit()
-            self._on_selection_changed(control)
-            return
-        self._update_stats()
-        self._update_canvas_width()
-        self._timeline.queue_draw()
+        self._refresh_after_timing_edit()
         self._on_selection_changed(control)
 
     def _show_add_control_popover(
@@ -3993,7 +3867,7 @@ class MacroEditorDialog(Adw.Dialog):
         box.set_margin_end(12)
 
         title_text = {
-            "wait_fixed": "Insert Wait (Fixed)",
+            "wait": "Insert Wait (Fixed)",
             "wait_random": "Insert Wait (Random)",
             "exec_sync": "Insert Exec Sync",
             "exec_async": "Insert Exec Async",
@@ -4024,7 +3898,7 @@ class MacroEditorDialog(Adw.Dialog):
         inhibit_check: Gtk.CheckButton | None = None
         cmd_entry: Gtk.Entry | None = None
 
-        if control_mode == "wait_fixed":
+        if control_mode == "wait":
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             row.append(Gtk.Label(label="Duration (ms):"))
             duration_spin_widget = Gtk.SpinButton()
@@ -4111,7 +3985,7 @@ class MacroEditorDialog(Adw.Dialog):
             t_us = int(at_spin.get_value() * 1000)
             control = EditableControl(mode=control_mode, t_us=t_us)
 
-            if control_mode == "wait_fixed" and duration_spin is not None:
+            if control_mode == "wait" and duration_spin is not None:
                 control.duration_ms = max(1, int(duration_spin.get_value()))
             elif control_mode == "wait_random" and min_spin is not None and max_spin is not None:
                 mn = max(1, int(min_spin.get_value()))
@@ -4519,15 +4393,6 @@ class MacroEditorDialog(Adw.Dialog):
         data = dict(self._macro_data)
         data["name"] = name
         data["events"] = raw_events
-        data["gap_notes"] = [
-            {
-                "at_us": int(m.t_us),
-                "gap_ms": int(m.x),
-                "scope": str(m.scope),
-            }
-            for m in self._synthetic_moves
-            if m.mode == "gap"
-        ]
         data["duration_ms"] = duration_us // 1000
         data["device_types"] = device_types
         data["loop_mode"] = _get_dropdown_selected_id(

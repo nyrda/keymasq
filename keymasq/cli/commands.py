@@ -346,7 +346,6 @@ def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonO
         "start_x",
         "start_y",
         "block_mouse_movement",
-        "gap_notes",
     ):
         if key in macro_data:
             macro[key] = macro_data[key]

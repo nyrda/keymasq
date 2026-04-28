@@ -430,6 +430,138 @@ async def test_play_macro_block_mouse_movement_uses_suppression_safeguard() -> N
 
 
 @pytest.mark.asyncio
+async def test_play_macro_block_mouse_movement_renews_suppression_for_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    clock = {"now": 100.0}
+
+    class _FakeLoop:
+        def time(self) -> float:
+            return clock["now"]
+
+    async def fake_sleep(duration: float) -> None:
+        clock["now"] += duration
+
+    begin_mouse_rel_suppression = MagicMock()
+    end_mouse_rel_suppression = MagicMock()
+    monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
+    monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
+    monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
+
+    await _play_macro_task(
+        manager,
+        instance_id=1,
+        macro_events=[{"t_us": 0, "macro_action": "wait", "duration_ms": 10_000}],
+        macro_name="blocked_wait",
+        replay_mouse_movement=True,
+        replay_mouse_clicks=True,
+        speed=1.0,
+        loop_mode="none",
+        loop_count=1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=True,
+    )
+
+    timeouts = [
+        call.kwargs["timeout_s"] for call in begin_mouse_rel_suppression.call_args_list
+    ]
+    assert any(timeout == pytest.approx(11.0) for timeout in timeouts)
+    assert end_mouse_rel_suppression.called
+
+
+@pytest.mark.asyncio
+async def test_play_macro_honors_empty_macro_duration_as_scaled_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    clock = {"now": 100.0}
+    sleep_calls: list[float] = []
+
+    class _FakeLoop:
+        def time(self) -> float:
+            return clock["now"]
+
+    async def fake_sleep(duration: float) -> None:
+        sleep_calls.append(duration)
+        clock["now"] += duration
+
+    monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
+
+    await _play_macro_task(
+        manager,
+        instance_id=1,
+        macro_events=[],
+        macro_event_source=mdm.MacroEventSource(
+            event_count=0,
+            duration_us=10_000_000,
+            iter_events=lambda: iter(()),
+        ),
+        macro_name="empty_space",
+        replay_mouse_movement=True,
+        replay_mouse_clicks=True,
+        speed=2.0,
+        loop_mode="none",
+        loop_count=1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+    )
+
+    assert sleep_calls == [pytest.approx(5.0), 0]
+
+
+@pytest.mark.asyncio
+async def test_play_macro_does_not_double_sleep_when_wait_exceeds_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    clock = {"now": 100.0}
+    sleep_calls: list[float] = []
+
+    class _FakeLoop:
+        def time(self) -> float:
+            return clock["now"]
+
+    async def fake_sleep(duration: float) -> None:
+        sleep_calls.append(duration)
+        clock["now"] += duration
+
+    monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
+
+    await _play_macro_task(
+        manager,
+        instance_id=1,
+        macro_events=[],
+        macro_event_source=mdm.MacroEventSource(
+            event_count=1,
+            duration_us=100_000,
+            iter_events=lambda: iter(
+                [{"t_us": 0, "macro_action": "wait", "duration_ms": 200}]
+            ),
+        ),
+        macro_name="wait_longer_than_duration",
+        replay_mouse_movement=True,
+        replay_mouse_clicks=True,
+        speed=1.0,
+        loop_mode="none",
+        loop_count=1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+    )
+
+    assert sleep_calls == [pytest.approx(0.2), 0]
+
+
+@pytest.mark.asyncio
 async def test_hold_macro_block_mouse_movement_refreshes_suppression_until_release() -> None:
     manager = DeviceManager()
     manager.output_state.mouse_uinput = MagicMock()
@@ -794,7 +926,7 @@ async def test_play_macro_handles_macro_moves_and_unusual_device_type_routing() 
 
 
 @pytest.mark.asyncio
-async def test_play_macro_control_actions_shift_later_deadlines(
+async def test_play_macro_wait_control_actions_shift_later_deadlines(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = DeviceManager()
@@ -823,8 +955,8 @@ async def test_play_macro_control_actions_shift_later_deadlines(
         macro_events=[
             {
                 "t_us": 0,
-                "macro_action": "wait_fixed",
-                "duration_ms": 1,
+                "macro_action": "wait",
+                "duration_ms": 200,
             },
             {
                 "t_us": 100_000,

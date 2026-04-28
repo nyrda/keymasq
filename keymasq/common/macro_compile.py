@@ -382,13 +382,7 @@ def macro_definition_from_events(
 
 
 def _event_end_us(event: JsonObject) -> int:
-    t_us = int(cast(IntLike, event.get("t_us", 0)))
-    action = str(event.get("macro_action", "") or "")
-    if action == "wait_fixed":
-        return t_us + int(cast(IntLike, event.get("duration_ms", 0))) * 1000
-    if action == "wait_random":
-        return t_us + int(cast(IntLike, event.get("max_ms", 0))) * 1000
-    return t_us
+    return int(cast(IntLike, event.get("t_us", 0)))
 
 
 def _append_key_event(
@@ -486,7 +480,7 @@ def _append_wait_event(events: list[JsonObject], args: list[str], t_us: int) -> 
                 "code": 0,
                 "value": 0,
                 "t_us": int(t_us),
-                "macro_action": "wait_fixed",
+                "macro_action": "wait",
                 "duration_ms": duration_ms,
             }
         )

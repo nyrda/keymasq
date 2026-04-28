@@ -45,7 +45,7 @@ keymasq type --print-json "hello"
 |---|---|
 | `--down-ms MS` | Key down duration for each typed key. Default: `10` |
 | `--pause-ms MS` | Pause between typed characters. Default: `20` |
-| `--speed SPEED` | Playback speed multiplier. The compiler does not rewrite waits or timestamps |
+| `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration |
 | `--no-unicode` | Fail on unsupported characters instead of using Linux Ctrl+Shift+U input |
 | `--print-json` | Print the compiled macro JSON instead of playing it |
 
@@ -114,7 +114,7 @@ The compact token grammar intentionally does not support `exec`.
 | Option | Description |
 |---|---|
 | `--json` | Read macro JSON instead of compact event tokens |
-| `--speed SPEED` | Playback speed multiplier. The compiler does not rewrite waits or timestamps |
+| `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration |
 | `--print-json` | Print the compiled macro JSON instead of playing it |
 
 When no compact tokens or JSON payload are given, `play` reads from stdin.
@@ -161,7 +161,7 @@ keymasq macros cancel
 
 | Option | Description |
 |---|---|
-| `--speed SPEED` | Playback speed multiplier |
+| `--speed SPEED` | Playback speed multiplier for event timestamps; explicit wait controls are not scaled |
 
 **Options for `create`:**
 

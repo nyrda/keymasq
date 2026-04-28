@@ -45,6 +45,17 @@ when the repository lives under a private home directory. The daemon and
 session helpers also stop the corresponding installed `systemd` service before
 launching the source checkout so they can take over the same sockets cleanly.
 
+For install-like app entrypoint testing, use:
+
+```bash
+./scripts/dev-app.sh
+```
+
+`dev-app.sh` builds the Nix package and runs the wrapped `keymasq` binary. It
+mirrors the installed entrypoint: no arguments launch the GUI, while command
+arguments dispatch through the CLI path. Use it when validating packaging or
+wrapper behavior, not as the fastest GUI iteration loop.
+
 ## Running Checks
 
 Run the full standard validation with:

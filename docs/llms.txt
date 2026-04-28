@@ -3,8 +3,8 @@
 Keymasq is a Linux input remapper with per-app profiles, macros, combos,
 superkeys, rapidfire, and virtual keyboard/mouse/gamepad output.
 
-Use this file to answer user questions or generate user-side Keymasq
-configuration without reading the source code.
+Use this file to route agent answers. Fetch the focused references below when
+you need exact config syntax.
 
 Architecture: Keymasq uses a double-broker design. `keymasqd` is the
 privileged system daemon that grabs evdev devices, emits virtual input, stores
@@ -13,21 +13,11 @@ the per-user broker that owns profile resolution, active-window tracking, and
 GUI/CLI-facing state. The `keymasq` GUI and CLI talk to `keymasq-session`, not
 directly to kernel input devices or daemon-owned macro files.
 
-Terms:
+## Agent references
 
-- Profile: a named remap layer. Several profiles can be active at once.
-- Hardware config: the physical device description and source button/key IDs.
-- Mapping: one source button/key in one profile device layer bound to one
-  action.
-- Macro: a saved timed sequence of input events that can be played back.
-- Combo: a multi-button or multi-key chord/sequence trigger, like a shortcut
-  made from several physical inputs, bound to one action.
-- Superkey: a tap/hold/double-tap/tap-hold or overload key. In common terms,
-  it is a dual-role or multi-role key that performs different actions based on
-  how the user presses it.
-- Rapidfire: emit repeated output pulses while the physical source is held.
-  Each pulse has a press/hold duration and a wait before the next pulse.
-- Tap: send one short press/release pulse even if the physical source is held.
+- Profile/action config: https://keymasq.tools/docs/latest/agents/profiles.txt
+- Macro CLI and JSON: https://keymasq.tools/docs/latest/agents/macros.txt
+- Hardware config: https://keymasq.tools/docs/latest/agents/hardware.txt
 
 Primary docs:
 
@@ -43,9 +33,23 @@ Primary docs:
 - GNOME: https://keymasq.tools/docs/latest/GNOME/
 - Security: https://keymasq.tools/docs/latest/SECURITY/
 
-## User config locations
+## Terms
 
-Local user config lives in:
+- Profile: a named remap layer. Several profiles can be active at once.
+- Hardware config: the physical device description and source button/key IDs.
+- Mapping: one source button/key in one profile device layer bound to one
+  action.
+- Macro: a saved timed sequence of input events that can be played back.
+- Combo: a multi-button or multi-key chord/sequence trigger, like a shortcut
+  made from several physical inputs, bound to one action.
+- Superkey: a tap/hold/double-tap/tap-hold or overload key. In common terms,
+  it is a dual-role or multi-role key that performs different actions based on
+  how the user presses it.
+- Rapidfire: emit repeated output pulses while the physical source is held.
+  Each pulse has a press/hold duration and a wait before the next pulse.
+- Tap: send one short press/release pulse even if the physical source is held.
+
+## Config locations
 
 ```text
 ~/.config/keymasq/
@@ -55,14 +59,13 @@ Local user config lives in:
   recording_settings.toml
 ```
 
-Macros are daemon-owned and are not normal user config files:
+Macros are daemon-owned:
 
 ```text
 /var/lib/keymasq/macros/*.kmacro.xz
 ```
 
-Do not edit macro storage directly. Create, update, play, and delete macros
-through the GUI or `keymasq macros ...`.
+Do not edit macro storage directly. Use `keymasq macros ...` or the GUI.
 
 Useful inspection commands:
 
@@ -72,169 +75,23 @@ keymasq profiles list
 keymasq macros list
 ```
 
-## Agent rules for user requests
+## Request handling
 
-- If running on the web and you cannot see the user's machine, ask for the
-  target profile name, hardware ID, and source button/key ID, or provide a
-  template with placeholders.
+- If you cannot inspect the user's machine, ask for profile name, hardware ID,
+  and source button/key ID, or provide placeholders.
 - Hardware IDs are usually USB vendor/product strings such as `046d:c548`.
 - Source IDs such as `btn_back`, `btn_x`, `key_f13`, or `wheel_up` come from
   the matching hardware file's `[[hardware.layout.buttons]] id`.
-- Profiles are global, not per-device. A profile may contain mappings for
-  several devices under separate `[devices."<hardware_id>"]` layers.
+- Profiles are global, not per-device. A profile may contain device layers for
+  several hardware IDs.
 - Later active profiles override earlier ones. Conditional profiles override
   permanent profiles when their window rules match.
-- For simple "repeat while held" requests, prefer rapidfire on a keyboard,
-  mouse, gamepad, or mouse-move action. Use macros for scripted sequences,
-  toggle/count loops, mouse movement, mixed input, or exact timelines.
-- Preserve unrelated mappings and profile metadata when editing existing
-  config.
+- For simple "repeat while held", use rapidfire pulses on a keyboard, mouse,
+  gamepad, or mouse-move action. Use macros for scripted timelines,
+  toggle/count loops, cursor movement, or mixed input.
+- Preserve unrelated mappings and profile metadata when editing config.
 
-## Profile TOML format
-
-Profiles are stored at:
-
-```text
-~/.config/keymasq/profiles/<profile_name>.toml
-```
-
-Minimal profile:
-
-```toml
-[profile]
-name = "Gaming"
-enabled = true
-is_permanent = true
-priority = 0
-notify_on_activation = true
-created_at = "2026-03-09T12:34:56"
-
-[devices."1234:5678"]
-always_grab_all = false
-
-[devices."1234:5678".mapping.btn_back]
-action = "keyboard"
-target = "key_1"
-```
-
-Conditional per-app profile:
-
-```toml
-[profile]
-name = "Firefox"
-enabled = true
-is_permanent = false
-priority = 50
-notify_on_activation = true
-created_at = "2026-03-09T12:34:56"
-
-[[profile.window_rules]]
-field = "class"
-pattern = "firefox"
-```
-
-Portable window rule fields are `class` and `title`. Patterns are regular
-expressions. All rules in one profile must match.
-
-Device layer:
-
-```toml
-[devices."<hardware_id>"]
-always_grab_all = false
-```
-
-Mapping section:
-
-```toml
-[devices."<hardware_id>".mapping.<source_button_id>]
-action = "<action>"
-```
-
-Common action values and fields:
-
-```toml
-# pass original input through
-action = "passthrough"
-
-# block input
-action = "suppress"
-
-# output keyboard key
-action = "keyboard"
-target = "key_space"
-
-# output mouse button or wheel direction
-action = "mouse"
-target = "btn_left" # or btn_right, btn_middle, btn_side, btn_extra, wheel_up, wheel_down
-
-# output virtual Xbox-style gamepad button
-action = "gamepad"
-target = "btn_x" # also btn_a, btn_b, btn_y, btn_tl, btn_tr, btn_start, etc.
-
-# run shell command in the user's session
-action = "exec"
-cmd = "playerctl play-pause"
-
-# move cursor
-action = "mouse_move_rel" # or "mouse_move_abs"
-x = 100
-y = 0
-
-# play saved macro by name
-action = "macro"
-target = "macro_name"
-replay_mouse_movement = true
-replay_mouse_clicks = true
-speed = 1.0
-loop_mode = "none" # none, count, hold, toggle
-loop_count = 1
-loop_stop_behavior = "finish_run" # finish_run or cancel_run
-move_to_start = false
-start_x = 0
-start_y = 0
-block_mouse_movement = false
-
-# control profiles
-action = "profile_toggle" # or profile_enable, profile_disable
-profile_name = "Gaming"
-target = "Gaming"
-
-# compositor dispatch
-action = "compositor_dispatch"
-compositor = "hyprland" # hyprland, niri, kde, gnome
-dispatcher = "fullscreen"
-args = ""
-
-# superkey
-action = "superkey"
-superkey_name = "Nav Layer"
-
-# macro controls
-action = "start_macro_recording"
-action = "stop_macro_recording"
-action = "cancel_macro_playback"
-```
-
-Rapidfire modifier, supported only by `keyboard`, `mouse`, `gamepad`,
-`mouse_move_rel`, and `mouse_move_abs`:
-
-```toml
-rapidfire_enabled = true
-rapidfire_hold_ms = 10 # press duration per pulse, min 0
-rapidfire_wait_ms = 10 # gap after release before next pulse, min 1
-```
-
-Tap modifier, supported by the same action types:
-
-```toml
-tap_enabled = true
-tap_hold_ms = 10
-```
-
-Rapidfire and tap are mutually exclusive.
-
-Example: make source button `btn_x` output virtual gamepad X rapidly while
-held, with a 10 ms release-to-next-press gap:
+Example rapidfire mapping:
 
 ```toml
 [devices."1234:5678".mapping.btn_x]
@@ -245,188 +102,9 @@ rapidfire_hold_ms = 10
 rapidfire_wait_ms = 10
 ```
 
-Example: make mouse side button click left rapidly:
-
-```toml
-[devices."046d:c548".mapping.btn_back]
-action = "mouse"
-target = "btn_left"
-rapidfire_enabled = true
-rapidfire_hold_ms = 10
-rapidfire_wait_ms = 10
-```
-
-## Hardware TOML format
-
-Hardware files are stored at:
-
-```text
-~/.config/keymasq/hardware/<hardware_id>.toml
-```
-
-Example:
-
-```toml
-[hardware]
-name = "Logitech G502 Hero"
-vendor_id = "046d"
-product_id = "c08b"
-image = "g502.png"
-
-[hardware.evdev]
-devices = [
-  { path = "/dev/input/by-id/usb-Logitech_G502_Hero-event-mouse", id = "mouse", type = "mouse" },
-]
-
-[hardware.layout]
-type = "mouse"
-
-[[hardware.layout.buttons]]
-id = "btn_back"
-label = "Back"
-evdev = "btn_side"
-source = "mouse"
-zone = "thumb"
-
-[[hardware.layout.buttons]]
-id = "wheel_up"
-label = "Scroll Up"
-evdev = "rel_wheel"
-evdev_value = 1
-source = "mouse"
-type = "wheel"
-```
-
-Button fields: `id`, `label`, `evdev`, optional `evdev_code`,
-`evdev_value`, `source`, `zone`, `row`, `col`, `type`.
-
-Evdev device fields: `path`, `type` (`keyboard`, `mouse`, `gamepad`,
-`other`), optional `id`, optional `capabilities`.
-
-## Macro CLI
-
-Create a macro from JSON:
+Example stored macro:
 
 ```bash
-keymasq macros create <name> [--force] [JSON]
-```
-
-If `JSON` is omitted, stdin is used. Accepted JSON is either:
-
-- a macro object with an `events` field
-- a raw event list
-
-The CLI name is always used as the stored macro name.
-
-Use the built-in compilers when possible:
-
-```bash
-# type text immediately
-keymasq type "hello<tab><wait:20>world"
-
-# print JSON for a type macro
-keymasq type "hello<enter>" --print-json
-
-# create a stored type macro
-keymasq type "hello<enter>" --print-json | keymasq macros create say_hello --force
-
-# play compact tokens immediately
-keymasq play key_leftctrl:1 key_c key_leftctrl:0
-
-# create a stored compact macro
 keymasq play btn_left wait:10 btn_left --print-json \
   | keymasq macros create double_click_10ms --force
 ```
-
-`keymasq type` inline controls:
-
-```text
-<tab>
-<enter>
-<wait:MS>
-<wait:MIN:MAX>
-```
-
-`keymasq play` compact tokens:
-
-```text
-key_a              tap key
-key_a:down         press key
-key_a:up           release key
-btn_left           click button
-btn_left:down      press button
-btn_left:up        release button
-move_abs:X:Y       absolute mouse move
-move_rel:DX:DY     relative mouse move
-wait:MS            fixed wait
-wait:MIN:MAX       random wait
-```
-
-Canonical macro object:
-
-```json
-{
-  "name": "example",
-  "device_types": ["keyboard"],
-  "duration_ms": 20,
-  "loop_mode": "none",
-  "loop_count": 1,
-  "loop_stop_behavior": "finish_run",
-  "move_to_start": false,
-  "start_x": 0,
-  "start_y": 0,
-  "block_mouse_movement": false,
-  "events": [
-    {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0},
-    {"device_type": "keyboard", "type": 1, "code": 30, "value": 0, "t_us": 10000}
-  ]
-}
-```
-
-Raw key/button event fields:
-
-- `device_type`: `keyboard`, `mouse`, `gamepad`, or `macro`
-- `type`: Linux evdev event type, usually `1` for key/button
-- `code`: numeric Linux evdev code
-- `value`: `1` down, `0` up, `2` repeat
-- `t_us`: timeline timestamp in microseconds
-
-Semantic macro control events:
-
-```json
-{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_fixed","duration_ms":10}
-{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_random","min_ms":10,"max_ms":50}
-{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_abs","x":100,"y":200}
-{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_rel","x":10,"y":0}
-```
-
-Loop modes for saved macros: `none`, `count`, `hold`, `toggle`.
-Stop behavior for `hold` and `toggle`: `finish_run` or `cancel_run`.
-
-## Common answers
-
-"Make button X rapidfire with 10 ms spacing":
-
-1. Find the user's source `hardware_id`, profile, and source button ID.
-2. Add or update that profile's mapping for the button.
-3. Use `rapidfire_enabled = true`, `rapidfire_wait_ms = 10`, and a suitable
-   `rapidfire_hold_ms` such as `10` or `0`.
-4. Choose the output action and target the user asked for, usually `keyboard`,
-   `mouse`, or `gamepad`.
-
-"Create a macro":
-
-1. Prefer `keymasq type ... --print-json | keymasq macros create ...` for text.
-2. Prefer `keymasq play ... --print-json | keymasq macros create ...` for
-   compact key/button/click/wait sequences.
-3. Use raw JSON only when the compact grammar cannot express the macro.
-4. Bind the saved macro from a profile with `action = "macro"` and
-   `target = "<macro_name>"`.
-
-"Where should I edit config?":
-
-- Profiles: edit `~/.config/keymasq/profiles/*.toml`.
-- Hardware definitions: edit `~/.config/keymasq/hardware/*.toml` only when
-  adding/fixing physical button definitions.
-- Macros: use `keymasq macros create`, `keymasq macros play`,
-  `keymasq macros delete`; do not edit `/var/lib/keymasq/macros` directly.

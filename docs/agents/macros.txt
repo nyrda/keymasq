@@ -1,0 +1,129 @@
+# Keymasq agent reference: macros
+
+Use this file for `keymasq` macro commands and macro JSON.
+
+Macros are stored in daemon-owned files:
+
+```text
+/var/lib/keymasq/macros/*.kmacro.xz
+```
+
+Do not edit those files directly. Use the GUI or CLI.
+
+## CLI commands
+
+```bash
+keymasq macros list
+keymasq macros create <name> [--force] [JSON]
+keymasq macros play <name> [--speed SPEED]
+keymasq macros delete <name>
+keymasq macros cancel
+```
+
+`macros create` reads stdin when no JSON argument is provided. It accepts
+either a macro object with `events` or a raw event list. The CLI-provided name
+is always used as the stored macro name.
+
+## Built-in compilers
+
+Prefer these over hand-written event JSON when possible.
+
+```bash
+# type text immediately
+keymasq type "hello<tab><wait:20>world"
+
+# print JSON for a type macro
+keymasq type "hello<enter>" --print-json
+
+# create a stored type macro
+keymasq type "hello<enter>" --print-json \
+  | keymasq macros create say_hello --force
+
+# play compact tokens immediately
+keymasq play key_leftctrl:down key_c key_leftctrl:up
+
+# create a stored compact macro
+keymasq play btn_left wait:10 btn_left --print-json \
+  | keymasq macros create double_click_10ms --force
+```
+
+`keymasq type` inline controls:
+
+```text
+<tab>
+<enter>
+<wait:MS>
+<wait:MIN:MAX>
+```
+
+`keymasq play` compact tokens:
+
+```text
+key_a              tap key
+key_a:down         press key
+key_a:up           release key
+btn_left           click button
+btn_left:down      press button
+btn_left:up        release button
+move_abs:X:Y       absolute mouse move
+move_rel:DX:DY     relative mouse move
+wait:MS            fixed wait
+wait:MIN:MAX       random wait
+```
+
+## Macro JSON
+
+Canonical macro object:
+
+```json
+{
+  "name": "example",
+  "device_types": ["keyboard"],
+  "duration_ms": 20,
+  "loop_mode": "none",
+  "loop_count": 1,
+  "loop_stop_behavior": "finish_run",
+  "move_to_start": false,
+  "start_x": 0,
+  "start_y": 0,
+  "block_mouse_movement": false,
+  "events": [
+    {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0},
+    {"device_type": "keyboard", "type": 1, "code": 30, "value": 0, "t_us": 10000}
+  ]
+}
+```
+
+Raw key/button event fields:
+
+- `device_type`: `keyboard`, `mouse`, `gamepad`, or `macro`
+- `type`: Linux evdev event type, usually `1` for key/button
+- `code`: numeric Linux evdev code
+- `value`: `1` down, `0` up, `2` repeat
+- `t_us`: timeline timestamp in microseconds
+
+Semantic macro control events:
+
+```json
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_fixed","duration_ms":10}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_random","min_ms":10,"max_ms":50}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_abs","x":100,"y":200}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_rel","x":10,"y":0}
+```
+
+Loop modes for saved macros: `none`, `count`, `hold`, `toggle`.
+Stop behavior for `hold` and `toggle`: `finish_run` or `cancel_run`.
+
+## Binding a macro from a profile
+
+Create or update the macro first, then reference it by name:
+
+```toml
+[devices."1234:5678".mapping.btn_extra]
+action = "macro"
+target = "double_click_10ms"
+replay_mouse_movement = true
+replay_mouse_clicks = true
+speed = 1.0
+loop_mode = "none"
+```

@@ -12,6 +12,7 @@ site_dir: site
 # MkDocs copies non-Markdown files from docs_dir into the built site.
 not_in_nav: |
   llms.txt
+  agents/*.txt
 
 theme:
   name: material

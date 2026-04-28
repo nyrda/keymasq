@@ -1,0 +1,187 @@
+# Keymasq agent reference: profiles and actions
+
+Use this file for profile TOML, mapping actions, rapidfire, tap, and window
+rules.
+
+Profiles live at:
+
+```text
+~/.config/keymasq/profiles/<profile_name>.toml
+```
+
+Profiles are global remap layers, not per-device configs. A profile can
+contain layers for multiple hardware IDs. Active profiles are merged; later
+active mappings win. Conditional profiles override permanent profiles when
+their window rules match.
+
+## Basic profile
+
+```toml
+[profile]
+name = "Gaming"
+enabled = true
+is_permanent = true
+priority = 0
+notify_on_activation = true
+created_at = "2026-03-09T12:34:56"
+
+[devices."1234:5678"]
+always_grab_all = false
+
+[devices."1234:5678".mapping.btn_back]
+action = "keyboard"
+target = "key_1"
+```
+
+## Conditional profile
+
+```toml
+[profile]
+name = "Firefox"
+enabled = true
+is_permanent = false
+priority = 50
+notify_on_activation = true
+created_at = "2026-03-09T12:34:56"
+
+[[profile.window_rules]]
+field = "class"
+pattern = "firefox"
+```
+
+Portable window rule fields are `class` and `title`. Patterns are regular
+expressions. All rules in one profile must match.
+
+## Device layers and mappings
+
+```toml
+[devices."<hardware_id>"]
+always_grab_all = false
+
+[devices."<hardware_id>".mapping.<source_button_id>]
+action = "<action>"
+```
+
+Unlisted inputs pass through unless another active profile maps them.
+`always_grab_all = true` captures all input from that device while the layer is
+active.
+
+## Action fields
+
+```toml
+# pass original input through
+action = "passthrough"
+
+# block input
+action = "suppress"
+
+# output keyboard key
+action = "keyboard"
+target = "key_space"
+
+# output mouse button or wheel direction
+action = "mouse"
+target = "btn_left"
+
+# output virtual Xbox-style gamepad button
+action = "gamepad"
+target = "btn_x"
+
+# run shell command in the user's session
+action = "exec"
+cmd = "playerctl play-pause"
+
+# move cursor
+action = "mouse_move_rel" # or "mouse_move_abs"
+x = 100
+y = 0
+
+# play saved macro by name
+action = "macro"
+target = "macro_name"
+replay_mouse_movement = true
+replay_mouse_clicks = true
+speed = 1.0
+loop_mode = "none" # none, count, hold, toggle
+loop_count = 1
+loop_stop_behavior = "finish_run" # finish_run or cancel_run
+move_to_start = false
+start_x = 0
+start_y = 0
+block_mouse_movement = false
+
+# control profiles
+action = "profile_toggle" # or profile_enable, profile_disable
+profile_name = "Gaming"
+target = "Gaming"
+
+# compositor dispatch
+action = "compositor_dispatch"
+compositor = "hyprland" # hyprland, niri, kde, gnome
+dispatcher = "fullscreen"
+args = ""
+
+# superkey
+action = "superkey"
+superkey_name = "Nav Layer"
+
+# macro controls
+action = "start_macro_recording"
+action = "stop_macro_recording"
+action = "cancel_macro_playback"
+```
+
+## Rapidfire and tap
+
+Rapidfire emits repeated output pulses while the physical source is held.
+Supported by `keyboard`, `mouse`, `gamepad`, `mouse_move_rel`, and
+`mouse_move_abs`.
+
+```toml
+rapidfire_enabled = true
+rapidfire_hold_ms = 10 # press duration per pulse, min 0
+rapidfire_wait_ms = 10 # gap after release before next pulse, min 1
+```
+
+Tap sends one short pulse even if the physical source is held:
+
+```toml
+tap_enabled = true
+tap_hold_ms = 10
+```
+
+Rapidfire and tap are mutually exclusive.
+
+## Common snippets
+
+Make source button `btn_x` output virtual gamepad X rapidly:
+
+```toml
+[devices."1234:5678".mapping.btn_x]
+action = "gamepad"
+target = "btn_x"
+rapidfire_enabled = true
+rapidfire_hold_ms = 10
+rapidfire_wait_ms = 10
+```
+
+Make mouse side button click left rapidly:
+
+```toml
+[devices."046d:c548".mapping.btn_back]
+action = "mouse"
+target = "btn_left"
+rapidfire_enabled = true
+rapidfire_hold_ms = 10
+rapidfire_wait_ms = 10
+```
+
+Bind a saved macro:
+
+```toml
+[devices."1234:5678".mapping.btn_extra]
+action = "macro"
+target = "double_click_10ms"
+loop_mode = "none"
+speed = 1.0
+```

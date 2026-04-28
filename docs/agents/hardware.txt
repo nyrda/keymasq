@@ -1,0 +1,104 @@
+# Keymasq agent reference: hardware config
+
+Use this file for physical device descriptions and source button/key IDs.
+
+Hardware files live at:
+
+```text
+~/.config/keymasq/hardware/<hardware_id>.toml
+```
+
+The hardware ID is `vendor_id:product_id`, for example `046d:c08b`.
+Profile mappings refer to these IDs under `[devices."<hardware_id>"]`.
+
+Only edit hardware config when adding or fixing physical button/key
+definitions. For normal remaps, edit profiles instead.
+
+## Example hardware file
+
+```toml
+[hardware]
+name = "Logitech G502 Hero"
+vendor_id = "046d"
+product_id = "c08b"
+image = "g502.png"
+
+[hardware.evdev]
+devices = [
+  { path = "/dev/input/by-id/usb-Logitech_G502_Hero-event-mouse", id = "mouse", type = "mouse" },
+]
+
+[hardware.layout]
+type = "mouse"
+
+[[hardware.layout.buttons]]
+id = "btn_back"
+label = "Back"
+evdev = "btn_side"
+source = "mouse"
+zone = "thumb"
+
+[[hardware.layout.buttons]]
+id = "wheel_up"
+label = "Scroll Up"
+evdev = "rel_wheel"
+evdev_value = 1
+source = "mouse"
+type = "wheel"
+```
+
+## Fields
+
+`[hardware]`:
+
+- `name`: display name
+- `vendor_id`: USB/vendor ID string
+- `product_id`: USB/product ID string
+- `image`: optional image filename
+
+`[hardware.evdev].devices` entries:
+
+- `path`: stable `/dev/input/by-id/...` path
+- `type`: `keyboard`, `mouse`, `gamepad`, or `other`
+- `id`: optional source interface ID used by buttons
+- `capabilities`: optional capability list
+
+`[[hardware.layout.buttons]]` entries:
+
+- `id`: source ID used in profile mappings
+- `label`: display label
+- `evdev`: evdev name such as `btn_side`, `key_f13`, or `rel_wheel`
+- `evdev_code`: optional numeric evdev code
+- `evdev_value`: optional value, used for wheel direction
+- `source`: optional evdev device `id`
+- `zone`: optional UI grouping
+- `row`, `col`: optional keyboard/grid placement
+- `type`: optional logical type, such as `wheel` or `key`
+
+## Mapping source IDs
+
+Profile sections use the hardware button `id`, not the raw `evdev` name:
+
+```toml
+[devices."046d:c08b".mapping.btn_back]
+action = "keyboard"
+target = "key_1"
+```
+
+Wheel directions are normal source IDs when present in hardware config:
+
+```toml
+[devices."046d:c08b".mapping.wheel_up]
+action = "keyboard"
+target = "key_pageup"
+```
+
+Xbox-style virtual gamepad output target names include:
+
+```text
+btn_a, btn_b, btn_x, btn_y,
+btn_tl, btn_tr, btn_tl2, btn_tr2,
+btn_select, btn_start, btn_mode,
+btn_thumbl, btn_thumbr,
+btn_dpad_up, btn_dpad_down, btn_dpad_left, btn_dpad_right
+```

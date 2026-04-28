@@ -1,3 +1,17 @@
+keymasq (0.11.0-1) unstable; urgency=medium
+
+  * Add guided GNOME setup dialogs with DBus bridge detection and clearer
+    recovery when GNOME integration needs setup, restart, or logout.
+  * Add a Ctrl+Alt+Esc emergency combo: one tap cancels macro playback, and a
+    double tap triggers an emergency reset.
+  * Improve macro recording saves with pending-save protection and compressed
+    macro storage.
+  * Select newly created profiles immediately and apply them to the running
+    session.
+  * Allow zero-hold rapidfire timing and clamp timing fields to valid values.
+
+ -- nyrda <nyrda@keymasq.tools>  Tue, 28 Apr 2026 02:42:18 +0000
+
 keymasq (0.10.1-1) unstable; urgency=medium
 
   * Add device renaming in device tabs.

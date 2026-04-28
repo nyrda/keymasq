@@ -3,6 +3,21 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.11.0
+
+### Improved
+
+- Added guided GNOME setup dialogs with DBus bridge detection and clearer
+  recovery when GNOME integration needs setup, restart, or logout.
+- Added a Ctrl+Alt+Esc emergency combo: one tap cancels macro playback, and a
+  double tap triggers an emergency reset.
+- Improved macro recording saves with pending-save protection and compressed
+  macro storage.
+- Newly created profiles are now selected immediately and applied to the
+  running session.
+- Rapidfire mappings now support zero-hold timing and clamp timing fields to
+  valid values.
+
 ## 0.10.1
 
 ### Improved

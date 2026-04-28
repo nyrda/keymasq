@@ -37,6 +37,9 @@ from keymasq.gui.widgets.input_picker_shared import (
     build_keyboard_tab as build_shared_keyboard_tab,
 )
 from keymasq.gui.widgets.input_picker_shared import (
+    build_media_tab as build_shared_media_tab,
+)
+from keymasq.gui.widgets.input_picker_shared import (
     build_mouse_tab as build_shared_mouse_tab,
 )
 from keymasq.gui.widgets.input_picker_shared import (
@@ -171,6 +174,16 @@ KEY_TO_EVDEV = {
     "KPEnter": "key_kpenter",
     "KP0": "key_kp0",
     "KP.": "key_kpdot",
+    "Mute": "key_mute",
+    "Volume Down": "key_volumedown",
+    "Volume Up": "key_volumeup",
+    "Mic Mute": "key_micmute",
+    "Play/Pause": "key_playpause",
+    "Play": "key_play",
+    "Pause": "key_pause",
+    "Stop": "key_stop",
+    "Previous Track": "key_previoussong",
+    "Next Track": "key_nextsong",
 }
 
 KEY_WIDTHS = {
@@ -214,6 +227,32 @@ GAMEPAD_BUTTONS = {
 }
 
 F_EXTRA = ["F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"]
+
+MEDIA_KEY_GROUPS = [
+    (
+        "Audio",
+        [
+            ("Mute", "key_mute", "audio-volume-muted-symbolic"),
+            ("Vol Down", "key_volumedown", "audio-volume-low-symbolic"),
+            ("Vol Up", "key_volumeup", "audio-volume-high-symbolic"),
+            ("Mic Mute", "key_micmute", "microphone-sensitivity-muted-symbolic"),
+        ],
+    ),
+    (
+        "Playback",
+        [
+            ("Previous", "key_previoussong", "media-skip-backward-symbolic"),
+            ("Play/Pause", "key_playpause", "media-playback-start-symbolic"),
+            ("Next", "key_nextsong", "media-skip-forward-symbolic"),
+            ("Stop", "key_stop", "media-playback-stop-symbolic"),
+            ("Play", "key_play", "media-playback-start-symbolic"),
+            ("Pause", "key_pause", "media-playback-pause-symbolic"),
+        ],
+    ),
+]
+MEDIA_KEY_TARGETS = {
+    evdev_id for _title, buttons in MEDIA_KEY_GROUPS for _label, evdev_id, _icon_name in buttons
+}
 
 EVDEV_TO_KEY = {v: k for k, v in KEY_TO_EVDEV.items()}
 EVDEV_TO_GAMEPAD = {v[0]: k for k, v in GAMEPAD_BUTTONS.items()}
@@ -376,6 +415,7 @@ class KeySelectorDialog(Adw.Dialog):
         self.stack.add_titled(self._build_special_tab(), "special", "Special")
         self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
         self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
+        self.stack.add_titled(self._build_media_tab(), "media", "Media")
         self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
         for page in self._compositor_action_pages:
             self.stack.add_titled(page.widget, page.page_id, page.title)
@@ -699,6 +739,9 @@ class KeySelectorDialog(Adw.Dialog):
 
     def _build_navigation_tab(self) -> Gtk.Widget:
         return build_shared_navigation_tab(self, f_extra=F_EXTRA)
+
+    def _build_media_tab(self) -> Gtk.Widget:
+        return build_shared_media_tab(self, media_groups=MEDIA_KEY_GROUPS)
 
     def _build_mouse_tab(self) -> Gtk.Widget:
         box = build_shared_mouse_tab(self)
@@ -1672,7 +1715,9 @@ class KeySelectorDialog(Adw.Dialog):
             ActionType.CANCEL_MACRO_PLAYBACK: "macro",
             ActionType.EMERGENCY_RESET: "macro",
             ActionType.EXEC: "special",
-            ActionType.KEYBOARD: "keyboard",
+            ActionType.KEYBOARD: (
+                "media" if self._current_action.target in MEDIA_KEY_TARGETS else "keyboard"
+            ),
             ActionType.MOUSE: "mouse",
             ActionType.MOUSE_MOVE_REL: "mouse",
             ActionType.MOUSE_MOVE_ABS: "mouse",
@@ -1775,6 +1820,7 @@ class SuperkeyActionDialog(Adw.Dialog):
         self.stack.connect("notify::visible-child", self._on_tab_changed)
         self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
         self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
+        self.stack.add_titled(self._build_media_tab(), "media", "Media")
         self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
         self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
         self.stack.add_titled(self._build_macro_tab(), "macro", "Macro")
@@ -2109,7 +2155,9 @@ class SuperkeyActionDialog(Adw.Dialog):
         if not self._current_action:
             return
         tab_map = {
-            ActionType.KEYBOARD: "keyboard",
+            ActionType.KEYBOARD: (
+                "media" if self._current_action.target in MEDIA_KEY_TARGETS else "keyboard"
+            ),
             ActionType.MOUSE: "mouse",
             ActionType.GAMEPAD: "gamepad",
             ActionType.MACRO: "macro",
@@ -2144,6 +2192,9 @@ class SuperkeyActionDialog(Adw.Dialog):
 
     def _build_navigation_tab(self) -> Gtk.Widget:
         return build_shared_navigation_tab(self, f_extra=F_EXTRA)
+
+    def _build_media_tab(self) -> Gtk.Widget:
+        return build_shared_media_tab(self, media_groups=MEDIA_KEY_GROUPS)
 
     def _build_mouse_tab(self) -> Gtk.Widget:
         return build_shared_mouse_tab(self)

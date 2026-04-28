@@ -74,6 +74,21 @@ convenience for finding these keys faster.
 
 ![Navigation tab — arrow keys, Home/End, Page Up/Down, Insert, Delete](assets/screenshots/keymasq_key_action_navigation.png)
 
+## Media
+
+Quick access to common media keys:
+
+- Volume Up, Volume Down, and Mute
+- Microphone Mute
+- Play/Pause, Play, Pause, Stop
+- Previous Track and Next Track
+
+These are the same as Keyboard actions — the Media tab only sends standard
+Linux input key codes such as `key_volumeup`, `key_micmute`, and
+`key_playpause`. Keymasq does not talk to MPRIS, `wpctl`, PulseAudio, PipeWire,
+or a media player directly here. Your desktop environment or focused
+application decides what those key events do.
+
 ## Mouse
 
 ### Mouse Buttons
@@ -298,7 +313,7 @@ options area below the action chooser tabs.
 Rapidfire and tap are **mutually exclusive** — enabling one disables the
 other.
 
-They are available for: Keyboard, Mouse, Navigation, Gamepad, and Mouse Move
+They are available for: Keyboard, Mouse, Navigation, Media, Gamepad, and Mouse Move
 actions. They are not available for: Special, Super Keys, Macro, Profile, or
 Compositor actions.
 

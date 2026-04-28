@@ -185,3 +185,18 @@ target = "double_click_10ms"
 loop_mode = "none"
 speed = 1.0
 ```
+
+Bind a saved superkey:
+
+```toml
+[devices."046d:c548".mapping.btn_forward]
+action = "superkey"
+superkey_name = "copy_or_paste"
+```
+
+Combo definitions are stored inside profile TOML. For combo examples and
+superkey file format, fetch:
+
+```text
+https://keymasq.tools/docs/latest/agents/superkeys-combos.txt
+```

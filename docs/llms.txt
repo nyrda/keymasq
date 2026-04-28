@@ -3,8 +3,9 @@
 Keymasq is a Linux input remapper with per-app profiles, macros, combos,
 superkeys, rapidfire, and virtual keyboard/mouse/gamepad output.
 
-Use this file to route agent answers. Fetch the focused references below when
-you need exact config syntax.
+Use this file as the entry point for web agents. For any task that edits or
+generates Keymasq config, fetch the focused reference below instead of guessing
+syntax from memory.
 
 Architecture: Keymasq uses a double-broker design. `keymasqd` is the
 privileged system daemon that grabs evdev devices, emits virtual input, stores
@@ -15,9 +16,18 @@ directly to kernel input devices or daemon-owned macro files.
 
 ## Agent references
 
-- Profile/action config: https://keymasq.tools/docs/latest/agents/profiles.txt
-- Macro CLI and JSON: https://keymasq.tools/docs/latest/agents/macros.txt
-- Hardware config: https://keymasq.tools/docs/latest/agents/hardware.txt
+- Fetch profiles/actions for profile TOML, mappings, actions, rapidfire,
+  tap, window rules, and binding saved macros:
+  https://keymasq.tools/docs/latest/agents/profiles.txt
+- Fetch macros for `keymasq macros create`, `keymasq type`, `keymasq play`,
+  macro JSON, loop modes, and macro storage:
+  https://keymasq.tools/docs/latest/agents/macros.txt
+- Fetch hardware for hardware IDs, source button/key IDs, evdev devices,
+  wheel inputs, and gamepad output target names:
+  https://keymasq.tools/docs/latest/agents/hardware.txt
+- Fetch superkeys/combos for dual-role keys, tap/hold keys, overload keys,
+  multi-key chords, and multi-step combo triggers:
+  https://keymasq.tools/docs/latest/agents/superkeys-combos.txt
 
 Primary docs:
 
@@ -75,7 +85,7 @@ keymasq profiles list
 keymasq macros list
 ```
 
-## Request handling
+## Agent Rules
 
 - If you cannot inspect the user's machine, ask for profile name, hardware ID,
   and source button/key ID, or provide placeholders.
@@ -94,9 +104,9 @@ keymasq macros list
 Example rapidfire mapping:
 
 ```toml
-[devices."1234:5678".mapping.btn_x]
-action = "gamepad"
-target = "btn_x"
+[devices."046d:c548".mapping.btn_back]
+action = "mouse"
+target = "btn_left"
 rapidfire_enabled = true
 rapidfire_hold_ms = 10
 rapidfire_wait_ms = 10

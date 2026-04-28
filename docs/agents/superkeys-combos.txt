@@ -1,0 +1,133 @@
+# Keymasq agent reference: superkeys and combos
+
+Use this file for dual-role keys, tap/hold keys, overload keys, multi-key
+chords, and multi-step combo triggers.
+
+## Superkeys
+
+Superkeys live in:
+
+```text
+~/.config/keymasq/superkeys/<superkey_name>.toml
+```
+
+A superkey is a saved multi-role key definition. Bind it from a profile with
+`action = "superkey"` and `superkey_name = "<name>"`.
+
+Pattern superkey: tap, double tap, hold, and tap-hold slots can each run one
+or more actions.
+
+```toml
+name = "copy_or_paste"
+mode = "pattern"
+description = "Tap for copy, hold for paste"
+
+[timing]
+hold_threshold_ms = 250
+
+[actions]
+tap = [
+  { action = "keyboard", target = "key_leftctrl" },
+  { action = "keyboard", target = "key_c" },
+]
+hold = [
+  { action = "keyboard", target = "key_leftctrl" },
+  { action = "keyboard", target = "key_v" },
+]
+double_tap = [
+  { action = "keyboard", target = "key_leftctrl" },
+  { action = "keyboard", target = "key_z" },
+]
+```
+
+Overload superkey: one physical source drives several output actions together.
+
+```toml
+name = "ctrl_click_pair"
+mode = "overload"
+
+[actions]
+overload = [
+  { action = "keyboard", target = "key_leftctrl" },
+  { action = "mouse", target = "btn_left" },
+]
+```
+
+Profile binding for a superkey:
+
+```toml
+[devices."046d:c548".mapping.btn_forward]
+action = "superkey"
+superkey_name = "copy_or_paste"
+```
+
+Nested superkeys are not allowed. Pattern superkeys can use normal action
+types such as keyboard, mouse, gamepad, macro, exec, profile, and compositor
+actions.
+
+## Combos
+
+Combos are profile-owned trigger definitions. They are stored inside profile
+TOML files, not in separate combo files. Use combos when several physical
+inputs together should trigger one action.
+
+Combo events store captured hardware identity and evdev input names:
+
+- `hardware_id`: device hardware ID such as `046d:c548`
+- `source`: optional evdev device source ID from the hardware file
+- `evdev`: evdev input name such as `key_leftalt`, `key_r`, or `btn_side`
+
+One-step chord example: press mouse back and forward together to play a macro.
+
+```toml
+[[combos]]
+id = "combo_back_forward"
+name = "Back+Forward -> Macro"
+
+[[combos.steps]]
+events = [
+  { hardware_id = "046d:c548", source = "mouse", evdev = "btn_side" },
+  { hardware_id = "046d:c548", source = "mouse", evdev = "btn_extra" },
+]
+
+[combos.action]
+action = "macro"
+target = "double_click_10ms"
+loop_mode = "none"
+```
+
+Two-step sequence example: Alt+R, then 1 within 600 ms, moves the cursor.
+
+```toml
+[[combos]]
+id = "combo_alt_r_1"
+name = "Alt+R -> 1 -> Move"
+
+[[combos.steps]]
+events = [
+  { hardware_id = "abcd:ef01", source = "kbd", evdev = "key_leftalt" },
+  { hardware_id = "abcd:ef01", source = "kbd", evdev = "key_r" },
+]
+
+[[combos.steps]]
+timeout_ms = 600
+events = [
+  { hardware_id = "abcd:ef01", source = "kbd", evdev = "key_1" },
+]
+
+[combos.action]
+action = "mouse_move_rel"
+x = 20
+y = 20
+```
+
+Optional combo fields:
+
+```toml
+recall_trigger_keys = true
+restore_trigger_keys = ["key_leftalt"]
+```
+
+Prefer the GUI for creating combos when possible because it captures exact
+`hardware_id`, `source`, and `evdev` values. Agents should preserve existing
+combo IDs and unrelated profile mappings when editing profile TOML.

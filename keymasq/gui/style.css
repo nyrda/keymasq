@@ -124,6 +124,27 @@ button.square-key-button {
   min-height: 0;
 }
 
+button.media-key-button {
+  padding: 6px 8px;
+  min-width: 112px;
+  min-height: 58px;
+}
+
+.media-key-icon {
+  opacity: 0.9;
+}
+
+.media-key-label {
+  font-weight: 600;
+}
+
+button.actions-docs-button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-weight: 700;
+}
+
 /* Learn-keys placeholder tile: dashed border, dim, accent on hover */
 .button-card-learn {
   border: 1.5px dashed alpha(@borders, 0.7);

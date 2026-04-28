@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import gi
 
@@ -147,6 +147,78 @@ def build_navigation_tab(
     outer.append(right_box)
 
     return outer
+
+
+def build_media_tab(
+    owner,
+    *,
+    media_groups: Sequence[tuple[str, Sequence[tuple[str, str, str]]]],
+) -> Gtk.ScrolledWindow:
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    outer.set_margin_top(12)
+    outer.set_margin_bottom(12)
+    outer.set_margin_start(12)
+    outer.set_margin_end(12)
+    outer.set_halign(Gtk.Align.CENTER)
+    outer.set_valign(Gtk.Align.CENTER)
+
+    for title, buttons in media_groups:
+        section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        section.set_halign(Gtk.Align.CENTER)
+
+        title_label = Gtk.Label(label=title)
+        title_label.add_css_class("button-section-title")
+        title_label.set_halign(Gtk.Align.START)
+        section.append(title_label)
+
+        grid = Gtk.Grid()
+        grid.set_column_spacing(6)
+        grid.set_row_spacing(6)
+        grid.set_column_homogeneous(True)
+        grid.set_halign(Gtk.Align.CENTER)
+
+        for index, (label, evdev_id, icon_name) in enumerate(buttons):
+            btn = _create_media_key_button(label, evdev_id, icon_name)
+            btn.connect("clicked", owner._on_keyboard_clicked, evdev_id)
+            grid.attach(btn, index % 4, index // 4, 1, 1)
+
+        section.append(grid)
+        outer.append(section)
+
+    scrolled.set_child(outer)
+    return scrolled
+
+
+def _create_media_key_button(label: str, evdev_id: str, icon_name: str) -> Gtk.Button:
+    btn = Gtk.Button()
+    btn.add_css_class("key-button")
+    btn.add_css_class("media-key-button")
+    btn.set_tooltip_text(evdev_id)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+    box.add_css_class("media-key-button-content")
+    box.set_halign(Gtk.Align.CENTER)
+    box.set_valign(Gtk.Align.CENTER)
+
+    icon = Gtk.Image.new_from_icon_name(icon_name)
+    icon.add_css_class("media-key-icon")
+    icon.set_pixel_size(18)
+    box.append(icon)
+
+    label_widget = Gtk.Label(label=label)
+    label_widget.add_css_class("media-key-label")
+    label_widget.set_halign(Gtk.Align.CENTER)
+    label_widget.set_justify(Gtk.Justification.CENTER)
+    label_widget.set_wrap(True)
+    box.append(label_widget)
+
+    btn.set_child(box)
+    btn.set_size_request(112, 58)
+    btn._evdev_name = evdev_id
+    return btn
 
 
 def build_numpad_grid(owner) -> Gtk.Fixed:

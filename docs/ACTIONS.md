@@ -46,7 +46,7 @@ user session (delegated to keymasq-session, not the privileged daemon).
 
 Enter the command text and click **Map**.
 
-![Special tab — Passthrough, Suppress, and Execute Shell Command](assets/screenshots/keymasq_key_action_special.png)
+![Special tab — Passthrough, Suppress, and Execute Shell Command](assets/screenshots/key_selector_special.png)
 
 ## Keyboard
 
@@ -58,7 +58,7 @@ Keymasq detect it automatically, or enter a raw evdev code directly (e.g.
 `125` or `key_leftmeta`). For a full list of evdev codes, see the
 [Linux input event codes header](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h).
 
-![Keyboard tab — visual layout with Capture Key and raw code entry](assets/screenshots/keymasq_key_action_keyboard.png)
+![Keyboard tab — visual layout with Capture Key and raw code entry](assets/screenshots/key_selector_keyboard.png)
 
 ## Navigation
 
@@ -72,7 +72,24 @@ A focused set of navigation and function keys for quick access:
 These are the same as Keyboard actions — the Navigation tab is just a
 convenience for finding these keys faster.
 
-![Navigation tab — arrow keys, Home/End, Page Up/Down, Insert, Delete](assets/screenshots/keymasq_key_action_navigation.png)
+![Navigation tab — arrow keys, Home/End, Page Up/Down, Insert, Delete](assets/screenshots/key_selector_navigation.png)
+
+## Media
+
+Quick access to common media keys:
+
+- Volume Up, Volume Down, and Mute
+- Microphone Mute
+- Play/Pause, Play, Pause, Stop
+- Previous Track and Next Track
+
+These are the same as Keyboard actions — the Media tab only sends standard
+Linux input key codes such as `key_volumeup`, `key_micmute`, and
+`key_playpause`. Keymasq does not talk to MPRIS, `wpctl`, PulseAudio, PipeWire,
+or a media player directly here. Your desktop environment or focused
+application decides what those key events do.
+
+![Media tab — audio and playback media key actions](assets/screenshots/key_selector_media.png)
 
 ## Mouse
 
@@ -109,7 +126,7 @@ Absolute mouse moves use a session-native cursor setter when the active
 listener provides one, including Hyprland and X11. Other sessions fall back to
 keymasqd's virtual mouse output.
 
-![Mouse tab — buttons and Move Cursor with Relative/Absolute mode](assets/screenshots/keymasq_key_action_mouse.png)
+![Mouse tab — buttons and Move Cursor with Relative/Absolute mode](assets/screenshots/key_selector_mouse.png)
 
 ## Gamepad
 
@@ -122,7 +139,7 @@ Map to a gamepad button or trigger. Available inputs include:
 - D-Pad (Up, Down, Left, Right)
 - Select, Start, Guide
 
-![Gamepad tab — face buttons, shoulders, triggers, D-pad, and sticks](assets/screenshots/keymasq_key_action_gamepad.png)
+![Gamepad tab — face buttons, shoulders, triggers, D-pad, and sticks](assets/screenshots/key_selector_gamepad.png)
 
 ## Compositor
 
@@ -150,7 +167,7 @@ custom dispatcher and arguments manually.
 For custom dispatchers, enter the dispatcher name and any arguments in the
 text fields.
 
-![Hyprland tab — preset dropdown and custom dispatcher fields](assets/screenshots/keymasq_key_action_hyprland.png)
+![Hyprland tab — preset dropdown and custom dispatcher fields](assets/screenshots/key_selector_hyprland.png)
 
 ### Niri
 
@@ -239,6 +256,8 @@ Super keys have two modes:
 - **Overload**: the source key behaves like a one-to-many normal mapping and
   forwards its down, repeat, and up cycle to multiple child actions.
 
+![Super Keys tab — choose a saved super key action](assets/screenshots/key_selector_superkeys.png)
+
 ## Macro
 
 Trigger macro recording controls or play a saved macro.
@@ -268,7 +287,7 @@ pressed, the selected macro plays back.
 See [Macros](MACROS.md) for details on creating macros, loop modes, and
 editing.
 
-![Macro tab — recording controls, macro list, and playback options](assets/screenshots/keymasq_key_action_macro.png)
+![Macro tab — recording controls, macro list, and playback options](assets/screenshots/key_selector_macro.png)
 
 ## Profile
 
@@ -287,7 +306,7 @@ hint label below shows what the mapping will do (e.g. "Toggle profile
 Profile actions fire once on key press — they don't have a press/release
 lifecycle.
 
-![Profile tab — Toggle/Enable/Disable dropdown and profile selector](assets/screenshots/keymasq_key_action_profile.png)
+![Profile tab — Toggle/Enable/Disable dropdown and profile selector](assets/screenshots/key_selector_profile.png)
 
 ## Action Modifiers
 
@@ -298,7 +317,7 @@ options area below the action chooser tabs.
 Rapidfire and tap are **mutually exclusive** — enabling one disables the
 other.
 
-They are available for: Keyboard, Mouse, Navigation, Gamepad, and Mouse Move
+They are available for: Keyboard, Mouse, Navigation, Media, Gamepad, and Mouse Move
 actions. They are not available for: Special, Super Keys, Macro, Profile, or
 Compositor actions.
 
@@ -327,8 +346,6 @@ and enable Rapidfire. Use a [macro](MACROS.md) instead when you need a more
 scripted pattern, such as double-clicks, cursor movement, mixed keyboard and
 mouse input, or toggle/count playback.
 
-![Rapidfire enabled — hold and wait duration spinners](assets/screenshots/keymasq_key_action_rapidfire.png)
-
 ### Tap
 
 When tap is enabled, pressing the key sends a single short pulse regardless
@@ -344,8 +361,6 @@ accidentally hold, ensuring consistent short inputs.
 
 With mouse move actions, tap emits the movement once and ignores how long the
 key is held.
-
-![Tap enabled — hold duration spinner](assets/screenshots/keymasq_key_action_tap.png)
 
 ## Safety Note
 

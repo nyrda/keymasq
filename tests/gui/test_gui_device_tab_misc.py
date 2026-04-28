@@ -1027,3 +1027,78 @@ def test_shared_navigation_picker_builds_dropdown():
 
     assert isinstance(widget, Gtk.Box)
     assert isinstance(owner.f_dropdown, Gtk.DropDown)
+
+
+def test_shared_media_picker_builds_icon_buttons():
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.input_picker_shared import build_media_tab
+    from keymasq.gui.widgets.key_selector_dialog import MEDIA_KEY_GROUPS
+
+    class _Owner:
+        def __init__(self) -> None:
+            self.clicked: list[str] = []
+
+        def _on_keyboard_clicked(self, _btn, evdev_id: str) -> None:
+            self.clicked.append(evdev_id)
+
+    def collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
+        buttons: list[Gtk.Button] = []
+        if isinstance(widget, Gtk.Button):
+            buttons.append(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    owner = _Owner()
+    widget = build_media_tab(owner, media_groups=MEDIA_KEY_GROUPS)
+
+    assert isinstance(widget, Gtk.ScrolledWindow)
+    buttons = collect_buttons(widget)
+    assert len(buttons) == 10
+    assert isinstance(buttons[0].get_child(), Gtk.Box)
+
+    buttons[2].emit("clicked")
+
+    assert owner.clicked == ["key_volumeup"]
+
+
+def test_key_selector_dialog_opens_media_tab_for_media_key_action():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        current_action=MappingAction(action_type=ActionType.KEYBOARD, target="key_playpause"),
+    )
+
+    assert dialog.stack.get_visible_child_name() == "media"
+
+
+def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.MonkeyPatch):
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "__version__", "1.2.3")
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+
+    dialog.stack.set_visible_child_name("media")
+
+    assert dialog.actions_docs_btn.get_visible() is True
+    assert dialog.actions_docs_btn.get_tooltip_text() == "Open Media documentation"
+    assert dialog._active_actions_docs_link() == ("media", "Media")
+    assert dialog_module._actions_docs_url("media") == (
+        "https://keymasq.tools/docs/1.2.3/ACTIONS/#media"
+    )
+
+    dialog.stack.set_visible_child_name("mouse")
+
+    assert dialog.actions_docs_btn.get_tooltip_text() == "Open Mouse documentation"

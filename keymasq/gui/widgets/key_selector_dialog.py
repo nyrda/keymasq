@@ -14,6 +14,7 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
     Gtk,  # pyright: ignore[reportAttributeAccessIssue]
 )
 
+from keymasq import __version__
 from keymasq.common.models import (
     MIN_RAPIDFIRE_HOLD_MS,
     MIN_RAPIDFIRE_WAIT_MS,
@@ -35,6 +36,9 @@ from keymasq.gui.widgets.input_picker_shared import (
 )
 from keymasq.gui.widgets.input_picker_shared import (
     build_keyboard_tab as build_shared_keyboard_tab,
+)
+from keymasq.gui.widgets.input_picker_shared import (
+    build_media_tab as build_shared_media_tab,
 )
 from keymasq.gui.widgets.input_picker_shared import (
     build_mouse_tab as build_shared_mouse_tab,
@@ -171,6 +175,16 @@ KEY_TO_EVDEV = {
     "KPEnter": "key_kpenter",
     "KP0": "key_kp0",
     "KP.": "key_kpdot",
+    "Mute": "key_mute",
+    "Volume Down": "key_volumedown",
+    "Volume Up": "key_volumeup",
+    "Mic Mute": "key_micmute",
+    "Play/Pause": "key_playpause",
+    "Play": "key_play",
+    "Pause": "key_pause",
+    "Stop": "key_stop",
+    "Previous Track": "key_previoussong",
+    "Next Track": "key_nextsong",
 }
 
 KEY_WIDTHS = {
@@ -215,10 +229,72 @@ GAMEPAD_BUTTONS = {
 
 F_EXTRA = ["F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"]
 
+MEDIA_KEY_GROUPS = [
+    (
+        "Audio",
+        [
+            ("Mute", "key_mute", "audio-volume-muted-symbolic"),
+            ("Vol Down", "key_volumedown", "audio-volume-low-symbolic"),
+            ("Vol Up", "key_volumeup", "audio-volume-high-symbolic"),
+            ("Mic Mute", "key_micmute", "microphone-sensitivity-muted-symbolic"),
+        ],
+    ),
+    (
+        "Playback",
+        [
+            ("Previous", "key_previoussong", "media-skip-backward-symbolic"),
+            ("Play/Pause", "key_playpause", "media-playback-start-symbolic"),
+            ("Next", "key_nextsong", "media-skip-forward-symbolic"),
+            ("Stop", "key_stop", "media-playback-stop-symbolic"),
+            ("Play", "key_play", "media-playback-start-symbolic"),
+            ("Pause", "key_pause", "media-playback-pause-symbolic"),
+        ],
+    ),
+]
+MEDIA_KEY_TARGETS = {
+    evdev_id for _title, buttons in MEDIA_KEY_GROUPS for _label, evdev_id, _icon_name in buttons
+}
+
+ACTION_DOC_LINKS = {
+    "special": ("special", "Special"),
+    "keyboard": ("keyboard", "Keyboard"),
+    "navigation": ("navigation", "Navigation"),
+    "media": ("media", "Media"),
+    "mouse": ("mouse", "Mouse"),
+    "gamepad": ("gamepad", "Gamepad"),
+    "hyprland": ("hyprland", "Hyprland"),
+    "niri": ("niri", "Niri"),
+    "kde": ("kde-plasma", "KDE Plasma"),
+    "gnome": ("gnome", "GNOME"),
+    "superkey": ("super-keys", "Super Keys"),
+    "macro": ("macro", "Macro"),
+    "profile": ("profile", "Profile"),
+    "exec": ("execute-shell-command", "Command"),
+}
+
 EVDEV_TO_KEY = {v: k for k, v in KEY_TO_EVDEV.items()}
 EVDEV_TO_GAMEPAD = {v[0]: k for k, v in GAMEPAD_BUTTONS.items()}
 
 _compact_tabs_css_installed = False
+
+
+def _docs_version() -> str:
+    version = __version__.strip()
+    if not version or "dev" in version:
+        return "latest"
+    return version
+
+
+def _actions_docs_url(anchor: str) -> str:
+    return f"https://keymasq.tools/docs/{_docs_version()}/ACTIONS/#{anchor}"
+
+
+def _create_actions_docs_button() -> Gtk.Button:
+    btn = Gtk.Button(label="?")
+    btn.add_css_class("flat")
+    btn.add_css_class("actions-docs-button")
+    btn.set_tooltip_text("Open documentation for this tab")
+    return btn
 
 
 def _ensure_compact_tabs_css() -> None:
@@ -376,6 +452,7 @@ class KeySelectorDialog(Adw.Dialog):
         self.stack.add_titled(self._build_special_tab(), "special", "Special")
         self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
         self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
+        self.stack.add_titled(self._build_media_tab(), "media", "Media")
         self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
         for page in self._compositor_action_pages:
             self.stack.add_titled(page.widget, page.page_id, page.title)
@@ -438,10 +515,19 @@ class KeySelectorDialog(Adw.Dialog):
         inner.append(Gtk.Separator())
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        footer.set_halign(Gtk.Align.END)
+        footer.set_hexpand(True)
         footer.set_margin_top(8)
         footer.set_margin_bottom(8)
+        footer.set_margin_start(12)
         footer.set_margin_end(12)
+
+        self.actions_docs_btn = _create_actions_docs_button()
+        self.actions_docs_btn.connect("clicked", self._on_actions_docs_clicked)
+        footer.append(self.actions_docs_btn)
+
+        footer_spacer = Gtk.Box()
+        footer_spacer.set_hexpand(True)
+        footer.append(footer_spacer)
 
         self.map_btn = Gtk.Button(label="Map")
         self.map_btn.add_css_class("suggested-action")
@@ -700,6 +786,9 @@ class KeySelectorDialog(Adw.Dialog):
     def _build_navigation_tab(self) -> Gtk.Widget:
         return build_shared_navigation_tab(self, f_extra=F_EXTRA)
 
+    def _build_media_tab(self) -> Gtk.Widget:
+        return build_shared_media_tab(self, media_groups=MEDIA_KEY_GROUPS)
+
     def _build_mouse_tab(self) -> Gtk.Widget:
         box = build_shared_mouse_tab(self)
         box.append(Gtk.Separator())
@@ -946,6 +1035,35 @@ class KeySelectorDialog(Adw.Dialog):
             self.map_btn.set_sensitive(bool(self._selected_profile_name))
         else:
             self.map_btn.set_sensitive(False)
+        self._update_actions_docs_button()
+
+    def _active_actions_docs_link(self) -> tuple[str, str] | None:
+        child_name = self.stack.get_visible_child_name()
+        if not child_name:
+            return None
+        return ACTION_DOC_LINKS.get(child_name)
+
+    def _update_actions_docs_button(self) -> None:
+        if not hasattr(self, "actions_docs_btn"):
+            return
+        link = self._active_actions_docs_link()
+        self.actions_docs_btn.set_visible(link is not None)
+        if link is None:
+            return
+        _anchor, title = link
+        self.actions_docs_btn.set_tooltip_text(f"Open {title} documentation")
+
+    def _on_actions_docs_clicked(self, _button: Gtk.Button) -> None:
+        link = self._active_actions_docs_link()
+        if link is None:
+            return
+        anchor, _title = link
+        url = _actions_docs_url(anchor)
+        try:
+            launcher = Gtk.UriLauncher.new(url)
+            launcher.launch(None, None, None)
+        except Exception as exc:
+            log.warning("Could not open action documentation %s: %s", url, exc)
 
     def _warn_and_clear_unsupported_rapidfire(self, action_type: ActionType) -> None:
         if not self._rapidfire_enabled or action_type_supports_rapidfire(action_type):
@@ -1672,7 +1790,9 @@ class KeySelectorDialog(Adw.Dialog):
             ActionType.CANCEL_MACRO_PLAYBACK: "macro",
             ActionType.EMERGENCY_RESET: "macro",
             ActionType.EXEC: "special",
-            ActionType.KEYBOARD: "keyboard",
+            ActionType.KEYBOARD: (
+                "media" if self._current_action.target in MEDIA_KEY_TARGETS else "keyboard"
+            ),
             ActionType.MOUSE: "mouse",
             ActionType.MOUSE_MOVE_REL: "mouse",
             ActionType.MOUSE_MOVE_ABS: "mouse",
@@ -1775,6 +1895,7 @@ class SuperkeyActionDialog(Adw.Dialog):
         self.stack.connect("notify::visible-child", self._on_tab_changed)
         self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
         self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
+        self.stack.add_titled(self._build_media_tab(), "media", "Media")
         self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
         self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
         self.stack.add_titled(self._build_macro_tab(), "macro", "Macro")
@@ -1817,10 +1938,19 @@ class SuperkeyActionDialog(Adw.Dialog):
         inner.append(Gtk.Separator())
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_box.set_halign(Gtk.Align.END)
+        btn_box.set_hexpand(True)
         btn_box.set_margin_top(8)
         btn_box.set_margin_bottom(8)
+        btn_box.set_margin_start(12)
         btn_box.set_margin_end(12)
+
+        self.actions_docs_btn = _create_actions_docs_button()
+        self.actions_docs_btn.connect("clicked", self._on_actions_docs_clicked)
+        btn_box.append(self.actions_docs_btn)
+
+        footer_spacer = Gtk.Box()
+        footer_spacer.set_hexpand(True)
+        btn_box.append(footer_spacer)
 
         clear_btn = Gtk.Button(label="Clear")
         clear_btn.connect("clicked", self._on_clear_clicked)
@@ -1909,6 +2039,35 @@ class SuperkeyActionDialog(Adw.Dialog):
         is_exec = self.stack.get_visible_child_name() == "exec"
         if self.rapidfire_check:
             self.options_box.set_visible(not is_exec)
+        self._update_actions_docs_button()
+
+    def _active_actions_docs_link(self) -> tuple[str, str] | None:
+        child_name = self.stack.get_visible_child_name()
+        if not child_name:
+            return None
+        return ACTION_DOC_LINKS.get(child_name)
+
+    def _update_actions_docs_button(self) -> None:
+        if not hasattr(self, "actions_docs_btn"):
+            return
+        link = self._active_actions_docs_link()
+        self.actions_docs_btn.set_visible(link is not None)
+        if link is None:
+            return
+        _anchor, title = link
+        self.actions_docs_btn.set_tooltip_text(f"Open {title} documentation")
+
+    def _on_actions_docs_clicked(self, _button: Gtk.Button) -> None:
+        link = self._active_actions_docs_link()
+        if link is None:
+            return
+        anchor, _title = link
+        url = _actions_docs_url(anchor)
+        try:
+            launcher = Gtk.UriLauncher.new(url)
+            launcher.launch(None, None, None)
+        except Exception as exc:
+            log.warning("Could not open action documentation %s: %s", url, exc)
 
     def _warn_and_clear_unsupported_rapidfire(self, action_type: ActionType) -> None:
         if not self._rapidfire_enabled or action_type_supports_rapidfire(action_type):
@@ -2109,7 +2268,9 @@ class SuperkeyActionDialog(Adw.Dialog):
         if not self._current_action:
             return
         tab_map = {
-            ActionType.KEYBOARD: "keyboard",
+            ActionType.KEYBOARD: (
+                "media" if self._current_action.target in MEDIA_KEY_TARGETS else "keyboard"
+            ),
             ActionType.MOUSE: "mouse",
             ActionType.GAMEPAD: "gamepad",
             ActionType.MACRO: "macro",
@@ -2144,6 +2305,9 @@ class SuperkeyActionDialog(Adw.Dialog):
 
     def _build_navigation_tab(self) -> Gtk.Widget:
         return build_shared_navigation_tab(self, f_extra=F_EXTRA)
+
+    def _build_media_tab(self) -> Gtk.Widget:
+        return build_shared_media_tab(self, media_groups=MEDIA_KEY_GROUPS)
 
     def _build_mouse_tab(self) -> Gtk.Widget:
         return build_shared_mouse_tab(self)

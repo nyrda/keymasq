@@ -1078,3 +1078,27 @@ def test_key_selector_dialog_opens_media_tab_for_media_key_action():
     )
 
     assert dialog.stack.get_visible_child_name() == "media"
+
+
+def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.MonkeyPatch):
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "__version__", "1.2.3")
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+
+    dialog.stack.set_visible_child_name("media")
+
+    assert dialog.actions_docs_btn.get_visible() is True
+    assert dialog.actions_docs_btn.get_tooltip_text() == "Open Media documentation"
+    assert dialog._active_actions_docs_link() == ("media", "Media")
+    assert dialog_module._actions_docs_url("media") == (
+        "https://keymasq.tools/docs/1.2.3/ACTIONS/#media"
+    )
+
+    dialog.stack.set_visible_child_name("mouse")
+
+    assert dialog.actions_docs_btn.get_tooltip_text() == "Open Mouse documentation"

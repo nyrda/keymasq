@@ -20,6 +20,8 @@ multi-step automation.
 
 - [Install](INSTALL.md) — package installs for Arch, Debian/Ubuntu, Fedora,
   and NixOS, plus a from-source path.
+- [Getting Started](GETTING_STARTED.md) — open Keymasq, add a device, and
+  create your first remap after installing.
 - [Profiles](PROFILES.md) — the layered, window-aware profile model that
   everything else builds on.
 - [Actions](ACTIONS.md) — what each mapping can do.

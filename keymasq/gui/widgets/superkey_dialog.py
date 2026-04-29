@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 
 import gi
@@ -7,6 +8,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq import __version__
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -19,6 +21,21 @@ from keymasq.common.models import (
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.session.profiles import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
+
+log = logging.getLogger("keymasq.gui.widgets.superkey_dialog")
+
+
+def _docs_version() -> str:
+    version = __version__.strip()
+    if not version:
+        return "latest"
+    if "dev" in version:
+        return "master"
+    return version
+
+
+def _superkeys_docs_url() -> str:
+    return f"https://keymasq.tools/docs/{_docs_version()}/SUPERKEYS/"
 
 
 def _append_action_state_markers(label: str, action: object) -> str:
@@ -390,6 +407,7 @@ class SuperkeyDialog(Adw.Dialog):
         self._current_config: SuperkeyConfig | None = None
         self._modified = False
         self._mode_items = [SuperkeyMode.PATTERN, SuperkeyMode.OVERLOAD]
+        self.new_superkey_row: Gtk.ListBoxRow | None = None
 
         self._build_ui()
         self._load_superkeys()
@@ -439,19 +457,16 @@ class SuperkeyDialog(Adw.Dialog):
 
         box.append(scrolled)
 
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
-        new_btn = Gtk.Button(label="New")
-        new_btn.connect("clicked", self._on_new_clicked)
-        btn_box.append(new_btn)
+        self.superkeys_docs_btn = Gtk.Button(label="?")
+        self.superkeys_docs_btn.add_css_class("flat")
+        self.superkeys_docs_btn.add_css_class("actions-docs-button")
+        self.superkeys_docs_btn.set_tooltip_text("Open Super Keys documentation")
+        self.superkeys_docs_btn.connect("clicked", self._on_superkeys_docs_clicked)
+        footer.append(self.superkeys_docs_btn)
 
-        self.delete_btn = Gtk.Button(label="Delete")
-        self.delete_btn.set_sensitive(False)
-        self.delete_btn.add_css_class("destructive-action")
-        self.delete_btn.connect("clicked", self._on_delete_clicked)
-        btn_box.append(self.delete_btn)
-
-        box.append(btn_box)
+        box.append(footer)
         return box
 
     def _build_right_panel(self) -> Gtk.Widget:
@@ -556,37 +571,37 @@ class SuperkeyDialog(Adw.Dialog):
         self.editor_box.append(self.timing_group)
         self.right_box.append(self.editor_box)
 
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        btn_box.set_halign(Gtk.Align.END)
-        btn_box.set_margin_top(12)
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        footer.set_hexpand(True)
+        footer.set_margin_top(12)
 
-        top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        top_row.set_halign(Gtk.Align.END)
+        self.delete_btn = Gtk.Button(label="Delete")
+        self.delete_btn.set_sensitive(False)
+        self.delete_btn.add_css_class("destructive-action")
+        self.delete_btn.connect("clicked", self._on_delete_clicked)
+        footer.append(self.delete_btn)
 
-        self.revert_btn = Gtk.Button(label="Revert")
-        self.revert_btn.set_sensitive(False)
-        self.revert_btn.connect("clicked", self._on_revert_clicked)
-        top_row.append(self.revert_btn)
+        footer_spacer = Gtk.Box()
+        footer_spacer.set_hexpand(True)
+        footer.append(footer_spacer)
 
         self.save_btn = Gtk.Button(label="Save")
         self.save_btn.add_css_class("suggested-action")
         self.save_btn.set_sensitive(False)
         self.save_btn.connect("clicked", self._on_save_clicked)
-        top_row.append(self.save_btn)
+        footer.append(self.save_btn)
 
-        btn_box.append(top_row)
-
-        bottom_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        bottom_row.set_halign(Gtk.Align.END)
+        self.revert_btn = Gtk.Button(label="Revert")
+        self.revert_btn.set_sensitive(False)
+        self.revert_btn.connect("clicked", self._on_revert_clicked)
+        footer.append(self.revert_btn)
 
         close_btn = Gtk.Button(label="Close")
         close_btn.connect("clicked", self._on_close_clicked)
-        bottom_row.append(close_btn)
+        footer.append(close_btn)
         self.close_btn = close_btn
 
-        btn_box.append(bottom_row)
-
-        self.right_box.append(btn_box)
+        self.right_box.append(footer)
         self._update_mode_visibility()
         return self.right_box
 
@@ -641,6 +656,27 @@ class SuperkeyDialog(Adw.Dialog):
         row.add_suffix(clear_btn)
         return row
 
+    def _build_new_superkey_row(self) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row._is_new_superkey = True
+        row.add_css_class("superkey-add-row")
+        row.set_tooltip_text("Add a new Super Key")
+        label = Gtk.Label(label="+ Add", xalign=0)
+        label.add_css_class("dim-label")
+        row.set_child(label)
+        return row
+
+    def _build_saved_superkey_row(self, name: str) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row._superkey_name = name
+        label = Gtk.Label(label=name, xalign=0)
+        label.set_margin_start(6)
+        label.set_margin_end(6)
+        label.set_margin_top(6)
+        label.set_margin_bottom(6)
+        row.set_child(label)
+        return row
+
     def _current_mode(self) -> SuperkeyMode:
         return self._mode_items[self.mode_dropdown.get_selected()]
 
@@ -658,22 +694,15 @@ class SuperkeyDialog(Adw.Dialog):
 
         names = self.manager.list_superkeys()
         for name in names:
-            label = Gtk.Label(label=name, xalign=0)
-            label.set_margin_start(6)
-            label.set_margin_end(6)
-            label.set_margin_top(6)
-            label.set_margin_bottom(6)
-            self.list_box.append(label)
+            self.list_box.append(self._build_saved_superkey_row(name))
+
+        self.new_superkey_row = self._build_new_superkey_row()
+        self.list_box.append(self.new_superkey_row)
 
         if names:
             self.list_box.select_row(self.list_box.get_row_at_index(0))
         else:
-            self.list_box.select_row(None)
-            self._current_config = None
-            self.editor_box.set_sensitive(False)
-            self.delete_btn.set_sensitive(False)
-            self._modified = False
-            self._update_buttons()
+            self.list_box.select_row(self.new_superkey_row)
 
     def _on_superkey_selected(self, _list_box, row) -> None:
         if row is None:
@@ -684,8 +713,18 @@ class SuperkeyDialog(Adw.Dialog):
             self._update_buttons()
             return
 
-        label = row.get_child()
-        name = label.get_label()
+        if getattr(row, "_is_new_superkey", False):
+            self._begin_new_superkey()
+            return
+
+        name = getattr(row, "_superkey_name", None)
+        if not name:
+            self._current_config = None
+            self.editor_box.set_sensitive(False)
+            self.delete_btn.set_sensitive(False)
+            self._modified = False
+            self._update_buttons()
+            return
         self._current_config = self.manager.get_superkey(name)
         if self._current_config:
             self._populate_editor()
@@ -801,8 +840,7 @@ class SuperkeyDialog(Adw.Dialog):
         self.revert_btn.set_sensitive(self._modified)
         self.save_btn.set_sensitive(self._modified)
 
-    def _on_new_clicked(self, _button) -> None:
-        self.list_box.select_row(None)
+    def _begin_new_superkey(self) -> None:
         self._current_config = SuperkeyConfig(name="New Super Key")
         self._populate_editor()
         self.editor_box.set_sensitive(True)
@@ -810,6 +848,15 @@ class SuperkeyDialog(Adw.Dialog):
         self._modified = True
         self._update_buttons()
         self.name_entry.grab_focus()
+
+    def _on_new_clicked(self, _button) -> None:
+        if (
+            self.new_superkey_row is not None
+            and self.list_box.get_selected_row() is not self.new_superkey_row
+        ):
+            self.list_box.select_row(self.new_superkey_row)
+        else:
+            self._begin_new_superkey()
 
     def start_new_superkey(self) -> None:
         self._on_new_clicked(None)
@@ -896,8 +943,7 @@ class SuperkeyDialog(Adw.Dialog):
             row = self.list_box.get_row_at_index(idx)
             if row is None:
                 break
-            label = row.get_child()
-            if label and label.get_label() == name:
+            if getattr(row, "_superkey_name", None) == name:
                 self.list_box.select_row(row)
                 break
             idx += 1
@@ -937,3 +983,11 @@ class SuperkeyDialog(Adw.Dialog):
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
         self.close()
+
+    def _on_superkeys_docs_clicked(self, _button: Gtk.Button) -> None:
+        url = _superkeys_docs_url()
+        try:
+            launcher = Gtk.UriLauncher.new(url)
+            launcher.launch(None, None, None)
+        except Exception as exc:
+            log.warning("Could not open Super Keys documentation %s: %s", url, exc)

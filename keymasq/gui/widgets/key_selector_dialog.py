@@ -280,8 +280,10 @@ _compact_tabs_css_installed = False
 
 def _docs_version() -> str:
     version = __version__.strip()
-    if not version or "dev" in version:
+    if not version:
         return "latest"
+    if "dev" in version:
+        return "master"
     return version
 
 

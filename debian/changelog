@@ -1,3 +1,10 @@
+keymasq (0.12.0-1) unstable; urgency=medium
+
+  * Allow type actions to use a 0 ms hold time.
+  * Add a dedicated media remapping tab.
+
+ -- nyrda <nyrda@keymasq.tools>  Wed, 29 Apr 2026 01:22:51 +0000
+
 keymasq (0.11.0-1) unstable; urgency=medium
 
   * Add guided GNOME setup dialogs with DBus bridge detection and clearer

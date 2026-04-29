@@ -3,6 +3,13 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.12.0
+
+### Improved
+
+- Type actions can now use a 0 ms hold time.
+- Added a dedicated media remapping tab.
+
 ## 0.11.0
 
 ### Improved

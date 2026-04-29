@@ -50,10 +50,12 @@ class _CompositorDispatchPage(Gtk.Box):
         definition: CompositorActionDefinition,
         current_action: MappingAction | None,
         on_selected: Callable[[MappingAction], None],
+        submit_label: str | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._definition = definition
         self._on_selected = on_selected
+        self._submit_label = submit_label
         self._dispatcher, self._args = definition.extract_fields(current_action)
         self._build_ui()
 
@@ -134,7 +136,9 @@ class _CompositorDispatchPage(Gtk.Box):
         self._hint_label.set_halign(Gtk.Align.START)
         self.append(self._hint_label)
 
-        self._map_btn = Gtk.Button(label=f"Map {self._definition.title} Action")
+        self._map_btn = Gtk.Button(
+            label=self._submit_label or f"Map {self._definition.title} Action"
+        )
         self._map_btn.add_css_class("suggested-action")
         self._map_btn.set_halign(Gtk.Align.START)
         self._map_btn.connect("clicked", self._on_map_clicked)
@@ -213,6 +217,7 @@ def build_compositor_action_pages_for_definitions(
     current_action: MappingAction | None,
     on_selected: Callable[[MappingAction], None],
     status: Mapping[str, object] | None = None,
+    submit_label: str | None = None,
 ) -> list[CompositorActionPage]:
     resolved_status = dict(status or {})
     pages: list[CompositorActionPage] = []
@@ -223,7 +228,12 @@ def build_compositor_action_pages_for_definitions(
             CompositorActionPage(
                 page_id=definition.page_id,
                 title=definition.title,
-                widget=_CompositorDispatchPage(definition, current_action, on_selected),
+                widget=_CompositorDispatchPage(
+                    definition,
+                    current_action,
+                    on_selected,
+                    submit_label,
+                ),
             )
         )
     return pages

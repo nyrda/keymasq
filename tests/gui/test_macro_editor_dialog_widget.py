@@ -194,6 +194,35 @@ def test_macro_editor_payload_includes_wait_controls(monkeypatch) -> None:
     ]
 
 
+def test_macro_editor_payload_includes_compositor_control(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    dialog._control_events = [
+        EditableControl(
+            mode="compositor_dispatch",
+            t_us=3000,
+            compositor_id="hyprland",
+            compositor_dispatcher="workspace",
+            compositor_args="e+1",
+        )
+    ]
+
+    payload = dialog._build_macro_payload("compositor_macro")
+
+    assert payload["events"] == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 3000,
+            "macro_action": "compositor_dispatch",
+            "compositor": "hyprland",
+            "dispatcher": "workspace",
+            "args": "e+1",
+        }
+    ]
+
+
 def test_macro_editor_wait_controls_show_edit_fields(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
 
@@ -224,6 +253,28 @@ def test_macro_editor_wait_controls_show_edit_fields(monkeypatch) -> None:
     assert dialog._control_b_label.get_label() == "Max (ms):"
     assert dialog._control_a_spin.get_value_as_int() == 10
     assert dialog._control_b_spin.get_value_as_int() == 80
+
+
+def test_macro_editor_compositor_control_selection_shows_action(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    control = EditableControl(
+        mode="compositor_dispatch",
+        t_us=12_000,
+        compositor_id="hyprland",
+        compositor_dispatcher="workspace",
+        compositor_args="e+1",
+    )
+    dialog._timeline._selected = control
+
+    dialog._on_selection_changed(control)
+
+    assert dialog._prop_title.get_label() == "Compositor Action"
+    assert dialog._press_spin.get_value_as_int() == 12
+    assert "workspace e+1" in dialog._key_info_label.get_label()
+    assert dialog._change_key_btn.get_visible() is True
+    assert dialog._change_key_btn.get_label() == "Change Action..."
+    assert dialog._control_cmd_row.get_visible() is False
+    assert dialog._control_sync_row.get_visible() is False
 
 
 def test_macro_editor_abs_move_capture_updates_selected_move(monkeypatch) -> None:

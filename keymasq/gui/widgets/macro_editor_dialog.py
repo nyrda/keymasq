@@ -14,6 +14,8 @@ from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttribute
 
 from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+    ActionType,
+    MappingAction,
     normalize_macro_loop_stop_behavior,
 )
 from keymasq.common.slurp import get_slurp_capture
@@ -25,6 +27,10 @@ from keymasq.gui.session_client import (
     session_request_async,
 )
 from keymasq.gui.session_reload import notify_session_reload_async
+from keymasq.gui.widgets.compositor_actions import (
+    build_compositor_action_pages,
+    describe_compositor_action,
+)
 from keymasq.session.compositor import detect_compositor_sync
 
 # ---------------------------------------------------------------------------
@@ -163,7 +169,7 @@ class EditableMove:
 
 @dataclass
 class EditableControl:
-    mode: str  # wait | wait_random | exec_sync | exec_async
+    mode: str  # wait | wait_random | exec_sync | exec_async | compositor_dispatch
     t_us: int
     duration_us: int = 0
     min_us: int = 0
@@ -171,6 +177,29 @@ class EditableControl:
     command: str = ""
     timeout_ms: int = 30000
     inhibit_mouse: bool = False
+    compositor_id: str = ""
+    compositor_dispatcher: str = ""
+    compositor_args: str = ""
+
+
+def _control_to_compositor_action(control: EditableControl) -> MappingAction:
+    return MappingAction(
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_id=control.compositor_id or None,
+        compositor_dispatcher=control.compositor_dispatcher,
+        compositor_args=control.compositor_args,
+    )
+
+
+def _describe_compositor_control(control: EditableControl) -> str:
+    action = _control_to_compositor_action(control)
+    description = describe_compositor_action(action)
+    if description is not None:
+        return description
+    dispatcher = control.compositor_dispatcher or "dispatch"
+    args = str(control.compositor_args or "").strip()
+    suffix = f" {args}" if args else ""
+    return f"Compositor -> {dispatcher}{suffix}"
 
 
 def parse_events(
@@ -224,6 +253,9 @@ def parse_events(
                     command=str(ev.get("command", "") or ""),
                     timeout_ms=int(ev.get("timeout_ms", 30000) or 30000),
                     inhibit_mouse=bool(ev.get("inhibit_mouse", False)),
+                    compositor_id=str(ev.get("compositor", "") or ""),
+                    compositor_dispatcher=str(ev.get("dispatcher", "") or ""),
+                    compositor_args=str(ev.get("args", "") or ""),
                 )
             )
             continue
@@ -339,6 +371,11 @@ def reconstruct_events(
             if control.mode == "exec_sync":
                 event["timeout_ms"] = int(control.timeout_ms)
                 event["inhibit_mouse"] = bool(control.inhibit_mouse)
+        elif control.mode == "compositor_dispatch":
+            if control.compositor_id:
+                event["compositor"] = str(control.compositor_id)
+            event["dispatcher"] = str(control.compositor_dispatcher)
+            event["args"] = str(control.compositor_args)
         raw.append(event)
 
     raw.extend(passthrough_events)
@@ -974,9 +1011,15 @@ class TimelineWidget(Gtk.DrawingArea):
             elif control.mode == "exec_sync":
                 cr.set_source_rgba(1.00, 0.62, 0.12, 0.95)
                 label = "XS"
-            else:
+            elif control.mode == "exec_async":
                 cr.set_source_rgba(0.95, 0.50, 0.15, 0.95)
                 label = "XA"
+            elif control.mode == "compositor_dispatch":
+                cr.set_source_rgba(0.70, 0.45, 1.00, 0.95)
+                label = "C"
+            else:
+                cr.set_source_rgba(0.65, 0.65, 0.65, 0.95)
+                label = "?"
 
             size = 7.0
             cr.move_to(x, base_y - size)
@@ -1399,6 +1442,16 @@ class TimelineWidget(Gtk.DrawingArea):
             exec_async_btn.connect("clicked", _insert_exec_async)
             box.append(exec_async_btn)
 
+            compositor_btn = Gtk.Button(label=f"Insert Compositor Action at {t_label}")
+            compositor_btn.add_css_class("flat")
+
+            def _insert_compositor(_b, _t=t_us, _p=popover):
+                _p.popdown()
+                self._editor._present_compositor_action_dialog(default_t_us=_t)
+
+            compositor_btn.connect("clicked", _insert_compositor)
+            box.append(compositor_btn)
+
         if box.get_first_child():
             box.append(Gtk.Separator())
 
@@ -1469,7 +1522,12 @@ class TimelineWidget(Gtk.DrawingArea):
         if isinstance(ev, EditableControl):
             if box.get_first_child():
                 box.append(Gtk.Separator())
-            del_control_btn = Gtk.Button(label=f"Delete {ev.mode.replace('_', ' ').title()}")
+            label = (
+                "Compositor Action"
+                if ev.mode == "compositor_dispatch"
+                else ev.mode.replace("_", " ").title()
+            )
+            del_control_btn = Gtk.Button(label=f"Delete {label}")
             del_control_btn.add_css_class("flat")
             del_control_btn.add_css_class("destructive-action")
 
@@ -1552,6 +1610,11 @@ class MacroEditorDialog(Adw.Dialog):
         self._zoom_min_pps: float = 50.0
         self._zoom_max_pps: float = 4000.0
         self._macro_exec_timeout_max_ms: int = 30000
+        self._compositor_action_status: dict[str, bool | str | None] = {
+            "compositor_id": None,
+            "listener_name": None,
+            "compositor_dispatch_available": False,
+        }
         self._initial_macro_data: dict = {}
         self._macro_exists = False
 
@@ -1586,6 +1649,33 @@ class MacroEditorDialog(Adw.Dialog):
     # Data loading
     # ------------------------------------------------------------------
 
+    def _resolve_compositor_action_status(
+        self,
+        status: object | None = None,
+    ) -> dict[str, bool | str | None]:
+        resolved: dict[str, bool | str | None] = {
+            "compositor_id": None,
+            "listener_name": None,
+            "compositor_dispatch_available": False,
+        }
+        if isinstance(status, dict):
+            for key in resolved:
+                value = status.get(key)
+                if isinstance(value, (bool, str)) or value is None:
+                    resolved[key] = value
+            return resolved
+
+        root = self._parent.get_root() if hasattr(self._parent, "get_root") else None
+        get_status = getattr(root, "get_compositor_action_status", None)
+        if callable(get_status):
+            root_status = get_status()
+            if isinstance(root_status, dict):
+                for key in resolved:
+                    value = root_status.get(key)
+                    if isinstance(value, (bool, str)) or value is None:
+                        resolved[key] = value
+        return resolved
+
     def _load_initial_state_async(self) -> None:
         run_gui_task(
             self._load_initial_state,
@@ -1594,9 +1684,11 @@ class MacroEditorDialog(Adw.Dialog):
 
     def _load_initial_state(self) -> dict[str, object]:
         timeout_max = 30000
+        compositor_status: dict[str, object] = {}
         try:
             status = session_request({"command": "get_status"}) or {}
             timeout_max = int(status.get("macro_exec_timeout_max_ms", 30000) or 30000)
+            compositor_status = dict(status)
         except Exception:
             timeout_max = 30000
 
@@ -1611,6 +1703,7 @@ class MacroEditorDialog(Adw.Dialog):
 
         return {
             "timeout_max": max(1, timeout_max),
+            "compositor_status": compositor_status,
             "macro": macro,
         }
 
@@ -1619,6 +1712,9 @@ class MacroEditorDialog(Adw.Dialog):
         timeout_max_raw = payload.get("timeout_max", 30000)
         timeout_max = timeout_max_raw if isinstance(timeout_max_raw, int) else 30000
         self._macro_exec_timeout_max_ms = max(1, timeout_max)
+        self._compositor_action_status = self._resolve_compositor_action_status(
+            payload.get("compositor_status")
+        )
 
         timeout_adjustment = self._control_timeout_spin.get_adjustment()
         timeout_adjustment.set_upper(self._macro_exec_timeout_max_ms)
@@ -3128,8 +3224,13 @@ class MacroEditorDialog(Adw.Dialog):
             self._cancel_capture_selected_move("")
         if isinstance(selected_obj, EditableControl):
             control = selected_obj
-            self._prop_title.set_label("Control")
-            self._key_info_label.set_label(control.mode.replace("_", " ").title())
+            is_compositor = control.mode == "compositor_dispatch"
+            self._prop_title.set_label("Compositor Action" if is_compositor else "Control")
+            self._key_info_label.set_label(
+                _describe_compositor_control(control)
+                if is_compositor
+                else control.mode.replace("_", " ").title()
+            )
             self._press_label.set_label("At:")
             self._duration_text_label.set_visible(False)
             self._duration_spin.set_visible(False)
@@ -3137,7 +3238,8 @@ class MacroEditorDialog(Adw.Dialog):
             self._release_label.set_visible(False)
             self._release_spin.set_visible(False)
             self._release_unit_label.set_visible(False)
-            self._change_key_btn.set_visible(False)
+            self._change_key_btn.set_visible(is_compositor)
+            self._change_key_btn.set_label("Change Action..." if is_compositor else "Change Key...")
             self._move_row.set_visible(False)
             self._control_row.set_visible(True)
 
@@ -3370,6 +3472,9 @@ class MacroEditorDialog(Adw.Dialog):
 
     def _on_change_key_clicked(self, btn) -> None:
         ev = self._timeline._selected
+        if isinstance(ev, EditableControl) and ev.mode == "compositor_dispatch":
+            self._present_compositor_action_dialog(control=ev)
+            return
         if ev is None or isinstance(ev, (EditableMove, EditableControl, dict)):
             return
         assert isinstance(ev, EditableEvent)
@@ -3677,6 +3782,87 @@ class MacroEditorDialog(Adw.Dialog):
         self._timeline._selected = control
         self._refresh_after_timing_edit()
         self._on_selection_changed(control)
+
+    def _present_compositor_action_dialog(
+        self,
+        default_t_us: int | None = None,
+        control: EditableControl | None = None,
+    ) -> None:
+        title = "Edit Compositor Action" if control is not None else "Insert Compositor Action"
+        dialog = Adw.Dialog(title=title, content_width=560, content_height=440)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        at_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        at_row.append(Gtk.Label(label="At (ms):"))
+        at_value_us = control.t_us if control is not None else (default_t_us or 0)
+        at_spin = Gtk.SpinButton()
+        at_spin.set_adjustment(
+            Gtk.Adjustment(value=at_value_us / 1000, lower=0, upper=3600000, step_increment=1)
+        )
+        at_spin.set_digits(0)
+        at_spin.set_width_chars(8)
+        at_row.append(at_spin)
+        box.append(at_row)
+
+        current_action = _control_to_compositor_action(control) if control is not None else None
+
+        def on_selected(action: MappingAction) -> None:
+            dispatcher = str(action.compositor_dispatcher or "").strip()
+            if not dispatcher:
+                return
+            target = control or EditableControl(mode="compositor_dispatch", t_us=0)
+            target.t_us = max(0, int(at_spin.get_value() * 1000))
+            target.compositor_id = str(action.compositor_id or "")
+            target.compositor_dispatcher = dispatcher
+            target.compositor_args = str(action.compositor_args or "")
+            if control is None:
+                self._insert_control_event(target)
+            else:
+                self._refresh_after_control_change(target)
+            dialog.close()
+
+        status = self._resolve_compositor_action_status()
+        if not status.get("compositor_dispatch_available"):
+            status = self._resolve_compositor_action_status(self._compositor_action_status)
+        pages = build_compositor_action_pages(
+            current_action,
+            on_selected,
+            status,
+            "Apply" if control is not None else "Insert",
+        )
+
+        if pages:
+            stack = Gtk.Stack()
+            stack.set_vexpand(True)
+            for page in pages:
+                stack.add_titled(page.widget, page.page_id, page.title)
+            if len(pages) > 1:
+                switcher = Gtk.StackSwitcher()
+                switcher.set_stack(stack)
+                switcher.set_halign(Gtk.Align.CENTER)
+                box.append(switcher)
+            box.append(stack)
+        else:
+            message = Gtk.Label(label="Compositor actions are unavailable for this session.")
+            message.add_css_class("dim-label")
+            message.set_wrap(True)
+            message.set_halign(Gtk.Align.START)
+            box.append(message)
+
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        footer.set_halign(Gtk.Align.END)
+        close_btn = Gtk.Button(label="Close")
+        close_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
+        footer.append(close_btn)
+        box.append(footer)
+
+        dialog.set_child(box)
+        dialog.present(self._parent)
 
     def _show_add_control_popover(
         self,

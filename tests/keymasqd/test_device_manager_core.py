@@ -718,6 +718,38 @@ class TestMacroControlActions:
         assert result == 0.0
 
     @pytest.mark.asyncio
+    async def test_run_macro_control_action_compositor_dispatch_broadcasts(self):
+        manager = DeviceManager()
+
+        callback = AsyncMock()
+
+        async def cb(command, data):
+            await callback(command, data)
+
+        manager.broadcast_callback = cb
+
+        result = await _runtime_run_macro_control_action(
+            manager,
+            {
+                "macro_action": "compositor_dispatch",
+                "compositor": "hyprland",
+                "dispatcher": "workspace",
+                "args": "e+1",
+            },
+        )
+
+        callback.assert_awaited_once()
+        called_command, called_data = callback.await_args.args
+        assert called_command == CommandType.ACTION_TRIGGER
+        assert called_data == {
+            "action_type": "compositor_dispatch",
+            "compositor": "hyprland",
+            "dispatcher": "workspace",
+            "args": "e+1",
+        }
+        assert result == 0.0
+
+    @pytest.mark.asyncio
     async def test_run_macro_control_action_exec_sync_wait_id_and_cleanup(self, monkeypatch):
         manager = DeviceManager()
         clock = {"now": 30.0}

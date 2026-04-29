@@ -79,7 +79,7 @@ Canonical macro object:
 {
   "name": "example",
   "device_types": ["keyboard"],
-  "duration_ms": 20,
+  "duration_us": 20000,
   "loop_mode": "none",
   "loop_count": 1,
   "loop_stop_behavior": "finish_run",
@@ -105,8 +105,8 @@ Raw key/button event fields:
 Semantic macro control events:
 
 ```json
-{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_fixed","duration_ms":10}
-{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_random","min_ms":10,"max_ms":50}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait","duration_us":10000}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_random","min_us":10000,"max_us":50000}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_abs","x":100,"y":200}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_rel","x":10,"y":0}
 ```

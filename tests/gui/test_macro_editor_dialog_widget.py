@@ -45,8 +45,7 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
                     "inhibit_mouse": True,
                 },
             ],
-            "gap_notes": [{"at_us": 11000, "gap_ms": 250, "scope": "keyboard"}],
-            "duration_ms": 25,
+            "duration_us": 25_000,
             "move_to_start": True,
             "start_x": 320,
             "start_y": 240,
@@ -64,7 +63,6 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert len(dialog._events) == 1
     assert len(dialog._rel_events) == 1
     assert len(dialog._control_events) == 1
-    assert any(move.mode == "gap" and move.scope == "keyboard" for move in dialog._synthetic_moves)
     assert dialog._duration_us == 25000
     assert dialog._stats_label.get_label() == "0.025s · 4 events"
     assert dialog._exec_summary_label.get_label() == "Exec actions: 1 (sync 1, async 0)"
@@ -119,7 +117,7 @@ def test_macro_editor_event_selection_and_timing_edits_refresh_event(monkeypatch
     assert dialog._stats_label.get_label() == "0.020s · 2 events"
 
 
-def test_macro_editor_gap_note_controls_shift_timeline(monkeypatch) -> None:
+def test_macro_editor_insert_wait_adds_control_without_rewriting_timeline(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     event = EditableEvent(
         device_type="keyboard",
@@ -128,30 +126,104 @@ def test_macro_editor_gap_note_controls_shift_timeline(monkeypatch) -> None:
         press_t_us=200000,
         release_t_us=202000,
     )
-    gap = EditableMove(mode="gap", t_us=5000, x=100, y=0, scope="all")
     dialog._events = [event]
-    dialog._synthetic_moves = [gap]
     dialog._duration_us = 12000
-    dialog._timeline._selected = gap
 
-    dialog._on_selection_changed(gap)
-    assert dialog._prop_title.get_label() == "Wait"
-    assert dialog._move_x_label.get_label() == "Wait (ms):"
-    dialog._move_x_spin.set_value(150)
-    dialog._on_move_x_changed(dialog._move_x_spin)
+    dialog._insert_control_event(EditableControl(mode="wait", t_us=5000, duration_us=150_000))
 
-    assert gap.x == 150
-    assert event.press_t_us == 250000
-    assert event.release_t_us == 252000
+    assert len(dialog._control_events) == 1
+    assert dialog._control_events[0].mode == "wait"
+    assert event.press_t_us == 200000
+    assert event.release_t_us == 202000
 
-    macro_editor_dialog_module._set_dropdown_selected_id(
-        dialog._gap_scope_combo,
-        macro_editor_dialog_module._SCOPE_OPTIONS,
-        "keyboard",
+
+def test_macro_editor_timing_tools_set_total_time(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    assert dialog._timing_extend_ms_spin is not None
+
+    dialog._timing_extend_ms_spin.set_value(5000)
+    dialog._on_set_total_time_clicked(None)
+
+    assert dialog._duration_us == 5_000_000
+    assert dialog._build_macro_payload("empty_space")["duration_us"] == 5_000_000
+
+    event = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_A,
+        press_t_us=6_000_000,
+        release_t_us=6_002_000,
     )
-    dialog._on_gap_scope_changed(dialog._gap_scope_combo)
+    dialog._events = [event]
+    dialog._timing_extend_ms_spin.set_value(1000)
+    dialog._on_set_total_time_clicked(None)
 
-    assert gap.scope == "keyboard"
+    assert dialog._duration_us == 6_002_000
+    assert dialog._build_macro_payload("with_event")["duration_us"] == 6_002_000
+
+
+def test_macro_editor_payload_includes_wait_controls(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    dialog._control_events = [
+        EditableControl(mode="wait", t_us=1000, duration_us=75_000),
+        EditableControl(mode="wait_random", t_us=2000, min_us=10_000, max_us=80_000),
+    ]
+
+    payload = dialog._build_macro_payload("timed_macro")
+
+    assert payload["events"] == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 1000,
+            "macro_action": "wait",
+            "duration_us": 75_000,
+        },
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 2000,
+            "macro_action": "wait_random",
+            "min_us": 10_000,
+            "max_us": 80_000,
+        },
+    ]
+
+
+def test_macro_editor_wait_controls_show_edit_fields(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+
+    fixed = EditableControl(mode="wait", t_us=12_000, duration_us=75_000)
+    dialog._timeline._selected = fixed
+    dialog._on_selection_changed(fixed)
+
+    assert dialog._press_spin.get_value_as_int() == 12
+    assert dialog._control_ab_row.get_visible() is True
+    assert dialog._control_a_label.get_visible() is True
+    assert dialog._control_a_spin.get_visible() is True
+    assert dialog._control_a_label.get_label() == "Duration (ms):"
+    assert dialog._control_a_spin.get_value_as_int() == 75
+    assert dialog._control_b_label.get_visible() is False
+    assert dialog._control_b_spin.get_visible() is False
+
+    random_wait = EditableControl(mode="wait_random", t_us=34_000, min_us=10_000, max_us=80_000)
+    dialog._timeline._selected = random_wait
+    dialog._on_selection_changed(random_wait)
+
+    assert dialog._press_spin.get_value_as_int() == 34
+    assert dialog._control_ab_row.get_visible() is True
+    assert dialog._control_a_label.get_visible() is True
+    assert dialog._control_a_spin.get_visible() is True
+    assert dialog._control_b_label.get_visible() is True
+    assert dialog._control_b_spin.get_visible() is True
+    assert dialog._control_a_label.get_label() == "Min (ms):"
+    assert dialog._control_b_label.get_label() == "Max (ms):"
+    assert dialog._control_a_spin.get_value_as_int() == 10
+    assert dialog._control_b_spin.get_value_as_int() == 80
 
 
 def test_macro_editor_abs_move_capture_updates_selected_move(monkeypatch) -> None:
@@ -442,8 +514,7 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
         type("Action", (), {"action_type": ActionType.KEYBOARD, "target": "key_b"})(),
         12000,
     )
-    gap = EditableMove(mode="gap", t_us=5000, x=80, y=0, scope="movement")
-    dialog._synthetic_moves = [gap]
+    dialog._control_events = [EditableControl(mode="wait", t_us=5000, duration_us=80_000)]
 
     payload = dialog._build_macro_payload("saved_macro")
 
@@ -457,7 +528,15 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     assert payload["start_y"] == 20
     assert payload["block_mouse_movement"] is True
     assert payload["device_types"] == ["keyboard", "mouse"]
-    assert payload["gap_notes"] == [{"at_us": 5000, "gap_ms": 80, "scope": "movement"}]
+    assert {
+        "device_type": "macro",
+        "type": 0,
+        "code": 0,
+        "value": 0,
+        "t_us": 5000,
+        "macro_action": "wait",
+        "duration_us": 80_000,
+    } in payload["events"]
 
 
 def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
@@ -484,7 +563,7 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
                 "t_us": 3000,
             },
         ],
-        "duration_ms": 3,
+        "duration_us": 3000,
         "loop_mode": "hold",
         "loop_count": 1,
         "loop_stop_behavior": "cancel_run",

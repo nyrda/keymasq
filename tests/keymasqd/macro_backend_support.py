@@ -53,6 +53,10 @@ async def _play_macro_task(manager: DeviceManager, **kwargs: object) -> None:
         start_y=int(kwargs["start_y"]),
         block_mouse_movement=bool(kwargs["block_mouse_movement"]),
         deps=dm._macro_runtime_deps(),
+        macro_event_source=cast(
+            mdm.MacroEventSource | None,
+            kwargs.get("macro_event_source"),
+        ),
     )
 
 

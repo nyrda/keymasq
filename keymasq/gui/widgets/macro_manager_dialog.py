@@ -268,7 +268,7 @@ class MacroManagerDialog(Adw.Dialog):
         name_label.set_halign(Gtk.Align.START)
         info_box.append(name_label)
 
-        duration_ms = int(macro.get("duration_ms", 0) or 0)
+        duration_ms = int(macro.get("duration_us", 0) or 0) // 1000
         device_types = [str(device_type) for device_type in macro.get("device_types", [])]
         device_abbrevs = "+".join(
             {"keyboard": "kbd", "mouse": "mouse", "gamepad": "pad"}.get(t, t) for t in device_types
@@ -683,7 +683,7 @@ class TypeMacroDialog(Adw.Dialog):
 
         self.down_spin = Gtk.SpinButton()
         self.down_spin.set_adjustment(
-            Gtk.Adjustment(value=10, lower=1, upper=1000, step_increment=1)
+            Gtk.Adjustment(value=10, lower=0, upper=1000, step_increment=1)
         )
         timing.append(self.down_spin)
 
@@ -784,11 +784,11 @@ class TypeMacroDialog(Adw.Dialog):
             self._show_error(str(e))
             return
 
-        duration_ms = int(events[-1]["t_us"] / 1000) if events else 0
+        duration_us = int(events[-1]["t_us"]) if events else 0
         data = {
             "name": name,
             "created_at": datetime.now().isoformat(),
-            "duration_ms": duration_ms,
+            "duration_us": duration_us,
             "device_types": ["keyboard"],
             "events": events,
         }

@@ -20,7 +20,7 @@ type MacroEvent = dict[str, object]
 @dataclass(frozen=True)
 class MacroFileMeta:
     name: str
-    duration_ms: int = 0
+    duration_us: int = 0
     device_types: list[str] = field(default_factory=list)
     event_count: int = 0
     created_at: str = ""
@@ -37,7 +37,7 @@ class MacroFileMeta:
     def from_payload(cls, payload: JsonObject, *, name: str | None = None) -> "MacroFileMeta":
         return cls(
             name=name or _payload_str(payload, "name"),
-            duration_ms=_payload_int(payload, "duration_ms", 0),
+            duration_us=_payload_int(payload, "duration_us", 0),
             device_types=_payload_str_list(payload, "device_types"),
             event_count=_payload_int(payload, "event_count", _event_count(payload)),
             created_at=_payload_str(payload, "created_at", datetime.now().isoformat()),
@@ -59,7 +59,7 @@ class MacroFileMeta:
     def to_payload(self) -> JsonObject:
         return {
             "name": self.name,
-            "duration_ms": int(self.duration_ms),
+            "duration_us": int(self.duration_us),
             "device_types": list(self.device_types),
             "event_count": int(self.event_count),
             "created_at": self.created_at,
@@ -145,8 +145,8 @@ def macro_payload_from_events(
     if created_at is not None:
         data["created_at"] = created_at
     data["event_count"] = len(events)
-    if "duration_ms" not in data:
-        data["duration_ms"] = _duration_ms(events)
+    if "duration_us" not in data:
+        data["duration_us"] = _duration_us(events)
     if "device_types" not in data:
         data["device_types"] = _device_types(events)
     return data
@@ -205,8 +205,8 @@ def _event_t_us(event: MacroEvent) -> int:
     return value if isinstance(value, int) else 0
 
 
-def _duration_ms(events: list[MacroEvent]) -> int:
-    return max((_event_t_us(event) for event in events), default=0) // 1000
+def _duration_us(events: list[MacroEvent]) -> int:
+    return max((_event_t_us(event) for event in events), default=0)
 
 
 def _device_types(events: list[MacroEvent]) -> list[str]:

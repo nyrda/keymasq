@@ -355,9 +355,9 @@ async def play_macro_task(
             # than the gap from the previous event. Overshoot from any single
             # asyncio.sleep() is absorbed by the next event's remaining-time
             # calculation instead of accumulating across the macro. Control
-            # actions that intentionally block replay extend the timeline via a
-            # separate offset so later event deadlines preserve legacy
-            # sequential semantics.
+            # actions that intentionally block replay, such as waits and
+            # synchronous exec, extend the timeline via a separate offset so
+            # later event deadlines preserve sequential semantics.
             iteration_anchor = event_loop.time()
             timeline_offset_s = 0.0
             idx = 0
@@ -412,7 +412,7 @@ async def play_macro_task(
                     timeline_offset_s += await run_macro_control_action(
                         manager,
                         ev,
-                        speed,
+                        renew_mouse_suppression=block_mouse_movement,
                         deps=deps,
                     )
                     continue
@@ -469,6 +469,18 @@ async def play_macro_task(
                         track_macro_key_press(manager, instance_id, output_class, event_code)
                     elif event_value == 0:
                         track_macro_key_release(manager, instance_id, output_class, event_code)
+
+            if instance_id not in manager.macro_state.cancel_instance_ids:
+                end_deadline = iteration_anchor + (macro_duration_us / speed_factor) / 1_000_000.0
+                remaining = end_deadline - event_loop.time()
+                if remaining >= 0.0005:
+                    if block_mouse_movement:
+                        renew_macro_mouse_suppression(
+                            manager,
+                            timeout_s=remaining + 1.0,
+                            deps=deps,
+                        )
+                    await asyncio_mod.sleep(remaining)
 
             if macro_event_source.event_count <= 0 and loop_mode in {"hold", "toggle"}:
                 await asyncio_mod.sleep(0.01)
@@ -637,33 +649,45 @@ def release_macro_mouse_inhibit(manager: _MacroManager) -> None:
 async def run_macro_control_action(
     manager: _MacroManager,
     ev: dict[str, object],
-    speed: float,
     *,
+    renew_mouse_suppression: bool = False,
     deps: MacroRuntimeDeps,
 ) -> float:
     asyncio_mod = deps.asyncio_mod
     str_value_fn = deps.str_value_fn
     int_value_fn = deps.int_value_fn
     action_type = str_value_fn(ev.get("macro_action"), "")
-    if action_type == "wait_fixed":
-        duration_ms = max(0, int_value_fn(ev.get("duration_ms"), 0))
-        scaled = duration_ms / max(speed, 0.01)
-        if scaled > 0:
+    if action_type == "wait":
+        duration_us = max(0, int_value_fn(ev.get("duration_us"), 0))
+        if duration_us > 0:
+            duration_s = duration_us / 1_000_000.0
+            if renew_mouse_suppression:
+                renew_macro_mouse_suppression(
+                    manager,
+                    timeout_s=duration_s + 1.0,
+                    deps=deps,
+                )
             loop = asyncio_mod.get_running_loop()
             started_at = loop.time()
-            await asyncio_mod.sleep(scaled / 1000.0)
+            await asyncio_mod.sleep(duration_s)
             return max(0.0, loop.time() - started_at)
         return 0.0
 
     if action_type == "wait_random":
-        min_ms = max(0, int_value_fn(ev.get("min_ms"), 0))
-        max_ms = max(min_ms, int_value_fn(ev.get("max_ms"), min_ms))
-        sampled_ms = random.randint(min_ms, max_ms)
-        scaled = sampled_ms / max(speed, 0.01)
-        if scaled > 0:
+        min_us = max(0, int_value_fn(ev.get("min_us"), 0))
+        max_us = max(min_us, int_value_fn(ev.get("max_us"), min_us))
+        sampled_us = random.randint(min_us, max_us)
+        if sampled_us > 0:
+            sampled_s = sampled_us / 1_000_000.0
+            if renew_mouse_suppression:
+                renew_macro_mouse_suppression(
+                    manager,
+                    timeout_s=sampled_s + 1.0,
+                    deps=deps,
+                )
             loop = asyncio_mod.get_running_loop()
             started_at = loop.time()
-            await asyncio_mod.sleep(scaled / 1000.0)
+            await asyncio_mod.sleep(sampled_s)
             return max(0.0, loop.time() - started_at)
         return 0.0
 
@@ -701,6 +725,12 @@ async def run_macro_control_action(
                 timeout_s=max(1.0, timeout_ms / 1000.0 + 1.0),
                 deps=deps,
             )
+        elif renew_mouse_suppression:
+            renew_macro_mouse_suppression(
+                manager,
+                timeout_s=timeout_ms / 1000.0 + 1.0,
+                deps=deps,
+            )
 
         wait_id = uuid.uuid4().hex
         try:
@@ -725,6 +755,12 @@ async def run_macro_control_action(
         return max(0.0, loop.time() - started_at)
 
     return 0.0
+
+
+def renew_macro_mouse_suppression(
+    manager: _MacroManager, timeout_s: float, *, deps: MacroRuntimeDeps
+) -> None:
+    begin_mouse_rel_suppression(manager, timeout_s=max(0.1, timeout_s), deps=deps)
 
 
 def complete_macro_exec_wait(
@@ -772,6 +808,7 @@ async def mouse_rel_suppression_watchdog(
     asyncio_mod = deps.asyncio_mod
     try:
         await asyncio_mod.sleep(timeout_s)
-        manager.macro_state.mouse_rel_suppressed = False
+        if manager.macro_state.mouse_inhibit_count <= 0:
+            manager.macro_state.mouse_rel_suppressed = False
     except asyncio_mod.CancelledError:
         pass

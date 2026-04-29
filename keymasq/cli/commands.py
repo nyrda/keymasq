@@ -168,7 +168,7 @@ def list_macros_cli(*, json_output: bool = False) -> None:
 
     for macro in macros:
         name = str(macro.get("name", ""))
-        duration_ms = int(macro.get("duration_ms", 0) or 0)
+        duration_ms = int(macro.get("duration_us", 0) or 0) // 1000
         event_count = int(macro.get("event_count", 0) or 0)
         print(f"{name}\t{duration_ms}ms\t{event_count} events")
 
@@ -226,7 +226,7 @@ def type_cli(
     try:
         events = build_type_macro_events(
             text,
-            max(1, int(down_ms)),
+            max(0, int(down_ms)),
             max(0, int(pause_ms)),
             use_unicode_input=use_unicode_input,
         )
@@ -346,7 +346,6 @@ def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonO
         "start_x",
         "start_y",
         "block_mouse_movement",
-        "gap_notes",
     ):
         if key in macro_data:
             macro[key] = macro_data[key]

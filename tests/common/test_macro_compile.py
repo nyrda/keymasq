@@ -6,6 +6,7 @@ import pytest
 from keymasq.common.macro_compile import (
     build_compact_macro_events,
     build_type_macro_events,
+    macro_definition_from_events,
     parse_macro_json,
 )
 
@@ -30,8 +31,8 @@ def test_compact_explicit_hold_release_and_waits() -> None:
 
     assert _key_values(events, evdev.ecodes.KEY_LEFTCTRL) == [1, 0]
     assert _key_values(events, evdev.ecodes.KEY_C) == [1, 0]
-    wait = next(event for event in events if event.get("macro_action") == "wait_fixed")
-    assert wait["duration_ms"] == 20
+    wait = next(event for event in events if event.get("macro_action") == "wait")
+    assert wait["duration_us"] == 20_000
 
 
 def test_compact_random_wait() -> None:
@@ -45,8 +46,8 @@ def test_compact_random_wait() -> None:
             "value": 0,
             "t_us": 0,
             "macro_action": "wait_random",
-            "min_ms": 10,
-            "max_ms": 20,
+            "min_us": 10_000,
+            "max_us": 20_000,
         }
     ]
 
@@ -112,6 +113,21 @@ def test_type_macro_builder_normalizes_common_pasted_text() -> None:
     assert evdev.ecodes.KEY_MINUS in press_codes
 
 
+def test_type_macro_builder_allows_zero_key_down_and_pause() -> None:
+    events = build_type_macro_events("ab", 0, 0)
+
+    assert [
+        (event["code"], event["value"], event["t_us"])
+        for event in events
+        if event["type"] == evdev.ecodes.EV_KEY
+    ] == [
+        (evdev.ecodes.KEY_A, 1, 0),
+        (evdev.ecodes.KEY_A, 0, 0),
+        (evdev.ecodes.KEY_B, 1, 0),
+        (evdev.ecodes.KEY_B, 0, 0),
+    ]
+
+
 def test_type_macro_builder_expands_enter_and_tab_controls() -> None:
     events = build_type_macro_events("a<enter>b<tab>c", 10, 0)
 
@@ -140,8 +156,8 @@ def test_type_macro_builder_adds_fixed_and_random_wait_controls() -> None:
             "code": 0,
             "value": 0,
             "t_us": 10_000,
-            "macro_action": "wait_fixed",
-            "duration_ms": 10,
+            "macro_action": "wait",
+            "duration_us": 10_000,
         },
         {
             "device_type": "macro",
@@ -150,10 +166,28 @@ def test_type_macro_builder_adds_fixed_and_random_wait_controls() -> None:
             "value": 0,
             "t_us": 20_000,
             "macro_action": "wait_random",
-            "min_ms": 20,
-            "max_ms": 30,
+            "min_us": 20_000,
+            "max_us": 30_000,
         },
     ]
+
+
+def test_macro_definition_duration_uses_wait_timestamp_not_wait_end() -> None:
+    macro = macro_definition_from_events(
+        [
+            {
+                "device_type": "macro",
+                "type": 0,
+                "code": 0,
+                "value": 0,
+                "t_us": 10_000,
+                "macro_action": "wait",
+                "duration_us": 5_000_000,
+            }
+        ]
+    )
+
+    assert macro["duration_us"] == 10_000
 
 
 def test_type_macro_builder_keeps_backslash_sequences_literal() -> None:

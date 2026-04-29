@@ -243,6 +243,11 @@ pressing a toggle trigger again lets the current macro pass complete and only
 prevents the next repeat. When it is disabled, stop input cancels playback
 immediately.
 
+Macro duration is the minimum timeline length of one pass. If the pass reaches
+the end of its events before `duration_us`, playback waits until that duration
+has elapsed before looping or finishing. This trailing duration is scaled by
+macro speed; explicit wait controls keep their own wall-clock duration.
+
 ![Loop mode dropdown — None, Count, Hold, or Toggle](assets/screenshots/keymasq_macro_edit_loop_modes.png)
 
 ### Concurrency
@@ -275,7 +280,7 @@ You can:
 - Add or delete individual events.
 - Move events forward or backward in time.
 - Change which key or button an event uses.
-- Insert gap notes (pauses).
+- Insert wait controls.
 - Use timing tools to trim, scale, or adjust gaps.
 
 ### Event Types
@@ -288,6 +293,8 @@ The editor lets you insert several kinds of events into the timeline:
 | **Mouse click** | Press or release of any mouse button. |
 | **Relative mouse movement** | Move the pointer by a delta (pixels). Useful for macros that should work regardless of where the cursor starts. |
 | **Absolute mouse movement** | Move the pointer to an exact screen coordinate. Useful when a macro always targets a fixed UI element. |
+| **Wait** | Pause macro playback for a fixed duration. The editor stores it at its timestamp and does not move later events. |
+| **Wait (random)** | Pause macro playback for a random duration in a configured range. The editor stores it at its timestamp and does not estimate the eventual delay. |
 | **Exec (synchronous)** | Run an external program and wait for it to finish before the macro continues. Macro playback is paused until the process exits. |
 | **Exec (asynchronous)** | Fire-and-forget an external program. The macro continues immediately — the launched process runs independently. |
 
@@ -298,33 +305,24 @@ doesn't need to gate later events.
 Playback errors are silent — if a macro fails mid-sequence (for example, the
 target device is gone), the GUI won't notify you.
 
-### Gap Notes
+### Wait Controls
 
-A gap note is a pause marker you place on the timeline. Think of it as a
-"wait here" instruction.
+A wait control is a real macro event you place on the timeline. It is stored
+with the macro and replayed by `keymasqd`. The GUI edits wait timing in
+milliseconds, while the macro file stores wait durations in microseconds.
 
 **Why use them?** Sometimes you need a delay at a specific point in your
 macro — for example, waiting for a menu to open before clicking an option.
-Instead of dragging every event after that point by hand, you drop in a gap
-note and set how long the pause should be. All the events that follow shift
-automatically.
+Instead of dragging every event after that point by hand, insert a wait and
+set how long the pause should be. Later event timestamps do not change in the
+editor; during playback, `keymasqd` sleeps at the wait and pushes later
+deadlines back by the actual elapsed wait time. Macro speed changes event
+timestamps, but explicit wait durations remain wall-clock delays.
 
-**Scope** controls which types of events are delayed:
+Wait controls appear as **W** or **WR** markers on the timeline. You can move
+them, edit their duration, or delete them at any time.
 
-| Scope | What gets delayed |
-|---|---|
-| Everything | All later events |
-| Keyboard | Only later keyboard events |
-| Mouse | Only later mouse-button events |
-| Movement | Only later pointer-movement events |
-
-Scoped gap notes are helpful when you want to slow down one track (say,
-keyboard) without affecting another (say, mouse movement).
-
-Gap notes appear as **G** markers on the timeline. You can move them, edit
-their duration, or delete them at any time.
-
-![A gap note on the macro timeline](assets/screenshots/keymasq_macro_edit_gap_note.png)
+![Wait and random-wait controls on the macro timeline](assets/screenshots/macro_edit_wait_wait_random_markers.png)
 
 ### Timing Tools
 
@@ -336,9 +334,10 @@ The **Timing Tools** menu provides bulk adjustments to your macro's timing:
 | **Trim End** | Remove trailing silence after the last event. |
 | **Scale** | Multiply all timing gaps by a factor (e.g. 0.5× = twice as fast). |
 | **Apply Gap Limits** | Set a minimum and/or maximum gap between events, clamping any that fall outside. |
-| **Insert Gap** | Add a delay at a specific time, scoped to Everything, Keyboard, Mouse, or Movement. |
+| **Total Time** | Set the minimum macro duration to the entered time, adding or removing trailing empty time. |
+| **Insert Wait** | Add a real wait control at a specific time. |
 
-![Timing Tools menu — Trim, Scale, Gap Limits, and Insert Gap](assets/screenshots/keymasq_macros_timing_tools.png)
+![Timing Tools menu — Trim, Scale, Gap Limits, Total Time, and Insert Wait](assets/screenshots/macro_edit_timing_tools.png)
 
 ## CLI Usage
 
@@ -437,10 +436,10 @@ do not need to change these — they are intended for system administrators:
 - **Reuse, don't duplicate.** If you need the same sequence in multiple
   places, point them all at one saved macro instead of recreating it.
 - **Slow down for fragile UIs.** If a target app drops inputs, lower the speed
-  multiplier.
+  multiplier. Explicit wait controls keep their configured wall-clock duration.
 - **Record layout-specific text.** Type macro templates assume a standard
   QWERTY layout. Optional Unicode input can preserve many special characters,
   but record the macro live if the target app does not accept those sequences
   or if you use a different keyboard layout.
-- **Use gap notes for timing tweaks.** They're faster and more reliable than
-  manually nudging individual events.
+- **Use wait controls for runtime pauses.** They keep the recorded timeline
+  intact while still delaying later playback.

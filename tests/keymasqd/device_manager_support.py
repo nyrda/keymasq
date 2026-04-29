@@ -155,12 +155,15 @@ async def _runtime_combo_timeout_watchdog(manager: DeviceManager, deadline: floa
 
 
 async def _runtime_run_macro_control_action(
-    manager: DeviceManager, ev: dict[str, object], speed: float
+    manager: DeviceManager,
+    ev: dict[str, object],
+    *,
+    renew_mouse_suppression: bool = False,
 ) -> float:
     return await mdm.run_macro_control_action(
         manager,
         ev,
-        speed,
+        renew_mouse_suppression=renew_mouse_suppression,
         deps=dm._macro_runtime_deps(),
     )
 

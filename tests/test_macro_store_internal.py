@@ -12,7 +12,7 @@ def test_register_internal_macro():
         store.register_internal(
             "__test_macro",
             events=[{"type": "key", "code": "a"}],
-            duration_ms=100,
+            duration_us=100_000,
         )
 
         assert store.is_internal("__test_macro")

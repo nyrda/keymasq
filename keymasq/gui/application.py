@@ -101,7 +101,7 @@ class Application(Adw.Application):
         dialog = SuperkeyDialog(self.window, self.window.profile_manager)
         dialog.connect("superkey-saved", self._on_superkey_changed)
         dialog.connect("superkey-deleted", self._on_superkey_changed)
-        dialog.present()
+        dialog.present(self.window)
 
     def _on_superkey_changed(self, dialog, name: str) -> None:
         notify_session_reload_async()

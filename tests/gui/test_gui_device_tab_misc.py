@@ -1102,3 +1102,8 @@ def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.
     dialog.stack.set_visible_child_name("mouse")
 
     assert dialog.actions_docs_btn.get_tooltip_text() == "Open Mouse documentation"
+
+    monkeypatch.setattr(dialog_module, "__version__", "1.2.3.dev1")
+    assert dialog_module._actions_docs_url("mouse") == (
+        "https://keymasq.tools/docs/master/ACTIONS/#mouse"
+    )

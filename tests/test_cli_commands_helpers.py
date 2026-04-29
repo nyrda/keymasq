@@ -20,7 +20,7 @@ def test_list_macros_cli_prints_macros(
         "_session_request",
         lambda payload: {
             "status": "ok",
-            "macros": [{"name": "combo", "duration_ms": 150, "event_count": 4}],
+            "macros": [{"name": "combo", "duration_us": 150_000, "event_count": 4}],
         },
     )
 

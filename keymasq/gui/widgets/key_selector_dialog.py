@@ -1669,7 +1669,7 @@ class KeySelectorDialog(Adw.Dialog):
             name_label.set_hexpand(True)
             row_box.append(name_label)
 
-            duration_s = macro.get("duration_ms", 0) / 1000
+            duration_s = macro.get("duration_us", 0) / 1_000_000
             device_types = ", ".join(macro.get("device_types", []))
             info_label = Gtk.Label(label=f"{duration_s:.1f}s · {device_types}")
             info_label.add_css_class("dim-label")

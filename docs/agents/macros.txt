@@ -79,7 +79,7 @@ Canonical macro object:
 {
   "name": "example",
   "device_types": ["keyboard"],
-  "duration_ms": 20,
+  "duration_us": 20000,
   "loop_mode": "none",
   "loop_count": 1,
   "loop_stop_behavior": "finish_run",

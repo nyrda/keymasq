@@ -14,7 +14,7 @@ def test_macro_store_crud_and_revision(tmp_path: Path) -> None:
         {
             "name": "combo",
             "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-            "duration_ms": 1,
+            "duration_us": 1000,
             "device_types": ["keyboard"],
         }
     )
@@ -24,8 +24,8 @@ def test_macro_store_crud_and_revision(tmp_path: Path) -> None:
     assert (tmp_path / "macros" / "combo.kmacro.xz").exists()
     assert list(store.iter_events("combo")) == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
 
-    updated = store.update("combo", {"duration_ms": 20}, expected_revision=1)
-    assert updated["duration_ms"] == 20
+    updated = store.update("combo", {"duration_us": 20_000}, expected_revision=1)
+    assert updated["duration_us"] == 20_000
     assert updated["revision"] == 2
 
     renamed = store.rename("combo", "combo_new", expected_revision=2)
@@ -44,7 +44,7 @@ def test_macro_store_revision_conflict(tmp_path: Path) -> None:
     store.create({"name": "macro_a", "events": []})
 
     with pytest.raises(ValueError):
-        store.update("macro_a", {"duration_ms": 10}, expected_revision=7)
+        store.update("macro_a", {"duration_us": 10_000}, expected_revision=7)
 
 
 def test_macro_store_create_from_events_returns_metadata_without_loading_full_payload(
@@ -59,7 +59,7 @@ def test_macro_store_create_from_events_returns_metadata_without_loading_full_pa
     created = store.create_from_events(
         {
             "name": "streamed",
-            "duration_ms": 1,
+            "duration_us": 1000,
             "device_types": ["keyboard"],
             "event_count": 3,
         },
@@ -106,7 +106,9 @@ def test_macro_store_preserves_wait_controls(tmp_path: Path) -> None:
     loaded = store.get("timed")
 
     assert loaded["events"] == events
+    assert loaded["duration_us"] == 2000
     assert updated["events"] == events
+    assert updated["duration_us"] == 2000
 
 
 def test_macro_store_internal_meta_uses_shared_loop_stop_default(tmp_path: Path) -> None:

@@ -101,7 +101,7 @@ class MacroStore:
             data = self._internal_macros[name]
             return {
                 "name": _payload_str(data, "name", name),
-                "duration_ms": _payload_int(data, "duration_ms", 0),
+                "duration_us": _payload_int(data, "duration_us", 0),
                 "device_types": _payload_list(data, "device_types"),
                 "created_at": _payload_str(data, "created_at"),
                 "event_count": _payload_int(
@@ -166,6 +166,7 @@ class MacroStore:
             )
 
         data: MacroPayload = dict(current)
+        events_changed = "events" in payload
         for key, value in payload.items():
             if key in {"name", "created_at", "revision"}:
                 continue
@@ -173,6 +174,11 @@ class MacroStore:
 
         data["revision"] = current_revision + 1
         data["event_count"] = len(_payload_events(data))
+        if events_changed:
+            if "duration_us" not in payload:
+                data.pop("duration_us", None)
+            if "device_types" not in payload:
+                data.pop("device_types", None)
         self._write_payload(self._macro_path(name), data)
         return self.get(name)
 

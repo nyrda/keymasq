@@ -1650,7 +1650,7 @@ class MacroEditorDialog(Adw.Dialog):
             self._synthetic_moves,
             self._control_events,
         ) = parse_events(raw_events)
-        self._duration_us = int(self._macro_data.get("duration_ms", 0) or 0) * 1000
+        self._duration_us = int(self._macro_data.get("duration_us", 0) or 0)
         self._macro_move_to_start = bool(self._macro_data.get("move_to_start", False))
         self._macro_start_x = int(self._macro_data.get("start_x", 0) or 0)
         self._macro_start_y = int(self._macro_data.get("start_y", 0) or 0)
@@ -4223,7 +4223,7 @@ class MacroEditorDialog(Adw.Dialog):
         data = dict(self._macro_data)
         data["name"] = name
         data["events"] = raw_events
-        data["duration_ms"] = duration_us // 1000
+        data["duration_us"] = duration_us
         data["device_types"] = device_types
         data["loop_mode"] = _get_dropdown_selected_id(
             self._macro_loop_mode_combo,

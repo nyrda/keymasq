@@ -59,6 +59,7 @@ async def test_macro_save_recording_claims_snapshot_before_streaming(daemon_test
 
     def create_from_events(payload, events, *, return_full: bool = False):
         assert payload["name"] == "saved"
+        assert payload["duration_us"] == 5000
         assert return_full is False
         stored_events.extend(events)
         return {"name": payload["name"]}

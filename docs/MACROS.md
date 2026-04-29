@@ -244,7 +244,7 @@ prevents the next repeat. When it is disabled, stop input cancels playback
 immediately.
 
 Macro duration is the minimum timeline length of one pass. If the pass reaches
-the end of its events before `duration_ms`, playback waits until that duration
+the end of its events before `duration_us`, playback waits until that duration
 has elapsed before looping or finishing. This trailing duration is scaled by
 macro speed; explicit wait controls keep their own wall-clock duration.
 

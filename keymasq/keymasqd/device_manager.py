@@ -903,7 +903,7 @@ class DeviceManager:
 
         return runtime_macros.MacroEventSource(
             event_count=_int_value(meta.get("event_count"), 0),
-            duration_us=_int_value(meta.get("duration_ms"), 0) * 1000,
+            duration_us=_int_value(meta.get("duration_us"), 0),
             iter_events=iter_stored_events,
         )
 

@@ -45,7 +45,7 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
                     "inhibit_mouse": True,
                 },
             ],
-            "duration_ms": 25,
+            "duration_us": 25_000,
             "move_to_start": True,
             "start_x": 320,
             "start_y": 240,
@@ -145,7 +145,7 @@ def test_macro_editor_timing_tools_set_total_time(monkeypatch) -> None:
     dialog._on_set_total_time_clicked(None)
 
     assert dialog._duration_us == 5_000_000
-    assert dialog._build_macro_payload("empty_space")["duration_ms"] == 5000
+    assert dialog._build_macro_payload("empty_space")["duration_us"] == 5_000_000
 
     event = EditableEvent(
         device_type="keyboard",
@@ -159,7 +159,7 @@ def test_macro_editor_timing_tools_set_total_time(monkeypatch) -> None:
     dialog._on_set_total_time_clicked(None)
 
     assert dialog._duration_us == 6_002_000
-    assert dialog._build_macro_payload("with_event")["duration_ms"] == 6002
+    assert dialog._build_macro_payload("with_event")["duration_us"] == 6_002_000
 
 
 def test_macro_editor_payload_includes_wait_controls(monkeypatch) -> None:
@@ -563,7 +563,7 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
                 "t_us": 3000,
             },
         ],
-        "duration_ms": 3,
+        "duration_us": 3000,
         "loop_mode": "hold",
         "loop_count": 1,
         "loop_stop_behavior": "cancel_run",

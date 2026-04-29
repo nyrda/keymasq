@@ -225,7 +225,7 @@ def _save_pending_recording_sync(
     payload: JsonObject = {
         "name": name,
         "created_at": datetime.now().isoformat(),
-        "duration_ms": int(snapshot.duration_ms),
+        "duration_us": int(snapshot.duration_ms) * 1000,
         "device_types": list(snapshot.device_types),
         "event_count": int(snapshot.event_count),
         "move_to_start": bool(data.get("move_to_start", False)),

@@ -187,7 +187,7 @@ def test_macro_definition_duration_uses_wait_timestamp_not_wait_end() -> None:
         ]
     )
 
-    assert macro["duration_ms"] == 10
+    assert macro["duration_us"] == 10_000
 
 
 def test_type_macro_builder_keeps_backslash_sequences_literal() -> None:

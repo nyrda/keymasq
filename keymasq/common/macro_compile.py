@@ -372,9 +372,9 @@ def macro_definition_from_events(
     device_types: list[str] | None = None,
 ) -> JsonObject:
     inferred_device_types = device_types or _infer_device_types(events)
-    duration_ms = max((_event_end_us(event) for event in events), default=0) // 1000
+    duration_us = max((_event_end_us(event) for event in events), default=0)
     data: JsonObject = {
-        "duration_ms": duration_ms,
+        "duration_us": duration_us,
         "device_types": inferred_device_types,
         "events": events,
     }

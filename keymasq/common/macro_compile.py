@@ -56,6 +56,8 @@ def build_type_macro_events(
 ) -> list[JsonObject]:
     events: list[JsonObject] = []
     t_us = 0
+    down_ms = max(0, int(down_ms))
+    pause_ms = max(0, int(pause_ms))
     modifier_settle_us = 1_000
     normalized = (
         normalize_unicode_type_macro_text(text)
@@ -473,6 +475,7 @@ def _append_unicode_char_events(
 def _append_wait_event(events: list[JsonObject], args: list[str], t_us: int) -> None:
     if len(args) == 1:
         duration_ms = _parse_non_negative_int(args[0], "wait duration")
+        duration_us = duration_ms * 1000
         events.append(
             {
                 "device_type": "macro",
@@ -481,7 +484,7 @@ def _append_wait_event(events: list[JsonObject], args: list[str], t_us: int) -> 
                 "value": 0,
                 "t_us": int(t_us),
                 "macro_action": "wait",
-                "duration_ms": duration_ms,
+                "duration_us": duration_us,
             }
         )
         return
@@ -491,6 +494,8 @@ def _append_wait_event(events: list[JsonObject], args: list[str], t_us: int) -> 
         max_ms = _parse_non_negative_int(args[1], "wait max")
         if max_ms < min_ms:
             raise ValueError("wait max must be greater than or equal to wait min")
+        min_us = min_ms * 1000
+        max_us = max_ms * 1000
         events.append(
             {
                 "device_type": "macro",
@@ -499,8 +504,8 @@ def _append_wait_event(events: list[JsonObject], args: list[str], t_us: int) -> 
                 "value": 0,
                 "t_us": int(t_us),
                 "macro_action": "wait_random",
-                "min_ms": min_ms,
-                "max_ms": max_ms,
+                "min_us": min_us,
+                "max_us": max_us,
             }
         )
         return

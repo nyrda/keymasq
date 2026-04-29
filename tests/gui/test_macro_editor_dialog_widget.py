@@ -129,7 +129,7 @@ def test_macro_editor_insert_wait_adds_control_without_rewriting_timeline(monkey
     dialog._events = [event]
     dialog._duration_us = 12000
 
-    dialog._insert_control_event(EditableControl(mode="wait", t_us=5000, duration_ms=150))
+    dialog._insert_control_event(EditableControl(mode="wait", t_us=5000, duration_us=150_000))
 
     assert len(dialog._control_events) == 1
     assert dialog._control_events[0].mode == "wait"
@@ -165,8 +165,8 @@ def test_macro_editor_timing_tools_set_total_time(monkeypatch) -> None:
 def test_macro_editor_payload_includes_wait_controls(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     dialog._control_events = [
-        EditableControl(mode="wait", t_us=1000, duration_ms=75),
-        EditableControl(mode="wait_random", t_us=2000, min_ms=10, max_ms=80),
+        EditableControl(mode="wait", t_us=1000, duration_us=75_000),
+        EditableControl(mode="wait_random", t_us=2000, min_us=10_000, max_us=80_000),
     ]
 
     payload = dialog._build_macro_payload("timed_macro")
@@ -179,7 +179,7 @@ def test_macro_editor_payload_includes_wait_controls(monkeypatch) -> None:
             "value": 0,
             "t_us": 1000,
             "macro_action": "wait",
-            "duration_ms": 75,
+            "duration_us": 75_000,
         },
         {
             "device_type": "macro",
@@ -188,8 +188,8 @@ def test_macro_editor_payload_includes_wait_controls(monkeypatch) -> None:
             "value": 0,
             "t_us": 2000,
             "macro_action": "wait_random",
-            "min_ms": 10,
-            "max_ms": 80,
+            "min_us": 10_000,
+            "max_us": 80_000,
         },
     ]
 
@@ -197,7 +197,7 @@ def test_macro_editor_payload_includes_wait_controls(monkeypatch) -> None:
 def test_macro_editor_wait_controls_show_edit_fields(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
 
-    fixed = EditableControl(mode="wait", t_us=12_000, duration_ms=75)
+    fixed = EditableControl(mode="wait", t_us=12_000, duration_us=75_000)
     dialog._timeline._selected = fixed
     dialog._on_selection_changed(fixed)
 
@@ -210,7 +210,7 @@ def test_macro_editor_wait_controls_show_edit_fields(monkeypatch) -> None:
     assert dialog._control_b_label.get_visible() is False
     assert dialog._control_b_spin.get_visible() is False
 
-    random_wait = EditableControl(mode="wait_random", t_us=34_000, min_ms=10, max_ms=80)
+    random_wait = EditableControl(mode="wait_random", t_us=34_000, min_us=10_000, max_us=80_000)
     dialog._timeline._selected = random_wait
     dialog._on_selection_changed(random_wait)
 
@@ -514,7 +514,7 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
         type("Action", (), {"action_type": ActionType.KEYBOARD, "target": "key_b"})(),
         12000,
     )
-    dialog._control_events = [EditableControl(mode="wait", t_us=5000, duration_ms=80)]
+    dialog._control_events = [EditableControl(mode="wait", t_us=5000, duration_us=80_000)]
 
     payload = dialog._build_macro_payload("saved_macro")
 
@@ -535,7 +535,7 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
         "value": 0,
         "t_us": 5000,
         "macro_action": "wait",
-        "duration_ms": 80,
+        "duration_us": 80_000,
     } in payload["events"]
 
 

@@ -43,8 +43,8 @@ keymasq type --print-json "hello"
 
 | Option | Description |
 |---|---|
-| `--down-ms MS` | Key down duration for each typed key. Default: `10` |
-| `--pause-ms MS` | Pause between typed characters. Default: `20` |
+| `--down-ms MS` | Key down duration for each typed key. Use `0` for no hold delay. Default: `10` |
+| `--pause-ms MS` | Pause between typed characters. Use `0` for no inter-key delay. Default: `20` |
 | `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration |
 | `--no-unicode` | Fail on unsupported characters instead of using Linux Ctrl+Shift+U input |
 | `--print-json` | Print the compiled macro JSON instead of playing it |

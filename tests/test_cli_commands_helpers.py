@@ -230,7 +230,9 @@ def test_play_adhoc_cli_compiles_compact_tokens(monkeypatch: pytest.MonkeyPatch)
     assert payload["speed"] == 0.5
     events = payload["macro_events"]
     assert isinstance(events, list)
-    assert any(event.get("macro_action") == "wait_random" for event in events)
+    wait_random = next(event for event in events if event.get("macro_action") == "wait_random")
+    assert wait_random["min_us"] == 10_000
+    assert wait_random["max_us"] == 20_000
 
 
 def test_play_adhoc_cli_reads_json_payload(monkeypatch: pytest.MonkeyPatch) -> None:

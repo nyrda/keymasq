@@ -453,7 +453,7 @@ async def test_play_macro_block_mouse_movement_renews_suppression_for_wait(
     await _play_macro_task(
         manager,
         instance_id=1,
-        macro_events=[{"t_us": 0, "macro_action": "wait", "duration_ms": 10_000}],
+        macro_events=[{"t_us": 0, "macro_action": "wait", "duration_us": 10_000_000}],
         macro_name="blocked_wait",
         replay_mouse_movement=True,
         replay_mouse_clicks=True,
@@ -543,7 +543,7 @@ async def test_play_macro_does_not_double_sleep_when_wait_exceeds_duration(
             event_count=1,
             duration_us=100_000,
             iter_events=lambda: iter(
-                [{"t_us": 0, "macro_action": "wait", "duration_ms": 200}]
+                [{"t_us": 0, "macro_action": "wait", "duration_us": 200_000}]
             ),
         ),
         macro_name="wait_longer_than_duration",
@@ -956,7 +956,7 @@ async def test_play_macro_wait_control_actions_shift_later_deadlines(
             {
                 "t_us": 0,
                 "macro_action": "wait",
-                "duration_ms": 200,
+                "duration_us": 200_000,
             },
             {
                 "t_us": 100_000,

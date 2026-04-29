@@ -683,7 +683,7 @@ class TypeMacroDialog(Adw.Dialog):
 
         self.down_spin = Gtk.SpinButton()
         self.down_spin.set_adjustment(
-            Gtk.Adjustment(value=10, lower=1, upper=1000, step_increment=1)
+            Gtk.Adjustment(value=10, lower=0, upper=1000, step_increment=1)
         )
         timing.append(self.down_spin)
 

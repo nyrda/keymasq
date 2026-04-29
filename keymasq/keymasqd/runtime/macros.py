@@ -658,34 +658,36 @@ async def run_macro_control_action(
     int_value_fn = deps.int_value_fn
     action_type = str_value_fn(ev.get("macro_action"), "")
     if action_type == "wait":
-        duration_ms = max(0, int_value_fn(ev.get("duration_ms"), 0))
-        if duration_ms > 0:
+        duration_us = max(0, int_value_fn(ev.get("duration_us"), 0))
+        if duration_us > 0:
+            duration_s = duration_us / 1_000_000.0
             if renew_mouse_suppression:
                 renew_macro_mouse_suppression(
                     manager,
-                    timeout_s=duration_ms / 1000.0 + 1.0,
+                    timeout_s=duration_s + 1.0,
                     deps=deps,
                 )
             loop = asyncio_mod.get_running_loop()
             started_at = loop.time()
-            await asyncio_mod.sleep(duration_ms / 1000.0)
+            await asyncio_mod.sleep(duration_s)
             return max(0.0, loop.time() - started_at)
         return 0.0
 
     if action_type == "wait_random":
-        min_ms = max(0, int_value_fn(ev.get("min_ms"), 0))
-        max_ms = max(min_ms, int_value_fn(ev.get("max_ms"), min_ms))
-        sampled_ms = random.randint(min_ms, max_ms)
-        if sampled_ms > 0:
+        min_us = max(0, int_value_fn(ev.get("min_us"), 0))
+        max_us = max(min_us, int_value_fn(ev.get("max_us"), min_us))
+        sampled_us = random.randint(min_us, max_us)
+        if sampled_us > 0:
+            sampled_s = sampled_us / 1_000_000.0
             if renew_mouse_suppression:
                 renew_macro_mouse_suppression(
                     manager,
-                    timeout_s=sampled_ms / 1000.0 + 1.0,
+                    timeout_s=sampled_s + 1.0,
                     deps=deps,
                 )
             loop = asyncio_mod.get_running_loop()
             started_at = loop.time()
-            await asyncio_mod.sleep(sampled_ms / 1000.0)
+            await asyncio_mod.sleep(sampled_s)
             return max(0.0, loop.time() - started_at)
         return 0.0
 

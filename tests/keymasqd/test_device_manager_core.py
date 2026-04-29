@@ -600,7 +600,7 @@ class TestMacroControlActions:
 
         result = await _runtime_run_macro_control_action(
             manager,
-            {"macro_action": "wait", "duration_ms": 20},
+            {"macro_action": "wait", "duration_us": 20_000},
         )
 
         assert sleep_calls == [0.02]
@@ -627,7 +627,7 @@ class TestMacroControlActions:
 
         result = await _runtime_run_macro_control_action(
             manager,
-            {"macro_action": "wait", "duration_ms": 10_000},
+            {"macro_action": "wait", "duration_us": 10_000_000},
             renew_mouse_suppression=True,
         )
 
@@ -681,11 +681,11 @@ class TestMacroControlActions:
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
-        monkeypatch.setattr(mdm.random, "randint", lambda _minimum, _maximum: 50)
+        monkeypatch.setattr(mdm.random, "randint", lambda _minimum, _maximum: 50_000)
 
         result = await _runtime_run_macro_control_action(
             manager,
-            {"macro_action": "wait_random", "min_ms": 10, "max_ms": 80},
+            {"macro_action": "wait_random", "min_us": 10_000, "max_us": 80_000},
         )
 
         assert sleep_calls == [0.05]

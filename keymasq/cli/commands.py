@@ -226,7 +226,7 @@ def type_cli(
     try:
         events = build_type_macro_events(
             text,
-            max(1, int(down_ms)),
+            max(0, int(down_ms)),
             max(0, int(pause_ms)),
             use_unicode_input=use_unicode_input,
         )

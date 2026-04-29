@@ -165,9 +165,9 @@ class EditableMove:
 class EditableControl:
     mode: str  # wait | wait_random | exec_sync | exec_async
     t_us: int
-    duration_ms: int = 0
-    min_ms: int = 0
-    max_ms: int = 0
+    duration_us: int = 0
+    min_us: int = 0
+    max_us: int = 0
     command: str = ""
     timeout_ms: int = 30000
     inhibit_mouse: bool = False
@@ -218,9 +218,9 @@ def parse_events(
                 EditableControl(
                     mode=macro_action,
                     t_us=int(ev.get("t_us", 0)),
-                    duration_ms=int(ev.get("duration_ms", 0) or 0),
-                    min_ms=int(ev.get("min_ms", 0) or 0),
-                    max_ms=int(ev.get("max_ms", 0) or 0),
+                    duration_us=int(ev.get("duration_us", 0) or 0),
+                    min_us=int(ev.get("min_us", 0) or 0),
+                    max_us=int(ev.get("max_us", 0) or 0),
                     command=str(ev.get("command", "") or ""),
                     timeout_ms=int(ev.get("timeout_ms", 30000) or 30000),
                     inhibit_mouse=bool(ev.get("inhibit_mouse", False)),
@@ -330,10 +330,10 @@ def reconstruct_events(
             "macro_action": str(control.mode),
         }
         if control.mode == "wait":
-            event["duration_ms"] = int(control.duration_ms)
+            event["duration_us"] = int(control.duration_us)
         elif control.mode == "wait_random":
-            event["min_ms"] = int(control.min_ms)
-            event["max_ms"] = int(control.max_ms)
+            event["min_us"] = int(control.min_us)
+            event["max_us"] = int(control.max_us)
         elif control.mode in {"exec_sync", "exec_async"}:
             event["command"] = str(control.command)
             if control.mode == "exec_sync":
@@ -1915,7 +1915,7 @@ class MacroEditorDialog(Adw.Dialog):
         insert_gap_ms_spin = Gtk.SpinButton()
         self._insert_gap_ms_spin = insert_gap_ms_spin
         insert_gap_ms_spin.set_adjustment(
-            Gtk.Adjustment(value=100.0, lower=1.0, upper=60000.0, step_increment=10.0)
+            Gtk.Adjustment(value=100.0, lower=0.0, upper=60000.0, step_increment=10.0)
         )
         insert_gap_ms_spin.set_digits(0)
         insert_gap_ms_spin.set_width_chars(7)
@@ -2954,7 +2954,7 @@ class MacroEditorDialog(Adw.Dialog):
         control = EditableControl(
             mode="wait",
             t_us=at_us,
-            duration_ms=max(1, gap_us // 1000),
+            duration_us=max(0, gap_us),
         )
         self._insert_control_event(control)
 
@@ -3159,7 +3159,7 @@ class MacroEditorDialog(Adw.Dialog):
                     self._control_a_label.set_label("Duration (ms):")
                     self._control_a_label.set_visible(True)
                     self._control_a_spin.set_visible(True)
-                    self._control_a_spin.set_value(max(1, int(control.duration_ms)))
+                    self._control_a_spin.set_value(max(0.0, control.duration_us / 1000.0))
                 elif control.mode == "wait_random":
                     self._control_ab_row.set_visible(True)
                     self._control_a_label.set_label("Min (ms):")
@@ -3168,8 +3168,8 @@ class MacroEditorDialog(Adw.Dialog):
                     self._control_a_spin.set_visible(True)
                     self._control_b_label.set_visible(True)
                     self._control_b_spin.set_visible(True)
-                    self._control_a_spin.set_value(max(1, int(control.min_ms)))
-                    self._control_b_spin.set_value(max(1, int(control.max_ms)))
+                    self._control_a_spin.set_value(max(0.0, control.min_us / 1000.0))
+                    self._control_b_spin.set_value(max(0.0, control.max_us / 1000.0))
                 elif control.mode == "exec_async":
                     self._control_cmd_row.set_visible(True)
                     _set_entry_text_if_needed(self._control_cmd_entry, control.command)
@@ -3463,11 +3463,11 @@ class MacroEditorDialog(Adw.Dialog):
         if not isinstance(selected_obj, EditableControl):
             return
         if selected_obj.mode == "wait":
-            selected_obj.duration_ms = max(1, int(spin.get_value()))
+            selected_obj.duration_us = max(0, int(spin.get_value() * 1000))
         elif selected_obj.mode == "wait_random":
-            selected_obj.min_ms = max(1, int(spin.get_value()))
-            if selected_obj.max_ms < selected_obj.min_ms:
-                selected_obj.max_ms = selected_obj.min_ms
+            selected_obj.min_us = max(0, int(spin.get_value() * 1000))
+            if selected_obj.max_us < selected_obj.min_us:
+                selected_obj.max_us = selected_obj.min_us
         self._refresh_after_control_change(selected_obj)
 
     def _on_control_b_changed(self, spin: Gtk.SpinButton) -> None:
@@ -3477,9 +3477,9 @@ class MacroEditorDialog(Adw.Dialog):
         if not isinstance(selected_obj, EditableControl):
             return
         if selected_obj.mode == "wait_random":
-            selected_obj.max_ms = max(1, int(spin.get_value()))
-            if selected_obj.max_ms < selected_obj.min_ms:
-                selected_obj.max_ms = selected_obj.min_ms
+            selected_obj.max_us = max(0, int(spin.get_value() * 1000))
+            if selected_obj.max_us < selected_obj.min_us:
+                selected_obj.max_us = selected_obj.min_us
             self._refresh_after_control_change(selected_obj)
 
     def _on_control_command_changed(self, entry: Gtk.Entry) -> None:
@@ -3734,7 +3734,7 @@ class MacroEditorDialog(Adw.Dialog):
             duration_spin_widget = Gtk.SpinButton()
             duration_spin = duration_spin_widget
             duration_spin_widget.set_adjustment(
-                Gtk.Adjustment(value=100, lower=1, upper=600000, step_increment=10)
+                Gtk.Adjustment(value=100, lower=0, upper=600000, step_increment=10)
             )
             duration_spin_widget.set_digits(0)
             duration_spin_widget.set_width_chars(8)
@@ -3746,7 +3746,7 @@ class MacroEditorDialog(Adw.Dialog):
             min_spin_widget = Gtk.SpinButton()
             min_spin = min_spin_widget
             min_spin_widget.set_adjustment(
-                Gtk.Adjustment(value=50, lower=1, upper=600000, step_increment=10)
+                Gtk.Adjustment(value=50, lower=0, upper=600000, step_increment=10)
             )
             min_spin_widget.set_digits(0)
             min_spin_widget.set_width_chars(7)
@@ -3755,7 +3755,7 @@ class MacroEditorDialog(Adw.Dialog):
             max_spin_widget = Gtk.SpinButton()
             max_spin = max_spin_widget
             max_spin_widget.set_adjustment(
-                Gtk.Adjustment(value=150, lower=1, upper=600000, step_increment=10)
+                Gtk.Adjustment(value=150, lower=0, upper=600000, step_increment=10)
             )
             max_spin_widget.set_digits(0)
             max_spin_widget.set_width_chars(7)
@@ -3816,12 +3816,12 @@ class MacroEditorDialog(Adw.Dialog):
             control = EditableControl(mode=control_mode, t_us=t_us)
 
             if control_mode == "wait" and duration_spin is not None:
-                control.duration_ms = max(1, int(duration_spin.get_value()))
+                control.duration_us = max(0, int(duration_spin.get_value() * 1000))
             elif control_mode == "wait_random" and min_spin is not None and max_spin is not None:
-                mn = max(1, int(min_spin.get_value()))
-                mx = max(mn, int(max_spin.get_value()))
-                control.min_ms = mn
-                control.max_ms = mx
+                mn = max(0, int(min_spin.get_value() * 1000))
+                mx = max(mn, int(max_spin.get_value() * 1000))
+                control.min_us = mn
+                control.max_us = mx
             elif control_mode in {"exec_sync", "exec_async"} and cmd_entry is not None:
                 command = cmd_entry.get_text().strip()
                 control.command = command

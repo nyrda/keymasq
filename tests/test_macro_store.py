@@ -83,7 +83,7 @@ def test_macro_store_preserves_wait_controls(tmp_path: Path) -> None:
             "value": 0,
             "t_us": 1000,
             "macro_action": "wait",
-            "duration_ms": 50,
+            "duration_us": 50_000,
         },
         {
             "device_type": "macro",
@@ -92,8 +92,8 @@ def test_macro_store_preserves_wait_controls(tmp_path: Path) -> None:
             "value": 0,
             "t_us": 2000,
             "macro_action": "wait_random",
-            "min_ms": 10,
-            "max_ms": 80,
+            "min_us": 10_000,
+            "max_us": 80_000,
         },
     ]
 

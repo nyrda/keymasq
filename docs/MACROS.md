@@ -308,7 +308,8 @@ target device is gone), the GUI won't notify you.
 ### Wait Controls
 
 A wait control is a real macro event you place on the timeline. It is stored
-with the macro and replayed by `keymasqd`.
+with the macro and replayed by `keymasqd`. The GUI edits wait timing in
+milliseconds, while the macro file stores wait durations in microseconds.
 
 **Why use them?** Sometimes you need a delay at a specific point in your
 macro — for example, waiting for a menu to open before clicking an option.

@@ -16,12 +16,14 @@ def build_compositor_action_pages(
     current_action: MappingAction | None,
     on_selected: Callable[[MappingAction], None],
     status: Mapping[str, object] | None = None,
+    submit_label: str | None = None,
 ):
     return build_compositor_action_pages_for_definitions(
         COMPOSITOR_ACTION_DEFINITIONS,
         current_action,
         on_selected,
         status,
+        submit_label,
     )
 
 

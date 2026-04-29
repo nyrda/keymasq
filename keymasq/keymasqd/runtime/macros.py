@@ -754,6 +754,22 @@ async def run_macro_control_action(
                 release_macro_mouse_inhibit(manager)
         return max(0.0, loop.time() - started_at)
 
+    if action_type == "compositor_dispatch":
+        dispatcher = str_value_fn(ev.get("dispatcher"), "").strip()
+        if not dispatcher:
+            return 0.0
+        if manager.broadcast_callback:
+            await manager.broadcast_callback(
+                CommandType.ACTION_TRIGGER,
+                {
+                    "action_type": "compositor_dispatch",
+                    "compositor": str_value_fn(ev.get("compositor"), "").strip(),
+                    "dispatcher": dispatcher,
+                    "args": str_value_fn(ev.get("args"), "").strip(),
+                },
+            )
+        return 0.0
+
     return 0.0
 
 

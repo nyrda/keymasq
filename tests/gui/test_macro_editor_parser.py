@@ -180,6 +180,37 @@ def test_parse_reconstruct_preserves_wait_controls() -> None:
     assert rebuilt == raw
 
 
+def test_parse_reconstruct_compositor_macro_action() -> None:
+    raw = [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 123000,
+            "macro_action": "compositor_dispatch",
+            "compositor": "hyprland",
+            "dispatcher": "workspace",
+            "args": "e+1",
+        }
+    ]
+
+    editable, rel_events, passthrough, synthetic_moves, control_events = parse_events(raw)
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
+
+    assert editable == []
+    assert rel_events == []
+    assert passthrough == []
+    assert synthetic_moves == []
+    assert len(control_events) == 1
+    control = control_events[0]
+    assert control.mode == "compositor_dispatch"
+    assert control.compositor_id == "hyprland"
+    assert control.compositor_dispatcher == "workspace"
+    assert control.compositor_args == "e+1"
+    assert rebuilt == raw
+
+
 def test_unmatched_key_press_is_classified_for_keyboard_track() -> None:
     raw = [
         {

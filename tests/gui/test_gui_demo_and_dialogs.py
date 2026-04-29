@@ -600,6 +600,33 @@ class TestDialogConstruction:
         assert dialog.get_child() is not None
         assert dialog.right_box.get_parent() is not None
 
+    def test_superkey_dialog_empty_state_keeps_close_available(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gdk, Gtk
+
+        from keymasq.common import paths
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        closed: list[bool] = []
+        monkeypatch.setattr(dialog, "close", lambda: closed.append(True))
+
+        assert dialog.list_box.get_row_at_index(0) is None
+        assert dialog.editor_box.get_sensitive() is False
+        assert dialog.right_box.get_sensitive() is True
+        assert dialog.close_btn.get_sensitive() is True
+
+        dialog.close_btn.emit("clicked")
+        assert closed == [True]
+
+        closed.clear()
+        assert dialog._on_key_pressed(None, Gdk.KEY_Escape, 0, 0) is True
+        assert closed == [True]
+
     def test_pattern_superkey_actions_use_shared_key_selector_dialog(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

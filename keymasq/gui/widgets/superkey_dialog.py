@@ -397,6 +397,7 @@ class SuperkeyDialog(Adw.Dialog):
 
     def _setup_shortcuts(self) -> None:
         key_controller = Gtk.EventControllerKey()
+        key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         key_controller.connect("key-pressed", self._on_key_pressed)
         self.add_controller(key_controller)
 
@@ -460,7 +461,10 @@ class SuperkeyDialog(Adw.Dialog):
         self.right_box.set_margin_start(12)
         self.right_box.set_margin_end(12)
         self.right_box.set_hexpand(True)
-        self.right_box.set_sensitive(False)
+
+        self.editor_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.editor_box.set_sensitive(False)
+        self.editor_box.set_vexpand(True)
 
         fields_grid = Gtk.Grid()
         fields_grid.set_column_spacing(12)
@@ -495,8 +499,8 @@ class SuperkeyDialog(Adw.Dialog):
         self.mode_dropdown.connect("notify::selected", self._on_mode_changed)
         fields_grid.attach(self.mode_dropdown, 1, 2, 1, 1)
 
-        self.right_box.append(fields_grid)
-        self.right_box.append(Gtk.Separator())
+        self.editor_box.append(fields_grid)
+        self.editor_box.append(Gtk.Separator())
 
         self.actions_group = Adw.PreferencesGroup()
         self.actions_group.set_title("Actions")
@@ -516,8 +520,8 @@ class SuperkeyDialog(Adw.Dialog):
         self.overload_row = self._build_action_row("Overload Actions", "overload", "overload")
         self.actions_group.add(self.overload_row)
 
-        self.right_box.append(self.actions_group)
-        self.right_box.append(Gtk.Separator())
+        self.editor_box.append(self.actions_group)
+        self.editor_box.append(Gtk.Separator())
 
         self.timing_group = Adw.PreferencesGroup()
         self.timing_group.set_title("Timing")
@@ -549,7 +553,8 @@ class SuperkeyDialog(Adw.Dialog):
         )
         self.timing_group.add(self.hold_threshold_row)
 
-        self.right_box.append(self.timing_group)
+        self.editor_box.append(self.timing_group)
+        self.right_box.append(self.editor_box)
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         btn_box.set_halign(Gtk.Align.END)
@@ -577,6 +582,7 @@ class SuperkeyDialog(Adw.Dialog):
         close_btn = Gtk.Button(label="Close")
         close_btn.connect("clicked", self._on_close_clicked)
         bottom_row.append(close_btn)
+        self.close_btn = close_btn
 
         btn_box.append(bottom_row)
 
@@ -661,12 +667,21 @@ class SuperkeyDialog(Adw.Dialog):
 
         if names:
             self.list_box.select_row(self.list_box.get_row_at_index(0))
+        else:
+            self.list_box.select_row(None)
+            self._current_config = None
+            self.editor_box.set_sensitive(False)
+            self.delete_btn.set_sensitive(False)
+            self._modified = False
+            self._update_buttons()
 
     def _on_superkey_selected(self, _list_box, row) -> None:
         if row is None:
             self._current_config = None
-            self.right_box.set_sensitive(False)
+            self.editor_box.set_sensitive(False)
             self.delete_btn.set_sensitive(False)
+            self._modified = False
+            self._update_buttons()
             return
 
         label = row.get_child()
@@ -674,8 +689,11 @@ class SuperkeyDialog(Adw.Dialog):
         self._current_config = self.manager.get_superkey(name)
         if self._current_config:
             self._populate_editor()
-            self.right_box.set_sensitive(True)
+            self.editor_box.set_sensitive(True)
             self.delete_btn.set_sensitive(True)
+        else:
+            self.editor_box.set_sensitive(False)
+            self.delete_btn.set_sensitive(False)
 
         self._modified = False
         self._update_buttons()
@@ -787,7 +805,7 @@ class SuperkeyDialog(Adw.Dialog):
         self.list_box.select_row(None)
         self._current_config = SuperkeyConfig(name="New Super Key")
         self._populate_editor()
-        self.right_box.set_sensitive(True)
+        self.editor_box.set_sensitive(True)
         self.delete_btn.set_sensitive(False)
         self._modified = True
         self._update_buttons()

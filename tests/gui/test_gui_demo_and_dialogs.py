@@ -627,6 +627,66 @@ class TestDialogConstruction:
         assert dialog._on_key_pressed(None, Gdk.KEY_Escape, 0, 0) is True
         assert closed == [True]
 
+    def test_application_presents_superkey_dialog_on_main_window(self, monkeypatch):
+        import keymasq.gui.application as application_module
+        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
+
+        captured: dict[str, object] = {}
+        window = SimpleNamespace(profile_manager=object())
+
+        class DummySuperkeyDialog:
+            def __init__(self, parent, profile_manager):
+                captured["parent"] = parent
+                captured["profile_manager"] = profile_manager
+
+            def connect(self, signal_name, callback):
+                captured.setdefault("signals", []).append(signal_name)
+                captured["callback"] = callback
+
+            def present(self, parent):
+                captured["present_parent"] = parent
+
+        monkeypatch.setattr(superkey_dialog_module, "SuperkeyDialog", DummySuperkeyDialog)
+
+        app = application_module.Application(demo_mode=True)
+        app.window = window
+        app._open_superkey_dialog()
+
+        assert captured["parent"] is window
+        assert captured["profile_manager"] is window.profile_manager
+        assert captured["present_parent"] is window
+        assert captured["signals"] == ["superkey-saved", "superkey-deleted"]
+
+    def test_superkey_action_editor_presents_on_main_window(self, temp_config_dir, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        captured: dict[str, object] = {}
+        parent = Gtk.Window()
+
+        class DummyActionListDialog:
+            def __init__(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+
+            def connect(self, signal_name, callback, row):
+                captured["signal_name"] = signal_name
+                captured["row"] = row
+
+            def present(self, parent):
+                captured["present_parent"] = parent
+
+        monkeypatch.setattr(superkey_dialog_module, "ActionListDialog", DummyActionListDialog)
+
+        dialog = SuperkeyDialog(parent)
+        dialog._on_edit_action_clicked(Gtk.Button(), dialog.tap_row)
+
+        assert captured["present_parent"] is parent
+        assert captured["signal_name"] == "actions-selected"
+
     def test_pattern_superkey_actions_use_shared_key_selector_dialog(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
@@ -637,8 +697,11 @@ class TestDialogConstruction:
 
         captured: dict[str, object] = {}
 
+        parent = Gtk.Window()
+
         class DummyDialog:
             def __init__(self, _parent, _label, current_action=None, **kwargs):
+                captured["parent"] = _parent
                 captured["current_action"] = current_action
                 captured["kwargs"] = kwargs
 
@@ -647,12 +710,13 @@ class TestDialogConstruction:
                 captured["callback"] = callback
                 captured["index"] = index
 
-            def present(self):
+            def present(self, parent):
                 captured["presented"] = True
+                captured["present_parent"] = parent
 
         monkeypatch.setattr(key_selector_dialog_module, "KeySelectorDialog", DummyDialog)
 
-        dialog = ActionListDialog(Gtk.Window(), "Hold Actions", "pattern", action_key="hold")
+        dialog = ActionListDialog(parent, "Hold Actions", "pattern", action_key="hold")
         dialog._open_child_editor(
             SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
             2,
@@ -661,6 +725,8 @@ class TestDialogConstruction:
         current_action = captured["current_action"]
         assert captured["signal_name"] == "key-selected"
         assert captured["presented"] is True
+        assert captured["parent"] is parent
+        assert captured["present_parent"] is parent
         assert current_action.action_type == ActionType.PROFILE_TOGGLE
         assert current_action.profile_name == "Gaming"
         assert captured["kwargs"] == {

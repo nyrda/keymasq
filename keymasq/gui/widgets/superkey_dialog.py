@@ -282,7 +282,7 @@ class ActionListDialog(Adw.Dialog):
                 allow_macro_options=True,
             )
             dialog.connect("key-selected", self._on_pattern_action_selected, index)
-            dialog.present()
+            dialog.present(self._parent)
             return
 
         from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
@@ -297,7 +297,7 @@ class ActionListDialog(Adw.Dialog):
             allow_superkey=False,
         )
         dialog.connect("key-selected", self._on_mapping_action_selected, index)
-        dialog.present()
+        dialog.present(self._parent)
 
     def _on_add_clicked(self, _button: Gtk.Button) -> None:
         self._open_child_editor()
@@ -918,7 +918,7 @@ class SuperkeyDialog(Adw.Dialog):
             action_key=row._action_key,
         )
         dialog.connect("actions-selected", self._on_actions_selected, row)
-        dialog.present()
+        dialog.present(self._parent)
 
     def _on_actions_selected(self, _dialog, actions: list[object], row: Adw.ActionRow) -> None:
         row._action_items = list(actions)

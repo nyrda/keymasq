@@ -270,8 +270,9 @@ def test_macro_editor_compositor_control_selection_shows_action(monkeypatch) -> 
 
     assert dialog._prop_title.get_label() == "Compositor Action"
     assert dialog._press_spin.get_value_as_int() == 12
-    assert dialog._control_compositor_row.get_visible() is True
-    assert "workspace e+1" in dialog._control_compositor_label.get_label()
+    assert "workspace e+1" in dialog._key_info_label.get_label()
+    assert dialog._change_key_btn.get_visible() is True
+    assert dialog._change_key_btn.get_label() == "Change Action..."
     assert dialog._control_cmd_row.get_visible() is False
     assert dialog._control_sync_row.get_visible() is False
 

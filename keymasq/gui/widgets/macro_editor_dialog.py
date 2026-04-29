@@ -2256,29 +2256,12 @@ class MacroEditorDialog(Adw.Dialog):
         self._control_timeout_hint_label.set_halign(Gtk.Align.START)
         control_row.append(self._control_timeout_hint_label)
 
-        control_compositor_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._control_compositor_label = Gtk.Label()
-        self._control_compositor_label.add_css_class("dim-label")
-        self._control_compositor_label.set_halign(Gtk.Align.START)
-        self._control_compositor_label.set_hexpand(True)
-        control_compositor_row.append(self._control_compositor_label)
-        self._control_compositor_change_btn = Gtk.Button(label="Change Action...")
-        self._control_compositor_change_btn.add_css_class("flat")
-        self._control_compositor_change_btn.connect(
-            "clicked",
-            self._on_change_compositor_action_clicked,
-        )
-        control_compositor_row.append(self._control_compositor_change_btn)
-        control_row.append(control_compositor_row)
-
         panel.append(control_row)
         self._control_row = control_row
         self._control_ab_row = control_ab_row
         self._control_cmd_row = control_cmd_row
         self._control_sync_row = control_sync_row
-        self._control_compositor_row = control_compositor_row
         self._control_timeout_hint_label.set_visible(False)
-        self._control_compositor_row.set_visible(False)
         self._control_row.set_visible(False)
 
         # Action row
@@ -3255,7 +3238,8 @@ class MacroEditorDialog(Adw.Dialog):
             self._release_label.set_visible(False)
             self._release_spin.set_visible(False)
             self._release_unit_label.set_visible(False)
-            self._change_key_btn.set_visible(False)
+            self._change_key_btn.set_visible(is_compositor)
+            self._change_key_btn.set_label("Change Action..." if is_compositor else "Change Key...")
             self._move_row.set_visible(False)
             self._control_row.set_visible(True)
 
@@ -3271,7 +3255,6 @@ class MacroEditorDialog(Adw.Dialog):
                 self._control_cmd_row.set_visible(False)
                 self._control_sync_row.set_visible(False)
                 self._control_timeout_hint_label.set_visible(False)
-                self._control_compositor_row.set_visible(False)
 
                 if control.mode == "wait":
                     self._control_ab_row.set_visible(True)
@@ -3300,9 +3283,6 @@ class MacroEditorDialog(Adw.Dialog):
                     self._control_timeout_spin.set_value(max(1, int(control.timeout_ms)))
                     self._control_inhibit_check.set_active(bool(control.inhibit_mouse))
                     self._update_timeout_clamp_hint(int(control.timeout_ms))
-                elif control.mode == "compositor_dispatch":
-                    self._control_compositor_row.set_visible(True)
-                    self._control_compositor_label.set_label(_describe_compositor_control(control))
             finally:
                 self._updating_props = False
             self._move_capture_row.set_visible(False)
@@ -3492,6 +3472,9 @@ class MacroEditorDialog(Adw.Dialog):
 
     def _on_change_key_clicked(self, btn) -> None:
         ev = self._timeline._selected
+        if isinstance(ev, EditableControl) and ev.mode == "compositor_dispatch":
+            self._present_compositor_action_dialog(control=ev)
+            return
         if ev is None or isinstance(ev, (EditableMove, EditableControl, dict)):
             return
         assert isinstance(ev, EditableEvent)
@@ -3636,14 +3619,6 @@ class MacroEditorDialog(Adw.Dialog):
         if selected_obj.mode == "exec_sync":
             selected_obj.inhibit_mouse = bool(check.get_active())
             self._refresh_after_control_change(selected_obj)
-
-    def _on_change_compositor_action_clicked(self, _btn: Gtk.Button) -> None:
-        selected_obj = self._timeline._selected
-        if not isinstance(selected_obj, EditableControl):
-            return
-        if selected_obj.mode != "compositor_dispatch":
-            return
-        self._present_compositor_action_dialog(control=selected_obj)
 
     # ------------------------------------------------------------------
     # Zoom

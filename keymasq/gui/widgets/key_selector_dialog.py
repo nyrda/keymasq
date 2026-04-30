@@ -954,7 +954,7 @@ class KeySelectorDialog(Adw.Dialog):
         self.openrazer_device_model = Gtk.StringList()
         self.openrazer_device_dropdown = Gtk.DropDown(model=self.openrazer_device_model)
         self.openrazer_device_dropdown.set_hexpand(True)
-        form.attach(self.openrazer_device_dropdown, 1, row, 3, 1)
+        form.attach(self.openrazer_device_dropdown, 1, row, 1, 1)
 
         row += 1
         setting_label = form_label("Setting:")
@@ -966,6 +966,7 @@ class KeySelectorDialog(Adw.Dialog):
         self.openrazer_setting_dropdown.set_selected(
             1 if self._openrazer_setting == "poll_rate" else 0
         )
+        self.openrazer_setting_dropdown.set_halign(Gtk.Align.START)
         form.attach(self.openrazer_setting_dropdown, 1, row, 1, 1)
 
         row += 1
@@ -976,46 +977,56 @@ class KeySelectorDialog(Adw.Dialog):
             self.openrazer_dpi_mode_model.append(label)
         self.openrazer_dpi_mode_dropdown = Gtk.DropDown(model=self.openrazer_dpi_mode_model)
         self.openrazer_dpi_mode_dropdown.set_selected(1 if self._openrazer_split_dpi else 0)
+        self.openrazer_dpi_mode_dropdown.set_halign(Gtk.Align.START)
         form.attach(self.openrazer_dpi_mode_dropdown, 1, row, 1, 1)
 
         row += 1
         self.openrazer_dpi_x_label = form_label("Value:")
         form.attach(self.openrazer_dpi_x_label, 0, row, 1, 1)
+        dpi_value_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        dpi_value_row.set_halign(Gtk.Align.START)
         self.openrazer_dpi_x_spin = Gtk.SpinButton()
         self.openrazer_dpi_x_spin.set_adjustment(
             Gtk.Adjustment(value=self._openrazer_dpi_x, lower=1, upper=60000, step_increment=50)
         )
         self.openrazer_dpi_x_spin.set_digits(0)
         self.openrazer_dpi_x_spin.set_width_chars(7)
-        form.attach(self.openrazer_dpi_x_spin, 1, row, 1, 1)
-        self.openrazer_dpi_y_label = form_label("Y:")
-        form.attach(self.openrazer_dpi_y_label, 2, row, 1, 1)
+        dpi_value_row.append(self.openrazer_dpi_x_spin)
+        self.openrazer_dpi_y_label = Gtk.Label(label="Y:")
+        self.openrazer_dpi_y_label.set_margin_start(8)
+        dpi_value_row.append(self.openrazer_dpi_y_label)
         self.openrazer_dpi_y_spin = Gtk.SpinButton()
         self.openrazer_dpi_y_spin.set_adjustment(
             Gtk.Adjustment(value=self._openrazer_dpi_y, lower=0, upper=60000, step_increment=50)
         )
         self.openrazer_dpi_y_spin.set_digits(0)
         self.openrazer_dpi_y_spin.set_width_chars(7)
-        form.attach(self.openrazer_dpi_y_spin, 3, row, 1, 1)
+        dpi_value_row.append(self.openrazer_dpi_y_spin)
+        self._openrazer_dpi_value_row = dpi_value_row
+        form.attach(dpi_value_row, 1, row, 1, 1)
 
         row += 1
         self.openrazer_poll_label = form_label("Rate:")
         form.attach(self.openrazer_poll_label, 0, row, 1, 1)
+        poll_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        poll_row.set_halign(Gtk.Align.START)
         self.openrazer_poll_spin = Gtk.SpinButton()
         self.openrazer_poll_spin.set_adjustment(
             Gtk.Adjustment(value=self._openrazer_poll_rate, lower=1, upper=8000, step_increment=125)
         )
         self.openrazer_poll_spin.set_digits(0)
         self.openrazer_poll_spin.set_width_chars(7)
-        form.attach(self.openrazer_poll_spin, 1, row, 1, 1)
+        poll_row.append(self.openrazer_poll_spin)
         self.openrazer_poll_suffix = Gtk.Label(label="Hz")
-        self.openrazer_poll_suffix.set_halign(Gtk.Align.START)
-        form.attach(self.openrazer_poll_suffix, 2, row, 1, 1)
+        poll_row.append(self.openrazer_poll_suffix)
         self.openrazer_poll_model = Gtk.StringList()
         poll_template_dropdown = Gtk.DropDown(model=self.openrazer_poll_model)
+        poll_template_dropdown.set_margin_start(8)
         poll_template_dropdown.connect("notify::selected", self._on_openrazer_poll_template_changed)
         self.openrazer_poll_template_dropdown = poll_template_dropdown
-        form.attach(poll_template_dropdown, 3, row, 1, 1)
+        poll_row.append(poll_template_dropdown)
+        self._openrazer_poll_row = poll_row
+        form.attach(poll_row, 1, row, 1, 1)
 
         row += 1
         openrazer_map_btn = Gtk.Button(label="Map OpenRazer Action")
@@ -1023,7 +1034,7 @@ class KeySelectorDialog(Adw.Dialog):
         openrazer_map_btn.set_halign(Gtk.Align.START)
         openrazer_map_btn.connect("clicked", self._on_openrazer_map_clicked)
         self.openrazer_map_btn = openrazer_map_btn
-        form.attach(openrazer_map_btn, 1, row, 3, 1)
+        form.attach(openrazer_map_btn, 1, row, 1, 1)
 
         self.openrazer_device_dropdown.connect(
             "notify::selected",
@@ -1188,14 +1199,11 @@ class KeySelectorDialog(Adw.Dialog):
         self.openrazer_dpi_mode_dropdown.set_visible(is_dpi)
         self.openrazer_dpi_x_label.set_label("X:" if split else "Value:")
         self.openrazer_dpi_x_label.set_visible(is_dpi)
-        self.openrazer_dpi_x_spin.set_visible(is_dpi)
-        self.openrazer_dpi_y_label.set_visible(is_dpi and split)
-        self.openrazer_dpi_y_spin.set_visible(is_dpi and split)
+        self._openrazer_dpi_value_row.set_visible(is_dpi)
+        self.openrazer_dpi_y_label.set_visible(split)
+        self.openrazer_dpi_y_spin.set_visible(split)
         self.openrazer_poll_label.set_visible(not is_dpi)
-        self.openrazer_poll_spin.set_visible(not is_dpi)
-        self.openrazer_poll_suffix.set_visible(not is_dpi)
-        if self.openrazer_poll_template_dropdown is not None:
-            self.openrazer_poll_template_dropdown.set_visible(not is_dpi)
+        self._openrazer_poll_row.set_visible(not is_dpi)
 
     def _on_openrazer_map_clicked(self, _btn: Gtk.Button) -> None:
         setting = "poll_rate" if int(self.openrazer_setting_dropdown.get_selected()) == 1 else "dpi"

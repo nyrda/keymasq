@@ -3996,6 +3996,7 @@ class MacroEditorDialog(Adw.Dialog):
         )
         at_spin.set_digits(0)
         at_spin.set_width_chars(8)
+        at_spin.set_halign(Gtk.Align.START)
         form.attach(at_spin, 1, row, 1, 1)
 
         row += 1
@@ -4030,7 +4031,7 @@ class MacroEditorDialog(Adw.Dialog):
         device_dropdown = Gtk.DropDown(model=device_model)
         device_dropdown.set_hexpand(True)
         device_dropdown.set_selected(selected_device)
-        form.attach(device_dropdown, 1, row, 3, 1)
+        form.attach(device_dropdown, 1, row, 1, 1)
 
         row += 1
         form.attach(form_label("Setting:"), 0, row, 1, 1)
@@ -4041,6 +4042,7 @@ class MacroEditorDialog(Adw.Dialog):
         setting_dropdown.set_selected(
             1 if control is not None and control.openrazer_setting == "poll_rate" else 0
         )
+        setting_dropdown.set_halign(Gtk.Align.START)
         form.attach(setting_dropdown, 1, row, 1, 1)
 
         row += 1
@@ -4055,11 +4057,14 @@ class MacroEditorDialog(Adw.Dialog):
             and int(control.openrazer_dpi_y) != int(control.openrazer_dpi_x)
         )
         dpi_mode_dropdown.set_selected(1 if split_dpi else 0)
+        dpi_mode_dropdown.set_halign(Gtk.Align.START)
         form.attach(dpi_mode_dropdown, 1, row, 1, 1)
 
         row += 1
         dpi_x_label = form_label("X:" if split_dpi else "Value:")
         form.attach(dpi_x_label, 0, row, 1, 1)
+        dpi_value_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        dpi_value_row.set_halign(Gtk.Align.START)
         dpi_x_spin = Gtk.SpinButton()
         dpi_x_spin.set_adjustment(
             Gtk.Adjustment(
@@ -4071,9 +4076,10 @@ class MacroEditorDialog(Adw.Dialog):
         )
         dpi_x_spin.set_digits(0)
         dpi_x_spin.set_width_chars(7)
-        form.attach(dpi_x_spin, 1, row, 1, 1)
-        dpi_y_label = form_label("Y:")
-        form.attach(dpi_y_label, 2, row, 1, 1)
+        dpi_value_row.append(dpi_x_spin)
+        dpi_y_label = Gtk.Label(label="Y:")
+        dpi_y_label.set_margin_start(8)
+        dpi_value_row.append(dpi_y_label)
         dpi_y_spin = Gtk.SpinButton()
         dpi_y_spin.set_adjustment(
             Gtk.Adjustment(
@@ -4085,11 +4091,14 @@ class MacroEditorDialog(Adw.Dialog):
         )
         dpi_y_spin.set_digits(0)
         dpi_y_spin.set_width_chars(7)
-        form.attach(dpi_y_spin, 3, row, 1, 1)
+        dpi_value_row.append(dpi_y_spin)
+        form.attach(dpi_value_row, 1, row, 1, 1)
 
         row += 1
         poll_label = form_label("Rate:")
         form.attach(poll_label, 0, row, 1, 1)
+        poll_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        poll_row.set_halign(Gtk.Align.START)
         poll_spin = Gtk.SpinButton()
         poll_spin.set_adjustment(
             Gtk.Adjustment(
@@ -4101,13 +4110,14 @@ class MacroEditorDialog(Adw.Dialog):
         )
         poll_spin.set_digits(0)
         poll_spin.set_width_chars(7)
-        form.attach(poll_spin, 1, row, 1, 1)
+        poll_row.append(poll_spin)
         poll_suffix = Gtk.Label(label="Hz")
-        poll_suffix.set_halign(Gtk.Align.START)
-        form.attach(poll_suffix, 2, row, 1, 1)
+        poll_row.append(poll_suffix)
         poll_model = Gtk.StringList()
         poll_dropdown = Gtk.DropDown(model=poll_model)
-        form.attach(poll_dropdown, 3, row, 1, 1)
+        poll_dropdown.set_margin_start(8)
+        poll_row.append(poll_dropdown)
+        form.attach(poll_row, 1, row, 1, 1)
 
         poll_rates: list[int] = []
         poll_template_updating = False
@@ -4161,13 +4171,11 @@ class MacroEditorDialog(Adw.Dialog):
             dpi_mode_dropdown.set_visible(is_dpi)
             dpi_x_label.set_label("X:" if split else "Value:")
             dpi_x_label.set_visible(is_dpi)
-            dpi_x_spin.set_visible(is_dpi)
-            dpi_y_label.set_visible(is_dpi and split)
-            dpi_y_spin.set_visible(is_dpi and split)
+            dpi_value_row.set_visible(is_dpi)
+            dpi_y_label.set_visible(split)
+            dpi_y_spin.set_visible(split)
             poll_label.set_visible(not is_dpi)
-            poll_spin.set_visible(not is_dpi)
-            poll_dropdown.set_visible(not is_dpi)
-            poll_suffix.set_visible(not is_dpi)
+            poll_row.set_visible(not is_dpi)
 
         setting_dropdown.connect("notify::selected", update_visibility)
         dpi_mode_dropdown.connect("notify::selected", update_visibility)

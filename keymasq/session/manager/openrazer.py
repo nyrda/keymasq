@@ -22,6 +22,10 @@ OPENRAZER_ROOT_PATH = "/org/razer"
 OPENRAZER_DEVICES_INTERFACE = "razer.devices"
 OPENRAZER_MISC_INTERFACE = "razer.device.misc"
 OPENRAZER_DPI_INTERFACE = "razer.device.dpi"
+OPENRAZER_NAME_OWNER_MATCH_RULE = (
+    "type='signal',sender='org.freedesktop.DBus',"
+    "interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.razer'"
+)
 
 PROBE_FRESH_S = 2.0
 READY_STALE_S = 30.0
@@ -37,6 +41,7 @@ async def start_openrazer_monitor(manager: "SessionManager") -> None:
 async def stop_openrazer_monitor(manager: "SessionManager") -> None:
     state = manager.openrazer_state
     handler = state.watcher_handler
+    match_rule = state.watcher_match_rule
     if handler is not None:
         try:
             bus = await manager.dbus.bus()
@@ -45,7 +50,25 @@ async def stop_openrazer_monitor(manager: "SessionManager") -> None:
                 remove(handler)
         except Exception:
             pass
+    if match_rule:
+        try:
+            bus = await manager.dbus.bus()
+            reply = await bus.call(
+                Message(
+                    destination=DBUS_SERVICE,
+                    path=DBUS_PATH,
+                    interface=DBUS_INTERFACE,
+                    member="RemoveMatch",
+                    signature="s",
+                    body=[match_rule],
+                )
+            )
+            if reply is not None and reply.message_type == MessageType.ERROR:
+                raise RuntimeError(str(reply.body[0]) if reply.body else "RemoveMatch failed")
+        except Exception as exc:
+            log.debug("OpenRazer DBus name watch cleanup failed: %s", exc)
     state.watcher_handler = None
+    state.watcher_match_rule = None
     state.watcher_installed = False
 
 
@@ -56,10 +79,9 @@ async def install_name_owner_watch(manager: "SessionManager") -> None:
 
     try:
         bus = await manager.dbus.bus()
-        match_rule = (
-            "type='signal',sender='org.freedesktop.DBus',"
-            "interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.razer'"
-        )
+        add = getattr(bus, "add_message_handler", None)
+        if not callable(add):
+            return
         reply = await bus.call(
             Message(
                 destination=DBUS_SERVICE,
@@ -67,7 +89,7 @@ async def install_name_owner_watch(manager: "SessionManager") -> None:
                 interface=DBUS_INTERFACE,
                 member="AddMatch",
                 signature="s",
-                body=[match_rule],
+                body=[OPENRAZER_NAME_OWNER_MATCH_RULE],
             )
         )
         if reply is not None and reply.message_type == MessageType.ERROR:
@@ -89,11 +111,10 @@ async def install_name_owner_watch(manager: "SessionManager") -> None:
                 mark_openrazer_unavailable(manager, "OpenRazer daemon disconnected")
             return None
 
-        add = getattr(bus, "add_message_handler", None)
-        if callable(add):
-            add(_on_message)
-            state.watcher_handler = _on_message
-            state.watcher_installed = True
+        add(_on_message)
+        state.watcher_handler = _on_message
+        state.watcher_match_rule = OPENRAZER_NAME_OWNER_MATCH_RULE
+        state.watcher_installed = True
     except Exception as exc:
         log.debug("OpenRazer DBus name watch unavailable: %s", exc)
 
@@ -345,6 +366,7 @@ async def _apply_dpi_action(
     )
     current_raw = await _call_dbus(dpi_iface.call_get_dpi())
     current = [int_value(value) for value in _object_sequence(current_raw)]
+    single_axis = len(current) < 2 or int(current[1]) == 0
     if not current:
         current = [0, 0]
     if len(current) == 1:
@@ -354,7 +376,6 @@ async def _apply_dpi_action(
     requested_y = int_value(data.get("dpi_y"), requested_x)
     if requested_y <= 0:
         requested_y = requested_x
-    single_axis = bool(device.get("has_available_dpi")) or int(current[1]) == 0
     dpi_x, dpi_y = requested_x, 0 if single_axis else requested_y
 
     _validate_dpi(device, dpi_x, dpi_y)
@@ -393,8 +414,10 @@ def _validate_dpi(device: JsonObject, dpi_x: int, dpi_y: int) -> None:
     available = _int_list(device.get("available_dpi"))
     if available and dpi_x not in available:
         raise ValueError(f"DPI {dpi_x} is not one of the available values: {available}")
+    if available and dpi_y > 0 and dpi_y not in available:
+        raise ValueError(f"DPI Y {dpi_y} is not one of the available values: {available}")
     max_dpi = int_value(device.get("max_dpi"), 0)
-    if max_dpi > 0 and (dpi_x > max_dpi or dpi_y > max_dpi):
+    if max_dpi > 0 and (dpi_x > max_dpi or (dpi_y > 0 and dpi_y > max_dpi)):
         raise ValueError(f"DPI exceeds device maximum {max_dpi}")
 
 

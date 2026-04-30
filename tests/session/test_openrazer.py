@@ -64,14 +64,21 @@ class _FakeDBus:
         *,
         has_owner: bool = True,
         supported_poll_rates_method: bool = True,
+        bus: object | None = None,
     ) -> None:
         self.iface = iface
         self.has_owner = has_owner
         self.supported_poll_rates_method = supported_poll_rates_method
+        self.session_bus = bus
 
     async def name_has_owner(self, name: str, *, timeout: float = 0.6) -> bool:
         assert name == openrazer.OPENRAZER_SERVICE
         return self.has_owner
+
+    async def bus(self):
+        if self.session_bus is None:
+            raise AssertionError("session bus not configured")
+        return self.session_bus
 
     async def get_interface(self, destination: str, path: str, interface: str):
         assert destination == openrazer.OPENRAZER_SERVICE
@@ -105,6 +112,22 @@ class _FakeDBus:
                 for interface_name, method_names in methods_by_interface.items()
             ]
         )
+
+
+class _FakeBus:
+    def __init__(self) -> None:
+        self.handlers: list[object] = []
+        self.calls: list[tuple[str, str]] = []
+
+    async def call(self, message):
+        self.calls.append((str(message.member), str(message.body[0])))
+        return None
+
+    def add_message_handler(self, handler) -> None:
+        self.handlers.append(handler)
+
+    def remove_message_handler(self, handler) -> None:
+        self.handlers.remove(handler)
 
 
 def _manager(fake_dbus: _FakeDBus):
@@ -163,6 +186,32 @@ async def test_refresh_openrazer_defaults_poll_templates_without_dbus_list() -> 
 
 
 @pytest.mark.asyncio
+async def test_openrazer_monitor_removes_dbus_match_rule_on_stop() -> None:
+    bus = _FakeBus()
+    manager = _manager(_FakeDBus(_FakeInterface(), bus=bus))
+
+    await openrazer.start_openrazer_monitor(manager)
+
+    assert manager.openrazer_state.watcher_installed is True
+    assert manager.openrazer_state.watcher_match_rule == openrazer.OPENRAZER_NAME_OWNER_MATCH_RULE
+    assert bus.calls == [
+        ("AddMatch", openrazer.OPENRAZER_NAME_OWNER_MATCH_RULE),
+    ]
+    assert len(bus.handlers) == 1
+
+    await openrazer.stop_openrazer_monitor(manager)
+
+    assert manager.openrazer_state.watcher_installed is False
+    assert manager.openrazer_state.watcher_handler is None
+    assert manager.openrazer_state.watcher_match_rule is None
+    assert bus.handlers == []
+    assert bus.calls == [
+        ("AddMatch", openrazer.OPENRAZER_NAME_OWNER_MATCH_RULE),
+        ("RemoveMatch", openrazer.OPENRAZER_NAME_OWNER_MATCH_RULE),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_openrazer_action_sets_dpi_pair() -> None:
     iface = _FakeInterface()
     manager = _manager(_FakeDBus(iface))
@@ -185,6 +234,81 @@ async def test_openrazer_action_sets_dpi_pair() -> None:
         "dpi": [1600, 1200],
     }
     assert iface.set_dpi_calls == [(1600, 1200)]
+
+
+@pytest.mark.asyncio
+async def test_openrazer_action_keeps_split_dpi_when_available_dpi_exists() -> None:
+    iface = _FakeInterface()
+    manager = _manager(_FakeDBus(iface))
+    await openrazer.refresh_openrazer(manager, force=True)
+    manager.openrazer_state.devices["ABC123"]["has_available_dpi"] = True
+    manager.openrazer_state.devices["ABC123"]["available_dpi"] = [800, 1200, 1600]
+
+    result = await openrazer.handle_openrazer_action(
+        manager,
+        {
+            "setting": "dpi",
+            "serial": "ABC123",
+            "dpi_x": 1600,
+            "dpi_y": 1200,
+        },
+    )
+
+    assert result == {
+        "status": "ok",
+        "serial": "ABC123",
+        "setting": "dpi",
+        "dpi": [1600, 1200],
+    }
+    assert iface.set_dpi_calls == [(1600, 1200)]
+
+
+@pytest.mark.asyncio
+async def test_openrazer_action_uses_single_axis_dpi_when_device_reports_one_value() -> None:
+    iface = _FakeInterface()
+    iface.dpi = [800]
+    manager = _manager(_FakeDBus(iface))
+    await openrazer.refresh_openrazer(manager, force=True)
+
+    result = await openrazer.handle_openrazer_action(
+        manager,
+        {
+            "setting": "dpi",
+            "serial": "ABC123",
+            "dpi_x": 1600,
+            "dpi_y": 1200,
+        },
+    )
+
+    assert result == {
+        "status": "ok",
+        "serial": "ABC123",
+        "setting": "dpi",
+        "dpi": [1600, 0],
+    }
+    assert iface.set_dpi_calls == [(1600, 0)]
+
+
+@pytest.mark.asyncio
+async def test_openrazer_action_validates_available_dpi_y() -> None:
+    iface = _FakeInterface()
+    manager = _manager(_FakeDBus(iface))
+    await openrazer.refresh_openrazer(manager, force=True)
+    manager.openrazer_state.devices["ABC123"]["available_dpi"] = [800, 1600]
+
+    result = await openrazer.handle_openrazer_action(
+        manager,
+        {
+            "setting": "dpi",
+            "serial": "ABC123",
+            "dpi_x": 1600,
+            "dpi_y": 1200,
+        },
+    )
+
+    assert result["status"] == "error"
+    assert "DPI Y 1200" in str(result["message"])
+    assert iface.set_dpi_calls == []
 
 
 @pytest.mark.asyncio

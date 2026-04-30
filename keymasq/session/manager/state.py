@@ -89,6 +89,7 @@ class OpenRazerRuntimeState:
     last_error: str = ""
     watcher_installed: bool = False
     watcher_handler: object | None = None
+    watcher_match_rule: str | None = None
     refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 

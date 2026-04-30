@@ -7,6 +7,7 @@ from keymasq.common.models import normalize_macro_loop_stop_behavior
 from keymasq.common.security import PeerCredentials, command_allowed
 
 from . import compositor as runtime_compositor
+from . import openrazer as runtime_openrazer
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import (
@@ -62,6 +63,10 @@ async def handle_session_request(
         peer,
         writer,
     )
+    if result is not None:
+        return result
+
+    result = await _handle_openrazer_commands(manager, command, request)
     if result is not None:
         return result
 
@@ -172,6 +177,7 @@ async def _handle_compositor_commands(
         compositor_details = cast(dict[str, object], compositor_status["details"])
         policy = manager.security_policy
         profile_payload = runtime_profiles.build_active_profiles_payload(manager)
+        openrazer_status = runtime_openrazer.openrazer_status(manager)
         status_payload: JsonObject = {
             "status": "ok",
             "keymasqd_connected": manager.connected,
@@ -186,6 +192,9 @@ async def _handle_compositor_commands(
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
             "gui_allow_left_right_click_remap": bool(policy.gui_allow_left_right_click_remap),
             "emergency_cancel_combo_enabled": bool(policy.emergency_cancel_combo_enabled),
+            "openrazer_available": bool(openrazer_status.get("available", False)),
+            "openrazer_devices": openrazer_status.get("devices", []),
+            "openrazer_last_error": openrazer_status.get("last_error", ""),
             **runtime_recording.serialize_recording_unlock_state(
                 manager,
                 unlock_status,
@@ -198,6 +207,23 @@ async def _handle_compositor_commands(
         if command_allowed("get_active_window", policy.session_command_acl, client_class):
             status_payload["window"] = manager.compositor_state.current_window
         return status_payload
+
+    return None
+
+
+async def _handle_openrazer_commands(
+    manager: "SessionManager",
+    command: str,
+    request: JsonObject,
+) -> JsonObject | None:
+    if command == "get_openrazer_status":
+        return await runtime_openrazer.refresh_openrazer(manager)
+
+    if command == "refresh_openrazer":
+        return await runtime_openrazer.refresh_openrazer(
+            manager,
+            force=bool(request.get("force", True)),
+        )
 
     return None
 

@@ -61,6 +61,8 @@ def describe_mapping_action_compact(
         parts.append(f"🗂 disable {action.profile_name or '?'}")
     elif action.action_type == ActionType.PROFILE_TOGGLE:
         parts.append(f"🗂 toggle {action.profile_name or '?'}")
+    elif action.action_type == ActionType.OPENRAZER:
+        parts.append(_describe_openrazer_compact(action))
     elif action.action_type == ActionType.SUPPRESS:
         parts.append("× suppress")
     elif action.action_type == ActionType.PASSTHROUGH:
@@ -135,4 +137,32 @@ def describe_mapping_action_verbose(
         return f"Disable Profile → {action.profile_name or '?'}"
     if action.action_type == ActionType.PROFILE_TOGGLE:
         return f"Toggle Profile → {action.profile_name or '?'}"
+    if action.action_type == ActionType.OPENRAZER:
+        return describe_openrazer_action(action)
     return action.action_type.value
+
+
+def _describe_openrazer_compact(action: MappingAction) -> str:
+    setting = action.openrazer_setting or "setting"
+    if setting == "dpi":
+        if action.openrazer_dpi_x == action.openrazer_dpi_y:
+            return f"Razer DPI {action.openrazer_dpi_x}"
+        return f"Razer DPI {action.openrazer_dpi_x}/{action.openrazer_dpi_y}"
+    if setting == "poll_rate":
+        return f"Razer poll {action.openrazer_poll_rate}Hz"
+    return f"Razer {setting}"
+
+
+def describe_openrazer_action(action: MappingAction) -> str:
+    device = action.openrazer_serial or "device"
+    setting = action.openrazer_setting or "setting"
+    if setting == "dpi":
+        if action.openrazer_dpi_x == action.openrazer_dpi_y:
+            return f"OpenRazer DPI ({device}) -> {action.openrazer_dpi_x}"
+        return (
+            f"OpenRazer DPI ({device}) -> "
+            f"{action.openrazer_dpi_x}, {action.openrazer_dpi_y}"
+        )
+    if setting == "poll_rate":
+        return f"OpenRazer Poll Rate ({device}) -> {action.openrazer_poll_rate} Hz"
+    return f"OpenRazer -> {setting}"

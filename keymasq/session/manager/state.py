@@ -80,6 +80,20 @@ class ExecRuntimeState:
 
 
 @dataclass
+class OpenRazerRuntimeState:
+    available: bool = False
+    devices: dict[str, JsonObject] = field(default_factory=dict)
+    last_probe_s: float = 0.0
+    retry_delay_s: float = 5.0
+    next_retry_s: float = 0.0
+    last_error: str = ""
+    watcher_installed: bool = False
+    watcher_handler: object | None = None
+    watcher_match_rule: str | None = None
+    refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+@dataclass
 class CompositorRuntimeState:
     current_window: JsonObject = field(default_factory=dict)
     window_listener: WindowListener | None = None

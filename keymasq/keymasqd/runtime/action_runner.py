@@ -82,6 +82,20 @@ def build_action_trigger_payload(
             "source_button": source_button,
         }
 
+    if action.action_type == ActionType.OPENRAZER:
+        payload: JsonObject = {
+            "action_type": "openrazer",
+            "setting": action.openrazer_setting or "",
+            "device": "serial",
+            "serial": action.openrazer_serial or "",
+            "dpi_x": int(action.openrazer_dpi_x),
+            "dpi_y": int(action.openrazer_dpi_y),
+            "poll_rate": int(action.openrazer_poll_rate),
+            "source_device": source_device,
+            "source_button": source_button,
+        }
+        return payload
+
     return None
 
 

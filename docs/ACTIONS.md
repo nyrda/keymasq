@@ -259,6 +259,27 @@ Super keys have two modes:
 
 ![Super Keys tab — choose a saved super key action](assets/screenshots/key_selector_superkeys.png)
 
+## OpenRazer
+
+Set OpenRazer device settings from a mapping, combo, super key action, or
+macro. Keymasq talks to the OpenRazer daemon over the session D-Bus service
+`org.razer`; it does not require an OpenRazer Python package.
+
+Supported settings:
+
+| Setting | What it does |
+|---|---|
+| **DPI** | Set one DPI value for both axes, or use Split mode to set X and Y separately. Devices that expose only one DPI value use OpenRazer's `setDPI(x, 0)` form. |
+| **Polling Rate** | Set an explicit polling rate. The GUI offers OpenRazer-reported templates when available, otherwise 125/500/1000 Hz, while still allowing a custom value. |
+
+OpenRazer actions target an explicit OpenRazer device by serial. This avoids
+ambiguous behavior when an action is triggered by another input device or from
+a macro.
+
+OpenRazer availability is checked lazily and refreshed when D-Bus reports that
+`org.razer` appears or disappears, so Keymasq can start before OpenRazer and
+still discover it later.
+
 ## Macro
 
 Trigger macro recording controls or play a saved macro.
@@ -319,8 +340,8 @@ Rapidfire and tap are **mutually exclusive** — enabling one disables the
 other.
 
 They are available for: Keyboard, Mouse, Navigation, Media, Gamepad, and Mouse Move
-actions. They are not available for: Special, Super Keys, Macro, Profile, or
-Compositor actions.
+actions. They are not available for: Special, Super Keys, Macro, Profile,
+Compositor, or OpenRazer actions.
 
 ### Rapidfire
 

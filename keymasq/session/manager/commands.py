@@ -426,6 +426,7 @@ async def _handle_macro_commands(
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to delete macro"}
         await runtime_profiles.refresh_macro_bindings(manager)
+        manager.broadcast_to_session_clients({"event": "macro_deleted", "name": name})
         return {"status": "ok"}
 
     if command == "rename_macro":
@@ -446,7 +447,14 @@ async def _handle_macro_commands(
         await runtime_profiles.refresh_macro_bindings(manager)
         result_data = json_object(result.data)
         if result_data is not None:
-            return {"status": "ok", "macro": result_data.get("macro")}
+            renamed = json_object(result_data.get("macro")) or {}
+            manager.broadcast_to_session_clients(
+                {"event": "macro_deleted", "name": str_value(request.get("old"), "")}
+            )
+            manager.broadcast_to_session_clients(
+                {"event": "macro_saved", "name": str_value(renamed.get("name"), "")}
+            )
+            return {"status": "ok", "macro": renamed}
         return {"status": "ok"}
 
     if command == "play_macro":

@@ -52,6 +52,13 @@ def _float_value(value: object, default: float) -> float:
     return default if value is None else float(cast(_FloatLike, value))
 
 
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 @dataclass
 class ProfileInfo:
     path: Path
@@ -212,6 +219,8 @@ class ProfileManager:
             is_permanent=bool(profile.get("is_permanent", False)),
             priority=_int_value(profile.get("priority"), 0),
             notify_on_activation=bool(profile.get("notify_on_activation", True)),
+            activation_macro_name=_optional_str(profile.get("activation_macro")),
+            deactivation_macro_name=_optional_str(profile.get("deactivation_macro")),
             window_rules=window_rules,
             device_layers=device_layers,
             combos=self._parse_combos(data.get("combos", [])),
@@ -802,6 +811,11 @@ class ProfileManager:
             "notify_on_activation": config.notify_on_activation,
             "created_at": (config.created_at or datetime.now()).isoformat(),
         }
+
+        if config.activation_macro_name:
+            profile_data["activation_macro"] = config.activation_macro_name
+        if config.deactivation_macro_name:
+            profile_data["deactivation_macro"] = config.deactivation_macro_name
 
         if config.window_rules:
             profile_data["window_rules"] = [

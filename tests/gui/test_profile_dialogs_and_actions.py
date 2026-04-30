@@ -58,6 +58,54 @@ class TestButtonWidget:
         assert button.evdev == "btn_left"
         assert button.zone == "left"
 
+
+class TestProfileManagedTab:
+    def test_lifecycle_macro_dropdown_reloads_on_macro_saved_event(self, monkeypatch):
+        from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module
+        from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
+
+        class ProfileManagerStub:
+            def list_profiles(self):
+                return []
+
+        class Parent:
+            def __init__(self):
+                self.handlers = {}
+                self._selected_profile_name = None
+
+            def register_event_handler(self, event_type, callback):
+                self.handlers.setdefault(event_type, []).append(callback)
+
+            def unregister_event_handler(self, event_type, callback):
+                self.handlers[event_type].remove(callback)
+
+        responses = [
+            {"status": "ok", "macros": []},
+            {"status": "ok", "macros": [{"name": "new_macro"}]},
+        ]
+        requests = []
+
+        def session_request_async(payload, callback, timeout=5.0):
+            _ = timeout
+            requests.append(payload)
+            callback(responses.pop(0))
+
+        monkeypatch.setattr(
+            profile_managed_tab_module,
+            "session_request_async",
+            session_request_async,
+        )
+
+        parent = Parent()
+        tab = ProfileManagedTab(ProfileManagerStub(), main_window=parent)
+        tab._setup_profile_selector()
+
+        parent.handlers["macro_saved"][0]({"event": "macro_saved", "name": "new_macro"})
+
+        assert requests == [{"command": "list_macros"}, {"command": "list_macros"}]
+        assert tab._profile_lifecycle_macro_options == ["", "new_macro"]
+
+
 class TestProfileActions:
     def test_action_types(self):
         from keymasq.common.models import ActionType

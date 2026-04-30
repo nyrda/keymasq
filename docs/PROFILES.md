@@ -199,6 +199,8 @@ enabled = true
 is_permanent = false
 priority = 50
 notify_on_activation = true
+activation_macro = "game_enter"
+deactivation_macro = "game_leave"
 created_at = "2026-03-09T12:34:56"
 
 [[profile.window_rules]]
@@ -223,6 +225,12 @@ always_grab_all = true
 action = "exec"
 cmd = "playerctl play-pause"
 ```
+
+`activation_macro` and `deactivation_macro` are optional stored macro names.
+When set, `keymasq-session` asks `keymasqd` to play the macro after the global
+active profile set changes. They fire once when a profile enters or leaves the
+active set, not on unchanged reevaluations, device reconnects, or mapping-only
+refreshes.
 
 ## Common Patterns
 

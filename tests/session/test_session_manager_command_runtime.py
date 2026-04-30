@@ -616,6 +616,37 @@ async def test_handle_session_request_update_macro_refreshes_runtime_bindings() 
 
 
 @pytest.mark.asyncio
+async def test_handle_session_request_delete_macro_broadcasts_deleted_event() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={}))
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    refresh_macro_bindings = AsyncMock()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_profiles_module,
+        "refresh_macro_bindings",
+        refresh_macro_bindings,
+    )
+
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    try:
+        result = await manager._handle_session_request(
+            {"command": "delete_macro", "name": "Speedrun"},
+            "client",
+            peer,
+            object(),
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert result == {"status": "ok"}
+    refresh_macro_bindings.assert_awaited_once_with(manager)
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "macro_deleted", "name": "Speedrun"}
+    )
+
+
+@pytest.mark.asyncio
 async def test_capture_combo_session_command_round_trip() -> None:
     manager = SessionManager()
     manager.hardware.list_hardware_ids = lambda: ["1234:5678"]  # type: ignore[assignment]

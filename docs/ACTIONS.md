@@ -43,6 +43,7 @@ Use this to disable a key you never want to fire.
 
 Run a shell command when the key is pressed. The command runs inside your
 user session (delegated to keymasq-session, not the privileged daemon).
+Keymasq launches it in the background and continues handling later input.
 
 Enter the command text and click **Map**.
 

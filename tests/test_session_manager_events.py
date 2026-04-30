@@ -133,24 +133,71 @@ async def test_handle_event_set_cursor_position_missing_request_id_is_one_way() 
 
 
 @pytest.mark.asyncio
-async def test_handle_event_exec_ref_runs_command_once() -> None:
+async def test_handle_event_exec_ref_schedules_command_without_blocking() -> None:
     manager = SessionManager()
     manager.exec_state.exec_refs[7] = "echo once"
-    manager.action_handler.execute_command = AsyncMock(return_value=0)
+    started = asyncio.Event()
+    finish = asyncio.Event()
 
-    await session_events_module.handle_event(
-        manager,
-        CommandType.ACTION_TRIGGER,
-        {
-            "action_type": "exec",
-            "exec_ref": 7,
-            "source_device": "1234:5678",
-            "source_button": "btn_side",
-        },
+    async def _execute_command(cmd: str) -> int:
+        started.set()
+        await finish.wait()
+        return 0
+
+    manager.action_handler.execute_command = AsyncMock(side_effect=_execute_command)
+
+    await asyncio.wait_for(
+        session_events_module.handle_event(
+            manager,
+            CommandType.ACTION_TRIGGER,
+            {
+                "action_type": "exec",
+                "exec_ref": 7,
+                "source_device": "1234:5678",
+                "source_button": "btn_side",
+            },
+        ),
+        timeout=1.0,
     )
 
-    await asyncio.sleep(0)
+    await asyncio.wait_for(started.wait(), timeout=1.0)
     manager.action_handler.execute_command.assert_awaited_once_with("echo once")
+    finish.set()
+    await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_handle_event_superkey_exec_ref_schedules_command_without_blocking() -> None:
+    manager = SessionManager()
+    manager.exec_state.superkey_exec_refs[10000] = ("1234:5678", "echo super")
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def _execute_command(cmd: str) -> int:
+        started.set()
+        await finish.wait()
+        return 0
+
+    manager.action_handler.execute_command = AsyncMock(side_effect=_execute_command)
+
+    await asyncio.wait_for(
+        session_events_module.handle_event(
+            manager,
+            CommandType.ACTION_TRIGGER,
+            {
+                "action_type": "exec",
+                "exec_ref": 10000,
+                "source_device": "1234:5678",
+                "source_button": "btn_side",
+            },
+        ),
+        timeout=1.0,
+    )
+
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    manager.action_handler.execute_command.assert_awaited_once_with("echo super")
+    finish.set()
+    await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
@@ -172,6 +219,51 @@ async def test_handle_event_macro_async_exec_uses_exec_trigger_path() -> None:
     await asyncio.sleep(0)
     manager.action_handler.handle_action.assert_not_awaited()
     manager.action_handler.execute_command_sync.assert_called_once_with("echo macro")
+
+
+@pytest.mark.asyncio
+async def test_handle_event_macro_sync_exec_waits_and_reports_completion() -> None:
+    manager = SessionManager()
+    started = asyncio.Event()
+    finish = asyncio.Event()
+    sent = asyncio.Event()
+    sent_commands = []
+
+    async def _execute_command(cmd: str) -> int:
+        started.set()
+        await finish.wait()
+        return 17
+
+    async def _send_command(command):
+        sent_commands.append(command)
+        sent.set()
+        return SimpleNamespace(status="ok", data={})
+
+    manager.action_handler.execute_command = AsyncMock(side_effect=_execute_command)
+    manager.client.send_command = AsyncMock(side_effect=_send_command)
+
+    await asyncio.wait_for(
+        session_events_module.handle_event(
+            manager,
+            CommandType.ACTION_TRIGGER,
+            {
+                "action_type": "exec",
+                "cmd": "echo macro",
+                "macro_exec_wait_id": "wait-1",
+            },
+        ),
+        timeout=1.0,
+    )
+
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    manager.client.send_command.assert_not_awaited()
+
+    finish.set()
+    await asyncio.wait_for(sent.wait(), timeout=1.0)
+
+    manager.action_handler.execute_command.assert_awaited_once_with("echo macro")
+    assert sent_commands[0].command == CommandType.MACRO_EXEC_COMPLETE
+    assert sent_commands[0].data == {"wait_id": "wait-1", "returncode": 17}
 
 
 @pytest.mark.asyncio

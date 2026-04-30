@@ -37,20 +37,18 @@ async def handle_event(
                 ref_data = manager.exec_state.superkey_exec_refs.get(exec_ref)
                 if ref_data:
                     hardware_id, cmd = ref_data
-                    data["cmd"] = cmd
-                    data["hardware_id"] = hardware_id
-                    action_handler = manager.action_handler
-                    if action_handler is not None:
-                        await action_handler.handle_action(data)
+                    exec_data = dict(data)
+                    exec_data["cmd"] = cmd
+                    exec_data["hardware_id"] = hardware_id
+                    asyncio.create_task(handle_exec_trigger(manager, exec_data))
                 else:
                     log.warning("Unknown superkey exec_ref: %s", exec_ref)
             else:
                 cmd = manager.exec_state.exec_refs.get(exec_ref)
                 if cmd:
-                    data["cmd"] = cmd
-                    action_handler = manager.action_handler
-                    if action_handler is not None:
-                        await action_handler.handle_action(data)
+                    exec_data = dict(data)
+                    exec_data["cmd"] = cmd
+                    asyncio.create_task(handle_exec_trigger(manager, exec_data))
                 else:
                     log.warning("Unknown exec_ref: %s", exec_ref)
 

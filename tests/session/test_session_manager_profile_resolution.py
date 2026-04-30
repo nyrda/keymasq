@@ -283,3 +283,57 @@ async def test_reevaluate_profiles_broadcast_omits_window_state() -> None:
     assert "devices" in payload
     assert "window" not in payload
 
+
+@pytest.mark.asyncio
+async def test_reevaluate_profiles_plays_lifecycle_macros_once_per_transition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    desktop = ProfileConfig(
+        name="Desktop",
+        enabled=True,
+        is_permanent=True,
+        activation_macro_name="desktop_enter",
+        deactivation_macro_name="desktop_leave",
+    )
+    gaming = ProfileConfig(
+        name="Gaming",
+        enabled=True,
+        activation_macro_name="gaming_enter",
+        deactivation_macro_name="gaming_leave",
+    )
+    profiles_by_name = {
+        desktop.name: SimpleNamespace(config=desktop),
+        gaming.name: SimpleNamespace(config=gaming),
+    }
+    resolved_profiles = [
+        ResolvedProfiles(active_profiles=[desktop], devices={}, combos=[]),
+        ResolvedProfiles(active_profiles=[desktop], devices={}, combos=[]),
+        ResolvedProfiles(active_profiles=[gaming], devices={}, combos=[]),
+        ResolvedProfiles(active_profiles=[], devices={}, combos=[]),
+    ]
+
+    manager.hardware.list_hardware_ids = lambda: []  # type: ignore[assignment]
+    manager.profiles.get_profile = lambda name: profiles_by_name.get(name)  # type: ignore[assignment]
+    manager.profiles.resolve_active_profiles = Mock(  # type: ignore[assignment]
+        side_effect=resolved_profiles
+    )
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={}))
+    monkeypatch.setattr(session_profiles_module, "update_combos", AsyncMock())
+
+    for _ in resolved_profiles:
+        await session_profiles_module.reevaluate_profiles(manager)
+
+    sent = manager.client.send_command.await_args_list
+    assert [call.args[0].command for call in sent] == [
+        CommandType.MACRO_PLAY_BY_NAME,
+        CommandType.MACRO_PLAY_BY_NAME,
+        CommandType.MACRO_PLAY_BY_NAME,
+        CommandType.MACRO_PLAY_BY_NAME,
+    ]
+    assert [call.args[0].data["name"] for call in sent] == [
+        "desktop_enter",
+        "desktop_leave",
+        "gaming_enter",
+        "gaming_leave",
+    ]

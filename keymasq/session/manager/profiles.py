@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from keymasq.common.ipc import Command, CommandType
-from keymasq.common.models import ActionType, HardwareConfig
+from keymasq.common.models import ActionType, HardwareConfig, ProfileConfig
 from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
 from . import payloads as runtime_payloads
@@ -221,6 +221,7 @@ async def reevaluate_profiles(manager: "SessionManager") -> None:
         manager.compositor_state.compositor_capabilities,
         hardware_ids=hardware_ids,
     )
+    old_active_profile_names = list(manager.profile_state.active_profile_names)
     manager.profile_state.active_profile_names = [
         profile.name for profile in resolved.active_profiles
     ]
@@ -249,6 +250,80 @@ async def reevaluate_profiles(manager: "SessionManager") -> None:
     manager.broadcast_to_session_clients(
         {"event": "profiles_changed", **build_active_profiles_payload(manager)}
     )
+    await play_profile_lifecycle_macros(
+        manager,
+        old_active_profile_names,
+        resolved.active_profiles,
+    )
+
+
+async def play_profile_lifecycle_macros(
+    manager: "SessionManager",
+    old_active_profile_names: list[str],
+    new_active_profiles: list[ProfileConfig],
+) -> None:
+    old_names = set(old_active_profile_names)
+    new_names = {profile.name for profile in new_active_profiles}
+
+    deactivated_names = [name for name in old_active_profile_names if name not in new_names]
+    activated_profiles = [
+        profile for profile in new_active_profiles if profile.name not in old_names
+    ]
+
+    for profile_name in deactivated_names:
+        profile_info = manager.profiles.get_profile(profile_name)
+        if profile_info is None:
+            continue
+        await play_profile_lifecycle_macro(
+            manager,
+            profile_info.config.deactivation_macro_name,
+            profile_name=profile_name,
+            transition="deactivation",
+        )
+
+    for profile in activated_profiles:
+        await play_profile_lifecycle_macro(
+            manager,
+            profile.activation_macro_name,
+            profile_name=profile.name,
+            transition="activation",
+        )
+
+
+async def play_profile_lifecycle_macro(
+    manager: "SessionManager",
+    macro_name: str | None,
+    *,
+    profile_name: str,
+    transition: str,
+) -> None:
+    if not macro_name:
+        return
+    try:
+        result = await manager.client.send_command(
+            Command(
+                command=CommandType.MACRO_PLAY_BY_NAME,
+                data={"name": macro_name},
+            )
+        )
+    except Exception as exc:
+        log.warning(
+            "Failed to play %s macro '%s' for profile '%s': %s",
+            transition,
+            macro_name,
+            profile_name,
+            exc,
+        )
+        return
+
+    if result.status != "ok":
+        log.warning(
+            "Failed to play %s macro '%s' for profile '%s': %s",
+            transition,
+            macro_name,
+            profile_name,
+            result.error or result.data or "playback failed",
+        )
 
 
 async def apply_resolved_device_profile(

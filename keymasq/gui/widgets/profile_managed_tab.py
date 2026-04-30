@@ -49,6 +49,9 @@ class ProfileManagedTab(Gtk.Box):
         self._window_rule_capture_timeout_id = 0
         self._window_rule_capture_generation = 0
         self._window_rules_target_profile_name: str | None = None
+        self._profile_lifecycle_macro_names: list[str] = []
+        self._profile_lifecycle_macro_options: list[str] = [""]
+        self._suspend_lifecycle_macro_signal = False
 
         self.set_margin_top(12)
         self.set_margin_bottom(12)
@@ -210,6 +213,44 @@ class ProfileManagedTab(Gtk.Box):
         self.notify_check.connect("toggled", self._on_notify_toggled)
         settings_grid.attach(self.notify_check, 1, row, 1, 1)
 
+        row += 1
+
+        activation_macro_label = Gtk.Label(label="Activation Macro")
+        activation_macro_label.set_halign(Gtk.Align.START)
+        activation_macro_label.set_valign(Gtk.Align.CENTER)
+        settings_grid.attach(activation_macro_label, 0, row, 1, 1)
+
+        self.activation_macro_dropdown = Gtk.DropDown()
+        self.activation_macro_dropdown.set_hexpand(True)
+        self.activation_macro_dropdown.set_tooltip_text("Macro to play when this profile activates")
+        self.activation_macro_dropdown.connect(
+            "notify::selected",
+            self._on_activation_macro_changed,
+        )
+        settings_grid.attach(self.activation_macro_dropdown, 1, row, 1, 1)
+
+        row += 1
+
+        deactivation_macro_label = Gtk.Label(label="Deactivation Macro")
+        deactivation_macro_label.set_halign(Gtk.Align.START)
+        deactivation_macro_label.set_valign(Gtk.Align.CENTER)
+        settings_grid.attach(deactivation_macro_label, 0, row, 1, 1)
+
+        self.deactivation_macro_dropdown = Gtk.DropDown()
+        self.deactivation_macro_dropdown.set_hexpand(True)
+        self.deactivation_macro_dropdown.set_tooltip_text(
+            "Macro to play when this profile deactivates"
+        )
+        self.deactivation_macro_dropdown.connect(
+            "notify::selected",
+            self._on_deactivation_macro_changed,
+        )
+        settings_grid.attach(self.deactivation_macro_dropdown, 1, row, 1, 1)
+
+        self._refresh_lifecycle_macro_dropdowns()
+        if self.profile_manager is not None:
+            session_request_async({"command": "list_macros"}, self._on_lifecycle_macros_loaded)
+
         row = self._append_profile_settings_rows(settings_grid, row + 1)
         _ = row
 
@@ -321,6 +362,8 @@ class ProfileManagedTab(Gtk.Box):
             is_permanent=self._selected_profile.config.is_permanent,
             priority=self.profile_manager.get_next_priority(),
             notify_on_activation=self._selected_profile.config.notify_on_activation,
+            activation_macro_name=self._selected_profile.config.activation_macro_name,
+            deactivation_macro_name=self._selected_profile.config.deactivation_macro_name,
             window_rules=copy.deepcopy(self._selected_profile.config.window_rules),
             device_layers=copy.deepcopy(self._selected_profile.config.device_layers),
             combos=copy.deepcopy(self._selected_profile.config.combos),
@@ -417,6 +460,89 @@ class ProfileManagedTab(Gtk.Box):
         if not self._selected_profile:
             return
         self._selected_profile.config.notify_on_activation = check.get_active()
+        self._save_profile()
+
+    def _on_lifecycle_macros_loaded(self, result: dict | None) -> bool:
+        macros = (result or {}).get("macros", [])
+        names: list[str] = []
+        if isinstance(macros, list):
+            for macro in macros:
+                if not isinstance(macro, dict):
+                    continue
+                name = str(macro.get("name", "") or "").strip()
+                if name:
+                    names.append(name)
+        self._profile_lifecycle_macro_names = sorted(set(names), key=str.casefold)
+        self._refresh_lifecycle_macro_dropdowns()
+        return False
+
+    def _refresh_lifecycle_macro_dropdowns(self) -> None:
+        selected_names = []
+        if self._selected_profile:
+            selected_names = [
+                self._selected_profile.config.activation_macro_name or "",
+                self._selected_profile.config.deactivation_macro_name or "",
+            ]
+        options = [""]
+        for name in self._profile_lifecycle_macro_names + selected_names:
+            if name and name not in options:
+                options.append(name)
+        self._profile_lifecycle_macro_options = options
+
+        activation_model = Gtk.StringList()
+        deactivation_model = Gtk.StringList()
+        for name in options:
+            label = name or "None"
+            activation_model.append(label)
+            deactivation_model.append(label)
+
+        self._suspend_lifecycle_macro_signal = True
+        try:
+            self.activation_macro_dropdown.set_model(activation_model)
+            self.deactivation_macro_dropdown.set_model(deactivation_model)
+            self._select_lifecycle_macro(
+                self.activation_macro_dropdown,
+                self._selected_profile.config.activation_macro_name
+                if self._selected_profile
+                else None,
+            )
+            self._select_lifecycle_macro(
+                self.deactivation_macro_dropdown,
+                self._selected_profile.config.deactivation_macro_name
+                if self._selected_profile
+                else None,
+            )
+        finally:
+            self._suspend_lifecycle_macro_signal = False
+
+    def _select_lifecycle_macro(self, dropdown: Gtk.DropDown, macro_name: str | None) -> None:
+        selected_name = macro_name or ""
+        try:
+            index = self._profile_lifecycle_macro_options.index(selected_name)
+        except ValueError:
+            index = 0
+        dropdown.set_selected(index)
+
+    def _lifecycle_macro_name_for_dropdown(self, dropdown: Gtk.DropDown) -> str | None:
+        selected = dropdown.get_selected()
+        if selected >= len(self._profile_lifecycle_macro_options):
+            return None
+        return self._profile_lifecycle_macro_options[selected] or None
+
+    def _on_activation_macro_changed(self, dropdown: Gtk.DropDown, _param) -> None:
+        if self._suspend_lifecycle_macro_signal or not self._selected_profile:
+            return
+        self._selected_profile.config.activation_macro_name = (
+            self._lifecycle_macro_name_for_dropdown(dropdown)
+        )
+        self._save_profile()
+
+    def _on_deactivation_macro_changed(self, dropdown: Gtk.DropDown, _param) -> None:
+        if self._suspend_lifecycle_macro_signal or not self._selected_profile:
+            return
+        self._selected_profile.config.deactivation_macro_name = (
+            self._lifecycle_macro_name_for_dropdown(dropdown)
+        )
         self._save_profile()
 
     def _on_edit_window_rules(self, _button: Gtk.Button) -> None:
@@ -1051,6 +1177,7 @@ class ProfileManagedTab(Gtk.Box):
         self.notify_check.set_active(config.notify_on_activation)
         self.notify_check.handler_unblock_by_func(self._on_notify_toggled)
 
+        self._refresh_lifecycle_macro_dropdowns()
         self._update_rules_label()
         self.window_rules_box.set_sensitive(not config.is_permanent)
         self._update_extra_profile_settings()

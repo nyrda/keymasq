@@ -500,6 +500,8 @@ class ProfileConfig:
     is_permanent: bool = False
     priority: int = 0
     notify_on_activation: bool = True
+    activation_macro_name: str | None = None
+    deactivation_macro_name: str | None = None
     window_rules: list[WindowRule] = field(default_factory=list)
     device_layers: dict[str, DeviceProfileLayer] = field(default_factory=dict)
     combos: list[ComboConfig] = field(default_factory=list)

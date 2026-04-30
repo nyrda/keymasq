@@ -25,6 +25,27 @@ class TestProfileManager:
         assert profiles[0].config.name == sample_profile_config.name
         assert len(profiles[0].config.device_layers["1234:5678"].mappings) == 2
 
+    def test_save_and_load_profile_lifecycle_macros(self, temp_config_dir):
+        manager = ProfileManager()
+        manager.save_profile(
+            ProfileConfig(
+                name="Gaming",
+                enabled=True,
+                activation_macro_name="game_enter",
+                deactivation_macro_name="game_leave",
+            )
+        )
+
+        reloaded = ProfileManager()
+        profile = reloaded.get_profile("Gaming")
+
+        assert profile is not None
+        assert profile.config.activation_macro_name == "game_enter"
+        assert profile.config.deactivation_macro_name == "game_leave"
+        content = profile.path.read_text(encoding="utf-8")
+        assert 'activation_macro = "game_enter"' in content
+        assert 'deactivation_macro = "game_leave"' in content
+
     def test_multiple_profiles_global(self, temp_config_dir, sample_profile_config):
         manager = ProfileManager()
         manager.save_profile(sample_profile_config)

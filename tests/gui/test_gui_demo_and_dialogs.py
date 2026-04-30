@@ -76,7 +76,7 @@ class TestRecordMacroDialog:
             }
         )
         assert dialog._unlock_btn.get_visible() is True
-        assert dialog._unlock_status.get_label() == "Unlock required"
+        assert dialog._unlock_status.get_label() == "Recording locked"
         assert "raw original-input capture" in (dialog._unlock_btn.get_tooltip_text() or "")
 
         dialog._apply_unlock_state(
@@ -87,7 +87,7 @@ class TestRecordMacroDialog:
             }
         )
         assert dialog._unlock_btn.get_visible() is True
-        assert dialog._unlock_status.get_label() == "Unlock active in another session"
+        assert dialog._unlock_status.get_label() == "Unlocked in another session"
         assert "active owner" in (dialog._unlock_btn.get_tooltip_text() or "")
 
         dialog._apply_unlock_state(
@@ -98,7 +98,33 @@ class TestRecordMacroDialog:
             }
         )
         assert dialog._unlock_btn.get_visible() is False
-        assert dialog._unlock_status.get_label() == "Unlock active"
+        assert dialog._unlock_status.get_label() == "Recording unlocked"
+
+    def test_record_dialog_docs_button_links_to_live_recording_docs(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.record_macro_dialog as record_macro_dialog_module
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+        monkeypatch.setattr(record_macro_dialog_module, "__version__", "1.2.3")
+
+        dialog = RecordMacroDialog(Gtk.Window())
+
+        assert dialog.recording_docs_btn.get_label() == "?"
+        assert (
+            dialog.recording_docs_btn.get_tooltip_text()
+            == "Open macro recording documentation"
+        )
+        assert record_macro_dialog_module._macro_recording_docs_url() == (
+            "https://keymasq.tools/docs/1.2.3/MACROS/#live-recording"
+        )
+
+        monkeypatch.setattr(record_macro_dialog_module, "__version__", "1.2.3.dev1")
+        assert record_macro_dialog_module._macro_recording_docs_url() == (
+            "https://keymasq.tools/docs/master/MACROS/#live-recording"
+        )
 
     def test_record_dialog_live_settings_footer_uses_done_without_cancel(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -129,6 +155,9 @@ class TestRecordMacroDialog:
         assert "Done" in labels
         assert "Cancel" not in labels
         assert "Save Settings" not in labels
+        assert dialog._unlock_status.get_halign() == Gtk.Align.CENTER
+        assert dialog._unlock_btn.get_parent() is dialog._save_btn.get_parent()
+        assert dialog._unlock_btn.get_next_sibling() is dialog._save_btn
 
     def test_record_dialog_locked_reason_explains_blocked_recording(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -142,6 +171,7 @@ class TestRecordMacroDialog:
 
         assert dialog._title_label.get_label() == "Unlock Macro Recording"
         assert dialog._locked_notice.get_visible() is True
+        assert dialog._locked_notice_title.get_label() == "Recording needs unlock"
 
         dialog.set_presentation_reason("settings")
 
@@ -817,6 +847,35 @@ class TestDialogConstruction:
         dialog._recording_unlocked = False
         dialog._sync_record_button_state()
         assert "raw original-input capture" in (dialog._record_btn.get_tooltip_text() or "")
+        assert (
+            dialog.playback_stop_hint.get_label()
+            == "Interrupt macro playback: Ctrl+Alt+Esc"
+        )
+        assert dialog.playback_stop_hint.get_halign() == Gtk.Align.CENTER
+
+    def test_macro_manager_dialog_docs_button_links_to_macros_docs(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.macro_manager_dialog as macro_manager_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        monkeypatch.setattr(macro_manager_dialog_module, "__version__", "1.2.3")
+
+        dialog = MacroManagerDialog(Gtk.Window())
+
+        assert dialog.macros_docs_btn is not None
+        assert dialog.macros_docs_btn.get_label() == "?"
+        assert dialog.macros_docs_btn.get_tooltip_text() == "Open Macros documentation"
+        assert macro_manager_dialog_module._macros_docs_url() == (
+            "https://keymasq.tools/docs/1.2.3/MACROS/"
+        )
+
+        monkeypatch.setattr(macro_manager_dialog_module, "__version__", "1.2.3.dev1")
+        assert macro_manager_dialog_module._macros_docs_url() == (
+            "https://keymasq.tools/docs/master/MACROS/"
+        )
 
     def test_type_macro_builder_normalizes_common_pasted_text(self):
         gi.require_version("Gtk", "4.0")

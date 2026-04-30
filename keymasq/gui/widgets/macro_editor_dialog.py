@@ -1063,6 +1063,9 @@ class TimelineWidget(Gtk.DrawingArea):
             elif control.mode == "compositor_dispatch":
                 cr.set_source_rgba(0.70, 0.45, 1.00, 0.95)
                 label = "C"
+            elif control.mode == "openrazer":
+                cr.set_source_rgba(0.55, 0.95, 0.62, 0.95)
+                label = "OR"
             else:
                 cr.set_source_rgba(0.65, 0.65, 0.65, 0.95)
                 label = "?"

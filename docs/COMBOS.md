@@ -270,7 +270,8 @@ editing combos.
 
 - **Command actions** run shell commands inside your user session (delegated
   to keymasq-session, not the privileged daemon). They still execute
-  automatically when the combo fires, so be mindful of what you put in them.
+  automatically when the combo fires, and Keymasq does not wait for them
+  before handling later input.
 - **Compositor dispatcher actions** can send commands to your compositor
   (e.g. Hyprland). These interact with your desktop environment directly, so
   review what they do before assigning them to a combo.

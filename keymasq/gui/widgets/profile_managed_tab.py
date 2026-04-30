@@ -52,6 +52,12 @@ class ProfileManagedTab(Gtk.Box):
         self._profile_lifecycle_macro_names: list[str] = []
         self._profile_lifecycle_macro_options: list[str] = [""]
         self._suspend_lifecycle_macro_signal = False
+        self._registered_macro_event_handlers = False
+        if self.main_window is not None and hasattr(self.main_window, "register_event_handler"):
+            self.main_window.register_event_handler("macro_saved", self._on_macro_list_changed)
+            self.main_window.register_event_handler("macro_deleted", self._on_macro_list_changed)
+            self._registered_macro_event_handlers = True
+        self.connect("destroy", self._on_profile_managed_destroy)
 
         self.set_margin_top(12)
         self.set_margin_bottom(12)
@@ -248,8 +254,7 @@ class ProfileManagedTab(Gtk.Box):
         settings_grid.attach(self.deactivation_macro_dropdown, 1, row, 1, 1)
 
         self._refresh_lifecycle_macro_dropdowns()
-        if self.profile_manager is not None:
-            session_request_async({"command": "list_macros"}, self._on_lifecycle_macros_loaded)
+        self._load_lifecycle_macros()
 
         row = self._append_profile_settings_rows(settings_grid, row + 1)
         _ = row
@@ -475,6 +480,22 @@ class ProfileManagedTab(Gtk.Box):
         self._profile_lifecycle_macro_names = sorted(set(names), key=str.casefold)
         self._refresh_lifecycle_macro_dropdowns()
         return False
+
+    def _load_lifecycle_macros(self) -> None:
+        if self.profile_manager is None or self.demo_mode:
+            return
+        session_request_async({"command": "list_macros"}, self._on_lifecycle_macros_loaded)
+
+    def _on_macro_list_changed(self, _event: dict) -> None:
+        self._load_lifecycle_macros()
+
+    def _on_profile_managed_destroy(self, _widget) -> None:
+        if not self._registered_macro_event_handlers:
+            return
+        if self.main_window is not None and hasattr(self.main_window, "unregister_event_handler"):
+            self.main_window.unregister_event_handler("macro_saved", self._on_macro_list_changed)
+            self.main_window.unregister_event_handler("macro_deleted", self._on_macro_list_changed)
+        self._registered_macro_event_handlers = False
 
     def _refresh_lifecycle_macro_dropdowns(self) -> None:
         selected_names = []

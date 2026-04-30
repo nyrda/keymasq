@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from keymasq.common.ipc import Command, CommandType
 
 from . import compositor as runtime_compositor
+from . import openrazer as runtime_openrazer
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import JsonObject
@@ -69,6 +70,8 @@ async def handle_event(
             asyncio.create_task(
                 runtime_compositor.handle_compositor_dispatch_trigger(manager, data)
             )
+        elif action_type_str == "openrazer":
+            asyncio.create_task(runtime_openrazer.handle_openrazer_action(manager, data))
         elif action_type_str == "macro":
             asyncio.create_task(runtime_recording.play_macro_trigger(manager, data))
         return

@@ -29,6 +29,7 @@ class ActionType(Enum):
     PROFILE_ENABLE = "profile_enable"
     PROFILE_DISABLE = "profile_disable"
     PROFILE_TOGGLE = "profile_toggle"
+    OPENRAZER = "openrazer"
 
 
 class SuperkeyMode(Enum):
@@ -53,6 +54,7 @@ SUPERKEY_ACTION_TYPES = frozenset(
         ActionType.PROFILE_ENABLE,
         ActionType.PROFILE_DISABLE,
         ActionType.PROFILE_TOGGLE,
+        ActionType.OPENRAZER,
     }
 )
 
@@ -70,9 +72,9 @@ DEFAULT_RAPIDFIRE_HOLD_MS = 20
 DEFAULT_RAPIDFIRE_WAIT_MS = 20
 MIN_RAPIDFIRE_HOLD_MS = 0
 MIN_RAPIDFIRE_WAIT_MS = 1
-
 MACRO_LOOP_STOP_BEHAVIORS = frozenset({"finish_run", "cancel_run"})
 DEFAULT_MACRO_LOOP_STOP_BEHAVIOR = "finish_run"
+OPENRAZER_DEFAULT_POLL_RATE_TEMPLATES = (125, 500, 1000)
 
 
 class DeviceType(Enum):
@@ -239,6 +241,12 @@ class MappingAction:
     move_y: int = 0
     move_speed: float = 1.0
     move_jitter: float = 0.3
+    openrazer_setting: str | None = None
+    openrazer_device: str = "serial"
+    openrazer_serial: str | None = None
+    openrazer_dpi_x: int = 0
+    openrazer_dpi_y: int = 0
+    openrazer_poll_rate: int = 0
 
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
@@ -282,6 +290,12 @@ class SuperkeyAction:
     compositor_args: str | None = None
     move_x: int = 0
     move_y: int = 0
+    openrazer_setting: str | None = None
+    openrazer_device: str = "serial"
+    openrazer_serial: str | None = None
+    openrazer_dpi_x: int = 0
+    openrazer_dpi_y: int = 0
+    openrazer_poll_rate: int = 0
 
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
@@ -323,6 +337,12 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
     "compositor_args",
     "move_x",
     "move_y",
+    "openrazer_setting",
+    "openrazer_device",
+    "openrazer_serial",
+    "openrazer_dpi_x",
+    "openrazer_dpi_y",
+    "openrazer_poll_rate",
     "rapidfire_enabled",
     "rapidfire_hold_ms",
     "rapidfire_wait_ms",

@@ -750,6 +750,43 @@ class TestMacroControlActions:
         assert result == 0.0
 
     @pytest.mark.asyncio
+    async def test_run_macro_control_action_openrazer_broadcasts(self):
+        manager = DeviceManager()
+
+        callback = AsyncMock()
+
+        async def cb(command, data):
+            await callback(command, data)
+
+        manager.broadcast_callback = cb
+
+        result = await _runtime_run_macro_control_action(
+            manager,
+            {
+                "macro_action": "openrazer",
+                "setting": "dpi",
+                "device": "serial",
+                "serial": "ABC123",
+                "dpi_x": 1600,
+                "dpi_y": 1200,
+            },
+        )
+
+        callback.assert_awaited_once()
+        called_command, called_data = callback.await_args.args
+        assert called_command == CommandType.ACTION_TRIGGER
+        assert called_data == {
+            "action_type": "openrazer",
+            "setting": "dpi",
+            "device": "serial",
+            "serial": "ABC123",
+            "dpi_x": 1600,
+            "dpi_y": 1200,
+            "poll_rate": 0,
+        }
+        assert result == 0.0
+
+    @pytest.mark.asyncio
     async def test_run_macro_control_action_exec_sync_wait_id_and_cleanup(self, monkeypatch):
         manager = DeviceManager()
         clock = {"now": 30.0}

@@ -27,6 +27,7 @@ from keymasq.gui.session_client import (
     session_request_async,
 )
 from keymasq.gui.session_reload import notify_session_reload_async
+from keymasq.gui.widgets.action_labels import describe_openrazer_action
 from keymasq.gui.widgets.compositor_actions import (
     build_compositor_action_pages,
     describe_compositor_action,
@@ -169,7 +170,7 @@ class EditableMove:
 
 @dataclass
 class EditableControl:
-    mode: str  # wait | wait_random | exec_sync | exec_async | compositor_dispatch
+    mode: str  # wait | wait_random | exec_sync | exec_async | compositor_dispatch | openrazer
     t_us: int
     duration_us: int = 0
     min_us: int = 0
@@ -180,6 +181,12 @@ class EditableControl:
     compositor_id: str = ""
     compositor_dispatcher: str = ""
     compositor_args: str = ""
+    openrazer_setting: str = ""
+    openrazer_device: str = "serial"
+    openrazer_serial: str = ""
+    openrazer_dpi_x: int = 0
+    openrazer_dpi_y: int = 0
+    openrazer_poll_rate: int = 0
 
 
 def _control_to_compositor_action(control: EditableControl) -> MappingAction:
@@ -200,6 +207,31 @@ def _describe_compositor_control(control: EditableControl) -> str:
     args = str(control.compositor_args or "").strip()
     suffix = f" {args}" if args else ""
     return f"Compositor -> {dispatcher}{suffix}"
+
+
+def _control_to_openrazer_action(control: EditableControl) -> MappingAction:
+    return MappingAction(
+        action_type=ActionType.OPENRAZER,
+        openrazer_setting=control.openrazer_setting,
+        openrazer_device="serial",
+        openrazer_serial=control.openrazer_serial or None,
+        openrazer_dpi_x=int(control.openrazer_dpi_x),
+        openrazer_dpi_y=int(control.openrazer_dpi_y),
+        openrazer_poll_rate=int(control.openrazer_poll_rate),
+    )
+
+
+def _describe_openrazer_control(control: EditableControl) -> str:
+    return describe_openrazer_action(_control_to_openrazer_action(control))
+
+
+def _openrazer_poll_rate_values(device: dict[str, object]) -> list[int]:
+    values = device.get("poll_rate_templates", device.get("supported_poll_rates"))
+    if isinstance(values, list | tuple):
+        rates = sorted({int(value) for value in values if int(value) > 0})
+        if rates:
+            return rates
+    return []
 
 
 def parse_events(
@@ -243,21 +275,28 @@ def parse_events(
             )
             continue
         if macro_action:
-            control_events.append(
-                EditableControl(
-                    mode=macro_action,
-                    t_us=int(ev.get("t_us", 0)),
-                    duration_us=int(ev.get("duration_us", 0) or 0),
-                    min_us=int(ev.get("min_us", 0) or 0),
-                    max_us=int(ev.get("max_us", 0) or 0),
-                    command=str(ev.get("command", "") or ""),
-                    timeout_ms=int(ev.get("timeout_ms", 30000) or 30000),
-                    inhibit_mouse=bool(ev.get("inhibit_mouse", False)),
-                    compositor_id=str(ev.get("compositor", "") or ""),
-                    compositor_dispatcher=str(ev.get("dispatcher", "") or ""),
-                    compositor_args=str(ev.get("args", "") or ""),
-                )
+            control = EditableControl(
+                mode=macro_action,
+                t_us=int(ev.get("t_us", 0)),
+                duration_us=int(ev.get("duration_us", 0) or 0),
+                min_us=int(ev.get("min_us", 0) or 0),
+                max_us=int(ev.get("max_us", 0) or 0),
+                command=str(ev.get("command", "") or ""),
+                timeout_ms=int(ev.get("timeout_ms", 30000) or 30000),
+                inhibit_mouse=bool(ev.get("inhibit_mouse", False)),
+                compositor_id=str(ev.get("compositor", "") or ""),
+                compositor_dispatcher=str(ev.get("dispatcher", "") or ""),
+                compositor_args=str(ev.get("args", "") or ""),
+                openrazer_setting=str(ev.get("setting", "") or ""),
+                openrazer_device="serial",
+                openrazer_serial=str(ev.get("serial", "") or ""),
+                openrazer_dpi_x=int(ev.get("dpi_x", 0) or 0),
+                openrazer_dpi_y=int(ev.get("dpi_y", ev.get("dpi_x", 0)) or 0),
+                openrazer_poll_rate=int(ev.get("poll_rate", 0) or 0),
             )
+            if macro_action == "openrazer" and control.openrazer_dpi_y <= 0:
+                control.openrazer_dpi_y = control.openrazer_dpi_x
+            control_events.append(control)
             continue
 
         if ev["type"] == ev_key:
@@ -376,6 +415,13 @@ def reconstruct_events(
                 event["compositor"] = str(control.compositor_id)
             event["dispatcher"] = str(control.compositor_dispatcher)
             event["args"] = str(control.compositor_args)
+        elif control.mode == "openrazer":
+            event["setting"] = str(control.openrazer_setting)
+            event["device"] = "serial"
+            event["serial"] = str(control.openrazer_serial)
+            event["dpi_x"] = int(control.openrazer_dpi_x)
+            event["dpi_y"] = int(control.openrazer_dpi_y)
+            event["poll_rate"] = int(control.openrazer_poll_rate)
         raw.append(event)
 
     raw.extend(passthrough_events)
@@ -1452,6 +1498,17 @@ class TimelineWidget(Gtk.DrawingArea):
             compositor_btn.connect("clicked", _insert_compositor)
             box.append(compositor_btn)
 
+            if self._editor._openrazer_available and self._editor._openrazer_devices:
+                openrazer_btn = Gtk.Button(label=f"Insert OpenRazer Action at {t_label}")
+                openrazer_btn.add_css_class("flat")
+
+                def _insert_openrazer(_b, _t=t_us, _p=popover):
+                    _p.popdown()
+                    self._editor._present_openrazer_action_dialog(default_t_us=_t)
+
+                openrazer_btn.connect("clicked", _insert_openrazer)
+                box.append(openrazer_btn)
+
         if box.get_first_child():
             box.append(Gtk.Separator())
 
@@ -1615,6 +1672,8 @@ class MacroEditorDialog(Adw.Dialog):
             "listener_name": None,
             "compositor_dispatch_available": False,
         }
+        self._openrazer_available: bool = False
+        self._openrazer_devices: list[dict[str, object]] = []
         self._initial_macro_data: dict = {}
         self._macro_exists = False
 
@@ -1692,6 +1751,13 @@ class MacroEditorDialog(Adw.Dialog):
         except Exception:
             timeout_max = 30000
 
+        openrazer_status: dict[str, object] = {}
+        try:
+            status = session_request({"command": "get_openrazer_status"}) or {}
+            openrazer_status = dict(status)
+        except Exception:
+            openrazer_status = {}
+
         macro: dict | None = None
         try:
             response = session_request({"command": "get_macro", "name": self._macro_name}) or {}
@@ -1704,6 +1770,7 @@ class MacroEditorDialog(Adw.Dialog):
         return {
             "timeout_max": max(1, timeout_max),
             "compositor_status": compositor_status,
+            "openrazer_status": openrazer_status,
             "macro": macro,
         }
 
@@ -1715,6 +1782,7 @@ class MacroEditorDialog(Adw.Dialog):
         self._compositor_action_status = self._resolve_compositor_action_status(
             payload.get("compositor_status")
         )
+        self._apply_openrazer_status(payload.get("openrazer_status"))
 
         timeout_adjustment = self._control_timeout_spin.get_adjustment()
         timeout_adjustment.set_upper(self._macro_exec_timeout_max_ms)
@@ -1730,6 +1798,17 @@ class MacroEditorDialog(Adw.Dialog):
             self._initial_macro_data = copy.deepcopy(macro)
             self._refresh_loaded_macro_state()
         return False
+
+    def _apply_openrazer_status(self, status: object) -> None:
+        if not isinstance(status, dict) or status.get("status") != "ok":
+            self._openrazer_available = False
+            self._openrazer_devices = []
+            return
+        self._openrazer_available = bool(status.get("available", False))
+        devices = status.get("devices", [])
+        self._openrazer_devices = [
+            dict(item) for item in devices if isinstance(item, dict)
+        ]
 
     def _refresh_loaded_macro_state(self) -> None:
         self._update_stats()
@@ -3225,10 +3304,19 @@ class MacroEditorDialog(Adw.Dialog):
         if isinstance(selected_obj, EditableControl):
             control = selected_obj
             is_compositor = control.mode == "compositor_dispatch"
-            self._prop_title.set_label("Compositor Action" if is_compositor else "Control")
+            is_openrazer = control.mode == "openrazer"
+            self._prop_title.set_label(
+                "Compositor Action"
+                if is_compositor
+                else "OpenRazer Action"
+                if is_openrazer
+                else "Control"
+            )
             self._key_info_label.set_label(
                 _describe_compositor_control(control)
                 if is_compositor
+                else _describe_openrazer_control(control)
+                if is_openrazer
                 else control.mode.replace("_", " ").title()
             )
             self._press_label.set_label("At:")
@@ -3238,8 +3326,10 @@ class MacroEditorDialog(Adw.Dialog):
             self._release_label.set_visible(False)
             self._release_spin.set_visible(False)
             self._release_unit_label.set_visible(False)
-            self._change_key_btn.set_visible(is_compositor)
-            self._change_key_btn.set_label("Change Action..." if is_compositor else "Change Key...")
+            self._change_key_btn.set_visible(is_compositor or is_openrazer)
+            self._change_key_btn.set_label(
+                "Change Action..." if is_compositor or is_openrazer else "Change Key..."
+            )
             self._move_row.set_visible(False)
             self._control_row.set_visible(True)
 
@@ -3474,6 +3564,9 @@ class MacroEditorDialog(Adw.Dialog):
         ev = self._timeline._selected
         if isinstance(ev, EditableControl) and ev.mode == "compositor_dispatch":
             self._present_compositor_action_dialog(control=ev)
+            return
+        if isinstance(ev, EditableControl) and ev.mode == "openrazer":
+            self._present_openrazer_action_dialog(control=ev)
             return
         if ev is None or isinstance(ev, (EditableMove, EditableControl, dict)):
             return
@@ -3859,6 +3952,274 @@ class MacroEditorDialog(Adw.Dialog):
         close_btn = Gtk.Button(label="Close")
         close_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
         footer.append(close_btn)
+        box.append(footer)
+
+        dialog.set_child(box)
+        dialog.present(self._parent)
+
+    def _present_openrazer_action_dialog(
+        self,
+        default_t_us: int | None = None,
+        control: EditableControl | None = None,
+    ) -> None:
+        title = "Edit OpenRazer Action" if control is not None else "Insert OpenRazer Action"
+        dialog = Adw.Dialog(title=title, content_width=520, content_height=360)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        form = Gtk.Grid()
+        form.set_row_spacing(10)
+        form.set_column_spacing(10)
+        form.set_hexpand(True)
+        box.append(form)
+
+        def form_label(text: str) -> Gtk.Label:
+            label = Gtk.Label(label=text)
+            label.set_xalign(1.0)
+            label.set_halign(Gtk.Align.END)
+            label.set_width_chars(8)
+            return label
+
+        row = 0
+        form.attach(form_label("At (ms):"), 0, row, 1, 1)
+        at_value_us = control.t_us if control is not None else (default_t_us or 0)
+        at_spin = Gtk.SpinButton()
+        at_spin.set_adjustment(
+            Gtk.Adjustment(value=at_value_us / 1000, lower=0, upper=3600000, step_increment=1)
+        )
+        at_spin.set_digits(0)
+        at_spin.set_width_chars(8)
+        form.attach(at_spin, 1, row, 1, 1)
+
+        row += 1
+        form.attach(form_label("Device:"), 0, row, 1, 1)
+        device_options: list[tuple[str, str, list[int]]] = []
+        for device in self._openrazer_devices:
+            serial = str(device.get("serial", "") or "")
+            if not serial:
+                continue
+            name = str(device.get("name", "") or serial)
+            hardware_id = str(device.get("hardware_id", "") or "")
+            suffix = f" ({hardware_id})" if hardware_id else ""
+            device_options.append(
+                (
+                    f"{name}{suffix}",
+                    serial,
+                    _openrazer_poll_rate_values(device),
+                )
+            )
+        device_model = Gtk.StringList()
+        selected_device = 0
+        for index, (label, serial, _rates) in enumerate(device_options):
+            device_model.append(label)
+            if (
+                control is not None
+                and control.openrazer_serial
+                and serial == control.openrazer_serial
+            ):
+                selected_device = index
+        if not device_options:
+            device_model.append("No OpenRazer device available")
+        device_dropdown = Gtk.DropDown(model=device_model)
+        device_dropdown.set_hexpand(True)
+        device_dropdown.set_selected(selected_device)
+        form.attach(device_dropdown, 1, row, 3, 1)
+
+        row += 1
+        form.attach(form_label("Setting:"), 0, row, 1, 1)
+        setting_model = Gtk.StringList()
+        setting_model.append("DPI")
+        setting_model.append("Polling Rate")
+        setting_dropdown = Gtk.DropDown(model=setting_model)
+        setting_dropdown.set_selected(
+            1 if control is not None and control.openrazer_setting == "poll_rate" else 0
+        )
+        form.attach(setting_dropdown, 1, row, 1, 1)
+
+        row += 1
+        dpi_mode_label = form_label("DPI:")
+        form.attach(dpi_mode_label, 0, row, 1, 1)
+        dpi_mode_model = Gtk.StringList()
+        for label in ("Both", "Split"):
+            dpi_mode_model.append(label)
+        dpi_mode_dropdown = Gtk.DropDown(model=dpi_mode_model)
+        split_dpi = (
+            control is not None
+            and int(control.openrazer_dpi_y) != int(control.openrazer_dpi_x)
+        )
+        dpi_mode_dropdown.set_selected(1 if split_dpi else 0)
+        form.attach(dpi_mode_dropdown, 1, row, 1, 1)
+
+        row += 1
+        dpi_x_label = form_label("X:" if split_dpi else "Value:")
+        form.attach(dpi_x_label, 0, row, 1, 1)
+        dpi_x_spin = Gtk.SpinButton()
+        dpi_x_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=control.openrazer_dpi_x if control is not None else 1600,
+                lower=1,
+                upper=60000,
+                step_increment=50,
+            )
+        )
+        dpi_x_spin.set_digits(0)
+        dpi_x_spin.set_width_chars(7)
+        form.attach(dpi_x_spin, 1, row, 1, 1)
+        dpi_y_label = form_label("Y:")
+        form.attach(dpi_y_label, 2, row, 1, 1)
+        dpi_y_spin = Gtk.SpinButton()
+        dpi_y_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=control.openrazer_dpi_y if control is not None else 1600,
+                lower=0,
+                upper=60000,
+                step_increment=50,
+            )
+        )
+        dpi_y_spin.set_digits(0)
+        dpi_y_spin.set_width_chars(7)
+        form.attach(dpi_y_spin, 3, row, 1, 1)
+
+        row += 1
+        poll_label = form_label("Rate:")
+        form.attach(poll_label, 0, row, 1, 1)
+        poll_spin = Gtk.SpinButton()
+        poll_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=control.openrazer_poll_rate if control is not None else 1000,
+                lower=1,
+                upper=8000,
+                step_increment=125,
+            )
+        )
+        poll_spin.set_digits(0)
+        poll_spin.set_width_chars(7)
+        form.attach(poll_spin, 1, row, 1, 1)
+        poll_suffix = Gtk.Label(label="Hz")
+        poll_suffix.set_halign(Gtk.Align.START)
+        form.attach(poll_suffix, 2, row, 1, 1)
+        poll_model = Gtk.StringList()
+        poll_dropdown = Gtk.DropDown(model=poll_model)
+        form.attach(poll_dropdown, 3, row, 1, 1)
+
+        poll_rates: list[int] = []
+        poll_template_updating = False
+
+        def populate_poll_rates(rates: list[int], selected_rate: int) -> None:
+            nonlocal poll_rates, poll_template_updating
+            deduped = sorted({int(rate) for rate in rates if int(rate) > 0})
+
+            poll_rates = deduped
+            poll_model.splice(0, poll_model.get_n_items(), [])
+            selected_index = 0
+            if not deduped:
+                poll_model.append("Templates unavailable")
+                poll_dropdown.set_sensitive(False)
+                poll_template_updating = True
+                poll_dropdown.set_selected(0)
+                poll_template_updating = False
+                return
+            poll_dropdown.set_sensitive(True)
+            for index, rate in enumerate(deduped):
+                poll_model.append(f"{rate} Hz")
+                if rate == selected_rate:
+                    selected_index = index
+            poll_template_updating = True
+            poll_dropdown.set_selected(selected_index)
+            poll_template_updating = False
+
+        def selected_poll_rate() -> int:
+            return int(poll_spin.get_value())
+
+        def selected_device_rates() -> list[int]:
+            index = int(device_dropdown.get_selected())
+            if 0 <= index < len(device_options):
+                return device_options[index][2]
+            return []
+
+        def on_device_changed(*_args: object) -> None:
+            populate_poll_rates(selected_device_rates(), selected_poll_rate())
+
+        def on_poll_template_changed(dropdown: Gtk.DropDown, *_args: object) -> None:
+            if poll_template_updating:
+                return
+            index = int(dropdown.get_selected())
+            if 0 <= index < len(poll_rates):
+                poll_spin.set_value(poll_rates[index])
+
+        def update_visibility(*_args) -> None:
+            is_dpi = int(setting_dropdown.get_selected()) == 0
+            split = int(dpi_mode_dropdown.get_selected()) == 1
+            dpi_mode_label.set_visible(is_dpi)
+            dpi_mode_dropdown.set_visible(is_dpi)
+            dpi_x_label.set_label("X:" if split else "Value:")
+            dpi_x_label.set_visible(is_dpi)
+            dpi_x_spin.set_visible(is_dpi)
+            dpi_y_label.set_visible(is_dpi and split)
+            dpi_y_spin.set_visible(is_dpi and split)
+            poll_label.set_visible(not is_dpi)
+            poll_spin.set_visible(not is_dpi)
+            poll_dropdown.set_visible(not is_dpi)
+            poll_suffix.set_visible(not is_dpi)
+
+        setting_dropdown.connect("notify::selected", update_visibility)
+        dpi_mode_dropdown.connect("notify::selected", update_visibility)
+        device_dropdown.connect("notify::selected", on_device_changed)
+        poll_dropdown.connect("notify::selected", on_poll_template_changed)
+        populate_poll_rates(
+            selected_device_rates(),
+            int(control.openrazer_poll_rate if control is not None else 1000),
+        )
+        update_visibility()
+
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        footer.set_halign(Gtk.Align.END)
+        close_btn = Gtk.Button(label="Close")
+        close_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
+        footer.append(close_btn)
+        apply_btn = Gtk.Button(label="Apply" if control is not None else "Insert")
+        apply_btn.add_css_class("suggested-action")
+        apply_btn.set_sensitive(bool(device_options))
+
+        def on_apply(_btn) -> None:
+            target = control or EditableControl(mode="openrazer", t_us=0)
+            target.mode = "openrazer"
+            target.t_us = max(0, int(at_spin.get_value() * 1000))
+            target.openrazer_setting = (
+                "poll_rate" if int(setting_dropdown.get_selected()) == 1 else "dpi"
+            )
+            selected_index = int(device_dropdown.get_selected())
+            serial = (
+                device_options[selected_index][1]
+                if 0 <= selected_index < len(device_options)
+                else ""
+            )
+            if not serial:
+                return
+            poll_rate = selected_poll_rate()
+            if int(setting_dropdown.get_selected()) == 1 and poll_rate <= 0:
+                return
+            target.openrazer_device = "serial"
+            target.openrazer_serial = serial
+            target.openrazer_dpi_x = int(dpi_x_spin.get_value())
+            target.openrazer_dpi_y = (
+                int(dpi_y_spin.get_value())
+                if int(dpi_mode_dropdown.get_selected()) == 1
+                else target.openrazer_dpi_x
+            )
+            target.openrazer_poll_rate = poll_rate
+            if control is None:
+                self._insert_control_event(target)
+            else:
+                self._refresh_after_control_change(target)
+            dialog.close()
+
+        apply_btn.connect("clicked", on_apply)
+        footer.append(apply_btn)
         box.append(footer)
 
         dialog.set_child(box)

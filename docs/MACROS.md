@@ -282,6 +282,7 @@ You can:
 - Change which key or button an event uses.
 - Insert wait controls.
 - Insert compositor actions.
+- Insert OpenRazer actions.
 - Use timing tools to trim, scale, or adjust gaps.
 
 ### Event Types
@@ -299,6 +300,7 @@ The editor lets you insert several kinds of events into the timeline:
 | **Exec (synchronous)** | Run an external program and wait for it to finish before the macro continues. Macro playback is paused until the process exits. |
 | **Exec (asynchronous)** | Fire-and-forget an external program. The macro continues immediately — the launched process runs independently. |
 | **Compositor action** | Send a compositor dispatch through the active session listener. This uses the same Hyprland, Niri, KDE, or GNOME action picker as normal mappings. |
+| **OpenRazer action** | Set DPI or polling rate through the OpenRazer D-Bus service. |
 
 Exec events are powerful but be cautious: a synchronous exec that hangs will
 stall the macro indefinitely. Prefer asynchronous exec for anything that
@@ -307,6 +309,10 @@ doesn't need to gate later events.
 Compositor events fire at their timestamp and macro playback continues
 immediately. They are available only when the current session has a supported
 compositor listener with compositor dispatch enabled.
+
+OpenRazer events use the same session-side action path as normal OpenRazer
+mappings, but macro OpenRazer events always target an explicit OpenRazer
+device selected in the macro editor.
 
 Playback errors are silent — if a macro fails mid-sequence (for example, the
 target device is gone), the GUI won't notify you.

@@ -249,6 +249,7 @@ async def execute_action(
         ActionType.PROFILE_ENABLE,
         ActionType.PROFILE_DISABLE,
         ActionType.PROFILE_TOGGLE,
+        ActionType.OPENRAZER,
     ):
         if event.value == 1:
             dispatch_action_trigger(
@@ -259,7 +260,7 @@ async def execute_action(
                     source_button=event_name,
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
-                label=f"profile action {event_name}",
+                label=f"{action.action_type.value} action {event_name}",
             )
 
     elif action.action_type == ActionType.MACRO:

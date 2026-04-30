@@ -3,13 +3,30 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
+import logging
 import threading
 from collections.abc import Callable
 
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq import __version__
 from keymasq.common.devices import input_class_label, normalize_input_classes
 from keymasq.gui.session_client import session_request
+
+log = logging.getLogger("keymasq.gui.widgets.record_macro_dialog")
+
+
+def _docs_version() -> str:
+    version = __version__.strip()
+    if not version:
+        return "latest"
+    if "dev" in version:
+        return "master"
+    return version
+
+
+def _macro_recording_docs_url() -> str:
+    return f"https://keymasq.tools/docs/{_docs_version()}/MACROS/#live-recording"
 
 
 class RecordMacroDialog(Adw.Dialog):
@@ -195,11 +212,26 @@ class RecordMacroDialog(Adw.Dialog):
         inner.append(content)
         inner.append(Gtk.Separator())
 
-        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        footer = Gtk.CenterBox(orientation=Gtk.Orientation.HORIZONTAL)
         footer.set_margin_top(8)
         footer.set_margin_bottom(8)
         footer.set_margin_start(12)
         footer.set_margin_end(12)
+
+        self.recording_docs_btn = Gtk.Button(label="?")
+        self.recording_docs_btn.add_css_class("flat")
+        self.recording_docs_btn.add_css_class("actions-docs-button")
+        self.recording_docs_btn.set_tooltip_text("Open macro recording documentation")
+        self.recording_docs_btn.connect("clicked", self._on_recording_docs_clicked)
+        footer.set_start_widget(self.recording_docs_btn)
+
+        self._unlock_status = Gtk.Label(label="Recording locked")
+        self._unlock_status.add_css_class("dim-label")
+        self._unlock_status.set_halign(Gtk.Align.CENTER)
+        footer.set_center_widget(self._unlock_status)
+
+        footer_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        footer_actions.set_halign(Gtk.Align.END)
 
         self._unlock_btn = Gtk.Button()
         self._unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
@@ -208,18 +240,13 @@ class RecordMacroDialog(Adw.Dialog):
             "keyboard, mouse, and gamepad events."
         )
         self._unlock_btn.connect("clicked", self._on_unlock_clicked)
-        footer.append(self._unlock_btn)
-
-        self._unlock_status = Gtk.Label(label="Unlock required")
-        self._unlock_status.add_css_class("dim-label")
-        self._unlock_status.set_hexpand(True)
-        self._unlock_status.set_halign(Gtk.Align.START)
-        footer.append(self._unlock_status)
+        footer_actions.append(self._unlock_btn)
 
         self._save_btn = Gtk.Button(label="Done")
         self._save_btn.add_css_class("suggested-action")
         self._save_btn.connect("clicked", self._on_save_settings)
-        footer.append(self._save_btn)
+        footer_actions.append(self._save_btn)
+        footer.set_end_widget(footer_actions)
 
         inner.append(footer)
         frame.set_child(inner)
@@ -239,10 +266,10 @@ class RecordMacroDialog(Adw.Dialog):
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         text_box.set_hexpand(True)
 
-        title = Gtk.Label(label="Recording was blocked")
-        title.add_css_class("heading")
-        title.set_halign(Gtk.Align.START)
-        text_box.append(title)
+        self._locked_notice_title = Gtk.Label(label="Recording needs unlock")
+        self._locked_notice_title.add_css_class("heading")
+        self._locked_notice_title.set_halign(Gtk.Align.START)
+        text_box.append(self._locked_notice_title)
 
         body = Gtk.Label(
             label=(
@@ -264,6 +291,14 @@ class RecordMacroDialog(Adw.Dialog):
         self.set_title(title)
         self._title_label.set_label(title)
         self._locked_notice.set_visible(locked)
+
+    def _on_recording_docs_clicked(self, _button: Gtk.Button) -> None:
+        url = _macro_recording_docs_url()
+        try:
+            launcher = Gtk.UriLauncher.new(url)
+            launcher.launch(None, None, None)
+        except Exception as exc:
+            log.warning("Could not open macro recording documentation %s: %s", url, exc)
 
     def _register_parent_events(self) -> None:
         register_event_handler = getattr(self._parent, "register_event_handler", None)
@@ -610,15 +645,15 @@ class RecordMacroDialog(Adw.Dialog):
             self._unlock_status.remove_css_class("success")
             self._unlock_status.remove_css_class("error")
         elif self._recording_unlocked and self._recording_refresh_owner:
-            self._unlock_status.set_label("Unlock active")
+            self._unlock_status.set_label("Recording unlocked")
             self._unlock_status.remove_css_class("error")
             self._unlock_status.add_css_class("success")
         elif self._recording_unlocked:
-            self._unlock_status.set_label("Unlock active in another session")
+            self._unlock_status.set_label("Unlocked in another session")
             self._unlock_status.remove_css_class("success")
             self._unlock_status.add_css_class("error")
         else:
-            self._unlock_status.set_label("Unlock required")
+            self._unlock_status.set_label("Recording locked")
             self._unlock_status.remove_css_class("success")
             self._unlock_status.remove_css_class("error")
 

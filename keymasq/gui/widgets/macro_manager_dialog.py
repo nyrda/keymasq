@@ -8,6 +8,7 @@ from datetime import datetime
 
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq import __version__
 from keymasq.common.macro_compile import (
     build_type_macro_events,
     can_type_directly,
@@ -28,6 +29,19 @@ log = logging.getLogger("keymasq.gui.widgets.macro_manager_dialog")
 
 _normalize_type_macro_text = normalize_type_macro_text
 _normalize_unicode_type_macro_text = normalize_unicode_type_macro_text
+
+
+def _docs_version() -> str:
+    version = __version__.strip()
+    if not version:
+        return "latest"
+    if "dev" in version:
+        return "master"
+    return version
+
+
+def _macros_docs_url() -> str:
+    return f"https://keymasq.tools/docs/{_docs_version()}/MACROS/"
 
 
 def _suggest_unique_macro_name(existing_names: set[str]) -> str:
@@ -57,7 +71,7 @@ class MacroManagerDialog(Adw.Dialog):
         self._recording_active: bool = False
         self._recording_unlocked: bool = False
         self._record_btn: Gtk.Button | None = None
-        self._cancel_playback_btn: Gtk.Button | None = None
+        self.macros_docs_btn: Gtk.Button | None = None
         self._build_ui()
         GLib.idle_add(self._load_initial_state)
 
@@ -157,25 +171,29 @@ class MacroManagerDialog(Adw.Dialog):
         inner.append(content)
         inner.append(Gtk.Separator())
 
-        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        footer = Gtk.CenterBox(orientation=Gtk.Orientation.HORIZONTAL)
         footer.set_margin_top(8)
         footer.set_margin_bottom(8)
         footer.set_margin_start(12)
         footer.set_margin_end(12)
 
-        cancel_playback_btn = Gtk.Button(label="Cancel Playback")
-        cancel_playback_btn.add_css_class("destructive-action")
-        cancel_playback_btn.connect("clicked", self._on_cancel_playback)
-        footer.append(cancel_playback_btn)
-        self._cancel_playback_btn = cancel_playback_btn
+        docs_btn = Gtk.Button(label="?")
+        docs_btn.add_css_class("flat")
+        docs_btn.add_css_class("actions-docs-button")
+        docs_btn.set_tooltip_text("Open Macros documentation")
+        docs_btn.connect("clicked", self._on_macros_docs_clicked)
+        footer.set_start_widget(docs_btn)
+        self.macros_docs_btn = docs_btn
 
-        footer_spacer = Gtk.Box()
-        footer_spacer.set_hexpand(True)
-        footer.append(footer_spacer)
+        self.playback_stop_hint = Gtk.Label(label="Interrupt macro playback: Ctrl+Alt+Esc")
+        self.playback_stop_hint.add_css_class("dim-label")
+        self.playback_stop_hint.add_css_class("caption")
+        self.playback_stop_hint.set_halign(Gtk.Align.CENTER)
+        footer.set_center_widget(self.playback_stop_hint)
 
         close_btn = Gtk.Button(label="Close")
         close_btn.connect("clicked", self._on_close_clicked)
-        footer.append(close_btn)
+        footer.set_end_widget(close_btn)
 
         inner.append(footer)
         frame.set_child(inner)
@@ -430,16 +448,13 @@ class MacroManagerDialog(Adw.Dialog):
         play_btn.set_sensitive(True)
         return False
 
-    def _on_cancel_playback(self, _btn: Gtk.Button) -> None:
-        session_request_with_hooks(
-            {"command": "cancel_macro_playback"},
-            self._on_cancel_playback_finished,
-        )
-
-    def _on_cancel_playback_finished(self, result: dict | None) -> bool:
-        if (result or {}).get("status") == "ok":
-            self._populate_list()
-        return False
+    def _on_macros_docs_clicked(self, _button: Gtk.Button) -> None:
+        url = _macros_docs_url()
+        try:
+            launcher = Gtk.UriLauncher.new(url)
+            launcher.launch(None, None, None)
+        except Exception as exc:
+            log.warning("Could not open Macros documentation %s: %s", url, exc)
 
     def _on_delete_clicked(self, btn: Gtk.Button, name: str) -> None:
         dialog = Adw.AlertDialog()

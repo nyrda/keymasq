@@ -469,6 +469,17 @@ def test_device_tab_keyboard_budget_fits_common_long_actions():
     )
 
 
+def test_device_tab_keyboard_budget_keeps_rapidfire_relative_target_readable():
+    from keymasq.gui.widgets.device_tab import (
+        _KEYBOARD_ACTION_SUMMARY_CHARS,
+        _middle_shorten_text,
+    )
+
+    assert _middle_shorten_text("→ rel_hwheel:-1 ⚡", _KEYBOARD_ACTION_SUMMARY_CHARS) == (
+        "rel_hwheel:-1 ⚡"
+    )
+
+
 def test_device_tab_middle_shorten_never_exceeds_budget():
     from keymasq.gui.widgets.device_tab import _middle_shorten_text
 

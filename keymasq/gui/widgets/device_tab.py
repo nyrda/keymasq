@@ -75,6 +75,11 @@ def _compact_action_words(text: str, max_chars: int) -> str | None:
     if len(words) < 2:
         return None
 
+    if words[0] == "→" and any(word in {"⚡", "↓"} for word in words[2:]):
+        compact_text = " ".join(words[1:])
+        if len(compact_text) <= max_chars:
+            return compact_text
+
     compact_words = [
         _COMPACT_ACTION_WORDS.get(word.lower(), word)
         for word in words

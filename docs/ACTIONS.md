@@ -49,6 +49,15 @@ Enter the command text and click **Map**.
 
 ![Special tab — Passthrough, Suppress, and Execute Shell Command](assets/screenshots/key_selector_special.png)
 
+Exec actions are also the preferred way to integrate device/vendor tools that
+already solve their own hardware protocols. For example, a mouse button can
+switch DPI through OpenRazer or ratbagd with commands such as:
+
+```sh
+razer-cli --device 'Razer DeathAdder V2' --dpi 1600
+ratbagctl 'Logitech G502 HERO Gaming Mouse' dpi set 1600
+```
+
 ## Keyboard
 
 Pick a keyboard key from the visual layout (up to F12). The mapped button

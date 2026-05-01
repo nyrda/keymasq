@@ -304,6 +304,15 @@ Exec events are powerful but be cautious: a synchronous exec that hangs will
 stall the macro indefinitely. Prefer asynchronous exec for anything that
 doesn't need to gate later events.
 
+Exec events are the recommended way to call existing hardware/vendor tooling
+from a macro. For example, DPI changes can be delegated to OpenRazer or
+ratbagd tooling:
+
+```sh
+razer-cli --device 'Razer DeathAdder V2' --dpi 800
+ratbagctl 'Logitech G502 HERO Gaming Mouse' dpi set 800
+```
+
 Compositor events fire at their timestamp and macro playback continues
 immediately. They are available only when the current session has a supported
 compositor listener with compositor dispatch enabled.

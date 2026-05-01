@@ -40,31 +40,69 @@ from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileInfo, ProfileManager
 
 _ADD_INPUTS_TOOLTIP = "Capture additional physical buttons or keys for this device"
-_KEYBOARD_BUTTON_CARD_WIDTH = 96
+_KEYBOARD_BUTTON_CARD_WIDTH = 112
 _KEYBOARD_LABEL_CHARS = 12
-_KEYBOARD_ACTION_SUMMARY_CHARS = 14
+_KEYBOARD_ACTION_SUMMARY_CHARS = 16
 _POINTER_BUTTON_CARD_WIDTH = 187
 _POINTER_NAME_LABEL_CHARS = 20
 _POINTER_ACTION_SUMMARY_CHARS = 31
 _ACTION_SUMMARY_MARKER = " [...] "
+_COMPACT_ACTION_WORDS = {
+    "recording": "rec",
+    "playback": "play",
+    "profile": "prof",
+}
+
+
+def _char_middle_shorten_text(text: str, max_chars: int, marker: str) -> str:
+    if max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 3:
+        return text[:max_chars]
+    if max_chars <= len(marker) + 2:
+        return text[: max_chars - 3] + "..."
+
+    budget = max_chars - len(marker)
+    head_len = max(1, (budget + 1) // 2)
+    tail_len = max(1, budget - head_len)
+    return f"{text[:head_len]}{marker}{text[-tail_len:]}"
+
+
+def _compact_action_words(text: str, max_chars: int) -> str | None:
+    words = text.split()
+    if len(words) < 2:
+        return None
+
+    compact_words = [
+        _COMPACT_ACTION_WORDS.get(word.lower(), word)
+        for word in words
+    ]
+    compact_text = " ".join(compact_words)
+    if compact_text != text and len(compact_text) <= max_chars:
+        return compact_text
+    return None
 
 
 def _middle_shorten_text(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
 
-    marker = _ACTION_SUMMARY_MARKER
-    if max_chars <= len(marker) + 2:
-        return text[:max(1, max_chars - 3)] + "..."
+    compact = _compact_action_words(text, max_chars)
+    if compact is not None:
+        return compact
+
+    marker = _ACTION_SUMMARY_MARKER if max_chars >= 20 else "..."
 
     words = text.split()
     if len(words) < 3:
-        budget = max_chars - len(marker)
-        head_len = max(1, budget // 2)
-        tail_len = max(1, budget - head_len)
-        return f"{text[:head_len]}{marker}{text[-tail_len:]}"
+        return _char_middle_shorten_text(text, max_chars, marker)
 
     budget = max_chars - len(marker)
+    if budget <= 2:
+        return _char_middle_shorten_text(text, max_chars, marker)
+
     suffix_words: list[str] = []
     suffix_len = 0
     suffix_target = max(9, min(12, budget // 3))
@@ -72,16 +110,18 @@ def _middle_shorten_text(text: str, max_chars: int) -> str:
         next_len = len(word) + (1 if suffix_words else 0)
         if suffix_words and suffix_len + next_len > suffix_target:
             break
-        if suffix_len + next_len > budget - 4:
+        if suffix_len + next_len > budget - 2:
             break
         suffix_words.insert(0, word)
         suffix_len += next_len
 
     if not suffix_words:
-        suffix_words = [words[-1]]
-        suffix_len = len(words[-1])
+        return _char_middle_shorten_text(text, max_chars, marker)
 
     prefix_budget = budget - suffix_len
+    if prefix_budget <= 0:
+        return _char_middle_shorten_text(text, max_chars, marker)
+
     prefix_words: list[str] = []
     prefix_len = 0
     prefix_limit = len(words) - len(suffix_words)
@@ -95,10 +135,12 @@ def _middle_shorten_text(text: str, max_chars: int) -> str:
         prefix_len += next_len
 
     if not prefix_words:
-        prefix_chars = max(1, prefix_budget)
-        return f"{text[:prefix_chars]}{marker}{' '.join(suffix_words)}"
+        return _char_middle_shorten_text(text, max_chars, marker)
 
-    return f"{' '.join(prefix_words)}{marker}{' '.join(suffix_words)}"
+    shortened = f"{' '.join(prefix_words)}{marker}{' '.join(suffix_words)}"
+    if len(shortened) <= max_chars:
+        return shortened
+    return _char_middle_shorten_text(text, max_chars, marker)
 
 
 class DeviceTab(ProfileManagedTab):
@@ -820,6 +862,7 @@ class DeviceTab(ProfileManagedTab):
 
         action_label = Gtk.Label(label=self._describe_passthrough_output(button))
         action_label.add_css_class("caption")
+        action_label.add_css_class("button-card-action-label")
         action_label.set_halign(Gtk.Align.START)
         action_label.set_xalign(0.0)
         action_label.set_single_line_mode(True)

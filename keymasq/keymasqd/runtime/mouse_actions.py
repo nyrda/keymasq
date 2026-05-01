@@ -46,6 +46,12 @@ def resolve_mouse_output_target(target: str | None) -> MouseOutputTarget | None:
     )
 
 
+_HI_RES_SCROLL = (
+    (getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None), evdev.ecodes.REL_WHEEL),
+    (getattr(evdev.ecodes, "REL_HWHEEL_HI_RES", None), evdev.ecodes.REL_HWHEEL),
+)
+
+
 def emit_relative_pulse(
     uinput: _WritableUInput | None,
     code: int,
@@ -56,6 +62,12 @@ def emit_relative_pulse(
     if uinput is None:
         return
     uinput.write(int(ev_rel_code), int(code), int(value))
+
+    for hi_res_code, low_res_code in _HI_RES_SCROLL:
+        if hi_res_code is not None and int(code) == int(low_res_code):
+            uinput.write(int(ev_rel_code), int(hi_res_code), int(value) * 120)
+            break
+
     uinput.syn()
 
 

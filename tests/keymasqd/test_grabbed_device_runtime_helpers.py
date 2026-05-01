@@ -878,10 +878,12 @@ class TestGrabbedDeviceHelpers:
             await asyncio.gather(*fire_tasks)
 
         assert passthrough_calls == [(press.type, press.code, press.value)]
+        rel_wheel_hi_res = evdev.ecodes.REL_WHEEL_HI_RES  # type: ignore[attr-defined]
         assert mouse.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
             (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1),
+            (evdev.ecodes.EV_REL, rel_wheel_hi_res, 120),
         ]
         assert gamepad.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
@@ -1071,8 +1073,10 @@ class TestGrabbedDeviceHelpers:
             "wheel_plain",
         )
 
+        rel_wheel_hi_res = evdev.ecodes.REL_WHEEL_HI_RES  # type: ignore[attr-defined]
         assert mouse.writes == [
             (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1),
+            (evdev.ecodes.EV_REL, rel_wheel_hi_res, 120),
         ]
 
     @pytest.mark.asyncio
@@ -1108,6 +1112,8 @@ class TestGrabbedDeviceHelpers:
         )
         await asyncio.sleep(0.01)
 
+        rel_wheel_hi_res = evdev.ecodes.REL_WHEEL_HI_RES  # type: ignore[attr-defined]
         assert mouse.writes == [
             (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
+            (evdev.ecodes.EV_REL, rel_wheel_hi_res, -120),
         ]

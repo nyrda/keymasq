@@ -265,8 +265,10 @@ async def test_mouse_wheel_action_emits_relative_pulse_once() -> None:
     await machine._emit_tap()
 
     writes = [tuple(call.args) for call in mouse_uinput.write.call_args_list]
+    rel_wheel_hi_res = evdev.ecodes.REL_WHEEL_HI_RES  # type: ignore[attr-defined]
     assert writes == [
         (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1),
+        (evdev.ecodes.EV_REL, rel_wheel_hi_res, 120),
     ]
 
 
@@ -541,8 +543,11 @@ async def test_mouse_wheel_rapidfire_repeats_without_key_up() -> None:
 
     writes = [tuple(call.args) for call in mouse_uinput.write.call_args_list]
     assert writes
-    assert all(write[:2] == (evdev.ecodes.EV_REL, evdev.ecodes.REL_HWHEEL) for write in writes)
-    assert all(write[2] == -1 for write in writes)
+    rel_hwheel_hi_res = evdev.ecodes.REL_HWHEEL_HI_RES  # type: ignore[attr-defined]
+    assert all(write[:2] == (evdev.ecodes.EV_REL, evdev.ecodes.REL_HWHEEL) for write in writes[::2])
+    assert all(write[2] == -1 for write in writes[::2])
+    assert all(write[:2] == (evdev.ecodes.EV_REL, rel_hwheel_hi_res) for write in writes[1::2])
+    assert all(write[2] == -120 for write in writes[1::2])
 
 
 @pytest.mark.asyncio

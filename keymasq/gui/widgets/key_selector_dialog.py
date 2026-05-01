@@ -54,8 +54,6 @@ log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
 
 type IntLike = int | float | str | bytes
 
-OPENRAZER_STATUS_POLL_SECONDS = 5
-
 
 def _int_value(value: object, default: int = 0) -> int:
     return default if value is None else int(cast(IntLike, value))
@@ -398,10 +396,7 @@ class KeySelectorDialog(Adw.Dialog):
         self._openrazer_poll_rate = 1000
         self._openrazer_poll_rates: list[int] = []
         self._openrazer_status_requested = False
-        self._openrazer_status_inflight = False
-        self._openrazer_refresh_source_id = 0
         self._openrazer_poll_template_updating = False
-        self._openrazer_tab: Gtk.Widget | None = None
         self.openrazer_map_btn: Gtk.Button | None = None
         self.openrazer_poll_template_dropdown: Gtk.DropDown | None = None
         self._exec_cmd: str = ""
@@ -466,7 +461,6 @@ class KeySelectorDialog(Adw.Dialog):
             self._tap_enabled = False
 
         self._build_ui()
-        self.connect("closed", self._on_dialog_closed)
 
     def _build_ui(self):
         _ensure_compact_tabs_css()
@@ -492,6 +486,7 @@ class KeySelectorDialog(Adw.Dialog):
         self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
         self.stack.add_titled(self._build_media_tab(), "media", "Media")
         self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
+        self.stack.add_titled(self._build_openrazer_tab(), "openrazer", "OpenRazer")
         for page in self._compositor_action_pages:
             self.stack.add_titled(page.widget, page.page_id, page.title)
         self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
@@ -501,11 +496,6 @@ class KeySelectorDialog(Adw.Dialog):
         self.stack.add_titled(self._build_profile_tab(), "profile", "Profile")
 
         self._set_initial_tab()
-        self._refresh_openrazer_status(force=False)
-        self._openrazer_refresh_source_id = GLib.timeout_add_seconds(
-            OPENRAZER_STATUS_POLL_SECONDS,
-            self._poll_openrazer_status,
-        )
 
         frame = Gtk.Frame()
         frame.set_vexpand(True)
@@ -934,12 +924,7 @@ class KeySelectorDialog(Adw.Dialog):
         box.set_margin_end(16)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        status_text = (
-            f"OpenRazer ready ({len(self._openrazer_devices)} device(s))"
-            if self._openrazer_available
-            else "Checking OpenRazer..."
-        )
-        self.openrazer_status_label = Gtk.Label(label=status_text)
+        self.openrazer_status_label = Gtk.Label(label="Checking OpenRazer...")
         self.openrazer_status_label.add_css_class("dim-label")
         self.openrazer_status_label.set_halign(Gtk.Align.START)
         self.openrazer_status_label.set_hexpand(True)
@@ -1071,12 +1056,8 @@ class KeySelectorDialog(Adw.Dialog):
         self._refresh_openrazer_status(force=True)
 
     def _refresh_openrazer_status(self, *, force: bool) -> None:
-        if self._openrazer_status_inflight:
-            return
-        self._openrazer_status_inflight = True
         self._openrazer_status_requested = True
-        if hasattr(self, "openrazer_status_label"):
-            self.openrazer_status_label.set_label("Checking OpenRazer...")
+        self.openrazer_status_label.set_label("Checking OpenRazer...")
         command = "refresh_openrazer" if force else "get_openrazer_status"
         session_request_async(
             {"command": command, "force": force},
@@ -1085,61 +1066,26 @@ class KeySelectorDialog(Adw.Dialog):
         )
 
     def _on_openrazer_status_loaded(self, response: dict | None) -> bool:
-        self._openrazer_status_inflight = False
         if not response or response.get("status") != "ok":
             self._openrazer_available = False
             self._openrazer_devices = []
-            if hasattr(self, "openrazer_status_label"):
-                self.openrazer_status_label.set_label("OpenRazer unavailable")
-                self._populate_openrazer_devices()
-            self._sync_openrazer_tab_visibility()
+            self.openrazer_status_label.set_label("OpenRazer unavailable")
+            self._populate_openrazer_devices()
             return False
         self._openrazer_available = bool(response.get("available", False))
         devices = response.get("devices", [])
         self._openrazer_devices = [
             dict(item) for item in devices if isinstance(item, dict)
         ]
-        if self._openrazer_available and hasattr(self, "openrazer_status_label"):
+        if self._openrazer_available:
             self.openrazer_status_label.set_label(
                 f"OpenRazer ready ({len(self._openrazer_devices)} device(s))"
             )
-        elif hasattr(self, "openrazer_status_label"):
+        else:
             message = str(response.get("last_error", "") or "OpenRazer unavailable")
             self.openrazer_status_label.set_label(message)
-        self._sync_openrazer_tab_visibility()
-        if hasattr(self, "openrazer_device_model"):
-            self._populate_openrazer_devices()
+        self._populate_openrazer_devices()
         return False
-
-    def _sync_openrazer_tab_visibility(self) -> None:
-        should_show = self._openrazer_available and bool(self._openrazer_devices)
-        tab = self.stack.get_child_by_name("openrazer")
-        if should_show:
-            if tab is None:
-                self._openrazer_tab = self._build_openrazer_tab()
-                self.stack.add_titled(self._openrazer_tab, "openrazer", "OpenRazer")
-                if (
-                    self._current_action is not None
-                    and self._current_action.action_type == ActionType.OPENRAZER
-                ):
-                    self.stack.set_visible_child_name("openrazer")
-            return
-
-        if tab is not None:
-            if self.stack.get_visible_child_name() == "openrazer":
-                self.stack.set_visible_child_name("special")
-            self.stack.remove(tab)
-
-    def _poll_openrazer_status(self) -> bool:
-        if self._openrazer_refresh_source_id == 0:
-            return False
-        self._refresh_openrazer_status(force=True)
-        return True
-
-    def _on_dialog_closed(self, _dialog: Adw.Dialog) -> None:
-        if self._openrazer_refresh_source_id:
-            GLib.source_remove(self._openrazer_refresh_source_id)
-            self._openrazer_refresh_source_id = 0
 
     def _populate_openrazer_devices(self) -> None:
         self.openrazer_device_model.splice(0, self.openrazer_device_model.get_n_items(), [])
@@ -2213,7 +2159,7 @@ class KeySelectorDialog(Adw.Dialog):
         name = compositor_tab or tab_map.get(self._current_action.action_type)
         if name == "superkey" and not self._allow_superkey:
             return
-        if name and self.stack.get_child_by_name(name) is not None:
+        if name:
             self.stack.set_visible_child_name(name)
 
     def _resolve_compositor_action_status(

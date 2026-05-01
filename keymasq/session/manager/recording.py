@@ -894,6 +894,7 @@ def update_recording_settings(manager: "SessionManager", request: JsonObject) ->
             settings["device_overrides"] = {
                 str(recording_id): bool(enabled) for recording_id, enabled in overrides.items()
             }
+    update_selected_recording_devices_cache(manager)
     queue_recording_settings_save(manager, dict(settings))
 
 
@@ -1006,20 +1007,9 @@ async def start_recording(
     record_start_position = settings.get("record_start_position", False)
     device_types = ["keyboard", "gamepad", "mouse"]
 
-    devices: list[JsonObject]
-    if manager.recording_state.devices_cache:
-        devices = list(manager.recording_state.devices_cache)
-    else:
-        try:
-            devices = await asyncio.wait_for(
-                get_devices_for_recording(manager, device_types, include_grabbed=True),
-                timeout=1.5,
-            )
-        except Exception:
-            devices = []
-
-    overrides = json_object(settings.get("device_overrides")) or {}
-    devices = [d for d in devices if _recording_device_enabled(d, overrides)]
+    if not manager.recording_state.devices_cache_ready:
+        log.debug("Recording start using empty/uninitialized recording device cache")
+    devices = list(manager.recording_state.selected_devices_cache)
     recording_ids = list(
         dict.fromkeys(
             recording_id
@@ -1030,7 +1020,7 @@ async def start_recording(
     log.debug(
         "recording start device selection: types=%s overrides=%r recording_ids=%s devices=%s",
         device_types,
-        overrides,
+        json_object(settings.get("device_overrides")) or {},
         recording_ids,
         [str(d.get("path", "")) for d in devices],
     )
@@ -1063,7 +1053,7 @@ async def start_recording(
             Command(
                 command=CommandType.START_RECORDING,
                 data={
-                    "recording_ids": recording_ids,
+                    "devices": devices,
                     "include_mouse_movement": include_mouse_movement,
                     "include_mouse_clicks": include_mouse_clicks,
                     "start_x": start_x,
@@ -1099,8 +1089,19 @@ async def refresh_recording_devices_cache(manager: "SessionManager") -> None:
             include_grabbed=True,
         )
         manager.recording_state.devices_cache = devices
+        manager.recording_state.devices_cache_ready = True
+        update_selected_recording_devices_cache(manager)
     except Exception:
         pass
+
+
+def update_selected_recording_devices_cache(manager: "SessionManager") -> None:
+    overrides = json_object(manager.recording_state.settings.get("device_overrides")) or {}
+    manager.recording_state.selected_devices_cache = [
+        d
+        for d in manager.recording_state.devices_cache
+        if _recording_device_enabled(d, overrides)
+    ]
 
 
 def _recording_device_types(device: JsonObject) -> list[str]:

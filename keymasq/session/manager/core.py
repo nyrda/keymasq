@@ -429,6 +429,7 @@ class SessionManager:
                 except Exception as e:
                     log.error(f"Failed to activate initial profiles: {e}")
                     traceback.print_exc()
+                await runtime_recording.refresh_recording_devices_cache(self)
 
                 await self.client.wait_disconnected()
 
@@ -448,6 +449,9 @@ class SessionManager:
                 self.profile_state.last_sent_combo_signature = ""
                 self.profile_state.active_profile_names.clear()
                 self.profile_state.resolved_devices.clear()
+                self.recording_state.devices_cache.clear()
+                self.recording_state.selected_devices_cache.clear()
+                self.recording_state.devices_cache_ready = False
 
                 if was_connected:
                     self._broadcast_keymasqd_status(False)

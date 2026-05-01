@@ -398,6 +398,7 @@ async def on_device_connected(manager: "SessionManager", device_info: JsonObject
         TOPOLOGY_REFRESH_DEBOUNCE_S,
         TOPOLOGY_REFRESH_RETRY_S,
     )
+    asyncio.create_task(_refresh_recording_devices_cache_after_topology(manager))
 
 
 async def on_device_disconnected(manager: "SessionManager", device_info: JsonObject) -> None:
@@ -419,6 +420,12 @@ async def on_device_disconnected(manager: "SessionManager", device_info: JsonObj
         TOPOLOGY_REFRESH_DEBOUNCE_S,
         TOPOLOGY_REFRESH_RETRY_S,
     )
+    asyncio.create_task(_refresh_recording_devices_cache_after_topology(manager))
+
+
+async def _refresh_recording_devices_cache_after_topology(manager: "SessionManager") -> None:
+    await asyncio.sleep(TOPOLOGY_REFRESH_DEBOUNCE_S + 0.1)
+    await runtime_recording.refresh_recording_devices_cache(manager)
 
 
 def device_name_for_hardware(manager: "SessionManager", hardware_id: str) -> str:

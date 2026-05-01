@@ -518,6 +518,8 @@ async def _handle_capture_commands(
             include_grabbed=True,
         )
         manager.recording_state.devices_cache = devices
+        manager.recording_state.devices_cache_ready = True
+        runtime_recording.update_selected_recording_devices_cache(manager)
         return {"status": "ok", "devices": devices}
 
     if command == "begin_capture":

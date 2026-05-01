@@ -211,40 +211,6 @@ rapidfire_wait_ms = 60
         assert action.compositor_dispatcher == "focus_workspace"
         assert action.compositor_args == "name:web"
 
-    def test_profile_openrazer_roundtrip(self, temp_config_dir):
-        original = ProfileConfig(
-            name="Razer Profile",
-            enabled=True,
-            device_layers={
-                "1532:0098": DeviceProfileLayer(
-                    hardware_id="1532:0098",
-                    mappings={
-                        "btn_dpi": MappingAction(
-                            action_type=ActionType.OPENRAZER,
-                            openrazer_setting="dpi",
-                            openrazer_device="serial",
-                            openrazer_serial="ABC123",
-                            openrazer_dpi_x=1600,
-                            openrazer_dpi_y=1200,
-                        )
-                    },
-                )
-            },
-        )
-
-        manager = ProfileManager()
-        manager.save_profile(original)
-
-        loaded = manager.list_profiles()[0].config
-        action = loaded.device_layers["1532:0098"].mappings["btn_dpi"]
-
-        assert action.action_type == ActionType.OPENRAZER
-        assert action.openrazer_setting == "dpi"
-        assert action.openrazer_device == "serial"
-        assert action.openrazer_serial == "ABC123"
-        assert action.openrazer_dpi_x == 1600
-        assert action.openrazer_dpi_y == 1200
-
     def test_profile_with_window_rules(self, temp_config_dir):
         profile = ProfileConfig(
             name="Game Profile",

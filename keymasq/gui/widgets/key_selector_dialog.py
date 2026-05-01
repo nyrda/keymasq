@@ -1,5 +1,4 @@
 import logging
-from typing import cast
 
 import evdev
 import gi
@@ -51,12 +50,6 @@ from keymasq.session.compositor import detect_compositor_sync
 from keymasq.session.superkeys import SuperkeyManager
 
 log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
-
-type IntLike = int | float | str | bytes
-
-
-def _int_value(value: object, default: int = 0) -> int:
-    return default if value is None else int(cast(IntLike, value))
 
 KEYBOARD_LAYOUT = [
     ["Esc", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"],
@@ -268,7 +261,6 @@ ACTION_DOC_LINKS = {
     "navigation": ("navigation", "Navigation"),
     "media": ("media", "Media"),
     "mouse": ("mouse", "Mouse"),
-    "openrazer": ("openrazer", "OpenRazer"),
     "gamepad": ("gamepad", "Gamepad"),
     "hyprland": ("hyprland", "Hyprland"),
     "niri": ("niri", "Niri"),
@@ -386,19 +378,6 @@ class KeySelectorDialog(Adw.Dialog):
         self._selected_profile_action: str = "toggle"
         self._selected_profile_name: str = ""
         self._profile_name_items: list[str] = []
-        self._openrazer_devices: list[dict[str, object]] = []
-        self._openrazer_available = False
-        self._openrazer_serial = ""
-        self._openrazer_setting = "dpi"
-        self._openrazer_split_dpi = False
-        self._openrazer_dpi_x = 1600
-        self._openrazer_dpi_y = 1600
-        self._openrazer_poll_rate = 1000
-        self._openrazer_poll_rates: list[int] = []
-        self._openrazer_status_requested = False
-        self._openrazer_poll_template_updating = False
-        self.openrazer_map_btn: Gtk.Button | None = None
-        self.openrazer_poll_template_dropdown: Gtk.DropDown | None = None
         self._exec_cmd: str = ""
         self._mouse_move_x: int = 0
         self._mouse_move_y: int = 0
@@ -446,15 +425,6 @@ class KeySelectorDialog(Adw.Dialog):
                 self._mouse_move_y = int(current_action.move_y)
                 if current_action.action_type == ActionType.MOUSE_MOVE_ABS:
                     self._mouse_move_mode = "abs"
-            elif current_action.action_type == ActionType.OPENRAZER:
-                self._openrazer_serial = str(current_action.openrazer_serial or "")
-                self._openrazer_setting = str(current_action.openrazer_setting or "dpi")
-                self._openrazer_dpi_x = int(current_action.openrazer_dpi_x or 1600)
-                self._openrazer_dpi_y = int(
-                    current_action.openrazer_dpi_y or self._openrazer_dpi_x
-                )
-                self._openrazer_split_dpi = self._openrazer_dpi_y != self._openrazer_dpi_x
-                self._openrazer_poll_rate = int(current_action.openrazer_poll_rate or 1000)
         if not self._allow_rapidfire:
             self._rapidfire_enabled = False
         if not self._allow_tap:
@@ -486,7 +456,6 @@ class KeySelectorDialog(Adw.Dialog):
         self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
         self.stack.add_titled(self._build_media_tab(), "media", "Media")
         self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
-        self.stack.add_titled(self._build_openrazer_tab(), "openrazer", "OpenRazer")
         for page in self._compositor_action_pages:
             self.stack.add_titled(page.widget, page.page_id, page.title)
         self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
@@ -916,321 +885,6 @@ class KeySelectorDialog(Adw.Dialog):
 
         return box
 
-    def _build_openrazer_tab(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(16)
-        box.set_margin_bottom(16)
-        box.set_margin_start(16)
-        box.set_margin_end(16)
-
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.openrazer_status_label = Gtk.Label(label="Checking OpenRazer...")
-        self.openrazer_status_label.add_css_class("dim-label")
-        self.openrazer_status_label.set_halign(Gtk.Align.START)
-        self.openrazer_status_label.set_hexpand(True)
-        header.append(self.openrazer_status_label)
-        refresh_btn = Gtk.Button(label="Refresh")
-        refresh_btn.add_css_class("flat")
-        refresh_btn.connect("clicked", self._on_openrazer_refresh_clicked)
-        header.append(refresh_btn)
-        box.append(header)
-
-        form = Gtk.Grid()
-        form.set_row_spacing(10)
-        form.set_column_spacing(10)
-        form.set_hexpand(True)
-        box.append(form)
-
-        def form_label(text: str) -> Gtk.Label:
-            label = Gtk.Label(label=text)
-            label.set_xalign(1.0)
-            label.set_halign(Gtk.Align.END)
-            label.set_width_chars(8)
-            return label
-
-        row = 0
-        device_label = form_label("Device:")
-        form.attach(device_label, 0, row, 1, 1)
-        self.openrazer_device_model = Gtk.StringList()
-        self.openrazer_device_dropdown = Gtk.DropDown(model=self.openrazer_device_model)
-        self.openrazer_device_dropdown.set_hexpand(True)
-        form.attach(self.openrazer_device_dropdown, 1, row, 1, 1)
-
-        row += 1
-        setting_label = form_label("Setting:")
-        form.attach(setting_label, 0, row, 1, 1)
-        self.openrazer_setting_model = Gtk.StringList()
-        self.openrazer_setting_model.append("DPI")
-        self.openrazer_setting_model.append("Polling Rate")
-        self.openrazer_setting_dropdown = Gtk.DropDown(model=self.openrazer_setting_model)
-        self.openrazer_setting_dropdown.set_selected(
-            1 if self._openrazer_setting == "poll_rate" else 0
-        )
-        self.openrazer_setting_dropdown.set_halign(Gtk.Align.START)
-        form.attach(self.openrazer_setting_dropdown, 1, row, 1, 1)
-
-        row += 1
-        self.openrazer_dpi_mode_label = form_label("DPI:")
-        form.attach(self.openrazer_dpi_mode_label, 0, row, 1, 1)
-        self.openrazer_dpi_mode_model = Gtk.StringList()
-        for label in ("Both", "Split"):
-            self.openrazer_dpi_mode_model.append(label)
-        self.openrazer_dpi_mode_dropdown = Gtk.DropDown(model=self.openrazer_dpi_mode_model)
-        self.openrazer_dpi_mode_dropdown.set_selected(1 if self._openrazer_split_dpi else 0)
-        self.openrazer_dpi_mode_dropdown.set_halign(Gtk.Align.START)
-        form.attach(self.openrazer_dpi_mode_dropdown, 1, row, 1, 1)
-
-        row += 1
-        self.openrazer_dpi_x_label = form_label("Value:")
-        form.attach(self.openrazer_dpi_x_label, 0, row, 1, 1)
-        dpi_value_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        dpi_value_row.set_halign(Gtk.Align.START)
-        self.openrazer_dpi_x_spin = Gtk.SpinButton()
-        self.openrazer_dpi_x_spin.set_adjustment(
-            Gtk.Adjustment(value=self._openrazer_dpi_x, lower=1, upper=60000, step_increment=50)
-        )
-        self.openrazer_dpi_x_spin.set_digits(0)
-        self.openrazer_dpi_x_spin.set_width_chars(7)
-        dpi_value_row.append(self.openrazer_dpi_x_spin)
-        self.openrazer_dpi_y_label = Gtk.Label(label="Y:")
-        self.openrazer_dpi_y_label.set_margin_start(8)
-        dpi_value_row.append(self.openrazer_dpi_y_label)
-        self.openrazer_dpi_y_spin = Gtk.SpinButton()
-        self.openrazer_dpi_y_spin.set_adjustment(
-            Gtk.Adjustment(value=self._openrazer_dpi_y, lower=0, upper=60000, step_increment=50)
-        )
-        self.openrazer_dpi_y_spin.set_digits(0)
-        self.openrazer_dpi_y_spin.set_width_chars(7)
-        dpi_value_row.append(self.openrazer_dpi_y_spin)
-        self._openrazer_dpi_value_row = dpi_value_row
-        form.attach(dpi_value_row, 1, row, 1, 1)
-
-        row += 1
-        self.openrazer_poll_label = form_label("Rate:")
-        form.attach(self.openrazer_poll_label, 0, row, 1, 1)
-        poll_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        poll_row.set_halign(Gtk.Align.START)
-        self.openrazer_poll_spin = Gtk.SpinButton()
-        self.openrazer_poll_spin.set_adjustment(
-            Gtk.Adjustment(value=self._openrazer_poll_rate, lower=1, upper=8000, step_increment=125)
-        )
-        self.openrazer_poll_spin.set_digits(0)
-        self.openrazer_poll_spin.set_width_chars(7)
-        poll_row.append(self.openrazer_poll_spin)
-        self.openrazer_poll_suffix = Gtk.Label(label="Hz")
-        poll_row.append(self.openrazer_poll_suffix)
-        self.openrazer_poll_model = Gtk.StringList()
-        poll_template_dropdown = Gtk.DropDown(model=self.openrazer_poll_model)
-        poll_template_dropdown.set_margin_start(8)
-        poll_template_dropdown.connect("notify::selected", self._on_openrazer_poll_template_changed)
-        self.openrazer_poll_template_dropdown = poll_template_dropdown
-        poll_row.append(poll_template_dropdown)
-        self._openrazer_poll_row = poll_row
-        form.attach(poll_row, 1, row, 1, 1)
-
-        row += 1
-        openrazer_map_btn = Gtk.Button(label="Map OpenRazer Action")
-        openrazer_map_btn.add_css_class("suggested-action")
-        openrazer_map_btn.set_halign(Gtk.Align.START)
-        openrazer_map_btn.connect("clicked", self._on_openrazer_map_clicked)
-        self.openrazer_map_btn = openrazer_map_btn
-        form.attach(openrazer_map_btn, 1, row, 1, 1)
-
-        self.openrazer_device_dropdown.connect(
-            "notify::selected",
-            self._on_openrazer_device_changed,
-        )
-        self.openrazer_setting_dropdown.connect(
-            "notify::selected",
-            self._on_openrazer_setting_changed,
-        )
-        self.openrazer_dpi_mode_dropdown.connect(
-            "notify::selected",
-            self._on_openrazer_dpi_mode_changed,
-        )
-        self._populate_openrazer_poll_rates(self._openrazer_poll_rates, self._openrazer_poll_rate)
-        self._update_openrazer_setting_visibility()
-        return box
-
-    def _on_openrazer_refresh_clicked(self, _btn: Gtk.Button) -> None:
-        self._refresh_openrazer_status(force=True)
-
-    def _refresh_openrazer_status(self, *, force: bool) -> None:
-        self._openrazer_status_requested = True
-        self.openrazer_status_label.set_label("Checking OpenRazer...")
-        command = "refresh_openrazer" if force else "get_openrazer_status"
-        session_request_async(
-            {"command": command, "force": force},
-            self._on_openrazer_status_loaded,
-            timeout=2.0,
-        )
-
-    def _on_openrazer_status_loaded(self, response: dict | None) -> bool:
-        if not response or response.get("status") != "ok":
-            self._openrazer_available = False
-            self._openrazer_devices = []
-            self.openrazer_status_label.set_label("OpenRazer unavailable")
-            self._populate_openrazer_devices()
-            return False
-        self._openrazer_available = bool(response.get("available", False))
-        devices = response.get("devices", [])
-        self._openrazer_devices = [
-            dict(item) for item in devices if isinstance(item, dict)
-        ]
-        if self._openrazer_available:
-            self.openrazer_status_label.set_label(
-                f"OpenRazer ready ({len(self._openrazer_devices)} device(s))"
-            )
-        else:
-            message = str(response.get("last_error", "") or "OpenRazer unavailable")
-            self.openrazer_status_label.set_label(message)
-        self._populate_openrazer_devices()
-        return False
-
-    def _populate_openrazer_devices(self) -> None:
-        self.openrazer_device_model.splice(0, self.openrazer_device_model.get_n_items(), [])
-        if not self._openrazer_devices:
-            self.openrazer_device_model.append("No OpenRazer device available")
-            self.openrazer_device_dropdown.set_selected(0)
-            self.openrazer_device_dropdown.set_sensitive(False)
-            self._openrazer_serial = ""
-            self._populate_openrazer_poll_rates([], self._openrazer_poll_rate)
-            if self.openrazer_map_btn is not None:
-                self.openrazer_map_btn.set_sensitive(False)
-            return
-        self.openrazer_device_dropdown.set_sensitive(True)
-        if self.openrazer_map_btn is not None:
-            self.openrazer_map_btn.set_sensitive(True)
-        selected_index = 0
-        for index, device in enumerate(self._openrazer_devices):
-            serial = str(device.get("serial", "") or "")
-            name = str(device.get("name", "") or serial)
-            hardware_id = str(device.get("hardware_id", "") or "")
-            self.openrazer_device_model.append(f"{name} ({hardware_id})")
-            if serial and serial == self._openrazer_serial:
-                selected_index = index
-        self.openrazer_device_dropdown.set_selected(selected_index)
-        self._on_openrazer_device_changed(self.openrazer_device_dropdown, None)
-
-    def _on_openrazer_device_changed(self, dropdown: Gtk.DropDown, _pspec=None) -> None:
-        index = int(dropdown.get_selected())
-        if 0 <= index < len(self._openrazer_devices):
-            device = self._openrazer_devices[index]
-            self._openrazer_serial = str(device.get("serial", "") or "")
-            dpi = device.get("dpi")
-            if isinstance(dpi, list) and dpi:
-                dpi_x = _int_value(dpi[0])
-                dpi_y = _int_value(dpi[1]) if len(dpi) > 1 else dpi_x
-                self.openrazer_dpi_x_spin.set_value(dpi_x)
-                self.openrazer_dpi_y_spin.set_value(dpi_y)
-                self.openrazer_dpi_mode_dropdown.set_selected(
-                    1 if dpi_y > 0 and dpi_y != dpi_x else 0
-                )
-            poll_rate = device.get("poll_rate")
-            if poll_rate is not None:
-                self._openrazer_poll_rate = _int_value(poll_rate)
-                self.openrazer_poll_spin.set_value(self._openrazer_poll_rate)
-            self._populate_openrazer_poll_rates(
-                self._openrazer_poll_rate_values(device),
-                self._openrazer_poll_rate,
-            )
-        else:
-            self._openrazer_serial = ""
-            self._populate_openrazer_poll_rates([], self._openrazer_poll_rate)
-
-    def _openrazer_poll_rate_values(self, device: dict[str, object]) -> list[int]:
-        values = device.get("poll_rate_templates", device.get("supported_poll_rates"))
-        if isinstance(values, list | tuple):
-            rates = sorted({_int_value(value) for value in values if _int_value(value) > 0})
-            if rates:
-                return rates
-        return []
-
-    def _populate_openrazer_poll_rates(self, rates: list[int], selected_rate: int) -> None:
-        deduped = sorted({int(rate) for rate in rates if int(rate) > 0})
-        self._openrazer_poll_rates = deduped
-        self.openrazer_poll_model.splice(0, self.openrazer_poll_model.get_n_items(), [])
-        selected_index = 0
-        if not deduped:
-            self.openrazer_poll_model.append("Templates unavailable")
-            if self.openrazer_poll_template_dropdown is not None:
-                self.openrazer_poll_template_dropdown.set_sensitive(False)
-                self._openrazer_poll_template_updating = True
-                self.openrazer_poll_template_dropdown.set_selected(0)
-                self._openrazer_poll_template_updating = False
-            return
-        if self.openrazer_poll_template_dropdown is not None:
-            self.openrazer_poll_template_dropdown.set_sensitive(True)
-        for index, rate in enumerate(deduped):
-            self.openrazer_poll_model.append(f"{rate} Hz")
-            if rate == selected_rate:
-                selected_index = index
-        if self.openrazer_poll_template_dropdown is not None:
-            self._openrazer_poll_template_updating = True
-            self.openrazer_poll_template_dropdown.set_selected(selected_index)
-            self._openrazer_poll_template_updating = False
-
-    def _selected_openrazer_poll_rate(self) -> int:
-        return int(self.openrazer_poll_spin.get_value())
-
-    def _on_openrazer_poll_template_changed(
-        self,
-        dropdown: Gtk.DropDown,
-        _pspec=None,
-    ) -> None:
-        if self._openrazer_poll_template_updating:
-            return
-        index = int(dropdown.get_selected())
-        if 0 <= index < len(self._openrazer_poll_rates):
-            self.openrazer_poll_spin.set_value(self._openrazer_poll_rates[index])
-
-    def _on_openrazer_setting_changed(self, dropdown: Gtk.DropDown, _pspec=None) -> None:
-        self._openrazer_setting = "poll_rate" if int(dropdown.get_selected()) == 1 else "dpi"
-        self._update_openrazer_setting_visibility()
-
-    def _on_openrazer_dpi_mode_changed(self, dropdown: Gtk.DropDown, _pspec=None) -> None:
-        self._openrazer_split_dpi = int(dropdown.get_selected()) == 1
-        self._update_openrazer_setting_visibility()
-
-    def _update_openrazer_setting_visibility(self) -> None:
-        is_dpi = self._openrazer_setting == "dpi"
-        split = int(self.openrazer_dpi_mode_dropdown.get_selected()) == 1
-        self.openrazer_dpi_mode_label.set_visible(is_dpi)
-        self.openrazer_dpi_mode_dropdown.set_visible(is_dpi)
-        self.openrazer_dpi_x_label.set_label("X:" if split else "Value:")
-        self.openrazer_dpi_x_label.set_visible(is_dpi)
-        self._openrazer_dpi_value_row.set_visible(is_dpi)
-        self.openrazer_dpi_y_label.set_visible(split)
-        self.openrazer_dpi_y_spin.set_visible(split)
-        self.openrazer_poll_label.set_visible(not is_dpi)
-        self._openrazer_poll_row.set_visible(not is_dpi)
-
-    def _on_openrazer_map_clicked(self, _btn: Gtk.Button) -> None:
-        setting = "poll_rate" if int(self.openrazer_setting_dropdown.get_selected()) == 1 else "dpi"
-        poll_rate = self._selected_openrazer_poll_rate()
-        if not self._openrazer_serial:
-            return
-        if setting == "poll_rate" and poll_rate <= 0:
-            return
-        dpi_x = int(self.openrazer_dpi_x_spin.get_value())
-        dpi_y = (
-            int(self.openrazer_dpi_y_spin.get_value())
-            if int(self.openrazer_dpi_mode_dropdown.get_selected()) == 1
-            else dpi_x
-        )
-        self._warn_and_clear_unsupported_rapidfire(ActionType.OPENRAZER)
-        action = MappingAction(
-            action_type=ActionType.OPENRAZER,
-            openrazer_setting=setting,
-            openrazer_device="serial",
-            openrazer_serial=self._openrazer_serial or None,
-            openrazer_dpi_x=dpi_x,
-            openrazer_dpi_y=dpi_y,
-            openrazer_poll_rate=poll_rate,
-        )
-        self.emit("key-selected", action)
-        self.close()
-
     def _build_gamepad_tab(self) -> Gtk.Widget:
         return build_shared_gamepad_tab(self)
 
@@ -1355,7 +1009,6 @@ class KeySelectorDialog(Adw.Dialog):
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
         is_exec = child_name == "exec"
-        is_openrazer = child_name == "openrazer"
         is_compositor_action = child_name in self._compositor_action_page_ids
         has_options = self._allow_rapidfire or self._allow_tap
         options_enabled = (
@@ -1364,7 +1017,6 @@ class KeySelectorDialog(Adw.Dialog):
             and not is_macro
             and not is_profile
             and not is_exec
-            and not is_openrazer
             and not is_compositor_action
         )
         self.options_box.set_sensitive(options_enabled and has_options)
@@ -1374,7 +1026,6 @@ class KeySelectorDialog(Adw.Dialog):
             and not is_macro
             and not is_profile
             and not is_exec
-            and not is_openrazer
             and not is_compositor_action
         )
         self.map_btn.set_visible(is_superkey or is_macro or is_profile)
@@ -1386,8 +1037,6 @@ class KeySelectorDialog(Adw.Dialog):
             self.map_btn.set_sensitive(bool(self._selected_profile_name))
         else:
             self.map_btn.set_sensitive(False)
-        if is_openrazer and not self._openrazer_status_requested:
-            self._refresh_openrazer_status(force=False)
         self._update_actions_docs_button()
 
     def _active_actions_docs_link(self) -> tuple[str, str] | None:
@@ -2154,7 +1803,6 @@ class KeySelectorDialog(Adw.Dialog):
             ActionType.PROFILE_ENABLE: "profile",
             ActionType.PROFILE_DISABLE: "profile",
             ActionType.PROFILE_TOGGLE: "profile",
-            ActionType.OPENRAZER: "openrazer",
         }
         name = compositor_tab or tab_map.get(self._current_action.action_type)
         if name == "superkey" and not self._allow_superkey:

@@ -770,26 +770,6 @@ async def run_macro_control_action(
             )
         return 0.0
 
-    if action_type == "openrazer":
-        setting = str_value_fn(ev.get("setting"), "").strip()
-        serial = str_value_fn(ev.get("serial"), "").strip()
-        if not setting or not serial:
-            return 0.0
-        if manager.broadcast_callback:
-            await manager.broadcast_callback(
-                CommandType.ACTION_TRIGGER,
-                {
-                    "action_type": "openrazer",
-                    "setting": setting,
-                    "device": "serial",
-                    "serial": serial,
-                    "dpi_x": int_value_fn(ev.get("dpi_x"), 0),
-                    "dpi_y": int_value_fn(ev.get("dpi_y"), 0),
-                    "poll_rate": int_value_fn(ev.get("poll_rate"), 0),
-                },
-            )
-        return 0.0
-
     return 0.0
 
 

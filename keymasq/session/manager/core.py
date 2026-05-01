@@ -45,7 +45,6 @@ from .state import (
     CaptureRuntimeState,
     CompositorRuntimeState,
     ExecRuntimeState,
-    OpenRazerRuntimeState,
     ProfileRuntimeState,
     RecordingRuntimeState,
     UnlockRuntimeState,
@@ -91,7 +90,6 @@ class SessionManager:
         self.capture_state = CaptureRuntimeState()
 
         self.exec_state = ExecRuntimeState()
-        self.openrazer_state = OpenRazerRuntimeState()
         self.recording_state = RecordingRuntimeState()
         self.unlock_state = UnlockRuntimeState()
         runtime_recording.load_recording_settings_from_disk(self)
@@ -131,9 +129,6 @@ class SessionManager:
         self.compositor_state.supervisor_task = asyncio.create_task(
             runtime_compositor.compositor_supervisor_loop(self)
         )
-        from . import openrazer as runtime_openrazer
-
-        await runtime_openrazer.start_openrazer_monitor(self)
 
         try:
             await self._shutdown_event.wait()
@@ -154,10 +149,6 @@ class SessionManager:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self.compositor_state.supervisor_task
             self.compositor_state.supervisor_task = None
-
-        from . import openrazer as runtime_openrazer
-
-        await runtime_openrazer.stop_openrazer_monitor(self)
 
         topology_task = self.profile_state.topology_refresh_task
         if topology_task:

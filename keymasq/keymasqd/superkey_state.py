@@ -62,12 +62,6 @@ class SuperkeyActionData:
     compositor_args: str | None = None
     move_x: int = 0
     move_y: int = 0
-    openrazer_setting: str | None = None
-    openrazer_device: str = "serial"
-    openrazer_serial: str | None = None
-    openrazer_dpi_x: int = 0
-    openrazer_dpi_y: int = 0
-    openrazer_poll_rate: int = 0
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = 20
     rapidfire_wait_ms: int = 20
@@ -451,7 +445,6 @@ class SuperkeyMachine:
             "profile_enable",
             "profile_disable",
             "profile_toggle",
-            "openrazer",
         ):
             return
 
@@ -525,7 +518,6 @@ class SuperkeyMachine:
             "profile_enable",
             "profile_disable",
             "profile_toggle",
-            "openrazer",
         }:
             return None
         return build_action_trigger_payload(

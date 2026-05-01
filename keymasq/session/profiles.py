@@ -353,23 +353,6 @@ class ProfileManager:
                 compositor_args=str(action_data.get("args", "") or ""),
             )
 
-        if action_type == ActionType.OPENRAZER:
-            dpi_x = _int_value(action_data.get("dpi_x"), 0)
-            dpi_y = _int_value(action_data.get("dpi_y"), dpi_x)
-            if dpi_x <= 0:
-                dpi_x = dpi_y
-            if dpi_y <= 0:
-                dpi_y = dpi_x
-            return MappingAction(
-                action_type=action_type,
-                openrazer_setting=str(action_data.get("setting", "") or "") or None,
-                openrazer_device=str(action_data.get("device", "serial") or "serial"),
-                openrazer_serial=str(action_data.get("serial", "") or "") or None,
-                openrazer_dpi_x=dpi_x,
-                openrazer_dpi_y=dpi_y,
-                openrazer_poll_rate=_int_value(action_data.get("poll_rate"), 0),
-            )
-
         (
             rapidfire_enabled,
             rapidfire_hold_ms,
@@ -451,14 +434,6 @@ class ProfileManager:
                 action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = action.compositor_dispatcher or ""
             action_data["args"] = action.compositor_args or ""
-        if action.action_type == ActionType.OPENRAZER:
-            action_data["setting"] = action.openrazer_setting or ""
-            action_data["device"] = "serial"
-            if action.openrazer_serial:
-                action_data["serial"] = action.openrazer_serial
-            action_data["dpi_x"] = int(action.openrazer_dpi_x)
-            action_data["dpi_y"] = int(action.openrazer_dpi_y)
-            action_data["poll_rate"] = int(action.openrazer_poll_rate)
         (
             rapidfire_enabled,
             rapidfire_hold_ms,

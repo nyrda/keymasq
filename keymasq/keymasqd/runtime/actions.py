@@ -86,11 +86,6 @@ def parse_action(
             action_type.value,
         )
 
-    openrazer_dpi_x = int_value(action_data.get("dpi_x"), 0)
-    openrazer_dpi_y = int_value(action_data.get("dpi_y"), openrazer_dpi_x)
-    if openrazer_dpi_y <= 0:
-        openrazer_dpi_y = openrazer_dpi_x
-
     return MappingAction(
         action_type=action_type,
         target=optional_str(target),
@@ -120,12 +115,6 @@ def parse_action(
         move_y=int_value(action_data.get("y"), 0),
         move_speed=float_value(action_data.get("speed"), 1.0),
         move_jitter=float_value(action_data.get("jitter"), 0.3),
-        openrazer_setting=optional_str(action_data.get("setting")),
-        openrazer_device=str_value(action_data.get("device"), "serial") or "serial",
-        openrazer_serial=optional_str(action_data.get("serial")),
-        openrazer_dpi_x=openrazer_dpi_x,
-        openrazer_dpi_y=openrazer_dpi_y,
-        openrazer_poll_rate=int_value(action_data.get("poll_rate"), 0),
         rapidfire_enabled=rapidfire_enabled,
         rapidfire_hold_ms=rapidfire_hold_ms,
         rapidfire_wait_ms=rapidfire_wait_ms,
@@ -369,11 +358,6 @@ def parse_superkey_action(
             action_type.value,
         )
 
-    openrazer_dpi_x = int_value(action.get("dpi_x"), 0)
-    openrazer_dpi_y = int_value(action.get("dpi_y"), openrazer_dpi_x)
-    if openrazer_dpi_y <= 0:
-        openrazer_dpi_y = openrazer_dpi_x
-
     return SuperkeyActionData(
         action_type=action_type.value,
         target=optional_str(action.get("target")),
@@ -400,12 +384,6 @@ def parse_superkey_action(
         compositor_args=optional_str(action.get("args")),
         move_x=int_value(action.get("x"), 0),
         move_y=int_value(action.get("y"), 0),
-        openrazer_setting=optional_str(action.get("setting")),
-        openrazer_device=str_value(action.get("device"), "serial") or "serial",
-        openrazer_serial=optional_str(action.get("serial")),
-        openrazer_dpi_x=openrazer_dpi_x,
-        openrazer_dpi_y=openrazer_dpi_y,
-        openrazer_poll_rate=int_value(action.get("poll_rate"), 0),
         rapidfire_enabled=rapidfire_enabled,
         rapidfire_hold_ms=rapidfire_hold_ms,
         rapidfire_wait_ms=rapidfire_wait_ms,

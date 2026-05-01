@@ -156,8 +156,6 @@ def combo_action_label(action: MappingAction | None) -> str:
         dispatcher = action.compositor_dispatcher or "Compositor"
         args = str(action.compositor_args or "").strip()
         return f"{dispatcher} {args}".strip()
-    if action.action_type == ActionType.OPENRAZER:
-        return describe_mapping_action_compact(action)
     if action.action_type == ActionType.SUPPRESS:
         return "Suppress"
     if action.action_type == ActionType.MACRO:

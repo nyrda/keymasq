@@ -175,10 +175,6 @@ def action_signature_payload(
         data["args"] = action.compositor_args or ""
         return data
 
-    if action_type == "openrazer":
-        data.update(openrazer_action_payload(action))
-        return data
-
     if action_type in (
         "start_macro_recording",
         "stop_macro_recording",
@@ -292,8 +288,6 @@ def profile_to_mapping(
                 action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = action.compositor_dispatcher or ""
             action_data["args"] = action.compositor_args or ""
-        elif action.action_type.value == "openrazer":
-            action_data.update(openrazer_action_payload(action))
         elif action.action_type.value in (
             "start_macro_recording",
             "stop_macro_recording",
@@ -435,10 +429,6 @@ def combo_action_to_payload(
             action_data["compositor"] = action.compositor_id
         action_data["dispatcher"] = dispatcher
         action_data["args"] = action.compositor_args or ""
-        return action_data
-
-    if action_type == "openrazer":
-        action_data.update(openrazer_action_payload(action))
         return action_data
 
     if action_type in (
@@ -689,10 +679,6 @@ def serialize_overload_action(
         action_data["args"] = action.compositor_args or ""
         return action_data
 
-    if action_type == "openrazer":
-        action_data.update(openrazer_action_payload(action))
-        return action_data
-
     if action_type in (
         "start_macro_recording",
         "stop_macro_recording",
@@ -739,17 +725,6 @@ def _allocate_superkey_exec_ref(
     if track_combo_refs:
         manager.exec_state.combo_superkey_exec_refs.add(exec_ref)
     return exec_ref
-
-
-def openrazer_action_payload(action: MappingAction) -> dict[str, object]:
-    return {
-        "setting": action.openrazer_setting or "",
-        "device": "serial",
-        "serial": action.openrazer_serial or "",
-        "dpi_x": int(action.openrazer_dpi_x),
-        "dpi_y": int(action.openrazer_dpi_y),
-        "poll_rate": int(action.openrazer_poll_rate),
-    }
 
 
 def mapping_log_view(mapping: JsonObject) -> JsonObject:

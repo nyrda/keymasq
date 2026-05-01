@@ -45,6 +45,8 @@ class RecordingRuntimeState:
     settings_pending_save: JsonObject | None = None
     settings_save_task: object | None = None
     devices_cache: list[JsonObject] = field(default_factory=list)
+    selected_devices_cache: list[JsonObject] = field(default_factory=list)
+    devices_cache_ready: bool = False
 
 
 @dataclass

@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405, I001
 import logging
 import tomllib
+from typing import cast
 
 from tests.session.profile_support import *
 
@@ -120,7 +121,7 @@ def test_recording_settings_save_logs_errors(tmp_path, caplog, monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_start_recording_sends_recording_ids_from_cache() -> None:
+async def test_start_recording_sends_selected_devices_from_cache() -> None:
     manager = SessionManager()
     sent_commands: list[CommandType] = []
     sent_payloads: list[dict[str, object]] = []
@@ -160,12 +161,22 @@ async def test_start_recording_sends_recording_ids_from_cache() -> None:
             "device_types": ["keyboard"],
         },
     ]
+    session_recording_module.update_selected_recording_devices_cache(manager)
 
     result = await session_recording_module.start_recording(manager)
 
     assert result == {"status": "ok"}
     assert sent_commands == [CommandType.START_RECORDING]
-    assert sent_payloads[0]["recording_ids"] == ["keymasq:passthrough:1234:5678:kbd"]
+    assert sent_payloads[0]["devices"] == [
+        {
+            "path": "/dev/input/event20",
+            "recording_id": "keymasq:passthrough:1234:5678:kbd",
+            "recording_kind": "keymasq_passthrough",
+            "device_type": "keyboard",
+            "device_types": ["keyboard"],
+        }
+    ]
+    assert "recording_ids" not in sent_payloads[0]
 
 
 @pytest.mark.asyncio
@@ -208,14 +219,60 @@ async def test_start_recording_defaults_to_recommended_sources_only() -> None:
             "device_types": ["keyboard"],
         },
     ]
+    session_recording_module.update_selected_recording_devices_cache(manager)
 
     result = await session_recording_module.start_recording(manager)
 
     assert result == {"status": "ok"}
-    assert sent_payloads[0]["recording_ids"] == [
+    sent_devices = cast(list[dict[str, object]], sent_payloads[0]["devices"])
+    assert [device["recording_id"] for device in sent_devices] == [
         "keymasq:output:keyboard",
         "keymasq:passthrough:1234:5678:mouse",
     ]
+
+
+@pytest.mark.asyncio
+async def test_update_recording_settings_recomputes_selected_devices_cache() -> None:
+    manager = SessionManager()
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {},
+    }
+    manager.recording_state.devices_cache = [
+        {
+            "path": "/dev/input/event20",
+            "recording_id": "keymasq:output:keyboard",
+            "recording_kind": "keymasq_output",
+            "device_type": "keyboard",
+            "device_types": ["keyboard"],
+        },
+        {
+            "path": "/dev/input/event21",
+            "recording_id": "physical:/dev/input/by-id/raw-mouse",
+            "recording_kind": "physical",
+            "device_type": "mouse",
+            "device_types": ["mouse"],
+        },
+    ]
+    session_recording_module.update_selected_recording_devices_cache(manager)
+    assert [
+        device["recording_id"] for device in manager.recording_state.selected_devices_cache
+    ] == ["keymasq:output:keyboard"]
+
+    session_recording_module.update_recording_settings(
+        manager,
+        {"device_overrides": {"physical:/dev/input/by-id/raw-mouse": True}},
+    )
+
+    assert [
+        device["recording_id"] for device in manager.recording_state.selected_devices_cache
+    ] == ["keymasq:output:keyboard", "physical:/dev/input/by-id/raw-mouse"]
+
+    save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
+    if save_task is not None:
+        await save_task
 
 
 @pytest.mark.asyncio

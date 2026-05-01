@@ -715,6 +715,46 @@ def test_key_selector_dialog_shows_openrazer_tab_when_device_available(monkeypat
     assert dialog.openrazer_map_btn.get_sensitive() is True
 
 
+def test_key_selector_dialog_poll_adds_openrazer_tab_when_device_appears(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    responses = [
+        {"status": "ok", "available": False, "devices": []},
+        {
+            "status": "ok",
+            "available": True,
+            "devices": [
+                {
+                    "serial": "ABC123",
+                    "name": "Razer Mouse",
+                    "hardware_id": "1532:0098",
+                }
+            ],
+        },
+    ]
+
+    requests = [
+        {"command": "get_openrazer_status", "force": False},
+        {"command": "refresh_openrazer", "force": True},
+    ]
+
+    def fake_session_request_async(payload, callback, timeout=5.0):
+        assert payload == requests.pop(0)
+        callback(responses.pop(0))
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    assert dialog.stack.get_child_by_name("openrazer") is None
+
+    assert dialog._poll_openrazer_status() is True
+
+    assert dialog.stack.get_child_by_name("openrazer") is not None
+
+
 def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_listener():
     from gi.repository import Gtk
 

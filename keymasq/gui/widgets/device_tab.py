@@ -221,10 +221,35 @@ class DeviceTab(ProfileManagedTab):
     def _after_profile_selection_applied(self) -> None:
         for button_id in self._button_widgets:
             self._update_button_display(button_id)
+        self._update_header_caption()
 
     def _after_active_profiles_changed(self) -> None:
         for button_id in self._button_widgets:
             self._update_button_display(button_id)
+        self._update_header_caption()
+
+    def _count_mapped_buttons(self) -> int:
+        layer = self._selected_layer()
+        if not layer:
+            return 0
+        return sum(
+            1
+            for mapping in layer.mappings.values()
+            if mapping.action_type != ActionType.PASSTHROUGH
+        )
+
+    def _update_header_caption(self) -> None:
+        mapped = self._count_mapped_buttons()
+        total = len(self.device.buttons)
+        base = (
+            f"{self.device.hardware_id} | {len(self.device.evdev_devices)} evdev, "
+            f"{total} buttons"
+        )
+        if mapped > 0:
+            caption = f"{base} · {mapped} mapped"
+        else:
+            caption = base
+        self._header_caption_label.set_text(caption)
 
     def _on_always_grab_toggled(self, check: Gtk.CheckButton) -> None:
         layer = self._selected_layer(create=True)
@@ -272,11 +297,11 @@ class DeviceTab(ProfileManagedTab):
             f"{self.device.hardware_id} | {len(self.device.evdev_devices)} evdev, "
             f"{len(self.device.buttons)} buttons"
         )
-        caption_label = Gtk.Label(label=caption)
-        caption_label.add_css_class("dim-label")
-        caption_label.add_css_class("caption")
-        caption_label.set_halign(Gtk.Align.START)
-        info_box.append(caption_label)
+        self._header_caption_label = Gtk.Label(label=caption)
+        self._header_caption_label.add_css_class("dim-label")
+        self._header_caption_label.add_css_class("caption")
+        self._header_caption_label.set_halign(Gtk.Align.START)
+        info_box.append(self._header_caption_label)
 
         header_box.append(info_box)
         header_box.set_hexpand(True)
@@ -466,7 +491,7 @@ class DeviceTab(ProfileManagedTab):
                 content,
                 "Keyboard (Left)",
                 [
-                    ["key_esc"],
+                    ["key_esc", "key_grave"],
                     ["key_tab", "key_q", "key_w", "key_e", "key_r", "key_t"],
                     ["key_capslock", "key_a", "key_s", "key_d", "key_f", "key_g"],
                     ["key_leftshift", "key_z", "key_x", "key_c", "key_v", "key_b"],
@@ -753,6 +778,7 @@ class DeviceTab(ProfileManagedTab):
         grid = self._build_keyboard_grid(layout_rows, buttons_by_id, used_ids, max_cols)
 
         expander = Gtk.Expander(label=title)
+        expander.add_css_class("device-section-expander")
         expander.set_expanded(expanded)
         expander.set_child(grid)
         parent.append(expander)
@@ -765,8 +791,8 @@ class DeviceTab(ProfileManagedTab):
         max_cols: int,
     ) -> Gtk.Grid:
         grid = Gtk.Grid()
-        grid.set_column_spacing(8)
-        grid.set_row_spacing(8)
+        grid.set_column_spacing(4)
+        grid.set_row_spacing(4)
 
         for row_i, row_items in enumerate(layout_rows):
             col_i = 0
@@ -801,8 +827,8 @@ class DeviceTab(ProfileManagedTab):
         prepend: bool = False,
     ) -> None:
         grid = Gtk.Grid()
-        grid.set_column_spacing(8)
-        grid.set_row_spacing(8)
+        grid.set_column_spacing(4)
+        grid.set_row_spacing(4)
 
         col = 0
         row = 0
@@ -817,6 +843,7 @@ class DeviceTab(ProfileManagedTab):
                 row += 1
 
         expander = Gtk.Expander(label=f"{title} ({len(extras)})")
+        expander.add_css_class("device-section-expander")
         expander.set_expanded(expanded)
         expander.set_child(grid)
         if prepend:
@@ -830,10 +857,10 @@ class DeviceTab(ProfileManagedTab):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("card")
         box.add_css_class("button-card-passthrough")
-        box.set_margin_top(6)
-        box.set_margin_bottom(6)
-        box.set_margin_start(6)
-        box.set_margin_end(6)
+        box.set_margin_top(2)
+        box.set_margin_bottom(2)
+        box.set_margin_start(2)
+        box.set_margin_end(2)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
 
@@ -1148,6 +1175,7 @@ class DeviceTab(ProfileManagedTab):
                 layer.mappings[button.id] = action
             self._save_profile()
             self._update_button_display(button.id)
+            self._update_header_caption()
 
         dialog = KeySelectorDialog(self, button.label, current_action)
         dialog.connect("key-selected", on_key_selected)

@@ -548,8 +548,10 @@ def test_hardware_setup_saves_standard_keyboard_template(monkeypatch):
     assert saved.evdev_devices[0].device_type == DeviceType.KEYBOARD
     assert saved.evdev_devices[0].id == "kbd"
     assert saved.buttons[0].id == "key_esc"
+    assert saved.buttons[1].id == "key_grave"
     assert saved.buttons[0].source == "kbd"
     assert {button.id for button in saved.buttons} >= {
+        "key_grave",
         "key_space",
         "key_leftctrl",
         "key_rightmeta",

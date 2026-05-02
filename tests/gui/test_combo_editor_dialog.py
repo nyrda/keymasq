@@ -395,6 +395,32 @@ class TestComboEditorDialog:
         assert "emergency macro playback cancellation" in dialog.validation_label.get_text()
         assert dialog.save_button.get_sensitive() is False
 
+    def test_combo_editor_detects_single_button_critical_mouse_triggers(self):
+        from keymasq.common.models import ComboEvent, ComboStep
+        from keymasq.gui.widgets.combo_editor_dialog import (
+            combo_is_single_critical_mouse_trigger,
+        )
+
+        assert combo_is_single_critical_mouse_trigger(
+            [ComboStep(events=[ComboEvent(evdev="btn_left", hardware_id="1234:5678")])]
+        )
+        assert combo_is_single_critical_mouse_trigger(
+            [ComboStep(events=[ComboEvent(evdev="BTN_RIGHT", hardware_id="1234:5678")])]
+        )
+        assert not combo_is_single_critical_mouse_trigger(
+            [ComboStep(events=[ComboEvent(evdev="btn_side", hardware_id="1234:5678")])]
+        )
+        assert not combo_is_single_critical_mouse_trigger(
+            [
+                ComboStep(
+                    events=[
+                        ComboEvent(evdev="key_leftctrl", hardware_id="1234:5678"),
+                        ComboEvent(evdev="btn_left", hardware_id="1234:5678"),
+                    ]
+                )
+            ]
+        )
+
     def test_combo_editor_allows_emergency_cancel_chord_when_disabled(self):
         from gi.repository import Gtk
 

@@ -946,10 +946,6 @@ class DeviceTab(ProfileManagedTab):
         if click.get_current_button() != Gdk.BUTTON_PRIMARY:
             return
 
-        if protected and not self._left_right_click_remap_allowed():
-            self._show_protected_dialog(button)
-            return
-
         if self._selected_profile is None:
             self._show_no_profile_dialog()
             return
@@ -959,19 +955,6 @@ class DeviceTab(ProfileManagedTab):
             return
 
         self._show_function_editor(button)
-
-    def _left_right_click_remap_allowed(self) -> bool:
-        if self.main_window is not None:
-            getter = getattr(self.main_window, "left_right_click_remap_allowed", None)
-            if callable(getter):
-                return bool(getter())
-
-        root = self.get_root()
-        getter = getattr(root, "left_right_click_remap_allowed", None)
-        if callable(getter):
-            return bool(getter())
-
-        return False
 
     def _on_action_label_right_clicked(
         self, click, n_press, x, y, button: ButtonDefinition
@@ -1102,30 +1085,17 @@ class DeviceTab(ProfileManagedTab):
         if self.profile_manager is not None:
             self._reload_ui()
 
-    def _show_protected_dialog(self, button) -> None:
-        dialog = Adw.AlertDialog(
-            heading="Protected Button",
-            body=(
-                f"{button.label} cannot be remapped in the GUI unless you explicitly "
-                "opt in via /etc/keymasq/security.toml.\n\n"
-                "Set [gui] allow_left_right_click_remap = true only if you understand "
-                "that remapping left or right click can leave you without a usable "
-                "pointer button."
-            ),
-        )
-        dialog.add_response("ok", "OK")
-        dialog.present(self.get_root())
-
     def _show_protected_remap_warning_dialog(self, button: ButtonDefinition) -> None:
         dialog = Adw.AlertDialog(
             heading="Remap Critical Mouse Button?",
             body=(
-                f"{button.label} is a critical pointer button. Remapping it can leave "
-                "you without a working primary or secondary click in the GUI.\n\n"
-                "Continue only if you have another way to recover, such as a second "
+                f"{button.label} is a critical pointer button. Remapping it can remove "
+                "your normal left or right click <b>everywhere</b>.\n\n"
+                "Continue only if you have a reliable recovery path, such as another "
                 "mouse, keyboard navigation, or direct access to the profile files."
             ),
         )
+        dialog.set_body_use_markup(True)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("continue", "Continue")
         dialog.set_response_appearance("continue", Adw.ResponseAppearance.DESTRUCTIVE)

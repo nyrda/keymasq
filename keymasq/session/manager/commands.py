@@ -184,7 +184,6 @@ async def _handle_compositor_commands(
             "compositor_dispatch_available": compositor_status["compositor_dispatch_available"],
             "recording_active": manager.recording_state.active,
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
-            "gui_allow_left_right_click_remap": bool(policy.gui_allow_left_right_click_remap),
             "emergency_cancel_combo_enabled": bool(policy.emergency_cancel_combo_enabled),
             **runtime_recording.serialize_recording_unlock_state(
                 manager,

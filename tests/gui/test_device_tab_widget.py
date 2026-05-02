@@ -495,34 +495,24 @@ class TestDeviceTabWidget:
             ],
         )
 
-        protected_tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
-        protected_calls: list[str] = []
-        protected_tab._show_protected_dialog = lambda button: protected_calls.append(button.id)
-        protected_tab._show_no_profile_dialog = lambda: protected_calls.append("no-profile")
-        protected_tab._show_function_editor = lambda button: protected_calls.append(
-            f"edit:{button.id}"
+        no_profile_protected_tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+        protected_no_profile_calls: list[str] = []
+        no_profile_protected_tab._show_no_profile_dialog = (
+            lambda: protected_no_profile_calls.append("no-profile")
         )
 
-        protected_tab._on_button_clicked(
+        no_profile_protected_tab._on_button_clicked(
             _Click(Gdk.BUTTON_PRIMARY), 1, 0, 0, device.buttons[0], True
         )
-        protected_tab._on_button_clicked(
+        no_profile_protected_tab._on_button_clicked(
             _Click(Gdk.BUTTON_SECONDARY), 1, 0, 0, device.buttons[1], False
         )
 
-        assert protected_calls == ["btn_left"]
+        assert protected_no_profile_calls == ["no-profile"]
 
-        allowed_tab = DeviceTab(
-            device=device,
-            profile_manager=None,
-            demo_mode=True,
-            main_window=SimpleNamespace(left_right_click_remap_allowed=lambda: True),
-        )
+        allowed_tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
         allowed_tab._selected_profile = SimpleNamespace()
         allowed_calls: list[str] = []
-        allowed_tab._show_protected_dialog = lambda button: allowed_calls.append(
-            f"blocked:{button.id}"
-        )
         allowed_tab._show_protected_remap_warning_dialog = lambda button: allowed_calls.append(
             f"warn:{button.id}"
         )

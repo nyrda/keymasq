@@ -374,8 +374,8 @@ key is held.
 
 ## Safety Note
 
-Left and right mouse buttons are protected in the GUI — you cannot remap them
-away. This prevents accidentally locking yourself out of clicking.
+The GUI warns before editing left or right mouse click mappings. Remapping a
+primary or secondary click can remove that click **everywhere**.
 
 ## See Also
 

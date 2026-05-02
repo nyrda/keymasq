@@ -213,7 +213,6 @@ Relevant controls:
 - `[macro]`
   - `exec_timeout_max_ms`
 - `[gui]`
-  - `allow_left_right_click_remap`
   - `emergency_cancel_combo_enabled`
 - `[recording_guard]`
   - `unlock_required`
@@ -249,21 +248,10 @@ development setups that do not provide the packaged Polkit-based unlock path.
 macro create/update/get APIs also require an unlock, in addition to live
 recording and capture.
 
-`[gui].allow_left_right_click_remap` controls whether the GUI is allowed to edit
-left and right click mappings. The default is `false`.
-
-When `allow_left_right_click_remap = false`:
-
-- left click and right click remain blocked in the GUI
-- the GUI explains that you must explicitly opt in through `security.toml`
-
-When `allow_left_right_click_remap = true`:
-
-- the GUI allows editing those buttons
-- the GUI still shows a warning before opening the remap editor
-
-This setting exists because remapping the primary or secondary click can leave
-you without a usable pointer button in the desktop UI.
+The GUI warns before editing left and right click mappings, and before saving a
+single-button, single-step combo that uses left or right click as the trigger.
+These warnings exist because remapping the primary or secondary click can remove
+that click **everywhere**.
 
 `[gui].emergency_cancel_combo_enabled` controls whether `keymasqd` reserves
 `Ctrl+Alt+Esc` on grabbed keyboards as an emergency combo. The default is

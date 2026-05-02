@@ -34,10 +34,10 @@ _normalize_unicode_type_macro_text = normalize_unicode_type_macro_text
 def _docs_version() -> str:
     version = __version__.strip()
     if not version:
-        return "latest"
+        return "master"
     if "dev" in version:
         return "master"
-    return version
+    return f"v{version.removeprefix('v')}"
 
 
 def _macros_docs_url() -> str:

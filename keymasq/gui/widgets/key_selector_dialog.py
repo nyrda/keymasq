@@ -281,10 +281,10 @@ _compact_tabs_css_installed = False
 def _docs_version() -> str:
     version = __version__.strip()
     if not version:
-        return "latest"
+        return "master"
     if "dev" in version:
         return "master"
-    return version
+    return f"v{version.removeprefix('v')}"
 
 
 def _actions_docs_url(anchor: str) -> str:

@@ -35,7 +35,9 @@ def _add_json_output(parser: argparse.ArgumentParser) -> None:
 
 
 def _docs_url() -> str:
-    return f"https://keymasq.tools/docs/{__version__}/CLI.md"
+    version = __version__.strip()
+    docs_version = "master" if not version or "dev" in version else f"v{version.removeprefix('v')}"
+    return f"https://keymasq.tools/docs/{docs_version}/CLI.md"
 
 
 def main() -> None:

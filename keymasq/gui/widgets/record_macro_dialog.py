@@ -19,10 +19,10 @@ log = logging.getLogger("keymasq.gui.widgets.record_macro_dialog")
 def _docs_version() -> str:
     version = __version__.strip()
     if not version:
-        return "latest"
+        return "master"
     if "dev" in version:
         return "master"
-    return version
+    return f"v{version.removeprefix('v')}"
 
 
 def _macro_recording_docs_url() -> str:

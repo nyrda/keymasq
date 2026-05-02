@@ -43,7 +43,7 @@ dependencies = [
 Homepage = "https://keymasq.tools"
 Repository = "https://github.com/nyrda/keymasq"
 Issues = "https://github.com/nyrda/keymasq/issues"
-Documentation = "https://github.com/nyrda/keymasq/tree/master/docs"
+Documentation = "https://keymasq.tools/docs/latest/"
 Changelog = "https://github.com/nyrda/keymasq/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]

@@ -8,10 +8,20 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq import __version__
 from keymasq.gui.session_client import JsonDict, session_request_async
 
-GNOME_SETUP_DOCS_URL = "https://keymasq.tools/docs/latest/GNOME/"
 GNOME_BRIDGE_UUID = "gnome-bridge@keymasq.tools"
+
+
+def _docs_version() -> str:
+    version = __version__.strip()
+    if not version or "dev" in version:
+        return "master"
+    return f"v{version.removeprefix('v')}"
+
+
+GNOME_SETUP_DOCS_URL = f"https://keymasq.tools/docs/{_docs_version()}/GNOME/"
 
 
 @dataclass(frozen=True)

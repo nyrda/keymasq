@@ -118,7 +118,7 @@ class TestRecordMacroDialog:
             == "Open macro recording documentation"
         )
         assert record_macro_dialog_module._macro_recording_docs_url() == (
-            "https://keymasq.tools/docs/1.2.3/MACROS/#live-recording"
+            "https://keymasq.tools/docs/v1.2.3/MACROS/#live-recording"
         )
 
         monkeypatch.setattr(record_macro_dialog_module, "__version__", "1.2.3.dev1")
@@ -614,7 +614,7 @@ class TestDialogConstruction:
         assert captured["version"] == application_module.APP_VERSION
         assert captured["links"] == [
             ("Website", "https://keymasq.tools/"),
-            ("Documentation", "https://keymasq.tools/docs/"),
+            ("Documentation", "https://keymasq.tools/docs/master/"),
             ("License", "https://github.com/nyrda/keymasq/blob/main/LICENSE"),
         ]
         assert captured["parent"] is app.window
@@ -684,7 +684,7 @@ class TestDialogConstruction:
             == "Open Super Keys documentation"
         )
         assert superkey_dialog_module._superkeys_docs_url() == (
-            "https://keymasq.tools/docs/1.2.3/SUPERKEYS/"
+            "https://keymasq.tools/docs/v1.2.3/SUPERKEYS/"
         )
 
         monkeypatch.setattr(superkey_dialog_module, "__version__", "1.2.3.dev1")
@@ -869,7 +869,7 @@ class TestDialogConstruction:
         assert dialog.macros_docs_btn.get_label() == "?"
         assert dialog.macros_docs_btn.get_tooltip_text() == "Open Macros documentation"
         assert macro_manager_dialog_module._macros_docs_url() == (
-            "https://keymasq.tools/docs/1.2.3/MACROS/"
+            "https://keymasq.tools/docs/v1.2.3/MACROS/"
         )
 
         monkeypatch.setattr(macro_manager_dialog_module, "__version__", "1.2.3.dev1")

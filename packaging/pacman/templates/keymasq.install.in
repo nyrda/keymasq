@@ -71,7 +71,7 @@ post_install() {
     echo "       keymasq"
     echo ""
     echo "Configuration: ~/.config/keymasq/"
-    echo "Documentation:  https://github.com/nyrda/keymasq"
+    echo "Documentation:  https://keymasq.tools/docs/latest/"
 }
 
 post_upgrade() {

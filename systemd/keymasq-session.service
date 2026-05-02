@@ -1,7 +1,7 @@
 [Unit]
 Description=Keymasq Session Manager
 Documentation=man:keymasq-session(1)
-Documentation=https://github.com/nyrda/keymasq
+Documentation=https://keymasq.tools/docs/latest/
 After=default.target
 PartOf=default.target
 

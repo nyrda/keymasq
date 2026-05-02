@@ -30,6 +30,17 @@ APP_ID = "tools.keymasq.keymasq"
 APP_ICON_NAME = APP_ID
 
 
+def _docs_version() -> str:
+    version = APP_VERSION.strip()
+    if not version or "dev" in version:
+        return "master"
+    return f"v{version.removeprefix('v')}"
+
+
+def _docs_url() -> str:
+    return f"https://keymasq.tools/docs/{_docs_version()}/"
+
+
 class Application(Adw.Application):
     def __init__(self, demo_mode: bool = False) -> None:
         super().__init__(
@@ -133,7 +144,7 @@ class Application(Adw.Application):
                 version=APP_VERSION,
             )
             dialog.add_link("Website", "https://keymasq.tools/")
-            dialog.add_link("Documentation", "https://keymasq.tools/docs/")
+            dialog.add_link("Documentation", _docs_url())
             dialog.add_link("License", "https://github.com/nyrda/keymasq/blob/main/LICENSE")
             dialog.present(self.window)
 

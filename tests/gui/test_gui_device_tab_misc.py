@@ -1139,7 +1139,7 @@ def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.
     assert dialog.actions_docs_btn.get_tooltip_text() == "Open Media documentation"
     assert dialog._active_actions_docs_link() == ("media", "Media")
     assert dialog_module._actions_docs_url("media") == (
-        "https://keymasq.tools/docs/1.2.3/ACTIONS/#media"
+        "https://keymasq.tools/docs/v1.2.3/ACTIONS/#media"
     )
 
     dialog.stack.set_visible_child_name("mouse")

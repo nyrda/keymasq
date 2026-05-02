@@ -1,7 +1,7 @@
 [Unit]
 Description=Keymasq Input Remapping Daemon
 Documentation=man:keymasqd(1)
-Documentation=https://github.com/nyrda/keymasq
+Documentation=https://keymasq.tools/docs/latest/
 After=systemd-udevd.service systemd-udev-trigger.service
 Wants=systemd-udev-trigger.service
 

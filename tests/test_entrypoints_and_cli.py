@@ -107,7 +107,7 @@ def test_cli_main_type_help_includes_inline_controls_and_docs(
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
     assert "<tab>, <enter>, <wait:MS>, <wait:MIN:MAX>" in out
-    assert "https://keymasq.tools/docs/1.2.3/CLI.md" in out
+    assert "https://keymasq.tools/docs/v1.2.3/CLI.md" in out
 
 
 def test_cli_main_play_help_includes_compact_tokens_and_docs(
@@ -125,7 +125,7 @@ def test_cli_main_play_help_includes_compact_tokens_and_docs(
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
     assert "move_abs:X:Y, move_rel:DX:DY, wait:MS, wait:MIN:MAX" in out
-    assert "https://keymasq.tools/docs/1.2.3/CLI.md" in out
+    assert "https://keymasq.tools/docs/v1.2.3/CLI.md" in out
 
 
 def test_keymasqd_script_entrypoint_calls_daemon_main(monkeypatch: pytest.MonkeyPatch) -> None:

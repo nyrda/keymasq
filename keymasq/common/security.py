@@ -22,7 +22,6 @@ class SecurityPolicy:
     macro_exec_timeout_max_ms: int = 30000
     recording_unlock_required: bool = True
     macro_edit_requires_unlock: bool = False
-    gui_allow_left_right_click_remap: bool = False
     emergency_cancel_combo_enabled: bool = True
 
 
@@ -108,12 +107,6 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
     gui_cfg = raw.get("gui")
     if isinstance(gui_cfg, dict):
         gui_settings = cast(dict[str, Any], gui_cfg)
-        policy.gui_allow_left_right_click_remap = bool(
-            gui_settings.get(
-                "allow_left_right_click_remap",
-                policy.gui_allow_left_right_click_remap,
-            )
-        )
         policy.emergency_cancel_combo_enabled = bool(
             gui_settings.get(
                 "emergency_cancel_combo_enabled",

@@ -16,6 +16,7 @@ from keymasq.common.combos import (
     normalize_combo_evdev,
 )
 from keymasq.common.models import (
+    PROTECTED_BUTTONS,
     ActionType,
     ComboConfig,
     ComboEvent,
@@ -126,6 +127,14 @@ def combo_is_emergency_cancel_trigger(steps: list[ComboStep]) -> bool:
         len(steps) == 1
         and bool(steps[0].events)
         and is_emergency_cancel_combo_evdevs(event.evdev for event in steps[0].events)
+    )
+
+
+def combo_is_single_critical_mouse_trigger(steps: list[ComboStep]) -> bool:
+    return (
+        len(steps) == 1
+        and len(steps[0].events) == 1
+        and normalize_combo_evdev(steps[0].events[0].evdev) in PROTECTED_BUTTONS
     )
 
 
@@ -448,10 +457,43 @@ class ComboEditorDialog(Adw.Dialog):
     def _on_save_clicked(self, _button: Gtk.Button) -> None:
         if not self.save_button.get_sensitive():
             return
+        if combo_is_single_critical_mouse_trigger(self._draft.steps):
+            self._show_critical_mouse_combo_warning()
+            return
+        self._save_draft()
+
+    def _save_draft(self) -> None:
         name = self.name_entry.get_text().strip()
         self._draft.name = name or combo_default_name(self._draft)
         self.emit("combo-saved", deepcopy(self._draft))
         self.close()
+
+    def _show_critical_mouse_combo_warning(self) -> None:
+        trigger = combo_trigger_label(self._draft.steps) or "this button"
+        dialog = Adw.AlertDialog(
+            heading="Remap Critical Mouse Button?",
+            body=(
+                f"{trigger} is a critical pointer button. Using it as a single-button "
+                "combo can remove your normal left or right click <b>everywhere</b>.\n\n"
+                "Continue only if you have a reliable recovery path, such as another "
+                "mouse, keyboard navigation, or direct access to the profile files."
+            ),
+        )
+        dialog.set_body_use_markup(True)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("continue", "Continue")
+        dialog.set_response_appearance("continue", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.connect("response", self._on_critical_mouse_combo_warning_response)
+        dialog.present(self)
+
+    def _on_critical_mouse_combo_warning_response(
+        self,
+        _dialog: Adw.AlertDialog,
+        response: str,
+    ) -> None:
+        if response == "continue":
+            self._save_draft()
 
     def _refresh_trigger_display(self) -> None:
         while child := self.steps_box.get_first_child():

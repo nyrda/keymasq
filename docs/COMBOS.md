@@ -204,6 +204,10 @@ The combo editor won't let you save two combos with the same trigger sequence
 in the same profile. Across profiles, if two combos share the same trigger,
 the one from the last-applied profile wins.
 
+If you save a single-button, single-step combo that uses left or right mouse
+click as the trigger, the GUI shows a warning first. Remapping a primary or
+secondary click can remove that click **everywhere**.
+
 `Ctrl+Alt+Esc` is reserved by default as Keymasq's emergency combo on grabbed
 keyboards. The daemon injects it into the active combo set, and the GUI rejects
 that exact trigger while the safety combo is enabled. One tap cancels macro

@@ -79,7 +79,6 @@ class MainWindow(Adw.ApplicationWindow):
         self._recording_unlock_source = "none"
         self._recording_unlock_expires_at = 0
         self._recording_refresh_owner = False
-        self._gui_allow_left_right_click_remap = False
         self._emergency_cancel_combo_enabled = True
         self._recording_refresh_lease_id: str = ""
         self._recording_claim_attempt_key: tuple[str, int] | None = None
@@ -436,9 +435,6 @@ class MainWindow(Adw.ApplicationWindow):
             source = status_data.get("recording_unlock_source")
             expires_at = status_data.get("recording_unlock_expires_at")
             refresh_owner = status_data.get("recording_refresh_owner")
-            self._gui_allow_left_right_click_remap = bool(
-                status_data.get("gui_allow_left_right_click_remap", False)
-            )
             self._emergency_cancel_combo_enabled = bool(
                 status_data.get("emergency_cancel_combo_enabled", True)
             )
@@ -487,9 +483,6 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._refresh_macro_menu_state()
         self._refresh_unlock_status_label()
-
-    def left_right_click_remap_allowed(self) -> bool:
-        return bool(self._gui_allow_left_right_click_remap)
 
     def emergency_cancel_combo_enabled(self) -> bool:
         return bool(self._emergency_cancel_combo_enabled)

@@ -80,7 +80,6 @@ async def test_handle_session_request_run_compositor_setup_action(
 async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = True
-    manager.security_policy.gui_allow_left_right_click_remap = True
     manager.security_policy.emergency_cancel_combo_enabled = False
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
@@ -112,7 +111,6 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     assert result["status"] == "ok"
     assert result["recording_unlocked"] is True
     assert result["recording_unlock_required"] is True
-    assert result["gui_allow_left_right_click_remap"] is True
     assert result["emergency_cancel_combo_enabled"] is False
     assert result["recording_unlock_source"] == "runtime"
     assert result["recording_unlock_expires_at"] == 1234

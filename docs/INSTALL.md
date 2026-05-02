@@ -181,7 +181,6 @@ settings below:
               macro.exec_timeout_max_ms = 30000;
 
               gui = {
-                allow_left_right_click_remap = false;
                 emergency_cancel_combo_enabled = true;
               };
 
@@ -205,11 +204,9 @@ settings below:
 sudo nixos-rebuild switch --flake .#desktop
 ```
 
-To change the policy, edit `services.keymasq.securityConfig` and rebuild. For
-example, set `gui.allow_left_right_click_remap = true;` if you intentionally
-want the GUI to allow left/right mouse click remaps. The default
-`gui.emergency_cancel_combo_enabled = true;` reserves `Ctrl+Alt+Esc` on grabbed
-keyboards as an emergency combo.
+To change the policy, edit `services.keymasq.securityConfig` and rebuild. The
+default `gui.emergency_cancel_combo_enabled = true;` reserves `Ctrl+Alt+Esc` on
+grabbed keyboards as an emergency combo.
 
 ### GNOME Wayland: enable the Shell bridge
 
@@ -280,14 +277,6 @@ requirement in `/etc/keymasq/security.toml`:
 ```toml
 [recording_guard]
 unlock_required = false
-```
-
-If you want to remap left or right mouse click (disabled by default to prevent
-locking yourself out of the desktop):
-
-```toml
-[gui]
-allow_left_right_click_remap = true
 ```
 
 `Ctrl+Alt+Esc` is reserved by default as an emergency combo while Keymasq has a

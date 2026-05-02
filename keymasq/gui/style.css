@@ -160,6 +160,12 @@
   color: @error_color;
 }
 
+button.key-button {
+  padding: 2px 0;
+  min-width: 0;
+  min-height: 0;
+}
+
 button.square-key-button {
   padding: 0;
   min-width: 0;

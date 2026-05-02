@@ -347,7 +347,7 @@ class KeySelectorDialog(Adw.Dialog):
         allow_tap: bool = True,
         allow_macro_options: bool = True,
     ):
-        super().__init__(title=f"Map: {button_label}", content_width=650, content_height=620)
+        super().__init__(title=f"Map: {button_label}", content_width=570, content_height=580)
         self._parent = parent
         self._button_label = button_label
         self._current_action = current_action
@@ -650,10 +650,15 @@ class KeySelectorDialog(Adw.Dialog):
         scrolled.set_vexpand(True)
         outer.append(scrolled)
 
+        toolbar_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        toolbar_sep.set_margin_start(12)
+        toolbar_sep.set_margin_end(12)
+        outer.append(toolbar_sep)
+
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         toolbar.set_halign(Gtk.Align.CENTER)
-        toolbar.set_margin_top(8)
-        toolbar.set_margin_bottom(8)
+        toolbar.set_margin_top(12)
+        toolbar.set_margin_bottom(12)
         toolbar.set_margin_start(12)
         toolbar.set_margin_end(12)
 
@@ -991,8 +996,8 @@ class KeySelectorDialog(Adw.Dialog):
         if large:
             btn.set_size_request(200, 50)
         else:
-            base_width = 44
-            btn.set_size_request(int(base_width * width), 40)
+            base_width = 36
+            btn.set_size_request(int(base_width * width), 34)
 
         if protected:
             btn.add_css_class("protected-key")
@@ -1866,7 +1871,7 @@ class SuperkeyActionDialog(Adw.Dialog):
         self._parent = parent
 
         title = f"Configure {action_type.replace('_', ' ').title()} Action"
-        super().__init__(title=title, content_width=600, content_height=550)
+        super().__init__(title=title, content_width=540, content_height=520)
 
         self._rapidfire_enabled = False
         self._rapidfire_hold = 20
@@ -2291,8 +2296,8 @@ class SuperkeyActionDialog(Adw.Dialog):
         if large:
             btn.set_size_request(200, 50)
         else:
-            base_width = 44
-            btn.set_size_request(int(base_width * width), 40)
+            base_width = 36
+            btn.set_size_request(int(base_width * width), 34)
 
         btn._evdev_name = evdev
         return btn

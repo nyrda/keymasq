@@ -668,3 +668,280 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     assert dialog._macro_loop_finish_check.get_active() is False
     assert dialog._macro_move_to_start_check.get_active() is False
     assert dialog._macro_start_x_spin.get_value_as_int() == 0
+
+
+def test_macro_editor_time_mapping_updates_all_event_kinds(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    keyboard = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_A,
+        press_t_us=1000,
+        release_t_us=3000,
+    )
+    mouse = EditableEvent(
+        device_type="mouse",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.BTN_LEFT,
+        press_t_us=5000,
+        release_t_us=9000,
+    )
+    move = EditableMove(mode="abs", t_us=7000, x=11, y=22)
+    control = EditableControl(mode="wait", t_us=8000, duration_us=2000)
+    passthrough = {
+        "device_type": "keyboard",
+        "type": evdev.ecodes.EV_KEY,
+        "code": evdev.ecodes.KEY_B,
+        "value": 2,
+        "t_us": 6000,
+    }
+    rel = {
+        "device_type": "mouse",
+        "type": evdev.ecodes.EV_REL,
+        "code": evdev.ecodes.REL_X,
+        "value": 4,
+        "t_us": 4000,
+    }
+    dialog._events = [mouse, keyboard]
+    dialog._rel_events = [rel]
+    dialog._passthrough_events = [passthrough]
+    dialog._synthetic_moves = [move]
+    dialog._control_events = [control]
+
+    mapping = dialog._build_time_mapping_with_gap_limits(
+        scale=2.0,
+        min_gap_us=500,
+        max_gap_us=1500,
+    )
+    dialog._apply_time_map(mapping)
+    dialog._recompute_duration()
+
+    assert dialog._events == [keyboard, mouse]
+    assert keyboard.press_t_us == 1000
+    assert keyboard.release_t_us == 2500
+    assert rel["t_us"] == 4000
+    assert mouse.press_t_us == 5500
+    assert passthrough["t_us"] == 7000
+    assert move.t_us == 8500
+    assert control.t_us == 10500
+    assert dialog._duration_us == 12000
+
+
+def test_macro_editor_trim_and_gap_helpers_keep_selection_consistent(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    removed = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_A,
+        press_t_us=1000,
+        release_t_us=2000,
+    )
+    kept = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_B,
+        press_t_us=5000,
+        release_t_us=9000,
+    )
+    move = EditableMove(mode="rel", t_us=6000, x=1, y=2)
+    control = EditableControl(mode="exec_sync", t_us=7000, command="echo hi")
+    dialog._events = [removed, kept]
+    dialog._rel_events = [
+        {
+            "device_type": "mouse",
+            "type": evdev.ecodes.EV_REL,
+            "code": evdev.ecodes.REL_X,
+            "value": 3,
+            "t_us": 6500,
+        }
+    ]
+    dialog._passthrough_events = [
+        {
+            "device_type": "mouse",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.BTN_RIGHT,
+            "value": 2,
+            "t_us": 7500,
+        }
+    ]
+    dialog._synthetic_moves = [move]
+    dialog._control_events = [control]
+    dialog._timeline._selected = removed
+
+    dialog._set_startpoint(4000)
+
+    assert dialog._timeline._selected is None
+    assert dialog._revealer.get_reveal_child() is False
+    assert dialog._events == [kept]
+    assert kept.press_t_us == 1000
+    assert kept.release_t_us == 5000
+    assert move.t_us == 2000
+    assert control.t_us == 3000
+
+    dialog._timeline._selected = kept
+    dialog._set_endpoint(2500)
+
+    assert dialog._events == [kept]
+    assert kept.release_t_us == 2500
+    assert dialog._synthetic_moves == [move]
+    assert dialog._control_events == []
+    assert dialog._timeline._selected is kept
+
+
+def test_macro_editor_shift_timeline_for_gap_respects_scopes(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    keyboard = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_A,
+        press_t_us=1000,
+        release_t_us=2000,
+    )
+    mouse = EditableEvent(
+        device_type="mouse",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.BTN_LEFT,
+        press_t_us=1000,
+        release_t_us=2000,
+    )
+    excluded = EditableControl(mode="wait", t_us=1000, duration_us=500)
+    shifted = EditableControl(mode="wait_random", t_us=2000, min_us=500, max_us=1500)
+    move = EditableMove(mode="rel", t_us=1000, x=1, y=1)
+    dialog._events = [keyboard, mouse]
+    dialog._synthetic_moves = [move]
+    dialog._control_events = [excluded, shifted]
+    dialog._rel_events = [
+        {
+            "device_type": "mouse",
+            "type": evdev.ecodes.EV_REL,
+            "code": evdev.ecodes.REL_Y,
+            "value": -1,
+            "t_us": 1000,
+        }
+    ]
+    dialog._passthrough_events = [
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_C,
+            "value": 2,
+            "t_us": 1000,
+        },
+        {
+            "device_type": "mouse",
+            "type": evdev.ecodes.EV_REL,
+            "code": evdev.ecodes.REL_X,
+            "value": 5,
+            "t_us": 1000,
+        },
+    ]
+
+    assert dialog._shift_timeline_for_gap(
+        at_us=1000,
+        delta_us=500,
+        scope="movement",
+        exclude_control=excluded,
+    ) is True
+    assert keyboard.press_t_us == 1000
+    assert mouse.press_t_us == 1000
+    assert move.t_us == 1500
+    assert dialog._rel_events[0]["t_us"] == 1500
+    assert excluded.t_us == 1000
+    assert shifted.t_us == 2500
+    assert dialog._passthrough_events[0]["t_us"] == 1000
+    assert dialog._passthrough_events[1]["t_us"] == 1500
+
+    assert dialog._shift_timeline_for_gap(
+        at_us=1000,
+        delta_us=-750,
+        scope="keyboard",
+        exclude_control=None,
+    ) is True
+    assert keyboard.press_t_us == 250
+    assert keyboard.release_t_us == 1250
+    assert mouse.press_t_us == 1000
+    assert dialog._passthrough_events[0]["t_us"] == 250
+
+
+def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> None:
+    import cairo
+
+    dialog = _build_macro_dialog(monkeypatch)
+    keyboard = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_A,
+        press_t_us=10_000,
+        release_t_us=180_000,
+    )
+    mouse = EditableEvent(
+        device_type="mouse",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.BTN_LEFT,
+        press_t_us=60_000,
+        release_t_us=220_000,
+    )
+    move = EditableMove(mode="rel", t_us=40_000, x=8, y=-6)
+    absolute_move = EditableMove(mode="abs", t_us=280_000, x=640, y=360)
+    wait = EditableControl(mode="wait", t_us=150_000, duration_us=40_000)
+    command = EditableControl(mode="exec_sync", t_us=260_000, command="echo hi")
+    compositor = EditableControl(
+        mode="compositor_dispatch",
+        t_us=300_000,
+        compositor_dispatcher="workspace",
+        compositor_args="1",
+    )
+    keyboard_passthrough = {
+        "device_type": "keyboard",
+        "type": evdev.ecodes.EV_KEY,
+        "code": evdev.ecodes.KEY_B,
+        "value": 2,
+        "t_us": 120_000,
+    }
+    movement_passthrough = {
+        "device_type": "mouse",
+        "type": evdev.ecodes.EV_REL,
+        "code": evdev.ecodes.REL_Y,
+        "value": -3,
+        "t_us": 210_000,
+    }
+    dialog._events = [keyboard, mouse]
+    dialog._rel_events = [
+        {
+            "device_type": "mouse",
+            "type": evdev.ecodes.EV_REL,
+            "code": evdev.ecodes.REL_X,
+            "value": 4,
+            "t_us": 90_000,
+        }
+    ]
+    dialog._passthrough_events = [keyboard_passthrough, movement_passthrough]
+    dialog._synthetic_moves = [move, absolute_move]
+    dialog._control_events = [wait, command, compositor]
+    dialog._duration_us = 350_000
+    timeline = dialog._timeline
+    timeline._recompute_lanes()
+
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1200, 520)
+    context = cairo.Context(surface)
+    timeline._draw(None, context, 1200, 520, None)
+
+    assert timeline._get_track_at_y(timeline._kb_y + 5) == "keyboard"
+    assert timeline._get_track_at_y(timeline._m_y + 5) == "mouse"
+    assert timeline._get_track_at_y(timeline._wave_y + 5) == "movement"
+    assert timeline._hit_test(
+        timeline._time_to_x(keyboard.press_t_us) + 2,
+        timeline._kb_y + 12,
+    ) is keyboard
+    assert timeline._hit_test(
+        timeline._time_to_x(mouse.press_t_us) + 2,
+        timeline._m_y + 12,
+    ) is mouse
+    assert timeline._hit_test_move(
+        timeline._time_to_x(move.t_us),
+        timeline._wave_y + 14,
+    ) is move
+    assert timeline._hit_test_control(
+        timeline._time_to_x(compositor.t_us),
+        timeline._wave_y + timeline.TRACK_HEIGHT - 14,
+    ) is compositor

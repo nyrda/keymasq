@@ -507,3 +507,202 @@ def test_keyboard_device_tab_prepends_extra_buttons_section():
     assert isinstance(first_section, Gtk.Expander)
     assert first_section.get_label() == "Extra Buttons (2)"
     assert first_section.get_expanded() is True
+
+
+def test_hardware_setup_saves_standard_keyboard_template(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import DeviceType
+    from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+    class _HardwareManager:
+        def __init__(self) -> None:
+            self.saved = []
+
+        def save_hardware(self, config) -> None:
+            self.saved.append(config)
+
+    monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+    hardware_manager = _HardwareManager()
+    dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+    dialog.selected_device = {
+        "vendor_id": "1234",
+        "product_id": "5678",
+        "name": "Keyboard",
+    }
+    dialog.discovered_interfaces = {
+        "kbd": {
+            "id": "kbd",
+            "stable_path": "/dev/input/by-id/test-kbd",
+            "device_types": ["keyboard"],
+        }
+    }
+    emitted = []
+    dialog.emit = lambda signal, config: emitted.append((signal, config))
+    dialog.close = lambda: None
+
+    dialog._save_keyboard_config()
+
+    saved = hardware_manager.saved[0]
+    assert saved.evdev_devices[0].device_type == DeviceType.KEYBOARD
+    assert saved.evdev_devices[0].id == "kbd"
+    assert saved.buttons[0].id == "key_esc"
+    assert saved.buttons[0].source == "kbd"
+    assert {button.id for button in saved.buttons} >= {
+        "key_space",
+        "key_leftctrl",
+        "key_rightmeta",
+        "key_f12",
+        "key_kpenter",
+    }
+    assert emitted == [("device-created", saved)]
+
+
+def test_hardware_setup_saves_mouse_keyboard_template_with_horizontal_wheel(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    import evdev
+    from gi.repository import Gtk
+
+    from keymasq.common.models import DeviceType
+    from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+    class _HardwareManager:
+        def __init__(self) -> None:
+            self.saved = []
+
+        def save_hardware(self, config) -> None:
+            self.saved.append(config)
+
+    monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+    hardware_manager = _HardwareManager()
+    dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+    dialog.selected_device = {
+        "vendor_id": "1234",
+        "product_id": "5678",
+        "name": "Combo",
+    }
+    dialog.discovered_interfaces = {
+        "mouse": {
+            "id": "mouse",
+            "stable_path": "/dev/input/by-id/test-mouse",
+            "device_types": ["mouse"],
+            "capabilities": ["btn_left"],
+            "raw_capabilities": {evdev.ecodes.EV_REL: [evdev.ecodes.REL_HWHEEL]},
+        },
+        "kbd": {
+            "id": "kbd",
+            "stable_path": "/dev/input/by-id/test-kbd",
+            "device_types": ["keyboard"],
+            "capabilities": ["key_a"],
+        },
+    }
+    dialog.emit = lambda _signal, _config: None
+    dialog.close = lambda: None
+
+    dialog._save_mouse_keyboard_config()
+
+    saved = hardware_manager.saved[0]
+    assert [device.id for device in saved.evdev_devices] == ["mouse", "kbd"]
+    assert [device.device_type for device in saved.evdev_devices] == [
+        DeviceType.MOUSE,
+        DeviceType.KEYBOARD,
+    ]
+    by_id = {button.id: button for button in saved.buttons}
+    assert by_id["btn_left"].source == "mouse"
+    assert by_id["wheel_left"].source == "mouse"
+    assert by_id["wheel_right"].source == "mouse"
+    assert by_id["key_a"].source == "kbd"
+
+
+def test_hardware_setup_capture_flow_records_buttons_and_saves(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    import keymasq.gui.wizards.hardware_setup as hardware_setup_module
+    from keymasq.common.models import DeviceType
+    from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+    class _HardwareManager:
+        def __init__(self) -> None:
+            self.saved = []
+
+        def save_hardware(self, config) -> None:
+            self.saved.append(config)
+
+    requests: list[dict] = []
+
+    def fake_session_request_async(payload, callback):
+        requests.append(payload)
+        if payload["command"] == "begin_capture":
+            callback({"status": "ok", "warnings": ["limited permissions"]})
+        elif payload["command"] == "capture_read":
+            callback(
+                {
+                    "status": "ok",
+                    "captured": {
+                        "evdev": "btn_left",
+                        "code": 272,
+                        "value": 1,
+                        "direction": "press",
+                        "source": "mouse",
+                        "stable_path": "/dev/input/by-id/test-mouse",
+                    },
+                }
+            )
+        elif payload["command"] == "end_capture":
+            callback({"status": "ok"})
+
+    monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+    monkeypatch.setattr(hardware_setup_module, "session_request_async", fake_session_request_async)
+    monkeypatch.setattr(hardware_setup_module.GLib, "timeout_add", lambda *_args: 42)
+    monkeypatch.setattr(hardware_setup_module.GLib, "source_remove", lambda _source_id: True)
+
+    hardware_manager = _HardwareManager()
+    dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+    dialog._setup_page_capture()
+    dialog.selected_device = {
+        "vendor_id": "1234",
+        "product_id": "5678",
+        "name": "Capture Mouse",
+    }
+    dialog.discovered_interfaces = {
+        "mouse": {
+            "id": "mouse",
+            "stable_path": "/dev/input/by-id/test-mouse",
+            "device_types": ["mouse"],
+        }
+    }
+    dialog._capture_hardware_id = "1234:5678"
+    dialog.button_definitions = [
+        {"id": "btn_left", "label": "Left Click", "type": "button"},
+    ]
+    dialog.current_button_index = 0
+    dialog.emit = lambda _signal, _config: None
+    dialog.close = lambda: None
+
+    dialog._update_capture_ui()
+    dialog._on_start_capture(dialog.capture_btn)
+
+    assert dialog.capture_status.get_label() == "Capture warnings: limited permissions"
+    assert dialog._capture_poll_id == 42
+
+    assert dialog._poll_capture() is True
+
+    assert dialog.current_button_index == 1
+    assert dialog.capture_title.get_label() == "Setup Complete!"
+    assert dialog.capture_btn.get_label() == "Save"
+    assert dialog.button_definitions[0]["evdev"] == "btn_left"
+    assert dialog.button_definitions[0]["source"] == "mouse"
+
+    dialog._on_save(dialog.capture_btn)
+
+    saved = hardware_manager.saved[0]
+    assert saved.evdev_devices[0].device_type == DeviceType.MOUSE
+    assert saved.buttons[0].id == "btn_left"
+    assert saved.buttons[0].evdev == "btn_left"
+    assert requests == [
+        {"command": "begin_capture", "hardware_id": "1234:5678"},
+        {"command": "capture_read", "hardware_id": "1234:5678"},
+        {"command": "end_capture", "hardware_id": "1234:5678"},
+    ]

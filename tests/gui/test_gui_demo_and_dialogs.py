@@ -1069,3 +1069,200 @@ class TestDialogConstruction:
         assert captured["signal_name"] == "closed"
         assert captured["callback"] == dialog._on_editor_closed
         assert captured["present_parent"] is parent
+
+    def test_macro_manager_initial_state_populates_macro_rows(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.session_client import GuiTaskResult
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        dialog = MacroManagerDialog(Gtk.Window())
+
+        result = GuiTaskResult(
+            value=(
+                {
+                    "recording_active": False,
+                    "recording_unlock_required": False,
+                    "recording_unlocked": False,
+                },
+                {
+                    "macros": [
+                        {
+                            "name": "short",
+                            "duration_us": 250_000,
+                            "device_types": ["keyboard", "mouse"],
+                            "event_count": 4,
+                        },
+                        {
+                            "name": "long",
+                            "duration_us": 1_500_000,
+                            "device_types": ["gamepad"],
+                            "event_count": 2,
+                        },
+                    ]
+                },
+            )
+        )
+
+        assert dialog._on_initial_state_loaded(result) is False
+        assert dialog._recording_unlocked is True
+        assert dialog._empty_label.get_visible() is False
+        assert dialog._listbox.get_first_child() is not None
+        assert dialog._record_btn.get_tooltip_text() == "Record a new macro"
+
+        dialog._on_macros_loaded({"macros": []})
+
+        assert dialog._empty_label.get_visible() is True
+
+    def test_macro_manager_duplicate_request_and_finish_paths(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.session_client import GuiTaskResult
+        import keymasq.gui.widgets.macro_manager_dialog as macro_manager_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        requests: list[dict] = []
+
+        def fake_session_request(payload):
+            requests.append(payload)
+            if payload["command"] == "get_macro":
+                return {
+                    "status": "ok",
+                    "macro": {
+                        "name": payload["name"],
+                        "revision": 9,
+                        "events": [{"t_us": 1}],
+                    },
+                }
+            if payload["command"] == "create_macro":
+                return {"status": "ok"}
+            return {"status": "error", "message": "unexpected"}
+
+        monkeypatch.setattr(macro_manager_dialog_module, "session_request", fake_session_request)
+        dialog = MacroManagerDialog(Gtk.Window())
+        dialog._macros = [{"name": "copy"}, {"name": "copy_1"}]
+
+        assert dialog._duplicate_macro_request("copy") == {"status": "ok"}
+
+        create_payload = requests[-1]
+        assert create_payload["command"] == "create_macro"
+        assert create_payload["macro"]["name"] == "copy_2"
+        assert "revision" not in create_payload["macro"]
+
+        loaded: list[bool] = []
+        monkeypatch.setattr(dialog, "_load_macros", lambda: loaded.append(True) or False)
+
+        assert dialog._on_duplicate_finished(GuiTaskResult(value={"status": "ok"})) is False
+        assert loaded == [True]
+
+    def test_macro_manager_create_and_record_button_paths(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.macro_manager_dialog as macro_manager_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        opened: list[str] = []
+        hook_requests: list[dict] = []
+
+        class Parent(Gtk.Window):
+            def present_unlock_dialog(self, on_success):
+                opened.append("unlock")
+                on_success()
+
+        def fake_session_request_async(payload, callback):
+            if payload["command"] == "get_status":
+                callback({"recording_unlock_required": True, "recording_unlocked": True})
+            elif payload["command"] == "list_macros":
+                callback({"macros": [{"name": "macro"}, {"name": "macro_1"}]})
+
+        def fake_session_request_with_hooks(payload, callback, on_done=None, **_kwargs):
+            hook_requests.append(payload)
+            callback({"status": "ok"})
+            if on_done:
+                on_done()
+
+        monkeypatch.setattr(
+            macro_manager_dialog_module,
+            "session_request_async",
+            fake_session_request_async,
+        )
+        monkeypatch.setattr(
+            macro_manager_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+
+        dialog = MacroManagerDialog(Parent())
+        opened_names: list[str] = []
+        monkeypatch.setattr(dialog, "_open_empty_macro_editor", opened_names.append)
+
+        dialog._recording_active = False
+        dialog._recording_unlocked = False
+        dialog._on_record_new(dialog._record_btn)
+        dialog._on_empty_macro_names_loaded({"macros": [{"name": "macro"}]})
+
+        assert opened == ["unlock"]
+        assert dialog._recording_unlocked is True
+        assert opened_names == ["macro_1"]
+
+        dialog._recording_active = False
+        dialog._recording_unlocked = True
+        dialog._on_record_new(dialog._record_btn)
+        dialog._recording_active = True
+        dialog._on_record_new(dialog._record_btn)
+
+        assert hook_requests == [
+            {"command": "start_recording"},
+            {"command": "stop_recording"},
+        ]
+
+    def test_type_macro_create_validates_and_submits_macro(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.macro_manager_dialog as macro_manager_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        requests: list[dict] = []
+        created: list[bool] = []
+
+        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+            requests.append(payload)
+            if on_start:
+                on_start()
+            callback({"status": "ok"})
+            if on_done:
+                on_done()
+
+        monkeypatch.setattr(
+            macro_manager_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+        dialog = TypeMacroDialog(Gtk.Window(), on_created=lambda: created.append(True))
+
+        dialog.name_entry.set_text("")
+        dialog._on_create(dialog._create_btn)
+        assert dialog.error_label.get_label() == "Macro name is required"
+
+        dialog.name_entry.set_text("bad name")
+        dialog._on_create(dialog._create_btn)
+        assert dialog.error_label.get_label() == "Only letters, numbers, underscores and hyphens"
+
+        dialog.name_entry.set_text("typed")
+        dialog.text_view.get_buffer().set_text("Hi")
+        dialog.down_spin.set_value(5)
+        dialog.pause_spin.set_value(7)
+        dialog._on_create(dialog._create_btn)
+
+        assert requests[0]["command"] == "create_macro"
+        assert requests[0]["macro"]["name"] == "typed"
+        assert requests[0]["macro"]["device_types"] == ["keyboard"]
+        assert requests[0]["macro"]["events"]
+        assert created == [True]

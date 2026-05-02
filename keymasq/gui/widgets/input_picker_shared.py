@@ -24,14 +24,14 @@ def build_keyboard_tab(
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-    box.set_margin_top(12)
-    box.set_margin_bottom(12)
-    box.set_margin_start(12)
-    box.set_margin_end(12)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    box.set_margin_top(8)
+    box.set_margin_bottom(8)
+    box.set_margin_start(8)
+    box.set_margin_end(8)
 
     for row in keyboard_layout:
-        row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
         row_box.set_halign(Gtk.Align.CENTER)
 
         for key in row:
@@ -55,7 +55,7 @@ def build_navigation_tab(
     *,
     f_extra: list[str],
 ) -> Gtk.Box:
-    square_size = 44
+    square_size = 50
 
     outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
     outer.set_margin_top(16)
@@ -405,7 +405,7 @@ def _build_gamepad_center_col(owner) -> Gtk.Box:
         ("Guide", "btn_mode"),
         ("Start", "btn_start"),
     ]:
-        btn = owner._create_key_button(label, evdev_id)
+        btn = owner._create_key_button(label, evdev_id, width=1.5)
         btn.connect("clicked", owner._on_gamepad_clicked, evdev_id)
         center_btns.append(btn)
 

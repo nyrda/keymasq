@@ -35,6 +35,11 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.13.1" date="2026-05-02">
+      <description>
+        <p>Fixes documentation links so they point to version-aware keymasq.tools URLs.</p>
+      </description>
+    </release>
     <release version="0.13.0" date="2026-05-02">
       <description>
         <p>Adds profile lifecycle macros and compositor actions in macro timelines.</p>

@@ -3,6 +3,12 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.13.1
+
+### Fixed
+
+- Fixed documentation links so they point to version-aware keymasq.tools URLs.
+
 ## 0.13.0
 
 ### Improved

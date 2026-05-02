@@ -1,6 +1,6 @@
 pkgbase = keymasq
 	pkgdesc = A key remapping tool for Linux using evdev and uinput
-	pkgver = 0.12.0
+	pkgver = 0.13.0
 	pkgrel = 1
 	url = https://github.com/nyrda/keymasq
 	arch = any
@@ -22,7 +22,7 @@ pkgbase = keymasq
 	depends = libadwaita
 	depends = polkit
 	depends = systemd
-	source = keymasq-0.12.0.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.12.0/keymasq-0.12.0.tar.gz
+	source = keymasq-0.13.0.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.13.0/keymasq-0.13.0.tar.gz
 	sha256sums = SKIP
 	install = keymasq.install
 

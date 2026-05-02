@@ -3,6 +3,18 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.13.0
+
+### Improved
+
+- Added profile lifecycle macros that can run when a profile activates or
+  deactivates.
+- Macro timelines can now include compositor actions.
+- The GUI now warns before primary mouse button remaps instead of blocking
+  them outright.
+- Improved key selector, input picker, device tab, macro dialog, and Super Key
+  dialog layouts, including grave key support in keyboard layouts.
+
 ## 0.12.0
 
 ### Improved

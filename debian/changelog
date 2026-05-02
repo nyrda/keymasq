@@ -1,3 +1,14 @@
+keymasq (0.13.0-1) unstable; urgency=medium
+
+  * Add profile lifecycle macros that can run when a profile activates or
+    deactivates.
+  * Allow macro timelines to include compositor actions.
+  * Warn before primary mouse button remaps instead of blocking them outright.
+  * Improve key selector, input picker, device tab, macro dialog, and Super Key
+    dialog layouts, including grave key support in keyboard layouts.
+
+ -- nyrda <nyrda@keymasq.tools>  Sat, 02 May 2026 21:31:58 +0000
+
 keymasq (0.12.0-1) unstable; urgency=medium
 
   * Allow type actions to use a 0 ms hold time.

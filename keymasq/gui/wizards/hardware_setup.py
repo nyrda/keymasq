@@ -1466,6 +1466,7 @@ class HardwareSetupDialog(Adw.Window):
         buttons: list[ButtonDefinition] = []
         standard_keys = [
             "KEY_ESC",
+            "KEY_GRAVE",
             "KEY_1",
             "KEY_2",
             "KEY_3",

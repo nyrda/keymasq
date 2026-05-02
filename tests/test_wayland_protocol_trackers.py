@@ -1,5 +1,8 @@
 import asyncio
 import struct
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from keymasq.session.wayland_protocols import cosmic_toplevel_info_client as cosmic_client_module
@@ -49,6 +52,12 @@ def _encode_array(values: list[int]) -> bytes:
     raw = b"".join(value.to_bytes(4, byteorder="little") for value in values)
     padded = (len(raw) + 3) & ~3
     return struct.pack("<I", len(raw)) + raw + (b"\x00" * (padded - len(raw)))
+
+
+@contextmanager
+def _short_socket_path(name: str) -> Iterator[Path]:
+    with tempfile.TemporaryDirectory(prefix="kmq-", dir="/tmp") as temp_dir:
+        yield Path(temp_dir) / name
 
 
 def test_ext_tracker_emits_on_activation() -> None:
@@ -150,13 +159,13 @@ class _ProbeSocket:
 
 def test_registry_probe_reads_globals_sync(monkeypatch) -> None:
     probe_socket = _ProbeSocket(
-                _wl_message(
-                    2,
-                    0,
-                    _registry_payload(7, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1),
-                )
-                + _wl_message(2, 0, _registry_payload(8, "zwlr_foreign_toplevel_manager_v1", 3))
-                + _wl_message(3, 0)
+        _wl_message(
+            2,
+            0,
+            _registry_payload(7, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1),
+        )
+        + _wl_message(2, 0, _registry_payload(8, "zwlr_foreign_toplevel_manager_v1", 3))
+        + _wl_message(3, 0)
     )
     monkeypatch.setattr(
         registry_probe.socket,
@@ -172,27 +181,30 @@ def test_registry_probe_reads_globals_sync(monkeypatch) -> None:
     assert probe_socket.closed is True
 
 
-def test_registry_probe_reads_globals_async(tmp_path: Path) -> None:
+def test_registry_probe_reads_globals_async() -> None:
     async def run_probe() -> set[str]:
-        socket_path = tmp_path / "wayland-async"
+        with _short_socket_path("wayland-async") as socket_path:
 
-        async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-            await reader.read(4096)
-            writer.write(
-                _wl_message(2, 0, _registry_payload(1, "zcosmic_toplevel_info_v1", 3))
-                + _wl_message(3, 0)
-            )
-            await writer.drain()
-            await asyncio.wait_for(reader.read(4096), timeout=1.0)
-            writer.close()
-            await writer.wait_closed()
+            async def handle_client(
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+            ) -> None:
+                await reader.read(4096)
+                writer.write(
+                    _wl_message(2, 0, _registry_payload(1, "zcosmic_toplevel_info_v1", 3))
+                    + _wl_message(3, 0)
+                )
+                await writer.drain()
+                await asyncio.wait_for(reader.read(4096), timeout=1.0)
+                writer.close()
+                await writer.wait_closed()
 
-        server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
-        try:
-            return await registry_probe.list_registry_globals(socket_path)
-        finally:
-            server.close()
-            await server.wait_closed()
+            server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
+            try:
+                return await registry_probe.list_registry_globals(socket_path)
+            finally:
+                server.close()
+                await server.wait_closed()
 
     assert asyncio.run(run_probe()) == {"zcosmic_toplevel_info_v1"}
 
@@ -322,167 +334,176 @@ def test_wayland_clients_require_display_environment(monkeypatch) -> None:
     asyncio.run(start_clients())
 
 
-def test_ext_wayland_client_start_and_run_against_minimal_socket(tmp_path: Path) -> None:
+def test_ext_wayland_client_start_and_run_against_minimal_socket() -> None:
     async def run_client() -> tuple[str, str]:
-        socket_path = tmp_path / "ext-wayland"
+        with _short_socket_path("ext-wayland") as socket_path:
 
-        async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-            await reader.read(4096)
-            writer.write(
-                _wl_message(
-                    2,
-                    0,
-                    _registry_payload(1, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1),
+            async def handle_client(
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+            ) -> None:
+                await reader.read(4096)
+                writer.write(
+                    _wl_message(
+                        2,
+                        0,
+                        _registry_payload(1, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1),
+                    )
+                    + _wl_message(3, 0)
                 )
-                + _wl_message(3, 0)
-            )
-            await writer.drain()
+                await writer.drain()
 
-            await reader.read(4096)
-            writer.write(_wl_message(5, 0))
-            await writer.drain()
+                await reader.read(4096)
+                writer.write(_wl_message(5, 0))
+                await writer.drain()
 
-            await asyncio.sleep(0.01)
-            writer.write(
-                _wl_message(4, 0, struct.pack("<I", 80))
-                + _wl_message(80, 2, _encode_string("Live Window"))
-                + _wl_message(80, 3, _encode_string("live.app"))
-                + _wl_message(4, 1)
-            )
-            await writer.drain()
-            await asyncio.wait_for(reader.read(4096), timeout=1.0)
-            writer.close()
-            await writer.wait_closed()
+                await asyncio.sleep(0.01)
+                writer.write(
+                    _wl_message(4, 0, struct.pack("<I", 80))
+                    + _wl_message(80, 2, _encode_string("Live Window"))
+                    + _wl_message(80, 3, _encode_string("live.app"))
+                    + _wl_message(4, 1)
+                )
+                await writer.drain()
+                await asyncio.wait_for(reader.read(4096), timeout=1.0)
+                writer.close()
+                await writer.wait_closed()
 
-        server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
-        tracker = ExtForeignToplevelListTracker()
-        client = ExtForeignToplevelListWaylandClient(tracker, socket_path=str(socket_path))
-        try:
-            await client.start()
-            await client.run()
-            tracker.update_state("80", [2])
-            return tracker.get_active_window()
-        finally:
-            await client.stop()
-            server.close()
-            await server.wait_closed()
+            server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
+            tracker = ExtForeignToplevelListTracker()
+            client = ExtForeignToplevelListWaylandClient(tracker, socket_path=str(socket_path))
+            try:
+                await client.start()
+                await client.run()
+                tracker.update_state("80", [2])
+                return tracker.get_active_window()
+            finally:
+                await client.stop()
+                server.close()
+                await server.wait_closed()
 
     assert asyncio.run(run_client()) == ("live.app", "Live Window")
 
 
-def test_wlr_wayland_client_start_and_run_against_minimal_socket(tmp_path: Path) -> None:
+def test_wlr_wayland_client_start_and_run_against_minimal_socket() -> None:
     async def run_client() -> tuple[str, str]:
-        socket_path = tmp_path / "wlr-wayland"
+        with _short_socket_path("wlr-wayland") as socket_path:
 
-        async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-            await reader.read(4096)
-            writer.write(
-                _wl_message(
-                    2,
-                    0,
-                    _registry_payload(
-                        1,
-                        wlr_client_module.WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE,
-                        3,
-                    ),
+            async def handle_client(
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+            ) -> None:
+                await reader.read(4096)
+                writer.write(
+                    _wl_message(
+                        2,
+                        0,
+                        _registry_payload(
+                            1,
+                            wlr_client_module.WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE,
+                            3,
+                        ),
+                    )
+                    + _wl_message(3, 0)
                 )
-                + _wl_message(3, 0)
+                await writer.drain()
+
+                await reader.read(4096)
+                writer.write(_wl_message(5, 0))
+                await writer.drain()
+
+                await asyncio.sleep(0.01)
+                writer.write(
+                    _wl_message(4, 0, struct.pack("<I", 90))
+                    + _wl_message(90, 0, _encode_string("WLR Window"))
+                    + _wl_message(90, 1, _encode_string("wlr.app"))
+                    + _wl_message(90, 4, _encode_array([WLR_TOPLEVEL_STATE_ACTIVATED]))
+                )
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+
+            server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
+            tracker = WlrForeignToplevelManagerTracker()
+            client = wlr_client_module.WlrForeignToplevelWaylandClient(
+                tracker,
+                socket_path=str(socket_path),
             )
-            await writer.drain()
-
-            await reader.read(4096)
-            writer.write(_wl_message(5, 0))
-            await writer.drain()
-
-            await asyncio.sleep(0.01)
-            writer.write(
-                _wl_message(4, 0, struct.pack("<I", 90))
-                + _wl_message(90, 0, _encode_string("WLR Window"))
-                + _wl_message(90, 1, _encode_string("wlr.app"))
-                + _wl_message(90, 4, _encode_array([WLR_TOPLEVEL_STATE_ACTIVATED]))
-            )
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
-
-        server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
-        tracker = WlrForeignToplevelManagerTracker()
-        client = wlr_client_module.WlrForeignToplevelWaylandClient(
-            tracker,
-            socket_path=str(socket_path),
-        )
-        try:
-            await client.start()
-            await client.run()
-            return tracker.get_active_window()
-        finally:
-            await client.stop()
-            server.close()
-            await server.wait_closed()
+            try:
+                await client.start()
+                await client.run()
+                return tracker.get_active_window()
+            finally:
+                await client.stop()
+                server.close()
+                await server.wait_closed()
 
     assert asyncio.run(run_client()) == ("wlr.app", "WLR Window")
 
 
-def test_cosmic_wayland_client_start_and_run_against_minimal_socket(tmp_path: Path) -> None:
+def test_cosmic_wayland_client_start_and_run_against_minimal_socket() -> None:
     async def run_client() -> tuple[str, str]:
-        socket_path = tmp_path / "cosmic-wayland"
+        with _short_socket_path("cosmic-wayland") as socket_path:
 
-        async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-            await reader.read(4096)
-            writer.write(
-                _wl_message(
-                    2,
-                    0,
-                    _registry_payload(
-                        1,
-                        cosmic_client_module.EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE,
-                        1,
-                    ),
-                )
-                + _wl_message(
-                    2,
-                    0,
-                    _registry_payload(
+            async def handle_client(
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+            ) -> None:
+                await reader.read(4096)
+                writer.write(
+                    _wl_message(
                         2,
-                        cosmic_client_module.COSMIC_TOPLEVEL_INFO_INTERFACE,
-                        3,
-                    ),
+                        0,
+                        _registry_payload(
+                            1,
+                            cosmic_client_module.EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE,
+                            1,
+                        ),
+                    )
+                    + _wl_message(
+                        2,
+                        0,
+                        _registry_payload(
+                            2,
+                            cosmic_client_module.COSMIC_TOPLEVEL_INFO_INTERFACE,
+                            3,
+                        ),
+                    )
+                    + _wl_message(3, 0)
                 )
-                + _wl_message(3, 0)
+                await writer.drain()
+
+                await reader.read(4096)
+                writer.write(_wl_message(6, 0))
+                await writer.drain()
+
+                await asyncio.sleep(0.01)
+                writer.write(
+                    _wl_message(4, 0, struct.pack("<I", 100))
+                    + _wl_message(5, 2)
+                    + _wl_message(100, 2, _encode_string("COSMIC Window"))
+                    + _wl_message(100, 3, _encode_string("cosmic.app"))
+                    + _wl_message(7, 8, _encode_array([2]))
+                    + _wl_message(4, 1)
+                )
+                await writer.drain()
+                await asyncio.wait_for(reader.read(4096), timeout=1.0)
+                writer.close()
+                await writer.wait_closed()
+
+            server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
+            tracker = ExtForeignToplevelListTracker()
+            client = cosmic_client_module.CosmicToplevelInfoWaylandClient(
+                tracker,
+                socket_path=str(socket_path),
             )
-            await writer.drain()
-
-            await reader.read(4096)
-            writer.write(_wl_message(6, 0))
-            await writer.drain()
-
-            await asyncio.sleep(0.01)
-            writer.write(
-                _wl_message(4, 0, struct.pack("<I", 100))
-                + _wl_message(5, 2)
-                + _wl_message(100, 2, _encode_string("COSMIC Window"))
-                + _wl_message(100, 3, _encode_string("cosmic.app"))
-                + _wl_message(7, 8, _encode_array([2]))
-                + _wl_message(4, 1)
-            )
-            await writer.drain()
-            await asyncio.wait_for(reader.read(4096), timeout=1.0)
-            writer.close()
-            await writer.wait_closed()
-
-        server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
-        tracker = ExtForeignToplevelListTracker()
-        client = cosmic_client_module.CosmicToplevelInfoWaylandClient(
-            tracker,
-            socket_path=str(socket_path),
-        )
-        try:
-            await client.start()
-            await client.run()
-            return tracker.get_active_window()
-        finally:
-            await client.stop()
-            server.close()
-            await server.wait_closed()
+            try:
+                await client.start()
+                await client.run()
+                return tracker.get_active_window()
+            finally:
+                await client.stop()
+                server.close()
+                await server.wait_closed()
 
     assert asyncio.run(run_client()) == ("cosmic.app", "COSMIC Window")

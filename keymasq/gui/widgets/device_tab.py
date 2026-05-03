@@ -506,7 +506,7 @@ class DeviceTab(ProfileManagedTab):
                 ],
                 buttons_by_id,
                 used_ids,
-                max_cols=7,
+                max_cols=6,
                 expanded=True,
             )
 

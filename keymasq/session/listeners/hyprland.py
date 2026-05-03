@@ -272,7 +272,6 @@ class HyprlandListener(WindowListener):
                         await cmd_writer.wait_closed()
                     except Exception:
                         pass
-            return None
 
     async def health_check(self) -> bool:
         if not await super().health_check():

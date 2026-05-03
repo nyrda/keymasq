@@ -240,10 +240,7 @@ async def request_profile_reevaluation(
     task.add_done_callback(_clear_current_apply)
     if wait:
         await task
-        latest = cast(
-            asyncio.Task[None] | None,
-            manager.profile_state.__dict__.get("apply_task"),
-        )
+        latest = cast(asyncio.Task[None] | None, manager.profile_state.apply_task)
         if (
             not profile_apply_is_current(manager, generation)
             and latest is not None

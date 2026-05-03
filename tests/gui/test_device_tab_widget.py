@@ -66,10 +66,13 @@ class TestDeviceTabWidget:
             "key_leftmeta",
             "key_leftalt",
             "key_space",
+        ]
+        key_ids = [
+            *left_keyboard_ids,
             "key_rightalt",
             "key_rightctrl",
+            *(f"key_extra_{i}" for i in range(14)),
         ]
-        key_ids = [*left_keyboard_ids, *(f"key_extra_{i}" for i in range(14))]
         device = HardwareConfig(
             vendor_id="1234",
             product_id="5678",
@@ -96,10 +99,78 @@ class TestDeviceTabWidget:
                 assert isinstance(grid, Gtk.Grid)
                 for row in range(5):
                     assert grid.get_child_at(6, row) is None
+                assert tab._button_widgets["key_rightalt"].get_parent() is not grid
+                assert tab._button_widgets["key_rightctrl"].get_parent() is not grid
                 return
             child = child.get_next_sibling()
 
         raise AssertionError("Keyboard (Left) section not found")
+
+    def test_keyboard_right_modifier_order(self):
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        right_keyboard_ids = [
+            "key_backspace",
+            "key_y",
+            "key_u",
+            "key_i",
+            "key_o",
+            "key_p",
+            "key_enter",
+            "key_h",
+            "key_j",
+            "key_k",
+            "key_l",
+            "key_n",
+            "key_m",
+            "key_rightshift",
+            "key_rightmeta",
+            "key_rightalt",
+            "key_rightctrl",
+        ]
+        key_ids = [*right_keyboard_ids, *(f"key_extra_{i}" for i in range(23))]
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Keyboard",
+            evdev_devices=[],
+            buttons=[
+                ButtonDefinition(id=key_id, label=key_id, evdev=key_id) for key_id in key_ids
+            ],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+
+        scrolled = tab.get_last_child()
+        assert isinstance(scrolled, Gtk.ScrolledWindow)
+        content = scrolled.get_child()
+        if isinstance(content, Gtk.Viewport):
+            content = content.get_child()
+        assert isinstance(content, Gtk.Box)
+
+        child = content.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Expander) and child.get_label() == "Keyboard (Right)":
+                grid = child.get_child()
+                assert isinstance(grid, Gtk.Grid)
+                expected = {
+                    (0, 2): "key_n",
+                    (1, 2): "key_m",
+                    (2, 2): "key_rightshift",
+                    (0, 3): "key_rightmeta",
+                    (1, 3): "key_rightalt",
+                    (2, 3): "key_rightctrl",
+                }
+                for (col, row), button_id in expected.items():
+                    cell = grid.get_child_at(col, row)
+                    assert cell is tab._button_widgets[button_id]
+                return
+            child = child.get_next_sibling()
+
+        raise AssertionError("Keyboard (Right) section not found")
 
     def test_device_tab_initial_profile_selection(self, temp_config_dir):
         from keymasq.common.models import (

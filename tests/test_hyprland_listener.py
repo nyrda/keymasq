@@ -56,25 +56,26 @@ class _StallingReader:
 
 
 @pytest.mark.asyncio
-async def test_hyprland_send_cmd_retries_after_eof(monkeypatch) -> None:
+async def test_hyprland_send_cmd_opens_one_shot_connection(monkeypatch) -> None:
     listener = HyprlandListener(_noop_callback)
-    pairs = [
-        (_FakeReader([b""]), _FakeWriter()),
-        (_FakeReader([b"100,200"]), _FakeWriter()),
-    ]
+    writer = _FakeWriter()
+    listener.cmd_socket_path = "/tmp/hypr.sock"
 
-    async def fake_ensure() -> bool:
-        if listener._cmd_reader is None or listener._cmd_writer is None:
-            if not pairs:
-                return False
-            listener._cmd_reader, listener._cmd_writer = pairs.pop(0)  # type: ignore[assignment]
-        return True
+    async def fake_open_unix_connection(path: str) -> tuple[_FakeReader, _FakeWriter]:
+        assert path == "/tmp/hypr.sock"
+        return _FakeReader([b"100,200"]), writer
 
-    monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
+    monkeypatch.setattr(
+        hyprland_module.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
 
     response = await listener._send_cmd("cursorpos", read_size=256)
 
     assert response == b"100,200"
+    assert writer.payloads == [b"cursorpos"]
+    assert writer.closed is True
 
 
 @pytest.mark.asyncio
@@ -82,8 +83,16 @@ async def test_hyprland_send_cmd_times_out_stalled_read(monkeypatch) -> None:
     listener = HyprlandListener(_noop_callback)
     writer = _FakeWriter()
     listener.cmd_socket_path = "/tmp/hypr.sock"
-    listener._cmd_reader = _StallingReader()  # type: ignore[assignment]
-    listener._cmd_writer = writer  # type: ignore[assignment]
+
+    async def fake_open_unix_connection(path: str) -> tuple[_StallingReader, _FakeWriter]:
+        assert path == "/tmp/hypr.sock"
+        return _StallingReader(), writer
+
+    monkeypatch.setattr(
+        hyprland_module.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
 
     monkeypatch.setattr(hyprland_module, "HYPRLAND_COMMAND_TIMEOUT_S", 0.01)
 

@@ -24,8 +24,6 @@ class HyprlandListener(WindowListener):
         self.cmd_socket_path: str | None = None
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
-        self._cmd_reader: asyncio.StreamReader | None = None
-        self._cmd_writer: asyncio.StreamWriter | None = None
         self._cmd_lock = asyncio.Lock()
 
     @property
@@ -127,15 +125,6 @@ class HyprlandListener(WindowListener):
                 await self.writer.wait_closed()
             except Exception:
                 pass
-
-        if self._cmd_writer:
-            self._cmd_writer.close()
-            try:
-                await self._cmd_writer.wait_closed()
-            except Exception:
-                pass
-            self._cmd_reader = None
-            self._cmd_writer = None
 
         log.info("Hyprland listener stopped")
 
@@ -250,56 +239,39 @@ class HyprlandListener(WindowListener):
             return True, text
         return False, text
 
-    async def _ensure_cmd_connection(self) -> bool:
-        if not self.cmd_socket_path:
-            return False
-        if self._cmd_reader and self._cmd_writer:
-            return True
-        try:
-            self._cmd_reader, self._cmd_writer = await asyncio.wait_for(
-                asyncio.open_unix_connection(self.cmd_socket_path),
-                timeout=HYPRLAND_COMMAND_TIMEOUT_S,
-            )
-            return True
-        except Exception as exc:
-            log.debug("Failed to connect Hyprland command socket: %s", exc)
-            self._cmd_reader = None
-            self._cmd_writer = None
-            return False
-
     async def _send_cmd(self, command: str, read_size: int = 8192) -> bytes | None:
         async with self._cmd_lock:
-            for _ in range(2):
-                if not await self._ensure_cmd_connection():
+            if not self.cmd_socket_path:
+                return None
+
+            cmd_writer: asyncio.StreamWriter | None = None
+            try:
+                cmd_reader, cmd_writer = await asyncio.wait_for(
+                    asyncio.open_unix_connection(self.cmd_socket_path),
+                    timeout=HYPRLAND_COMMAND_TIMEOUT_S,
+                )
+                cmd_writer.write(command.encode())
+                await asyncio.wait_for(
+                    cmd_writer.drain(),
+                    timeout=HYPRLAND_COMMAND_TIMEOUT_S,
+                )
+                response = await asyncio.wait_for(
+                    cmd_reader.read(read_size),
+                    timeout=HYPRLAND_COMMAND_TIMEOUT_S,
+                )
+                if not response:
                     return None
-                try:
-                    cmd_writer = self._cmd_writer
-                    cmd_reader = self._cmd_reader
-                    if cmd_writer is None or cmd_reader is None:
-                        return None
-                    cmd_writer.write(command.encode())
-                    await asyncio.wait_for(
-                        cmd_writer.drain(),
-                        timeout=HYPRLAND_COMMAND_TIMEOUT_S,
-                    )
-                    response = await asyncio.wait_for(
-                        cmd_reader.read(read_size),
-                        timeout=HYPRLAND_COMMAND_TIMEOUT_S,
-                    )
-                    if not response:
-                        raise ConnectionError("Hyprland command socket closed")
-                    return response
-                except Exception as exc:
-                    log.debug("Hyprland command failed: %s", exc)
+                return response
+            except Exception as exc:
+                log.debug("Hyprland command failed: %s", exc)
+                return None
+            finally:
+                if cmd_writer is not None:
                     try:
-                        cmd_writer = self._cmd_writer
-                        if cmd_writer is not None:
-                            cmd_writer.close()
-                            await cmd_writer.wait_closed()
+                        cmd_writer.close()
+                        await cmd_writer.wait_closed()
                     except Exception:
                         pass
-                    self._cmd_reader = None
-                    self._cmd_writer = None
             return None
 
     async def health_check(self) -> bool:

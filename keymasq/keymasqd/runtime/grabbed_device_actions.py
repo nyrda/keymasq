@@ -15,12 +15,12 @@ from keymasq.keymasqd.runtime.action_runner import (
 )
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     bucket_for_uinput,
-    emit_configured_mouse_move,
     passthrough,
     track_superkey_output,
     write_key,
 )
 from keymasq.keymasqd.runtime.grabbed_device_repeat import (
+    emit_move_action,
     rapidfire_key,
     rapidfire_move,
     rapidfire_relative,
@@ -613,9 +613,4 @@ async def _execute_move_action(
                 f"tap move {event_name}",
             )
     elif event.value == 1:
-        if action.action_type == ActionType.MOUSE_MOVE_ABS:
-            cursor_position_setter = device_runtime.cursor_position_setter
-            if cursor_position_setter is not None:
-                await cursor_position_setter(int(action.move_x), int(action.move_y))
-                return
-        emit_configured_mouse_move(device_runtime, action)
+        await emit_move_action(device_runtime, action)

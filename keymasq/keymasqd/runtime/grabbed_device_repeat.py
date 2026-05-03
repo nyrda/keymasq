@@ -5,6 +5,7 @@ from typing import cast
 import evdev
 
 from keymasq.common.models import (
+    ActionType,
     MappingAction,
     clamp_rapidfire_hold_ms,
     clamp_rapidfire_wait_ms,
@@ -29,6 +30,18 @@ from keymasq.keymasqd.runtime.mouse_actions import (
     tap_relative_pulse,
     write_relative_pulse,
 )
+
+
+async def emit_move_action(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+) -> None:
+    if action.action_type == ActionType.MOUSE_MOVE_ABS:
+        cursor_position_setter = device_runtime.cursor_position_setter
+        if cursor_position_setter is not None:
+            await cursor_position_setter(int(action.move_x), int(action.move_y))
+            return
+    emit_configured_mouse_move(device_runtime, action)
 
 
 def start_rapidfire_task(
@@ -383,7 +396,7 @@ async def rapidfire_move(
             device_runtime.state.rapidfire_active.get(event_name, False)
             and runtime_is_running(device_runtime)
         ):
-            emit_configured_mouse_move(device_runtime, action)
+            await emit_move_action(device_runtime, action)
             await asyncio_mod.sleep(hold)
 
             if not device_runtime.state.rapidfire_active.get(event_name, False):
@@ -408,7 +421,7 @@ async def tap_move(
     hold = hold_ms / 1000.0
 
     try:
-        emit_configured_mouse_move(device_runtime, action)
+        await emit_move_action(device_runtime, action)
         await asyncio_mod.sleep(hold)
     except Exception:
         pass

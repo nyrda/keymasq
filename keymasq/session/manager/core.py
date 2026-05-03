@@ -87,6 +87,10 @@ class SessionManager:
         self.session_server: asyncio.Server | None = None
         self.session_clients: set[asyncio.StreamWriter] = set()
         self.session_client_peers: dict[asyncio.StreamWriter, PeerCredentials] = {}
+        self.session_client_drain_tasks: dict[
+            asyncio.StreamWriter,
+            asyncio.Task[None],
+        ] = {}
         self.capture_state = CaptureRuntimeState()
 
         self.exec_state = ExecRuntimeState()
@@ -150,6 +154,22 @@ class SessionManager:
                 await self.compositor_state.supervisor_task
             self.compositor_state.supervisor_task = None
 
+        profile_apply_task = self.profile_state.apply_task
+        if profile_apply_task:
+            profile_apply_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await profile_apply_task
+            self.profile_state.apply_task = None
+
+        for task in list(self.compositor_state.cursor_position_tasks):
+            task.cancel()
+        if self.compositor_state.cursor_position_tasks:
+            await asyncio.gather(
+                *self.compositor_state.cursor_position_tasks,
+                return_exceptions=True,
+            )
+            self.compositor_state.cursor_position_tasks.clear()
+
         topology_task = self.profile_state.topology_refresh_task
         if topology_task:
             topology_task.cancel()
@@ -176,6 +196,14 @@ class SessionManager:
                 await writer.wait_closed()
             except Exception:
                 pass
+        for task in list(self.session_client_drain_tasks.values()):
+            task.cancel()
+        if self.session_client_drain_tasks:
+            await asyncio.gather(
+                *self.session_client_drain_tasks.values(),
+                return_exceptions=True,
+            )
+            self.session_client_drain_tasks.clear()
         await self._wait_for_session_clients_to_close()
 
         for token in list(self.capture_state.tokens.values()):
@@ -281,17 +309,29 @@ class SessionManager:
                     if line.strip():
                         try:
                             request = json.loads(line.decode())
+                        except json.JSONDecodeError:
+                            writer.write(json.dumps({"error": "invalid json"}).encode() + b"\n")
+                            await writer.drain()
+                            continue
+
+                        try:
                             response = await self._handle_session_request(
                                 request,
                                 client_class,
                                 peer,
                                 writer,
                             )
-                            writer.write(json.dumps(response).encode() + b"\n")
-                            await writer.drain()
-                        except json.JSONDecodeError:
-                            writer.write(json.dumps({"error": "invalid json"}).encode() + b"\n")
-                            await writer.drain()
+                        except (ValueError, TypeError, KeyError) as exc:
+                            response = {"status": "error", "message": str(exc)}
+                        except Exception as exc:
+                            log.exception(
+                                "Session request failed pid=%s uid=%s",
+                                peer.pid,
+                                peer.uid,
+                            )
+                            response = {"status": "error", "message": str(exc)}
+                        writer.write(json.dumps(response).encode() + b"\n")
+                        await writer.drain()
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -299,8 +339,7 @@ class SessionManager:
         finally:
             await runtime_recording.discard_pending_macro_save_if_writer(self, writer)
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
-            self.session_clients.discard(writer)
-            self.session_client_peers.pop(writer, None)
+            self._drop_session_client_writer(writer)
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -333,20 +372,34 @@ class SessionManager:
         for writer in list(self.session_clients):
             try:
                 writer.write(json.dumps(message).encode() + b"\n")
-                asyncio.create_task(self._drain_session_writer(writer))
+                task = self.session_client_drain_tasks.get(writer)
+                if task is None or task.done():
+                    self.session_client_drain_tasks[writer] = asyncio.create_task(
+                        self._drain_session_writer(writer)
+                    )
             except Exception:
-                self.session_clients.discard(writer)
+                self._drop_session_client_writer(writer)
 
     async def _drain_session_writer(self, writer: asyncio.StreamWriter) -> None:
         try:
-            await writer.drain()
+            await asyncio.wait_for(writer.drain(), timeout=2.0)
+        except asyncio.CancelledError:
+            raise
         except Exception:
-            self.session_clients.discard(writer)
-            try:
+            self._drop_session_client_writer(writer)
+            with contextlib.suppress(Exception):
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
-                pass
+        finally:
+            if self.session_client_drain_tasks.get(writer) is asyncio.current_task():
+                self.session_client_drain_tasks.pop(writer, None)
+
+    def _drop_session_client_writer(self, writer: asyncio.StreamWriter) -> None:
+        self.session_clients.discard(writer)
+        self.session_client_peers.pop(writer, None)
+        task = self.session_client_drain_tasks.pop(writer, None)
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
 
     def _signal_handler(self) -> None:
         log.info("Received shutdown signal")
@@ -402,7 +455,7 @@ class SessionManager:
             await runtime_profiles.deactivate_profile(self, hardware_id)
             self.profile_state.resolved_devices.pop(hardware_id, None)
 
-        await runtime_profiles.reevaluate_profiles(self)
+        await runtime_profiles.reevaluate_profiles(self, reason="config reload")
 
     def reload_config_from_disk(self) -> None:
         self.security_policy = load_security_policy(SECURITY_POLICY_PATH)

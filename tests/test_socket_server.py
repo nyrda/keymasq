@@ -225,6 +225,32 @@ class TestSocketServer:
         await writer.wait_closed()
         await server.stop()
 
+    async def test_handler_type_error_is_not_retried_without_context(self, temp_socket_dir):
+        calls: list[int] = []
+
+        async def failing_handler(cmd_type, data, context):
+            calls.append(context.connection_id)
+            raise TypeError("internal handler bug")
+
+        server = SocketServer(str(paths.SOCKET_PATH), failing_handler)
+        await server.start()
+
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        writer.write(encode_command(Command(command=CommandType.PING, data={})))
+        await writer.drain()
+
+        response_data = await reader.read(1024)
+        response, _ = decode_response(response_data)
+
+        assert response.status == "error"
+        assert response.error is not None
+        assert "internal handler bug" in response.error
+        assert calls == [1]
+
+        writer.close()
+        await writer.wait_closed()
+        await server.stop()
+
     async def test_single_owner_handoff_after_owner_disconnect(self, temp_socket_dir):
         async def handle(_command: CommandType, _data: dict) -> dict:
             return {"pong": True}

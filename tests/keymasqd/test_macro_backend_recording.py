@@ -639,6 +639,77 @@ async def test_cancel_macro_playback_releases_held_keys() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancel_macro_playback_releases_held_gamepad_abs() -> None:
+    manager = DeviceManager()
+    manager.output_state.gamepad_uinput = MagicMock()
+
+    await manager.play_macro(
+        macro_events=[
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_ABS,
+                "code": evdev.ecodes.ABS_RZ,
+                "value": 255,
+                "device_type": "gamepad",
+            },
+            {
+                "t_us": 2_000_000,
+                "type": evdev.ecodes.EV_ABS,
+                "code": evdev.ecodes.ABS_RZ,
+                "value": 0,
+                "device_type": "gamepad",
+            },
+        ],
+        macro_name="trigger_hold",
+    )
+    await asyncio.sleep(0.01)
+
+    result = await manager.cancel_macro_playback()
+
+    assert result["status"] == "ok"
+    assert result["cancelled"] is True
+    assert ("gamepad", evdev.ecodes.ABS_RZ) not in manager.macro_state.held_abs_refcount
+    assert any(
+        c.args == (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0)
+        for c in manager.output_state.gamepad_uinput.write.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_macro_abs_cleanup_ignores_explicit_neutral_value() -> None:
+    manager = DeviceManager()
+    manager.output_state.gamepad_uinput = MagicMock()
+
+    await manager.play_macro(
+        macro_events=[
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_ABS,
+                "code": evdev.ecodes.ABS_HAT0X,
+                "value": 1,
+                "device_type": "gamepad",
+            },
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_ABS,
+                "code": evdev.ecodes.ABS_HAT0X,
+                "value": 0,
+                "device_type": "gamepad",
+            },
+        ],
+        macro_name="hat_tap",
+    )
+    await asyncio.sleep(0.01)
+
+    assert manager.macro_state.held_abs_refcount == {}
+    assert [
+        c.args
+        for c in manager.output_state.gamepad_uinput.write.call_args_list
+        if c.args == (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT0X, 0)
+    ] == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT0X, 0)]
+
+
+@pytest.mark.asyncio
 async def test_macro_switch_interrupt_releases_held_state_for_previous_instance() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()

@@ -563,7 +563,7 @@ async def on_window_change(
         )
 
     manager.compositor_state.current_window = cast(JsonObject, window_info)
-    await runtime_profiles.reevaluate_profiles(manager)
+    await runtime_profiles.reevaluate_profiles(manager, reason="window changed")
 
 
 def compositor_dispatch_available(manager: "SessionManager") -> bool:

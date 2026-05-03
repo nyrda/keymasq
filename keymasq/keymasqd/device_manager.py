@@ -236,6 +236,8 @@ class MacroRuntimeState:
     instance_seq: int = 0
     instance_held: dict[int, set[tuple[str, int]]] = field(default_factory=dict)
     held_refcount: dict[tuple[str, int], int] = field(default_factory=dict)
+    instance_held_abs: dict[int, set[tuple[str, int]]] = field(default_factory=dict)
+    held_abs_refcount: dict[tuple[str, int], int] = field(default_factory=dict)
     cancel_instance_ids: set[int] = field(default_factory=set)
     mouse_inhibit_count: int = 0
     exec_waiters: dict[str, asyncio.Future[int]] = field(default_factory=dict)

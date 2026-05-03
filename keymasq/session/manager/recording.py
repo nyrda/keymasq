@@ -639,7 +639,7 @@ async def _end_capture(manager: "SessionManager", hardware_id: str) -> JsonObjec
     if not was_locked:
         return {"status": "ok", "hardware_id": hardware_id, "resumed": False}
 
-    await runtime_profiles.reevaluate_profiles(manager)
+    await runtime_profiles.reevaluate_profiles(manager, reason=f"capture ended for {hardware_id}")
     active_names = list(
         manager.profile_state.resolved_devices.get(
             hardware_id,

@@ -68,6 +68,9 @@ class ProfileRuntimeState:
     last_sent_combo_signature: str = ""
     active_profile_names: list[str] = field(default_factory=list)
     resolved_devices: dict[str, ResolvedDeviceProfile] = field(default_factory=dict)
+    apply_generation: int = 0
+    apply_task: asyncio.Task[None] | None = None
+    apply_reason: str = ""
 
 
 @dataclass
@@ -103,3 +106,4 @@ class CompositorRuntimeState:
     support_details_cache_at: float = 0.0
     support_details_cache_ttl_s: float = 5.0
     support_details_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    cursor_position_tasks: set[asyncio.Task[None]] = field(default_factory=set)

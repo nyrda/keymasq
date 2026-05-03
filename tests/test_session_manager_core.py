@@ -1,4 +1,5 @@
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -153,7 +154,7 @@ async def test_reload_profiles_invalidates_runtime_payload_signatures(
 
     assert manager.profile_state.last_sent_mapping_signatures == {}
     assert manager.profile_state.last_sent_combo_signature == ""
-    reevaluate_profiles.assert_awaited_once_with(manager)
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="config reload")
 
 
 @pytest.mark.asyncio
@@ -177,6 +178,39 @@ async def test_session_client_drops_connection_when_buffer_exceeds_limit(
     manager._handle_session_request.assert_not_awaited()
     assert writer.closed is True
     assert writer.writes == []
+
+
+@pytest.mark.asyncio
+async def test_session_client_request_error_keeps_connection_alive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.running = True
+    reader = _FakeSessionReader(
+        [
+            json.dumps({"command": "bad"}).encode() + b"\n",
+            json.dumps({"command": "ping"}).encode() + b"\n",
+        ]
+    )
+    writer = _FakeSessionWriter()
+    manager._handle_session_request = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[ValueError("bad payload"), {"status": "ok"}]
+    )
+
+    monkeypatch.setattr(
+        session_manager_core_module,
+        "get_peer_credentials",
+        lambda _sock: PeerCredentials(pid=321, uid=1000, gid=1000),
+    )
+
+    await manager._handle_session_client(reader, writer)  # type: ignore[arg-type]
+
+    assert manager._handle_session_request.await_count == 2
+    responses = [json.loads(payload) for payload in b"".join(writer.writes).splitlines()]
+    assert responses == [
+        {"status": "error", "message": "bad payload"},
+        {"status": "ok"},
+    ]
 
 
 @pytest.mark.asyncio

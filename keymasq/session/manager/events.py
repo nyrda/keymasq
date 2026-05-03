@@ -74,7 +74,7 @@ async def handle_event(
         return
 
     if event_type == CommandType.SET_CURSOR_POSITION:
-        await handle_set_cursor_position_request(manager, data)
+        schedule_cursor_position_request(manager, data)
         return
 
     if event_type == CommandType.DEVICE_CONNECTED:
@@ -138,6 +138,22 @@ async def handle_event(
         manager.broadcast_to_session_clients({"event": "recording_progress", **data})
 
 
+def schedule_cursor_position_request(manager: "SessionManager", data: JsonObject) -> None:
+    task = asyncio.create_task(handle_set_cursor_position_request(manager, data))
+    manager.compositor_state.cursor_position_tasks.add(task)
+
+    def _discard(done: asyncio.Task[None]) -> None:
+        manager.compositor_state.cursor_position_tasks.discard(done)
+        try:
+            exc = done.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            log.debug("Cursor position request failed: %s", exc)
+
+    task.add_done_callback(_discard)
+
+
 async def handle_set_cursor_position_request(
     manager: "SessionManager",
     data: JsonObject,
@@ -170,13 +186,11 @@ async def handle_set_cursor_position_request(
         log.debug("Handled cursor position request without request_id: %s", message)
         return
 
-    asyncio.create_task(
-        send_cursor_position_result(
-            manager,
-            request_id=request_id,
-            ok=ok,
-            message=message,
-        )
+    await send_cursor_position_result(
+        manager,
+        request_id=request_id,
+        ok=ok,
+        message=message,
     )
 
 
@@ -372,7 +386,7 @@ async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject
     )
     runtime_profiles.invalidate_grabbed_state(manager)
     try:
-        await runtime_profiles.reevaluate_profiles(manager)
+        await runtime_profiles.reevaluate_profiles(manager, reason="runtime reset")
     except Exception as exc:
         log.warning("Failed to reapply profiles after runtime reset: %s", exc)
         manager.send_notification(

@@ -55,6 +55,7 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
         _manager: SessionManager,
         hwid: str,
         resolved: ResolvedDeviceProfile,
+        **_kwargs: object,
     ) -> None:
         actions.append(
             (
@@ -83,6 +84,79 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
         ("activate", "Game"),
         ("activate", "Base"),
     ]
+    assert manager.profile_state.resolved_devices[hardware_id].active_profile_names == ["Base"]
+
+
+@pytest.mark.asyncio
+async def test_profile_reevaluation_interrupts_stale_apply() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    profile_game = ProfileConfig(
+        name="Game",
+        enabled=True,
+        device_layers={hardware_id: DeviceProfileLayer(hardware_id=hardware_id)},
+    )
+    profile_base = ProfileConfig(
+        name="Base",
+        enabled=True,
+        is_permanent=True,
+        device_layers={hardware_id: DeviceProfileLayer(hardware_id=hardware_id)},
+    )
+    manager.hardware.list_hardware_ids = lambda: [hardware_id]  # type: ignore[assignment]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    def resolve_active_profiles(
+        window_info: dict | None, _caps: list[str], hardware_ids: list[str]
+    ) -> ResolvedProfiles:
+        assert hardware_ids == [hardware_id]
+        title = str((window_info or {}).get("title", ""))
+        profile = profile_game if title == "game" else profile_base
+        return ResolvedProfiles(
+            active_profiles=[profile],
+            devices={
+                hardware_id: ResolvedDeviceProfile(
+                    hardware_id=hardware_id,
+                    active_profile_names=[profile.name],
+                    mappings={},
+                )
+            },
+        )
+
+    manager.profiles.resolve_active_profiles = resolve_active_profiles  # type: ignore[assignment]
+    game_started = asyncio.Event()
+    release_game = asyncio.Event()
+
+    async def apply_resolved_device_profile(
+        _manager: SessionManager,
+        hwid: str,
+        resolved: ResolvedDeviceProfile,
+        **_kwargs: object,
+    ) -> None:
+        if resolved.active_profile_names == ["Game"]:
+            game_started.set()
+            await release_game.wait()
+        manager.profile_state.resolved_devices[hwid] = resolved
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        session_profiles_module,
+        "apply_resolved_device_profile",
+        apply_resolved_device_profile,
+    )
+    monkeypatch.setattr(session_profiles_module, "update_combos", AsyncMock())
+
+    try:
+        manager.compositor_state.current_window = {"title": "game"}
+        stale_task = asyncio.create_task(session_profiles_module.reevaluate_profiles(manager))
+        await asyncio.wait_for(game_started.wait(), timeout=1.0)
+
+        manager.compositor_state.current_window = {"title": "browser"}
+        await session_profiles_module.reevaluate_profiles(manager)
+        release_game.set()
+        await stale_task
+    finally:
+        monkeypatch.undo()
+
     assert manager.profile_state.resolved_devices[hardware_id].active_profile_names == ["Base"]
 
 

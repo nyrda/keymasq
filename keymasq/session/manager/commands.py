@@ -114,7 +114,7 @@ async def _handle_profile_commands(
     if command in {"reevaluate_profiles", "reevaluate_hardware"}:
         log.info("Global profile reevaluate requested")
         await asyncio.to_thread(manager.reload_config_from_disk)
-        await runtime_profiles.reevaluate_profiles(manager)
+        await runtime_profiles.reevaluate_profiles(manager, reason="session command reevaluate")
         return {"status": "ok"}
 
     if command == "ping":

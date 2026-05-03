@@ -3,6 +3,8 @@ from tests.gui.support import *
 
 class TestDeviceTabWidget:
     def test_device_tab_creation(self):
+        from gi.repository import Gtk
+
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.widgets.device_tab import DeviceTab
 
@@ -26,6 +28,78 @@ class TestDeviceTabWidget:
         assert tab.demo_mode is True
         assert tab.device.name == "Test Mouse"
         assert len(tab._button_widgets) == 2
+
+        scrolled = tab.get_last_child()
+        assert isinstance(scrolled, Gtk.ScrolledWindow)
+        h_policy, v_policy = scrolled.get_policy()
+        assert h_policy == Gtk.PolicyType.AUTOMATIC
+        assert v_policy == Gtk.PolicyType.AUTOMATIC
+
+    def test_keyboard_left_layout_does_not_request_seventh_column(self):
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        left_keyboard_ids = [
+            "key_esc",
+            "key_grave",
+            "key_tab",
+            "key_q",
+            "key_w",
+            "key_e",
+            "key_r",
+            "key_t",
+            "key_capslock",
+            "key_a",
+            "key_s",
+            "key_d",
+            "key_f",
+            "key_g",
+            "key_leftshift",
+            "key_z",
+            "key_x",
+            "key_c",
+            "key_v",
+            "key_b",
+            "key_leftctrl",
+            "key_leftmeta",
+            "key_leftalt",
+            "key_space",
+            "key_rightalt",
+            "key_rightctrl",
+        ]
+        key_ids = [*left_keyboard_ids, *(f"key_extra_{i}" for i in range(14))]
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Keyboard",
+            evdev_devices=[],
+            buttons=[
+                ButtonDefinition(id=key_id, label=key_id, evdev=key_id) for key_id in key_ids
+            ],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+
+        scrolled = tab.get_last_child()
+        assert isinstance(scrolled, Gtk.ScrolledWindow)
+        content = scrolled.get_child()
+        if isinstance(content, Gtk.Viewport):
+            content = content.get_child()
+        assert isinstance(content, Gtk.Box)
+
+        child = content.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Expander) and child.get_label() == "Keyboard (Left)":
+                grid = child.get_child()
+                assert isinstance(grid, Gtk.Grid)
+                for row in range(5):
+                    assert grid.get_child_at(6, row) is None
+                return
+            child = child.get_next_sibling()
+
+        raise AssertionError("Keyboard (Left) section not found")
 
     def test_device_tab_initial_profile_selection(self, temp_config_dir):
         from keymasq.common.models import (

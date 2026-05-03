@@ -1,7 +1,9 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
 
+import keymasq.session.listeners.hyprland as hyprland_module
 from keymasq.session.listeners.hyprland import HyprlandListener
 
 
@@ -47,6 +49,12 @@ class _FakeReader:
         return self._responses.pop(0)
 
 
+class _StallingReader:
+    async def read(self, _size: int) -> bytes:
+        await asyncio.Event().wait()
+        return b""
+
+
 @pytest.mark.asyncio
 async def test_hyprland_send_cmd_retries_after_eof(monkeypatch) -> None:
     listener = HyprlandListener(_noop_callback)
@@ -67,3 +75,19 @@ async def test_hyprland_send_cmd_retries_after_eof(monkeypatch) -> None:
     response = await listener._send_cmd("cursorpos", read_size=256)
 
     assert response == b"100,200"
+
+
+@pytest.mark.asyncio
+async def test_hyprland_send_cmd_times_out_stalled_read(monkeypatch) -> None:
+    listener = HyprlandListener(_noop_callback)
+    writer = _FakeWriter()
+    listener.cmd_socket_path = "/tmp/hypr.sock"
+    listener._cmd_reader = _StallingReader()  # type: ignore[assignment]
+    listener._cmd_writer = writer  # type: ignore[assignment]
+
+    monkeypatch.setattr(hyprland_module, "HYPRLAND_COMMAND_TIMEOUT_S", 0.01)
+
+    response = await listener._send_cmd("cursorpos", read_size=256)
+
+    assert response is None
+    assert writer.closed is True

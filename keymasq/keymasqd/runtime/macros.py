@@ -36,6 +36,22 @@ class MacroEventSource:
     iter_events: MacroEventIteratorFactory
 
 
+def gamepad_abs_cleanup_codes(evdev_mod: Any) -> frozenset[int]:
+    return frozenset(
+        int(code)
+        for code in (
+            evdev_mod.ecodes.ABS_X,
+            evdev_mod.ecodes.ABS_Y,
+            evdev_mod.ecodes.ABS_RX,
+            evdev_mod.ecodes.ABS_RY,
+            evdev_mod.ecodes.ABS_Z,
+            evdev_mod.ecodes.ABS_RZ,
+            evdev_mod.ecodes.ABS_HAT0X,
+            evdev_mod.ecodes.ABS_HAT0Y,
+        )
+    )
+
+
 def list_macro_event_source(
     macro_events: list[dict[str, object]],
     *,
@@ -134,6 +150,7 @@ async def play_macro(
     manager.macro_state.instance_seq += 1
     instance_id = manager.macro_state.instance_seq
     manager.macro_state.instance_held[instance_id] = set()
+    manager.macro_state.instance_held_abs[instance_id] = set()
     manager.macro_state.cancel_instance_ids.discard(instance_id)
     manager.macro_state.instance_meta[instance_id] = {
         "loop_mode": normalized_loop,
@@ -469,6 +486,15 @@ async def play_macro_task(
                         track_macro_key_press(manager, instance_id, output_class, event_code)
                     elif event_value == 0:
                         track_macro_key_release(manager, instance_id, output_class, event_code)
+                elif event_type == evdev_mod.ecodes.EV_ABS:
+                    track_macro_abs_value(
+                        manager,
+                        instance_id,
+                        output_class,
+                        event_code,
+                        event_value,
+                        deps=deps,
+                    )
 
             if instance_id not in manager.macro_state.cancel_instance_ids:
                 end_deadline = iteration_anchor + (macro_duration_us / speed_factor) / 1_000_000.0
@@ -588,6 +614,40 @@ def track_macro_key_release(
         held_refcount[key] = count - 1
 
 
+def track_macro_abs_value(
+    manager: _MacroManager,
+    instance_id: int,
+    device_class: str,
+    code: int,
+    value: int,
+    *,
+    deps: MacroRuntimeDeps,
+) -> None:
+    if device_class != "gamepad":
+        return
+    if int(code) not in gamepad_abs_cleanup_codes(deps.evdev_mod):
+        return
+
+    key = (device_class, int(code))
+    held = manager.macro_state.instance_held_abs.setdefault(instance_id, set())
+    held_refcount = manager.macro_state.held_abs_refcount
+    if int(value) == 0:
+        if key not in held:
+            return
+        held.remove(key)
+        count = held_refcount.get(key, 0)
+        if count <= 1:
+            held_refcount.pop(key, None)
+        else:
+            held_refcount[key] = count - 1
+        return
+
+    if key in held:
+        return
+    held.add(key)
+    held_refcount[key] = held_refcount.get(key, 0) + 1
+
+
 def release_macro_held_for_instance(
     manager: _MacroManager,
     instance_id: int,
@@ -595,7 +655,8 @@ def release_macro_held_for_instance(
     deps: MacroRuntimeDeps,
 ) -> None:
     held = manager.macro_state.instance_held.pop(instance_id, set())
-    if not held:
+    held_abs = manager.macro_state.instance_held_abs.pop(instance_id, set())
+    if not held and not held_abs:
         return
 
     uinputs = {
@@ -605,6 +666,7 @@ def release_macro_held_for_instance(
     }
     synced: set[str] = set()
     held_refcount = manager.macro_state.held_refcount
+    held_abs_refcount = manager.macro_state.held_abs_refcount
 
     for key in held:
         count = held_refcount.get(key, 0)
@@ -621,6 +683,22 @@ def release_macro_held_for_instance(
                 continue
         else:
             held_refcount[key] = count - 1
+
+    for key in held_abs:
+        count = held_abs_refcount.get(key, 0)
+        if count <= 1:
+            held_abs_refcount.pop(key, None)
+            device_class, code = key
+            uinput = uinputs.get(device_class)
+            if not uinput:
+                continue
+            try:
+                uinput.write(deps.evdev_mod.ecodes.EV_ABS, int(code), 0)
+                synced.add(device_class)
+            except Exception:
+                continue
+        else:
+            held_abs_refcount[key] = count - 1
 
     for device_class in synced:
         uinput = uinputs.get(device_class)

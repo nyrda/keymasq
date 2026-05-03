@@ -9,6 +9,7 @@ from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 
 log = logging.getLogger("keymasq-session.listeners.hyprland")
+HYPRLAND_COMMAND_TIMEOUT_S = 1.0
 
 
 class HyprlandListener(WindowListener):
@@ -255,11 +256,13 @@ class HyprlandListener(WindowListener):
         if self._cmd_reader and self._cmd_writer:
             return True
         try:
-            self._cmd_reader, self._cmd_writer = await asyncio.open_unix_connection(
-                self.cmd_socket_path
+            self._cmd_reader, self._cmd_writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(self.cmd_socket_path),
+                timeout=HYPRLAND_COMMAND_TIMEOUT_S,
             )
             return True
-        except Exception:
+        except Exception as exc:
+            log.debug("Failed to connect Hyprland command socket: %s", exc)
             self._cmd_reader = None
             self._cmd_writer = None
             return False
@@ -275,12 +278,19 @@ class HyprlandListener(WindowListener):
                     if cmd_writer is None or cmd_reader is None:
                         return None
                     cmd_writer.write(command.encode())
-                    await cmd_writer.drain()
-                    response = await cmd_reader.read(read_size)
+                    await asyncio.wait_for(
+                        cmd_writer.drain(),
+                        timeout=HYPRLAND_COMMAND_TIMEOUT_S,
+                    )
+                    response = await asyncio.wait_for(
+                        cmd_reader.read(read_size),
+                        timeout=HYPRLAND_COMMAND_TIMEOUT_S,
+                    )
                     if not response:
                         raise ConnectionError("Hyprland command socket closed")
                     return response
-                except Exception:
+                except Exception as exc:
+                    log.debug("Hyprland command failed: %s", exc)
                     try:
                         cmd_writer = self._cmd_writer
                         if cmd_writer is not None:

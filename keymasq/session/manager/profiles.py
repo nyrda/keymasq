@@ -3,7 +3,7 @@ import json
 import logging
 import traceback
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import ActionType, HardwareConfig, ProfileConfig
@@ -26,7 +26,7 @@ GRAB_RETRY_DELAY_S = 5.0
 async def activate_initial_profiles(manager: "SessionManager") -> None:
     hardware_ids = manager.hardware.list_hardware_ids()
     log.info("Found %d hardware config(s): %s", len(hardware_ids), hardware_ids)
-    await reevaluate_profiles(manager)
+    await reevaluate_profiles(manager, reason="initial activation")
 
 
 async def set_profile_enabled(
@@ -49,7 +49,7 @@ async def set_profile_enabled(
             "message": f"Profile '{profile_name}' not found",
         }
 
-    await reevaluate_profiles(manager)
+    await reevaluate_profiles(manager, reason=f"profile {profile_name} enabled={profile.enabled}")
     return {
         "status": "ok",
         "profile_name": profile.name,
@@ -146,7 +146,7 @@ def schedule_grab_retry(
     async def _retry() -> None:
         try:
             await asyncio.sleep(delay_s)
-            await reevaluate_profiles(manager)
+            await reevaluate_profiles(manager, reason=f"grab retry for {hardware_id}")
         except asyncio.CancelledError:
             pass
         finally:
@@ -178,7 +178,7 @@ def invalidate_runtime_payload_signatures(manager: "SessionManager") -> None:
 
 async def refresh_macro_bindings(manager: "SessionManager") -> None:
     invalidate_runtime_payload_signatures(manager)
-    await reevaluate_profiles(manager)
+    await reevaluate_profiles(manager, reason="macro bindings refreshed")
 
 
 def schedule_topology_refresh(
@@ -197,7 +197,7 @@ def schedule_topology_refresh(
                 await asyncio.sleep(delay)
                 try:
                     invalidate_grabbed_state(manager)
-                    await reevaluate_profiles(manager)
+                    await reevaluate_profiles(manager, reason="topology refresh")
                     return
                 except asyncio.CancelledError:
                     raise
@@ -214,13 +214,95 @@ def schedule_topology_refresh(
     manager.profile_state.topology_refresh_task = asyncio.create_task(_run())
 
 
-async def reevaluate_profiles(manager: "SessionManager") -> None:
+async def request_profile_reevaluation(
+    manager: "SessionManager",
+    *,
+    reason: str = "",
+    wait: bool = False,
+) -> asyncio.Task[None]:
+    manager.profile_state.apply_generation += 1
+    generation = manager.profile_state.apply_generation
+    previous = manager.profile_state.apply_task
+    current = asyncio.current_task()
+    if previous is not None and previous is not current and not previous.done():
+        previous.cancel()
+
+    task = asyncio.create_task(
+        _reevaluate_profiles_for_generation(manager, generation, reason=reason)
+    )
+    manager.profile_state.apply_task = task
+    manager.profile_state.apply_reason = reason
+
+    def _clear_current_apply(done: asyncio.Task[None]) -> None:
+        if manager.profile_state.apply_task is done:
+            manager.profile_state.apply_task = None
+
+    task.add_done_callback(_clear_current_apply)
+    if wait:
+        await task
+        latest = cast(
+            asyncio.Task[None] | None,
+            manager.profile_state.__dict__.get("apply_task"),
+        )
+        if (
+            not profile_apply_is_current(manager, generation)
+            and latest is not None
+            and latest is not task
+        ):
+            await latest
+    return task
+
+
+async def reevaluate_profiles(manager: "SessionManager", *, reason: str = "") -> None:
+    await request_profile_reevaluation(manager, reason=reason, wait=True)
+
+
+def profile_apply_is_current(manager: "SessionManager", generation: int | None) -> bool:
+    return generation is None or generation == manager.profile_state.apply_generation
+
+
+def raise_if_stale_profile_apply(
+    manager: "SessionManager",
+    generation: int | None,
+) -> None:
+    if not profile_apply_is_current(manager, generation):
+        raise asyncio.CancelledError
+
+
+async def _reevaluate_profiles_for_generation(
+    manager: "SessionManager",
+    generation: int,
+    *,
+    reason: str = "",
+) -> None:
+    try:
+        await _reevaluate_profiles(manager, generation=generation, reason=reason)
+    except asyncio.CancelledError:
+        if manager.verbosity >= 1:
+            log.debug(
+                "Profile reevaluation interrupted: generation=%s reason=%s",
+                generation,
+                reason,
+            )
+    except Exception:
+        log.exception("Profile reevaluation failed: generation=%s reason=%s", generation, reason)
+        raise
+
+
+async def _reevaluate_profiles(
+    manager: "SessionManager",
+    *,
+    generation: int | None,
+    reason: str = "",
+) -> None:
+    raise_if_stale_profile_apply(manager, generation)
     hardware_ids = manager.hardware.list_hardware_ids()
     resolved = manager.profiles.resolve_active_profiles(
         manager.compositor_state.current_window,
         manager.compositor_state.compositor_capabilities,
         hardware_ids=hardware_ids,
     )
+    raise_if_stale_profile_apply(manager, generation)
     old_active_profile_names = list(manager.profile_state.active_profile_names)
     manager.profile_state.active_profile_names = [
         profile.name for profile in resolved.active_profiles
@@ -234,7 +316,13 @@ async def reevaluate_profiles(manager: "SessionManager") -> None:
             hardware_id,
             ResolvedDeviceProfile(hardware_id),
         )
-        await apply_resolved_device_profile(manager, hardware_id, device_resolution)
+        await apply_resolved_device_profile(
+            manager,
+            hardware_id,
+            device_resolution,
+            generation=generation,
+        )
+        raise_if_stale_profile_apply(manager, generation)
 
     stale_ids = [
         hardware_id
@@ -246,7 +334,8 @@ async def reevaluate_profiles(manager: "SessionManager") -> None:
         manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
         manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
 
-    await update_combos(manager, resolved.combos)
+    await update_combos(manager, resolved.combos, generation=generation)
+    raise_if_stale_profile_apply(manager, generation)
     manager.broadcast_to_session_clients(
         {"event": "profiles_changed", **build_active_profiles_payload(manager)}
     )
@@ -330,7 +419,10 @@ async def apply_resolved_device_profile(
     manager: "SessionManager",
     hardware_id: str,
     resolved: ResolvedDeviceProfile,
+    *,
+    generation: int | None = None,
 ) -> None:
+    raise_if_stale_profile_apply(manager, generation)
     if hardware_id in manager.capture_state.locks:
         log.debug("Skipping activation for %s while capture is active", hardware_id)
         return
@@ -348,7 +440,12 @@ async def apply_resolved_device_profile(
         cancel_grab_retry(manager, hardware_id)
         manager.profile_state.grab_waiting_devices.discard(hardware_id)
         if hardware_id in manager.profile_state.grabbed_devices:
-            await deactivate_profile(manager, hardware_id, immediate=True)
+            await deactivate_profile(
+                manager,
+                hardware_id,
+                immediate=True,
+                generation=generation,
+            )
         return
 
     new_interfaces = get_interfaces_to_grab(hardware_config, resolved)
@@ -388,13 +485,15 @@ async def apply_resolved_device_profile(
                     hardware_id,
                     grab_payload,
                     grab_signature,
+                    generation=generation,
                 )
+                raise_if_stale_profile_apply(manager, generation)
                 if not updated_grab:
                     log.warning(
                         "Grab update failed for %s with same interfaces; forcing re-grab",
                         hardware_id,
                     )
-                    await deactivate_profile(manager, hardware_id)
+                    await deactivate_profile(manager, hardware_id, generation=generation)
                 elif not mapping_update_needed:
                     maybe_notify_profile_activation(
                         manager,
@@ -421,7 +520,13 @@ async def apply_resolved_device_profile(
                         old_profile_names,
                         resolved.active_profile_names,
                     )
-                updated = await update_mapping(manager, hardware_id, resolved)
+                updated = await update_mapping(
+                    manager,
+                    hardware_id,
+                    resolved,
+                    generation=generation,
+                )
+                raise_if_stale_profile_apply(manager, generation)
                 if updated:
                     maybe_notify_profile_activation(
                         manager,
@@ -434,7 +539,7 @@ async def apply_resolved_device_profile(
                     "Mapping update failed for %s with same interfaces; forcing re-grab",
                     hardware_id,
                 )
-                await deactivate_profile(manager, hardware_id)
+                await deactivate_profile(manager, hardware_id, generation=generation)
                 manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
             else:
                 maybe_notify_profile_activation(
@@ -461,6 +566,7 @@ async def apply_resolved_device_profile(
             ),
             timeout=GRAB_DEVICE_TIMEOUT_S,
         )
+        raise_if_stale_profile_apply(manager, generation)
         if result.status == "ok":
             result_data = _json_object(result.data)
             grabbed_count = (
@@ -523,6 +629,7 @@ async def apply_resolved_device_profile(
     try:
         mapping = runtime_payloads.profile_to_mapping(manager, resolved, hardware_id)
         log.debug("Mapping data: %s", runtime_payloads.mapping_log_view(mapping))
+        raise_if_stale_profile_apply(manager, generation)
 
         result = await manager.client.send_command(
             Command(
@@ -533,6 +640,7 @@ async def apply_resolved_device_profile(
                 },
             )
         )
+        raise_if_stale_profile_apply(manager, generation)
 
         if result.status == "ok":
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
@@ -643,8 +751,11 @@ async def update_grab_device_payload(
     hardware_id: str,
     payload: JsonObject,
     signature: str,
+    *,
+    generation: int | None = None,
 ) -> bool:
     try:
+        raise_if_stale_profile_apply(manager, generation)
         result = await manager.client.send_command(
             Command(
                 command=CommandType.GRAB_DEVICE,
@@ -652,6 +763,7 @@ async def update_grab_device_payload(
             ),
             timeout=GRAB_DEVICE_TIMEOUT_S,
         )
+        raise_if_stale_profile_apply(manager, generation)
         if result.status != "ok":
             log.error("Failed to update grab config for %s: %s", hardware_id, result.error)
             return False
@@ -671,7 +783,13 @@ async def update_grab_device_payload(
         return False
 
 
-async def update_combos(manager: "SessionManager", combos: list[ResolvedCombo]) -> None:
+async def update_combos(
+    manager: "SessionManager",
+    combos: list[ResolvedCombo],
+    *,
+    generation: int | None = None,
+) -> None:
+    raise_if_stale_profile_apply(manager, generation)
     signature = runtime_payloads.resolved_combos_signature(manager, combos)
     if signature == manager.profile_state.last_sent_combo_signature:
         log.debug("Skipping unchanged combo payload")
@@ -679,12 +797,14 @@ async def update_combos(manager: "SessionManager", combos: list[ResolvedCombo]) 
     runtime_payloads.clear_combo_exec_refs(manager)
     payload = runtime_payloads.resolved_combos_payload(manager, combos)
     try:
+        raise_if_stale_profile_apply(manager, generation)
         result = await manager.client.send_command(
             Command(
                 command=CommandType.SET_COMBOS,
                 data={"combos": payload},
             )
         )
+        raise_if_stale_profile_apply(manager, generation)
         if result.status != "ok":
             log.error("Failed to update combos: %s", result.error)
             return
@@ -697,7 +817,10 @@ async def update_mapping(
     manager: "SessionManager",
     hardware_id: str,
     resolved: ResolvedDeviceProfile,
+    *,
+    generation: int | None = None,
 ) -> bool:
+    raise_if_stale_profile_apply(manager, generation)
     if hardware_id not in manager.profile_state.grabbed_devices:
         return False
 
@@ -707,6 +830,7 @@ async def update_mapping(
     log.info("Updating mapping for %s with %d buttons", hardware_id, len(resolved.mappings))
     try:
         mapping = runtime_payloads.profile_to_mapping(manager, resolved, hardware_id)
+        raise_if_stale_profile_apply(manager, generation)
         result = await manager.client.send_command(
             Command(
                 command=CommandType.SET_MAPPING,
@@ -716,6 +840,7 @@ async def update_mapping(
                 },
             )
         )
+        raise_if_stale_profile_apply(manager, generation)
         if result.status == "ok":
             log.info("Updated mapping for %s", hardware_id)
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = signature
@@ -731,7 +856,10 @@ async def deactivate_profile(
     manager: "SessionManager",
     hardware_id: str,
     immediate: bool = False,
+    *,
+    generation: int | None = None,
 ) -> None:
+    raise_if_stale_profile_apply(manager, generation)
     cancel_grab_retry(manager, hardware_id)
     manager.profile_state.grab_waiting_devices.discard(hardware_id)
     if hardware_id not in manager.profile_state.grabbed_devices:
@@ -744,6 +872,7 @@ async def deactivate_profile(
                 data={"hardware_id": hardware_id, "immediate": bool(immediate)},
             )
         )
+        raise_if_stale_profile_apply(manager, generation)
         if result.status != "ok":
             log.error("Failed to release device %s: %s", hardware_id, result.error)
             return

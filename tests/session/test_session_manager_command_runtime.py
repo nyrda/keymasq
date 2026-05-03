@@ -396,7 +396,7 @@ async def test_runtime_reset_event_invalidates_and_reevaluates(
     assert manager.profile_state.last_sent_grab_signatures == {}
     assert manager.profile_state.last_sent_mapping_signatures == {}
     assert manager.profile_state.last_sent_combo_signature == ""
-    reevaluate_profiles.assert_awaited_once_with(manager)
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="runtime reset")
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "runtime_reset", "reason": "emergency_reset"}
     )

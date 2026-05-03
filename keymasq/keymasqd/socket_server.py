@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import os
 from dataclasses import dataclass
@@ -80,6 +81,7 @@ class SocketServer:
         self._client_context: dict[asyncio.StreamWriter, ClientContext] = {}
         self._next_connection_id = 1
         self._owner_context: ClientContext | None = None
+        self._handler_accepts_context = self._command_handler_accepts_context()
 
     async def start(self) -> None:
         self.server = await asyncio.start_unix_server(
@@ -234,12 +236,29 @@ class SocketServer:
         data: JsonObject,
         context: ClientContext,
     ) -> JsonObject:
-        try:
+        if self._handler_accepts_context:
             handler = cast(CurrentCommandHandler, self.command_handler)
             return await handler(command, data, context)
-        except TypeError:
-            handler = cast(LegacyCommandHandler, self.command_handler)
-            return await handler(command, data)
+
+        handler = cast(LegacyCommandHandler, self.command_handler)
+        return await handler(command, data)
+
+    def _command_handler_accepts_context(self) -> bool:
+        try:
+            signature = inspect.signature(self.command_handler)
+        except (TypeError, ValueError):
+            return True
+
+        positional_count = 0
+        for parameter in signature.parameters.values():
+            if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+                return True
+            if parameter.kind in {
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            }:
+                positional_count += 1
+        return positional_count >= 3
 
     async def _process_command(self, cmd: Command, context: ClientContext) -> Response:
         try:

@@ -112,6 +112,41 @@ async def test_handle_event_set_cursor_position_rejects_non_native_listener() ->
 
 
 @pytest.mark.asyncio
+async def test_handle_event_set_cursor_position_does_not_block_listener_loop() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def set_cursor_position(_x: int, _y: int) -> tuple[bool, str]:
+        started.set()
+        await finish.wait()
+        return True, "ok"
+
+    listener = SimpleNamespace(
+        supports_native_cursor_position_set=True,
+        set_cursor_position=AsyncMock(side_effect=set_cursor_position),
+    )
+    manager.compositor_state.window_listener = listener
+
+    await asyncio.wait_for(
+        session_events_module.handle_event(
+            manager,
+            CommandType.SET_CURSOR_POSITION,
+            {"request_id": "cursor-1", "x": 123, "y": 456},
+        ),
+        timeout=0.05,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+
+    assert manager.client.send_command.await_count == 0
+    tasks = list(manager.compositor_state.cursor_position_tasks)
+    finish.set()
+    await asyncio.gather(*tasks)
+    assert manager.client.send_command.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_handle_event_set_cursor_position_missing_request_id_is_one_way() -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))

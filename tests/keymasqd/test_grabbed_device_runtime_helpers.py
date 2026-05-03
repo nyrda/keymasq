@@ -727,7 +727,7 @@ class TestGrabbedDeviceHelpers:
         emitted_moves: list[tuple[ActionType, int, int]] = []
         fire_tasks: list[asyncio.Task] = []
         monkeypatch.setattr(
-            gda,
+            gdr,
             "emit_configured_mouse_move",
             lambda _device, action: emitted_moves.append(
                 (action.action_type, action.move_x, action.move_y)
@@ -920,6 +920,67 @@ class TestGrabbedDeviceHelpers:
             SimpleNamespace(value=1),
             "move_abs",
         )
+
+        cursor_position_setter.assert_awaited_once_with(10, 20)
+        assert mouse.writes == []
+
+    @pytest.mark.asyncio
+    async def test_rapidfire_mouse_move_abs_uses_cursor_position_setter(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cursor_position_setter = AsyncMock(return_value={"status": "ok"})
+        mouse = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            cursor_position_setter=cursor_position_setter,
+            mouse_uinput=mouse,  # type: ignore[arg-type]
+        )
+        device._running = True
+        device.state.rapidfire_active["move_abs"] = True
+        action = dm.MappingAction(
+            action_type=ActionType.MOUSE_MOVE_ABS,
+            move_x=10,
+            move_y=20,
+        )
+
+        task = asyncio.create_task(
+            gdr.rapidfire_move(
+                device,
+                action,
+                "move_abs",
+                1,
+                100,
+                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+            )
+        )
+        await asyncio.sleep(0.02)
+        device.state.rapidfire_active["move_abs"] = False
+        await task
+
+        cursor_position_setter.assert_awaited()
+        cursor_position_setter.assert_any_await(10, 20)
+        assert mouse.writes == []
+
+    @pytest.mark.asyncio
+    async def test_tap_mouse_move_abs_uses_cursor_position_setter(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cursor_position_setter = AsyncMock(return_value={"status": "ok"})
+        mouse = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            cursor_position_setter=cursor_position_setter,
+            mouse_uinput=mouse,  # type: ignore[arg-type]
+        )
+        action = dm.MappingAction(
+            action_type=ActionType.MOUSE_MOVE_ABS,
+            move_x=10,
+            move_y=20,
+        )
+
+        await _runtime_tap_grabbed_move(device, action, "move_abs", 1)
 
         cursor_position_setter.assert_awaited_once_with(10, 20)
         assert mouse.writes == []

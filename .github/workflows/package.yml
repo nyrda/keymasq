@@ -820,6 +820,7 @@ jobs:
   publish-repos:
     needs:
       - version-metadata
+      - build-source-tarball
       - release
     if: needs.release.result == 'success' && vars.ENABLE_REPO_PUBLISH == 'true'
     runs-on: ubuntu-24.04
@@ -848,6 +849,12 @@ jobs:
           name: rpm-signed-packages
           path: dist/
 
+      - name: Download source tarball
+        uses: actions/download-artifact@v8
+        with:
+          name: source-tarball
+          path: dist/
+
       - name: Publish to repository server
         env:
           RPM_SIGNING_KEY_PRIVATE_ASC: ${{ secrets.RPM_SIGNING_KEY_PRIVATE_ASC }}
@@ -858,9 +865,10 @@ jobs:
   publish-aur:
     needs:
       - version-metadata
+      - publish-repos
       - release
       - test-pacman-arch
-    if: needs.release.result == 'success' && vars.ENABLE_AUR_PUBLISH == 'true'
+    if: needs.release.result == 'success' && needs.publish-repos.result == 'success' && vars.ENABLE_AUR_PUBLISH == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -889,9 +897,6 @@ jobs:
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
 
       - name: Render AUR package files
-        env:
-          GITHUB_TAG: ${{ github.ref_name }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           version="$(python3 - <<'PY'
           from pathlib import Path
@@ -903,7 +908,7 @@ jobs:
           )"
           archive_path="dist/keymasq-${version}.tar.gz"
           archive_sha256="$(sha256sum "$archive_path" | awk '{print $1}')"
-          aur_source_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_TAG}/keymasq-${version}.tar.gz"
+          aur_source_url="https://repo.keymasq.tools/releases/keymasq-${version}.tar.gz"
 
           python3 packaging/pacman/render.py \
             --aur-source-url "$aur_source_url" \

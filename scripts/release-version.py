@@ -208,7 +208,7 @@ def _load_pacman_render(root: Path) -> ModuleType:
 def _render_pacman_outputs(root: Path, version: str, dry_run: bool) -> list[Path]:
     module = _load_pacman_render(root)
     aur_source_url = (
-        f"{module.COMMON_METADATA['url']}/releases/download/v{version}/keymasq-{version}.tar.gz"
+        f"{module.DEFAULT_AUR_SOURCE_BASE_URL}/keymasq-{version}.tar.gz"
     )
     aur_sha256 = "SKIP"
     local_replacements = module.build_replacements(

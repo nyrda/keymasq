@@ -41,6 +41,7 @@ COMMON_METADATA = {
     ],
     "optdepends": [],
 }
+DEFAULT_AUR_SOURCE_BASE_URL = "https://repo.keymasq.tools/releases"
 
 LOCAL_PREPARE = """prepare() {
     local worktree_dir="$srcdir/$pkgname-$pkgver"
@@ -83,7 +84,7 @@ def parse_args(pkgver: str) -> argparse.Namespace:
     )
     parser.add_argument(
         "--aur-source-url",
-        default=f"{COMMON_METADATA['url']}/releases/download/v{pkgver}/keymasq-{pkgver}.tar.gz",
+        default=f"{DEFAULT_AUR_SOURCE_BASE_URL}/keymasq-{pkgver}.tar.gz",
         help="Release tarball URL to embed in packaging/aur/PKGBUILD.",
     )
     parser.add_argument(

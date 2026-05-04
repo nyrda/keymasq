@@ -22,7 +22,7 @@ pkgbase = keymasq
 	depends = libadwaita
 	depends = polkit
 	depends = systemd
-	source = keymasq-0.13.2.tar.gz::https://github.com/nyrda/keymasq/releases/download/v0.13.2/keymasq-0.13.2.tar.gz
+	source = keymasq-0.13.2.tar.gz::https://repo.keymasq.tools/releases/keymasq-0.13.2.tar.gz
 	sha256sums = SKIP
 	install = keymasq.install
 

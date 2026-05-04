@@ -51,8 +51,9 @@ DEB_DIST="$REPO_DIR/debian/dists/stable"
 DEB_BINARY="$DEB_DIST/main/binary-all"
 FEDORA_ROOT="$REPO_DIR/fedora"
 OPENSUSE_DIR="$REPO_DIR/opensuse"
+RELEASES_DIR="$REPO_DIR/releases"
 
-mkdir -p "$DEB_POOL" "$DEB_BINARY" "$FEDORA_ROOT" "$OPENSUSE_DIR"
+mkdir -p "$DEB_POOL" "$DEB_BINARY" "$FEDORA_ROOT" "$OPENSUSE_DIR" "$RELEASES_DIR"
 
 # -- Copy new packages --
 
@@ -89,7 +90,15 @@ for rpm in dist/*.rpm; do
     rpm_count=$((rpm_count + 1))
 done
 
-if [[ $deb_count -eq 0 && $rpm_count -eq 0 ]]; then
+source_count=0
+for archive in dist/*.tar.gz; do
+    [ -f "$archive" ] || continue
+    cp "$archive" "$RELEASES_DIR/"
+    echo "Added $(basename "$archive") to release archives"
+    source_count=$((source_count + 1))
+done
+
+if [[ $deb_count -eq 0 && $rpm_count -eq 0 && $source_count -eq 0 ]]; then
     echo "No packages found in dist/, nothing to publish"
     exit 0
 fi

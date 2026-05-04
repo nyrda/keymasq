@@ -40,6 +40,7 @@ rm -rf "$source_stage_dir"
 cat <<SPEC_HEAD
 %global debug_package %{nil}
 %global buildsubdir %{name}-%{version}-build
+%define pyproject_bytecompilation %{nil}
 
 Name:           keymasq
 Version:        $VERSION

@@ -249,9 +249,10 @@ The root `PKGBUILD` is for `git clone ... && makepkg -sif` testing. It copies
 the current checkout into `$srcdir`, builds a wheel from that local snapshot,
 and does not fetch an external archive or VCS source.
 
-The `packaging/aur/` subtree is for release publishing. It expects a tagged
-release tarball URL and checksum. The GitHub release workflow is the intended
-path for updating and pushing that subtree to the AUR repo.
+The `packaging/aur/` subtree is for release publishing. It expects the
+`https://repo.keymasq.tools/releases/keymasq-$pkgver.tar.gz` release tarball URL
+and checksum. The GitHub release workflow is the intended path for updating and
+pushing that subtree to the AUR repo.
 
 The workflow also builds the rendered Arch package from the release tarball and
 installs that exact artifact in a fresh Arch environment for smoke testing.

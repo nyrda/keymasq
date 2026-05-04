@@ -22,12 +22,23 @@ from gi.repository import (  # pyright: ignore[reportMissingImports, reportAttri
 
 from keymasq.common.paths import ensure_config_dirs  # noqa: E402
 from keymasq.gui.icons import register_icon_search_path, theme_supports_core_icons  # noqa: E402
+from keymasq.gui.preferences import (  # noqa: E402
+    AppearanceMode,
+    load_appearance_mode,
+    save_appearance_mode,
+)
 from keymasq.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keymasq.gui.window import MainWindow  # noqa: E402
 
 APP_VERSION = __version__
 APP_ID = "tools.keymasq.keymasq"
 APP_ICON_NAME = APP_ID
+
+COLOR_SCHEME_BY_APPEARANCE: dict[AppearanceMode, Adw.ColorScheme] = {
+    "system": Adw.ColorScheme.DEFAULT,
+    "light": Adw.ColorScheme.FORCE_LIGHT,
+    "dark": Adw.ColorScheme.FORCE_DARK,
+}
 
 
 def _docs_version() -> str:
@@ -70,6 +81,8 @@ class Application(Adw.Application):
             settings = Gtk.Settings.get_default()
             if settings:
                 settings.set_property("gtk-icon-theme-name", "Adwaita")
+
+        self.apply_appearance_mode(load_appearance_mode(), persist=False)
 
         superkeys_action = Gio.SimpleAction.new("superkeys", None)
         superkeys_action.connect("activate", self._on_superkeys)
@@ -150,6 +163,11 @@ class Application(Adw.Application):
 
     def _on_quit(self, action, param) -> None:
         self.quit()
+
+    def apply_appearance_mode(self, mode: AppearanceMode, *, persist: bool = True) -> None:
+        Adw.StyleManager.get_default().set_color_scheme(COLOR_SCHEME_BY_APPEARANCE[mode])
+        if persist:
+            save_appearance_mode(mode)
 
 
 def main() -> None:

@@ -18,6 +18,7 @@ from keymasq.gui.icons import (
     image_from_icon_names,
     resolve_icon_name,
 )
+from keymasq.gui.preferences import AppearanceMode, load_appearance_mode
 from keymasq.gui.session_client import (
     GuiTaskResult,
     register_session_event_callback,
@@ -86,6 +87,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._unlock_refresh_inflight = False
         self._placeholder_subtitle: Gtk.Label | None = None
         self._menu_unlock_btn: Gtk.Button | None = None
+        self._appearance_buttons: dict[AppearanceMode, Gtk.ToggleButton] = {}
+        self._syncing_appearance = False
         self._unlock_status_label: Gtk.Label | None = None
         self._selected_profile_name: str | None = None
         self._syncing_profile_selection = False
@@ -649,6 +652,32 @@ class MainWindow(Adw.ApplicationWindow):
         menu_box.set_margin_start(6)
         menu_box.set_margin_end(6)
 
+        appearance_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        appearance_box.add_css_class("linked")
+        appearance_box.set_margin_bottom(6)
+        appearance_group: Gtk.ToggleButton | None = None
+        appearance_options: tuple[tuple[AppearanceMode, str], ...] = (
+            ("system", "System"),
+            ("light", "Light"),
+            ("dark", "Dark"),
+        )
+        for mode, label in appearance_options:
+            button = Gtk.ToggleButton(label=label)
+            button.set_hexpand(True)
+            if appearance_group is not None:
+                button.set_group(appearance_group)
+            else:
+                appearance_group = button
+            button.connect("toggled", self._on_appearance_mode_toggled, mode)
+            self._appearance_buttons[mode] = button
+            appearance_box.append(button)
+
+        current_appearance = load_appearance_mode()
+        self._syncing_appearance = True
+        self._appearance_buttons[current_appearance].set_active(True)
+        self._syncing_appearance = False
+        menu_box.append(appearance_box)
+
         superkeys_btn = Gtk.Button(label="Super Keys")
         superkeys_btn.set_halign(Gtk.Align.FILL)
         superkeys_btn.connect("clicked", self._on_menu_action_clicked, "superkeys", menu_popover)
@@ -768,6 +797,19 @@ class MainWindow(Adw.ApplicationWindow):
         self._setup_placeholder()
         self._setup_combo_tab()
         self._update_unlock_state(None)
+
+    def _on_appearance_mode_toggled(
+        self,
+        button: Gtk.ToggleButton,
+        mode: AppearanceMode,
+    ) -> None:
+        if self._syncing_appearance or not button.get_active():
+            return
+
+        app = self.get_application()
+        apply_appearance_mode = getattr(app, "apply_appearance_mode", None)
+        if callable(apply_appearance_mode):
+            apply_appearance_mode(mode)
 
     def _on_menu_action_clicked(
         self,

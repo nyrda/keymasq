@@ -35,6 +35,11 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.13.2" date="2026-05-04">
+      <description>
+        <p>Adds small cosmetic polish alongside internal fixes and restructuring.</p>
+      </description>
+    </release>
     <release version="0.13.1" date="2026-05-02">
       <description>
         <p>Fixes documentation links so they point to version-aware keymasq.tools URLs.</p>

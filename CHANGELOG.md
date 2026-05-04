@@ -3,6 +3,12 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.13.2
+
+### Improved
+
+- Added small cosmetic polish alongside internal fixes and restructuring.
+
 ## 0.13.1
 
 ### Fixed

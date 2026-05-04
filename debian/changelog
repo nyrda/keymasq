@@ -1,8 +1,8 @@
-keymasq (0.13.1-1) unstable; urgency=medium
+keymasq (0.13.2-1) unstable; urgency=medium
 
-  * Fix documentation links so they point to version-aware keymasq.tools URLs.
+  * Add small cosmetic polish alongside internal fixes and restructuring.
 
- -- nyrda <nyrda@keymasq.tools>  Sat, 02 May 2026 23:25:09 +0000
+ -- nyrda <nyrda@keymasq.tools>  Mon, 04 May 2026 03:28:50 +0000
 
 keymasq (0.13.0-1) unstable; urgency=medium
 

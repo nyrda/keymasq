@@ -14,9 +14,9 @@ COMMON_METADATA = {
     "maintainer": "nyrda <nyrda@keymasq.tools>",
     "pkgname": "keymasq",
     "pkgrel": "1",
-    "pkgdesc": "A key remapping tool for Linux using evdev and uinput",
+    "pkgdesc": "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros",
     "arch": ["any"],
-    "url": "https://github.com/nyrda/keymasq",
+    "url": "https://keymasq.tools",
     "license": ["MIT"],
     "depends": [
         "acl",

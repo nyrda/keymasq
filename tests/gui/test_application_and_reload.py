@@ -113,6 +113,19 @@ def test_application_activate_and_main_use_configured_entrypoints(monkeypatch) -
     assert calls[-2:] == ["main:True", "run"]
 
 
+def test_gui_appearance_preference_round_trips(temp_config_dir) -> None:
+    from keymasq.gui.preferences import load_appearance_mode, save_appearance_mode
+
+    assert load_appearance_mode() == "system"
+
+    save_appearance_mode("dark")
+
+    assert load_appearance_mode() == "dark"
+    assert (temp_config_dir / "gui_settings.toml").read_text(encoding="utf-8").strip() == (
+        'appearance = "dark"'
+    )
+
+
 def test_session_reload_reports_sync_and_async_status(monkeypatch) -> None:
     import keymasq.gui.session_reload as session_reload_module
 

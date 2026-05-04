@@ -108,6 +108,17 @@ class TestMainWindow:
         assert add_calls == [True]
         assert unlock_calls == []
 
+    def test_main_window_menu_reflects_saved_appearance(self, temp_config_dir):
+        from keymasq.gui.preferences import save_appearance_mode
+        from keymasq.gui.window import MainWindow
+
+        save_appearance_mode("dark")
+
+        window = MainWindow(demo_mode=True)
+
+        assert set(window._appearance_buttons) == {"system", "light", "dark"}
+        assert window._appearance_buttons["dark"].get_active() is True
+
     def test_main_window_unlock_uses_runtime_polkit_without_prompt(
         self, temp_config_dir, monkeypatch
     ):

@@ -80,6 +80,9 @@ Thumbs.db
 
 # Local config
 *.local
+*.env
+*.pem
+*.key
 .act-artifacts/
 
 # Makepkg

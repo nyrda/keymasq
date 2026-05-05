@@ -229,6 +229,75 @@ async def test_play_macro_payload_forwards_sanitized_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_type_text_compiles_and_forwards_events() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    sent_commands = []
+
+    async def send_command(command):
+        sent_commands.append(command)
+        return Response(status="ok", data={"status": "ok"})
+
+    manager.client.send_command = send_command  # type: ignore[method-assign]
+
+    result = await manager._handle_session_request(
+        {
+            "command": "type_text",
+            "text": "Hi",
+            "down_ms": 0,
+            "pause_ms": 0,
+            "speed": 1.25,
+        },
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert result["char_count"] == 2
+    assert result["event_count"] == len(sent_commands[0].data["macro_events"])
+    assert sent_commands[0].command == CommandType.PLAY_MACRO
+    assert sent_commands[0].data["speed"] == 1.25
+    assert len(sent_commands[0].data["macro_events"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_play_compact_macro_compiles_and_forwards_events() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    sent_commands = []
+
+    async def send_command(command):
+        sent_commands.append(command)
+        return Response(status="ok", data={"status": "ok"})
+
+    manager.client.send_command = send_command  # type: ignore[method-assign]
+
+    result = await manager._handle_session_request(
+        {
+            "command": "play_compact_macro",
+            "tokens": ["key_a", "wait:10:20", "btn_left"],
+            "speed": 0.5,
+        },
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert result["event_count"] == len(sent_commands[0].data["macro_events"])
+    assert sent_commands[0].command == CommandType.PLAY_MACRO
+    assert sent_commands[0].data["speed"] == 0.5
+    wait_random = next(
+        event
+        for event in sent_commands[0].data["macro_events"]
+        if event.get("macro_action") == "wait_random"
+    )
+    assert wait_random["min_us"] == 10_000
+    assert wait_random["max_us"] == 20_000
+
+
+@pytest.mark.asyncio
 async def test_play_macro_payload_requires_events() -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)

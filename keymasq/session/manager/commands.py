@@ -451,6 +451,45 @@ async def _handle_macro_commands(
             return response_data if response_data else {"status": "ok"}
         return {"status": "error", "message": result.error or "playback failed"}
 
+    if command == "type_text":
+        from keymasq.common.macro_compile import build_macro_payload, build_type_macro_events
+
+        text = str_value(request.get("text"), "")
+        try:
+            events = build_type_macro_events(
+                text,
+                max(0, int_value(request.get("down_ms"), 10)),
+                max(0, int_value(request.get("pause_ms"), 20)),
+                use_unicode_input=bool(request.get("use_unicode_input", True)),
+            )
+            payload = build_macro_payload(events, speed=float_value(request.get("speed"), 1.0))
+        except (TypeError, ValueError) as exc:
+            return {"status": "error", "message": str(exc)}
+
+        result = await _send_adhoc_macro_payload(manager, payload)
+        if result.get("status") == "ok":
+            result.setdefault("char_count", len(text))
+            result.setdefault("event_count", len(events))
+        return result
+
+    if command == "play_compact_macro":
+        from keymasq.common.macro_compile import build_compact_macro_events, build_macro_payload
+
+        tokens = [str(token) for token in json_list(request.get("tokens")) if str(token)]
+        if not tokens:
+            return {"status": "error", "message": "tokens required"}
+
+        try:
+            events = build_compact_macro_events(tokens)
+            payload = build_macro_payload(events, speed=float_value(request.get("speed"), 1.0))
+        except (TypeError, ValueError) as exc:
+            return {"status": "error", "message": str(exc)}
+
+        result = await _send_adhoc_macro_payload(manager, payload)
+        if result.get("status") == "ok":
+            result.setdefault("event_count", len(events))
+        return result
+
     if command == "play_macro_payload":
         macro_events = [
             event
@@ -503,6 +542,49 @@ async def _handle_macro_commands(
         return {"status": "error", "message": result.error or "cancel failed"}
 
     return None
+
+
+async def _send_adhoc_macro_payload(
+    manager: "SessionManager",
+    payload: JsonObject,
+) -> JsonObject:
+    macro_events = [
+        event
+        for raw_event in json_list(payload.get("macro_events"))
+        if (event := json_object(raw_event)) is not None
+    ]
+    if not macro_events:
+        return {"status": "error", "message": "macro_events required"}
+
+    macro = runtime_recording.sanitize_macro_for_policy(manager, {"events": macro_events})
+    sanitized_events = json_list(macro.get("events"))
+    adhoc_payload: JsonObject = {
+        "macro_name": str_value(payload.get("macro_name"), ""),
+        "macro_events": sanitized_events,
+        "replay_mouse_movement": bool(payload.get("replay_mouse_movement", True)),
+        "replay_mouse_clicks": bool(payload.get("replay_mouse_clicks", True)),
+        "speed": float_value(payload.get("speed"), 1.0),
+        "loop_mode": str_value(payload.get("loop_mode", "none"), "none") or "none",
+        "loop_count": int_value(payload.get("loop_count"), 1),
+        "loop_stop_behavior": normalize_macro_loop_stop_behavior(
+            payload.get("loop_stop_behavior")
+        ),
+        "move_to_start": bool(payload.get("move_to_start", False)),
+        "start_x": int_value(payload.get("start_x"), 0),
+        "start_y": int_value(payload.get("start_y"), 0),
+        "block_mouse_movement": bool(payload.get("block_mouse_movement", False)),
+    }
+
+    try:
+        result = await manager.client.send_command(
+            Command(command=CommandType.PLAY_MACRO, data=adhoc_payload)
+        )
+    except Exception:
+        return {"status": "error", "message": "Daemon unavailable"}
+    if result.status == "ok":
+        response_data = json_object(result.data)
+        return response_data if response_data else {"status": "ok"}
+    return {"status": "error", "message": result.error or "playback failed"}
 
 
 async def _handle_capture_commands(

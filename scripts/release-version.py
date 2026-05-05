@@ -59,6 +59,11 @@ def _build_rules(
             f'version = "{version}"',
         ),
         RewriteRule(
+            root / "keymasq/_version.py",
+            re.compile(r'(?m)^__version__ = "[^"]+"$'),
+            f'__version__ = "{version}"',
+        ),
+        RewriteRule(
             root / "packaging/rpm/metadata.env",
             re.compile(r'(?m)^VERSION=".*"$'),
             f'VERSION="{version}"',

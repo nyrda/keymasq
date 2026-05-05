@@ -1,6 +1,5 @@
 import json
 
-import evdev
 import pytest
 
 from keymasq.cli import commands
@@ -177,12 +176,13 @@ def test_type_cli_compiles_and_sends_payload(monkeypatch: pytest.MonkeyPatch) ->
     commands.type_cli(["Hi"], speed=1.5)
 
     payload = sent[0]
-    assert payload["command"] == "play_macro_payload"
+    assert payload["command"] == "type_text"
+    assert payload["text"] == "Hi"
     assert payload["speed"] == 1.5
-    assert len(payload["macro_events"]) > 0
+    assert payload["use_unicode_input"] is True
 
 
-def test_type_cli_uses_unicode_fallback_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_type_cli_sends_no_unicode_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[dict[str, object]] = []
 
     def _session_request(payload: dict[str, object]) -> dict[str, object]:
@@ -191,27 +191,23 @@ def test_type_cli_uses_unicode_fallback_by_default(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(commands, "_session_request", _session_request)
 
-    commands.type_cli(["é"])
+    commands.type_cli(["é"], use_unicode_input=False)
 
-    events = sent[0]["macro_events"]
-    assert isinstance(events, list)
-    press_codes = [event["code"] for event in events if event.get("value") == 1]
-    assert press_codes[:3] == [
-        evdev.ecodes.KEY_LEFTCTRL,
-        evdev.ecodes.KEY_LEFTSHIFT,
-        evdev.ecodes.KEY_U,
-    ]
+    assert sent[0]["command"] == "type_text"
+    assert sent[0]["use_unicode_input"] is False
 
 
-def test_type_cli_no_unicode_rejects_unsupported_character(
+def test_type_cli_print_json_does_not_send(
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(commands, "_session_request", lambda payload: pytest.fail("sent request"))
 
-    with pytest.raises(SystemExit) as excinfo:
-        commands.type_cli(["é"], use_unicode_input=False)
+    commands.type_cli(["Hi"], print_json=True)
 
-    assert excinfo.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["device_types"] == ["keyboard"]
+    assert len(payload["events"]) > 0
 
 
 def test_play_adhoc_cli_compiles_compact_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -226,13 +222,9 @@ def test_play_adhoc_cli_compiles_compact_tokens(monkeypatch: pytest.MonkeyPatch)
     commands.play_adhoc_cli(["key_a", "wait:10:20", "btn_left"], speed=0.5)
 
     payload = sent[0]
-    assert payload["command"] == "play_macro_payload"
+    assert payload["command"] == "play_compact_macro"
     assert payload["speed"] == 0.5
-    events = payload["macro_events"]
-    assert isinstance(events, list)
-    wait_random = next(event for event in events if event.get("macro_action") == "wait_random")
-    assert wait_random["min_us"] == 10_000
-    assert wait_random["max_us"] == 20_000
+    assert payload["tokens"] == ["key_a", "wait:10:20", "btn_left"]
 
 
 def test_play_adhoc_cli_reads_json_payload(monkeypatch: pytest.MonkeyPatch) -> None:

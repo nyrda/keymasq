@@ -3,13 +3,6 @@ import socket
 import sys
 from typing import Any, cast
 
-from keymasq.common.macro_compile import (
-    build_compact_macro_events,
-    build_macro_payload,
-    build_type_macro_events,
-    macro_definition_from_events,
-    parse_macro_json,
-)
 from keymasq.common.paths import SESSION_SOCKET_PATH
 
 JsonObject = dict[str, Any]
@@ -223,23 +216,35 @@ def type_cli(
     json_output: bool = False,
 ) -> None:
     text = " ".join(text_parts) if text_parts else _read_stdin_or_exit("No text provided")
-    try:
-        events = build_type_macro_events(
-            text,
-            max(0, int(down_ms)),
-            max(0, int(pause_ms)),
-            use_unicode_input=use_unicode_input,
-        )
-    except ValueError as exc:
-        print(f"Error: {exc}")
-        sys.exit(1)
-
     if print_json:
+        try:
+            from keymasq.common.macro_compile import (
+                build_type_macro_events,
+                macro_definition_from_events,
+            )
+
+            events = build_type_macro_events(
+                text,
+                max(0, int(down_ms)),
+                max(0, int(pause_ms)),
+                use_unicode_input=use_unicode_input,
+            )
+        except ValueError as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
         _print_json(macro_definition_from_events(events, device_types=["keyboard"]))
         return
 
-    payload = build_macro_payload(events, speed=float(speed))
-    result = _request_or_error({"command": "play_macro_payload", **payload})
+    result = _request_or_error(
+        {
+            "command": "type_text",
+            "text": text,
+            "down_ms": max(0, int(down_ms)),
+            "pause_ms": max(0, int(pause_ms)),
+            "use_unicode_input": bool(use_unicode_input),
+            "speed": float(speed),
+        }
+    )
     if _handled_json_or_error(result, json_output):
         return
     print(f"Played type macro: {len(text)} chars")
@@ -255,6 +260,8 @@ def play_adhoc_cli(
 ) -> None:
     try:
         if input_json:
+            from keymasq.common.macro_compile import build_macro_payload, parse_macro_json
+
             macro_data = parse_macro_json(_json_input_from_args_or_stdin(tokens))
             raw_events = macro_data.get("events", [])
             if not isinstance(raw_events, list):
@@ -276,13 +283,34 @@ def play_adhoc_cli(
             )
         else:
             event_tokens = tokens or _read_stdin_tokens_or_exit("No macro events provided")
-            events = build_compact_macro_events(event_tokens)
-            payload = build_macro_payload(events, speed=float(speed))
+            if print_json:
+                from keymasq.common.macro_compile import (
+                    build_compact_macro_events,
+                    build_macro_payload,
+                )
+
+                events = build_compact_macro_events(event_tokens)
+                payload = build_macro_payload(events, speed=float(speed))
+            else:
+                result = _request_or_error(
+                    {
+                        "command": "play_compact_macro",
+                        "tokens": event_tokens,
+                        "speed": float(speed),
+                    }
+                )
+                if _handled_json_or_error(result, json_output):
+                    return
+                event_count = int(result.get("event_count", 0) or 0)
+                print(f"Played ad-hoc macro: {event_count} events")
+                return
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"Error: {exc}")
         sys.exit(1)
 
     if print_json:
+        from keymasq.common.macro_compile import macro_definition_from_events
+
         _print_json(macro_definition_from_events(cast(list[JsonObject], payload["macro_events"])))
         return
 
@@ -327,6 +355,8 @@ def _json_input_from_args_or_stdin(parts: list[str]) -> str:
 
 
 def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonObject:
+    from keymasq.common.macro_compile import macro_definition_from_events, parse_macro_json
+
     macro_data = parse_macro_json(_json_input_from_args_or_stdin(json_parts))
     raw_events = macro_data.get("events", [])
     if not isinstance(raw_events, list):

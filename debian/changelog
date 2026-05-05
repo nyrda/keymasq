@@ -1,8 +1,11 @@
-keymasq (0.13.2-1) unstable; urgency=medium
+keymasq (0.14.0-1) unstable; urgency=medium
 
-  * Add small cosmetic polish alongside internal fixes and restructuring.
+  * Honor XDG_CONFIG_HOME instead of always using the default user config
+    directory.
+  * Ship the first public release, with Fedora COPR and AUR packaging now
+    available.
 
- -- nyrda <nyrda@keymasq.tools>  Mon, 04 May 2026 03:28:50 +0000
+ -- nyrda <nyrda@keymasq.tools>  Tue, 05 May 2026 01:39:26 +0000
 
 keymasq (0.13.0-1) unstable; urgency=medium
 

@@ -35,6 +35,12 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.14.0" date="2026-05-05">
+      <description>
+        <p>Honors XDG_CONFIG_HOME instead of always using the default user config directory.</p>
+        <p>First public release, with Fedora COPR and AUR packaging now available.</p>
+      </description>
+    </release>
     <release version="0.13.2" date="2026-05-04">
       <description>
         <p>Adds small cosmetic polish alongside internal fixes and restructuring.</p>

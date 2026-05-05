@@ -3,6 +3,18 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.14.0
+
+### Fixed
+
+- Configuration now honors `XDG_CONFIG_HOME` instead of always using the
+  default user config directory.
+
+### Packaging
+
+- First public release.
+- Fedora COPR and AUR packaging are now available.
+
 ## 0.13.2
 
 ### Improved

@@ -452,17 +452,16 @@ async def _handle_macro_commands(
         return {"status": "error", "message": result.error or "playback failed"}
 
     if command == "type_text":
-        from keymasq.common.macro_compile import build_macro_payload, build_type_macro_events
-
         text = str_value(request.get("text"), "")
         try:
-            events = build_type_macro_events(
+            events, payload = await asyncio.to_thread(
+                _compile_type_text_macro,
                 text,
                 max(0, int_value(request.get("down_ms"), 10)),
                 max(0, int_value(request.get("pause_ms"), 20)),
-                use_unicode_input=bool(request.get("use_unicode_input", True)),
+                bool(request.get("use_unicode_input", True)),
+                float_value(request.get("speed"), 1.0),
             )
-            payload = build_macro_payload(events, speed=float_value(request.get("speed"), 1.0))
         except (TypeError, ValueError) as exc:
             return {"status": "error", "message": str(exc)}
 
@@ -473,15 +472,16 @@ async def _handle_macro_commands(
         return result
 
     if command == "play_compact_macro":
-        from keymasq.common.macro_compile import build_compact_macro_events, build_macro_payload
-
         tokens = [str(token) for token in json_list(request.get("tokens")) if str(token)]
         if not tokens:
             return {"status": "error", "message": "tokens required"}
 
         try:
-            events = build_compact_macro_events(tokens)
-            payload = build_macro_payload(events, speed=float_value(request.get("speed"), 1.0))
+            events, payload = await asyncio.to_thread(
+                _compile_compact_macro,
+                tokens,
+                float_value(request.get("speed"), 1.0),
+            )
         except (TypeError, ValueError) as exc:
             return {"status": "error", "message": str(exc)}
 
@@ -542,6 +542,31 @@ async def _handle_macro_commands(
         return {"status": "error", "message": result.error or "cancel failed"}
 
     return None
+
+
+def _compile_type_text_macro(
+    text: str,
+    down_ms: int,
+    pause_ms: int,
+    use_unicode_input: bool,
+    speed: float,
+) -> tuple[list[JsonObject], JsonObject]:
+    from keymasq.common.macro_compile import build_macro_payload, build_type_macro_events
+
+    events = build_type_macro_events(
+        text,
+        down_ms,
+        pause_ms,
+        use_unicode_input=use_unicode_input,
+    )
+    return events, build_macro_payload(events, speed=speed)
+
+
+def _compile_compact_macro(tokens: list[str], speed: float) -> tuple[list[JsonObject], JsonObject]:
+    from keymasq.common.macro_compile import build_compact_macro_events, build_macro_payload
+
+    events = build_compact_macro_events(tokens)
+    return events, build_macro_payload(events, speed=speed)
 
 
 async def _send_adhoc_macro_payload(

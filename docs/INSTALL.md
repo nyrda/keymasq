@@ -55,7 +55,19 @@ directly with `sudo apt install ./keymasq_*_all.deb`.
 
 ### Fedora
 
-Add the Keymasq repository and install:
+COPR is the preferred Fedora channel:
+
+```bash
+sudo dnf install dnf-plugins-core
+sudo dnf copr enable nyrda/keymasq
+sudo dnf install keymasq
+sudo systemctl enable --now keymasqd
+systemctl --user enable --now keymasq-session
+```
+
+If you prefer the project-hosted RPM repository instead of COPR, add the
+Keymasq repository and install:
+
 
 ```bash
 sudo tee /etc/yum.repos.d/keymasq.repo << 'EOF'
@@ -82,9 +94,17 @@ sudo dnf install ./keymasq-*.fc*.rpm
 
 ### Bazzite
 
-Bazzite is supported through Fedora RPM layering. Add the Fedora-versioned
-Keymasq repository and layer the package with `rpm-ostree` so future Keymasq
-updates can arrive through normal Bazzite upgrades:
+Bazzite is supported through Fedora RPM layering. COPR is the preferred channel:
+
+```bash
+sudo dnf5 copr enable nyrda/keymasq
+sudo rpm-ostree install keymasq
+systemctl reboot
+```
+
+If you prefer the project-hosted RPM repository instead of COPR, add the
+Fedora-versioned Keymasq repository and layer the package with `rpm-ostree` so
+future Keymasq updates can arrive through normal Bazzite upgrades:
 
 ```bash
 sudo tee /etc/yum.repos.d/keymasq.repo << 'EOF'

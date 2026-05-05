@@ -4,7 +4,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Keymasq</name>
-  <summary>Linux input remapper for keyboards, mice, and gamepads</summary>
+  <summary>Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros</summary>
   <developer id="tools.keymasq">
     <name>nyrda</name>
   </developer>

@@ -862,6 +862,59 @@ jobs:
           REPO_UPLOAD_TOKEN: ${{ secrets.REPO_UPLOAD_TOKEN }}
         run: bash scripts/publish-repos.sh
 
+  publish-copr:
+    needs:
+      - version-metadata
+      - build-source-tarball
+      - release
+    if: needs.release.result == 'success' && vars.ENABLE_COPR_PUBLISH == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: publish-copr
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+
+      - name: Download source tarball
+        uses: actions/download-artifact@v8
+        with:
+          name: source-tarball
+          path: dist/
+
+      - name: Build Fedora SRPM and publish to COPR
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+          COPR_OWNER: ${{ vars.COPR_OWNER }}
+        run: |
+          test -n "$COPR_CONFIG"
+          test -n "$COPR_OWNER"
+
+          docker run --rm \
+            -e COPR_CONFIG \
+            -e COPR_OWNER \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            fedora:44 \
+            bash -lc '
+              set -euo pipefail
+              dnf install -y \
+                copr-cli \
+                desktop-file-utils \
+                pyproject-rpm-macros \
+                python3-devel \
+                rpm-build \
+                systemd-rpm-macros \
+                tar
+              install -d -m 700 ~/.config
+              printf "%s\n" "$COPR_CONFIG" > ~/.config/copr
+              bash packaging/rpm/build-fedora-rpm.sh --srpm dist "$(echo dist/keymasq-*.tar.gz)"
+              copr-cli build "$COPR_OWNER/keymasq" dist/keymasq-*.src.rpm
+            '
+
   publish-aur:
     needs:
       - version-metadata

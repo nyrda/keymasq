@@ -109,7 +109,7 @@
           '';
 
           meta = {
-            description = "A key remapping tool for Linux";
+            description = "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros";
             homepage = "https://keymasq.tools";
             changelog = "https://github.com/nyrda/keymasq/blob/master/CHANGELOG.md";
             sourceProvenance = [ lib.sourceTypes.fromSource ];

@@ -36,7 +36,7 @@ Recommends:
  slurp
 Suggests:
  gnome-shell
-Description: key remapping tool for Linux using evdev and uinput
+Description: Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
  Keymasq provides a privileged remapping daemon, a per-user session manager,
  and a GTK4 configuration interface for Linux input remapping.
  .

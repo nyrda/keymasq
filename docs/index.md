@@ -1,7 +1,7 @@
 # Keymasq
 
-Remap keys, buttons, and gamepad inputs on Linux—with per-app profiles,
-macros, and graphical setup and configuration.
+Keyboard and mouse remapper with GUI configuration, per-window profiles, and
+macros.
 
 Keymasq supports keyboard, mouse, and gamepad remapping with layered profiles,
 window-aware activation, macros, superkeys, and combos. Use it for workflows

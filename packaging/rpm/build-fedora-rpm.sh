@@ -1,10 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+BUILD_MODE="${KEYMASQ_RPM_BUILD_MODE:-binary}"
+
+if [[ "${1:-}" == "--srpm" ]]; then
+    BUILD_MODE="srpm"
+    shift
+fi
+
 if [[ $# -ne 2 ]]; then
-    echo "usage: build-fedora-rpm.sh <target-dir> <source-tarball>" >&2
+    echo "usage: build-fedora-rpm.sh [--srpm] <target-dir> <source-tarball>" >&2
     exit 2
 fi
+
+case "$BUILD_MODE" in
+    binary|srpm) ;;
+    *)
+        echo "unsupported KEYMASQ_RPM_BUILD_MODE: $BUILD_MODE" >&2
+        exit 2
+        ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -45,13 +60,13 @@ cat <<SPEC_HEAD
 Name:           keymasq
 Version:        $VERSION
 Release:        ${RELEASE}%{?dist}
-Summary:        A key remapping tool for Linux using evdev and uinput
+Summary:        Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
 
 License:        MIT
 URL:            https://keymasq.tools
 Source0:        %{name}-%{version}.tar.gz
 
-BuildArch:      x86_64
+BuildArch:      noarch
 
 BuildRequires:  desktop-file-utils
 BuildRequires:  pyproject-rpm-macros
@@ -70,7 +85,7 @@ Recommends:     python3dist(uvloop)
 %pyproject_buildrequires
 
 %description
-A key remapping tool for Linux using evdev and uinput
+Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
 
 %prep
 %autosetup -n %{buildsubdir}
@@ -156,11 +171,16 @@ cat <<'SPEC_TAIL'
 SPEC_TAIL
 } > "$topdir/SPECS/keymasq.spec"
 
-rpmbuild --define "_topdir $topdir" -bb "$topdir/SPECS/keymasq.spec" >/dev/null
+if [[ "$BUILD_MODE" == "srpm" ]]; then
+    rpmbuild --define "_topdir $topdir" -bs "$topdir/SPECS/keymasq.spec" >/dev/null
+    built_rpm="$(find "$topdir/SRPMS" -maxdepth 1 -name '*.src.rpm' -print -quit)"
+else
+    rpmbuild --define "_topdir $topdir" -bb "$topdir/SPECS/keymasq.spec" >/dev/null
+    built_rpm="$(find "$topdir/RPMS" -maxdepth 2 -name '*.rpm' -print -quit)"
+fi
 
-built_rpm="$(find "$topdir/RPMS" -maxdepth 2 -name '*.rpm' -print -quit)"
 if [[ -z "$built_rpm" ]]; then
-    echo "rpmbuild did not produce a Fedora RPM" >&2
+    echo "rpmbuild did not produce a Fedora $BUILD_MODE RPM" >&2
     exit 1
 fi
 

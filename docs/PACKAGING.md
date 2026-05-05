@@ -29,7 +29,8 @@ The repository currently maintains these package outputs:
 | Arch local checkout package | Arch users testing/installing the current worktree | `PKGBUILD`, `keymasq.install` | `.pkg.tar.zst` |
 | Arch AUR package | AUR publication and release packaging | `packaging/aur/` | AUR Git repo contents |
 | Debian package | Debian, Ubuntu, Mint, and derivatives | `debian/` | `.deb` |
-| Fedora RPM | Fedora systems | `packaging/rpm/` | `.fc<release>.x86_64.rpm` |
+| Fedora COPR | Fedora systems | `packaging/rpm/` | COPR-hosted RPM repository |
+| Fedora project-hosted RPM | Fedora systems | `packaging/rpm/` | `.fc<release>.noarch.rpm` |
 | openSUSE RPM | openSUSE systems | `packaging/rpm/` | `.opensuse.x86_64.rpm` |
 
 ## Release channels
@@ -342,6 +343,12 @@ dist/debian/
 That is the same path used by `packaging/debian/ci-build.sh` and the
 `build-deb` GitHub Actions job.
 
+### Fedora COPR and project-hosted RPMs
+
+Fedora COPR is the preferred Fedora release channel. The project-hosted Fedora
+repository at `https://repo.keymasq.tools/fedora/$releasever` remains supported
+as an alternate install path for users who do not want to enable COPR.
+
 ### Fedora and openSUSE RPMs
 
 RPM packaging is driven by `packaging/rpm/metadata.env`,
@@ -374,7 +381,9 @@ The RPM build flow now splits by distro:
 
 `scripts/build-packages.sh` builds from the current working tree. Fedora RPMs
 are emitted per Fedora release, for example `fc43` and `fc44`, rather than as
-a single generic Fedora artifact.
+a single generic Fedora artifact. The Fedora package itself is
+architecture-independent and is built as `noarch`; runtime dependencies remain
+resolved by the target Fedora architecture.
 
 Repository publishing keeps those Fedora artifacts in matching release-specific
 RPM repositories:
@@ -435,7 +444,7 @@ nix develop -c bash -lc 'bash scripts/build-packages.sh'
 Typical output:
 
 ```text
-dist/keymasq-0.1.0-1.fc43.x86_64.rpm
+dist/keymasq-0.1.0-1.fc43.noarch.rpm
 dist/keymasq-0.1.0-1.opensuse.x86_64.rpm
 ```
 

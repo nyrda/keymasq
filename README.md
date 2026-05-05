@@ -3,8 +3,8 @@
 [![Tests](https://github.com/nyrda/keymasq/actions/workflows/tests.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/tests.yml)
 [![Package](https://github.com/nyrda/keymasq/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/package.yml)
 
-Remap keys, buttons, and gamepad inputs on Linux—with per-app profiles,
-macros, and graphical setup and configuration.
+Keyboard and mouse remapper with GUI configuration, per-window profiles, and
+macros.
 
 Keymasq supports keyboard, mouse, and gamepad remapping with layered profiles,
 window-aware activation, macros, tap/hold behaviors, and combos. Use it for workflows
@@ -104,7 +104,20 @@ systemctl --user enable --now keymasq-session
 keymasq
 ```
 
-### Fedora / openSUSE / NixOS
+### Fedora
+
+COPR is the preferred Fedora channel:
+
+```bash
+sudo dnf install dnf-plugins-core
+sudo dnf copr enable nyrda/keymasq
+sudo dnf install keymasq
+sudo systemctl enable --now keymasqd
+systemctl --user enable --now keymasq-session
+keymasq
+```
+
+### openSUSE / NixOS
 
 See [docs/INSTALL.md](docs/INSTALL.md) for full instructions.
 

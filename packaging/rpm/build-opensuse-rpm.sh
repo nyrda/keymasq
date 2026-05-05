@@ -58,7 +58,7 @@ cat <<SPEC_HEAD
 Name: keymasq
 Version: $VERSION
 Release: $RELEASE
-Summary: A key remapping tool for Linux using evdev and uinput
+Summary: Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
 License: MIT
 URL: https://keymasq.tools
 Vendor: nyrda
@@ -81,7 +81,7 @@ Source0: keymasq-root.tar.gz
 Source1: keymasq.files
 
 %description
-A key remapping tool for Linux using evdev and uinput
+Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
 
 %prep
 

@@ -290,7 +290,7 @@ class TestMainWindow:
         assert window._selected_profile_name == "Gaming"
         assert tab._selected_profile is not None
         assert tab._selected_profile.config.name == "Gaming"
-        assert tab.settings_frame.get_expanded() is True
+        assert tab._profile_settings_dialog is not None
         assert window.combo_tab is not None
         assert window.combo_tab._selected_profile is not None
         assert window.combo_tab._selected_profile.config.name == "Gaming"

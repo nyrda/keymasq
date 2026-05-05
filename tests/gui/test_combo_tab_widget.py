@@ -203,7 +203,30 @@ class TestComboTabWidget:
         tab._on_active_profile_response({"active_profiles": ["Desktop"]})
 
         assert tab._active_profile_names == ["Desktop"]
+        assert tab.active_profiles_label.get_text() == "Desktop"
+        assert tab.active_profiles_label.get_tooltip_text() == "Layer order: Desktop"
         assert tab.status_label.get_text() == "active"
+
+    def test_combo_tab_summarizes_layered_active_profiles(self, temp_config_dir):
+        from keymasq.common.models import ProfileConfig
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
+
+        profile_manager = ProfileManager()
+        for name in ("Base", "App", "Game", "Overlay"):
+            profile_manager.save_profile(ProfileConfig(name=name, enabled=True, is_permanent=True))
+
+        tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
+        tab.refresh_profiles(preferred_profile_name="Base", publish_selection=False)
+        tab._on_active_profile_response(
+            {"active_profiles": ["Base", "App", "Game", "Overlay"]}
+        )
+
+        assert tab.active_profiles_label.get_text() == "Base, App, Game, +1"
+        assert (
+            tab.active_profiles_label.get_tooltip_text()
+            == "Layer order: Base -> App -> Game -> Overlay"
+        )
 
     def test_combo_tab_respects_compositor_tag_rule_capability(self, temp_config_dir):
         from keymasq.common.models import ProfileConfig, WindowRule

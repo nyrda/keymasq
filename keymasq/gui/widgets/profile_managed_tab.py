@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import re
 from datetime import datetime
 
@@ -9,8 +10,9 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq import __version__
 from keymasq.common.models import ProfileConfig, ProfileState, WindowRule
 from keymasq.gui.session_client import (
     get_active_window_async,
@@ -24,6 +26,21 @@ PROFILE_TYPE_ICONS = {
     "permanent": "⭐",
     "conditional": "🪟",
 }
+
+log = logging.getLogger("keymasq.gui.widgets.profile_managed_tab")
+
+
+def _docs_version() -> str:
+    version = __version__.strip()
+    if not version:
+        return "master"
+    if "dev" in version:
+        return "master"
+    return f"v{version.removeprefix('v')}"
+
+
+def _profiles_docs_url() -> str:
+    return f"https://keymasq.tools/docs/{_docs_version()}/PROFILES/"
 
 
 class ProfileManagedTab(Gtk.Box):
@@ -109,27 +126,49 @@ class ProfileManagedTab(Gtk.Box):
         copy_btn.connect("clicked", self._on_copy_profile)
         btn_group.append(copy_btn)
 
-        delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        delete_btn.set_tooltip_text("Delete profile")
-        delete_btn.connect("clicked", self._on_delete_profile)
-        btn_group.append(delete_btn)
-        self.delete_profile_btn = delete_btn
+        settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+        settings_btn.set_tooltip_text("Profile settings")
+        settings_btn.connect("clicked", self._on_profile_settings_clicked)
+        btn_group.append(settings_btn)
+        self.settings_btn = settings_btn
 
         profile_box.append(btn_group)
 
         self.status_label = Gtk.Label()
         self.status_label.add_css_class("status-pill")
+        self.status_label.set_tooltip_text(
+            "State of the currently selected profile. "
+            "Other profiles can be active at the same time."
+        )
         profile_box.append(self.status_label)
 
         self.append(profile_box)
 
+        active_profile_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        active_profile_box.add_css_class("active-profiles-summary")
+        active_profile_box.set_tooltip_text(
+            "Profiles are layered. All listed profiles are active; "
+            "later profiles override earlier ones."
+        )
+
+        active_profile_title = Gtk.Label(label="Active profiles:")
+        active_profile_title.add_css_class("caption")
+        active_profile_title.add_css_class("dim-label")
+        active_profile_box.append(active_profile_title)
+
+        self.active_profiles_label = Gtk.Label(label="None")
+        self.active_profiles_label.add_css_class("caption")
+        self.active_profiles_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.active_profiles_label.set_hexpand(True)
+        self.active_profiles_label.set_halign(Gtk.Align.START)
+        active_profile_box.append(self.active_profiles_label)
+
+        self.append(active_profile_box)
+        self._update_active_profiles_summary()
+
         self._setup_profile_settings()
 
     def _setup_profile_settings(self) -> None:
-        settings_expander = Gtk.Expander(label="Profile Settings")
-        settings_expander.set_expanded(False)
-        settings_expander.set_sensitive(False)
-
         settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         settings_box.set_margin_top(12)
         settings_box.set_margin_bottom(12)
@@ -260,10 +299,10 @@ class ProfileManagedTab(Gtk.Box):
         _ = row
 
         settings_box.append(settings_grid)
-        settings_expander.set_child(settings_box)
 
-        self.settings_frame = settings_expander
-        self.append(settings_expander)
+        self._profile_settings_content = settings_box
+        self._profile_settings_dialog: Adw.Dialog | None = None
+        self.settings_frame = self.settings_btn
 
     def _append_profile_settings_rows(self, settings_grid: Gtk.Grid, row: int) -> int:
         _ = settings_grid
@@ -391,7 +430,80 @@ class ProfileManagedTab(Gtk.Box):
         self.refresh_profiles(preferred_profile_name=new_config.name, publish_selection=False)
         notify_session_reload_async()
 
-    def _on_delete_profile(self, _button: Gtk.Button) -> None:
+    def _on_profile_settings_clicked(self, _button: Gtk.Button) -> None:
+        if not self._selected_profile:
+            return
+        if self._profile_settings_dialog is not None:
+            self._profile_settings_dialog.present(self.get_root())
+            return
+
+        dialog = Adw.Dialog(title="Profile Settings", content_width=640, content_height=560)
+        dialog.connect("closed", self._on_profile_settings_dialog_closed)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_propagate_natural_height(True)
+        scrolled.set_child(self._profile_settings_content)
+        content.append(scrolled)
+        content.append(Gtk.Separator())
+
+        footer = Gtk.CenterBox(orientation=Gtk.Orientation.HORIZONTAL)
+        footer.set_margin_top(6)
+        footer.set_margin_bottom(6)
+        footer.set_margin_start(12)
+        footer.set_margin_end(12)
+
+        docs_btn = Gtk.Button(label="?")
+        docs_btn.add_css_class("flat")
+        docs_btn.add_css_class("actions-docs-button")
+        docs_btn.set_tooltip_text("Open Profiles documentation")
+        docs_btn.connect("clicked", self._on_profiles_docs_clicked)
+        footer.set_start_widget(docs_btn)
+
+        end_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
+        delete_btn = Gtk.Button(label="Delete Profile")
+        delete_btn.add_css_class("destructive-action")
+        delete_btn.set_sensitive(not self.demo_mode)
+        delete_btn.connect("clicked", self._on_delete_profile, dialog)
+        end_box.append(delete_btn)
+
+        close_btn = Gtk.Button(label="Close")
+        close_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
+        end_box.append(close_btn)
+
+        footer.set_end_widget(end_box)
+        content.append(footer)
+
+        dialog.set_child(content)
+        self._profile_settings_dialog = dialog
+        self._update_profile_settings()
+        dialog.present(self.get_root())
+
+    def _on_profile_settings_dialog_closed(self, dialog: Adw.Dialog) -> None:
+        if dialog is self._profile_settings_dialog:
+            parent = self._profile_settings_content.get_parent()
+            if isinstance(parent, Gtk.ScrolledWindow):
+                parent.set_child(None)
+            dialog.set_child(None)
+            self._profile_settings_dialog = None
+
+    def _on_profiles_docs_clicked(self, _button: Gtk.Button) -> None:
+        url = _profiles_docs_url()
+        try:
+            launcher = Gtk.UriLauncher.new(url)
+            launcher.launch(None, None, None)
+        except Exception as exc:
+            log.warning("Could not open Profiles documentation %s: %s", url, exc)
+
+    def _on_delete_profile(
+        self,
+        _button: Gtk.Button,
+        close_after_delete: Adw.Dialog | None = None,
+    ) -> None:
         if not self._selected_profile or self.demo_mode:
             return
 
@@ -418,14 +530,24 @@ class ProfileManagedTab(Gtk.Box):
 
         delete_btn = Gtk.Button(label="Delete")
         delete_btn.add_css_class("destructive-action")
-        delete_btn.connect("clicked", self._on_confirm_delete_profile, dialog)
+        delete_btn.connect(
+            "clicked",
+            self._on_confirm_delete_profile,
+            dialog,
+            close_after_delete,
+        )
         btn_box.append(delete_btn)
 
         content.append(btn_box)
         dialog.set_child(content)
         dialog.present(self.get_root())
 
-    def _on_confirm_delete_profile(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
+    def _on_confirm_delete_profile(
+        self,
+        _button: Gtk.Button,
+        dialog: Adw.Dialog,
+        close_after_delete: Adw.Dialog | None = None,
+    ) -> None:
         if not self._selected_profile or self.profile_manager is None:
             dialog.close()
             return
@@ -434,6 +556,8 @@ class ProfileManagedTab(Gtk.Box):
         self._refresh_other_profile_tabs()
         self.refresh_profiles(publish_selection=False)
         dialog.close()
+        if close_after_delete is not None:
+            close_after_delete.close()
         notify_session_reload_async()
 
     def _on_profile_type_changed(self, _check: Gtk.CheckButton) -> None:
@@ -1088,7 +1212,6 @@ class ProfileManagedTab(Gtk.Box):
             self.enabled_check.set_sensitive(False)
             self.enabled_check.set_active(False)
             self.settings_frame.set_sensitive(False)
-            self.delete_profile_btn.set_sensitive(False)
         else:
             self._update_profile_state_display()
             self.enabled_check.set_sensitive(True)
@@ -1096,12 +1219,29 @@ class ProfileManagedTab(Gtk.Box):
             self.enabled_check.set_active(self._selected_profile.config.enabled)
             self.enabled_check.handler_unblock_by_func(self._on_enabled_toggled)
             self.settings_frame.set_sensitive(True)
-            self.delete_profile_btn.set_sensitive(not self.demo_mode)
             self._update_profile_settings()
 
         self._after_profile_selection_applied()
         if publish_selection:
             self._publish_profile_selection()
+
+    def _update_active_profiles_summary(self) -> None:
+        if not hasattr(self, "active_profiles_label"):
+            return
+
+        if not self._active_profile_names:
+            self.active_profiles_label.set_text("None")
+            self.active_profiles_label.set_tooltip_text("No profiles are active for this view.")
+            return
+
+        visible_names = self._active_profile_names[:3]
+        summary = ", ".join(visible_names)
+        if len(self._active_profile_names) > len(visible_names):
+            summary += f", +{len(self._active_profile_names) - len(visible_names)}"
+        self.active_profiles_label.set_text(summary)
+        self.active_profiles_label.set_tooltip_text(
+            "Layer order: " + " -> ".join(self._active_profile_names)
+        )
 
     def refresh_profiles(
         self,
@@ -1217,7 +1357,7 @@ class ProfileManagedTab(Gtk.Box):
         if self.profile_manager is not None:
             self.profile_manager.reload()
         self.refresh_profiles(preferred_profile_name=profile_name)
-        self.settings_frame.set_expanded(True)
+        self._on_profile_settings_clicked(self.settings_btn)
         notify_session_reload_async()
 
     def _save_specific_profile(self, profile: ProfileInfo | None) -> bool:
@@ -1254,6 +1394,7 @@ class ProfileManagedTab(Gtk.Box):
         if active_profiles != self._active_profile_names:
             self._active_profile_names = active_profiles
             self._refresh_profile_dropdown_states()
+            self._update_active_profiles_summary()
         self._update_profile_state_display()
         self._after_active_profiles_changed()
 

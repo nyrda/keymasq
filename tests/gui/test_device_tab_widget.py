@@ -402,6 +402,49 @@ class TestDeviceTabWidget:
         assert layer.always_grab_all is True
         assert save_calls == [True]
 
+    def test_device_tab_profile_settings_lists_all_devices_for_grab_mode(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig, ProfileConfig
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        assert window.profile_manager is not None
+        window.profile_manager.save_profile(
+            ProfileConfig(name="Gaming", enabled=True, is_permanent=True)
+        )
+
+        device1 = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        device2 = HardwareConfig(
+            vendor_id="2234",
+            product_id="6678",
+            name="Mouse Two",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        window._add_device_tab(device1)
+        window._add_device_tab(device2)
+        tab = window.stack.get_page(window.stack.get_child_by_name(device1.hardware_id)).get_child()
+        tab.refresh_profiles(preferred_profile_name="Gaming", publish_selection=False)
+
+        tab._on_profile_settings_clicked(tab.settings_btn)
+
+        assert set(tab.always_grab_checks) == {device1.hardware_id, device2.hardware_id}
+        assert tab.always_grab_checks[device1.hardware_id].get_label() == "Always grab Mouse One"
+        assert tab.always_grab_checks[device2.hardware_id].get_label() == "Always grab Mouse Two"
+
+        tab.always_grab_checks[device2.hardware_id].set_active(True)
+
+        assert tab._selected_profile is not None
+        layer = tab._selected_profile.config.get_layer(device2.hardware_id)
+        assert layer is not None
+        assert layer.always_grab_all is True
+
     def test_device_tab_confirm_delete_device_updates_runtime_and_stack(
         self, temp_config_dir, monkeypatch
     ):

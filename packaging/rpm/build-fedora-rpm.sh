@@ -95,6 +95,8 @@ Keyboard and mouse remapper with GUI configuration, per-window profiles, and mac
 
 %install
 %pyproject_install
+find %{buildroot}%{python3_sitelib} -type d -name __pycache__ -prune -exec rm -rf {} +
+find %{buildroot}%{python3_sitelib} -type f -name '*.py[co]' -delete
 %pyproject_save_files keymasq
 
 install -Dpm0644 systemd/keymasqd.service %{buildroot}%{_unitdir}/keymasqd.service
@@ -181,6 +183,12 @@ fi
 
 if [[ -z "$built_rpm" ]]; then
     echo "rpmbuild did not produce a Fedora $BUILD_MODE RPM" >&2
+    exit 1
+fi
+
+if [[ "$BUILD_MODE" != "srpm" ]] && rpm -qlp "$built_rpm" | grep -Eq '(^|/)(__pycache__|[^/]+\.py[co]$)'; then
+    echo "Fedora RPM contains Python bytecode files" >&2
+    rpm -qlp "$built_rpm" | grep -E '(^|/)(__pycache__|[^/]+\.py[co]$)' >&2
     exit 1
 fi
 

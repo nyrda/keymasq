@@ -612,9 +612,10 @@ class TestDialogConstruction:
         assert captured["application_name"] == "Keymasq"
         assert captured["application_icon"] == application_module.APP_ICON_NAME
         assert captured["version"] == application_module.APP_VERSION
+        docs_version = "master" if not __version__ or "dev" in __version__ else f"v{__version__}"
         assert captured["links"] == [
             ("Website", "https://keymasq.tools/"),
-            ("Documentation", "https://keymasq.tools/docs/master/"),
+            ("Documentation", f"https://keymasq.tools/docs/{docs_version}/"),
             ("License", "https://github.com/nyrda/keymasq/blob/main/LICENSE"),
         ]
         assert captured["parent"] is app.window

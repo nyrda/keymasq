@@ -1,31 +1,22 @@
-import argparse
 import sys
 
 from keymasq import __version__
-from keymasq.cli.commands import (
-    cancel_macro_cli,
-    create_macro_cli,
-    delete_macro_cli,
-    list_macros_cli,
-    list_profiles_cli,
-    play_adhoc_cli,
-    play_macro_cli,
-    set_diagnostics_cli,
-    set_profile_state_cli,
-    status_cli,
-    type_cli,
-)
-from keymasq.common.asyncio_runtime import ensure_uvloop
 
 
 def _positive_float(value: str) -> float:
+    import argparse
+
+    return _parse_positive_float(value, argparse.ArgumentTypeError)
+
+
+def _parse_positive_float(value: str, error_type: type[Exception] = ValueError) -> float:
     parsed = float(value)
     if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be greater than 0")
+        raise error_type("must be greater than 0")
     return parsed
 
 
-def _add_json_output(parser: argparse.ArgumentParser) -> None:
+def _add_json_output(parser) -> None:
     parser.add_argument(
         "--json",
         dest="json_output",
@@ -41,8 +32,9 @@ def _docs_url() -> str:
 
 
 def main() -> None:
-    ensure_uvloop()
     argv = sys.argv[1:]
+
+    import argparse
 
     parser = argparse.ArgumentParser(
         prog="keymasq",
@@ -248,6 +240,113 @@ def main() -> None:
             set_profile_state_cli("toggle_profile", args.profile_name, json_output=json_output)
     else:
         parser.print_help()
+
+
+def status_cli(*, json_output: bool = False) -> None:
+    from keymasq.cli.commands import status_cli as impl
+
+    impl(json_output=json_output)
+
+
+def type_cli(
+    text: list[str],
+    *,
+    down_ms: int = 10,
+    pause_ms: int = 20,
+    speed: float = 1.0,
+    use_unicode_input: bool = True,
+    print_json: bool = False,
+    json_output: bool = False,
+) -> None:
+    from keymasq.cli.commands import type_cli as impl
+
+    impl(
+        text,
+        down_ms=down_ms,
+        pause_ms=pause_ms,
+        speed=speed,
+        use_unicode_input=use_unicode_input,
+        print_json=print_json,
+        json_output=json_output,
+    )
+
+
+def play_adhoc_cli(
+    events: list[str],
+    *,
+    input_json: bool = False,
+    speed: float = 1.0,
+    print_json: bool = False,
+    json_output: bool = False,
+) -> None:
+    from keymasq.cli.commands import play_adhoc_cli as impl
+
+    impl(
+        events,
+        input_json=input_json,
+        speed=speed,
+        print_json=print_json,
+        json_output=json_output,
+    )
+
+
+def list_macros_cli(*, json_output: bool = False) -> None:
+    from keymasq.cli.commands import list_macros_cli as impl
+
+    impl(json_output=json_output)
+
+
+def create_macro_cli(
+    name: str,
+    json_parts: list[str],
+    *,
+    force: bool = False,
+    json_output: bool = False,
+) -> None:
+    from keymasq.cli.commands import create_macro_cli as impl
+
+    impl(name, json_parts, force=force, json_output=json_output)
+
+
+def play_macro_cli(name: str, speed: float = 1.0, *, json_output: bool = False) -> None:
+    from keymasq.cli.commands import play_macro_cli as impl
+
+    impl(name, speed, json_output=json_output)
+
+
+def cancel_macro_cli(*, json_output: bool = False) -> None:
+    from keymasq.cli.commands import cancel_macro_cli as impl
+
+    impl(json_output=json_output)
+
+
+def delete_macro_cli(name: str, *, json_output: bool = False) -> None:
+    from keymasq.cli.commands import delete_macro_cli as impl
+
+    impl(name, json_output=json_output)
+
+
+def set_diagnostics_cli(
+    enabled: bool,
+    interval: float = 5.0,
+    *,
+    json_output: bool = False,
+) -> None:
+    from keymasq.cli.commands import set_diagnostics_cli as impl
+
+    impl(enabled, interval, json_output=json_output)
+
+
+def list_profiles_cli(*, json_output: bool = False) -> None:
+    from keymasq.cli.commands import list_profiles_cli as impl
+
+    impl(json_output=json_output)
+
+
+def set_profile_state_cli(command: str, profile_name: str, *, json_output: bool = False) -> None:
+    from keymasq.cli.commands import set_profile_state_cli as impl
+
+    impl(command, profile_name, json_output=json_output)
 
 
 if __name__ == "__main__":

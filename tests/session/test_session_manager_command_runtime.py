@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405, I001
 from tests.session.command_support import *
 from keymasq.common.ipc import CommandType
+import keymasq.session.manager.commands as session_commands_module
 
 
 @pytest.mark.asyncio
@@ -226,6 +227,93 @@ async def test_play_macro_payload_forwards_sanitized_events() -> None:
     assert sent_commands[0].command == CommandType.PLAY_MACRO
     assert sent_commands[0].data["speed"] == 1.5
     assert sent_commands[0].data["macro_events"][0]["timeout_ms"] == 100
+
+
+@pytest.mark.asyncio
+async def test_type_text_compiles_in_thread_and_forwards_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    sent_commands = []
+    to_thread_calls = []
+
+    async def fake_to_thread(func, /, *args, **kwargs):
+        to_thread_calls.append(func)
+        return func(*args, **kwargs)
+
+    async def send_command(command):
+        sent_commands.append(command)
+        return Response(status="ok", data={"status": "ok"})
+
+    monkeypatch.setattr(session_commands_module.asyncio, "to_thread", fake_to_thread)
+    manager.client.send_command = send_command  # type: ignore[method-assign]
+
+    result = await manager._handle_session_request(
+        {
+            "command": "type_text",
+            "text": "Hi",
+            "down_ms": 0,
+            "pause_ms": 0,
+            "speed": 1.25,
+        },
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert result["char_count"] == 2
+    assert result["event_count"] == len(sent_commands[0].data["macro_events"])
+    assert sent_commands[0].command == CommandType.PLAY_MACRO
+    assert sent_commands[0].data["speed"] == 1.25
+    assert len(sent_commands[0].data["macro_events"]) > 0
+    assert to_thread_calls == [session_commands_module._compile_type_text_macro]
+
+
+@pytest.mark.asyncio
+async def test_play_compact_macro_compiles_in_thread_and_forwards_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    sent_commands = []
+    to_thread_calls = []
+
+    async def fake_to_thread(func, /, *args, **kwargs):
+        to_thread_calls.append(func)
+        return func(*args, **kwargs)
+
+    async def send_command(command):
+        sent_commands.append(command)
+        return Response(status="ok", data={"status": "ok"})
+
+    monkeypatch.setattr(session_commands_module.asyncio, "to_thread", fake_to_thread)
+    manager.client.send_command = send_command  # type: ignore[method-assign]
+
+    result = await manager._handle_session_request(
+        {
+            "command": "play_compact_macro",
+            "tokens": ["key_a", "wait:10:20", "btn_left"],
+            "speed": 0.5,
+        },
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert result["event_count"] == len(sent_commands[0].data["macro_events"])
+    assert sent_commands[0].command == CommandType.PLAY_MACRO
+    assert sent_commands[0].data["speed"] == 0.5
+    wait_random = next(
+        event
+        for event in sent_commands[0].data["macro_events"]
+        if event.get("macro_action") == "wait_random"
+    )
+    assert wait_random["min_us"] == 10_000
+    assert wait_random["max_us"] == 20_000
+    assert to_thread_calls == [session_commands_module._compile_compact_macro]
 
 
 @pytest.mark.asyncio

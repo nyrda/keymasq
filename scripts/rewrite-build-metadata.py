@@ -42,12 +42,19 @@ def _build_rules(
     rules: list[RewriteRule] = []
 
     if python_version is not None:
-        rules.append(
-            RewriteRule(
-                root / "pyproject.toml",
-                re.compile(r'(?m)^version = "[^"]+"$'),
-                f'version = "{python_version}"',
-            )
+        rules.extend(
+            [
+                RewriteRule(
+                    root / "pyproject.toml",
+                    re.compile(r'(?m)^version = "[^"]+"$'),
+                    f'version = "{python_version}"',
+                ),
+                RewriteRule(
+                    root / "keymasq/_version.py",
+                    re.compile(r'(?m)^__version__ = "[^"]+"$'),
+                    f'__version__ = "{python_version}"',
+                ),
+            ]
         )
 
     if debian_version is not None:

@@ -7,6 +7,39 @@ from types import SimpleNamespace
 import pytest
 
 
+def test_config_dir_defaults_to_home_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    import keymasq.common.paths as paths
+
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+    reloaded = importlib.reload(paths)
+    try:
+        assert reloaded.CONFIG_DIR == Path.home() / ".config" / "keymasq"
+        assert reloaded.HARDWARE_DIR == reloaded.CONFIG_DIR / "hardware"
+        assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
+        assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
+    finally:
+        importlib.reload(paths)
+
+
+def test_config_dir_honors_xdg_config_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import keymasq.common.paths as paths
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
+
+    reloaded = importlib.reload(paths)
+    try:
+        assert reloaded.XDG_CONFIG_HOME == tmp_path / "xdg-config"
+        assert reloaded.CONFIG_DIR == tmp_path / "xdg-config" / "keymasq"
+        assert reloaded.HARDWARE_DIR == reloaded.CONFIG_DIR / "hardware"
+        assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
+        assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
+    finally:
+        importlib.reload(paths)
+
+
 def test_resolve_keymasq_record_helper_path_uses_build_override(
     tmp_path: Path,
     monkeypatch,

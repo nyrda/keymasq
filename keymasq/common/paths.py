@@ -41,7 +41,8 @@ XDG_RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid(
 SESSION_SOCKET_PATH = XDG_RUNTIME_DIR / "keymasq" / "session.sock"
 GNOME_BRIDGE_SOCKET_PATH = XDG_RUNTIME_DIR / "keymasq" / "gnome-bridge.sock"
 
-CONFIG_DIR = Path.home() / ".config" / "keymasq"
+XDG_CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+CONFIG_DIR = XDG_CONFIG_HOME / "keymasq"
 HARDWARE_DIR = CONFIG_DIR / "hardware"
 PROFILES_DIR = CONFIG_DIR / "profiles"
 SUPERKEYS_DIR = CONFIG_DIR / "superkeys"

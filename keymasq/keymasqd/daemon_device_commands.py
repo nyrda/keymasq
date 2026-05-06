@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Protocol, cast
 
 from keymasq.common.ipc import CommandType
 from keymasq.keymasqd import daemon_macro_commands
@@ -45,7 +45,12 @@ class _DeviceCommandManager(Protocol):
 
     async def list_devices(self) -> JsonObject: ...
 
-    async def set_diagnostics(self, enabled: bool, interval: float) -> JsonObject: ...
+    async def set_diagnostics(
+        self,
+        enabled: bool,
+        interval: float,
+        categories: Sequence[object] | None = None,
+    ) -> JsonObject: ...
 
 
 class _DeviceCommandMacroStore(Protocol):
@@ -126,6 +131,12 @@ async def handle_device_command(
     if command_type == CommandType.SET_DIAGNOSTICS:
         enabled = bool(data.get("enabled", False))
         interval = float_like(data.get("interval", 5.0), 5.0)
-        return await daemon.device_manager.set_diagnostics(enabled, interval)
+        raw_categories = data.get("categories")
+        categories = (
+            [str_value(category) for category in cast(list[object], raw_categories)]
+            if isinstance(raw_categories, list)
+            else None
+        )
+        return await daemon.device_manager.set_diagnostics(enabled, interval, categories)
 
     return None

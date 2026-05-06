@@ -249,8 +249,57 @@ class MacroRuntimeState:
 class DiagnosticsState:
     enabled: bool = False
     interval: float = 5.0
+    categories: set[str] = field(default_factory=lambda: {"mainline"})
     task: asyncio.Task[None] | None = None
     samples: dict[str, deque[float]] = field(default_factory=dict)
+
+
+DIAGNOSTICS_CATEGORIES = frozenset({"mainline", "combo", "internal"})
+DEFAULT_DIAGNOSTICS_CATEGORIES = frozenset({"mainline"})
+
+
+def _normalize_diagnostics_categories(categories: Sequence[object] | None) -> set[str]:
+    if not categories:
+        return set(DEFAULT_DIAGNOSTICS_CATEGORIES)
+
+    normalized = {
+        str(category or "").strip().lower()
+        for category in categories
+        if str(category or "").strip()
+    }
+    if "all" in normalized:
+        return set(DIAGNOSTICS_CATEGORIES)
+    selected = normalized & DIAGNOSTICS_CATEGORIES
+    return selected or set(DEFAULT_DIAGNOSTICS_CATEGORIES)
+
+
+def _diagnostics_label_enabled(label: str, categories: set[str]) -> bool:
+    label = str(label or "").lower()
+    if "internal" in categories and _diagnostics_label_is_internal(label):
+        return True
+    if "combo" in categories and _diagnostics_label_is_combo(label):
+        return True
+    return "mainline" in categories and _diagnostics_label_is_mainline(label)
+
+
+def _diagnostics_label_is_mainline(label: str) -> bool:
+    return (
+        label.startswith("action_")
+        or label in {"passthrough_fast", "passthrough_mapped", "passthrough_other"}
+        or label == "wheel_passthrough"
+    )
+
+
+def _diagnostics_label_is_combo(label: str) -> bool:
+    return label.startswith("combo_") and not label.startswith("combo_recalled_")
+
+
+def _diagnostics_label_is_internal(label: str) -> bool:
+    return label == "syn" or label in {
+        "combo_recalled_repeat_suppressed",
+        "combo_recalled_release_suppressed",
+        "wheel_high_res_suppressed",
+    }
 
 
 @dataclass
@@ -650,9 +699,16 @@ class DeviceManager:
             return False
         return all(binding.hardware_id in keyboard_hardware_ids for binding in step.bindings)
 
-    async def set_diagnostics(self, enabled: bool, interval: float = 5.0) -> JsonObject:
+    async def set_diagnostics(
+        self,
+        enabled: bool,
+        interval: float = 5.0,
+        categories: Sequence[object] | None = None,
+    ) -> JsonObject:
         self.diagnostics_state.enabled = bool(enabled)
         self.diagnostics_state.interval = max(0.5, float(interval or 5.0))
+        self.diagnostics_state.categories = _normalize_diagnostics_categories(categories)
+        self.diagnostics_state.samples.clear()
 
         if not self.diagnostics_state.enabled:
             if self.diagnostics_state.task:
@@ -662,17 +718,30 @@ class DeviceManager:
                 except asyncio.CancelledError:
                     pass
                 self.diagnostics_state.task = None
-            self.diagnostics_state.samples.clear()
             log.info("Diagnostics disabled")
-            return {"enabled": False, "interval": self.diagnostics_state.interval}
+            return {
+                "enabled": False,
+                "interval": self.diagnostics_state.interval,
+                "categories": sorted(self.diagnostics_state.categories),
+            }
 
         if self.diagnostics_state.task is None or self.diagnostics_state.task.done():
             self.diagnostics_state.task = asyncio.create_task(self._diagnostics_loop())
-        log.info("Diagnostics enabled (interval %.2fs)", self.diagnostics_state.interval)
-        return {"enabled": True, "interval": self.diagnostics_state.interval}
+        log.info(
+            "Diagnostics enabled (interval %.2fs, categories=%s)",
+            self.diagnostics_state.interval,
+            ",".join(sorted(self.diagnostics_state.categories)),
+        )
+        return {
+            "enabled": True,
+            "interval": self.diagnostics_state.interval,
+            "categories": sorted(self.diagnostics_state.categories),
+        }
 
     def _record_diagnostic(self, label: str, duration_us: float) -> None:
         if not self.diagnostics_state.enabled:
+            return
+        if not _diagnostics_label_enabled(label, self.diagnostics_state.categories):
             return
         bucket = self.diagnostics_state.samples.setdefault(label, deque(maxlen=20000))
         bucket.append(float(duration_us))

@@ -132,7 +132,12 @@ class _DaemonDeviceManager(Protocol):
 
     def read_combo_capture(self, token: str) -> JsonObject: ...
 
-    async def set_diagnostics(self, enabled: bool, interval: float) -> JsonObject: ...
+    async def set_diagnostics(
+        self,
+        enabled: bool,
+        interval: float,
+        categories: Sequence[object] | None = None,
+    ) -> JsonObject: ...
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject: ...
 

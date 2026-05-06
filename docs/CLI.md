@@ -188,7 +188,7 @@ keymasq play key_a wait:20 key_b --print-json \
 Toggle keymasqd latency diagnostics.
 
 ```bash
-keymasq diagnostics on [--interval SECONDS]
+keymasq diagnostics on [--interval SECONDS] [--include CATEGORY] [--exclude CATEGORY]
 keymasq diagnostics off
 ```
 
@@ -202,3 +202,9 @@ journalctl -u keymasqd -f
 | Option | Description |
 |---|---|
 | `--interval SECONDS` | Logging interval in seconds |
+| `--include CATEGORY` | Add a diagnostics category: `mainline`, `combo`, `internal`, or `all` |
+| `--exclude CATEGORY` | Hide a diagnostics category after includes are applied: `mainline`, `combo`, or `internal` |
+
+The default category is `mainline`, which shows the normal passthrough and
+remap-action paths. Use `--include combo` for combo-specific timing and
+`--include internal` for low-level daemon details.

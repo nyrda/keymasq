@@ -52,7 +52,18 @@ journalctl -u keymasqd -f
 ```
 
 This logs periodic latency percentiles (p50, p95, p99, max) for internal event
-processing. Disable when done:
+processing. By default, diagnostics logs the main input paths most useful for
+everyday latency checks. You can add narrower categories when debugging combo
+behavior or daemon internals:
+
+```bash
+keymasq diagnostics on --include combo
+keymasq diagnostics on --include internal
+keymasq diagnostics on --include all
+keymasq diagnostics on --include all --exclude internal
+```
+
+Disable when done:
 
 ```bash
 keymasq diagnostics off
@@ -116,3 +127,57 @@ For methodology and full results, see:
 
 Keymasq only grabs devices that have active remappings. Devices without
 remappings are not touched and operate at their native polling rate.
+
+## Diagnostics Labels
+
+Diagnostics measure Keymasq's daemon-side handling time for events that pass
+through grabbed devices. They are not the full time from your finger movement to
+the game or desktop reacting. They do not include USB polling, compositor/game
+processing, rendering, display latency, or the physical switch/button travel.
+
+### Mainline Diagnostics
+
+These are shown by default and are the most useful labels for checking normal
+input overhead.
+
+| Label | What it means | Example |
+|---|---|---|
+| `passthrough_fast` | An event passed through when the grabbed device has no active mapping work for it. | Moving an unmapped mouse, or clicking an unmapped button on a grabbed device. |
+| `passthrough_mapped` | An event passed through while a mapping profile is loaded, but this specific input has no remap action. | Moving the mouse while only one side button is remapped. |
+| `passthrough_other` | A non-key, non-relative event passed through. | An uncommon device event such as an absolute axis update. |
+| `wheel_passthrough` | A mouse wheel event passed through by an explicit passthrough mapping. | Scrolling normally when the wheel has a passthrough action. |
+| `action_*` | A configured remap action ran. The suffix names the action type. | Pressing a remapped button, a suppressed key, or a mapped wheel direction. |
+
+### Combo Diagnostics
+
+Enable with:
+
+```bash
+keymasq diagnostics on --include combo
+```
+
+These labels are useful when tuning combo behavior, but they are not a general
+latency baseline.
+
+| Label | What it means | Example |
+|---|---|---|
+| `combo_passthrough` | A combo-relevant event was checked by the combo engine and then passed through normally. | Pressing the first key of a two-key combo where the key should still type if the combo is not completed. |
+| `combo_passthrough_held` | A later event for a combo key that was already allowed through. | Releasing that first combo key after it had been passed through. |
+| `combo_release_action_*` | A combo-related release event triggered an action. | Releasing a held combo chord that fires a remapped button. |
+
+### Internal Diagnostics
+
+Enable with:
+
+```bash
+keymasq diagnostics on --include internal
+```
+
+These labels are mostly for development and bug reports.
+
+| Label | What it means | Example |
+|---|---|---|
+| `syn` | A Linux synchronization event was received and ignored by the remap logic. | The separator event that follows a group of mouse movement or key events. |
+| `wheel_high_res_suppressed` | A high-resolution wheel event was suppressed because the matching low-resolution wheel event is being handled. | A mouse wheel that reports both high-res and normal scroll events. |
+| `combo_recalled_repeat_suppressed` | A repeat event was suppressed for a combo trigger key that Keymasq temporarily recalled. | Holding a key involved in combo recall long enough for keyboard repeat to start. |
+| `combo_recalled_release_suppressed` | A release event was suppressed after combo recall cleanup. | Releasing a combo trigger key that Keymasq already restored synthetically. |

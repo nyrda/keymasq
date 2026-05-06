@@ -7,6 +7,7 @@ from keymasq.common.paths import SESSION_SOCKET_PATH
 
 JsonObject = dict[str, Any]
 IntLike = int | float | str | bytes
+DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "internal")
 
 
 def _session_unavailable() -> JsonObject:
@@ -390,10 +391,21 @@ def _macro_device_types(macro_data: JsonObject) -> list[str] | None:
 
 
 def set_diagnostics_cli(
-    enabled: bool, interval: float = 5.0, *, json_output: bool = False
+    enabled: bool,
+    interval: float = 5.0,
+    *,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+    json_output: bool = False,
 ) -> None:
+    categories = _diagnostics_categories(include, exclude)
     result = _request_or_error(
-        {"command": "set_diagnostics", "enabled": bool(enabled), "interval": float(interval)}
+        {
+            "command": "set_diagnostics",
+            "enabled": bool(enabled),
+            "interval": float(interval),
+            "categories": categories,
+        }
     )
     if _handled_json_or_error(result, json_output):
         return
@@ -401,7 +413,36 @@ def set_diagnostics_cli(
     raw_data = result.get("data")
     data = cast(JsonObject, raw_data) if isinstance(raw_data, dict) else {}
     state = "enabled" if bool(data.get("enabled", enabled)) else "disabled"
-    print(f"Diagnostics {state} (interval={float(data.get('interval', interval)):.2f}s)")
+    raw_categories = data.get("categories", categories)
+    shown_categories = (
+        ", ".join(str(category) for category in raw_categories)
+        if isinstance(raw_categories, list)
+        else ", ".join(categories)
+    )
+    print(
+        f"Diagnostics {state} "
+        f"(interval={float(data.get('interval', interval)):.2f}s, categories={shown_categories})"
+    )
+
+
+def _diagnostics_categories(
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+) -> list[str]:
+    selected = {"mainline"}
+    include_set = {str(category or "").lower() for category in include or []}
+    if "all" in include_set:
+        selected = set(DIAGNOSTICS_CATEGORIES)
+    else:
+        selected.update(category for category in include_set if category in DIAGNOSTICS_CATEGORIES)
+    selected.difference_update(
+        str(category or "").lower()
+        for category in exclude or []
+        if str(category or "").lower() in DIAGNOSTICS_CATEGORIES
+    )
+    if not selected:
+        selected = {"mainline"}
+    return [category for category in DIAGNOSTICS_CATEGORIES if category in selected]
 
 
 def _profile_kind(profile: JsonObject) -> str:

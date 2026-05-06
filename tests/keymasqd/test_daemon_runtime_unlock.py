@@ -11,7 +11,24 @@ async def test_set_diagnostics_forwards_with_type_conversion(daemon_testbed):
     )
 
     assert result == {"status": "ok"}
-    device_manager.set_diagnostics.assert_awaited_once_with(True, 3.25)
+    device_manager.set_diagnostics.assert_awaited_once_with(True, 3.25, None)
+
+
+@pytest.mark.asyncio
+async def test_set_diagnostics_forwards_categories(daemon_testbed):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+
+    result = await daemon._handle_command(
+        CommandType.SET_DIAGNOSTICS,
+        {"enabled": 1, "interval": "3.25", "categories": ["mainline", "combo"]},
+    )
+
+    assert result == {"status": "ok"}
+    device_manager.set_diagnostics.assert_awaited_once_with(
+        True,
+        3.25,
+        ["mainline", "combo"],
+    )
 
 
 @pytest.mark.asyncio

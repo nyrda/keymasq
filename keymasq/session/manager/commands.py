@@ -662,11 +662,16 @@ async def _handle_set_diagnostics(
 ) -> JsonObject:
     enabled = bool(request.get("enabled", False))
     interval = float_value(request.get("interval"), 5.0)
+    categories = [
+        str_value(category, "")
+        for category in json_list(request.get("categories"))
+        if str_value(category, "")
+    ]
     try:
         result = await manager.client.send_command(
             Command(
                 command=CommandType.SET_DIAGNOSTICS,
-                data={"enabled": enabled, "interval": interval},
+                data={"enabled": enabled, "interval": interval, "categories": categories},
             )
         )
     except Exception:

@@ -486,6 +486,40 @@ class TestListDevices:
         assert calls == [(snapshots.append, ({"event": [1.0, 3.0]},))]
 
     @pytest.mark.asyncio
+    async def test_diagnostics_filters_to_mainline_by_default(self) -> None:
+        manager = DeviceManager()
+        manager.diagnostics_state.enabled = True
+
+        manager._record_diagnostic("passthrough_mapped", 10.0)
+        manager._record_diagnostic("action_key", 20.0)
+        manager._record_diagnostic("combo_passthrough", 30.0)
+        manager._record_diagnostic("syn", 40.0)
+
+        assert set(manager.diagnostics_state.samples) == {
+            "passthrough_mapped",
+            "action_key",
+        }
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_can_include_combo_and_internal_categories(self) -> None:
+        manager = DeviceManager()
+        manager.diagnostics_state.enabled = True
+        manager.diagnostics_state.categories = {"combo", "internal"}
+
+        manager._record_diagnostic("passthrough_mapped", 10.0)
+        manager._record_diagnostic("combo_passthrough", 20.0)
+        manager._record_diagnostic("combo_passthrough_held", 30.0)
+        manager._record_diagnostic("syn", 40.0)
+        manager._record_diagnostic("combo_recalled_release_suppressed", 50.0)
+
+        assert set(manager.diagnostics_state.samples) == {
+            "combo_passthrough",
+            "combo_passthrough_held",
+            "syn",
+            "combo_recalled_release_suppressed",
+        }
+
+    @pytest.mark.asyncio
     async def test_topology_watch_loop_retries_when_live_and_reconciled_snapshots_differ(
         self,
         monkeypatch: pytest.MonkeyPatch,

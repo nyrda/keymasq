@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import signal
+import sys
 import traceback
 from typing import cast
 
@@ -77,6 +78,10 @@ class SessionManager:
         self._shutdown_event = asyncio.Event()
         self._retry_event = asyncio.Event()
         self.connected = False
+        self.restart_on_daemon_disconnect = _env_flag(
+            "KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT"
+        )
+        self.restart_requested = False
         self.reload_task: asyncio.Task[None] | None = None
         self.reload_pending = False
         self.verbosity = verbosity
@@ -485,37 +490,46 @@ class SessionManager:
                 await runtime_recording.refresh_recording_devices_cache(self)
 
                 await self.client.wait_disconnected()
+                log.warning("Disconnected from keymasqd")
+                self._handle_keymasqd_disconnect()
+                if self.restart_on_daemon_disconnect:
+                    log.info("Requesting keymasq-session restart after keymasqd disconnect")
+                    self.restart_requested = True
+                    self._shutdown_event.set()
+                    return
 
             except Exception as e:
                 log.warning(f"Connection failed: {e}")
-                was_connected = self.connected
-                self.connected = False
-                self.profile_state.grabbed_devices.clear()
-                self.profile_state.grabbed_interfaces.clear()
-                self.profile_state.grab_waiting_devices.clear()
-                for task in list(self.profile_state.grab_retry_tasks.values()):
-                    if not task.done():
-                        task.cancel()
-                self.profile_state.grab_retry_tasks.clear()
-                self.profile_state.last_sent_grab_signatures.clear()
-                self.profile_state.last_sent_mapping_signatures.clear()
-                self.profile_state.last_sent_combo_signature = ""
-                self.profile_state.active_profile_names.clear()
-                self.profile_state.resolved_devices.clear()
-                self.recording_state.devices_cache.clear()
-                self.recording_state.selected_devices_cache.clear()
-                self.recording_state.devices_cache_ready = False
+                self._handle_keymasqd_disconnect()
 
-                if was_connected:
-                    self._broadcast_keymasqd_status(False)
+            if self.running:
+                try:
+                    await asyncio.wait_for(self._retry_event.wait(), timeout=retry_delay)
+                except TimeoutError:
+                    pass
+                retry_delay = min(retry_delay * 2, max_delay)
 
-                if self.running:
-                    try:
-                        await asyncio.wait_for(self._retry_event.wait(), timeout=retry_delay)
-                    except TimeoutError:
-                        pass
-                    retry_delay = min(retry_delay * 2, max_delay)
+    def _handle_keymasqd_disconnect(self) -> None:
+        was_connected = self.connected
+        self.connected = False
+        self.profile_state.grabbed_devices.clear()
+        self.profile_state.grabbed_interfaces.clear()
+        self.profile_state.grab_waiting_devices.clear()
+        for task in list(self.profile_state.grab_retry_tasks.values()):
+            if not task.done():
+                task.cancel()
+        self.profile_state.grab_retry_tasks.clear()
+        self.profile_state.last_sent_grab_signatures.clear()
+        self.profile_state.last_sent_mapping_signatures.clear()
+        self.profile_state.last_sent_combo_signature = ""
+        self.profile_state.active_profile_names.clear()
+        self.profile_state.resolved_devices.clear()
+        self.recording_state.devices_cache.clear()
+        self.recording_state.selected_devices_cache.clear()
+        self.recording_state.devices_cache_ready = False
 
+        if was_connected:
+            self._broadcast_keymasqd_status(False)
 
     async def on_window_change(
         self, window_class: str, window_title: str, window_tags: list[str]
@@ -570,11 +584,17 @@ def main() -> None:
     try:
         manager = SessionManager(verbosity=args.verbose)
         asyncio.run(manager.start())
+        if manager.restart_requested:
+            sys.exit(75)
     except KeyboardInterrupt:
         pass
     except Exception as e:
         log.error(f"Fatal error: {e}")
         raise
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 if __name__ == "__main__":

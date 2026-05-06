@@ -6,6 +6,12 @@ export PYBUILD_SYSTEM = pyproject
 %:
 	dh $@ --buildsystem=pybuild
 
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start keymasqd.service
+
+override_dh_installsystemduser:
+	dh_installsystemduser --no-enable --no-start keymasq-session.service
+
 execute_after_dh_install:
 	set -eu; \
 	for icon in assets/icons/tools.keymasq.keymasq-*.png; do \

@@ -7,6 +7,7 @@ PartOf=default.target
 
 [Service]
 Type=simple
+Environment=KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1
 ExecStart=/usr/bin/keymasq-session
 Restart=on-failure
 RestartSec=3

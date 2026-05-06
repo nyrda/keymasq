@@ -435,8 +435,8 @@ class TestDeviceTabWidget:
         tab._on_profile_settings_clicked(tab.settings_btn)
 
         assert set(tab.always_grab_checks) == {device1.hardware_id, device2.hardware_id}
-        assert tab.always_grab_checks[device1.hardware_id].get_label() == "Always grab Mouse One"
-        assert tab.always_grab_checks[device2.hardware_id].get_label() == "Always grab Mouse Two"
+        assert tab.always_grab_checks[device1.hardware_id].get_title() == "Always grab Mouse One"
+        assert tab.always_grab_checks[device2.hardware_id].get_title() == "Always grab Mouse Two"
 
         tab.always_grab_checks[device2.hardware_id].set_active(True)
 
@@ -576,7 +576,7 @@ class TestDeviceTabWidget:
         assert reloaded.name == "Work Mouse"
         assert reload_requests == [{"command": "reload"}]
         assert tab.device_name_label.get_text() == "Work Mouse"
-        assert tab.always_grab_check.get_label() == "Always grab Work Mouse"
+        assert tab.always_grab_check.get_title() == "Always grab Work Mouse"
         assert main_window.renamed == [("1234:5678", "Work Mouse")]
 
         assert tab._rename_device("   ") is False

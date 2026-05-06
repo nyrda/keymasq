@@ -114,7 +114,13 @@ source = "mouse"
 
 ## Profile Types
 
-There are two profile types.
+There are two runtime profile types. In the GUI, the type is derived from
+Window Rules:
+
+- no window rules means the profile is permanent
+- one or more window rules means the profile is conditional
+
+To make a profile permanent again, remove its window rules.
 
 ### Permanent profiles
 

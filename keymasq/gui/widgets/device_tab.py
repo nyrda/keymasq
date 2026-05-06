@@ -190,38 +190,49 @@ class DeviceTab(ProfileManagedTab):
             return self._selected_profile.config.ensure_layer(self.device.hardware_id)
         return self._selected_profile.config.get_layer(self.device.hardware_id)
 
-    def _append_profile_settings_rows(self, settings_grid: Gtk.Grid, row: int) -> int:
-        self.always_grab_checks: dict[str, Gtk.CheckButton] = {}
+    def _append_profile_settings_groups(self, container: Gtk.Box) -> None:
+        self.always_grab_checks: dict[str, Adw.SwitchRow] = {}
 
-        grab_label = Gtk.Label(label="Grab Mode")
-        grab_label.set_halign(Gtk.Align.START)
-        grab_label.set_valign(Gtk.Align.START)
-        grab_label.set_margin_top(4)
-        settings_grid.attach(grab_label, 0, row, 1, 1)
-
-        grab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.always_grab_box = grab_box
+        grab_group = Adw.PreferencesGroup()
+        self.always_grab_group = grab_group
         self._sync_always_grab_device_list()
 
         if not hasattr(self, "always_grab_check"):
-            self.always_grab_check = Gtk.CheckButton(label=self._device_grab_label_text())
+            self.always_grab_check = Adw.SwitchRow(title=self._device_grab_label_text())
 
-        settings_grid.attach(grab_box, 1, row, 1, 1)
-        return row + 1
+        container.append(grab_group)
 
     def _update_extra_profile_settings(self) -> None:
         self._sync_always_grab_device_list()
-        for hardware_id, check in self.always_grab_checks.items():
+        for hardware_id, switch_row in self.always_grab_checks.items():
             layer = self._profile_layer_for_hardware(hardware_id)
-            check.handler_block_by_func(self._on_always_grab_toggled)
-            check.set_active(layer.always_grab_all if layer else False)
-            check.handler_unblock_by_func(self._on_always_grab_toggled)
+            switch_row.handler_block_by_func(self._on_always_grab_toggled)
+            switch_row.set_active(layer.always_grab_all if layer else False)
+            switch_row.handler_unblock_by_func(self._on_always_grab_toggled)
 
     def _active_profile_names_from_response(self, data: dict) -> list[str]:
         devices = data.get("devices", {})
         if not isinstance(devices, dict):
             return []
         return list(devices.get(self.device.hardware_id, {}).get("profiles", []))
+
+    def _active_profiles_summary_title(self) -> str:
+        return "Applied profiles:"
+
+    def _active_profiles_summary_tooltip(self) -> str:
+        return (
+            "Profiles currently applied to this device. "
+            "Enabled profiles without mappings are not listed."
+        )
+
+    def _active_profiles_empty_tooltip(self) -> str:
+        return "No profiles are currently applied to this device."
+
+    def _active_profiles_layer_tooltip(self) -> str:
+        return (
+            "Applied profiles. Layer order: "
+            + " -> ".join(self._active_profile_names)
+        )
 
     def _after_profile_selection_applied(self) -> None:
         for button_id in self._button_widgets:
@@ -294,32 +305,33 @@ class DeviceTab(ProfileManagedTab):
 
         devices = self._profile_settings_devices()
         current_ids = {device.hardware_id for device in devices}
-        for hardware_id, check in list(self.always_grab_checks.items()):
+        for hardware_id, switch_row in list(self.always_grab_checks.items()):
             if hardware_id in current_ids:
                 continue
-            parent = check.get_parent()
-            if isinstance(parent, Gtk.Box):
-                parent.remove(check)
+            self.always_grab_group.remove(switch_row)
             del self.always_grab_checks[hardware_id]
 
         for device in self._profile_settings_devices():
-            check = self.always_grab_checks.get(device.hardware_id)
-            if check is None:
-                check = Gtk.CheckButton()
-                check.set_tooltip_text(
+            switch_row = self.always_grab_checks.get(device.hardware_id)
+            if switch_row is None:
+                switch_row = Adw.SwitchRow()
+                switch_row.set_tooltip_text(
                     "Grab all device interfaces even if not all are used. "
                     "Prevents lag when switching between profiles that need different interfaces."
                 )
-                check.connect("toggled", self._on_always_grab_toggled, device.hardware_id)
-                self.always_grab_box.append(check)
-                self.always_grab_checks[device.hardware_id] = check
-            check.set_label(self._device_grab_label_text(device))
+                switch_row.connect(
+                    "notify::active", self._on_always_grab_toggled, device.hardware_id
+                )
+                self.always_grab_group.add(switch_row)
+                self.always_grab_checks[device.hardware_id] = switch_row
+            switch_row.set_title(self._device_grab_label_text(device))
             if device.hardware_id == self.device.hardware_id:
-                self.always_grab_check = check
+                self.always_grab_check = switch_row
 
     def _on_always_grab_toggled(
         self,
-        check: Gtk.CheckButton,
+        switch_row: Adw.SwitchRow,
+        _param,
         hardware_id: str | None = None,
     ) -> None:
         layer = self._profile_layer_for_hardware(
@@ -327,7 +339,7 @@ class DeviceTab(ProfileManagedTab):
             create=True,
         )
         if layer:
-            layer.always_grab_all = check.get_active()
+            layer.always_grab_all = switch_row.get_active()
             self._save_profile()
 
     def _setup_header(self) -> None:
@@ -452,7 +464,7 @@ class DeviceTab(ProfileManagedTab):
     def _update_device_name_display(self) -> None:
         self.device_name_label.set_text(self.device.name)
         if hasattr(self, "always_grab_check"):
-            self.always_grab_check.set_label(self._device_grab_label_text())
+            self.always_grab_check.set_title(self._device_grab_label_text())
         self._sync_always_grab_device_list()
 
     def _notify_device_renamed(self) -> None:

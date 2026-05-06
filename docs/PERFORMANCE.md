@@ -63,6 +63,9 @@ keymasq diagnostics on --include all
 keymasq diagnostics on --include all --exclude internal
 ```
 
+The GTK app includes the same live view under **Diagnostics** in the main menu.
+It shows the latest snapshot from keymasqd without reading journal logs.
+
 Disable when done:
 
 ```bash

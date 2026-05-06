@@ -690,6 +690,16 @@ class MainWindow(Adw.ApplicationWindow):
         macros_btn.connect("clicked", self._on_menu_action_clicked, "macros", menu_popover)
         menu_box.append(macros_btn)
 
+        diagnostics_btn = Gtk.Button(label="Diagnostics")
+        self._configure_menu_button(diagnostics_btn)
+        diagnostics_btn.connect(
+            "clicked",
+            self._on_menu_action_clicked,
+            "diagnostics",
+            menu_popover,
+        )
+        menu_box.append(diagnostics_btn)
+
         menu_box.append(self._create_menu_separator())
 
         menu_unlock_btn = Gtk.Button(label="Unlock Recording")

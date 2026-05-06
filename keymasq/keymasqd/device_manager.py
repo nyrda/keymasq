@@ -302,6 +302,18 @@ def _diagnostics_label_is_internal(label: str) -> bool:
     }
 
 
+def _diagnostics_int(value: object) -> int:
+    if isinstance(value, (int, float, str, bytes)):
+        return int(value)
+    return 0
+
+
+def _diagnostics_float(value: object) -> float:
+    if isinstance(value, (int, float, str, bytes)):
+        return float(value)
+    return 0.0
+
+
 @dataclass
 class GrabRuntimeState:
     release_grace_s: float
@@ -756,13 +768,21 @@ class DeviceManager:
                     if samples
                 }
                 if snapshot:
-                    await asyncio.to_thread(self._log_diagnostics_snapshot, snapshot)
+                    summary = await asyncio.to_thread(
+                        self._summarize_diagnostics_snapshot,
+                        snapshot,
+                    )
+                    self._broadcast_diagnostics_snapshot(summary)
+                    await asyncio.to_thread(self._log_diagnostics_summary, summary)
         except asyncio.CancelledError:
             raise
 
-    def _log_diagnostics_snapshot(self, snapshot: dict[str, list[float]]) -> None:
+    def _summarize_diagnostics_snapshot(
+        self,
+        snapshot: dict[str, list[float]],
+    ) -> dict[str, JsonObject]:
         if not snapshot:
-            return
+            return {}
 
         def pct(values: list[float], p: float) -> float:
             if not values:
@@ -770,22 +790,49 @@ class DeviceManager:
             idx = int((len(values) - 1) * p)
             return values[max(0, min(idx, len(values) - 1))]
 
+        summary: dict[str, JsonObject] = {}
         for label, samples in snapshot.items():
             if not samples:
                 continue
             values = sorted(samples)
-            p50 = pct(values, 0.50)
-            p95 = pct(values, 0.95)
-            p99 = pct(values, 0.99)
-            max_v = values[-1]
+            summary[label] = {
+                "n": len(values),
+                "p50": pct(values, 0.50),
+                "p95": pct(values, 0.95),
+                "p99": pct(values, 0.99),
+                "max": values[-1],
+            }
+        return summary
+
+    def _broadcast_diagnostics_snapshot(self, summary: dict[str, JsonObject]) -> None:
+        if not summary or self.broadcast_callback is None:
+            return
+        self._broadcast_runtime_event(
+            CommandType.DIAGNOSTICS_SNAPSHOT,
+            {
+                "enabled": True,
+                "interval": self.diagnostics_state.interval,
+                "categories": sorted(self.diagnostics_state.categories),
+                "samples": summary,
+            },
+        )
+
+    def _log_diagnostics_snapshot(self, snapshot: dict[str, list[float]]) -> None:
+        self._log_diagnostics_summary(self._summarize_diagnostics_snapshot(snapshot))
+
+    def _log_diagnostics_summary(self, summary: dict[str, JsonObject]) -> None:
+        if not summary:
+            return
+
+        for label, stats in summary.items():
             log.info(
                 "diagnostics[%s]: n=%d p50=%.2fus p95=%.2fus p99=%.2fus max=%.2fus",
                 label,
-                len(values),
-                p50,
-                p95,
-                p99,
-                max_v,
+                _diagnostics_int(stats.get("n", 0)),
+                _diagnostics_float(stats.get("p50", 0.0)),
+                _diagnostics_float(stats.get("p95", 0.0)),
+                _diagnostics_float(stats.get("p99", 0.0)),
+                _diagnostics_float(stats.get("max", 0.0)),
             )
 
     async def list_devices(self) -> JsonObject:

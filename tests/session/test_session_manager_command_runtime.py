@@ -495,6 +495,33 @@ async def test_runtime_reset_event_invalidates_and_reevaluates(
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_snapshot_event_forwards_to_gui_clients() -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.DIAGNOSTICS_SNAPSHOT,
+        {
+            "enabled": True,
+            "interval": 5.0,
+            "categories": ["mainline"],
+            "samples": {"passthrough_mapped": {"n": 2, "p50": 1.0}},
+        },
+    )
+
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {
+            "event": "diagnostics_snapshot",
+            "enabled": True,
+            "interval": 5.0,
+            "categories": ["mainline"],
+            "samples": {"passthrough_mapped": {"n": 2, "p50": 1.0}},
+        }
+    )
+
+
+@pytest.mark.asyncio
 async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

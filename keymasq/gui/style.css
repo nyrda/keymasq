@@ -208,6 +208,11 @@ button.square-key-button {
   min-height: 0;
 }
 
+/* Diagnostics stat cells: tabular figures for column alignment */
+.diagnostics-stat {
+  font-feature-settings: "tnum" 1;
+}
+
 button.media-key-button {
   padding: 6px 8px;
   min-width: 112px;

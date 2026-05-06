@@ -285,7 +285,11 @@ class DiagnosticsDialog(Adw.Dialog):
         self._sync_categories(response.get("categories"))
         interval = response.get("interval")
         if isinstance(interval, (int, float)):
-            self._interval_spin.set_value(float(interval))
+            self._syncing_controls = True
+            try:
+                self._interval_spin.set_value(float(interval))
+            finally:
+                self._syncing_controls = False
         self._reset_button.set_sensitive(self._enabled)
         if self._enabled:
             self._status_label.set_text("Waiting for samples...")
@@ -337,7 +341,12 @@ class DiagnosticsDialog(Adw.Dialog):
         self._sync_categories(event.get("categories"))
         interval = event.get("interval")
         if isinstance(interval, (int, float)):
-            self._interval_spin.set_value(float(interval))
+            self._syncing_controls = True
+            try:
+                self._interval_spin.set_value(float(interval))
+            finally:
+                self._syncing_controls = False
+        self._reset_button.set_sensitive(self._enabled)
         self._render_samples(cast(dict[str, Any], samples))
         return False
 

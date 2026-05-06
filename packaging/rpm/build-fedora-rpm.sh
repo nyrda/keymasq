@@ -55,7 +55,8 @@ rm -rf "$source_stage_dir"
 cat <<SPEC_HEAD
 %global debug_package %{nil}
 %global buildsubdir %{name}-%{version}-build
-%define pyproject_bytecompilation %{nil}
+%global pyproject_bytecompilation %{nil}
+%global __brp_python_bytecompile %{nil}
 
 Name:           keymasq
 Version:        $VERSION
@@ -98,6 +99,7 @@ Keyboard and mouse remapper with GUI configuration, per-window profiles, and mac
 find %{buildroot}%{python3_sitelib} -type d -name __pycache__ -prune -exec rm -rf {} +
 find %{buildroot}%{python3_sitelib} -type f -name '*.py[co]' -delete
 %pyproject_save_files keymasq
+sed -i '/__pycache__/d; /\\.py[co]/d' %{pyproject_files}
 
 install -Dpm0644 systemd/keymasqd.service %{buildroot}%{_unitdir}/keymasqd.service
 install -Dpm0644 systemd/keymasq-session.service %{buildroot}%{_userunitdir}/keymasq-session.service

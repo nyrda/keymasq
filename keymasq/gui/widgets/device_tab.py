@@ -166,7 +166,7 @@ class DeviceTab(ProfileManagedTab):
             demo_mode=demo_mode,
             compositor_capabilities=compositor_capabilities,
         )
-        self._button_widgets: dict[str, Gtk.Box] = {}
+        self._button_widgets: dict[str, Gtk.Button] = {}
         self._user_interacting = False
         self._keyboard_layout_mode = False
         self._highlight_timeout_ids: list[int] = []
@@ -936,16 +936,20 @@ class DeviceTab(ProfileManagedTab):
         else:
             parent.append(expander)
 
-    def _create_button_widget(self, button) -> Gtk.Widget:
+    def _create_button_widget(self, button) -> Gtk.Button:
         protected = is_protected_button(button.id)
 
+        btn = Gtk.Button()
+        btn.add_css_class("card")
+        btn.add_css_class("button-card-passthrough")
+        btn.set_margin_top(2)
+        btn.set_margin_bottom(2)
+        btn.set_margin_start(2)
+        btn.set_margin_end(2)
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.add_css_class("card")
-        box.add_css_class("button-card-passthrough")
-        box.set_margin_top(2)
-        box.set_margin_bottom(2)
-        box.set_margin_start(2)
-        box.set_margin_end(2)
+        box.set_halign(Gtk.Align.FILL)
+        box.set_valign(Gtk.Align.CENTER)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
 
@@ -1001,23 +1005,29 @@ class DeviceTab(ProfileManagedTab):
         action_right_click.connect("pressed", self._on_action_label_right_clicked, button)
         action_label.add_controller(action_right_click)
 
-        box._action_label = action_label
-        box._name_label = name_label
-        box._button_id = button.id
-        box._protected = protected
+        btn._action_label = action_label
+        btn._name_label = name_label
+        btn._button_id = button.id
+        btn._protected = protected
 
-        box.set_size_request(
+        btn.set_size_request(
             _KEYBOARD_BUTTON_CARD_WIDTH
             if self._keyboard_layout_mode
             else _POINTER_BUTTON_CARD_WIDTH,
             -1,
         )
+        btn.set_child(box)
+        btn.connect("clicked", self._on_mapping_button_clicked, button, protected)
 
-        click = Gtk.GestureClick()
-        click.connect("pressed", self._on_button_clicked, button, protected)
-        box.add_controller(click)
+        return btn
 
-        return box
+    def _on_mapping_button_clicked(
+        self,
+        _button_widget: Gtk.Button,
+        button: ButtonDefinition,
+        protected: bool,
+    ) -> None:
+        self._activate_mapping_button(button, protected)
 
     def _on_button_clicked(
         self,
@@ -1031,6 +1041,9 @@ class DeviceTab(ProfileManagedTab):
         if click.get_current_button() != Gdk.BUTTON_PRIMARY:
             return
 
+        self._activate_mapping_button(button, protected)
+
+    def _activate_mapping_button(self, button: ButtonDefinition, protected: bool) -> None:
         if self._selected_profile is None:
             self._show_no_profile_dialog()
             return

@@ -266,6 +266,7 @@
               wantedBy = [ "graphical-session.target" ];
               after = [ "graphical-session.target" ];
               restartTriggers = [ cfg.package ];
+              enableDefaultPath = false;
               serviceConfig = {
                 Type = "simple";
                 Environment = [ "KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1" ];

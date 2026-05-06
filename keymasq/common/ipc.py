@@ -50,6 +50,7 @@ class CommandType(Enum):
     CAPTURE_END = "capture_end"
     CAPTURE_COMBO = "capture_combo"
     SET_DIAGNOSTICS = "set_diagnostics"
+    DIAGNOSTICS_SNAPSHOT = "diagnostics_snapshot"
     REFRESH_RECORDING_UNLOCK = "refresh_recording_unlock"
     LOCK_RECORDING_UNLOCK = "lock_recording_unlock"
 

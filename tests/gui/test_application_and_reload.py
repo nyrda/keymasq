@@ -4,6 +4,7 @@ from tests.gui.support import *
 
 def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None:
     import keymasq.gui.application as application_module
+    import keymasq.gui.widgets.diagnostics_dialog as diagnostics_module
     import keymasq.gui.widgets.feedback_dialog as feedback_module
     import keymasq.gui.widgets.macro_manager_dialog as macro_manager_module
     import keymasq.gui.widgets.superkey_dialog as superkey_module
@@ -49,6 +50,7 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
     )
     monkeypatch.setattr(superkey_module, "SuperkeyDialog", _Dialog)
     monkeypatch.setattr(macro_manager_module, "MacroManagerDialog", _Dialog)
+    monkeypatch.setattr(diagnostics_module, "DiagnosticsDialog", _Dialog)
     monkeypatch.setattr(feedback_module, "FeedbackDialog", _Dialog)
     monkeypatch.setattr(application_module.Adw, "AboutDialog", _AboutDialog)
 
@@ -62,6 +64,7 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
     app._on_superkey_changed(None, "Nav")
     app._on_macros(None, None)
     app._on_record_macro(None, None)
+    app._on_diagnostics(None, None)
     app._on_feedback(None, None)
     app._on_about(None, None)
     app._on_macro_manager_closed(None, window)

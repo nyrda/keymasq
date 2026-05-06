@@ -163,6 +163,20 @@ def main() -> None:
         default=5.0,
         help="Logging interval in seconds when enabled",
     )
+    diagnostics_parser.add_argument(
+        "--include",
+        action="append",
+        choices=("mainline", "combo", "internal", "all"),
+        default=[],
+        help="Diagnostics category to log; repeat to add categories",
+    )
+    diagnostics_parser.add_argument(
+        "--exclude",
+        action="append",
+        choices=("mainline", "combo", "internal"),
+        default=[],
+        help="Diagnostics category to hide after includes are applied",
+    )
     _add_json_output(diagnostics_parser)
 
     profiles_parser = subparsers.add_parser("profiles", help="Profile management")
@@ -228,7 +242,13 @@ def main() -> None:
         elif args.macros_command == "delete":
             delete_macro_cli(args.name, json_output=json_output)
     elif args.command == "diagnostics":
-        set_diagnostics_cli(args.state == "on", args.interval, json_output=json_output)
+        set_diagnostics_cli(
+            args.state == "on",
+            args.interval,
+            include=args.include,
+            exclude=args.exclude,
+            json_output=json_output,
+        )
     elif args.command == "profiles":
         if args.profiles_command == "list":
             list_profiles_cli(json_output=json_output)
@@ -330,11 +350,13 @@ def set_diagnostics_cli(
     enabled: bool,
     interval: float = 5.0,
     *,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
     json_output: bool = False,
 ) -> None:
     from keymasq.cli.commands import set_diagnostics_cli as impl
 
-    impl(enabled, interval, json_output=json_output)
+    impl(enabled, interval, include=include, exclude=exclude, json_output=json_output)
 
 
 def list_profiles_cli(*, json_output: bool = False) -> None:

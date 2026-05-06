@@ -461,11 +461,13 @@ class TestListDevices:
     async def test_diagnostics_loop_offloads_snapshot_to_thread(
         self,
         monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
+        ) -> None:
         manager = DeviceManager()
         manager.diagnostics_state.enabled = True
-        manager.diagnostics_state.samples = {"event": deque([1.0, 3.0])}
-        snapshots: list[dict[str, list[float]]] = []
+        manager.broadcast_callback = AsyncMock()
+        manager.diagnostics_state.samples = {"passthrough_mapped": deque([1.0, 3.0])}
+        summaries: list[dict[str, dict[str, object]]] = []
+        broadcasts: list[tuple[CommandType, dict[str, object]]] = []
         calls: list[tuple[object, tuple[object, ...]]] = []
 
         async def fake_sleep(_delay: float) -> None:
@@ -478,12 +480,71 @@ class TestListDevices:
 
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(manager, "_log_diagnostics_snapshot", snapshots.append)
+        monkeypatch.setattr(manager, "_log_diagnostics_summary", summaries.append)
+        monkeypatch.setattr(
+            manager,
+            "_broadcast_runtime_event",
+            lambda *args: broadcasts.append(args),
+        )
 
         await manager._diagnostics_loop()
 
-        assert snapshots == [{"event": [1.0, 3.0]}]
-        assert calls == [(snapshots.append, ({"event": [1.0, 3.0]},))]
+        expected_summary = {
+            "passthrough_mapped": {"n": 2, "p50": 1.0, "p95": 1.0, "p99": 1.0, "max": 3.0}
+        }
+        assert summaries == [expected_summary]
+        assert calls == [
+            (
+                manager._summarize_diagnostics_snapshot,
+                ({"passthrough_mapped": [1.0, 3.0]},),
+            ),
+            (summaries.append, (expected_summary,)),
+        ]
+        assert broadcasts == [
+            (
+                CommandType.DIAGNOSTICS_SNAPSHOT,
+                {
+                    "enabled": True,
+                    "interval": 5.0,
+                    "categories": ["mainline"],
+                    "samples": expected_summary,
+                },
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_filters_to_mainline_by_default(self) -> None:
+        manager = DeviceManager()
+        manager.diagnostics_state.enabled = True
+
+        manager._record_diagnostic("passthrough_mapped", 10.0)
+        manager._record_diagnostic("action_key", 20.0)
+        manager._record_diagnostic("combo_passthrough", 30.0)
+        manager._record_diagnostic("syn", 40.0)
+
+        assert set(manager.diagnostics_state.samples) == {
+            "passthrough_mapped",
+            "action_key",
+        }
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_can_include_combo_and_internal_categories(self) -> None:
+        manager = DeviceManager()
+        manager.diagnostics_state.enabled = True
+        manager.diagnostics_state.categories = {"combo", "internal"}
+
+        manager._record_diagnostic("passthrough_mapped", 10.0)
+        manager._record_diagnostic("combo_passthrough", 20.0)
+        manager._record_diagnostic("combo_passthrough_held", 30.0)
+        manager._record_diagnostic("syn", 40.0)
+        manager._record_diagnostic("combo_recalled_release_suppressed", 50.0)
+
+        assert set(manager.diagnostics_state.samples) == {
+            "combo_passthrough",
+            "combo_passthrough_held",
+            "syn",
+            "combo_recalled_release_suppressed",
+        }
 
     @pytest.mark.asyncio
     async def test_topology_watch_loop_retries_when_live_and_reconciled_snapshots_differ(

@@ -164,6 +164,34 @@ def test_set_diagnostics_cli_exits_on_error(monkeypatch: pytest.MonkeyPatch) -> 
     assert excinfo.value.code == 1
 
 
+def test_set_diagnostics_cli_sends_categories(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {
+            "status": "ok",
+            "data": {"enabled": True, "interval": 3.0, "categories": ["mainline", "combo"]},
+        }
+
+    monkeypatch.setattr(commands, "_session_request", _session_request)
+
+    commands.set_diagnostics_cli(True, interval=3.0, include=["combo"])
+
+    assert sent == [
+        {
+            "command": "set_diagnostics",
+            "enabled": True,
+            "interval": 3.0,
+            "categories": ["mainline", "combo"],
+        }
+    ]
+    assert "categories=mainline, combo" in capsys.readouterr().out
+
+
 def test_type_cli_compiles_and_sends_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[dict[str, object]] = []
 

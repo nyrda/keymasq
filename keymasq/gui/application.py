@@ -97,6 +97,10 @@ class Application(Adw.Application):
         record_macro_action.connect("activate", self._on_record_macro)
         self.add_action(record_macro_action)
 
+        diagnostics_action = Gio.SimpleAction.new("diagnostics", None)
+        diagnostics_action.connect("activate", self._on_diagnostics)
+        self.add_action(diagnostics_action)
+
         feedback_action = Gio.SimpleAction.new("feedback", None)
         feedback_action.connect("activate", self._on_feedback)
         self.add_action(feedback_action)
@@ -152,6 +156,14 @@ class Application(Adw.Application):
         if not self.window:
             return
         self.window.present_recording_settings_dialog()
+
+    def _on_diagnostics(self, action, param) -> None:
+        if not self.window:
+            return
+        from keymasq.gui.widgets.diagnostics_dialog import DiagnosticsDialog
+
+        dialog = DiagnosticsDialog(self.window)
+        dialog.present(self.window)
 
     def _on_feedback(self, action, param) -> None:
         if not self.window:

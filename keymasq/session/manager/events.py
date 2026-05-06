@@ -99,6 +99,10 @@ async def handle_event(
         asyncio.create_task(handle_runtime_reset_event(manager, data))
         return
 
+    if event_type == CommandType.DIAGNOSTICS_SNAPSHOT:
+        manager.broadcast_to_session_clients({"event": "diagnostics_snapshot", **data})
+        return
+
     if event_type == CommandType.RECORDING_STARTED:
         manager.recording_state.active = True
         manager.broadcast_to_session_clients({"event": "recording_started", **data})

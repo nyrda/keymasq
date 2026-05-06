@@ -132,7 +132,7 @@ pointer lands at the requested coordinates.
 
 ### KDE Plasma 6
 
-The KDE test does not use a generic Wayland foreign-toplevel protocol. It exercises the real KDE listener path in [keymasq/session/listeners/kde.py](../keymasq/session/listeners/kde.py):
+The KDE test does not use a generic Wayland foreign-toplevel protocol. It exercises the real KDE listener path in [keymasq/session/listeners/kde.py](https://github.com/nyrda/keymasq/blob/master/keymasq/session/listeners/kde.py):
 
 - `keymasq-session` connects to `org.kde.KWin` over the session D-Bus
 - it calls `org.kde.kwin.Scripting.loadScript`

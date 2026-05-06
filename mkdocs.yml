@@ -93,6 +93,7 @@ plugins:
 nav:
   - Home: index.md
   - Install: INSTALL.md
+  - Getting Started: GETTING_STARTED.md
   - User Guide:
       - Profiles: PROFILES.md
       - Actions: ACTIONS.md
@@ -100,9 +101,18 @@ nav:
       - Combos: COMBOS.md
       - Macros: MACROS.md
       - Gamepad: GAMEPAD.md
+  - Examples:
+      - Overview: EXAMPLES.md
+      - Custom Modifier Combos: examples/custom-modifier-combos.md
+      - Mouse UI Automation: examples/mouse-ui-automation.md
+      - Text Snippet Macro: examples/text-snippet-macro.md
+      - Universal Copy and Paste: examples/universal-copy-paste.md
+      - Volume Rocker Key: examples/volume-rocker-superkey.md
   - Desktop Support:
       - Wayland: WAYLAND.md
       - GNOME: GNOME.md
   - Reference:
+      - CLI: CLI.md
+      - Performance: PERFORMANCE.md
       - Security: SECURITY.md
       - Troubleshooting: TROUBLESHOOTING.md

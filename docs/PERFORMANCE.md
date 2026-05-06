@@ -109,9 +109,9 @@ do not collapse onto the same logical button state.
 
 For methodology and full results, see:
 
-- [benchmarks/LATENCY_ANALYSIS.md](../benchmarks/LATENCY_ANALYSIS.md) — evdev
-  passthrough latency breakdown
-- [benchmarks/MACRO_REPLAY_FIDELITY.md](../benchmarks/MACRO_REPLAY_FIDELITY.md) —
+- [benchmarks/LATENCY_ANALYSIS.md](https://github.com/nyrda/keymasq/blob/master/benchmarks/LATENCY_ANALYSIS.md) —
+  evdev passthrough latency breakdown
+- [benchmarks/MACRO_REPLAY_FIDELITY.md](https://github.com/nyrda/keymasq/blob/master/benchmarks/MACRO_REPLAY_FIDELITY.md) —
   macro timing accuracy across scenarios
 
 Keymasq only grabs devices that have active remappings. Devices without

@@ -33,15 +33,20 @@ Primary docs:
 
 - Home: https://keymasq.tools/docs/latest/
 - Install: https://keymasq.tools/docs/latest/INSTALL/
+- Getting Started: https://keymasq.tools/docs/latest/GETTING_STARTED/
 - Profiles: https://keymasq.tools/docs/latest/PROFILES/
 - Actions: https://keymasq.tools/docs/latest/ACTIONS/
 - Macros: https://keymasq.tools/docs/latest/MACROS/
 - Combos: https://keymasq.tools/docs/latest/COMBOS/
 - Superkeys: https://keymasq.tools/docs/latest/SUPERKEYS/
 - Gamepad: https://keymasq.tools/docs/latest/GAMEPAD/
+- Examples: https://keymasq.tools/docs/latest/EXAMPLES/
 - Wayland: https://keymasq.tools/docs/latest/WAYLAND/
 - GNOME: https://keymasq.tools/docs/latest/GNOME/
+- CLI: https://keymasq.tools/docs/latest/CLI/
+- Performance: https://keymasq.tools/docs/latest/PERFORMANCE/
 - Security: https://keymasq.tools/docs/latest/SECURITY/
+- Troubleshooting: https://keymasq.tools/docs/latest/TROUBLESHOOTING/
 
 ## Terms
 

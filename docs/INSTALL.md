@@ -310,7 +310,7 @@ emergency_cancel_combo_enabled = false
 ```
 
 For all available settings, see [SECURITY.md](SECURITY.md) and
-[examples/security.toml](../examples/security.toml).
+[examples/security.toml](https://github.com/nyrda/keymasq/blob/master/examples/security.toml).
 
 ## 3. Verification
 
@@ -331,7 +331,8 @@ method that:
 For debugging service startup, permissions, compositor integration, or verbose
 logging, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-For development work, use the Nix-based flow in [DEVELOPMENT.md](../DEVELOPMENT.md).
+For development work, use the Nix-based flow in
+[DEVELOPMENT.md](https://github.com/nyrda/keymasq/blob/master/DEVELOPMENT.md).
 
 ## 4. Diagnostics (Optional)
 

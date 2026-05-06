@@ -34,19 +34,36 @@ button.button-card-mapped-inactive label {
   opacity: 0.6;
 }
 
-/* Hover/press feedback for all key cards */
-.button-card-passthrough:hover,
-.button-card-mapped-active:hover,
-.button-card-mapped-inactive:hover {
+/* Hover/press feedback keeps each mapping state identifiable */
+.button-card-passthrough:hover {
   background: alpha(@accent_color, 0.08);
   border-left-color: @accent_color;
+  opacity: 0.82;
   cursor: pointer;
 }
 
-.button-card-passthrough:active,
-.button-card-mapped-active:active,
-.button-card-mapped-inactive:active {
+.button-card-mapped-active:hover {
+  background: alpha(@success_color, 0.22);
+  border-left-color: @success_color;
+  cursor: pointer;
+}
+
+.button-card-mapped-inactive:hover {
+  background: alpha(@warning_color, 0.18);
+  border-left-color: @warning_color;
+  cursor: pointer;
+}
+
+.button-card-passthrough:active {
   background: alpha(@accent_color, 0.14);
+}
+
+.button-card-mapped-active:active {
+  background: alpha(@success_color, 0.28);
+}
+
+.button-card-mapped-inactive:active {
+  background: alpha(@warning_color, 0.24);
 }
 
 /* Status pill badges */

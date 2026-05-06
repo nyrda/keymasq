@@ -7,10 +7,10 @@ export PYBUILD_SYSTEM = pyproject
 	dh $@ --buildsystem=pybuild
 
 override_dh_installsystemd:
-	dh_installsystemd --no-enable --no-start keymasqd.service
+	dh_installsystemd --no-enable --no-start --no-stop-on-upgrade keymasqd.service
 
 override_dh_installsystemduser:
-	dh_installsystemduser --no-enable --no-start keymasq-session.service
+	dh_installsystemduser --no-enable keymasq-session.service
 
 execute_after_dh_install:
 	set -eu; \

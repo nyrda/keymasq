@@ -13,12 +13,14 @@
   <update_contact>nyrda@keymasq.tools</update_contact>
   <description>
     <p>
-      Keymasq is a Linux input remapper built around a privileged daemon, a
-      per-user session broker, and a GTK4 GUI.
+      Keyboard and mouse remapper with GUI configuration, per-window profiles,
+      and macros.
     </p>
     <p>
-      It supports global layered profiles, per-device mappings, window-aware
-      profile activation, macros, superkeys, and multi-step combos.
+      Keymasq supports keyboard, mouse, and gamepad remapping with layered
+      profiles, window-aware activation, macros, superkeys, and combos. Use it
+      for workflows like a Linux autoclicker, game auto-fire, app-specific
+      shortcuts, and multi-step automation.
     </p>
   </description>
   <categories>
@@ -35,6 +37,12 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.15.0" date="2026-05-06">
+      <description>
+        <p>Adds a feedback dialog for submitting bugs, ideas, or questions, with optional diagnostics.</p>
+        <p>Also moves profile settings into a dedicated dialog with per-device grab toggles, improves CLI and macro responsiveness, and refreshes device mapping card polish.</p>
+      </description>
+    </release>
     <release version="0.14.0" date="2026-05-05">
       <description>
         <p>Honors XDG_CONFIG_HOME instead of always using the default user config directory.</p>

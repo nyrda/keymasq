@@ -3,6 +3,20 @@
 This file tracks notable user-facing changes from the `0.8.0` milestone
 forward.
 
+## 0.15.0
+
+### Improved
+
+- Added a feedback dialog for submitting bugs, ideas, or questions, with
+  optional diagnostics.
+- Moved profile settings into a dedicated Adwaita dialog with per-device grab
+  toggles, an active-profile summary, and quicker access from the profile
+  picker.
+- Improved CLI responsiveness by deferring heavy imports and offloading macro
+  compilation from the session thread.
+- Refreshed device mapping cards with clearer state styling, better text
+  handling, and general window polish.
+
 ## 0.14.0
 
 ### Fixed

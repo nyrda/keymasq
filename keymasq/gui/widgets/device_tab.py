@@ -1,3 +1,4 @@
+import shlex
 from typing import cast
 
 import gi
@@ -45,107 +46,56 @@ _KEYBOARD_LABEL_CHARS = 12
 _KEYBOARD_ACTION_SUMMARY_CHARS = 16
 _POINTER_BUTTON_CARD_WIDTH = 187
 _POINTER_NAME_LABEL_CHARS = 20
-_POINTER_ACTION_SUMMARY_CHARS = 31
-_ACTION_SUMMARY_MARKER = " [...] "
-_COMPACT_ACTION_WORDS = {
-    "recording": "rec",
-    "playback": "play",
-    "profile": "prof",
-}
+_POINTER_ACTION_SUMMARY_CHARS = 24
+_ACTION_SUMMARY_MARKER = "..."
 
 
-def _char_middle_shorten_text(text: str, max_chars: int, marker: str) -> str:
+def _char_middle_shorten_text(text: str, max_chars: int) -> str:
     if max_chars <= 0:
         return ""
     if len(text) <= max_chars:
         return text
-    if max_chars <= 3:
+    if max_chars <= len(_ACTION_SUMMARY_MARKER):
         return text[:max_chars]
-    if max_chars <= len(marker) + 2:
-        return text[: max_chars - 3] + "..."
 
-    budget = max_chars - len(marker)
+    budget = max_chars - len(_ACTION_SUMMARY_MARKER)
     head_len = max(1, (budget + 1) // 2)
     tail_len = max(1, budget - head_len)
-    return f"{text[:head_len]}{marker}{text[-tail_len:]}"
+    return f"{text[:head_len]}{_ACTION_SUMMARY_MARKER}{text[-tail_len:]}"
 
 
-def _compact_action_words(text: str, max_chars: int) -> str | None:
-    words = text.split()
-    if len(words) < 2:
+def _compact_exec_summary(text: str, max_chars: int) -> str | None:
+    prefix = "▶ "
+    if not text.startswith(prefix):
         return None
 
-    if words[0] == "→" and any(word in {"⚡", "↓"} for word in words[2:]):
-        compact_text = " ".join(words[1:])
-        if len(compact_text) <= max_chars:
-            return compact_text
+    command = text[len(prefix) :].strip()
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return None
+    if len(parts) < 3:
+        return None
 
-    compact_words = [
-        _COMPACT_ACTION_WORDS.get(word.lower(), word)
-        for word in words
-    ]
-    compact_text = " ".join(compact_words)
-    if compact_text != text and len(compact_text) <= max_chars:
-        return compact_text
+    positional = [part for part in parts[1:] if not part.startswith("-")]
+    if not positional:
+        return None
+
+    compact = f"{prefix}{parts[0]} {' '.join(positional)}"
+    if len(compact) <= max_chars:
+        return compact
     return None
 
 
-def _middle_shorten_text(text: str, max_chars: int) -> str:
+def _display_action_summary(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
 
-    compact = _compact_action_words(text, max_chars)
-    if compact is not None:
-        return compact
+    compact_exec = _compact_exec_summary(text, max_chars)
+    if compact_exec is not None:
+        return compact_exec
 
-    marker = _ACTION_SUMMARY_MARKER if max_chars >= 20 else "..."
-
-    words = text.split()
-    if len(words) < 3:
-        return _char_middle_shorten_text(text, max_chars, marker)
-
-    budget = max_chars - len(marker)
-    if budget <= 2:
-        return _char_middle_shorten_text(text, max_chars, marker)
-
-    suffix_words: list[str] = []
-    suffix_len = 0
-    suffix_target = max(9, min(12, budget // 3))
-    for word in reversed(words):
-        next_len = len(word) + (1 if suffix_words else 0)
-        if suffix_words and suffix_len + next_len > suffix_target:
-            break
-        if suffix_len + next_len > budget - 2:
-            break
-        suffix_words.insert(0, word)
-        suffix_len += next_len
-
-    if not suffix_words:
-        return _char_middle_shorten_text(text, max_chars, marker)
-
-    prefix_budget = budget - suffix_len
-    if prefix_budget <= 0:
-        return _char_middle_shorten_text(text, max_chars, marker)
-
-    prefix_words: list[str] = []
-    prefix_len = 0
-    prefix_limit = len(words) - len(suffix_words)
-    for word in words[:prefix_limit]:
-        next_len = len(word) + (1 if prefix_words else 0)
-        if prefix_words and prefix_len + next_len > prefix_budget:
-            break
-        if not prefix_words and next_len > prefix_budget:
-            break
-        prefix_words.append(word)
-        prefix_len += next_len
-
-    if not prefix_words:
-        return _char_middle_shorten_text(text, max_chars, marker)
-
-    shortened = f"{' '.join(prefix_words)}{marker}{' '.join(suffix_words)}"
-    if len(shortened) <= max_chars:
-        return shortened
-    return _char_middle_shorten_text(text, max_chars, marker)
+    return _char_middle_shorten_text(text, max_chars)
 
 
 class DeviceTab(ProfileManagedTab):
@@ -936,6 +886,11 @@ class DeviceTab(ProfileManagedTab):
         else:
             parent.append(expander)
 
+    def _button_card_width(self) -> int:
+        if self._keyboard_layout_mode:
+            return _KEYBOARD_BUTTON_CARD_WIDTH
+        return _POINTER_BUTTON_CARD_WIDTH
+
     def _create_button_widget(self, button) -> Gtk.Button:
         protected = is_protected_button(button.id)
 
@@ -950,6 +905,10 @@ class DeviceTab(ProfileManagedTab):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.set_halign(Gtk.Align.FILL)
         box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(6)
+        box.set_margin_bottom(7)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
 
@@ -957,11 +916,7 @@ class DeviceTab(ProfileManagedTab):
         name_label.add_css_class("heading")
         name_label.set_xalign(0.0)
         name_label.set_ellipsize(Pango.EllipsizeMode.END)
-        name_label.set_width_chars(
-            _KEYBOARD_LABEL_CHARS
-            if self._keyboard_layout_mode
-            else _POINTER_NAME_LABEL_CHARS
-        )
+        name_label.set_width_chars(1)
         name_label.set_max_width_chars(
             _KEYBOARD_LABEL_CHARS
             if self._keyboard_layout_mode
@@ -975,24 +930,23 @@ class DeviceTab(ProfileManagedTab):
         name_label.add_controller(name_right_click)
 
         if protected:
-            lock = Gtk.Image(icon_name="system-lock-screen-symbolic")
-            lock.set_pixel_size(12)
-            header.append(lock)
+            info_icon = Gtk.Image(icon_name="help-about-symbolic")
+            info_icon.set_pixel_size(10)
+            info_icon.add_css_class("protected-button-info-icon")
+            info_icon.set_tooltip_text("Remapping this button requires confirmation")
+            header.append(info_icon)
 
         box.append(header)
 
         action_label = Gtk.Label(label=self._describe_passthrough_output(button))
         action_label.add_css_class("caption")
         action_label.add_css_class("button-card-action-label")
-        action_label.set_halign(Gtk.Align.START)
+        action_label.set_halign(Gtk.Align.FILL)
         action_label.set_xalign(0.0)
+        action_label.set_hexpand(True)
         action_label.set_single_line_mode(True)
         action_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        action_label.set_width_chars(
-            _KEYBOARD_ACTION_SUMMARY_CHARS
-            if self._keyboard_layout_mode
-            else _POINTER_ACTION_SUMMARY_CHARS
-        )
+        action_label.set_width_chars(1)
         action_label.set_max_width_chars(
             _KEYBOARD_ACTION_SUMMARY_CHARS
             if self._keyboard_layout_mode
@@ -1010,12 +964,9 @@ class DeviceTab(ProfileManagedTab):
         btn._button_id = button.id
         btn._protected = protected
 
-        btn.set_size_request(
-            _KEYBOARD_BUTTON_CARD_WIDTH
-            if self._keyboard_layout_mode
-            else _POINTER_BUTTON_CARD_WIDTH,
-            -1,
-        )
+        btn.set_size_request(self._button_card_width(), -1)
+        btn.set_halign(Gtk.Align.START)
+        btn.set_hexpand(False)
         btn.set_child(box)
         btn.connect("clicked", self._on_mapping_button_clicked, button, protected)
 
@@ -1304,9 +1255,9 @@ class DeviceTab(ProfileManagedTab):
             if self._keyboard_layout_mode
             else _POINTER_ACTION_SUMMARY_CHARS
         )
-        shortened = _middle_shorten_text(text, max_chars)
-        label.set_text(shortened)
-        label.set_tooltip_text(text if shortened != text else None)
+        display_text = _display_action_summary(text, max_chars)
+        label.set_text(display_text)
+        label.set_tooltip_text(text if display_text != text else None)
 
     def _update_button_display(self, button_id: str) -> None:
         widget = self._button_widgets.get(button_id)

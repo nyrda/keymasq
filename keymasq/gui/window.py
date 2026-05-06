@@ -108,7 +108,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.combo_tab: ComboTab | None = None
 
         self.set_title("Keymasq")
-        self.set_default_size(900, 1000)
+        self.set_default_size(760, 1000)
 
         self._setup_content()
         self._start_startup_probe()

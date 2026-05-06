@@ -46,6 +46,10 @@
 .status-inactive { background: alpha(@error_color, 0.15); color: @error_color; }
 .status-standby { background: alpha(@shade_color, 0.08); }
 
+.active-profiles-summary {
+  margin-top: -4px;
+}
+
 .recording-locked-notice {
   background: alpha(@warning_color, 0.12);
   border-left: 3px solid @warning_color;

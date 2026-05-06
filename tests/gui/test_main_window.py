@@ -290,7 +290,7 @@ class TestMainWindow:
         assert window._selected_profile_name == "Gaming"
         assert tab._selected_profile is not None
         assert tab._selected_profile.config.name == "Gaming"
-        assert tab.settings_frame.get_expanded() is True
+        assert tab._profile_settings_dialog is not None
         assert window.combo_tab is not None
         assert window.combo_tab._selected_profile is not None
         assert window.combo_tab._selected_profile.config.name == "Gaming"
@@ -429,8 +429,14 @@ class TestMainWindow:
         )
 
         assert tab._active_profile_names == ["Gaming"]
+        assert tab.active_profiles_title_label.get_text() == "Applied profiles:"
+        assert (
+            tab.active_profiles_label.get_tooltip_text()
+            == "Applied profiles. Layer order: Gaming"
+        )
         assert tab.status_label.get_text() == "active"
         assert window.combo_tab is not None
+        assert window.combo_tab.active_profiles_title_label.get_text() == "Active profiles:"
         assert window.combo_tab._active_profile_names == ["Gaming"]
         assert window.combo_tab.status_label.get_text() == "active"
 

@@ -50,4 +50,6 @@ You've created your first remap. Explore further:
 - [Combos](COMBOS.md) — trigger actions from key combinations
 - [Super Keys](SUPERKEYS.md) — tap, hold, and double-tap behaviors
 
+Use **Feedback** in the app menu to send bug reports, ideas, or questions from the GUI.
+
 If remaps don't work, see [Troubleshooting](TROUBLESHOOTING.md).

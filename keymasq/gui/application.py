@@ -97,6 +97,10 @@ class Application(Adw.Application):
         record_macro_action.connect("activate", self._on_record_macro)
         self.add_action(record_macro_action)
 
+        feedback_action = Gio.SimpleAction.new("feedback", None)
+        feedback_action.connect("activate", self._on_feedback)
+        self.add_action(feedback_action)
+
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self._on_about)
         self.add_action(about_action)
@@ -148,6 +152,14 @@ class Application(Adw.Application):
         if not self.window:
             return
         self.window.present_recording_settings_dialog()
+
+    def _on_feedback(self, action, param) -> None:
+        if not self.window:
+            return
+        from keymasq.gui.widgets.feedback_dialog import FeedbackDialog
+
+        dialog = FeedbackDialog(self.window)
+        dialog.present(self.window)
 
     def _on_about(self, action, param) -> None:
         if self.window:

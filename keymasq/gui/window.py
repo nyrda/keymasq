@@ -87,6 +87,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._unlock_refresh_inflight = False
         self._placeholder_subtitle: Gtk.Label | None = None
         self._menu_unlock_btn: Gtk.Button | None = None
+        self._menu_unlock_separator: Gtk.Widget | None = None
         self._appearance_buttons: dict[AppearanceMode, Gtk.ToggleButton] = {}
         self._syncing_appearance = False
         self._unlock_status_label: Gtk.Label | None = None
@@ -677,14 +678,22 @@ class MainWindow(Adw.ApplicationWindow):
         self._appearance_buttons[current_appearance].set_active(True)
         self._syncing_appearance = False
         menu_box.append(appearance_box)
+        menu_box.append(self._create_menu_separator())
 
         superkeys_btn = Gtk.Button(label="Super Keys")
-        superkeys_btn.set_halign(Gtk.Align.FILL)
+        self._configure_menu_button(superkeys_btn)
         superkeys_btn.connect("clicked", self._on_menu_action_clicked, "superkeys", menu_popover)
         menu_box.append(superkeys_btn)
 
+        macros_btn = Gtk.Button(label="Macros")
+        self._configure_menu_button(macros_btn)
+        macros_btn.connect("clicked", self._on_menu_action_clicked, "macros", menu_popover)
+        menu_box.append(macros_btn)
+
+        menu_box.append(self._create_menu_separator())
+
         menu_unlock_btn = Gtk.Button(label="Unlock Recording")
-        menu_unlock_btn.set_halign(Gtk.Align.FILL)
+        self._configure_menu_button(menu_unlock_btn)
         menu_unlock_btn.set_tooltip_text(
             "Authorize raw original-input capture for adding inputs, combo capture, "
             "and live macro recording. Uses Polkit and stays tied to this GUI session."
@@ -693,20 +702,22 @@ class MainWindow(Adw.ApplicationWindow):
         menu_box.append(menu_unlock_btn)
         self._menu_unlock_btn = menu_unlock_btn
 
-        macros_btn = Gtk.Button(label="Macros")
-        macros_btn.set_halign(Gtk.Align.FILL)
-        macros_btn.connect("clicked", self._on_menu_action_clicked, "macros", menu_popover)
-        menu_box.append(macros_btn)
+        menu_unlock_separator = self._create_menu_separator()
+        menu_box.append(menu_unlock_separator)
+        self._menu_unlock_separator = menu_unlock_separator
 
-        menu_box.append(Gtk.Separator())
+        feedback_btn = Gtk.Button(label="Feedback")
+        self._configure_menu_button(feedback_btn)
+        feedback_btn.connect("clicked", self._on_menu_action_clicked, "feedback", menu_popover)
+        menu_box.append(feedback_btn)
 
         about_btn = Gtk.Button(label="About")
-        about_btn.set_halign(Gtk.Align.FILL)
+        self._configure_menu_button(about_btn)
         about_btn.connect("clicked", self._on_menu_action_clicked, "about", menu_popover)
         menu_box.append(about_btn)
 
         quit_btn = Gtk.Button(label="Quit")
-        quit_btn.set_halign(Gtk.Align.FILL)
+        self._configure_menu_button(quit_btn)
         quit_btn.connect("clicked", self._on_menu_action_clicked, "quit", menu_popover)
         menu_box.append(quit_btn)
 
@@ -797,6 +808,20 @@ class MainWindow(Adw.ApplicationWindow):
         self._setup_placeholder()
         self._setup_combo_tab()
         self._update_unlock_state(None)
+
+    def _create_menu_separator(self) -> Gtk.Widget:
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.set_margin_top(9)
+        separator.set_margin_bottom(9)
+        separator.set_margin_start(4)
+        separator.set_margin_end(4)
+        separator.set_size_request(-1, 2)
+        return separator
+
+    def _configure_menu_button(self, button: Gtk.Button) -> None:
+        button.set_halign(Gtk.Align.FILL)
+        button.set_margin_top(2)
+        button.set_margin_bottom(2)
 
     def _on_appearance_mode_toggled(
         self,
@@ -1188,6 +1213,8 @@ class MainWindow(Adw.ApplicationWindow):
     def _refresh_macro_menu_state(self) -> None:
         if self._menu_unlock_btn is not None:
             self._menu_unlock_btn.set_visible(not self._recording_unlocked)
+        if self._menu_unlock_separator is not None:
+            self._menu_unlock_separator.set_visible(not self._recording_unlocked)
 
         app = self.get_application()
         if app is not None:

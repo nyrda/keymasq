@@ -741,6 +741,33 @@ class TestDeviceTabWidget:
 
         assert selected_calls == ["btn_back"]
 
+    def test_device_tab_protected_buttons_show_info_indicator(self):
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+        button = tab._button_widgets["btn_left"]
+        content = button.get_child()
+        assert isinstance(content, Gtk.Box)
+        header = content.get_first_child()
+        assert isinstance(header, Gtk.Box)
+        info_icon = header.get_last_child()
+
+        assert isinstance(info_icon, Gtk.Image)
+        assert info_icon.get_icon_name() == "help-about-symbolic"
+        assert info_icon.get_pixel_size() == 10
+        assert info_icon.has_css_class("protected-button-info-icon") is True
+
     def test_device_tab_add_button_is_unified_and_dialog_defaults_to_one(self, temp_config_dir):
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gtk

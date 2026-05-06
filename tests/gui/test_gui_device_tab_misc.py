@@ -432,7 +432,7 @@ def test_describe_mapping_action_compact_includes_runtime_markers():
     assert describe_mapping_action_compact(action, include_state=True) == "→ key_a ⚡ ↓"
 
 
-def test_device_tab_shortens_long_action_summary_in_the_middle(temp_config_dir):
+def test_device_tab_uses_pango_ellipsizing_for_long_action_summary(temp_config_dir):
     from keymasq.common.models import (
         ActionType,
         ButtonDefinition,
@@ -476,53 +476,12 @@ def test_device_tab_shortens_long_action_summary_in_the_middle(temp_config_dir):
 
     widget = tab._button_widgets["btn_extra"]
     assert widget.get_size_request()[0] == 187
-    assert widget._action_label.get_text() == "▶ grimblast [...] copy area"
+    assert widget._action_label.get_ellipsize().value_name == "PANGO_ELLIPSIZE_MIDDLE"
+    assert widget._action_label.get_hexpand() is True
+    assert widget._action_label.get_text() == "▶ grimblast copy area"
     assert widget._action_label.get_tooltip_text() == (
         "▶ grimblast --freeze --notify copy area"
     )
-
-
-def test_device_tab_shortens_recording_action_to_budget():
-    from keymasq.gui.widgets.device_tab import _middle_shorten_text
-
-    shortened = _middle_shorten_text("⏺ toggle recording", 14)
-
-    assert shortened == "⏺ toggle rec"
-    assert len(shortened) <= 14
-
-
-def test_device_tab_keyboard_budget_fits_common_long_actions():
-    from keymasq.gui.widgets.device_tab import (
-        _KEYBOARD_ACTION_SUMMARY_CHARS,
-        _middle_shorten_text,
-    )
-
-    assert _middle_shorten_text("→ key_backspace", _KEYBOARD_ACTION_SUMMARY_CHARS) == (
-        "→ key_backspace"
-    )
-    assert _middle_shorten_text("🪟 workspace e+1", _KEYBOARD_ACTION_SUMMARY_CHARS) == (
-        "🪟 workspace e+1"
-    )
-
-
-def test_device_tab_keyboard_budget_keeps_rapidfire_relative_target_readable():
-    from keymasq.gui.widgets.device_tab import (
-        _KEYBOARD_ACTION_SUMMARY_CHARS,
-        _middle_shorten_text,
-    )
-
-    assert _middle_shorten_text("→ rel_hwheel:-1 ⚡", _KEYBOARD_ACTION_SUMMARY_CHARS) == (
-        "rel_hwheel:-1 ⚡"
-    )
-
-
-def test_device_tab_middle_shorten_never_exceeds_budget():
-    from keymasq.gui.widgets.device_tab import _middle_shorten_text
-
-    for max_chars in range(1, 32):
-        shortened = _middle_shorten_text("⏺ toggle unexpectedlylongrecordingword", max_chars)
-
-        assert len(shortened) <= max_chars
 
 
 def test_key_selector_dialog_passthrough_clears_current_profile_mapping():

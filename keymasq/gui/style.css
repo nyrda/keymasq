@@ -1,37 +1,69 @@
 /* Active mapping: green left indicator + subtle tint */
+button.button-card-passthrough,
+button.button-card-mapped-active,
+button.button-card-mapped-inactive {
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  text-align: left;
+}
+
+button.button-card-passthrough label,
+button.button-card-mapped-active label,
+button.button-card-mapped-inactive label {
+  font-size: 0.9em;
+}
+
 .button-card-mapped-active {
   border-left: 4px solid @success_color;
-  padding-left: 6px;
+  padding-left: 0;
   background: alpha(@success_color, 0.12);
 }
 
 /* Overridden mapping: orange indicator, still editable */
 .button-card-mapped-inactive {
   border-left: 4px solid @warning_color;
-  padding-left: 6px;
+  padding-left: 0;
   background: alpha(@warning_color, 0.12);
 }
 
 /* Passthrough button: subdued */
 .button-card-passthrough {
   border-left: 3px solid alpha(@shade_color, 0.2);
-  padding-left: 6px;
+  padding-left: 0;
   opacity: 0.6;
 }
 
-/* Hover/press feedback for all key cards */
-.button-card-passthrough:hover,
-.button-card-mapped-active:hover,
-.button-card-mapped-inactive:hover {
+/* Hover/press feedback keeps each mapping state identifiable */
+.button-card-passthrough:hover {
   background: alpha(@accent_color, 0.08);
   border-left-color: @accent_color;
+  opacity: 0.82;
   cursor: pointer;
 }
 
-.button-card-passthrough:active,
-.button-card-mapped-active:active,
-.button-card-mapped-inactive:active {
+.button-card-mapped-active:hover {
+  background: alpha(@success_color, 0.22);
+  border-left-color: @success_color;
+  cursor: pointer;
+}
+
+.button-card-mapped-inactive:hover {
+  background: alpha(@warning_color, 0.18);
+  border-left-color: @warning_color;
+  cursor: pointer;
+}
+
+.button-card-passthrough:active {
   background: alpha(@accent_color, 0.14);
+}
+
+.button-card-mapped-active:active {
+  background: alpha(@success_color, 0.28);
+}
+
+.button-card-mapped-inactive:active {
+  background: alpha(@warning_color, 0.24);
 }
 
 /* Status pill badges */
@@ -184,6 +216,10 @@ button.media-key-button {
 
 .button-card-action-label {
   font-size: 0.92em;
+}
+
+.protected-button-info-icon {
+  opacity: 0.55;
 }
 
 .media-key-icon {

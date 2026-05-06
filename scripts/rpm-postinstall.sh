@@ -13,6 +13,12 @@ udevadm trigger --subsystem-match=misc --action=add 2>/dev/null || true
 # Reload systemd
 systemctl daemon-reload 2>/dev/null || true
 
+# On RPM upgrades, $1 is greater than 1. Restart only an already-running daemon;
+# do not start keymasqd on first install.
+if [ "${1:-1}" -gt 1 ]; then
+    systemctl try-restart keymasqd.service 2>/dev/null || true
+fi
+
 # Bump mtimes so desktop environments that watch icon/theme changes
 # can notice the new launcher assets without a full session restart.
 find /usr/share/icons/hicolor -path '*/apps/tools.keymasq.keymasq.*' -exec touch {} + >/dev/null 2>&1 || true

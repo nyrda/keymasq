@@ -124,6 +124,21 @@ In practice, the distro packages all install the same user-visible pieces:
 - the GNOME Shell bridge extension files
 - `/etc/keymasq/security.toml` as the default security configuration
 
+## Service restart policy
+
+Packages should not enable or start Keymasq services automatically on first
+install. Users should explicitly enable `keymasqd` and `keymasq-session`.
+
+On upgrades, Debian, Arch, Fedora, and openSUSE packages try to restart
+`keymasqd` only if it is already running. The NixOS module uses systemd
+`restartTriggers` for the same package-change behavior. The packaged
+`keymasq-session` user unit is configured to exit after an established
+`keymasqd` connection is lost, so systemd's `Restart=on-failure` restarts the
+session service without root package scripts needing to manage per-user systemd
+instances.
+
+The GUI is never restarted by packaging.
+
 The Nix outputs split that payload slightly differently:
 
 - the plain Nix package installs the application commands, desktop assets, and

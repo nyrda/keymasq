@@ -268,6 +268,7 @@
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "simple";
+                Environment = [ "KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1" ];
                 ExecStart = "${cfg.package}/bin/keymasq-session";
                 Restart = "on-failure";
                 RestartSec = 3;

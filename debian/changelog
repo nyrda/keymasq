@@ -1,3 +1,13 @@
+keymasq (0.16.0-1) unstable; urgency=medium
+
+  * Add a live diagnostics dialog in the GUI for monitoring keymasqd latency
+    snapshots.
+  * Add diagnostics category filtering in the CLI and GUI, plus reset controls,
+    docs link, and live refresh status.
+  * Restart services on package upgrades.
+
+ -- nyrda <nyrda@keymasq.tools>  Thu, 07 May 2026 00:08:42 +0000
+
 keymasq (0.15.0-1) unstable; urgency=medium
 
   * Add a feedback dialog for submitting bugs, ideas, or questions with

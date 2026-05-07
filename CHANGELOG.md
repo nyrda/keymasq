@@ -1,7 +1,15 @@
 # Changelog
 
-This file tracks notable user-facing changes from the `0.8.0` milestone
-forward.
+## 0.16.0
+
+### Improved
+
+- Added a live diagnostics dialog in the GUI for monitoring keymasqd latency
+  snapshots.
+- Diagnostics now support category filtering, reset controls, a documentation
+  link, and live refresh status in the GUI, alongside matching CLI category
+  filters.
+- Package upgrades now restart services.
 
 ## 0.15.0
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-keymasq"
-version = "0.15.0"
+version = "0.16.0"
 description = "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros"
 readme = "README.md"
 authors = [{ name = "nyrda", email = "nyrda@keymasq.tools" }]

@@ -37,6 +37,12 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.16.0" date="2026-05-07">
+      <description>
+        <p>Adds a live diagnostics dialog in the GUI for monitoring keymasqd latency snapshots.</p>
+        <p>Also adds diagnostics category filtering, reset controls, a docs link, and live refresh status, while package upgrades now restart services.</p>
+      </description>
+    </release>
     <release version="0.15.0" date="2026-05-06">
       <description>
         <p>Adds a feedback dialog for submitting bugs, ideas, or questions, with optional diagnostics.</p>

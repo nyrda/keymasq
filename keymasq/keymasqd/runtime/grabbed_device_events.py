@@ -696,17 +696,10 @@ async def _process_wheel_pulse_event(
     pulse_event_name = button_id or wheel_button_id(event_name, normalized_value) or event_name
     pulse_count = max(1, abs(int(event.value)))
     for _ in range(pulse_count):
-        await runtime_actions.execute_action(
+        await runtime_actions.execute_action_pulse(
             device_runtime,
             action,
-            _SyntheticInputEvent(int(event.type), int(event.code), 1),
-            pulse_event_name,
-            deps=deps.action_deps,
-        )
-        await runtime_actions.execute_action(
-            device_runtime,
-            action,
-            _SyntheticInputEvent(int(event.type), int(event.code), 0),
+            event,
             pulse_event_name,
             deps=deps.action_deps,
         )

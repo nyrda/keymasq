@@ -622,7 +622,8 @@ class TestDialogConstruction:
 
     def test_superkey_dialog_constructs_without_missing_right_panel(self, temp_config_dir):
         gi.require_version("Gtk", "4.0")
-        from gi.repository import Gtk
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gtk
 
         from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
 
@@ -630,6 +631,125 @@ class TestDialogConstruction:
 
         assert dialog.get_child() is not None
         assert dialog.right_box.get_parent() is not None
+        assert isinstance(dialog.tap_row, Adw.ExpanderRow)
+
+    def test_superkey_dialog_action_expanders_render_empty_and_populated_rows(
+        self, temp_config_dir
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ActionType, SuperkeyAction
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        dialog = SuperkeyDialog(Gtk.Window())
+
+        dialog._populate_action_row(dialog.tap_row, [])
+
+        assert dialog.tap_row.get_enable_expansion() is False
+        assert "(none)" in dialog.tap_row.get_subtitle()
+        assert dialog.tap_row._child_rows == []
+
+        dialog._populate_action_row(
+            dialog.tap_row,
+            [
+                SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
+            ],
+        )
+
+        assert dialog.tap_row.get_enable_expansion() is True
+        assert dialog.tap_row.get_expanded() is True
+        assert "2 actions" in dialog.tap_row.get_subtitle()
+        assert len(dialog.tap_row._child_rows) == 2
+        assert dialog.tap_row._child_rows[0].get_title().startswith("1. ")
+        assert dialog.tap_row._child_rows[1].get_title().startswith("2. ")
+        assert dialog.tap_row._child_rows[0].get_use_markup() is False
+
+    def test_superkey_dialog_clear_removes_expander_child_rows(self, temp_config_dir):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ActionType, SuperkeyAction
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        dialog._populate_action_row(
+            dialog.tap_row,
+            [SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_a")],
+        )
+
+        assert dialog.tap_row._child_rows
+
+        dialog._on_clear_action_clicked(Gtk.Button(), dialog.tap_row)
+
+        assert dialog.tap_row._action_items == []
+        assert dialog.tap_row.get_enable_expansion() is False
+        assert dialog.tap_row._child_rows == []
+
+    def test_superkey_dialog_overload_expanders_keep_static_descriptions(
+        self, temp_config_dir
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ActionType, MappingAction
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        dialog = SuperkeyDialog(Gtk.Window())
+
+        dialog._populate_action_row(dialog.overload_row, [])
+
+        assert dialog.overload_row.get_tooltip_text() == (
+            "Main Actions start before On Press and stay held until after On Release, "
+            "so they can provide a held modifier or context for both pulse lists."
+        )
+        assert "Held while pressed, released when you let go" in dialog.overload_row.get_subtitle()
+        assert "(none)" in dialog.overload_row.get_subtitle()
+
+        dialog._populate_action_row(
+            dialog.overload_row,
+            [MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl")],
+        )
+
+        assert "Held while pressed, released when you let go" in dialog.overload_row.get_subtitle()
+        assert "1 action" in dialog.overload_row.get_subtitle()
+
+    def test_superkey_dialog_overload_saves_press_and_release_actions(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common import paths
+        from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        dialog.mode_dropdown.set_selected(1)
+        dialog.overload_row._action_items = [
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl")
+        ]
+        dialog.overload_down_row._action_items = [
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
+        ]
+        dialog.overload_up_row._action_items = [
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_b")
+        ]
+        dialog.name_entry.set_text("Split Overload")
+        dialog._on_save_clicked(Gtk.Button())
+
+        saved = dialog.manager.get_superkey("Split Overload")
+        assert saved is not None
+        assert saved.mode == SuperkeyMode.OVERLOAD
+        assert dialog.overload_row.get_title() == "Main Actions"
+        assert dialog.overload_down_row.get_visible() is True
+        assert dialog.overload_up_row.get_visible() is True
+        assert [action.target for action in saved.overload_actions] == ["key_leftctrl"]
+        assert [action.target for action in saved.overload_down_actions] == ["key_a"]
+        assert [action.target for action in saved.overload_up_actions] == ["key_b"]
 
     def test_superkey_dialog_empty_state_starts_new_draft_and_keeps_close_available(
         self, temp_config_dir, monkeypatch

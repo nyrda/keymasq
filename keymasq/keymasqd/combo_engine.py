@@ -123,7 +123,12 @@ class ComboEngine:
             tuple[str, str], set[RuntimeComboBinding]
         ] = {}
 
-    def set_combos(self, combos: list[RuntimeCombo]) -> None:
+    def set_combos(
+        self,
+        combos: list[RuntimeCombo],
+        *,
+        preserve_candidate_ids: set[str] | None = None,
+    ) -> None:
         self._combos = list(combos)
         self._combo_map = {combo.id: combo for combo in self._combos}
         self._combo_order = {combo.id: index for index, combo in enumerate(self._combos)}
@@ -134,7 +139,22 @@ class ComboEngine:
             for binding in combo.steps[0].bindings:
                 key = _normalized_binding_parts(binding)
                 self._first_step_binding_index.setdefault(key, []).append(combo.id)
+        if preserve_candidate_ids is not None:
+            self._preserve_candidates(preserve_candidate_ids)
+            return
         self.reset()
+
+    def _preserve_candidates(self, preserve_candidate_ids: set[str]) -> None:
+        kept: dict[str, ActiveCandidate] = {}
+        for combo_id, candidate in self._candidates.items():
+            if combo_id not in preserve_candidate_ids:
+                continue
+            combo = self._combo_map.get(combo_id)
+            if combo is None:
+                continue
+            candidate.combo = combo
+            kept[combo_id] = candidate
+        self._candidates = kept
 
     def reset(self) -> None:
         self._candidates.clear()

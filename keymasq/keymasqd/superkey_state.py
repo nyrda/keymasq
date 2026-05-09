@@ -83,6 +83,26 @@ class SuperkeyConfig:
     hold_actions: list[SuperkeyActionData] = field(default_factory=list)
     tap_hold_actions: list[SuperkeyActionData] = field(default_factory=list)
     overload_actions: list[MappingAction] = field(default_factory=list)
+    overload_down_actions: list[MappingAction] = field(default_factory=list)
+    overload_up_actions: list[MappingAction] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        for actions in (
+            self.tap_actions,
+            self.double_tap_actions,
+            self.hold_actions,
+            self.tap_hold_actions,
+        ):
+            for action in actions:
+                if action.action_type == ActionType.SUPERKEY.value:
+                    raise ValueError("nested superkeys are not allowed inside superkeys")
+        for action in (
+            *self.overload_actions,
+            *self.overload_down_actions,
+            *self.overload_up_actions,
+        ):
+            if action.action_type == ActionType.SUPERKEY:
+                raise ValueError("nested superkeys are not allowed inside superkeys")
 
 
 class _WritableUInput(Protocol):

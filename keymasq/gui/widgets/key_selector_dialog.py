@@ -1609,9 +1609,18 @@ class KeySelectorDialog(Adw.Dialog):
 
     def _describe_superkey_row(self, config: SuperkeyConfig) -> str:
         if config.mode.value == "overload":
-            count = len(config.overload_actions)
+            count = (
+                len(config.overload_actions)
+                + len(config.overload_down_actions)
+                + len(config.overload_up_actions)
+            )
             noun = "action" if count == 1 else "actions"
-            return f"Overload · {count} {noun}"
+            suffix = (
+                " · down/up"
+                if config.overload_down_actions or config.overload_up_actions
+                else ""
+            )
+            return f"Overload{suffix} · {count} {noun}"
 
         slots = sum(
             1

@@ -103,9 +103,9 @@ Macros bound to tap slots do not keep looping, so the same **While Held**
 macro can be used for both tap and hold patterns. Tap runs one volume step;
 hold repeats the macro until you release the key.
 
-The completed superkey should look similar to this:
+The completed superkey actions should look similar to this:
 
-![Completed volume_rocker superkey pattern setup](../assets/screenshots/examples/superkey_volume_rocker.png)
+![Completed volume_rocker superkey pattern actions](../assets/screenshots/examples/superkey_volume_rocker_actions.png)
 
 ## Timing
 
@@ -116,6 +116,8 @@ Suggested superkey timing:
 | Tap Timeout | 180-220 ms |
 | Double Tap Window | 250-350 ms |
 | Hold Threshold | 250-350 ms |
+
+![Completed volume_rocker superkey timing settings](../assets/screenshots/examples/superkey_volume_rocker_timings.png)
 
 Use shorter timings if the key feels sluggish. Use longer timings if double
 tap or tap + hold is hard to trigger reliably.

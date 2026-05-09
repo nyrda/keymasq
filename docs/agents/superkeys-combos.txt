@@ -53,6 +53,23 @@ overload = [
 ]
 ```
 
+Overload superkeys may also define `actions.overload_down` key-down one-shot
+actions and `actions.overload_up` key-up one-shot actions. `actions.overload`
+stays held with the normal down/repeat/up cycle. Execution order is fixed:
+`overload` starts first, `overload_down` pulses on press, `overload_up`
+pulses on release, and `overload` releases last. This lets `overload` hold
+modifiers or other context around both pulse lists.
+
+```toml
+name = "down_up_pair"
+mode = "overload"
+
+[actions]
+overload = [{ action = "keyboard", target = "key_leftctrl" }]
+overload_down = [{ action = "keyboard", target = "key_f13" }]
+overload_up = [{ action = "keyboard", target = "key_f14" }]
+```
+
 Profile binding for a superkey:
 
 ```toml

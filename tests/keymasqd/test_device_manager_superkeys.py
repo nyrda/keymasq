@@ -424,6 +424,67 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
         ]
     @pytest.mark.asyncio
+    async def test_split_overload_superkey_pulses_down_and_up_actions(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        mapping_state = {
+            "key_f13": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=SuperkeyConfig(
+                    name="split-overload",
+                    mode=SuperkeyMode.OVERLOAD,
+                    overload_actions=[
+                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
+                    ],
+                    overload_down_actions=[
+                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                    ],
+                    overload_up_actions=[
+                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                    ],
+                ),
+            )
+        }
+
+        keyboard_uinput = _FakeUInput()
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={"key_f13": "key_f13"},
+            mapping_getter=lambda: mapping_state,
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+        )
+        device._running = True
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=2),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+        )
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 2),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
+        ]
+    @pytest.mark.asyncio
     async def test_overload_superkey_refcounts_shared_outputs_across_two_inputs(
         self,
         monkeypatch: pytest.MonkeyPatch,

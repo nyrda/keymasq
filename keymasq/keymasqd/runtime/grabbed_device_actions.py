@@ -340,6 +340,40 @@ async def execute_action(
                 await machine.on_up()
 
 
+async def execute_action_pulse(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    deps: ActionExecutionDeps,
+    shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+) -> None:
+    await execute_action(
+        device_runtime,
+        action,
+        _SyntheticInputEvent(int(event.type), int(event.code), 1),
+        event_name,
+        deps=deps,
+        shared_output_tracker=shared_output_tracker,
+    )
+    await execute_action(
+        device_runtime,
+        action,
+        _SyntheticInputEvent(int(event.type), int(event.code), 0),
+        event_name,
+        deps=deps,
+        shared_output_tracker=shared_output_tracker,
+    )
+
+
+class _SyntheticInputEvent:
+    def __init__(self, event_type: int, code: int, value: int) -> None:
+        self.type = int(event_type)
+        self.code = int(code)
+        self.value = int(value)
+
+
 async def _execute_overload_superkey(
     device_runtime: GrabbedDeviceRuntime,
     action: MappingAction,
@@ -360,6 +394,25 @@ async def _execute_overload_superkey(
             value,
         )
 
+    if int(event.value) == 0:
+        for index, child_action in enumerate(config.overload_up_actions):
+            if child_action.action_type == ActionType.SUPERKEY:
+                log.warning(
+                    "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
+                    config.name,
+                    index,
+                )
+                continue
+            child_event_name = f"{event_name}#overload_up#{index}"
+            await execute_action_pulse(
+                device_runtime,
+                child_action,
+                event,
+                child_event_name,
+                deps=deps,
+                shared_output_tracker=overload_output_tracker,
+            )
+
     for index, child_action in enumerate(config.overload_actions):
         if child_action.action_type == ActionType.SUPERKEY:
             log.warning(
@@ -378,6 +431,24 @@ async def _execute_overload_superkey(
             shared_output_tracker=overload_output_tracker,
         )
 
+    if int(event.value) == 1:
+        for index, child_action in enumerate(config.overload_down_actions):
+            if child_action.action_type == ActionType.SUPERKEY:
+                log.warning(
+                    "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
+                    config.name,
+                    index,
+                )
+                continue
+            child_event_name = f"{event_name}#overload_down#{index}"
+            await execute_action_pulse(
+                device_runtime,
+                child_action,
+                event,
+                child_event_name,
+                deps=deps,
+                shared_output_tracker=overload_output_tracker,
+            )
 
 async def _execute_key_action(
     device_runtime: GrabbedDeviceRuntime,

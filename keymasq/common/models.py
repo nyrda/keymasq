@@ -378,6 +378,8 @@ class SuperkeyConfig:
     hold_actions: list[SuperkeyAction] = field(default_factory=list)
     tap_hold_actions: list[SuperkeyAction] = field(default_factory=list)
     overload_actions: list[MappingAction] = field(default_factory=list)
+    overload_down_actions: list[MappingAction] = field(default_factory=list)
+    overload_up_actions: list[MappingAction] = field(default_factory=list)
 
     tap_timeout_ms: int = 200
     double_tap_window_ms: int = 300
@@ -393,8 +395,30 @@ class SuperkeyConfig:
             )
         )
 
+    def __post_init__(self) -> None:
+        for actions in (
+            self.tap_actions,
+            self.double_tap_actions,
+            self.hold_actions,
+            self.tap_hold_actions,
+        ):
+            for action in actions:
+                if action.action_type == ActionType.SUPERKEY:
+                    raise ValueError("nested superkeys are not allowed inside superkeys")
+        for action in (
+            *self.overload_actions,
+            *self.overload_down_actions,
+            *self.overload_up_actions,
+        ):
+            if action.action_type == ActionType.SUPERKEY:
+                raise ValueError("nested superkeys are not allowed inside superkeys")
+
     def has_overload_actions(self) -> bool:
-        return bool(self.overload_actions)
+        return bool(
+            self.overload_actions
+            or self.overload_down_actions
+            or self.overload_up_actions
+        )
 
     def has_any_action(self) -> bool:
         return self.has_pattern_actions() or self.has_overload_actions()

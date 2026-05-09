@@ -598,6 +598,40 @@ def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     assert tap_results[0].tap_hold_ms == 70
 
 
+def test_key_selector_dialog_mouse_back_forward_use_browser_button_codes():
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def collect_buttons(widget):
+        buttons = []
+        child = widget.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Button):
+                buttons.append(child)
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    mouse_tab = dialog._build_mouse_tab()
+    buttons_by_label = {button.get_label(): button for button in collect_buttons(mouse_tab)}
+
+    buttons_by_label["Back"].emit("clicked")
+    buttons_by_label["Forward"].emit("clicked")
+
+    assert [action.action_type for action in results] == [
+        ActionType.MOUSE,
+        ActionType.MOUSE,
+    ]
+    assert [action.target for action in results] == ["btn_side", "btn_extra"]
+
+
 def test_key_selector_dialog_warns_when_exec_ignores_rapidfire(caplog: pytest.LogCaptureFixture):
     from gi.repository import Gtk
 

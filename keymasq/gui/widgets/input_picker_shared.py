@@ -303,7 +303,7 @@ def build_mouse_tab(owner) -> Gtk.Box:
     extras_label = Gtk.Label(label="Extras:")
     btn_row2.append(extras_label)
 
-    for label, evdev_id in [("Forward", "btn_forward"), ("Back", "btn_back")]:
+    for label, evdev_id in [("Forward", "btn_extra"), ("Back", "btn_side")]:
         btn = owner._create_key_button(label, evdev_id)
         btn.connect("clicked", owner._on_mouse_clicked, evdev_id)
         btn_row2.append(btn)

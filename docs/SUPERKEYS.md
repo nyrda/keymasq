@@ -140,6 +140,11 @@ This makes Main Actions a held context for both pulse lists. For example,
 if Main Actions holds `key_leftctrl`, an On Press `key_c` pulse becomes
 `Ctrl+C`, and an On Release `key_v` pulse becomes `Ctrl+V`.
 
+Another common pattern is a temporary profile layer: On Press enables a
+profile, and On Release disables it again. See
+[Momentary WASD navigation layer](examples/momentary-wasd-navigation-layer.md)
+for a full example.
+
 ## Rapidfire
 
 Rapidfire (see [Actions](ACTIONS.md)) only applies to hold-style pattern

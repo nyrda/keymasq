@@ -1440,6 +1440,46 @@ async def clear_combo_runtime(
     manager.combo_state.timeout_task = None
 
 
+async def clear_combo_runtime_except(
+    manager: _ComboManager,
+    preserve_combo_ids: set[str],
+    *,
+    deps: ComboRuntimeDeps,
+) -> None:
+    preserved = set(preserve_combo_ids)
+    for combo_id in list(manager.combo_state.active_actions):
+        root_combo_id = combo_id.split("#", 1)[0]
+        if root_combo_id in preserved:
+            continue
+        await stop_combo_action(
+            manager,
+            combo_id,
+            deps=deps,
+        )
+
+    for combo_id, machine in list(manager.combo_state.superkey_machines.items()):
+        if combo_id in preserved:
+            continue
+        manager.combo_state.superkey_machines.pop(combo_id, None)
+        await machine.stop()
+
+    active_output_roots = {
+        combo_id.split("#", 1)[0]
+        for combo_id in manager.combo_state.active_actions
+    }
+    if not any(root in preserved for root in active_output_roots):
+        for held in manager.combo_state.held_output_keys.values():
+            held.clear()
+        for refcounts in manager.combo_state.superkey_output_refcounts.values():
+            refcounts.clear()
+
+    if manager.combo_state.timeout_task and not manager.combo_state.timeout_task.done():
+        manager.combo_state.timeout_task.cancel()
+        with contextlib.suppress(deps.asyncio_mod.CancelledError):
+            await manager.combo_state.timeout_task
+    manager.combo_state.timeout_task = None
+
+
 async def clear_combo_runtime_for_binding_scope(
     manager: _ComboManager,
     hardware_id: str,

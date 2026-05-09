@@ -195,6 +195,56 @@ def _combo_runtime_deps(
     )
 
 
+def combo_runtime_signature(combo: RuntimeCombo) -> tuple[object, ...]:
+    steps = tuple(
+        (
+            tuple(
+                sorted(
+                    (
+                        str(binding.hardware_id or "").lower(),
+                        str(binding.source or "").lower(),
+                        str(binding.evdev or "").lower(),
+                    )
+                    for binding in step.bindings
+                )
+            ),
+            step.timeout_ms,
+        )
+        for step in combo.steps
+    )
+    return (
+        str(combo.id or ""),
+        str(combo.profile_name or ""),
+        steps,
+        combo.action,
+        bool(combo.recall_trigger_keys),
+        tuple(combo.restore_trigger_keys),
+    )
+
+
+def combo_runtime_signatures(combos: Sequence[RuntimeCombo]) -> dict[str, tuple[object, ...]]:
+    return {
+        combo.id: combo_runtime_signature(combo)
+        for combo in combos
+        if combo.id
+    }
+
+
+def unchanged_combo_ids(
+    old_signatures: dict[str, tuple[object, ...]],
+    new_combos: Sequence[RuntimeCombo],
+) -> set[str]:
+    preserved: set[str] = set()
+    seen: set[str] = set()
+    for combo in new_combos:
+        if not combo.id or combo.id in seen:
+            continue
+        seen.add(combo.id)
+        if old_signatures.get(combo.id) == combo_runtime_signature(combo):
+            preserved.add(combo.id)
+    return preserved
+
+
 def _capability_device(
     device: _ManagedInputDevice,
 ) -> common_devices._CapabilityDevice:  # pyright: ignore[reportPrivateUsage]
@@ -439,7 +489,7 @@ class DeviceManager:
                 fire_and_observe_fn=_fire_and_observe,
                 errno_mod=errno,
             )
-            await self._refresh_combo_runtime_unlocked()
+            await self._refresh_combo_runtime_preserving_unchanged()
             return result
 
     async def release_device(
@@ -455,7 +505,7 @@ class DeviceManager:
                     hardware_id,
                     log=log,
                 )
-                await self._refresh_combo_runtime_unlocked()
+                await self._refresh_combo_runtime_preserving_unchanged()
                 return result
             return runtime_grab_lifecycle.schedule_hardware_release_unlocked(
                 self,
@@ -591,8 +641,14 @@ class DeviceManager:
                     )
                 )
 
+            old_active_signatures = combo_runtime_signatures(self.active_combos)
+            new_active_combos = self._with_emergency_cancel_combos(parsed)
+            unchanged_ids = unchanged_combo_ids(old_active_signatures, new_active_combos)
+            preserve_combo_ids = unchanged_ids if unchanged_ids else None
             self._configured_combos = parsed
-            active_combos = await self._refresh_combo_runtime_unlocked()
+            active_combos = await self._refresh_combo_runtime_unlocked(
+                preserve_combo_ids=preserve_combo_ids,
+            )
             log.info(
                 "Updated combos (%d active, %d configured)",
                 len(active_combos),
@@ -600,14 +656,29 @@ class DeviceManager:
             )
             return {"updated": True, "combo_count": len(active_combos)}
 
-    async def _refresh_combo_runtime_unlocked(self) -> list[RuntimeCombo]:
+    async def _refresh_combo_runtime_unlocked(
+        self,
+        *,
+        preserve_combo_ids: set[str] | None = None,
+    ) -> list[RuntimeCombo]:
         active_combos = self._with_emergency_cancel_combos(self._configured_combos)
         self.active_combos = active_combos
-        await runtime_combos.clear_combo_runtime(
-            self,
-            deps=_combo_runtime_deps(),
-        )
-        self.combo_state.engine.set_combos(active_combos)
+        if preserve_combo_ids is None:
+            await runtime_combos.clear_combo_runtime(
+                self,
+                deps=_combo_runtime_deps(),
+            )
+            self.combo_state.engine.set_combos(active_combos)
+        else:
+            await runtime_combos.clear_combo_runtime_except(
+                self,
+                preserve_combo_ids,
+                deps=_combo_runtime_deps(),
+            )
+            self.combo_state.engine.set_combos(
+                active_combos,
+                preserve_candidate_ids=preserve_combo_ids,
+            )
         runtime_combos.prime_combo_engine_with_held_bindings(
             self,
         )
@@ -616,6 +687,15 @@ class DeviceManager:
             deps=_combo_runtime_deps(),
         )
         return active_combos
+
+    async def _refresh_combo_runtime_preserving_unchanged(self) -> list[RuntimeCombo]:
+        unchanged_ids = unchanged_combo_ids(
+            combo_runtime_signatures(self.active_combos),
+            self._with_emergency_cancel_combos(self._configured_combos),
+        )
+        return await self._refresh_combo_runtime_unlocked(
+            preserve_combo_ids=unchanged_ids if unchanged_ids else None,
+        )
 
     def _with_emergency_cancel_combos(
         self,

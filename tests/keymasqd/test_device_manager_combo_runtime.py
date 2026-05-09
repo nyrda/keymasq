@@ -977,3 +977,175 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
         ]
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_refresh_preserves_unchanged_active_combo_when_payload_expands(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        keyboard_uinput = _FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard_uinput
+        hardware_id = "1234:5678"
+        combo_payload = {
+            "id": "combo-hold",
+            "name": "Hold F13",
+            "steps": [
+                {
+                    "events": [
+                        {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_f13"},
+                    ]
+                }
+            ],
+            "action": {"action": "keyboard", "target": "key_f14"},
+        }
+        unrelated_payload = {
+            "id": "combo-unrelated",
+            "name": "Unrelated",
+            "steps": [
+                {
+                    "events": [
+                        {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_f15"},
+                    ]
+                }
+            ],
+            "action": {"action": "keyboard", "target": "key_f16"},
+        }
+
+        await manager.set_combos([combo_payload])
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+
+        pressed = await _runtime_on_device_event(
+            manager,
+            hardware_id,
+            "/dev/input/by-id/test-kbd",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_F13,
+            1,
+        )
+        assert pressed is not None and pressed.consume_current_event is True
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+        ]
+
+        await manager.set_combos([combo_payload, unrelated_payload])
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+        ]
+
+        released = await _runtime_on_device_event(
+            manager,
+            hardware_id,
+            "/dev/input/by-id/test-kbd",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_F13,
+            0,
+        )
+
+        assert released is not None and released.consume_current_event is True
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_refresh_stops_changed_active_combo(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        keyboard_uinput = _FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard_uinput
+        hardware_id = "1234:5678"
+        combo_payload = {
+            "id": "combo-hold",
+            "name": "Hold F13",
+            "steps": [
+                {
+                    "events": [
+                        {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_f13"},
+                    ]
+                }
+            ],
+            "action": {"action": "keyboard", "target": "key_f14"},
+        }
+        changed_payload = {
+            **combo_payload,
+            "action": {"action": "keyboard", "target": "key_f15"},
+        }
+
+        await manager.set_combos([combo_payload])
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+
+        await _runtime_on_device_event(
+            manager,
+            hardware_id,
+            "/dev/input/by-id/test-kbd",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_F13,
+            1,
+        )
+        await manager.set_combos([changed_payload])
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_grab_refresh_preserves_unchanged_active_combo(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        keyboard_uinput = _FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard_uinput
+        hardware_id = "1234:5678"
+        combo_payload = {
+            "id": "combo-hold",
+            "name": "Hold F13",
+            "steps": [
+                {
+                    "events": [
+                        {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_f13"},
+                    ]
+                }
+            ],
+            "action": {"action": "keyboard", "target": "key_f14"},
+        }
+
+        await manager.set_combos([combo_payload])
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+
+        await _runtime_on_device_event(
+            manager,
+            hardware_id,
+            "/dev/input/by-id/test-kbd",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_F13,
+            1,
+        )
+
+        await manager._refresh_combo_runtime_preserving_unchanged()
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+        ]
+
+        await _runtime_on_device_event(
+            manager,
+            hardware_id,
+            "/dev/input/by-id/test-kbd",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_F13,
+            0,
+        )
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+        ]

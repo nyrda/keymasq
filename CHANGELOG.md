@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.0
+
+### Improved
+
+- Added on-press and on-release pulse actions to overload superkeys.
+
 ## 0.16.0
 
 ### Improved

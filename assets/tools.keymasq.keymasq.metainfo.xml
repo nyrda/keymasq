@@ -37,6 +37,11 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.17.0" date="2026-05-09">
+      <description>
+        <p>Adds on-press and on-release pulse actions to overload superkeys.</p>
+      </description>
+    </release>
     <release version="0.16.0" date="2026-05-07">
       <description>
         <p>Adds a live diagnostics dialog in the GUI for monitoring keymasqd latency snapshots.</p>

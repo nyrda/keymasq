@@ -700,6 +700,10 @@ class TestDialogConstruction:
 
         dialog._populate_action_row(dialog.overload_row, [])
 
+        assert dialog.overload_row.get_tooltip_text() == (
+            "Main Actions start before On Press and stay held until after On Release, "
+            "so they can provide a held modifier or context for both pulse lists."
+        )
         assert "Held while pressed, released when you let go" in dialog.overload_row.get_subtitle()
         assert "(none)" in dialog.overload_row.get_subtitle()
 

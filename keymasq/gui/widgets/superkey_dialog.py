@@ -540,6 +540,10 @@ class SuperkeyDialog(Adw.Dialog):
 
         self.overload_row = self._build_action_row("Main Actions", "overload", "overload")
         self.overload_row._static_description = "Held while pressed, released when you let go"
+        self.overload_row.set_tooltip_text(
+            "Main Actions start before On Press and stay held until after On Release, "
+            "so they can provide a held modifier or context for both pulse lists."
+        )
         self._refresh_child_rows(self.overload_row)
         self.actions_group.add(self.overload_row)
 

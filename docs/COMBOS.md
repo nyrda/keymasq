@@ -166,12 +166,19 @@ Combos can trigger saved **Super Keys**.
 
 `Overload` superkeys fit naturally into combo actions:
 
-- When the combo completes, the overload child actions start in list order.
-- When the combo releases, held child actions stop again.
+- When the combo completes, Main Actions start in list order.
+- On Press actions then run once as quick press-and-release pulses.
+- When the combo releases, On Release actions run once as quick
+  press-and-release pulses.
+- Held Main Actions then stop again.
 - One-shot child actions like commands, profile actions, and compositor
   actions still fire once on combo completion.
 - Nested **Super Key** child actions are rejected inside superkeys so saved
   superkeys cannot recursively expand into other superkeys.
+
+This is the same order used when an overload superkey is assigned directly
+to a key or button: Main Actions wrap the On Press and On Release pulse
+lists, so held modifiers in Main Actions are active for both pulse phases.
 
 #### Pattern
 

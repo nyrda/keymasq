@@ -122,12 +122,23 @@ kinds of actions that regular mappings support, except:
 
 | List | When it runs | Behavior |
 |---|---|---|
-| **Main Actions** | Entire key lifecycle | Actions stay pressed while the source key is held, and release when it is released. |
+| **Main Actions** | Entire key lifecycle | Actions start first, stay pressed while the source key is held, and release last. |
 | **On Press** | Once on key down | Actions run as a quick press-and-release pulse when the source key is pressed. |
 | **On Release** | Once on key up | Actions run as a quick press-and-release pulse when the source key is released. |
 
 On Press and On Release are optional. Leave them empty if you only need
 held output.
+
+Execution order is deterministic:
+
+1. On key down, Keymasq starts **Main Actions** first.
+2. It then pulses **On Press** actions.
+3. On key up, it pulses **On Release** actions.
+4. It then releases **Main Actions**.
+
+This makes Main Actions a held context for both pulse lists. For example,
+if Main Actions holds `key_leftctrl`, an On Press `key_c` pulse becomes
+`Ctrl+C`, and an On Release `key_v` pulse becomes `Ctrl+V`.
 
 ## Rapidfire
 
@@ -184,7 +195,8 @@ That applies to:
 
 On Press and On Release actions are one-shot pulses, so they do not create
 held child output state. The Main Actions list still uses normal held child
-output state.
+output state and wraps both pulse lists: it starts before On Press and
+releases after On Release.
 
 ## Using Super Keys
 

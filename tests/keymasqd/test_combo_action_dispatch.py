@@ -65,6 +65,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
         ]
+
     def test_combo_overload_superkey_rejects_nested_superkey_children(
         self,
     ) -> None:

@@ -529,7 +529,7 @@ async def wait_combo_action_started(manager: _ComboManager, combo_id: str) -> No
     state = manager.combo_state.active_actions.get(combo_id)
     if state is None:
         return
-    if state.kind == "superkey_overload":
+    if state.kind in {"superkey_overload", "superkey_overload_split"}:
         for child_combo_id in state.child_combo_ids:
             await wait_combo_action_started(manager, child_combo_id)
         return

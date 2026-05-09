@@ -835,6 +835,73 @@ class TestCombos:
         assert manager.combo_state.active_actions == {}
 
     @pytest.mark.asyncio
+    async def test_runtime_wheel_pulse_waits_for_split_overload_tap_child_to_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel-split-overload-tap",
+                    "name": "Wheel Split Overload Tap",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "mouse",
+                                    "evdev": "wheel_up",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "superkey",
+                        "superkey": {
+                            "name": "wheel-split-overload",
+                            "mode": "overload",
+                            "overload_actions": [
+                                {
+                                    "action": "keyboard",
+                                    "target": "key_f5",
+                                    "tap_enabled": True,
+                                    "tap_hold_ms": 1000,
+                                }
+                            ],
+                            "overload_up_actions": [
+                                {"action": "keyboard", "target": "key_f6"},
+                            ],
+                        },
+                    },
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+
+        decision = await _runtime_on_device_event(
+            manager,
+            "1234:5678",
+            "/dev/input/by-id/test-mouse",
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_WHEEL,
+            1,
+        )
+
+        assert decision is not None and decision.consume_current_event is True
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F6, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F6, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
+        ]
+        assert manager.combo_state.active_actions == {}
+
+    @pytest.mark.asyncio
     async def test_runtime_combo_wheel_suppresses_matching_high_res_event(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1047,6 +1114,104 @@ class TestCombos:
         assert released is not None and released.consume_current_event is True
         assert keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_refresh_preserves_split_overload_release_until_combo_release(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        keyboard_uinput = _FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard_uinput
+        hardware_id = "1234:5678"
+        combo_payload = {
+            "id": "combo-split-overload",
+            "name": "Ctrl Alt 1 Split Overload",
+            "steps": [
+                {
+                    "events": [
+                        {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_leftctrl"},
+                        {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_leftalt"},
+                        {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_1"},
+                    ]
+                }
+            ],
+            "action": {
+                "action": "superkey",
+                "superkey": {
+                    "name": "combo-split-overload",
+                    "mode": "overload",
+                    "overload_actions": [
+                        {"action": "keyboard", "target": "key_f14"},
+                    ],
+                    "overload_down_actions": [
+                        {"action": "keyboard", "target": "key_f15"},
+                    ],
+                    "overload_up_actions": [
+                        {"action": "keyboard", "target": "key_f16"},
+                    ],
+                },
+            },
+        }
+        unrelated_payload = {
+            "id": "combo-unrelated",
+            "name": "Unrelated",
+            "steps": [
+                {
+                    "events": [
+                        {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_f17"},
+                    ]
+                }
+            ],
+            "action": {"action": "keyboard", "target": "key_f18"},
+        }
+
+        await manager.set_combos([combo_payload])
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+
+        for code in (evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTALT, evdev.ecodes.KEY_1):
+            await _runtime_on_device_event(
+                manager,
+                hardware_id,
+                "/dev/input/by-id/test-kbd",
+                evdev.ecodes.EV_KEY,
+                code,
+                1,
+            )
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 0),
+        ]
+
+        await manager.set_combos([combo_payload, unrelated_payload])
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 0),
+        ]
+
+        released = await _runtime_on_device_event(
+            manager,
+            hardware_id,
+            "/dev/input/by-id/test-kbd",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_1,
+            0,
+        )
+
+        assert released is not None and released.consume_current_event is True
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F16, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F16, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
         ]
 

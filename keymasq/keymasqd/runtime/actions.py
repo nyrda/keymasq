@@ -164,6 +164,26 @@ def parse_superkey_config(
         int_or_none=int_or_none,
         float_value=float_value,
     )
+    overload_down_actions = parse_overload_action_bundle(
+        manager,
+        config.get("overload_down_actions"),
+        json_object=json_object,
+        str_value=str_value,
+        optional_str=optional_str,
+        int_value=int_value,
+        int_or_none=int_or_none,
+        float_value=float_value,
+    )
+    overload_up_actions = parse_overload_action_bundle(
+        manager,
+        config.get("overload_up_actions"),
+        json_object=json_object,
+        str_value=str_value,
+        optional_str=optional_str,
+        int_value=int_value,
+        int_or_none=int_or_none,
+        float_value=float_value,
+    )
     mode_value = config.get("mode")
     if not isinstance(mode_value, str):
         raise TypeError("superkey config must include a mode")
@@ -179,7 +199,11 @@ def parse_superkey_config(
         hold_actions = []
         tap_hold_actions = []
     else:
-        if overload_actions:
+        if (
+            overload_actions
+            or overload_down_actions
+            or overload_up_actions
+        ):
             raise ValueError("pattern superkeys cannot define overload actions")
         tap_actions = parse_superkey_action_bundle(
             manager,
@@ -228,6 +252,8 @@ def parse_superkey_config(
         hold_actions=hold_actions,
         tap_hold_actions=tap_hold_actions,
         overload_actions=overload_actions,
+        overload_down_actions=overload_down_actions,
+        overload_up_actions=overload_up_actions,
     )
 
 
@@ -296,8 +322,7 @@ def parse_overload_action_bundle(
         if payload is None:
             raise TypeError("overload action must be an object")
         if str_value(payload.get("action"), "passthrough") == "superkey":
-            log.warning("Skipping unexpected nested superkey in overload action bundle")
-            continue
+            raise ValueError("nested superkeys are not allowed inside superkeys")
         actions.append(
             parse_action(
                 manager,
@@ -340,6 +365,8 @@ def parse_superkey_action(
         int_or_none = fallback_int_or_none
     macro_speed_value = action.get("macro_speed")
     action_type = ActionType(str_value(action.get("action"), "keyboard"))
+    if action_type == ActionType.SUPERKEY:
+        raise ValueError("nested superkeys are not allowed inside superkeys")
     (
         rapidfire_enabled,
         rapidfire_hold_ms,

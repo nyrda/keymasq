@@ -93,6 +93,10 @@ class SuperkeyManager:
         hold_actions = self._parse_superkey_action_bundle(actions_data.get("hold"))
         tap_hold_actions = self._parse_superkey_action_bundle(actions_data.get("tap_hold"))
         overload_actions = self._parse_overload_action_bundle(actions_data.get("overload"))
+        overload_down_actions = self._parse_overload_action_bundle(
+            actions_data.get("overload_down")
+        )
+        overload_up_actions = self._parse_overload_action_bundle(actions_data.get("overload_up"))
 
         mode = _parse_superkey_mode(data.get("mode"))
 
@@ -105,6 +109,8 @@ class SuperkeyManager:
             hold_actions=hold_actions,
             tap_hold_actions=tap_hold_actions,
             overload_actions=overload_actions,
+            overload_down_actions=overload_down_actions,
+            overload_up_actions=overload_up_actions,
             tap_timeout_ms=_toml_int(timing, "tap_timeout_ms", 200),
             double_tap_window_ms=_toml_int(timing, "double_tap_window_ms", 300),
             hold_threshold_ms=_toml_int(timing, "hold_threshold_ms", 300),
@@ -173,7 +179,7 @@ class SuperkeyManager:
             raise UnknownActionTypeError(f"unknown action type '{action_type_str}'") from exc
 
         if action_type == ActionType.SUPERKEY:
-            raise ValueError("nested superkeys are not allowed inside overload superkeys")
+            raise ValueError("nested superkeys are not allowed inside superkeys")
 
         (
             rapidfire_enabled,
@@ -269,7 +275,7 @@ class SuperkeyManager:
 
     def _validate_overload_action(self, action: MappingAction) -> None:
         if action.action_type == ActionType.SUPERKEY:
-            raise ValueError("nested superkeys are not allowed inside overload superkeys")
+            raise ValueError("nested superkeys are not allowed inside superkeys")
         if action.action_type == ActionType.PASSTHROUGH:
             raise ValueError("passthrough is not allowed inside overload superkeys")
 
@@ -293,7 +299,6 @@ class SuperkeyManager:
             "name": config.name,
             "mode": config.mode.value,
         }
-
         if config.description:
             data["description"] = config.description
 
@@ -325,10 +330,20 @@ class SuperkeyManager:
                 actions["tap_hold"] = [
                     self._serialize_pattern_action(action) for action in config.tap_hold_actions
                 ]
-        elif config.overload_actions:
-            actions["overload"] = [
-                self._serialize_mapping_action(action) for action in config.overload_actions
-            ]
+        else:
+            if config.overload_actions:
+                actions["overload"] = [
+                    self._serialize_mapping_action(action) for action in config.overload_actions
+                ]
+            if config.overload_down_actions:
+                actions["overload_down"] = [
+                    self._serialize_mapping_action(action)
+                    for action in config.overload_down_actions
+                ]
+            if config.overload_up_actions:
+                actions["overload_up"] = [
+                    self._serialize_mapping_action(action) for action in config.overload_up_actions
+                ]
         if actions:
             data["actions"] = actions
 
@@ -343,6 +358,10 @@ class SuperkeyManager:
             if config.has_pattern_actions():
                 raise ValueError("overload superkeys cannot define pattern slots")
             for action in config.overload_actions:
+                self._validate_overload_action(action)
+            for action in config.overload_down_actions:
+                self._validate_overload_action(action)
+            for action in config.overload_up_actions:
                 self._validate_overload_action(action)
             return
 

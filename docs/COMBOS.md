@@ -170,9 +170,8 @@ Combos can trigger saved **Super Keys**.
 - When the combo releases, held child actions stop again.
 - One-shot child actions like commands, profile actions, and compositor
   actions still fire once on combo completion.
-- Nested **Super Key** child actions inside an overload are not expanded again
-  from a combo-triggered overload. Keymasq skips them and logs a warning
-  instead of allowing recursive nesting.
+- Nested **Super Key** child actions are rejected inside superkeys so saved
+  superkeys cannot recursively expand into other superkeys.
 
 #### Pattern
 

@@ -31,30 +31,51 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
     @pytest.mark.asyncio
-    async def test_combo_overload_superkey_logs_nested_superkey_children(
+    async def test_combo_split_overload_superkey_pulses_down_and_up_children(
         self,
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
         manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
         binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
         action = dm.MappingAction(
             action_type=ActionType.SUPERKEY,
             superkey_config=SuperkeyConfig(
+                name="combo-split-overload",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
+                ],
+                overload_down_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                ],
+                overload_up_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                ],
+            ),
+        )
+
+        await _runtime_start_combo_action(manager, "combo-split-overload", action, binding)
+        await _runtime_stop_combo_action(manager, "combo-split-overload")
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
+        ]
+    def test_combo_overload_superkey_rejects_nested_superkey_children(
+        self,
+    ) -> None:
+        with pytest.raises(ValueError, match="nested superkeys are not allowed"):
+            SuperkeyConfig(
                 name="combo-overload",
                 mode=SuperkeyMode.OVERLOAD,
                 overload_actions=[
                     dm.MappingAction(action_type=ActionType.SUPERKEY, superkey_name="nested"),
                 ],
-            ),
-        )
-
-        with caplog.at_level("WARNING", logger="keymasqd.runtime.combos"):
-            await _runtime_start_combo_action(manager, "combo-overload", action, binding)
-
-        assert (
-            "Skipping nested superkey child nested in combo overload combo-overload "
-            "(combo-overload)" in caplog.text
-        )
+            )
     @pytest.mark.asyncio
     async def test_combo_overload_restore_runs_after_child_release_for_overlapping_key(
         self,

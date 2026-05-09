@@ -136,7 +136,11 @@ class ActionListDialog(Adw.Dialog):
             label=(
                 "Actions run in order and release in reverse order."
                 if self._list_mode == "pattern"
-                else "Actions receive the source key's normal down/repeat/up cycle in order."
+                else (
+                    "Actions receive the source key's normal down/repeat/up cycle in order."
+                    if self._action_key == "overload"
+                    else "Actions run once immediately as a press and release."
+                )
             )
         )
         description.add_css_class("dim-label")
@@ -532,10 +536,26 @@ class SuperkeyDialog(Adw.Dialog):
         self.tap_hold_row = self._build_action_row("Tap + Hold", "tap_hold", "pattern")
         self.actions_group.add(self.tap_hold_row)
 
-        self.overload_row = self._build_action_row("Overload Actions", "overload", "overload")
+        self.overload_row = self._build_action_row("Main Actions", "overload", "overload")
+        self.overload_row.set_subtitle("Held while pressed, released when you let go")
         self.actions_group.add(self.overload_row)
 
+        self.overload_down_row = self._build_action_row("On Press", "overload_down", "overload")
+        self.overload_down_row.set_subtitle("Runs once when the key is pressed")
+
+        self.overload_up_row = self._build_action_row("On Release", "overload_up", "overload")
+        self.overload_up_row.set_subtitle("Runs once when the key is released")
+
+        self.overload_pulse_group = Adw.PreferencesGroup()
+        self.overload_pulse_group.set_title("On Press / Release")
+        self.overload_pulse_group.set_description(
+            "Actions that run once as a quick press-and-release pulse."
+        )
+        self.overload_pulse_group.add(self.overload_down_row)
+        self.overload_pulse_group.add(self.overload_up_row)
+
         self.editor_box.append(self.actions_group)
+        self.editor_box.append(self.overload_pulse_group)
         self.editor_box.append(Gtk.Separator())
 
         self.timing_group = Adw.PreferencesGroup()
@@ -685,7 +705,11 @@ class SuperkeyDialog(Adw.Dialog):
         pattern_visible = mode == SuperkeyMode.PATTERN
         for row in (self.tap_row, self.double_tap_row, self.hold_row, self.tap_hold_row):
             row.set_visible(pattern_visible)
-        self.overload_row.set_visible(not pattern_visible)
+        overload_visible = not pattern_visible
+        self.overload_row.set_visible(overload_visible)
+        self.overload_down_row.set_visible(overload_visible)
+        self.overload_up_row.set_visible(overload_visible)
+        self.overload_pulse_group.set_visible(overload_visible)
         self.timing_group.set_visible(pattern_visible)
 
     def _load_superkeys(self) -> None:
@@ -753,6 +777,14 @@ class SuperkeyDialog(Adw.Dialog):
         self._populate_action_row(self.hold_row, list(self._current_config.hold_actions))
         self._populate_action_row(self.tap_hold_row, list(self._current_config.tap_hold_actions))
         self._populate_action_row(self.overload_row, list(self._current_config.overload_actions))
+        self._populate_action_row(
+            self.overload_down_row,
+            list(self._current_config.overload_down_actions),
+        )
+        self._populate_action_row(
+            self.overload_up_row,
+            list(self._current_config.overload_up_actions),
+        )
 
         self.tap_timeout_spin.set_value(self._current_config.tap_timeout_ms)
         self.double_tap_window_spin.set_value(self._current_config.double_tap_window_ms)
@@ -924,6 +956,16 @@ class SuperkeyDialog(Adw.Dialog):
             overload_actions=(
                 list(self.overload_row._action_items) if mode == SuperkeyMode.OVERLOAD else []
             ),
+            overload_down_actions=(
+                list(self.overload_down_row._action_items)
+                if mode == SuperkeyMode.OVERLOAD
+                else []
+            ),
+            overload_up_actions=(
+                list(self.overload_up_row._action_items)
+                if mode == SuperkeyMode.OVERLOAD
+                else []
+            ),
             tap_timeout_ms=self.tap_timeout_spin.get_value_as_int(),
             double_tap_window_ms=self.double_tap_window_spin.get_value_as_int(),
             hold_threshold_ms=self.hold_threshold_spin.get_value_as_int(),
@@ -954,7 +996,7 @@ class SuperkeyDialog(Adw.Dialog):
         title = (
             f"Edit {row.get_title()} Actions"
             if row._row_mode == "pattern"
-            else "Edit Overload Actions"
+            else f"Edit {row.get_title()}"
         )
         dialog = ActionListDialog(
             self._parent,

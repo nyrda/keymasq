@@ -557,6 +557,27 @@ def serialize_superkey(
             )
             for action in config.overload_actions
         ]
+    if config.mode == SuperkeyMode.OVERLOAD:
+        if config.overload_down_actions:
+            data["overload_down_actions"] = [
+                serialize_overload_action(
+                    manager,
+                    action,
+                    hardware_id,
+                    track_combo_refs=track_combo_refs,
+                )
+                for action in config.overload_down_actions
+            ]
+        if config.overload_up_actions:
+            data["overload_up_actions"] = [
+                serialize_overload_action(
+                    manager,
+                    action,
+                    hardware_id,
+                    track_combo_refs=track_combo_refs,
+                )
+                for action in config.overload_up_actions
+            ]
 
     return data
 
@@ -600,6 +621,17 @@ def serialize_superkey_signature(
             action_signature_payload(manager, action, hardware_id)
             for action in config.overload_actions
         ]
+    if config.mode == SuperkeyMode.OVERLOAD:
+        if config.overload_down_actions:
+            data["overload_down_actions"] = [
+                action_signature_payload(manager, action, hardware_id)
+                for action in config.overload_down_actions
+            ]
+        if config.overload_up_actions:
+            data["overload_up_actions"] = [
+                action_signature_payload(manager, action, hardware_id)
+                for action in config.overload_up_actions
+            ]
 
     return data
 
@@ -639,6 +671,8 @@ def serialize_overload_action(
     track_combo_refs: bool = False,
 ) -> JsonObject:
     action_type = action.action_type.value
+    if action.action_type == ActionType.SUPERKEY:
+        raise ValueError("nested superkeys are not allowed inside superkeys")
     action_data: JsonObject = {"action": action_type}
 
     if action_type in (

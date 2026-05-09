@@ -16,7 +16,7 @@ from keymasq.common.models import (
     mapping_action_to_superkey_action,
     superkey_action_to_mapping_action,
 )
-from keymasq.keymasqd.runtime.actions import parse_superkey_config
+from keymasq.keymasqd.runtime.actions import parse_superkey_action, parse_superkey_config
 from keymasq.session.manager.payloads import (
     clear_combo_exec_refs,
     combo_action_signature_payload,
@@ -233,6 +233,39 @@ def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypa
     assert reloaded.overload_actions[2].cmd == "notify-send overload"
 
 
+def test_superkey_manager_round_trips_split_overload_actions(temp_config_dir, monkeypatch) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    manager = SuperkeyManager()
+    config = SuperkeyConfig(
+        name="split-overload",
+        mode=SuperkeyMode.OVERLOAD,
+        overload_actions=[
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
+        ],
+        overload_down_actions=[
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+        ],
+        overload_up_actions=[
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+        ],
+    )
+
+    manager.save_superkey(config)
+    reloaded = SuperkeyManager().get_superkey("split-overload")
+
+    assert reloaded is not None
+    assert reloaded.mode == SuperkeyMode.OVERLOAD
+    assert [action.target for action in reloaded.overload_actions] == ["key_leftctrl"]
+    assert [action.target for action in reloaded.overload_down_actions] == ["key_a"]
+    assert [action.target for action in reloaded.overload_up_actions] == ["key_b"]
+    text = (superkeys_dir / "split-overload.toml").read_text(encoding="utf-8")
+    assert "overload_down = [" in text
+    assert "overload_up = [" in text
+
+
 def test_superkey_manager_warns_and_strips_manual_unsupported_rapidfire(
     temp_config_dir,
     monkeypatch,
@@ -302,6 +335,50 @@ def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
     ]
     assert parsed.overload_actions[1].exec_ref == 10000
     assert manager.exec_state.superkey_exec_refs[10000] == ("1234:5678", "echo demo")
+
+
+def test_superkey_runtime_payload_round_trips_split_overload_actions() -> None:
+    manager = SimpleNamespace(
+        exec_state=SimpleNamespace(
+            next_superkey_exec_ref=10000,
+            superkey_exec_refs={},
+            combo_superkey_exec_refs=set(),
+        ),
+        superkeys=SimpleNamespace(get_superkey=lambda _name: None),
+    )
+    config = SuperkeyConfig(
+        name="runtime_split_overload",
+        mode=SuperkeyMode.OVERLOAD,
+        overload_actions=[
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
+        ],
+        overload_down_actions=[
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+        ],
+        overload_up_actions=[
+            MappingAction(action_type=ActionType.EXEC, cmd="echo up"),
+        ],
+    )
+
+    payload = serialize_superkey(manager, config, "1234:5678")
+    parsed = parse_superkey_config(
+        _parse_manager(),
+        payload,
+        json_object=lambda value: value if isinstance(value, dict) else None,
+        str_value=lambda value, default="": default if value is None else str(value),
+        optional_str=lambda value: None if value is None else str(value),
+        int_value=lambda value, default=0: default if value is None else int(value),
+        int_or_none=lambda value: None if value is None else int(value),
+        float_value=lambda value, default=0.0: default if value is None else float(value),
+        parse_superkey_action=lambda *_args, **_kwargs: None,
+    )
+
+    assert parsed.mode == SuperkeyMode.OVERLOAD
+    assert [action.target for action in parsed.overload_actions] == ["key_leftctrl"]
+    assert [action.target for action in parsed.overload_down_actions] == ["key_a"]
+    assert parsed.overload_up_actions[0].action_type == ActionType.EXEC
+    assert parsed.overload_up_actions[0].exec_ref == 10000
+    assert manager.exec_state.superkey_exec_refs[10000] == ("1234:5678", "echo up")
 
 
 def test_combo_superkey_payload_tracks_combo_scoped_exec_refs() -> None:
@@ -428,6 +505,44 @@ def test_superkey_runtime_payload_requires_bundle_lists() -> None:
         )
 
 
+def test_superkey_runtime_payload_rejects_nested_pattern_superkey() -> None:
+    with pytest.raises(ValueError, match="nested superkeys are not allowed"):
+        parse_superkey_config(
+            _parse_manager(),
+            {
+                "name": "bad_pattern_nested",
+                "mode": "pattern",
+                "tap_actions": [{"action": "superkey", "superkey_name": "other"}],
+            },
+            json_object=lambda value: value if isinstance(value, dict) else None,
+            str_value=lambda value, default="": default if value is None else str(value),
+            optional_str=lambda value: None if value is None else str(value),
+            int_value=lambda value, default=0: default if value is None else int(value),
+            int_or_none=lambda value: None if value is None else int(value),
+            float_value=lambda value, default=0.0: default if value is None else float(value),
+            parse_superkey_action=parse_superkey_action,
+        )
+
+
+def test_superkey_runtime_payload_rejects_nested_overload_superkey() -> None:
+    with pytest.raises(ValueError, match="nested superkeys are not allowed"):
+        parse_superkey_config(
+            _parse_manager(),
+            {
+                "name": "bad_overload_nested",
+                "mode": "overload",
+                "overload_actions": [{"action": "superkey", "superkey_name": "other"}],
+            },
+            json_object=lambda value: value if isinstance(value, dict) else None,
+            str_value=lambda value, default="": default if value is None else str(value),
+            optional_str=lambda value: None if value is None else str(value),
+            int_value=lambda value, default=0: default if value is None else int(value),
+            int_or_none=lambda value: None if value is None else int(value),
+            float_value=lambda value, default=0.0: default if value is None else float(value),
+            parse_superkey_action=lambda *_args, **_kwargs: None,
+        )
+
+
 def test_superkey_manager_rejects_nested_overload_superkeys(
     temp_config_dir,
     monkeypatch: pytest.MonkeyPatch,
@@ -436,17 +551,32 @@ def test_superkey_manager_rejects_nested_overload_superkeys(
     superkeys_dir.mkdir()
     monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
 
-    manager = SuperkeyManager()
-    config = SuperkeyConfig(
-        name="bad_overload",
-        mode=SuperkeyMode.OVERLOAD,
-        overload_actions=[
-            MappingAction(action_type=ActionType.SUPERKEY, superkey_name="other"),
-        ],
+    with pytest.raises(ValueError, match="nested superkeys are not allowed"):
+        SuperkeyConfig(
+            name="bad_overload",
+            mode=SuperkeyMode.OVERLOAD,
+            overload_actions=[
+                MappingAction(action_type=ActionType.SUPERKEY, superkey_name="other"),
+            ],
+        )
+
+
+def test_superkey_payload_serializer_rejects_nested_overload_superkeys() -> None:
+    manager = SimpleNamespace(
+        exec_state=SimpleNamespace(
+            next_superkey_exec_ref=10000,
+            superkey_exec_refs={},
+            combo_superkey_exec_refs=set(),
+        ),
+        superkeys=SimpleNamespace(get_superkey=lambda _name: None),
     )
+    config = SuperkeyConfig(name="bad_payload_nested", mode=SuperkeyMode.OVERLOAD)
+    config.overload_actions = [
+        MappingAction(action_type=ActionType.SUPERKEY, superkey_name="other"),
+    ]
 
     with pytest.raises(ValueError, match="nested superkeys are not allowed"):
-        manager.save_superkey(config)
+        serialize_superkey(manager, config, "1234:5678")
 
 
 def test_profile_manager_finds_and_replaces_combo_superkey_references(

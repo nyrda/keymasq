@@ -367,6 +367,8 @@ def _collect_macro_names_from_superkey(superkey: JsonObject, macro_names: set[st
         "hold_actions",
         "tap_hold_actions",
         "overload_actions",
+        "overload_down_actions",
+        "overload_up_actions",
     ):
         bundle = superkey.get(key)
         if not isinstance(bundle, list):
@@ -411,6 +413,8 @@ def _resolve_superkey_macros(superkey: JsonObject, macros: dict[str, JsonObject]
         "hold_actions",
         "tap_hold_actions",
         "overload_actions",
+        "overload_down_actions",
+        "overload_up_actions",
     ):
         bundle = updated.get(key)
         if not isinstance(bundle, list):

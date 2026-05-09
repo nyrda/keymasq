@@ -53,11 +53,15 @@ Overload mode does not do gesture recognition. Instead, the source key
 behaves like a one-to-many normal mapping and forwards its down, repeat,
 and up cycle to multiple child actions.
 
+You can optionally add one-shot actions that fire on press or release
+independently of the held outputs.
+
 Examples:
 
 - One mouse side button presses both `key_leftctrl` and `key_c`
 - One keyboard key presses two gamepad buttons
 - One button triggers a key press plus a profile toggle
+- One key holds Ctrl while also sending F13 on press and F14 on release
 
 Overload actions use the same runtime rules as normal mappings:
 
@@ -108,13 +112,22 @@ superkeys and mapping-only control actions are not available. Pattern slots can 
 
 ### Editing Overload Actions
 
-In overload mode, the editor shows one ordered list: **Overload Actions**.
-Those children use the normal mapping action picker, so overload keys can mix
-the same kinds of actions that regular mappings can use, except:
+In overload mode, the editor shows three ordered action lists. All three
+use the normal mapping action picker, so overload keys can mix the same
+kinds of actions that regular mappings support, except:
 
 - **Passthrough** is not available
 - **Suppress** is not available
 - **Super Key** is not available
+
+| List | When it runs | Behavior |
+|---|---|---|
+| **Main Actions** | Entire key lifecycle | Actions stay pressed while the source key is held, and release when it is released. |
+| **On Press** | Once on key down | Actions run as a quick press-and-release pulse when the source key is pressed. |
+| **On Release** | Once on key up | Actions run as a quick press-and-release pulse when the source key is released. |
+
+On Press and On Release are optional. Leave them empty if you only need
+held output.
 
 ## Rapidfire
 
@@ -168,6 +181,10 @@ That applies to:
 
 - Pattern-mode held outputs
 - Overload-mode held key and button outputs
+
+On Press and On Release actions are one-shot pulses, so they do not create
+held child output state. The Main Actions list still uses normal held child
+output state.
 
 ## Using Super Keys
 
@@ -233,6 +250,24 @@ mode = "overload"
 overload = [
     { action = "keyboard", target = "key_leftctrl" },
     { action = "mouse", target = "btn_left" },
+]
+```
+
+### Overload With On Press / Release Example
+
+```toml
+name = "down_up_pair"
+mode = "overload"
+
+[actions]
+overload = [
+    { action = "keyboard", target = "key_leftctrl" },
+]
+overload_down = [
+    { action = "keyboard", target = "key_f13" },
+]
+overload_up = [
+    { action = "keyboard", target = "key_f14" },
 ]
 ```
 

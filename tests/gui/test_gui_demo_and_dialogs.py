@@ -631,6 +631,42 @@ class TestDialogConstruction:
         assert dialog.get_child() is not None
         assert dialog.right_box.get_parent() is not None
 
+    def test_superkey_dialog_overload_saves_press_and_release_actions(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common import paths
+        from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        dialog.mode_dropdown.set_selected(1)
+        dialog.overload_row._action_items = [
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl")
+        ]
+        dialog.overload_down_row._action_items = [
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
+        ]
+        dialog.overload_up_row._action_items = [
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_b")
+        ]
+        dialog.name_entry.set_text("Split Overload")
+        dialog._on_save_clicked(Gtk.Button())
+
+        saved = dialog.manager.get_superkey("Split Overload")
+        assert saved is not None
+        assert saved.mode == SuperkeyMode.OVERLOAD
+        assert dialog.overload_row.get_title() == "Main Actions"
+        assert dialog.overload_down_row.get_visible() is True
+        assert dialog.overload_up_row.get_visible() is True
+        assert [action.target for action in saved.overload_actions] == ["key_leftctrl"]
+        assert [action.target for action in saved.overload_down_actions] == ["key_a"]
+        assert [action.target for action in saved.overload_up_actions] == ["key_b"]
+
     def test_superkey_dialog_empty_state_starts_new_draft_and_keeps_close_available(
         self, temp_config_dir, monkeypatch
     ):

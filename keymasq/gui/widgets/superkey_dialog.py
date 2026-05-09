@@ -1,5 +1,4 @@
 import logging
-from collections.abc import Sequence
 
 import gi
 
@@ -101,6 +100,23 @@ def _describe_pattern_superkey_action(
     else:
         label = describe_mapping_action_verbose(superkey_action_to_mapping_action(action))
     return _append_action_state_markers(label, action)
+
+
+def _describe_superkey_dialog_action(action: object, row_mode: str) -> str:
+    if row_mode == "pattern":
+        return _describe_pattern_superkey_action(
+            action,
+            exec_limit=40,
+            exec_prefix="Exec -> ",
+            macro_prefix="Macro -> ",
+            target_separator=" -> ",
+            title_case_target_type=True,
+        )
+    return (
+        _append_action_state_markers(describe_mapping_action_verbose(action), action)
+        if isinstance(action, MappingAction)
+        else "Unknown action"
+    )
 
 
 class ActionListDialog(Adw.Dialog):
@@ -245,20 +261,7 @@ class ActionListDialog(Adw.Dialog):
         self._update_buttons(self.list_box.get_selected_row())
 
     def _describe_action(self, action: object) -> str:
-        if self._list_mode == "pattern":
-            return _describe_pattern_superkey_action(
-                action,
-                exec_limit=40,
-                exec_prefix="Exec -> ",
-                macro_prefix="Macro -> ",
-                target_separator=" -> ",
-                title_case_target_type=True,
-            )
-        return (
-            _append_action_state_markers(describe_mapping_action_verbose(action), action)
-            if isinstance(action, MappingAction)
-            else "Unknown action"
-        )
+        return _describe_superkey_dialog_action(action, self._list_mode)
 
     def _selected_index(self) -> int | None:
         row = self.list_box.get_selected_row()
@@ -483,7 +486,6 @@ class SuperkeyDialog(Adw.Dialog):
 
         self.editor_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.editor_box.set_sensitive(False)
-        self.editor_box.set_vexpand(True)
 
         fields_grid = Gtk.Grid()
         fields_grid.set_column_spacing(12)
@@ -537,14 +539,17 @@ class SuperkeyDialog(Adw.Dialog):
         self.actions_group.add(self.tap_hold_row)
 
         self.overload_row = self._build_action_row("Main Actions", "overload", "overload")
-        self.overload_row.set_subtitle("Held while pressed, released when you let go")
+        self.overload_row._static_description = "Held while pressed, released when you let go"
+        self._refresh_child_rows(self.overload_row)
         self.actions_group.add(self.overload_row)
 
         self.overload_down_row = self._build_action_row("On Press", "overload_down", "overload")
-        self.overload_down_row.set_subtitle("Runs once when the key is pressed")
+        self.overload_down_row._static_description = "Runs once when the key is pressed"
+        self._refresh_child_rows(self.overload_down_row)
 
         self.overload_up_row = self._build_action_row("On Release", "overload_up", "overload")
-        self.overload_up_row.set_subtitle("Runs once when the key is released")
+        self.overload_up_row._static_description = "Runs once when the key is released"
+        self._refresh_child_rows(self.overload_up_row)
 
         self.overload_pulse_group = Adw.PreferencesGroup()
         self.overload_pulse_group.set_title("On Press / Release")
@@ -589,7 +594,12 @@ class SuperkeyDialog(Adw.Dialog):
         self.timing_group.add(self.hold_threshold_row)
 
         self.editor_box.append(self.timing_group)
-        self.right_box.append(self.editor_box)
+
+        editor_scrolled = Gtk.ScrolledWindow()
+        editor_scrolled.set_vexpand(True)
+        editor_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        editor_scrolled.set_child(self.editor_box)
+        self.right_box.append(editor_scrolled)
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         footer.set_hexpand(True)
@@ -652,18 +662,16 @@ class SuperkeyDialog(Adw.Dialog):
         row.add_suffix(spin)
         return row, spin
 
-    def _build_action_row(self, title: str, action_key: str, row_mode: str) -> Adw.ActionRow:
-        row = Adw.ActionRow()
+    def _build_action_row(self, title: str, action_key: str, row_mode: str) -> Adw.ExpanderRow:
+        row = Adw.ExpanderRow()
         row.set_title(title)
         row._action_key = action_key
         row._row_mode = row_mode
         row._action_items = []
-
-        label = Gtk.Label(label="(none)")
-        label.set_xalign(1.0)
-        label.set_wrap(True)
-        row.add_suffix(label)
-        row._action_label = label
+        row._child_rows = []
+        row._static_description = None
+        row.set_subtitle("(none)")
+        row.set_enable_expansion(False)
 
         edit_btn = Gtk.Button(label="Edit")
         edit_btn.add_css_class("flat")
@@ -793,70 +801,46 @@ class SuperkeyDialog(Adw.Dialog):
 
     def _populate_action_row(
         self,
-        row: Adw.ActionRow,
+        row: Adw.ExpanderRow,
         actions: list[SuperkeyAction] | list[MappingAction],
     ) -> None:
         row._action_items = list(actions)
-        row._action_label.set_label(self._describe_action_list(row._action_items, row._row_mode))
-        tooltip = self._describe_action_tooltip(row._action_items, row._row_mode)
-        row.set_tooltip_text(tooltip)
-        row._action_label.set_tooltip_text(tooltip)
+        self._refresh_child_rows(row)
 
-    def _describe_action_list(self, actions: Sequence[object], row_mode: str) -> str:
-        if not actions:
-            return "(none)"
+    def _describe_single_action(self, action: object, row_mode: str) -> str:
+        return _describe_superkey_dialog_action(action, row_mode)
 
-        if row_mode == "pattern":
-            labels = [
-                _describe_pattern_superkey_action(
-                    action,
-                    exec_limit=20,
-                    exec_prefix="exec ",
-                    macro_prefix="macro ",
-                    target_separator=" ",
-                    title_case_target_type=False,
-                )
-                for action in actions[:2]
-            ]
+    def _refresh_child_rows(self, row: Adw.ExpanderRow) -> None:
+        for child in row._child_rows:
+            row.remove(child)
+        row._child_rows = []
+
+        actions = list(row._action_items)
+        subtitle_parts: list[str] = []
+        if row._static_description:
+            subtitle_parts.append(row._static_description)
+        if actions:
+            noun = "action" if len(actions) == 1 else "actions"
+            subtitle_parts.append(f"{len(actions)} {noun}")
         else:
-            labels = [
-                describe_mapping_action_verbose(action)
-                if isinstance(action, MappingAction)
-                else "Unknown action"
-                for action in actions[:2]
-            ]
+            subtitle_parts.append("(none)")
+        row.set_subtitle("\n".join(subtitle_parts))
 
-        if len(actions) > 2:
-            labels.append("...")
-
-        suffix = ", ".join(labels)
-        noun = "action" if len(actions) == 1 else "actions"
-        return f"{len(actions)} {noun}: {suffix}"
-
-    def _describe_action_tooltip(self, actions: Sequence[object], row_mode: str) -> str:
         if not actions:
-            return "(none)"
+            row.set_enable_expansion(False)
+            row.set_expanded(False)
+            return
 
-        lines: list[str] = []
+        row.set_enable_expansion(True)
+        row.set_expanded(True)
         for index, action in enumerate(actions, start=1):
-            if row_mode == "pattern":
-                description = _describe_pattern_superkey_action(
-                    action,
-                    exec_limit=20,
-                    exec_prefix="exec ",
-                    macro_prefix="macro ",
-                    target_separator=" ",
-                    title_case_target_type=False,
-                )
-            else:
-                description = (
-                    describe_mapping_action_verbose(action)
-                    if isinstance(action, MappingAction)
-                    else "Unknown action"
-                )
-                description = _append_action_state_markers(description, action)
-            lines.append(f"{index}. {description}")
-        return "\n".join(lines)
+            child = Adw.ActionRow()
+            child.set_use_markup(False)
+            child.set_title_lines(0)
+            description = self._describe_single_action(action, row._row_mode)
+            child.set_title(f"{index}. {description}")
+            row.add_row(child)
+            row._child_rows.append(child)
 
     def _on_mode_changed(self, _dropdown, _param) -> None:
         self._update_mode_visibility()
@@ -992,7 +976,7 @@ class SuperkeyDialog(Adw.Dialog):
 
         self.emit("superkey-saved", name)
 
-    def _on_edit_action_clicked(self, _button, row: Adw.ActionRow) -> None:
+    def _on_edit_action_clicked(self, _button, row: Adw.ExpanderRow) -> None:
         title = (
             f"Edit {row.get_title()} Actions"
             if row._row_mode == "pattern"
@@ -1008,19 +992,14 @@ class SuperkeyDialog(Adw.Dialog):
         dialog.connect("actions-selected", self._on_actions_selected, row)
         dialog.present(self._parent)
 
-    def _on_actions_selected(self, _dialog, actions: list[object], row: Adw.ActionRow) -> None:
+    def _on_actions_selected(self, _dialog, actions: list[object], row: Adw.ExpanderRow) -> None:
         row._action_items = list(actions)
-        row._action_label.set_label(self._describe_action_list(row._action_items, row._row_mode))
-        tooltip = self._describe_action_tooltip(row._action_items, row._row_mode)
-        row.set_tooltip_text(tooltip)
-        row._action_label.set_tooltip_text(tooltip)
+        self._refresh_child_rows(row)
         self._on_modified()
 
-    def _on_clear_action_clicked(self, _button, row: Adw.ActionRow) -> None:
+    def _on_clear_action_clicked(self, _button, row: Adw.ExpanderRow) -> None:
         row._action_items = []
-        row._action_label.set_label("(none)")
-        row.set_tooltip_text("(none)")
-        row._action_label.set_tooltip_text("(none)")
+        self._refresh_child_rows(row)
         self._on_modified()
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:

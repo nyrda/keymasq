@@ -592,9 +592,7 @@ class DeviceManager:
                 )
 
             self._configured_combos = parsed
-            active_combos = await self._refresh_combo_runtime_unlocked(
-                preserve_split_overload_release_actions=True
-            )
+            active_combos = await self._refresh_combo_runtime_unlocked()
             log.info(
                 "Updated combos (%d active, %d configured)",
                 len(active_combos),
@@ -602,16 +600,11 @@ class DeviceManager:
             )
             return {"updated": True, "combo_count": len(active_combos)}
 
-    async def _refresh_combo_runtime_unlocked(
-        self,
-        *,
-        preserve_split_overload_release_actions: bool = False,
-    ) -> list[RuntimeCombo]:
+    async def _refresh_combo_runtime_unlocked(self) -> list[RuntimeCombo]:
         active_combos = self._with_emergency_cancel_combos(self._configured_combos)
         self.active_combos = active_combos
         await runtime_combos.clear_combo_runtime(
             self,
-            preserve_split_overload_release_actions=preserve_split_overload_release_actions,
             deps=_combo_runtime_deps(),
         )
         self.combo_state.engine.set_combos(active_combos)

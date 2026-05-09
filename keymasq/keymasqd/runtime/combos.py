@@ -90,7 +90,6 @@ class ComboActionState:
     source_device: str | None = None
     source_button: str | None = None
     trigger_binding: RuntimeComboBinding | None = None
-    trigger_bindings: tuple[RuntimeComboBinding, ...] = ()
     child_combo_ids: list[str] = field(default_factory=list)
     machine: SuperkeyMachine | None = None
     recalled_bindings: list[RuntimeComboBinding] = field(default_factory=list)
@@ -365,15 +364,6 @@ async def process_runtime_combo_event(
             transition,
             deps=deps,
         )
-    released_preserved_action = False
-    if value == 0:
-        for combo_id in _active_split_overload_combo_ids_for_binding(manager, binding):
-            await stop_combo_action(
-                manager,
-                combo_id,
-                deps=deps,
-            )
-            released_preserved_action = True
     refresh_combo_timeout_watchdog(
         manager,
         deps=deps,
@@ -385,10 +375,7 @@ async def process_runtime_combo_event(
         or decision.action_transition is not None
         or decision.extra_action_transitions
         or decision.reset_candidates
-        or released_preserved_action
     ):
-        if released_preserved_action:
-            decision.consume_current_event = True
         return decision
     return None
 
@@ -415,34 +402,6 @@ def find_grabbed_device_for_binding(
             continue
         return device
     return None
-
-
-def _combo_binding_matches(
-    expected: RuntimeComboBinding,
-    actual: RuntimeComboBinding,
-) -> bool:
-    expected_hardware_id = str(expected.hardware_id or "").lower()
-    actual_hardware_id = str(actual.hardware_id or "").lower()
-    expected_source = str(expected.source or "").lower()
-    actual_source = str(actual.source or "").lower()
-    return (
-        expected_hardware_id == actual_hardware_id
-        and normalize_combo_evdev(expected.evdev) == normalize_combo_evdev(actual.evdev)
-        and (not expected_source or expected_source == actual_source)
-    )
-
-
-def _active_split_overload_combo_ids_for_binding(
-    manager: _ComboManager,
-    binding: RuntimeComboBinding,
-) -> list[str]:
-    combo_ids: list[str] = []
-    for combo_id, state in manager.combo_state.active_actions.items():
-        if state.kind != "superkey_overload_split":
-            continue
-        if any(_combo_binding_matches(trigger, binding) for trigger in state.trigger_bindings):
-            combo_ids.append(combo_id)
-    return combo_ids
 
 
 def held_combo_modifier_bindings_for_scope(
@@ -615,21 +574,6 @@ def track_combo_superkey_output(
         return False
 
     return True
-
-
-async def _suspend_split_overload_action_until_release(
-    manager: _ComboManager,
-    state: ComboActionState,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    for child_combo_id in reversed(state.child_combo_ids):
-        await stop_combo_action(
-            manager,
-            child_combo_id,
-            deps=deps,
-        )
-    state.child_combo_ids.clear()
 
 
 def _combo_step_count(manager: _ComboManager, combo_id: str) -> int:
@@ -974,7 +918,6 @@ async def start_combo_action(
                     child_combo_ids=split_child_combo_ids,
                     action=action,
                     trigger_binding=trigger_binding,
-                    trigger_bindings=tuple(trigger_bindings),
                     source_button=trigger_name,
                     recalled_bindings=recalled_bindings,
                     restore_bindings=restore_bindings,
@@ -1470,24 +1413,10 @@ async def stop_combo_action(
 async def clear_combo_runtime(
     manager: _ComboManager,
     *,
-    preserve_split_overload_release_actions: bool = False,
     deps: ComboRuntimeDeps,
 ) -> None:
     manager.combo_state.engine.reset()
     for combo_id in list(manager.combo_state.active_actions):
-        state = manager.combo_state.active_actions.get(combo_id)
-        if (
-            preserve_split_overload_release_actions
-            and state is not None
-            and state.kind == "superkey_overload_split"
-            and state.trigger_bindings
-        ):
-            await _suspend_split_overload_action_until_release(
-                manager,
-                state,
-                deps=deps,
-            )
-            continue
         await stop_combo_action(
             manager,
             combo_id,

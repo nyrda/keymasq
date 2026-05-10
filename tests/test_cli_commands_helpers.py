@@ -6,7 +6,8 @@ from keymasq.cli import commands
 
 
 def test_profile_kind_variants() -> None:
-    assert commands._profile_kind({"is_permanent": True, "window_rule_count": 99}) == "permanent"
+    assert commands._profile_kind({"is_permanent": True, "window_rule_count": 99}) == "conditional"
+    assert commands._profile_kind({"is_permanent": True, "window_rule_count": 0}) == "permanent"
     assert commands._profile_kind({"window_rule_count": 2}) == "conditional"
     assert commands._profile_kind({}) == "standard"
 

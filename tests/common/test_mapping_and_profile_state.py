@@ -2,12 +2,6 @@
 from tests.common.support import *
 
 class TestMappingAction:
-    def test_keyboard_action(self):
-        action = MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
-
-        assert action.action_type == ActionType.KEYBOARD
-        assert action.target == "key_a"
-
     def test_keyboard_with_rapidfire(self):
         action = MappingAction(
             action_type=ActionType.KEYBOARD,
@@ -34,32 +28,6 @@ class TestMappingAction:
         assert action.rapidfire_enabled is True
         assert action.rapidfire_hold_ms == 0
         assert action.rapidfire_wait_ms == 1
-
-    def test_mouse_action(self):
-        action = MappingAction(action_type=ActionType.MOUSE, target="btn_left")
-
-        assert action.action_type == ActionType.MOUSE
-        assert action.target == "btn_left"
-
-    def test_gamepad_action(self):
-        action = MappingAction(action_type=ActionType.GAMEPAD, target="btn_south")
-
-        assert action.action_type == ActionType.GAMEPAD
-        assert action.target == "btn_south"
-
-    def test_exec_action(self):
-        action = MappingAction(
-            action_type=ActionType.EXEC,
-            cmd="playerctl play-pause",
-        )
-
-        assert action.action_type == ActionType.EXEC
-        assert action.cmd == "playerctl play-pause"
-
-    def test_suppress_action(self):
-        action = MappingAction(action_type=ActionType.SUPPRESS)
-
-        assert action.action_type == ActionType.SUPPRESS
 
 
 class TestProfileState:

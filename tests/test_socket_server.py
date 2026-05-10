@@ -73,7 +73,13 @@ class MockCommandHandler:
     def __init__(self):
         self.commands_received = []
 
-    async def handle(self, command_type: CommandType, data: dict) -> dict:
+    async def handle(
+        self,
+        command_type: CommandType,
+        data: dict,
+        client: ClientContext,
+    ) -> dict:
+        _ = client
         self.commands_received.append((command_type, data))
 
         if command_type == CommandType.PING:
@@ -90,6 +96,14 @@ class MockDisconnectHandler:
 
     async def handle(self):
         self.disconnect_called = True
+
+
+async def _ok_handler(
+    _command: CommandType,
+    _data: dict,
+    _client: ClientContext,
+) -> dict:
+    return {"ok": True}
 
 
 @pytest.mark.asyncio
@@ -202,7 +216,8 @@ class TestSocketServer:
         assert disc_handler.disconnect_called
 
     async def test_error_response_on_exception(self, temp_socket_dir):
-        async def failing_handler(cmd_type, data):
+        async def failing_handler(cmd_type, data, client):
+            _ = cmd_type, data, client
             raise ValueError("Test error")
 
         server = SocketServer(str(paths.SOCKET_PATH), failing_handler)
@@ -229,6 +244,7 @@ class TestSocketServer:
         calls: list[int] = []
 
         async def failing_handler(cmd_type, data, context):
+            _ = cmd_type, data
             calls.append(context.connection_id)
             raise TypeError("internal handler bug")
 
@@ -251,8 +267,39 @@ class TestSocketServer:
         await writer.wait_closed()
         await server.stop()
 
+    async def test_command_handler_receives_client_context(self, temp_socket_dir):
+        contexts: list[ClientContext] = []
+
+        async def handle(
+            _command: CommandType,
+            _data: dict,
+            client: ClientContext,
+        ) -> dict:
+            contexts.append(client)
+            return {"pong": True}
+
+        server = SocketServer(str(paths.SOCKET_PATH), handle)
+        await server.start()
+
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        writer.write(encode_command(Command(command=CommandType.PING, data={})))
+        await writer.drain()
+
+        response_data = await reader.read(1024)
+        response, _ = decode_response(response_data)
+
+        assert response is not None
+        assert response.status == "ok"
+        assert len(contexts) == 1
+        assert contexts[0].connection_id == 1
+        assert contexts[0].client_class == "session"
+
+        writer.close()
+        await writer.wait_closed()
+        await server.stop()
+
     async def test_single_owner_handoff_after_owner_disconnect(self, temp_socket_dir):
-        async def handle(_command: CommandType, _data: dict) -> dict:
+        async def handle(_command: CommandType, _data: dict, _client: ClientContext) -> dict:
             return {"pong": True}
 
         server = SocketServer(
@@ -311,7 +358,7 @@ class TestSocketServer:
 
         server = SocketServer(
             str(paths.SOCKET_PATH),
-            lambda _command, _data, _client: {"pong": True},
+            _ok_handler,
             counter.handle,
         )
 
@@ -345,7 +392,7 @@ class TestSocketServer:
 
         server = SocketServer(
             str(paths.SOCKET_PATH),
-            lambda _command, _data, _client: {"pong": True},
+            _ok_handler,
             handle_disconnect,
             single_owner=True,
         )
@@ -375,36 +422,10 @@ class TestSocketServer:
         assert calls == ["disconnect"]
         assert server._owner_context is None
 
-    async def test_process_command_uses_legacy_handler_signature(self, temp_socket_dir):
-        calls: list[tuple[object, dict]] = []
-
-        async def legacy_handler(command_type: CommandType, data: dict) -> dict:
-            calls.append((command_type, data))
-            return {"legacy": True, "command": command_type.value}
-
-        server = SocketServer(str(paths.SOCKET_PATH), legacy_handler)
-        await server.start()
-
-        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
-        writer.write(encode_command(Command(command=CommandType.PING, data={"x": 1})))
-        await writer.drain()
-
-        response_data = await reader.read(1024)
-        response, _ = decode_response(response_data)
-
-        assert response is not None
-        assert response.status == "ok"
-        assert response.data == {"legacy": True, "command": CommandType.PING.value}
-        assert calls == [(CommandType.PING, {"x": 1})]
-
-        writer.close()
-        await writer.wait_closed()
-        await server.stop()
-
     async def test_connection_rejected_when_peer_credentials_missing(
         self, monkeypatch, temp_socket_dir
     ):
-        server = SocketServer(str(paths.SOCKET_PATH), lambda *_args: {"ok": True})
+        server = SocketServer(str(paths.SOCKET_PATH), _ok_handler)
 
         await server.start()
         monkeypatch.setattr(server, "_extract_peer", lambda _writer: None)
@@ -420,7 +441,7 @@ class TestSocketServer:
     async def test_broadcast_event_does_not_block_on_slow_client(self, temp_socket_dir):
         server = SocketServer(
             str(paths.SOCKET_PATH),
-            lambda *_args: {"ok": True},
+            _ok_handler,
             broadcast_drain_timeout_s=0.01,
         )
         slow_writer = _BroadcastWriter(drain_waiter=asyncio.Event())
@@ -450,7 +471,7 @@ class TestSocketServer:
 
         server = SocketServer(
             str(paths.SOCKET_PATH),
-            lambda *_args: {"ok": True},
+            _ok_handler,
             disconnect_handler=handle_disconnect,
             broadcast_drain_timeout_s=0.01,
         )
@@ -467,7 +488,7 @@ class TestSocketServer:
     async def test_server_stop_times_out_stuck_client_close(self, temp_socket_dir):
         server = SocketServer(
             str(paths.SOCKET_PATH),
-            lambda *_args: {"ok": True},
+            _ok_handler,
             close_timeout_s=0.01,
         )
         stuck_writer = _HangingCloseWriter()
@@ -483,7 +504,7 @@ class TestSocketServer:
     async def test_server_stop_closes_open_client_without_hanging(self, temp_socket_dir):
         server = SocketServer(
             str(paths.SOCKET_PATH),
-            lambda *_args: {"ok": True},
+            _ok_handler,
         )
         await server.start()
 

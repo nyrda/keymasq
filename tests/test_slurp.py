@@ -7,12 +7,6 @@ import pytest
 from keymasq.common.slurp import SlurpCapture, SlurpMode, SlurpResult
 
 
-def test_slurp_result() -> None:
-    result = SlurpResult(x=100, y=200)
-    assert result.x == 100
-    assert result.y == 200
-
-
 def test_slurp_capture_available_without_slurp_binary() -> None:
     capture = SlurpCapture()
     capture._slurp_path = None

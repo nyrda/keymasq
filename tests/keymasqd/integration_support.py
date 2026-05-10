@@ -24,11 +24,11 @@ class IntegrationTestBase:
 
         server = SocketServer(
             str(paths.SOCKET_PATH),
-            lambda cmd, data: manager._handle_command(cmd, data),
+            lambda cmd, data, _client: manager._handle_command(cmd, data),
             handle_disconnect,
         )
 
-        async def command_handler(cmd_type, data):
+        async def command_handler(cmd_type, data, _client):
             if cmd_type == CommandType.GRAB_DEVICE:
                 return await manager.grab_device(
                     data["hardware_id"],

@@ -446,10 +446,10 @@ def _diagnostics_categories(
 
 
 def _profile_kind(profile: JsonObject) -> str:
-    if bool(profile.get("is_permanent", False)):
-        return "permanent"
     if int(profile.get("window_rule_count", 0) or 0) > 0:
         return "conditional"
+    if bool(profile.get("is_permanent", False)):
+        return "permanent"
     return "standard"
 
 

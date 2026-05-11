@@ -13,7 +13,7 @@ def float_like(value: object, default: float) -> float:
 
 
 def str_value(value: object, default: str = "") -> str:
-    return str(value or default)
+    return default if value is None else str(value)
 
 
 def json_object(value: object) -> JsonObject:

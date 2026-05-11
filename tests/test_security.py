@@ -118,6 +118,13 @@ def test_acl_deny_prefixes_are_supported(tmp_path: Path) -> None:
     assert command_allowed("get_status", policy.session_command_acl, "client")
 
 
+def test_acl_unknown_client_class_does_not_inherit_other_denies() -> None:
+    acl = {"session": ["!emergency_reset"]}
+
+    assert not command_allowed("emergency_reset", acl, "session")
+    assert command_allowed("emergency_reset", acl, "unknown")
+
+
 def test_acl_explicit_wildcard_deny_blocks_all_commands(tmp_path: Path) -> None:
     policy_path = tmp_path / "security.toml"
     policy_path.write_text(

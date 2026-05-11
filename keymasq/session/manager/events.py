@@ -22,19 +22,19 @@ TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
 TOPOLOGY_REFRESH_RETRY_S = 1.0
 
 
-def create_event_task(
+def create_event_task[TaskResult](
     manager: "SessionManager",
-    coro: Coroutine[Any, Any, None],
+    coro: Coroutine[Any, Any, TaskResult],
     *,
     name: str,
-    extra_task_set: set[asyncio.Task[None]] | None = None,
-) -> asyncio.Task[None]:
+    extra_task_set: set[asyncio.Task[TaskResult]] | None = None,
+) -> asyncio.Task[TaskResult]:
     task = asyncio.create_task(coro, name=f"keymasq-session:{name}")
     manager.event_state.tasks.add(task)
     if extra_task_set is not None:
         extra_task_set.add(task)
 
-    def _discard(done: asyncio.Task[None]) -> None:
+    def _discard(done: asyncio.Task[TaskResult]) -> None:
         manager.event_state.tasks.discard(done)
         if extra_task_set is not None:
             extra_task_set.discard(done)

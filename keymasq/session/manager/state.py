@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from keymasq.session.listeners.base import WindowListener
 from keymasq.session.profiles import ResolvedDeviceProfile
@@ -116,4 +116,4 @@ class CompositorRuntimeState:
 
 @dataclass
 class EventRuntimeState:
-    tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    tasks: set[asyncio.Task[Any]] = field(default_factory=set)

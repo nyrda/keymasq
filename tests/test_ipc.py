@@ -1,4 +1,7 @@
+import struct
+
 from keymasq.common.ipc import (
+    HEADER_FORMAT,
     Command,
     CommandType,
     Response,
@@ -72,6 +75,36 @@ class TestProtocolEncoding:
         assert decoded2.request_id == "2"
         assert remaining2 == b""
 
+    def test_decode_oversized_command_discards_full_frame(self, monkeypatch):
+        import keymasq.common.ipc as ipc
+
+        valid = encode_command(Command(command=CommandType.PING, data={}, request_id="ok"))
+        max_payload_size = struct.unpack(HEADER_FORMAT, valid[: ipc.HEADER_SIZE])[0]
+        monkeypatch.setattr(ipc, "MAX_PAYLOAD_SIZE", max_payload_size)
+        payload_len = max_payload_size + 1
+        oversized = struct.pack(HEADER_FORMAT, payload_len) + (b"x" * payload_len)
+
+        decoded, remaining = decode_command(oversized + valid)
+
+        assert decoded is None
+        assert remaining == valid
+
+        decoded, remaining = decode_command(remaining)
+        assert decoded is not None
+        assert decoded.request_id == "ok"
+        assert remaining == b""
+
+    def test_decode_partial_oversized_command_discards_buffer(self, monkeypatch):
+        import keymasq.common.ipc as ipc
+
+        monkeypatch.setattr(ipc, "MAX_PAYLOAD_SIZE", 8)
+        partial = struct.pack(HEADER_FORMAT, 9) + b"xxx"
+
+        decoded, remaining = decode_command(partial)
+
+        assert decoded is None
+        assert remaining == b""
+
     def test_error_response(self):
         resp = Response(
             status="error",
@@ -84,6 +117,36 @@ class TestProtocolEncoding:
 
         assert decoded.status == "error"
         assert decoded.error == "Device not found"
+
+    def test_decode_oversized_response_discards_full_frame(self, monkeypatch):
+        import keymasq.common.ipc as ipc
+
+        valid = encode_response(Response(status="ok", request_id="ok"))
+        max_payload_size = struct.unpack(HEADER_FORMAT, valid[: ipc.HEADER_SIZE])[0]
+        monkeypatch.setattr(ipc, "MAX_PAYLOAD_SIZE", max_payload_size)
+        payload_len = max_payload_size + 1
+        oversized = struct.pack(HEADER_FORMAT, payload_len) + (b"x" * payload_len)
+
+        decoded, remaining = decode_response(oversized + valid)
+
+        assert decoded is None
+        assert remaining == valid
+
+        decoded, remaining = decode_response(remaining)
+        assert decoded is not None
+        assert decoded.request_id == "ok"
+        assert remaining == b""
+
+    def test_decode_partial_oversized_response_discards_buffer(self, monkeypatch):
+        import keymasq.common.ipc as ipc
+
+        monkeypatch.setattr(ipc, "MAX_PAYLOAD_SIZE", 8)
+        partial = struct.pack(HEADER_FORMAT, 9) + b"xxx"
+
+        decoded, remaining = decode_response(partial)
+
+        assert decoded is None
+        assert remaining == b""
 
 
 class TestCommandTypes:

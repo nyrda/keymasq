@@ -1,5 +1,6 @@
 import asyncio
 import queue
+import struct
 import sys
 import threading
 import types
@@ -8,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from keymasq.common.ipc import Command, CommandType, Response
+from keymasq.common.ipc import Command, CommandType, Response, encode_response
 from keymasq.gui import session_client as gui_session_client
 from keymasq.session.client import KeymasqdClient
 
@@ -53,6 +54,39 @@ def test_keymasqd_client_handle_response_dispatches_event() -> None:
             },
         )
         await client._handle_response(response)
+
+        assert calls == [(CommandType.PING, {"ok": True})]
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_listen_loop_skips_discarded_response_frame() -> None:
+    async def _run() -> None:
+        calls: list[tuple[CommandType, dict[str, Any]]] = []
+
+        async def _event_handler(event_type: CommandType, data: dict[str, Any]) -> None:
+            calls.append((event_type, data))
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        reader = asyncio.StreamReader()
+        malformed_payload = b"{not-json"
+        reader.feed_data(
+            struct.pack("!I", len(malformed_payload))
+            + malformed_payload
+            + encode_response(
+                Response(
+                    status="event",
+                    data={
+                        "command": CommandType.PING.value,
+                        "data": {"ok": True},
+                    },
+                )
+            )
+        )
+        reader.feed_eof()
+        client.reader = reader
+
+        await client._listen_loop()
 
         assert calls == [(CommandType.PING, {"ok": True})]
 

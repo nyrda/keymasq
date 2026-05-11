@@ -8,7 +8,6 @@ import pytest_asyncio
 from keymasq.common import paths
 from keymasq.common.ipc import (
     HEADER_FORMAT,
-    MAX_PAYLOAD_SIZE,
     Command,
     CommandType,
     decode_response,
@@ -213,14 +212,22 @@ class TestSocketServer:
             writer.close()
             await writer.wait_closed()
 
-    async def test_oversized_frame_does_not_block_following_command(self, server_and_handlers):
+    async def test_oversized_frame_does_not_block_following_command(
+        self,
+        server_and_handlers,
+        monkeypatch,
+    ):
+        import keymasq.common.ipc as ipc
+
         _server, cmd_handler, _ = server_and_handlers
+        monkeypatch.setattr(ipc, "MAX_PAYLOAD_SIZE", 128)
 
         reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
 
-        oversized_header = struct.pack(HEADER_FORMAT, MAX_PAYLOAD_SIZE + 1)
+        payload_len = 129
         writer.write(
-            oversized_header
+            struct.pack(HEADER_FORMAT, payload_len)
+            + (b"x" * payload_len)
             + encode_command(
                 Command(command=CommandType.PING, data={}, request_id="after-oversized")
             )

@@ -276,6 +276,44 @@ async def test_capture_combo_waits_on_event_not_sleep(daemon_testbed, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_capture_combo_clamps_client_timeout_to_daemon_max(daemon_testbed, monkeypatch):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    deadline_offsets: list[float] = []
+    queued_events = [
+        {"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd", "value": 1},
+        {"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd", "value": 0},
+    ]
+
+    async def read_event(
+        _daemon,
+        _token: str,
+        _notify_event: asyncio.Event,
+        deadline: float,
+    ) -> dict:
+        deadline_offsets.append(deadline - asyncio.get_running_loop().time())
+        return queued_events.pop(0)
+
+    monkeypatch.setattr(daemon_capture_commands, "read_capture_combo_event", read_event)
+
+    result = await daemon_capture_commands.capture_combo(
+        daemon,
+        {"1234:5678"},
+        daemon_capture_commands.MAX_CAPTURE_TIMEOUT_S + 3600.0,
+    )
+
+    assert result == {
+        "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}],
+        "warnings": [],
+    }
+    assert deadline_offsets
+    assert (
+        0.0
+        < deadline_offsets[0]
+        <= daemon_capture_commands.MAX_CAPTURE_TIMEOUT_S
+    )
+
+
+@pytest.mark.asyncio
 async def test_capture_combo_returns_immediately_on_wheel_pulse(daemon_testbed):
     daemon, device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
     notify: dict[str, asyncio.Event] = {}

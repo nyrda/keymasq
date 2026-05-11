@@ -13,6 +13,9 @@ from keymasq.keymasqd.daemon_helpers import (
     str_list,
 )
 
+MIN_CAPTURE_TIMEOUT_S = 1.0
+MAX_CAPTURE_TIMEOUT_S = 15.0
+
 
 class _GrabbedDeviceRef(Protocol):
     path: str
@@ -160,7 +163,11 @@ async def capture_combo(
         )
         daemon.capture_manager.register_combo_notifier(token, loop, notify_event)
         warnings = str_list(capture_result.get("warnings", []))
-        deadline = loop.time() + max(1.0, float(timeout_s))
+        capture_timeout_s = min(
+            max(MIN_CAPTURE_TIMEOUT_S, float(timeout_s)),
+            MAX_CAPTURE_TIMEOUT_S,
+        )
+        deadline = loop.time() + capture_timeout_s
         pressed: set[str] = set()
         events: list[dict[str, str]] = []
 

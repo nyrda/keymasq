@@ -171,6 +171,7 @@ Combo recording uses the same guarded original-input path as recording and captu
 - It observes raw original-input events from the hardware interfaces associated with the selected profile
 - It requires the caller to already hold the active recording owner chain
 - `CaptureManager.begin_combo()` additionally requires a one-shot daemon-issued authorization capability
+- The daemon clamps each combo capture request to a 15-second maximum duration
 - It is therefore gated by both unlock state and owner identity
 
 This is important because combo capture is effectively a short-lived privileged input observation flow, even though its output is only a compact trigger description.

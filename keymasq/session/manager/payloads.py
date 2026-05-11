@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from keymasq.common.models import (
     ActionType,
@@ -13,6 +13,7 @@ from keymasq.common.models import (
 from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
 from .common import JsonObject, json_object
+from .state import ExecBinding
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -23,27 +24,12 @@ def clear_exec_refs(manager: "SessionManager", hardware_id: str) -> None:
     for ref in refs:
         manager.exec_state.exec_refs.pop(ref, None)
 
-    superkey_refs_to_clear = [
-        ref
-        for ref, (resolved_hardware_id, _) in list(manager.exec_state.superkey_exec_refs.items())
-        if resolved_hardware_id == hardware_id
-    ]
-    for ref in superkey_refs_to_clear:
-        manager.exec_state.superkey_exec_refs.pop(ref, None)
-
 
 def clear_combo_exec_refs(manager: "SessionManager") -> None:
     refs = list(manager.exec_state.combo_exec_refs)
     manager.exec_state.combo_exec_refs.clear()
     for ref in refs:
         manager.exec_state.exec_refs.pop(ref, None)
-    # Combo-triggered superkey exec refs are tied to combo payload lifetime rather
-    # than a specific device binding, so they are only reclaimed by this bulk combo
-    # cleanup path instead of clear_exec_refs().
-    superkey_refs = list(manager.exec_state.combo_superkey_exec_refs)
-    manager.exec_state.combo_superkey_exec_refs.clear()
-    for ref in superkey_refs:
-        manager.exec_state.superkey_exec_refs.pop(ref, None)
 
 
 def clear_all_exec_refs(manager: "SessionManager") -> None:
@@ -278,10 +264,12 @@ def profile_to_mapping(
                 action_data["tap_hold_ms"] = action.tap_hold_ms
         elif action.action_type.value == "exec":
             if action.cmd:
-                exec_ref = manager.exec_state.next_exec_ref
-                manager.exec_state.next_exec_ref += 1
-                manager.exec_state.exec_refs[exec_ref] = action.cmd
-                manager.exec_state.device_exec_refs[hardware_id].add(exec_ref)
+                exec_ref = _allocate_exec_ref(
+                    manager,
+                    action.cmd,
+                    owner="device",
+                    hardware_id=hardware_id,
+                )
                 action_data["exec_ref"] = exec_ref
         elif action.action_type.value == "compositor_dispatch":
             if action.compositor_id:
@@ -414,10 +402,7 @@ def combo_action_to_payload(
     if action_type == "exec":
         if not action.cmd:
             return None
-        exec_ref = manager.exec_state.next_exec_ref
-        manager.exec_state.next_exec_ref += 1
-        manager.exec_state.exec_refs[exec_ref] = action.cmd
-        manager.exec_state.combo_exec_refs.add(exec_ref)
+        exec_ref = _allocate_exec_ref(manager, action.cmd, owner="combo")
         action_data["exec_ref"] = exec_ref
         return action_data
 
@@ -697,11 +682,11 @@ def serialize_overload_action(
 
     if action_type == "exec":
         if action.cmd:
-            exec_ref = _allocate_superkey_exec_ref(
+            exec_ref = _allocate_exec_ref(
                 manager,
-                hardware_id,
                 action.cmd,
-                track_combo_refs=track_combo_refs,
+                owner="combo" if track_combo_refs else "device",
+                hardware_id=None if track_combo_refs else hardware_id,
             )
             action_data["exec_ref"] = exec_ref
         return action_data
@@ -746,18 +731,29 @@ def serialize_overload_action(
     return action_data
 
 
-def _allocate_superkey_exec_ref(
+def _allocate_exec_ref(
     manager: "SessionManager",
-    hardware_id: str,
     cmd: str,
     *,
-    track_combo_refs: bool,
+    owner: Literal["device", "combo"],
+    hardware_id: str | None = None,
 ) -> int:
-    exec_ref = manager.exec_state.next_superkey_exec_ref
-    manager.exec_state.next_superkey_exec_ref += 1
-    manager.exec_state.superkey_exec_refs[exec_ref] = (hardware_id, cmd)
-    if track_combo_refs:
-        manager.exec_state.combo_superkey_exec_refs.add(exec_ref)
+    exec_ref = manager.exec_state.next_exec_ref
+    manager.exec_state.next_exec_ref += 1
+    if owner == "device":
+        if not hardware_id:
+            raise ValueError("device exec refs require a hardware_id")
+        manager.exec_state.device_exec_refs.setdefault(hardware_id, set()).add(exec_ref)
+        manager.exec_state.exec_refs[exec_ref] = ExecBinding(
+            cmd=cmd,
+            owner="device",
+            hardware_id=hardware_id,
+        )
+    elif owner == "combo":
+        manager.exec_state.combo_exec_refs.add(exec_ref)
+        manager.exec_state.exec_refs[exec_ref] = ExecBinding(cmd=cmd, owner="combo")
+    else:
+        raise ValueError(f"unknown exec ref owner: {owner}")
     return exec_ref
 
 

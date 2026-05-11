@@ -10,6 +10,7 @@ import keymasq.session.manager.profiles as session_profiles_module
 from keymasq.common.ipc import CommandType
 from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.manager import SessionManager
+from keymasq.session.manager.state import ExecBinding
 
 
 @pytest.mark.asyncio
@@ -170,7 +171,7 @@ async def test_handle_event_set_cursor_position_missing_request_id_is_one_way() 
 @pytest.mark.asyncio
 async def test_handle_event_exec_ref_schedules_command_without_blocking() -> None:
     manager = SessionManager()
-    manager.exec_state.exec_refs[7] = "echo once"
+    manager.exec_state.exec_refs[7] = ExecBinding(cmd="echo once", owner="combo")
     started = asyncio.Event()
     finish = asyncio.Event()
 
@@ -202,9 +203,9 @@ async def test_handle_event_exec_ref_schedules_command_without_blocking() -> Non
 
 
 @pytest.mark.asyncio
-async def test_handle_event_superkey_exec_ref_schedules_command_without_blocking() -> None:
+async def test_handle_event_high_exec_ref_schedules_command_without_numeric_split() -> None:
     manager = SessionManager()
-    manager.exec_state.superkey_exec_refs[10000] = ("1234:5678", "echo super")
+    manager.exec_state.exec_refs[10000] = ExecBinding(cmd="echo high", owner="combo")
     started = asyncio.Event()
     finish = asyncio.Event()
 
@@ -230,7 +231,7 @@ async def test_handle_event_superkey_exec_ref_schedules_command_without_blocking
     )
 
     await asyncio.wait_for(started.wait(), timeout=1.0)
-    manager.action_handler.execute_command.assert_awaited_once_with("echo super")
+    manager.action_handler.execute_command.assert_awaited_once_with("echo high")
     finish.set()
     await asyncio.sleep(0)
 
@@ -382,7 +383,10 @@ async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
     manager.profile_state.last_sent_combo_signature = "combo"
     manager.exec_state.device_exec_refs = {"1234:5678": {7}}
     manager.exec_state.combo_exec_refs = {8}
-    manager.exec_state.exec_refs = {7: "echo device", 8: "echo combo"}
+    manager.exec_state.exec_refs = {
+        7: ExecBinding(cmd="echo device", owner="device", hardware_id="1234:5678"),
+        8: ExecBinding(cmd="echo combo", owner="combo"),
+    }
     monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", AsyncMock())
 
     async def instant_sleep(_delay: float) -> None:

@@ -203,10 +203,9 @@ def sd_notify(state: str) -> None:
         return
 
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        sock.connect(notify_socket)
-        sock.sendall(f"{state}\n".encode())
-        sock.close()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+            sock.connect(notify_socket)
+            sock.sendall(f"{state}\n".encode())
     except Exception:
         pass
 

@@ -463,13 +463,14 @@ class Daemon:
 
     def _recording_unlocked_for_uid(self, uid: int) -> tuple[bool, int, str]:
         now_mono = time.monotonic()
+        now_wall = int(time.time())
         cached = self._unlock_cache.get(uid)
 
         if cached is not None:
             checked_mono, unlocked, expires_at, source = cached
-            if unlocked and (expires_at == 0 or expires_at >= int(time.time())):
+            if unlocked and (expires_at == 0 or expires_at >= now_wall):
                 return unlocked, expires_at, source
-            if (now_mono - checked_mono) < self._unlock_cache_interval_s:
+            if not unlocked and (now_mono - checked_mono) < self._unlock_cache_interval_s:
                 return unlocked, expires_at, source
 
         status = resolve_unlock_status(uid)

@@ -99,6 +99,26 @@ async def test_refresh_then_lock_runtime_unlock_updates_owner_cache_and_file(
     assert not unlock_file.exists()
 
 
+def test_expired_unlocked_cache_entry_is_re_resolved(daemon_testbed, monkeypatch):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    uid = 5555
+    resolved_uids: list[int] = []
+
+    def fake_resolve_unlock_status(requested_uid: int) -> dict[str, object]:
+        resolved_uids.append(requested_uid)
+        return {"unlocked": False, "source": "none", "expires_at": 0}
+
+    monkeypatch.setattr(daemon_module, "resolve_unlock_status", fake_resolve_unlock_status)
+    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: 500.25)
+    monkeypatch.setattr(daemon_module.time, "time", lambda: 1002)
+
+    daemon._unlock_cache[uid] = (500.0, True, 1001, "runtime")
+
+    assert daemon._recording_unlocked_for_uid(uid) == (False, 0, "none")
+    assert resolved_uids == [uid]
+    assert daemon._unlock_cache[uid] == (500.25, False, 0, "none")
+
+
 @pytest.mark.asyncio
 async def test_client_disconnect_clears_owned_and_unowned_runtime_unlocks(
     daemon_testbed,

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import keymasq.session.manager.core as session_manager_core_module
+import keymasq.session.manager.events as session_events_module
 import keymasq.session.manager.profiles as session_profiles_module
 from keymasq.common.security import PeerCredentials
 from keymasq.session.manager import SessionManager
@@ -103,6 +104,39 @@ def test_signal_handler_only_sets_shutdown_state() -> None:
     assert manager.running is True
     assert manager._shutdown_event.is_set()
     assert manager._retry_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_tracked_event_tasks() -> None:
+    manager = SessionManager()
+    manager.running = True
+    manager.client.disconnect = AsyncMock()  # type: ignore[method-assign]
+    manager.dbus.disconnect = AsyncMock()  # type: ignore[method-assign]
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def _wait_forever() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    task = session_events_module.create_event_task(
+        manager,
+        _wait_forever(),
+        name="stop-test",
+    )
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+
+    await manager.stop()
+
+    assert cancelled.is_set()
+    assert task.cancelled()
+    assert manager.event_state.tasks == set()
+    manager.client.disconnect.assert_awaited_once()  # type: ignore[attr-defined]
+    manager.dbus.disconnect.assert_awaited_once()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

@@ -112,3 +112,8 @@ class CompositorRuntimeState:
     support_details_cache_ttl_s: float = 5.0
     support_details_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     cursor_position_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+
+
+@dataclass
+class EventRuntimeState:
+    tasks: set[asyncio.Task[None]] = field(default_factory=set)

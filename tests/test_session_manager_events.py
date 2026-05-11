@@ -203,6 +203,57 @@ async def test_handle_event_exec_ref_schedules_command_without_blocking() -> Non
 
 
 @pytest.mark.asyncio
+async def test_event_background_task_logs_exception_and_clears_reference(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    manager.action_handler.execute_command = AsyncMock(  # type: ignore[method-assign]
+        side_effect=RuntimeError("exec failed")
+    )
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        await session_events_module.handle_event(
+            manager,
+            CommandType.ACTION_TRIGGER,
+            {"action_type": "exec", "cmd": "echo fail"},
+        )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    assert manager.event_state.tasks == set()
+    assert "Unhandled exception in exec event task" in caplog.text
+    assert "RuntimeError: exec failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_tasks_cancels_tracked_background_task() -> None:
+    manager = SessionManager()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def _wait_forever() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    task = session_events_module.create_event_task(
+        manager,
+        _wait_forever(),
+        name="test",
+    )
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+
+    await session_events_module.cancel_event_tasks(manager)
+
+    assert cancelled.is_set()
+    assert task.cancelled()
+    assert manager.event_state.tasks == set()
+
+
+@pytest.mark.asyncio
 async def test_handle_event_high_exec_ref_schedules_command_without_numeric_split() -> None:
     manager = SessionManager()
     manager.exec_state.exec_refs[10000] = ExecBinding(cmd="echo high", owner="combo")

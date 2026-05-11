@@ -45,6 +45,7 @@ from .common import JsonObject
 from .state import (
     CaptureRuntimeState,
     CompositorRuntimeState,
+    EventRuntimeState,
     ExecRuntimeState,
     ProfileRuntimeState,
     RecordingRuntimeState,
@@ -99,6 +100,7 @@ class SessionManager:
         self.capture_state = CaptureRuntimeState()
 
         self.exec_state = ExecRuntimeState()
+        self.event_state = EventRuntimeState()
         self.recording_state = RecordingRuntimeState()
         self.unlock_state = UnlockRuntimeState()
         runtime_recording.load_recording_settings_from_disk(self)
@@ -158,6 +160,8 @@ class SessionManager:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self.compositor_state.supervisor_task
             self.compositor_state.supervisor_task = None
+
+        await runtime_events.cancel_event_tasks(self)
 
         profile_apply_task = self.profile_state.apply_task
         if profile_apply_task:
@@ -221,6 +225,7 @@ class SessionManager:
         self.capture_state.tokens.clear()
 
         await self.client.disconnect()
+        await runtime_events.cancel_event_tasks(self)
 
         if self.connect_task:
             self.connect_task.cancel()

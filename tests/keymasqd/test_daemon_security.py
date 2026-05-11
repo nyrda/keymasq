@@ -102,3 +102,33 @@ def test_cleanup_socket_path_unlinks_existing_path(daemon_testbed, monkeypatch, 
     daemon._cleanup_socket_path()
 
     assert socket_path.exists() is False
+
+
+@pytest.mark.parametrize("fail_at", ["connect", "sendall"])
+def test_sd_notify_closes_socket_when_notify_fails(monkeypatch, fail_at: str):
+    class FakeSocket:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc_info) -> None:
+            self.closed = True
+
+        def connect(self, _path: str) -> None:
+            if fail_at == "connect":
+                raise OSError("connect failed")
+
+        def sendall(self, _payload: bytes) -> None:
+            if fail_at == "sendall":
+                raise OSError("send failed")
+
+    fake_socket = FakeSocket()
+
+    monkeypatch.setenv("NOTIFY_SOCKET", "/tmp/keymasq-notify.sock")
+    monkeypatch.setattr(daemon_module.socket, "socket", lambda *_args: fake_socket)
+
+    daemon_module.sd_notify("READY=1")
+
+    assert fake_socket.closed is True

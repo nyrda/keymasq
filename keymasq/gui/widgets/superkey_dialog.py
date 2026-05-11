@@ -155,7 +155,11 @@ class ActionListDialog(Adw.Dialog):
                 else (
                     "Actions receive the source key's normal down/repeat/up cycle in order."
                     if self._action_key == "overload"
-                    else "Actions run once immediately as a press and release."
+                    else (
+                        "Actions go through their press/release cycle when the key goes down."
+                        if self._action_key == "overload_down"
+                        else "Actions go through their press/release cycle when the key comes up."
+                    )
                 )
             )
         )
@@ -413,6 +417,7 @@ class SuperkeyDialog(Adw.Dialog):
         self.profile_manager = profile_manager
         self._current_config: SuperkeyConfig | None = None
         self._modified = False
+        self._close_warning_dialog: Adw.AlertDialog | None = None
         self._mode_items = [SuperkeyMode.PATTERN, SuperkeyMode.OVERLOAD]
         self.new_superkey_row: Gtk.ListBoxRow | None = None
 
@@ -428,9 +433,12 @@ class SuperkeyDialog(Adw.Dialog):
 
     def _on_key_pressed(self, _controller, keyval, _keycode, _state) -> bool:
         if keyval == Gdk.KEY_Escape:
-            self.close()
+            self._request_close()
             return True
         return False
+
+    def do_close_attempt(self) -> None:
+        self._request_close()
 
     def _build_ui(self) -> None:
         main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -542,24 +550,19 @@ class SuperkeyDialog(Adw.Dialog):
         self.overload_row._static_description = "Held while pressed, released when you let go"
         self.overload_row.set_tooltip_text(
             "Main Actions start before On Press and stay held until after On Release, "
-            "so they can provide a held modifier or context for both pulse lists."
+            "so they can provide a held modifier or context for both press/release lists."
         )
         self._refresh_child_rows(self.overload_row)
         self.actions_group.add(self.overload_row)
 
         self.overload_down_row = self._build_action_row("On Press", "overload_down", "overload")
-        self.overload_down_row._static_description = "Runs once when the key is pressed"
         self._refresh_child_rows(self.overload_down_row)
 
         self.overload_up_row = self._build_action_row("On Release", "overload_up", "overload")
-        self.overload_up_row._static_description = "Runs once when the key is released"
         self._refresh_child_rows(self.overload_up_row)
 
         self.overload_pulse_group = Adw.PreferencesGroup()
         self.overload_pulse_group.set_title("On Press / Release")
-        self.overload_pulse_group.set_description(
-            "Actions that run once as a quick press-and-release pulse."
-        )
         self.overload_pulse_group.add(self.overload_down_row)
         self.overload_pulse_group.add(self.overload_up_row)
 
@@ -859,6 +862,7 @@ class SuperkeyDialog(Adw.Dialog):
             return
         self.revert_btn.set_sensitive(self._modified)
         self.save_btn.set_sensitive(self._modified)
+        self.set_can_close(not self._modified)
 
     def _begin_new_superkey(self) -> None:
         self._current_config = SuperkeyConfig(name="New Super Key")
@@ -922,10 +926,10 @@ class SuperkeyDialog(Adw.Dialog):
         self._modified = False
         self._update_buttons()
 
-    def _on_save_clicked(self, _button) -> None:
+    def _save_current_superkey(self) -> bool:
         name = self.name_entry.get_text().strip()
         if not name:
-            return
+            return False
 
         old_name = self._current_config.name if self._current_config else None
         mode = self._current_mode()
@@ -979,6 +983,10 @@ class SuperkeyDialog(Adw.Dialog):
             idx += 1
 
         self.emit("superkey-saved", name)
+        return True
+
+    def _on_save_clicked(self, _button) -> None:
+        self._save_current_superkey()
 
     def _on_edit_action_clicked(self, _button, row: Adw.ExpanderRow) -> None:
         title = (
@@ -1007,7 +1015,41 @@ class SuperkeyDialog(Adw.Dialog):
         self._on_modified()
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
-        self.close()
+        self._request_close()
+
+    def _request_close(self) -> None:
+        if not self._modified:
+            self.force_close()
+            return
+        self._show_unsaved_close_warning()
+
+    def _show_unsaved_close_warning(self) -> None:
+        if self._close_warning_dialog is not None:
+            return
+
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Unsaved Super Key Changes")
+        dialog.set_body("Save your changes before closing, or discard them?")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("discard", "Discard")
+        dialog.add_response("save", "Save")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_unsaved_close_response)
+        self._close_warning_dialog = dialog
+        dialog.present(self)
+
+    def _on_unsaved_close_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
+        self._close_warning_dialog = None
+        if response == "discard":
+            self._modified = False
+            self._update_buttons()
+            self.force_close()
+            return
+        if response == "save" and self._save_current_superkey():
+            self.force_close()
 
     def _on_superkeys_docs_clicked(self, _button: Gtk.Button) -> None:
         url = _superkeys_docs_url()

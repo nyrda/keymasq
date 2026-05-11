@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
 import uuid
 from collections import deque
 from collections.abc import Iterator
@@ -43,7 +44,11 @@ class RecordingSnapshot:
 
 
 class RecordingSpool:
-    """Bounded recording event buffer with asynchronous uncompressed spill files."""
+    """Bounded recording event buffer with asynchronous uncompressed spill files.
+
+    RecordingSpool is owned by one asyncio event loop. The lock only serializes
+    defensive concurrent append calls; async lifecycle methods stay loop-owned.
+    """
 
     def __init__(
         self,
@@ -59,6 +64,7 @@ class RecordingSpool:
         self.max_pending_flush_chunks = max(1, int(max_pending_flush_chunks))
         self._memory_events: list[RecordingEvent] = []
         self._memory_bytes = 0
+        self._append_lock = threading.Lock()
         self._pending_flush_chunks: deque[list[RecordingEvent]] = deque()
         self._flush_task: asyncio.Task[None] | None = None
         self._spool_path: Path | None = None
@@ -72,20 +78,21 @@ class RecordingSpool:
         return self._fatal_error
 
     def append(self, event: RecordingEvent) -> None:
-        if self._fatal_error is not None:
-            return
+        with self._append_lock:
+            if self._fatal_error is not None:
+                return
 
-        self._memory_events.append(event)
-        self._memory_bytes += _estimate_event_bytes(event)
-        self.event_count += 1
-        self.duration_ms = int(_event_t_us(event) / 1000)
-        self.device_types.add(str(event.get("device_type", "other")))
+            self._memory_events.append(event)
+            self._memory_bytes += _estimate_event_bytes(event)
+            self.event_count += 1
+            self.duration_ms = int(_event_t_us(event) / 1000)
+            self.device_types.add(str(event.get("device_type", "other")))
 
-        if (
-            len(self._memory_events) >= self.memory_event_limit
-            or self._memory_bytes >= self.memory_byte_limit
-        ):
-            self._queue_memory_chunk()
+            if (
+                len(self._memory_events) >= self.memory_event_limit
+                or self._memory_bytes >= self.memory_byte_limit
+            ):
+                self._queue_memory_chunk()
 
     async def finish(self) -> RecordingSnapshot:
         try:

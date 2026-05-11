@@ -92,3 +92,4 @@ src/
 
 # Docs site (mkdocs build output)
 site/
+result-*

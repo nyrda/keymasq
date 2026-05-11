@@ -21,6 +21,11 @@ class _FakeGrabbedRecorder:
         self.calls.append((device_type, event))
 
 
+class _FailingWriteUInput(_FakeUInput):
+    def write(self, event_type: int, code: int, value: int) -> None:
+        raise OSError("uinput disconnected")
+
+
 class TestGrabbedDeviceHelpers:
     def test_find_action_for_event_prefers_evdev_code_over_alias_name(
         self,
@@ -505,6 +510,51 @@ class TestGrabbedDeviceHelpers:
         assert device.state.tap_active == {}
         assert device.state.combo_recalled_bindings == set()
         assert device.state.held_source_actions == {}
+    def test_release_helpers_log_failed_uinput_releases(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        device = _make_grabbed_device(monkeypatch)
+        keyboard = _FailingWriteUInput()
+        gamepad = _FailingWriteUInput()
+        device.keyboard_uinput = keyboard  # type: ignore[assignment]
+        device.gamepad_uinput = gamepad  # type: ignore[assignment]
+
+        with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+            gdo.ensure_key_released(device, evdev.ecodes.KEY_A, device.keyboard_uinput)
+            gdo.ensure_trigger_released(
+                device,
+                evdev.ecodes.ABS_Z,
+                evdev_mod=evdev,
+                uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+            )
+
+        assert "Failed to release output key" in caplog.text
+        assert "Failed to release gamepad trigger axis" in caplog.text
+    def test_release_all_keys_keeps_tracking_after_failed_release(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        device = _make_grabbed_device(monkeypatch)
+        keyboard = _FailingWriteUInput()
+        device.keyboard_uinput = keyboard  # type: ignore[assignment]
+        device.state.held_output_keys["keyboard"].add(evdev.ecodes.KEY_A)
+        device.state.superkey_output_refcounts["keyboard"][evdev.ecodes.KEY_A] = 1
+
+        with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+            gdo.release_all_keys(
+                device,
+                evdev_mod=evdev,
+                uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+            )
+
+        assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
+        assert device.state.superkey_output_refcounts["keyboard"] == {
+            evdev.ecodes.KEY_A: 1
+        }
+        assert "Failed to release held output keys" in caplog.text
     @pytest.mark.asyncio
     async def test_wait_for_active_key_activity_handles_timeouts_and_drain_errors(
         self,

@@ -1,3 +1,4 @@
+import logging
 from typing import cast
 
 import evdev
@@ -12,6 +13,8 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     WritableUInput,
     identity_uinput_writer,
 )
+
+log = logging.getLogger("keymasqd.devices")
 
 
 def bucket_for_uinput(
@@ -133,8 +136,14 @@ def ensure_trigger_released(
         if gamepad_uinput is not None:
             gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 0)
             gamepad_uinput.syn()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug(
+            "Failed to release gamepad trigger axis %s on %s: %s",
+            axis_code,
+            device_runtime.path,
+            exc,
+            exc_info=True,
+        )
 
 
 def ensure_key_released(
@@ -150,8 +159,15 @@ def ensure_key_released(
                 evdev_mod=evdev,
                 uinput_writer=identity_uinput_writer,
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug(
+            "Failed to release output key %s on %s bucket=%s: %s",
+            code,
+            device_runtime.path,
+            bucket_for_uinput(device_runtime, uinput_dev) or "unknown",
+            exc,
+            exc_info=True,
+        )
 
 
 def emit_configured_mouse_move(
@@ -188,9 +204,16 @@ def release_all_keys(
             for code in held:
                 writer.write(evdev_mod.ecodes.EV_KEY, int(code), 0)
             writer.syn()
-        except Exception:
-            pass
-        finally:
+        except Exception as exc:
+            log.debug(
+                "Failed to release held output keys on %s bucket=%s keys=%s: %s",
+                device_runtime.path,
+                bucket,
+                held,
+                exc,
+                exc_info=True,
+            )
+        else:
             device_runtime.state.held_output_keys[bucket].clear()
             if bucket in device_runtime.state.superkey_output_refcounts:
                 device_runtime.state.superkey_output_refcounts[bucket].clear()
@@ -201,8 +224,13 @@ def release_all_keys(
             gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_Z, 0)
             gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_RZ, 0)
             gamepad_uinput.syn()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug(
+                "Failed to release gamepad trigger axes on %s: %s",
+                device_runtime.path,
+                exc,
+                exc_info=True,
+            )
 
     for task in list(device_runtime.state.rapidfire_tasks.values()):
         if not task.done():

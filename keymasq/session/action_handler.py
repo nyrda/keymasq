@@ -51,6 +51,7 @@ class ActionHandler:
         except TimeoutError:
             log.error(f"Command timed out after {timeout_s:g}s, killing: {cmd}")
             process.kill()
+            await process.wait()
             return -1
         except asyncio.CancelledError:
             log.debug("Command task cancelled, killing: %s", cmd)

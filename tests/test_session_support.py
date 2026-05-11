@@ -51,6 +51,7 @@ class _FakeProcess:
     ) -> None:
         self.returncode = returncode
         self.killed = False
+        self.waited = False
         self._communicate = communicate or self._default_communicate
 
     async def _default_communicate(self) -> tuple[bytes, bytes]:
@@ -61,6 +62,10 @@ class _FakeProcess:
 
     def kill(self) -> None:
         self.killed = True
+
+    async def wait(self) -> int:
+        self.waited = True
+        return self.returncode
 
 
 @pytest.mark.asyncio
@@ -251,6 +256,7 @@ async def test_action_handler_execute_command_kills_timed_out_process(
     assert result == -1
     assert process.killed is True
     assert timeouts == [0.25]
+    assert process.waited is True
     assert "Command timed out after 0.25s, killing: sleep 999" in caplog.text
 
 

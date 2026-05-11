@@ -59,6 +59,20 @@ class _FakeSessionWriter:
         self.wait_closed_calls += 1
 
 
+class _HangingSessionWriter(_FakeSessionWriter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.abort_calls = 0
+        self.transport = self
+
+    async def wait_closed(self) -> None:
+        self.wait_closed_calls += 1
+        await asyncio.Event().wait()
+
+    def abort(self) -> None:
+        self.abort_calls += 1
+
+
 @pytest.mark.asyncio
 async def test_connect_loop_reconnect_reapplies_profiles_after_restart() -> None:
     manager = SessionManager()
@@ -140,6 +154,24 @@ async def test_stop_cancels_tracked_event_tasks() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stop_times_out_hanging_session_client_wait_closed() -> None:
+    manager = SessionManager()
+    manager.running = True
+    manager.SESSION_CLIENT_CLOSE_TIMEOUT_S = 0.01
+    manager.client.disconnect = AsyncMock()  # type: ignore[method-assign]
+    manager.dbus.disconnect = AsyncMock()  # type: ignore[method-assign]
+    writer = _HangingSessionWriter()
+    manager.session_clients.add(writer)  # type: ignore[arg-type]
+
+    await asyncio.wait_for(manager.stop(), timeout=1.0)
+
+    assert writer.closed is True
+    assert writer.wait_closed_calls == 1
+    assert writer.abort_calls == 1
+    assert writer not in manager.session_clients
+
+
+@pytest.mark.asyncio
 async def test_reload_handler_debounces_burst_updates() -> None:
     manager = SessionManager()
     calls = 0
@@ -212,6 +244,33 @@ async def test_session_client_drops_connection_when_buffer_exceeds_limit(
     manager._handle_session_request.assert_not_awaited()
     assert writer.closed is True
     assert writer.writes == []
+
+
+@pytest.mark.asyncio
+async def test_session_client_cleanup_times_out_hanging_wait_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.running = True
+    manager.SESSION_CLIENT_CLOSE_TIMEOUT_S = 0.01
+    reader = _FakeSessionReader([])
+    writer = _HangingSessionWriter()
+
+    monkeypatch.setattr(
+        session_manager_core_module,
+        "get_peer_credentials",
+        lambda _sock: PeerCredentials(pid=321, uid=1000, gid=1000),
+    )
+
+    await asyncio.wait_for(
+        manager._handle_session_client(reader, writer),  # type: ignore[arg-type]
+        timeout=1.0,
+    )
+
+    assert writer.closed is True
+    assert writer.wait_closed_calls == 1
+    assert writer.abort_calls == 1
+    assert writer not in manager.session_clients
 
 
 @pytest.mark.asyncio

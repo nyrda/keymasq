@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Coroutine
+from typing import TYPE_CHECKING, Any
 
 from keymasq.common.ipc import Command, CommandType
 
@@ -21,6 +22,50 @@ TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
 TOPOLOGY_REFRESH_RETRY_S = 1.0
 
 
+def create_event_task(
+    manager: "SessionManager",
+    coro: Coroutine[Any, Any, None],
+    *,
+    name: str,
+    extra_task_set: set[asyncio.Task[None]] | None = None,
+) -> asyncio.Task[None]:
+    task = asyncio.create_task(coro, name=f"keymasq-session:{name}")
+    manager.event_state.tasks.add(task)
+    if extra_task_set is not None:
+        extra_task_set.add(task)
+
+    def _discard(done: asyncio.Task[None]) -> None:
+        manager.event_state.tasks.discard(done)
+        if extra_task_set is not None:
+            extra_task_set.discard(done)
+        try:
+            exc = done.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            log.error(
+                "Unhandled exception in %s event task",
+                name,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+
+    task.add_done_callback(_discard)
+    return task
+
+
+async def cancel_event_tasks(manager: "SessionManager") -> None:
+    tasks = list(manager.event_state.tasks)
+    if not tasks:
+        return
+
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    manager.event_state.tasks.difference_update(tasks)
+    manager.compositor_state.cursor_position_tasks.difference_update(tasks)
+
+
 async def handle_event(
     manager: "SessionManager",
     event_type: CommandType,
@@ -39,29 +84,55 @@ async def handle_event(
                 exec_data["cmd"] = binding.cmd
                 if binding.hardware_id:
                     exec_data["hardware_id"] = binding.hardware_id
-                asyncio.create_task(handle_exec_trigger(manager, exec_data))
+                create_event_task(manager, handle_exec_trigger(manager, exec_data), name="exec")
             else:
                 log.warning("Unknown exec_ref: %s", exec_ref)
 
         action_type_str = str(data.get("action_type", "") or "")
         if action_type_str == "start_macro_recording":
-            asyncio.create_task(handle_start_macro_trigger(manager))
+            create_event_task(
+                manager,
+                handle_start_macro_trigger(manager),
+                name="start_macro_recording",
+            )
         elif action_type_str == "stop_macro_recording":
-            asyncio.create_task(handle_stop_macro_trigger(manager))
+            create_event_task(
+                manager,
+                handle_stop_macro_trigger(manager),
+                name="stop_macro_recording",
+            )
         elif action_type_str == "cancel_macro_playback":
-            asyncio.create_task(handle_cancel_macro_trigger(manager))
+            create_event_task(
+                manager,
+                handle_cancel_macro_trigger(manager),
+                name="cancel_macro_playback",
+            )
         elif action_type_str == "emergency_reset":
-            asyncio.create_task(handle_emergency_reset_trigger(manager))
+            create_event_task(
+                manager,
+                handle_emergency_reset_trigger(manager),
+                name="emergency_reset",
+            )
         elif action_type_str in {"profile_enable", "profile_disable", "profile_toggle"}:
-            asyncio.create_task(handle_profile_trigger(manager, data))
+            create_event_task(
+                manager,
+                handle_profile_trigger(manager, data),
+                name="profile_trigger",
+            )
         elif action_type_str == "exec" and exec_ref is None:
-            asyncio.create_task(handle_exec_trigger(manager, data))
+            create_event_task(manager, handle_exec_trigger(manager, data), name="exec")
         elif action_type_str == "compositor_dispatch":
-            asyncio.create_task(
-                runtime_compositor.handle_compositor_dispatch_trigger(manager, data)
+            create_event_task(
+                manager,
+                runtime_compositor.handle_compositor_dispatch_trigger(manager, data),
+                name="compositor_dispatch",
             )
         elif action_type_str == "macro":
-            asyncio.create_task(runtime_recording.play_macro_trigger(manager, data))
+            create_event_task(
+                manager,
+                runtime_recording.play_macro_trigger(manager, data),
+                name="macro_playback",
+            )
         return
 
     if event_type == CommandType.SET_CURSOR_POSITION:
@@ -87,7 +158,11 @@ async def handle_event(
         return
 
     if event_type == CommandType.RUNTIME_RESET:
-        asyncio.create_task(handle_runtime_reset_event(manager, data))
+        create_event_task(
+            manager,
+            handle_runtime_reset_event(manager, data),
+            name="runtime_reset",
+        )
         return
 
     if event_type == CommandType.DIAGNOSTICS_SNAPSHOT:
@@ -134,19 +209,12 @@ async def handle_event(
 
 
 def schedule_cursor_position_request(manager: "SessionManager", data: JsonObject) -> None:
-    task = asyncio.create_task(handle_set_cursor_position_request(manager, data))
-    manager.compositor_state.cursor_position_tasks.add(task)
-
-    def _discard(done: asyncio.Task[None]) -> None:
-        manager.compositor_state.cursor_position_tasks.discard(done)
-        try:
-            exc = done.exception()
-        except asyncio.CancelledError:
-            return
-        if exc is not None:
-            log.debug("Cursor position request failed: %s", exc)
-
-    task.add_done_callback(_discard)
+    create_event_task(
+        manager,
+        handle_set_cursor_position_request(manager, data),
+        name="cursor_position",
+        extra_task_set=manager.compositor_state.cursor_position_tasks,
+    )
 
 
 async def handle_set_cursor_position_request(
@@ -407,7 +475,11 @@ async def on_device_connected(manager: "SessionManager", device_info: JsonObject
         TOPOLOGY_REFRESH_DEBOUNCE_S,
         TOPOLOGY_REFRESH_RETRY_S,
     )
-    asyncio.create_task(_refresh_recording_devices_cache_after_topology(manager))
+    create_event_task(
+        manager,
+        _refresh_recording_devices_cache_after_topology(manager),
+        name="recording_devices_refresh",
+    )
 
 
 async def on_device_disconnected(manager: "SessionManager", device_info: JsonObject) -> None:
@@ -429,7 +501,11 @@ async def on_device_disconnected(manager: "SessionManager", device_info: JsonObj
         TOPOLOGY_REFRESH_DEBOUNCE_S,
         TOPOLOGY_REFRESH_RETRY_S,
     )
-    asyncio.create_task(_refresh_recording_devices_cache_after_topology(manager))
+    create_event_task(
+        manager,
+        _refresh_recording_devices_cache_after_topology(manager),
+        name="recording_devices_refresh",
+    )
 
 
 async def _refresh_recording_devices_cache_after_topology(manager: "SessionManager") -> None:

@@ -35,6 +35,7 @@ class HardwareManager:
                 log.error(f"Failed to load {config_file}: {e}")
 
     def reload(self) -> None:
+        self._cache.clear()
         self._load_all()
 
     def _load_config(self, path: Path) -> HardwareConfig:

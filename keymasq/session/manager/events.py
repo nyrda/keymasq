@@ -376,7 +376,16 @@ async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> No
         return
 
     if wait_id:
-        returncode = await action_handler.execute_command(cmd)
+        policy_timeout_ms = max(1, int(manager.security_policy.macro_exec_timeout_max_ms))
+        timeout_ms = max(
+            1,
+            _int_value(data.get("macro_exec_timeout_ms"), policy_timeout_ms),
+        )
+        timeout_ms = min(timeout_ms, policy_timeout_ms)
+        returncode = await action_handler.execute_command(
+            cmd,
+            timeout_s=timeout_ms / 1000.0,
+        )
         try:
             await manager.client.send_command(
                 Command(

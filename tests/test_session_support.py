@@ -237,11 +237,13 @@ async def test_action_handler_execute_command_kills_timed_out_process(
 ) -> None:
     handler = ActionHandler()
     process = _FakeProcess(communicate=lambda: asyncio.sleep(360))
+    timeouts: list[float] = []
 
     async def _create_subprocess_shell(*_args: Any, **_kwargs: Any) -> _FakeProcess:
         return process
 
     async def _wait_for(_awaitable: Any, timeout: float) -> Any:
+        timeouts.append(timeout)
         _awaitable.close()
         raise TimeoutError
 
@@ -249,30 +251,93 @@ async def test_action_handler_execute_command_kills_timed_out_process(
     monkeypatch.setattr(asyncio, "wait_for", _wait_for)
 
     with caplog.at_level(logging.ERROR):
-        result = await handler.execute_command("sleep 999")
+        result = await handler.execute_command("sleep 999", timeout_s=0.25)
 
     assert result == -1
     assert process.killed is True
+    assert timeouts == [0.25]
     assert process.waited is True
-    assert "Command timed out after 300s, killing: sleep 999" in caplog.text
+    assert "Command timed out after 0.25s, killing: sleep 999" in caplog.text
 
 
-def test_action_handler_execute_command_sync_schedules_task(
+@pytest.mark.asyncio
+async def test_action_handler_execute_command_sync_tracks_task_until_done(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     handler = ActionHandler()
-    scheduled: list[Any] = []
+    started = asyncio.Event()
+    finish = asyncio.Event()
 
-    def _create_task(coro: Any) -> object:
-        scheduled.append(coro)
-        return object()
+    async def _execute_command(cmd: str) -> int:
+        assert cmd == "echo ok"
+        started.set()
+        await finish.wait()
+        return 0
 
-    monkeypatch.setattr(asyncio, "create_task", _create_task)
+    monkeypatch.setattr(handler, "execute_command", _execute_command)
 
     handler.execute_command_sync("echo ok")
+    await asyncio.wait_for(started.wait(), timeout=1.0)
 
-    assert len(scheduled) == 1
-    scheduled[0].close()
+    assert len(handler._background_tasks) == 1  # pyright: ignore[reportPrivateUsage]
+    task = next(iter(handler._background_tasks))  # pyright: ignore[reportPrivateUsage]
+
+    finish.set()
+    assert await task == 0
+    await asyncio.sleep(0)
+
+    assert handler._background_tasks == set()  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.asyncio
+async def test_action_handler_execute_command_sync_logs_unhandled_task_error(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    handler = ActionHandler()
+
+    async def _execute_command(_cmd: str) -> int:
+        raise RuntimeError("exec exploded")
+
+    monkeypatch.setattr(handler, "execute_command", _execute_command)
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.actions"):
+        handler.execute_command_sync("bad")
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    assert handler._background_tasks == set()  # pyright: ignore[reportPrivateUsage]
+    assert "Unhandled exception in async command task" in caplog.text
+    assert "RuntimeError: exec exploded" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_action_handler_cancel_background_tasks_cancels_pending_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = ActionHandler()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def _execute_command(_cmd: str) -> int:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return 0
+
+    monkeypatch.setattr(handler, "execute_command", _execute_command)
+
+    handler.execute_command_sync("sleep 999")
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    assert len(handler._background_tasks) == 1  # pyright: ignore[reportPrivateUsage]
+
+    await handler.cancel_background_tasks()
+
+    assert cancelled.is_set()
+    assert handler._background_tasks == set()  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.asyncio

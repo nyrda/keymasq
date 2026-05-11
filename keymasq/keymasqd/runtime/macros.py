@@ -822,6 +822,7 @@ async def run_macro_control_action(
                         "action_type": "exec",
                         "cmd": command,
                         "macro_exec_wait_id": wait_id,
+                        "macro_exec_timeout_ms": timeout_ms,
                     },
                 )
                 with contextlib.suppress(asyncio_mod.TimeoutError):

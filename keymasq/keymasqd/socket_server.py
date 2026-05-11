@@ -202,6 +202,9 @@ class SocketServer:
                 while True:
                     cmd, remaining = decode_command(self._buffer[writer])
                     if cmd is None:
+                        if len(remaining) < len(self._buffer[writer]):
+                            self._buffer[writer] = remaining
+                            continue
                         break
 
                     self._buffer[writer] = remaining

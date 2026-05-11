@@ -84,6 +84,9 @@ class KeymasqdClient:
                 while True:
                     response, remaining = decode_response(self._buffer)
                     if response is None:
+                        if len(remaining) < len(self._buffer):
+                            self._buffer = remaining
+                            continue
                         break
 
                     self._buffer = remaining

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import struct
 
 import pytest
 import pytest_asyncio
@@ -171,6 +172,28 @@ class TestSocketServer:
         await writer.drain()
 
         response_data = await reader.read(1024)
+        response, _ = decode_response(response_data)
+
+        assert response is not None
+        assert response.status == "ok"
+        assert response.data["pong"] is True
+
+        writer.close()
+        await writer.wait_closed()
+
+    async def test_discarded_command_frame_does_not_wedge_client(self, server_and_handlers):
+        _server, _cmd_handler, _ = server_and_handlers
+
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        malformed_payload = b"{not-json"
+        writer.write(
+            struct.pack("!I", len(malformed_payload))
+            + malformed_payload
+            + encode_command(Command(command=CommandType.PING, data={}))
+        )
+        await writer.drain()
+
+        response_data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
         response, _ = decode_response(response_data)
 
         assert response is not None

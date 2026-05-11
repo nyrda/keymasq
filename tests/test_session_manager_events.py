@@ -372,6 +372,23 @@ async def test_handle_event_macro_trigger_forwards_full_playback_payload() -> No
 
 
 @pytest.mark.asyncio
+async def test_handle_event_macro_trigger_logs_playback_exceptions(caplog) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("daemon boom"))
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        await session_events_module.handle_event(
+            manager,
+            CommandType.ACTION_TRIGGER,
+            {"action_type": "macro", "macro_name": "demo"},
+        )
+        await asyncio.sleep(0)
+
+    assert "Failed to play macro trigger" in caplog.text
+    assert "daemon boom" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

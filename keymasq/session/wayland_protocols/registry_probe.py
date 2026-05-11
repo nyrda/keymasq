@@ -4,6 +4,19 @@ import struct
 from pathlib import Path
 
 
+def _decode_registry_interface(payload: bytes) -> str | None:
+    name_len = struct.unpack_from("<I", payload, 4)[0]
+    cursor = 8
+    if cursor + name_len > len(payload):
+        return None
+
+    raw = payload[cursor : cursor + name_len]
+    if raw.endswith(b"\x00"):
+        raw = raw[:-1]
+    interface_name = raw.decode("utf-8", errors="replace")
+    return interface_name or None
+
+
 def list_registry_globals_sync(socket_path: Path, timeout_s: float = 0.6) -> set[str]:
     registry_id = 2
     callback_id = 3
@@ -42,12 +55,7 @@ def list_registry_globals_sync(socket_path: Path, timeout_s: float = 0.6) -> set
 
                 if object_id == registry_id and opcode == 0:
                     try:
-                        name_len = struct.unpack_from("<I", payload, 4)[0]
-                        cursor = 8
-                        raw = payload[cursor : cursor + name_len]
-                        if raw.endswith(b"\x00"):
-                            raw = raw[:-1]
-                        interface_name = raw.decode("utf-8", errors="replace")
+                        interface_name = _decode_registry_interface(payload)
                         if interface_name:
                             globals_found.add(interface_name)
                     except Exception:
@@ -115,12 +123,7 @@ async def list_registry_globals(socket_path: Path, timeout_s: float = 0.6) -> se
 
                 if object_id == registry_id and opcode == 0:
                     try:
-                        name_len = struct.unpack_from("<I", payload, 4)[0]
-                        cursor = 8
-                        raw = payload[cursor : cursor + name_len]
-                        if raw.endswith(b"\x00"):
-                            raw = raw[:-1]
-                        interface_name = raw.decode("utf-8", errors="replace")
+                        interface_name = _decode_registry_interface(payload)
                         if interface_name:
                             globals_found.add(interface_name)
                     except Exception:

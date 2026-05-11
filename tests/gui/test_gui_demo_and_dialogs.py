@@ -650,7 +650,7 @@ class TestDialogConstruction:
 
         assert dialog.overload_row.get_tooltip_text() == (
             "Main Actions start before On Press and stay held until after On Release, "
-            "so they can provide a held modifier or context for both pulse lists."
+            "so they can provide a held modifier or context for both press/release lists."
         )
         assert "Held while pressed, released when you let go" in dialog.overload_row.get_subtitle()
         assert "(none)" in dialog.overload_row.get_subtitle()
@@ -662,6 +662,8 @@ class TestDialogConstruction:
 
         assert "Held while pressed, released when you let go" in dialog.overload_row.get_subtitle()
         assert "1 action" in dialog.overload_row.get_subtitle()
+        assert dialog.overload_down_row.get_subtitle() == "(none)"
+        assert dialog.overload_up_row.get_subtitle() == "(none)"
 
     def test_superkey_dialog_overload_saves_press_and_release_actions(
         self, temp_config_dir, monkeypatch
@@ -706,13 +708,20 @@ class TestDialogConstruction:
         from gi.repository import Gdk, Gtk
 
         from keymasq.common import paths
+        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
         from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
 
         monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
 
         dialog = SuperkeyDialog(Gtk.Window())
         closed: list[bool] = []
-        monkeypatch.setattr(dialog, "close", lambda: closed.append(True))
+        alerts: list[tuple[object, object]] = []
+        monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+        monkeypatch.setattr(
+            superkey_dialog_module.Adw.AlertDialog,
+            "present",
+            lambda alert, parent: alerts.append((alert, parent)),
+        )
 
         new_row = dialog.new_superkey_row
         assert new_row is not None
@@ -726,13 +735,60 @@ class TestDialogConstruction:
         assert dialog.delete_btn.get_sensitive() is False
         assert dialog.right_box.get_sensitive() is True
         assert dialog.close_btn.get_sensitive() is True
+        assert dialog.get_can_close() is False
 
         dialog.close_btn.emit("clicked")
-        assert closed == [True]
+        assert closed == []
+        assert len(alerts) == 1
+        assert alerts[0][1] is dialog
 
-        closed.clear()
+        dialog._on_unsaved_close_response(alerts[0][0], "cancel")
+        assert closed == []
+
         assert dialog._on_key_pressed(None, Gdk.KEY_Escape, 0, 0) is True
+        assert closed == []
+        assert len(alerts) == 2
+
+        dialog._on_unsaved_close_response(alerts[1][0], "discard")
         assert closed == [True]
+        assert dialog.get_can_close() is True
+
+    def test_superkey_dialog_unsaved_close_save_response_saves_and_closes(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common import paths
+        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        closed: list[bool] = []
+        alerts: list[tuple[object, object]] = []
+        saved: list[str] = []
+        monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+        monkeypatch.setattr(
+            superkey_dialog_module.Adw.AlertDialog,
+            "present",
+            lambda alert, parent: alerts.append((alert, parent)),
+        )
+        dialog.connect("superkey-saved", lambda _dialog, name: saved.append(name))
+
+        dialog.name_entry.set_text("close_saved")
+        dialog._request_close()
+
+        assert closed == []
+        assert len(alerts) == 1
+
+        dialog._on_unsaved_close_response(alerts[0][0], "save")
+
+        assert closed == [True]
+        assert saved == ["close_saved"]
+        assert dialog.manager.get_superkey("close_saved") is not None
+        assert dialog.get_can_close() is True
 
     def test_superkey_dialog_docs_button_links_to_superkeys_docs(
         self, temp_config_dir, monkeypatch
@@ -872,6 +928,36 @@ class TestDialogConstruction:
             "allow_tap": False,
             "allow_macro_options": True,
         }
+
+    def test_overload_pulse_action_editors_describe_down_and_up_timing(self, temp_config_dir):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.superkey_dialog import ActionListDialog
+
+        parent = Gtk.Window()
+        down_dialog = ActionListDialog(
+            parent,
+            "Edit On Press",
+            "overload",
+            action_key="overload_down",
+        )
+        up_dialog = ActionListDialog(
+            parent,
+            "Edit On Release",
+            "overload",
+            action_key="overload_up",
+        )
+
+        down_label = down_dialog.get_child().get_first_child()
+        up_label = up_dialog.get_child().get_first_child()
+
+        assert down_label.get_label() == (
+            "Actions go through their press/release cycle when the key goes down."
+        )
+        assert up_label.get_label() == (
+            "Actions go through their press/release cycle when the key comes up."
+        )
 
     def test_pattern_superkey_action_summary_formats_without_label_rewrite(self):
         from keymasq.common.models import ActionType, SuperkeyAction

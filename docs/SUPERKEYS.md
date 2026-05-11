@@ -79,6 +79,9 @@ Open **Super Keys** from the GUI. The dialog has two panels:
 - **Right panel**: edit the selected super key's name, description, mode,
   actions, and timing.
 
+Use **Save** to apply changes. If you close the dialog or press Escape with
+unsaved edits, Keymasq asks whether to save, discard, or keep editing.
+
 ### Editing Pattern Slots
 
 In pattern mode, each slot has its own ordered action list:
@@ -123,8 +126,8 @@ kinds of actions that regular mappings support, except:
 | List | When it runs | Behavior |
 |---|---|---|
 | **Main Actions** | Entire key lifecycle | Actions start first, stay pressed while the source key is held, and release last. |
-| **On Press** | Once on key down | Actions run as a quick press-and-release pulse when the source key is pressed. |
-| **On Release** | Once on key up | Actions run as a quick press-and-release pulse when the source key is released. |
+| **On Press** | Once on key down | Actions go through their press/release cycle when the source key goes down. |
+| **On Release** | Once on key up | Actions go through their press/release cycle when the source key comes up. |
 
 On Press and On Release are optional. Leave them empty if you only need
 held output.
@@ -132,13 +135,13 @@ held output.
 Execution order is deterministic:
 
 1. On key down, Keymasq starts **Main Actions** first.
-2. It then pulses **On Press** actions.
-3. On key up, it pulses **On Release** actions.
+2. **On Press** actions go through their press/release cycle.
+3. On key up, **On Release** actions go through their press/release cycle.
 4. It then releases **Main Actions**.
 
-This makes Main Actions a held context for both pulse lists. For example,
-if Main Actions holds `key_leftctrl`, an On Press `key_c` pulse becomes
-`Ctrl+C`, and an On Release `key_v` pulse becomes `Ctrl+V`.
+This makes Main Actions a held context for both press/release lists. For example,
+if Main Actions holds `key_leftctrl`, an On Press `key_c` cycle becomes
+`Ctrl+C`, and an On Release `key_v` cycle becomes `Ctrl+V`.
 
 Another common pattern is a temporary profile layer: On Press enables a
 profile, and On Release disables it again. See
@@ -198,9 +201,9 @@ That applies to:
 - Pattern-mode held outputs
 - Overload-mode held key and button outputs
 
-On Press and On Release actions are one-shot pulses, so they do not create
+On Press and On Release actions are one-shot press/release cycles, so they do not create
 held child output state. The Main Actions list still uses normal held child
-output state and wraps both pulse lists: it starts before On Press and
+output state and wraps both press/release lists: it starts before On Press and
 releases after On Release.
 
 ## Using Super Keys

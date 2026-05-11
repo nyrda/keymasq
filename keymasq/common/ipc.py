@@ -92,7 +92,8 @@ def decode_command(data: bytes) -> tuple[Command | None, bytes]:
 
     payload_len = struct.unpack(HEADER_FORMAT, data[:HEADER_SIZE])[0]
     if payload_len > MAX_PAYLOAD_SIZE:
-        return None, data[HEADER_SIZE:]
+        total_len = HEADER_SIZE + payload_len
+        return None, data[total_len:] if len(data) >= total_len else b""
 
     total_len = HEADER_SIZE + payload_len
 
@@ -132,7 +133,8 @@ def decode_response(data: bytes) -> tuple[Response | None, bytes]:
 
     payload_len = struct.unpack(HEADER_FORMAT, data[:HEADER_SIZE])[0]
     if payload_len > MAX_PAYLOAD_SIZE:
-        return None, data[HEADER_SIZE:]
+        total_len = HEADER_SIZE + payload_len
+        return None, data[total_len:] if len(data) >= total_len else b""
 
     total_len = HEADER_SIZE + payload_len
 

@@ -82,11 +82,14 @@ class KeymasqdClient:
                 self._buffer += data
 
                 while True:
-                    response, remaining = decode_response(self._buffer)
+                    buffered = self._buffer
+                    response, remaining = decode_response(buffered)
+                    self._buffer = remaining
                     if response is None:
+                        if remaining != buffered:
+                            continue
                         break
 
-                    self._buffer = remaining
                     await self._handle_response(response)
 
         except asyncio.CancelledError:

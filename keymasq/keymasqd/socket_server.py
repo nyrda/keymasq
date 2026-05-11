@@ -200,11 +200,14 @@ class SocketServer:
                 self._buffer[writer] += data
 
                 while True:
-                    cmd, remaining = decode_command(self._buffer[writer])
+                    buffered = self._buffer[writer]
+                    cmd, remaining = decode_command(buffered)
+                    self._buffer[writer] = remaining
                     if cmd is None:
+                        if remaining != buffered:
+                            continue
                         break
 
-                    self._buffer[writer] = remaining
                     response = await self._process_command(cmd, context)
                     writer.write(encode_response(response))
                     await writer.drain()

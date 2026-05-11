@@ -1,11 +1,12 @@
 import asyncio
 import os
+import struct
 
 import pytest
 import pytest_asyncio
 
 from keymasq.common import paths
-from keymasq.common.ipc import Command, CommandType, decode_response, encode_command
+from keymasq.common.ipc import HEADER_FORMAT, Command, CommandType, decode_response, encode_command
 from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 
 
@@ -176,6 +177,36 @@ class TestSocketServer:
         assert response is not None
         assert response.status == "ok"
         assert response.data["pong"] is True
+
+        writer.close()
+        await writer.wait_closed()
+
+    async def test_oversized_command_frame_does_not_block_next_command(
+        self,
+        server_and_handlers,
+        monkeypatch,
+    ):
+        import keymasq.common.ipc as ipc
+
+        _server, _cmd_handler, _ = server_and_handlers
+        monkeypatch.setattr(ipc, "MAX_PAYLOAD_SIZE", 128)
+
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+
+        payload_len = 129
+        oversized = struct.pack(HEADER_FORMAT, payload_len) + (b"x" * payload_len)
+        valid = encode_command(Command(command=CommandType.PING, data={}, request_id="ok"))
+        writer.write(oversized + valid)
+        await writer.drain()
+
+        response_data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+        response, remaining = decode_response(response_data)
+
+        assert response is not None
+        assert response.status == "ok"
+        assert response.request_id == "ok"
+        assert response.data["pong"] is True
+        assert remaining == b""
 
         writer.close()
         await writer.wait_closed()

@@ -1,8 +1,9 @@
 import asyncio
+import struct
 
 import pytest
 
-from keymasq.common.ipc import Command, CommandType, Response
+from keymasq.common.ipc import HEADER_FORMAT, Command, CommandType, Response, encode_response
 from keymasq.session.client import KeymasqdClient
 
 
@@ -16,6 +17,16 @@ class _BlockingAsyncReader:
 
     def release(self) -> None:
         self._release.set()
+
+
+class _ChunkedAsyncReader:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+
+    async def read(self, _size: int) -> bytes:
+        if not self._chunks:
+            return b""
+        return self._chunks.pop(0)
 
 
 class _FakeAsyncWriter:
@@ -86,5 +97,30 @@ def test_keymasqd_client_send_command_uses_custom_timeout(monkeypatch: pytest.Mo
         assert response.status == "ok"
         assert response.data == {"pong": True}
         assert timeouts == [42.0]
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_discards_oversized_response_before_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _run() -> None:
+        import keymasq.common.ipc as ipc
+
+        monkeypatch.setattr(ipc, "MAX_PAYLOAD_SIZE", 128)
+        payload_len = 129
+        oversized = struct.pack(HEADER_FORMAT, payload_len) + (b"x" * payload_len)
+        valid = encode_response(Response(status="ok", request_id="ok", data={"done": True}))
+
+        client = KeymasqdClient(event_handler=lambda _event, _data: None)
+        client.reader = _ChunkedAsyncReader([oversized + valid, b""])
+        client.writer = _FakeAsyncWriter()
+        future: asyncio.Future[Response] = asyncio.get_running_loop().create_future()
+        client._pending_requests["ok"] = future
+
+        await client._listen_loop()
+
+        assert future.done() is True
+        assert future.result().data == {"done": True}
 
     asyncio.run(_run())

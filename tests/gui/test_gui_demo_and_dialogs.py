@@ -701,6 +701,42 @@ class TestDialogConstruction:
         assert [action.target for action in saved.overload_down_actions] == ["key_a"]
         assert [action.target for action in saved.overload_up_actions] == ["key_b"]
 
+    def test_superkey_dialog_shows_storage_collision_error(self, temp_config_dir, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common import paths
+        from keymasq.common.models import ActionType, SuperkeyAction, SuperkeyConfig, SuperkeyMode
+        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        alerts: list[tuple[object, object]] = []
+        monkeypatch.setattr(
+            superkey_dialog_module.Adw.AlertDialog,
+            "present",
+            lambda alert, parent: alerts.append((alert, parent)),
+        )
+        dialog.manager.save_superkey(
+            SuperkeyConfig(
+                name="A B",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_a")],
+            )
+        )
+
+        dialog.start_new_superkey()
+        dialog.name_entry.set_text("A_B")
+
+        assert dialog._save_current_superkey() is False
+        assert len(alerts) == 1
+        alert = alerts[0][0]
+        assert alert.get_heading() == "Unable To Save Super Key"
+        assert "conflicts with existing superkey 'A B'" in alert.get_body()
+        assert dialog.manager.get_superkey("A_B") is None
+
     def test_superkey_dialog_empty_state_starts_new_draft_and_keeps_close_available(
         self, temp_config_dir, monkeypatch
     ):

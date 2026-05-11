@@ -37,6 +37,14 @@ def _parse_manager() -> object:
     )
 
 
+def _pattern_superkey(name: str, target: str = "key_a") -> SuperkeyConfig:
+    return SuperkeyConfig(
+        name=name,
+        mode=SuperkeyMode.PATTERN,
+        tap_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target=target)],
+    )
+
+
 def test_superkey_manager_requires_explicit_mode(
     temp_config_dir,
     monkeypatch: pytest.MonkeyPatch,
@@ -117,6 +125,70 @@ def test_superkey_manager_round_trips_pattern_bundles(temp_config_dir, monkeypat
     text = (superkeys_dir / "bundle.toml").read_text(encoding="utf-8")
     assert 'mode = "pattern"' in text
     assert "tap = [" in text
+
+
+def test_superkey_manager_rejects_sanitized_storage_collision(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    manager = SuperkeyManager()
+    manager.save_superkey(_pattern_superkey("A B", "key_a"))
+
+    with pytest.raises(ValueError, match="conflicts with existing superkey 'A B'"):
+        manager.save_superkey(_pattern_superkey("A_B", "key_b"))
+
+    assert sorted(path.name for path in superkeys_dir.glob("*.toml")) == ["a_b.toml"]
+    reloaded = SuperkeyManager().get_superkey("A B")
+
+    assert reloaded is not None
+    assert reloaded.tap_actions[0].target == "key_a"
+
+
+def test_superkey_manager_rejects_rename_to_sanitized_storage_collision(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    manager = SuperkeyManager()
+    manager.save_superkey(_pattern_superkey("A B", "key_a"))
+    manager.save_superkey(_pattern_superkey("Other", "key_b"))
+
+    with pytest.raises(ValueError, match="conflicts with existing superkey 'A B'"):
+        manager.rename_superkey("Other", "A_B")
+
+    assert sorted(path.name for path in superkeys_dir.glob("*.toml")) == [
+        "a_b.toml",
+        "other.toml",
+    ]
+    assert manager.get_superkey("Other") is not None
+    assert manager.get_superkey("A_B") is None
+
+
+def test_superkey_manager_same_storage_path_rename_does_not_delete_file(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    manager = SuperkeyManager()
+    manager.save_superkey(_pattern_superkey("Work/Mode", "key_a"))
+
+    assert manager.rename_superkey("Work/Mode", "Work?Mode") is True
+
+    path = superkeys_dir / "work_mode.toml"
+    assert sorted(item.name for item in superkeys_dir.glob("*.toml")) == ["work_mode.toml"]
+    assert path.exists()
+    assert 'name = "Work?Mode"' in path.read_text(encoding="utf-8")
+    assert SuperkeyManager().get_superkey("Work?Mode") is not None
 
 
 def test_superkey_action_roundtrip_preserves_shared_fields() -> None:

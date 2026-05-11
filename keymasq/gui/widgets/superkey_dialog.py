@@ -963,10 +963,19 @@ class SuperkeyDialog(Adw.Dialog):
             hold_threshold_ms=self.hold_threshold_spin.get_value_as_int(),
         )
 
-        if old_name and old_name != name:
-            self.manager.rename_superkey(old_name, name)
-
-        self.manager.save_superkey(config)
+        try:
+            if (
+                old_name
+                and old_name != name
+                and self.manager.get_superkey(old_name) is not None
+                and not self.manager.rename_superkey(old_name, name)
+            ):
+                self._show_save_error(f"Super Key '{name}' already exists")
+                return False
+            self.manager.save_superkey(config)
+        except ValueError as exc:
+            self._show_save_error(str(exc))
+            return False
         self._current_config = config
         self._modified = False
         self._update_buttons()
@@ -984,6 +993,15 @@ class SuperkeyDialog(Adw.Dialog):
 
         self.emit("superkey-saved", name)
         return True
+
+    def _show_save_error(self, message: str) -> None:
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Unable To Save Super Key")
+        dialog.set_body(message)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.set_close_response("ok")
+        dialog.present(self)
 
     def _on_save_clicked(self, _button) -> None:
         self._save_current_superkey()

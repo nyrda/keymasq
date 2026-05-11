@@ -223,7 +223,7 @@ Empty UID allowlists mean no UID restriction. This is the default and is appropr
 
 `session_command_acl` applies to the single session-side client class: `client`. The session socket is a same-user endpoint, so Keymasq does not model GUI and CLI as separate enforceable trust classes there.
 
-ACL entries are deny rules only. Supported forms: `!command`, `-command`, or `deny:command`. Commands not explicitly denied are allowed. Positive entries (entries without a deny prefix) are ignored.
+Command ACLs are denylists, not allowlists. Supported deny forms are `!command`, `-command`, or `deny:command`. Commands not explicitly denied for the caller's client class are allowed. Positive entries (entries without a deny prefix) are ignored and should not be used to express allow-only policy. Unconfigured or unknown client classes default to allow unless separately blocked by UID policy, unlock state, or owner binding.
 
 `[recording_guard].unlock_required` controls whether sensitive original-input
 observation flows require an explicit unlock before they are allowed.

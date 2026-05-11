@@ -135,11 +135,7 @@ def get_peer_credentials(transport_socket: Any) -> PeerCredentials | None:
 
 
 def command_allowed(command: str, acl: dict[str, list[str]], client_class: str) -> bool:
-    entries: list[str] | None = acl.get(client_class)
-    if entries is None:
-        entries = []
-        for value in acl.values():
-            entries.extend(value)
+    entries = acl.get(client_class, [])
 
     for raw in entries:
         token = raw.strip()

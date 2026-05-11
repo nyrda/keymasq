@@ -77,6 +77,34 @@ def test_hardware_manager_skips_invalid_files(
     assert "Failed to load" in caplog.text
 
 
+def test_hardware_manager_reload_removes_deleted_configs(temp_config_dir) -> None:
+    config_path = temp_config_dir / "hardware" / "1234_5678.toml"
+    config_path.write_text(
+        """
+[hardware]
+name = "Gaming Mouse"
+vendor_id = "1234"
+product_id = "5678"
+
+[hardware.evdev]
+devices = []
+
+[hardware.layout]
+buttons = []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    manager = HardwareManager()
+    assert manager.get_hardware("1234:5678") is not None
+
+    config_path.unlink()
+    manager.reload()
+
+    assert manager.get_hardware("1234:5678") is None
+    assert manager.list_hardware_ids() == []
+
+
 def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> None:
     manager = HardwareManager()
     config = HardwareConfig(

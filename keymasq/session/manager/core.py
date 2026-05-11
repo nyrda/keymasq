@@ -62,6 +62,7 @@ TOPOLOGY_REFRESH_RETRY_S = 1.0
 class SessionManager:
     RECORDING_SETTINGS_PATH = CONFIG_DIR / "recording_settings.toml"
     MAX_SESSION_CLIENT_BUFFER_BYTES = 16 * 1024 * 1024
+    SESSION_CLIENT_CLOSE_TIMEOUT_S = 0.5
 
     def __init__(self, verbosity: int = 0) -> None:
         async def _client_event_handler(event_type: CommandType, data: JsonObject) -> None:
@@ -199,12 +200,20 @@ class SessionManager:
             self.session_server.close()
             await self.session_server.wait_closed()
 
-        for writer in list(self.session_clients):
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except Exception:
-                pass
+        session_writers = list(self.session_clients)
+        if session_writers:
+            await asyncio.gather(
+                *(
+                    self._close_session_writer(
+                        writer,
+                        self.session_client_peers.get(writer),
+                    )
+                    for writer in session_writers
+                ),
+                return_exceptions=True,
+            )
+            for writer in session_writers:
+                self._drop_session_client_writer(writer)
         for task in list(self.session_client_drain_tasks.values()):
             task.cancel()
         if self.session_client_drain_tasks:
@@ -271,8 +280,7 @@ class SessionManager:
     ) -> None:
         peer = get_peer_credentials(writer.get_extra_info("socket"))
         if peer is None:
-            writer.close()
-            await writer.wait_closed()
+            await self._close_session_writer(writer)
             return
 
         if not uid_allowed(peer.uid, self.security_policy.session_allowed_uids):
@@ -282,8 +290,7 @@ class SessionManager:
                 peer.uid,
                 f"uid {peer.uid} is not allowed by session policy",
             )
-            writer.close()
-            await writer.wait_closed()
+            await self._close_session_writer(writer, peer)
             return
 
         client_class = "client"
@@ -350,11 +357,7 @@ class SessionManager:
             await runtime_recording.discard_pending_macro_save_if_writer(self, writer)
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
             self._drop_session_client_writer(writer)
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except Exception:
-                pass
+            await self._close_session_writer(writer, peer)
 
     async def _handle_session_request(
         self,
@@ -396,13 +399,39 @@ class SessionManager:
         except asyncio.CancelledError:
             raise
         except Exception:
+            peer = self.session_client_peers.get(writer)
             self._drop_session_client_writer(writer)
-            with contextlib.suppress(Exception):
-                writer.close()
-                await writer.wait_closed()
+            await self._close_session_writer(writer, peer)
         finally:
             if self.session_client_drain_tasks.get(writer) is asyncio.current_task():
                 self.session_client_drain_tasks.pop(writer, None)
+
+    async def _close_session_writer(
+        self,
+        writer: asyncio.StreamWriter,
+        peer: PeerCredentials | None = None,
+    ) -> None:
+        try:
+            writer.close()
+            await asyncio.wait_for(
+                writer.wait_closed(),
+                timeout=self.SESSION_CLIENT_CLOSE_TIMEOUT_S,
+            )
+        except TimeoutError:
+            if peer is None:
+                log.debug("Timed out waiting for session client socket to close")
+            else:
+                log.debug(
+                    "Timed out waiting for session client socket to close pid=%s uid=%s",
+                    peer.pid,
+                    peer.uid,
+                )
+            transport = getattr(writer, "transport", None)
+            if transport is not None:
+                with contextlib.suppress(Exception):
+                    transport.abort()
+        except Exception:
+            pass
 
     def _drop_session_client_writer(self, writer: asyncio.StreamWriter) -> None:
         self.session_clients.discard(writer)

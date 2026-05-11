@@ -163,6 +163,9 @@ class SessionManager:
 
         await runtime_events.cancel_event_tasks(self)
 
+        if self.action_handler is not None:
+            await self.action_handler.cancel_background_tasks()
+
         profile_apply_task = self.profile_state.apply_task
         if profile_apply_task:
             profile_apply_task.cancel()
@@ -226,6 +229,8 @@ class SessionManager:
 
         await self.client.disconnect()
         await runtime_events.cancel_event_tasks(self)
+        if self.action_handler is not None:
+            await self.action_handler.cancel_background_tasks()
 
         if self.connect_task:
             self.connect_task.cancel()
@@ -544,10 +549,14 @@ class SessionManager:
     def send_notification(self, title: str, message: str) -> None:
         log.info("Notification: %s: %s", title, message)
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             return
-        loop.create_task(self._send_notification_async(title, message))
+        runtime_events.create_event_task(
+            self,
+            self._send_notification_async(title, message),
+            name="notification",
+        )
 
     async def _send_notification_async(self, title: str, message: str) -> None:
         try:

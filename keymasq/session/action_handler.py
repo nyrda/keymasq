@@ -8,7 +8,7 @@ log = logging.getLogger("keymasq-session.actions")
 
 class ActionHandler:
     def __init__(self) -> None:
-        pass
+        self._background_tasks: set[asyncio.Task[int]] = set()
 
     async def handle_action(self, data: JsonDict) -> None:
         action_type = data.get("action_type")
@@ -45,12 +45,41 @@ class ActionHandler:
             log.error(f"Command timed out after 300s, killing: {cmd}")
             process.kill()
             return -1
+        except asyncio.CancelledError:
+            log.debug("Command task cancelled, killing: %s", cmd)
+            process.kill()
+            raise
         except Exception as e:
             log.error(f"Failed to execute command: {e}")
             return -1
 
     def execute_command_sync(self, cmd: str) -> None:
-        async def _runner() -> None:
-            await self.execute_command(cmd)
+        task = asyncio.create_task(
+            self.execute_command(cmd),
+            name="keymasq-session:exec-command",
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._handle_background_task_done)
 
-        asyncio.create_task(_runner())
+    def _handle_background_task_done(self, task: asyncio.Task[int]) -> None:
+        self._background_tasks.discard(task)
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            log.error(
+                "Unhandled exception in async command task",
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+
+    async def cancel_background_tasks(self) -> None:
+        tasks = list(self._background_tasks)
+        if not tasks:
+            return
+
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._background_tasks.difference_update(tasks)

@@ -24,7 +24,7 @@ async def test_recording_manager_start_opens_extra_devices_via_to_thread(monkeyp
     await asyncio.sleep(0)
     await recorder.stop()
 
-    assert calls == [(evdev.InputDevice, ("/dev/input/event0",))]
+    assert calls == [(recording_module._open_recording_input_device, ("/dev/input/event0",))]
 
 
 @pytest.mark.asyncio

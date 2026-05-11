@@ -14,6 +14,7 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.models import ActionType, DeviceType, MappingAction
+from keymasq.keymasqd.evdev_clock import set_evdev_clock_monotonic
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
@@ -62,7 +63,9 @@ ASYNCIO_RUNTIME: Final[_AsyncioModule] = cast(_AsyncioModule, runtime_adapters.A
 
 
 def _device_input(path: str) -> _ManagedInputDevice:
-    return cast(_ManagedInputDevice, evdev.InputDevice(path))
+    device = cast(object, evdev.InputDevice(path))
+    set_evdev_clock_monotonic(device, device_path=path, logger=log)
+    return cast(_ManagedInputDevice, device)
 
 
 def _uinput_writer(device: object | None) -> _WritableUInput | None:

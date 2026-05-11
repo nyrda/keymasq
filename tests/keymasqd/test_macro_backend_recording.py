@@ -107,6 +107,50 @@ class _QuietInputDevice:
             yield evdev.InputEvent(1, 1, evdev.ecodes.EV_SYN, 0, 0)
 
 
+@pytest.mark.asyncio
+async def test_recording_manager_sets_monotonic_clock_on_extra_devices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = RecordingManager()
+    fake_device = _QuietInputDevice()
+    clock_calls: list[tuple[object, str | None]] = []
+
+    monkeypatch.setattr(recording_module.evdev, "InputDevice", lambda _path: fake_device)
+    monkeypatch.setattr(
+        recording_module,
+        "set_evdev_clock_monotonic",
+        lambda device, **kwargs: clock_calls.append(
+            (device, kwargs.get("device_path"))
+        )
+        or True,
+    )
+
+    await recorder.start([{"path": "/dev/input/event10", "device_type": "keyboard"}])
+    await recorder.stop()
+
+    assert clock_calls == [(fake_device, "/dev/input/event10")]
+
+
+def test_grabbed_device_input_sets_monotonic_clock_for_recordable_raw_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_device = object()
+    clock_calls: list[tuple[object, str | None]] = []
+
+    monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: fake_device)
+    monkeypatch.setattr(
+        gdm,
+        "set_evdev_clock_monotonic",
+        lambda device, **kwargs: clock_calls.append(
+            (device, kwargs.get("device_path"))
+        )
+        or True,
+    )
+
+    assert gdm._device_input("/dev/input/event0") is fake_device
+    assert clock_calls == [(fake_device, "/dev/input/event0")]
+
+
 def _grabbed_recording_device(
     recorder: RecordingManager,
     *,

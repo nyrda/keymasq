@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,12 +15,14 @@ from keymasq.common.devices import (
 )
 from keymasq.common.ipc import CommandType
 from keymasq.common.paths import STATE_DIR
+from keymasq.keymasqd.evdev_clock import set_evdev_clock_monotonic
 from keymasq.keymasqd.recording_spool import RecordingSnapshot, RecordingSpool
 
 type RecordingEvent = dict[str, object]
 type RecordingPayload = dict[str, object]
 type RecordingDevice = dict[str, object]
 PENDING_RECORDING_TTL_S = 30 * 60
+log = logging.getLogger("keymasqd.recording")
 
 
 class _RecordingInputDevice(Protocol):
@@ -90,10 +93,7 @@ class RecordingManager:
             if not isinstance(path_value, str) or not path_value:
                 continue
             try:
-                input_dev = cast(
-                    _RecordingInputDevice,
-                    await asyncio.to_thread(evdev.InputDevice, path_value),
-                )
+                input_dev = await asyncio.to_thread(_open_recording_input_device, path_value)
                 self._extra_devices.append(input_dev)
                 raw_classes = dev.get("device_types")
                 classes = (
@@ -347,6 +347,12 @@ class RecordingManager:
                     "duration_ms": duration_ms,
                 },
         )
+
+
+def _open_recording_input_device(path: str) -> _RecordingInputDevice:
+    device = cast(object, evdev.InputDevice(path))
+    set_evdev_clock_monotonic(device, device_path=path, logger=log)
+    return cast(_RecordingInputDevice, device)
 
 
 def _is_wheel_event(event: evdev.InputEvent) -> bool:

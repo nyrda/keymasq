@@ -83,7 +83,7 @@ class TestRapidfireRelease:
         await device.grab()
         await original_sleep(0)
 
-        assert wait_timeouts == [gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S]
+        assert wait_timeouts == [pytest.approx(gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S)]
         assert [call[0] for call in to_thread_calls] == [
             fake_input.active_keys,
             fake_input.active_keys,

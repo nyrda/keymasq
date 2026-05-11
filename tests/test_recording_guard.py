@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -72,7 +73,7 @@ def test_resolve_unlock_status_none(monkeypatch: pytest.MonkeyPatch, tmp_path: P
 
 
 def test_write_unlock_expires_at_handles_chown_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     lease = tmp_path / "nested" / "lease"
 
@@ -81,8 +82,10 @@ def test_write_unlock_expires_at_handles_chown_failure(
 
     monkeypatch.setattr(recording_guard.os, "chown", _raise_chown)
 
+    caplog.set_level(logging.WARNING, logger=recording_guard.__name__)
     recording_guard.write_unlock_expires_at(lease, 123, owner_uid=1, owner_gid=1)
 
     assert lease.read_text(encoding="utf-8") == "123\n"
+    assert "Failed to set recording unlock file owner" in caplog.text
     tmp_candidates = list(lease.parent.glob(f".{lease.name}.tmp-*"))
     assert tmp_candidates == []

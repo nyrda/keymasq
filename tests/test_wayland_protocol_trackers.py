@@ -42,6 +42,11 @@ def _registry_payload(global_name: int, interface: str, version: int) -> bytes:
     return struct.pack("<I", global_name) + _encode_string(interface) + struct.pack("<I", version)
 
 
+def _truncated_registry_payload(global_name: int, interface: str) -> bytes:
+    raw = interface.encode("utf-8")
+    return struct.pack("<II", global_name, len(raw) + 32) + raw
+
+
 def _encode_string(value: str) -> bytes:
     encoded = value.encode("utf-8") + b"\x00"
     padded = (len(encoded) + 3) & ~3
@@ -181,6 +186,30 @@ def test_registry_probe_reads_globals_sync(monkeypatch) -> None:
     assert probe_socket.closed is True
 
 
+def test_registry_probe_ignores_truncated_global_interface_sync(monkeypatch) -> None:
+    probe_socket = _ProbeSocket(
+        _wl_message(
+            2,
+            0,
+            _truncated_registry_payload(
+                7,
+                wlr_client_module.WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE,
+            ),
+        )
+        + _wl_message(2, 0, _registry_payload(8, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1))
+        + _wl_message(3, 0)
+    )
+    monkeypatch.setattr(
+        registry_probe.socket,
+        "socket",
+        lambda _family, _type: probe_socket,
+    )
+
+    assert registry_probe.list_registry_globals_sync(Path("unused"), timeout_s=2.0) == {
+        EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE
+    }
+
+
 def test_registry_probe_reads_globals_async() -> None:
     async def run_probe() -> set[str]:
         with _short_socket_path("wayland-async") as socket_path:
@@ -207,6 +236,46 @@ def test_registry_probe_reads_globals_async() -> None:
                 await server.wait_closed()
 
     assert asyncio.run(run_probe()) == {"zcosmic_toplevel_info_v1"}
+
+
+def test_registry_probe_ignores_truncated_global_interface_async() -> None:
+    async def run_probe() -> set[str]:
+        with _short_socket_path("wayland-async-truncated") as socket_path:
+
+            async def handle_client(
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+            ) -> None:
+                await reader.read(4096)
+                writer.write(
+                    _wl_message(
+                        2,
+                        0,
+                        _truncated_registry_payload(
+                            1,
+                            wlr_client_module.WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE,
+                        ),
+                    )
+                    + _wl_message(
+                        2,
+                        0,
+                        _registry_payload(2, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1),
+                    )
+                    + _wl_message(3, 0)
+                )
+                await writer.drain()
+                await asyncio.wait_for(reader.read(4096), timeout=1.0)
+                writer.close()
+                await writer.wait_closed()
+
+            server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
+            try:
+                return await registry_probe.list_registry_globals(socket_path)
+            finally:
+                server.close()
+                await server.wait_closed()
+
+    assert asyncio.run(run_probe()) == {EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE}
 
 
 def test_ext_wayland_client_dispatches_registry_and_toplevel_events() -> None:

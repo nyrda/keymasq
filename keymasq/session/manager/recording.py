@@ -146,6 +146,7 @@ def begin_pending_macro_save(manager: "SessionManager", recording_data: JsonObje
     token = secrets.token_urlsafe(16)
     state.pending_data = recording_data
     state.pending_save_token = token
+    # Owner fields are lifecycle affinity for cleanup, not a same-UID auth boundary.
     state.pending_save_owner_writer_id = state.active_owner_writer_id
     state.pending_save_owner_pid = state.active_owner_pid
     state.pending_save_owner_uid = state.active_owner_uid

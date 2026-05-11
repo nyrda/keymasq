@@ -1,11 +1,19 @@
 import asyncio
 import os
+import struct
 
 import pytest
 import pytest_asyncio
 
 from keymasq.common import paths
-from keymasq.common.ipc import Command, CommandType, decode_response, encode_command
+from keymasq.common.ipc import (
+    HEADER_FORMAT,
+    MAX_PAYLOAD_SIZE,
+    Command,
+    CommandType,
+    decode_response,
+    encode_command,
+)
 from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 
 
@@ -179,6 +187,57 @@ class TestSocketServer:
 
         writer.close()
         await writer.wait_closed()
+
+    async def test_malformed_frame_does_not_block_following_command(self, server_and_handlers):
+        _server, cmd_handler, _ = server_and_handlers
+
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+
+        malformed_payload = b"not-json"
+        malformed_frame = struct.pack(HEADER_FORMAT, len(malformed_payload)) + malformed_payload
+        writer.write(
+            malformed_frame
+            + encode_command(Command(command=CommandType.PING, data={}, request_id="after-bad"))
+        )
+        await writer.drain()
+
+        try:
+            response_data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+            response, _ = decode_response(response_data)
+
+            assert response is not None
+            assert response.status == "ok"
+            assert response.request_id == "after-bad"
+            assert cmd_handler.commands_received == [(CommandType.PING, {})]
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async def test_oversized_frame_does_not_block_following_command(self, server_and_handlers):
+        _server, cmd_handler, _ = server_and_handlers
+
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+
+        oversized_header = struct.pack(HEADER_FORMAT, MAX_PAYLOAD_SIZE + 1)
+        writer.write(
+            oversized_header
+            + encode_command(
+                Command(command=CommandType.PING, data={}, request_id="after-oversized")
+            )
+        )
+        await writer.drain()
+
+        try:
+            response_data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+            response, _ = decode_response(response_data)
+
+            assert response is not None
+            assert response.status == "ok"
+            assert response.request_id == "after-oversized"
+            assert cmd_handler.commands_received == [(CommandType.PING, {})]
+        finally:
+            writer.close()
+            await writer.wait_closed()
 
     async def test_command_handler_receives_command(self, server_and_handlers):
         _server, cmd_handler, _ = server_and_handlers

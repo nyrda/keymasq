@@ -200,8 +200,13 @@ class SocketServer:
                 self._buffer[writer] += data
 
                 while True:
-                    cmd, remaining = decode_command(self._buffer[writer])
+                    buffered = self._buffer[writer]
+                    cmd, remaining = decode_command(buffered)
                     if cmd is None:
+                        if remaining != buffered:
+                            log.warning("Dropping invalid daemon command frame")
+                            self._buffer[writer] = remaining
+                            continue
                         break
 
                     self._buffer[writer] = remaining

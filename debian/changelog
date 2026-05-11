@@ -1,3 +1,10 @@
+keymasq (0.17.1-1) unstable; urgency=medium
+
+  * Add a confirmation prompt when closing the Super Keys dialog with unsaved
+    changes.
+
+ -- nyrda <nyrda@keymasq.tools>  Mon, 11 May 2026 14:48:57 +0000
+
 keymasq (0.17.0-1) unstable; urgency=medium
 
   * Add on-press and on-release pulse actions to overload superkeys.

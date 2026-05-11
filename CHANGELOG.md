@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.1
+
+### Fixed
+
+- Added a confirmation prompt when closing the Super Keys dialog with unsaved
+  changes.
+
 ## 0.17.0
 
 ### Improved

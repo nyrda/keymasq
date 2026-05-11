@@ -321,6 +321,71 @@ class TestDeviceDetection:
 
 
 class TestListDevices:
+    def test_list_devices_closes_devices_after_metadata_scan(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        closed_paths: list[str] = []
+
+        class FakeDevice:
+            name = "Raw Keyboard"
+            phys = "usb-test"
+            uniq = ""
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+            def capabilities(self):
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A]}
+
+            def input_props(self):
+                return []
+
+            def close(self) -> None:
+                closed_paths.append(self.path)
+
+        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(dm.evdev, "InputDevice", FakeDevice)
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda _path: "/dev/input/by-id/raw-kbd")
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+
+        result = manager._list_devices_sync()
+
+        assert len(cast(list[dict[str, object]], result["devices"])) == 1
+        assert closed_paths == ["/dev/input/event0"]
+
+    def test_list_devices_closes_devices_when_metadata_scan_fails(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        closed_paths: list[str] = []
+
+        class FakeDevice:
+            name = "Broken Keyboard"
+            phys = "usb-test"
+            uniq = ""
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+            def capabilities(self):
+                raise RuntimeError("unreadable capabilities")
+
+            def close(self) -> None:
+                closed_paths.append(self.path)
+
+        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(dm.evdev, "InputDevice", FakeDevice)
+
+        result = manager._list_devices_sync()
+
+        assert result == {"devices": []}
+        assert closed_paths == ["/dev/input/event0"]
+
     def test_list_devices_marks_physical_recording_identity(
         self,
         monkeypatch: pytest.MonkeyPatch,

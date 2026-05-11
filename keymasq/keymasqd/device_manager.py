@@ -925,6 +925,7 @@ class DeviceManager:
         grabbed_metadata = self._recording_grabbed_source_metadata()
 
         for path in _device_paths():
+            device: _ManagedInputDevice | None = None
             try:
                 device = _device_input(path)
                 info = device.info
@@ -980,6 +981,10 @@ class DeviceManager:
                 )
             except Exception as e:
                 log.debug(f"Could not read device {path}: {e}")
+            finally:
+                if device is not None:
+                    with contextlib.suppress(Exception):
+                        device.close()
 
         return {"devices": devices}
 

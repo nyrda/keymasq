@@ -259,13 +259,18 @@ class TestDeviceManagerHelpers:
         assert manager.active_mappings == {}
         assert manager.grab_state.desired_paths == {}
         destroy_global_uinputs.assert_called_once()
-    def test_parse_action_supports_string_and_hyprland_dispatch_alias(self) -> None:
+    def test_parse_action_supports_string_and_compositor_dispatch(self) -> None:
         manager = DeviceManager()
 
         string_action = _runtime_parse_action(manager, "key_a")
         dispatch_action = _runtime_parse_action(
             manager,
-            {"action": "hyprland_dispatch", "dispatcher": "workspace", "args": "2"},
+            {
+                "action": "compositor_dispatch",
+                "compositor": "hyprland",
+                "dispatcher": "workspace",
+                "args": "2",
+            },
         )
 
         assert string_action.action_type == ActionType.KEYBOARD

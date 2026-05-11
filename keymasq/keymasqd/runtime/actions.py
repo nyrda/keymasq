@@ -41,10 +41,6 @@ def parse_action(
         return MappingAction(action_type=ActionType.KEYBOARD, target=action_data)
 
     action_type_str = str_value(action_data.get("action"), "passthrough")
-    if action_type_str == "hyprland_dispatch":
-        action_data = dict(action_data)
-        action_data.setdefault("compositor", "hyprland")
-        action_type_str = "compositor_dispatch"
     action_type = ActionType(action_type_str)
 
     superkey_config = None

@@ -163,10 +163,6 @@ class SuperkeyManager:
 
     def _parse_mapping_action(self, action_data: TomlDict) -> MappingAction:
         action_type_str = str(action_data.get("action", "passthrough"))
-        if action_type_str == "hyprland_dispatch":
-            action_data = dict(action_data)
-            action_data.setdefault("compositor", "hyprland")
-            action_type_str = "compositor_dispatch"
         if action_type_str == "rapidfire":
             action_type_str = "keyboard"
             action_data = dict(action_data)

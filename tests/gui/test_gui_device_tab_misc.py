@@ -735,7 +735,7 @@ def test_key_selector_dialog_profile_tab_populates_and_maps_selected_action(monk
     assert results[0].profile_name == "Gaming"
 
 
-def test_key_selector_dialog_only_shows_hyprland_dispatch_for_active_hyprland_listener():
+def test_key_selector_dialog_only_shows_hyprland_actions_for_active_hyprland_listener():
     from gi.repository import Gtk
 
     from keymasq.common.models import ActionType, MappingAction

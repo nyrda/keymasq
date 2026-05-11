@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
+from typing import Literal
 
 from keymasq.session.listeners.base import WindowListener
 from keymasq.session.profiles import ResolvedDeviceProfile
@@ -74,14 +75,18 @@ class ProfileRuntimeState:
 
 
 @dataclass
+class ExecBinding:
+    cmd: str
+    owner: Literal["device", "combo"]
+    hardware_id: str | None = None
+
+
+@dataclass
 class ExecRuntimeState:
-    exec_refs: dict[int, str] = field(default_factory=dict)
+    exec_refs: dict[int, ExecBinding] = field(default_factory=dict)
     next_exec_ref: int = 1
     device_exec_refs: dict[str, set[int]] = field(default_factory=dict)
     combo_exec_refs: set[int] = field(default_factory=set)
-    combo_superkey_exec_refs: set[int] = field(default_factory=set)
-    superkey_exec_refs: dict[int, tuple[str, str]] = field(default_factory=dict)
-    next_superkey_exec_ref: int = 10000
 
 
 @dataclass

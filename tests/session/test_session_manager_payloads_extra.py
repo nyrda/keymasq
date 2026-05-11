@@ -97,8 +97,10 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
         "y": 240,
     }
     assert mapping["exec"] == {"action": "exec", "exec_ref": 1}
-    assert manager.exec_state.exec_refs == {1: "echo hi"}
-    assert manager.exec_state.device_exec_refs == {"kbd": {1}}
+    assert manager.exec_state.exec_refs[1].cmd == "echo hi"
+    assert manager.exec_state.exec_refs[1].owner == "device"
+    assert manager.exec_state.exec_refs[1].hardware_id == "kbd"
+    assert manager.exec_state.device_exec_refs == {"kbd": {1, 2}}
     assert mapping["dispatch"] == {
         "action": "compositor_dispatch",
         "compositor": "hyprland",
@@ -115,9 +117,11 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
     overload_actions = cast(list[dict[str, object]], superkey_payload["overload_actions"])
     assert overload_actions[1] == {
         "action": "exec",
-        "exec_ref": 10000,
+        "exec_ref": 2,
     }
-    assert manager.exec_state.superkey_exec_refs == {10000: ("kbd", "notify-send launcher")}
+    assert manager.exec_state.exec_refs[2].cmd == "notify-send launcher"
+    assert manager.exec_state.exec_refs[2].owner == "device"
+    assert manager.exec_state.exec_refs[2].hardware_id == "kbd"
 
 
 def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
@@ -216,7 +220,7 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
     }
     combo_action = cast(dict[str, object], combo_payload[1]["action"])
     super_action = cast(dict[str, object], combo_action["superkey"])
-    assert super_action["tap_actions"] == [{"action": "exec", "exec_ref": 10000}]
+    assert super_action["tap_actions"] == [{"action": "exec", "exec_ref": 1}]
     assert super_action["double_tap_actions"] == [
         {
             "action": "compositor_dispatch",
@@ -229,7 +233,9 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
     assert super_action["tap_hold_actions"] == [
         {"action": "profile_enable", "profile_name": "Work"}
     ]
-    assert manager.exec_state.combo_superkey_exec_refs == {10000}
+    assert manager.exec_state.combo_exec_refs == {1}
+    assert manager.exec_state.exec_refs[1].cmd == "echo tap"
+    assert manager.exec_state.exec_refs[1].owner == "combo"
 
 
 def test_payload_signatures_and_log_view_are_stable() -> None:

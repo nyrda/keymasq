@@ -33,24 +33,15 @@ async def handle_event(
         exec_ref_raw = data.get("exec_ref")
         exec_ref = _int_value(exec_ref_raw, -1) if exec_ref_raw is not None else None
         if exec_ref is not None:
-            if exec_ref >= 10000:
-                ref_data = manager.exec_state.superkey_exec_refs.get(exec_ref)
-                if ref_data:
-                    hardware_id, cmd = ref_data
-                    exec_data = dict(data)
-                    exec_data["cmd"] = cmd
-                    exec_data["hardware_id"] = hardware_id
-                    asyncio.create_task(handle_exec_trigger(manager, exec_data))
-                else:
-                    log.warning("Unknown superkey exec_ref: %s", exec_ref)
+            binding = manager.exec_state.exec_refs.get(exec_ref)
+            if binding:
+                exec_data = dict(data)
+                exec_data["cmd"] = binding.cmd
+                if binding.hardware_id:
+                    exec_data["hardware_id"] = binding.hardware_id
+                asyncio.create_task(handle_exec_trigger(manager, exec_data))
             else:
-                cmd = manager.exec_state.exec_refs.get(exec_ref)
-                if cmd:
-                    exec_data = dict(data)
-                    exec_data["cmd"] = cmd
-                    asyncio.create_task(handle_exec_trigger(manager, exec_data))
-                else:
-                    log.warning("Unknown exec_ref: %s", exec_ref)
+                log.warning("Unknown exec_ref: %s", exec_ref)
 
         action_type_str = str(data.get("action_type", "") or "")
         if action_type_str == "start_macro_recording":

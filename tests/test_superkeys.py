@@ -23,6 +23,7 @@ from keymasq.session.manager.payloads import (
     combo_action_to_payload,
     serialize_superkey,
 )
+from keymasq.session.manager.state import ExecBinding, ExecRuntimeState
 from keymasq.session.profiles import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
 
@@ -299,11 +300,7 @@ rapidfire_wait_ms = 60
 
 def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
     manager = SimpleNamespace(
-        exec_state=SimpleNamespace(
-            next_superkey_exec_ref=10000,
-            superkey_exec_refs={},
-            combo_superkey_exec_refs=set(),
-        ),
+        exec_state=ExecRuntimeState(),
         superkeys=SimpleNamespace(get_superkey=lambda _name: None),
     )
     config = SuperkeyConfig(
@@ -333,17 +330,17 @@ def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
         ActionType.KEYBOARD,
         ActionType.EXEC,
     ]
-    assert parsed.overload_actions[1].exec_ref == 10000
-    assert manager.exec_state.superkey_exec_refs[10000] == ("1234:5678", "echo demo")
+    assert parsed.overload_actions[1].exec_ref == 1
+    assert manager.exec_state.exec_refs[1] == ExecBinding(
+        cmd="echo demo",
+        owner="device",
+        hardware_id="1234:5678",
+    )
 
 
 def test_superkey_runtime_payload_round_trips_split_overload_actions() -> None:
     manager = SimpleNamespace(
-        exec_state=SimpleNamespace(
-            next_superkey_exec_ref=10000,
-            superkey_exec_refs={},
-            combo_superkey_exec_refs=set(),
-        ),
+        exec_state=ExecRuntimeState(),
         superkeys=SimpleNamespace(get_superkey=lambda _name: None),
     )
     config = SuperkeyConfig(
@@ -377,8 +374,12 @@ def test_superkey_runtime_payload_round_trips_split_overload_actions() -> None:
     assert [action.target for action in parsed.overload_actions] == ["key_leftctrl"]
     assert [action.target for action in parsed.overload_down_actions] == ["key_a"]
     assert parsed.overload_up_actions[0].action_type == ActionType.EXEC
-    assert parsed.overload_up_actions[0].exec_ref == 10000
-    assert manager.exec_state.superkey_exec_refs[10000] == ("1234:5678", "echo up")
+    assert parsed.overload_up_actions[0].exec_ref == 1
+    assert manager.exec_state.exec_refs[1] == ExecBinding(
+        cmd="echo up",
+        owner="device",
+        hardware_id="1234:5678",
+    )
 
 
 def test_combo_superkey_payload_tracks_combo_scoped_exec_refs() -> None:
@@ -388,11 +389,7 @@ def test_combo_superkey_payload_tracks_combo_scoped_exec_refs() -> None:
         tap_actions=[SuperkeyAction(action_type=ActionType.EXEC, cmd="echo combo")],
     )
     manager = SimpleNamespace(
-        exec_state=SimpleNamespace(
-            next_superkey_exec_ref=10000,
-            superkey_exec_refs={},
-            combo_superkey_exec_refs=set(),
-        ),
+        exec_state=ExecRuntimeState(),
         superkeys=SimpleNamespace(
             get_superkey=lambda name: config if name == "combo_exec" else None
         ),
@@ -410,9 +407,9 @@ def test_combo_superkey_payload_tracks_combo_scoped_exec_refs() -> None:
     assert isinstance(superkey_payload, dict)
     tap_actions = superkey_payload["tap_actions"]
     assert isinstance(tap_actions, list)
-    assert tap_actions[0]["exec_ref"] == 10000
-    assert manager.exec_state.combo_superkey_exec_refs == {10000}
-    assert manager.exec_state.superkey_exec_refs[10000] == ("combo", "echo combo")
+    assert tap_actions[0]["exec_ref"] == 1
+    assert manager.exec_state.combo_exec_refs == {1}
+    assert manager.exec_state.exec_refs[1] == ExecBinding(cmd="echo combo", owner="combo")
 
 
 def test_combo_superkey_multistep_payload_and_signature_strip_double_tap_slots() -> None:
@@ -425,11 +422,7 @@ def test_combo_superkey_multistep_payload_and_signature_strip_double_tap_slots()
         tap_hold_actions=[SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_d")],
     )
     manager = SimpleNamespace(
-        exec_state=SimpleNamespace(
-            next_superkey_exec_ref=10000,
-            superkey_exec_refs={},
-            combo_superkey_exec_refs=set(),
-        ),
+        exec_state=ExecRuntimeState(),
         superkeys=SimpleNamespace(
             get_superkey=lambda name: config if name == "pattern_combo" else None
         ),
@@ -453,22 +446,21 @@ def test_combo_superkey_multistep_payload_and_signature_strip_double_tap_slots()
     assert "hold_actions" in payload_superkey
 
 
-def test_clear_combo_exec_refs_clears_combo_superkey_exec_refs() -> None:
+def test_clear_combo_exec_refs_clears_combo_owned_exec_refs() -> None:
     manager = SimpleNamespace(
-        exec_state=SimpleNamespace(
-            combo_exec_refs={7},
-            combo_superkey_exec_refs={10000},
-            exec_refs={7: "echo combo"},
-            superkey_exec_refs={10000: ("combo", "echo super")},
+        exec_state=ExecRuntimeState(
+            combo_exec_refs={7, 8},
+            exec_refs={
+                7: ExecBinding(cmd="echo combo", owner="combo"),
+                8: ExecBinding(cmd="echo combo super", owner="combo"),
+            },
         )
     )
 
     clear_combo_exec_refs(manager)
 
     assert manager.exec_state.combo_exec_refs == set()
-    assert manager.exec_state.combo_superkey_exec_refs == set()
     assert manager.exec_state.exec_refs == {}
-    assert manager.exec_state.superkey_exec_refs == {}
 
 
 def test_superkey_runtime_payload_requires_explicit_mode() -> None:
@@ -563,11 +555,7 @@ def test_superkey_manager_rejects_nested_overload_superkeys(
 
 def test_superkey_payload_serializer_rejects_nested_overload_superkeys() -> None:
     manager = SimpleNamespace(
-        exec_state=SimpleNamespace(
-            next_superkey_exec_ref=10000,
-            superkey_exec_refs={},
-            combo_superkey_exec_refs=set(),
-        ),
+        exec_state=ExecRuntimeState(),
         superkeys=SimpleNamespace(get_superkey=lambda _name: None),
     )
     config = SuperkeyConfig(name="bad_payload_nested", mode=SuperkeyMode.OVERLOAD)

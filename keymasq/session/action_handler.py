@@ -44,6 +44,7 @@ class ActionHandler:
         except TimeoutError:
             log.error(f"Command timed out after 300s, killing: {cmd}")
             process.kill()
+            await process.wait()
             return -1
         except Exception as e:
             log.error(f"Failed to execute command: {e}")

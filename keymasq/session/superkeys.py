@@ -284,12 +284,12 @@ class SuperkeyManager:
     def get_all_superkeys(self) -> dict[str, SuperkeyConfig]:
         return self._superkeys.copy()
 
-    def save_superkey(self, config: SuperkeyConfig) -> None:
+    def save_superkey(self, config: SuperkeyConfig, *, replacing_name: str | None = None) -> None:
         paths.ensure_config_dirs()
         self._validate_before_save(config)
 
-        safe_name = self._sanitize_name(config.name)
-        path = paths.SUPERKEYS_DIR / f"{safe_name}.toml"
+        path = self._path_for_name(config.name)
+        self._ensure_storage_path_available(config.name, path, replacing_name=replacing_name)
 
         data: dict[str, object] = {
             "name": config.name,
@@ -463,12 +463,18 @@ class SuperkeyManager:
             return False
 
         config = self._superkeys[old_name]
-        old_path = paths.SUPERKEYS_DIR / f"{self._sanitize_name(old_name)}.toml"
+        old_path = self._path_for_name(old_name)
+        new_path = self._path_for_name(new_name)
+        self._ensure_storage_path_available(new_name, new_path, replacing_name=old_name)
 
         config.name = new_name
-        self.save_superkey(config)
+        try:
+            self.save_superkey(config, replacing_name=old_name)
+        except Exception:
+            config.name = old_name
+            raise
 
-        if old_path.exists():
+        if old_path != new_path and old_path.exists():
             old_path.unlink()
 
         del self._superkeys[old_name]
@@ -479,6 +485,35 @@ class SuperkeyManager:
     def _sanitize_name(self, name: str) -> str:
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
         return safe.lower()
+
+    def _path_for_name(self, name: str) -> Path:
+        return paths.SUPERKEYS_DIR / f"{self._sanitize_name(name)}.toml"
+
+    def _storage_file_name(self, path: Path) -> str | None:
+        if not path.exists():
+            return None
+        try:
+            with open(path, "rb") as f:
+                data = cast(TomlDict, tomllib.load(f))
+            return _toml_str(data, "name", path.stem) or path.stem
+        except Exception as exc:
+            raise ValueError(
+                f"Superkey storage path '{path.name}' already exists but could not be read"
+            ) from exc
+
+    def _ensure_storage_path_available(
+        self,
+        name: str,
+        path: Path,
+        *,
+        replacing_name: str | None = None,
+    ) -> None:
+        stored_name = self._storage_file_name(path)
+        if stored_name is None or stored_name == name or stored_name == replacing_name:
+            return
+        raise ValueError(
+            f"Superkey name '{name}' conflicts with existing superkey '{stored_name}'"
+        )
 
     def reload(self) -> None:
         self._load_all()

@@ -763,11 +763,11 @@ async def stop_recording(
     return {"status": "error", "message": result.error or "Failed to stop recording"}
 
 
-async def play_macro_by_name(manager: "SessionManager", name: str) -> None:
-    await play_macro_trigger(manager, {"macro_name": name})
+async def play_macro_by_name(manager: "SessionManager", name: str) -> JsonObject:
+    return await play_macro_trigger(manager, {"macro_name": name})
 
 
-async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> None:
+async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> JsonObject:
     try:
         macro_name = str(data.get("macro_name", data.get("name", "")) or "").strip()
         macro_events = json_list(data.get("macro_events"))
@@ -781,7 +781,7 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Non
             macro_events = json_list(macro.get("events"))
 
         if not macro_name and not macro_events:
-            return
+            return {"status": "ok"}
 
         macro_speed_raw = data.get("macro_speed", data.get("speed"))
         payload = {
@@ -847,9 +847,24 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Non
             "trigger_value": int_value(data.get("trigger_value"), 1),
         }
 
-        await manager.client.send_command(Command(command=CommandType.PLAY_MACRO, data=payload))
-    except Exception:
-        pass
+        result = await manager.client.send_command(
+            Command(command=CommandType.PLAY_MACRO, data=payload)
+        )
+        if result.status == "ok":
+            result_data = json_object(result.data)
+            return result_data if result_data is not None else {"status": "ok"}
+
+        message = result.error or "playback failed"
+        log.warning("Macro trigger playback failed for %r: %s", macro_name, message)
+        return {"status": "error", "message": message}
+    except Exception as exc:
+        log.exception(
+            "Failed to play macro trigger macro=%r source_device=%r source_button=%r",
+            data.get("macro_name", data.get("name", "")),
+            data.get("source_device", ""),
+            data.get("source_button", ""),
+        )
+        return {"status": "error", "message": f"Failed to play macro trigger: {exc}"}
 
 
 def sanitize_macro_for_policy(manager: "SessionManager", macro: JsonObject) -> JsonObject:

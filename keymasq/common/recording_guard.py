@@ -1,8 +1,11 @@
+import logging
 import os
 import time
 from pathlib import Path
 
 from keymasq.common.paths import RECORDING_UNLOCK_PERSISTENT_DIR, RECORDING_UNLOCK_RUNTIME_DIR
+
+log = logging.getLogger(__name__)
 
 type UnlockStatus = dict[str, bool | int | str]
 
@@ -84,8 +87,14 @@ def write_unlock_expires_at(
     if owner_uid is not None and owner_gid is not None:
         try:
             os.chown(tmp_path, int(owner_uid), int(owner_gid))
-        except OSError:
-            pass
+        except OSError as exc:
+            log.warning(
+                "Failed to set recording unlock file owner on %s to %s:%s: %s",
+                tmp_path,
+                owner_uid,
+                owner_gid,
+                exc,
+            )
 
     os.chmod(tmp_path, int(mode))
     os.replace(tmp_path, path)

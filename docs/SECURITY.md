@@ -212,7 +212,9 @@ Relevant controls:
 - `session_allowed_uids`
 - `daemon_allowed_uids`
 - `[macro]`
-  - `exec_timeout_max_ms`
+  - `exec_timeout_max_ms`: maximum `exec_sync` wait time; the daemon clamps macro
+    payloads to this limit and the session uses the same value as the subprocess
+    timeout, killing the command if it is exceeded.
 - `[gui]`
   - `emergency_cancel_combo_enabled`
 - `[recording_guard]`

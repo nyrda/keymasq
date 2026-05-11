@@ -316,7 +316,8 @@ async def test_handle_event_macro_sync_exec_waits_and_reports_completion() -> No
     sent = asyncio.Event()
     sent_commands = []
 
-    async def _execute_command(cmd: str) -> int:
+    async def _execute_command(cmd: str, *, timeout_s: float = 300.0) -> int:
+        assert timeout_s == pytest.approx(1.25)
         started.set()
         await finish.wait()
         return 17
@@ -337,6 +338,7 @@ async def test_handle_event_macro_sync_exec_waits_and_reports_completion() -> No
                 "action_type": "exec",
                 "cmd": "echo macro",
                 "macro_exec_wait_id": "wait-1",
+                "macro_exec_timeout_ms": 1250,
             },
         ),
         timeout=1.0,
@@ -348,9 +350,42 @@ async def test_handle_event_macro_sync_exec_waits_and_reports_completion() -> No
     finish.set()
     await asyncio.wait_for(sent.wait(), timeout=1.0)
 
-    manager.action_handler.execute_command.assert_awaited_once_with("echo macro")
+    manager.action_handler.execute_command.assert_awaited_once_with(
+        "echo macro",
+        timeout_s=1.25,
+    )
     assert sent_commands[0].command == CommandType.MACRO_EXEC_COMPLETE
     assert sent_commands[0].data == {"wait_id": "wait-1", "returncode": 17}
+
+
+@pytest.mark.asyncio
+async def test_handle_event_macro_sync_exec_clamps_timeout_to_session_policy() -> None:
+    manager = SessionManager()
+    manager.security_policy.macro_exec_timeout_max_ms = 750
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+
+    async def _execute_command(_cmd: str, *, timeout_s: float = 300.0) -> int:
+        assert timeout_s == pytest.approx(0.75)
+        return 0
+
+    manager.action_handler.execute_command = AsyncMock(side_effect=_execute_command)
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.ACTION_TRIGGER,
+        {
+            "action_type": "exec",
+            "cmd": "echo macro",
+            "macro_exec_wait_id": "wait-1",
+            "macro_exec_timeout_ms": 30_000,
+        },
+    )
+    await asyncio.sleep(0)
+
+    manager.action_handler.execute_command.assert_awaited_once_with(
+        "echo macro",
+        timeout_s=0.75,
+    )
 
 
 @pytest.mark.asyncio

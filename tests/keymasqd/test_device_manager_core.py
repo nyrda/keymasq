@@ -924,6 +924,11 @@ class TestMacroControlActions:
         assert manager.macro_state.exec_waiters == {}
         callback.assert_awaited_once()
         assert callback.await_args.args[0] == CommandType.ACTION_TRIGGER
+        called_data = callback.await_args.args[1]
+        assert called_data["action_type"] == "exec"
+        assert called_data["cmd"] == "echo hi"
+        assert called_data["macro_exec_timeout_ms"] == 100
+        assert called_data["macro_exec_wait_id"]
         assert result == pytest.approx(0.025)
 
 

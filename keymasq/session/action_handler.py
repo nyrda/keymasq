@@ -4,6 +4,7 @@ import logging
 from keymasq.gui.session_client import JsonDict
 
 log = logging.getLogger("keymasq-session.actions")
+DEFAULT_COMMAND_TIMEOUT_S = 300.0
 
 
 class ActionHandler:
@@ -21,7 +22,13 @@ class ActionHandler:
         if action_type == "exec" and isinstance(cmd, str) and cmd:
             await self.execute_command(cmd)
 
-    async def execute_command(self, cmd: str) -> int:
+    async def execute_command(
+        self,
+        cmd: str,
+        *,
+        timeout_s: float = DEFAULT_COMMAND_TIMEOUT_S,
+    ) -> int:
+        timeout_s = max(0.001, float(timeout_s))
         try:
             log.info(f"Executing: {cmd}")
 
@@ -35,14 +42,14 @@ class ActionHandler:
             return -1
 
         try:
-            _, stderr = await asyncio.wait_for(process.communicate(), timeout=300.0)
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_s)
 
             if process.returncode != 0:
                 log.warning(f"Command failed with code {process.returncode}: {stderr.decode()}")
             return int(process.returncode or 0)
 
         except TimeoutError:
-            log.error(f"Command timed out after 300s, killing: {cmd}")
+            log.error(f"Command timed out after {timeout_s:g}s, killing: {cmd}")
             process.kill()
             return -1
         except asyncio.CancelledError:

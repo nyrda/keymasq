@@ -232,11 +232,13 @@ async def test_action_handler_execute_command_kills_timed_out_process(
 ) -> None:
     handler = ActionHandler()
     process = _FakeProcess(communicate=lambda: asyncio.sleep(360))
+    timeouts: list[float] = []
 
     async def _create_subprocess_shell(*_args: Any, **_kwargs: Any) -> _FakeProcess:
         return process
 
     async def _wait_for(_awaitable: Any, timeout: float) -> Any:
+        timeouts.append(timeout)
         _awaitable.close()
         raise TimeoutError
 
@@ -244,11 +246,12 @@ async def test_action_handler_execute_command_kills_timed_out_process(
     monkeypatch.setattr(asyncio, "wait_for", _wait_for)
 
     with caplog.at_level(logging.ERROR):
-        result = await handler.execute_command("sleep 999")
+        result = await handler.execute_command("sleep 999", timeout_s=0.25)
 
     assert result == -1
     assert process.killed is True
-    assert "Command timed out after 300s, killing: sleep 999" in caplog.text
+    assert timeouts == [0.25]
+    assert "Command timed out after 0.25s, killing: sleep 999" in caplog.text
 
 
 @pytest.mark.asyncio

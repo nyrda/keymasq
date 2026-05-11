@@ -56,7 +56,7 @@ async def handle_event(
             asyncio.create_task(handle_profile_trigger(manager, data))
         elif action_type_str == "exec" and exec_ref is None:
             asyncio.create_task(handle_exec_trigger(manager, data))
-        elif action_type_str in {"compositor_dispatch", "hyprland_dispatch"}:
+        elif action_type_str == "compositor_dispatch":
             asyncio.create_task(
                 runtime_compositor.handle_compositor_dispatch_trigger(manager, data)
             )

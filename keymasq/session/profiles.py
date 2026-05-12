@@ -673,8 +673,9 @@ class ProfileManager:
                     resolved.notify_profiles.append(profile.name)
                 for button_id, action in layer.mappings.items():
                     if action.action_type == ActionType.PASSTHROUGH:
-                        continue
-                    resolved.mappings[button_id] = copy.deepcopy(action)
+                        resolved.mappings.pop(button_id, None)
+                    else:
+                        resolved.mappings[button_id] = copy.deepcopy(action)
             devices[hardware_id] = resolved
 
         for profile in active_profiles:

@@ -21,7 +21,7 @@ coverage. It verifies that the core runtime classes still work together:
 - chord, multi-step, prefix-shadowing, overlapping, negative, and multi-source combos
 - combo bound to a superkey
 - combo trigger-key recall and restore timing with a combo-bound superkey
-- profile toggle, priority override, passthrough fallback, and held-output profile change
+- profile toggle, priority override, passthrough override, and held-output profile change
 - mouse button, relative movement, wheel, and mouse combo output
 - gamepad button and analog trigger output
 - emergency reset

@@ -15,7 +15,7 @@ from .macro_playback import run as macro_playback
 from .mouse_output import run as mouse_output
 from .multi_source_combo import run as multi_source_combo
 from .multi_step_combo import run as multi_step_combo
-from .passthrough_fallback import run as passthrough_fallback
+from .passthrough_fallback import run as passthrough_override
 from .profile_toggle import run as profile_toggle
 from .rapidfire_keyboard import run as rapidfire_keyboard
 from .recording_capture import run as recording_capture
@@ -44,7 +44,7 @@ SCENARIOS = [
     ScenarioCase("prefix and overlapping combos", combo_prefix_overlap),
     ScenarioCase("multi-source combo", multi_source_combo),
     ScenarioCase("profile toggle", profile_toggle),
-    ScenarioCase("passthrough lower-profile fallback", passthrough_fallback),
+    ScenarioCase("passthrough overrides lower-profile mapping", passthrough_override),
     ScenarioCase("held output profile change", held_output_profile_change),
     ScenarioCase("mouse output", mouse_output),
     ScenarioCase("gamepad output", gamepad_output),

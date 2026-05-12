@@ -50,6 +50,10 @@ Keymasq is a Linux input remapper built around three processes:
 - Match the surrounding Python and GTK4 patterns.
 - When adding behavior, update the relevant `docs/*.md` if the change affects user-visible semantics or security.
 
+## Worktree
+
+Always anchor work to the current `environment_context.cwd`.
+
 ## Commands
 
 All tool commands (`ruff`, `basedpyright`, `pytest`) must run inside `nix develop -c <cmd>`. Example: `nix develop -c ruff check .`

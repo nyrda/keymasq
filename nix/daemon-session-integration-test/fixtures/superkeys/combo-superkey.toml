@@ -1,0 +1,10 @@
+name = "$COMBO_SUPERKEY_NAME"
+mode = "pattern"
+
+[timing]
+tap_timeout_ms = 80
+double_tap_window_ms = 120
+hold_threshold_ms = 120
+
+[actions]
+tap = [{ action = "keyboard", target = "key_r" }]

@@ -1,0 +1,203 @@
+[profile]
+name = "$PROFILE_NAME"
+enabled = true
+is_permanent = true
+priority = 100
+notify_on_activation = false
+created_at = "2026-05-12T00:00:00"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$HARDWARE_ID".mapping.key_a]
+action = "keyboard"
+target = "key_q"
+
+[devices."$HARDWARE_ID".mapping.key_b]
+action = "superkey"
+superkey_name = "$SUPERKEY_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_e]
+action = "superkey"
+superkey_name = "$OVERLOAD_SUPERKEY_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_k]
+action = "macro"
+target = "$MACRO_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_l]
+action = "suppress"
+
+[devices."$HARDWARE_ID".mapping.key_m]
+action = "keyboard"
+target = "key_o"
+tap_enabled = true
+tap_hold_ms = 5
+
+[devices."$HARDWARE_ID".mapping.key_n]
+action = "profile_toggle"
+profile_name = "$SECOND_PROFILE_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_o]
+action = "mouse"
+target = "btn_left"
+
+[devices."$HARDWARE_ID".mapping.key_p]
+action = "mouse_move_rel"
+x = 12
+y = -7
+
+[devices."$HARDWARE_ID".mapping.key_r]
+action = "keyboard"
+target = "key_i"
+rapidfire_enabled = true
+rapidfire_hold_ms = 10
+rapidfire_wait_ms = 10
+
+[devices."$HARDWARE_ID".mapping.key_s]
+action = "gamepad"
+target = "btn_south"
+
+[devices."$HARDWARE_ID".mapping.key_t]
+action = "emergency_reset"
+
+[devices."$HARDWARE_ID".mapping.key_u]
+action = "gamepad"
+target = "btn_lt"
+
+[devices."$HARDWARE_ID".mapping.key_v]
+action = "mouse"
+target = "rel_wheel:1"
+
+[devices."$HARDWARE_ID".mapping.key_w]
+action = "cancel_macro_playback"
+
+[devices."$HARDWARE_ID".mapping.key_y]
+action = "macro"
+target = "$LONG_MACRO_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_i]
+action = "gamepad"
+target = "btn_rt"
+
+[devices."$SECOND_HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$SECOND_HARDWARE_ID".mapping.key_g]
+action = "keyboard"
+target = "key_5"
+
+[[combos]]
+id = "integration-chord"
+name = "Integration chord"
+steps = [
+  { events = [
+    { evdev = "key_c", hardware_id = "$HARDWARE_ID" },
+    { evdev = "key_d", hardware_id = "$HARDWARE_ID" },
+  ] },
+]
+action = { action = "keyboard", target = "key_e" }
+
+[[combos]]
+id = "integration-combo-superkey"
+name = "Integration combo superkey"
+steps = [
+  { events = [
+    { evdev = "key_f", hardware_id = "$HARDWARE_ID" },
+    { evdev = "key_g", hardware_id = "$HARDWARE_ID" },
+  ] },
+]
+action = { action = "superkey", superkey_name = "$COMBO_SUPERKEY_NAME" }
+
+[[combos]]
+id = "integration-recall-restore-superkey"
+name = "Integration recall restore superkey"
+steps = [
+  { events = [
+    { evdev = "key_i", hardware_id = "$SECOND_HARDWARE_ID" },
+    { evdev = "key_j", hardware_id = "$SECOND_HARDWARE_ID" },
+  ] },
+]
+action = { action = "superkey", superkey_name = "$COMBO_SUPERKEY_NAME" }
+recall_trigger_keys = true
+restore_trigger_keys = ["key_i"]
+
+[[combos]]
+id = "integration-sequence"
+name = "Integration sequence"
+steps = [
+  { timeout_ms = 500, events = [
+    { evdev = "key_h", hardware_id = "$HARDWARE_ID" },
+  ] },
+  { timeout_ms = 500, events = [
+    { evdev = "key_j", hardware_id = "$HARDWARE_ID" },
+  ] },
+]
+action = { action = "keyboard", target = "key_t" }
+
+[[combos]]
+id = "integration-mouse-combo"
+name = "Integration mouse combo"
+steps = [
+  { events = [
+    { evdev = "key_x", hardware_id = "$HARDWARE_ID" },
+    { evdev = "key_z", hardware_id = "$HARDWARE_ID" },
+  ] },
+]
+action = { action = "mouse", target = "btn_right" }
+
+[[combos]]
+id = "integration-secondary-ab"
+name = "Integration secondary A+B"
+steps = [
+  { events = [
+    { evdev = "key_a", hardware_id = "$SECOND_HARDWARE_ID" },
+    { evdev = "key_b", hardware_id = "$SECOND_HARDWARE_ID" },
+  ] },
+]
+action = { action = "keyboard", target = "key_f6" }
+
+[[combos]]
+id = "integration-secondary-abc"
+name = "Integration secondary A+B+C"
+steps = [
+  { events = [
+    { evdev = "key_a", hardware_id = "$SECOND_HARDWARE_ID" },
+    { evdev = "key_b", hardware_id = "$SECOND_HARDWARE_ID" },
+    { evdev = "key_c", hardware_id = "$SECOND_HARDWARE_ID" },
+  ] },
+]
+action = { action = "keyboard", target = "key_f7" }
+
+[[combos]]
+id = "integration-secondary-ad"
+name = "Integration secondary A+D"
+steps = [
+  { events = [
+    { evdev = "key_a", hardware_id = "$SECOND_HARDWARE_ID" },
+    { evdev = "key_d", hardware_id = "$SECOND_HARDWARE_ID" },
+  ] },
+]
+action = { action = "keyboard", target = "key_f8" }
+
+[[combos]]
+id = "integration-secondary-ae"
+name = "Integration secondary A+E"
+steps = [
+  { events = [
+    { evdev = "key_a", hardware_id = "$SECOND_HARDWARE_ID" },
+    { evdev = "key_e", hardware_id = "$SECOND_HARDWARE_ID" },
+  ] },
+]
+action = { action = "keyboard", target = "key_f9" }
+
+[[combos]]
+id = "integration-multi-source"
+name = "Integration multi-source"
+steps = [
+  { events = [
+    { evdev = "key_q", hardware_id = "$HARDWARE_ID" },
+    { evdev = "key_f", hardware_id = "$SECOND_HARDWARE_ID" },
+  ] },
+]
+action = { action = "keyboard", target = "key_f10" }

@@ -1,0 +1,14 @@
+[hardware]
+name = "Keymasq Integration Secondary Keyboard"
+vendor_id = "cafe"
+product_id = "0002"
+
+[[hardware.evdev.devices]]
+path = "$SECONDARY_SOURCE_PATH"
+type = "keyboard"
+id = "kbd"
+
+[hardware.layout]
+type = "keyboard"
+
+$SECONDARY_BUTTONS

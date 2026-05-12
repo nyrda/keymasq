@@ -149,6 +149,16 @@
           keymasqModule = self.nixosModules.default;
           source = mkCleanSrc pkgs;
         };
+      daemonSessionIntegrationChecks =
+        let
+          pkgs = mkPkgs "x86_64-linux";
+        in
+        import ./nix/daemon-session-integration-test.nix {
+          inherit pkgs;
+          system = "x86_64-linux";
+          keymasqPackage = packagesFor.x86_64-linux.default;
+          keymasqModule = self.nixosModules.default;
+        };
     in
     {
       packages = lib.recursiveUpdate packagesFor {
@@ -163,7 +173,8 @@
       });
 
       checks = {
-        x86_64-linux = listenerVmMatrix.checks // pytestVmChecks.checks;
+        x86_64-linux =
+          listenerVmMatrix.checks // pytestVmChecks.checks // daemonSessionIntegrationChecks.checks;
       };
 
       nixosModules.default = { config, lib, pkgs, ... }:

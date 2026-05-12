@@ -1,0 +1,16 @@
+name = "$OVERLOAD_SUPERKEY_NAME"
+mode = "overload"
+
+[actions]
+overload = [
+  { action = "keyboard", target = "key_leftctrl" },
+  { action = "keyboard", target = "key_leftshift" },
+]
+overload_down = [
+  { action = "keyboard", target = "key_1" },
+  { action = "keyboard", target = "key_2" },
+]
+overload_up = [
+  { action = "keyboard", target = "key_3" },
+  { action = "keyboard", target = "key_4" },
+]

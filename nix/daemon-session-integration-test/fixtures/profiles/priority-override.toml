@@ -1,0 +1,14 @@
+[profile]
+name = "$SECOND_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 200
+notify_on_activation = false
+created_at = "2026-05-12T00:00:01"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$HARDWARE_ID".mapping.key_a]
+action = "keyboard"
+target = "key_p"

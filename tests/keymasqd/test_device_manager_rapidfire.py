@@ -3,6 +3,57 @@ from tests.keymasqd.device_manager_support import *
 
 class TestRapidfireRelease:
     @pytest.mark.asyncio
+    async def test_set_virtual_gamepads_waits_for_cancelled_rapidfire_finalizers(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.device_count = 1
+        manager.output_state.virtual_gamepad_count = 1
+        finalized: list[str] = []
+
+        async def rapidfire_task() -> None:
+            try:
+                await asyncio.Future()
+            finally:
+                finalized.append("rapidfire")
+
+        task = asyncio.create_task(rapidfire_task())
+        await asyncio.sleep(0)
+        state = SimpleNamespace(
+            rapidfire_tasks={"btn": task},
+            rapidfire_outputs={},
+            rapidfire_active={"btn": True},
+            tap_active={},
+        )
+        device = SimpleNamespace(
+            state=state,
+            release_tracked_outputs=lambda: None,
+            reset_superkeys=AsyncMock(),
+        )
+        manager.grabbed_devices = {"device": [device]}
+
+        async def fake_clear_combo_runtime(*_args, **_kwargs) -> None:
+            return None
+
+        def fake_configure_virtual_gamepads(*_args, **_kwargs) -> int:
+            assert finalized == ["rapidfire"]
+            manager.output_state.virtual_gamepad_count = 2
+            return 2
+
+        monkeypatch.setattr(dm.runtime_combos, "clear_combo_runtime", fake_clear_combo_runtime)
+        monkeypatch.setattr(
+            dm.runtime_outputs,
+            "configure_virtual_gamepads",
+            fake_configure_virtual_gamepads,
+        )
+
+        result = await manager.set_virtual_gamepads(2)
+
+        assert result == {"status": "ok", "count": 2}
+        assert task.done()
+
+    @pytest.mark.asyncio
     async def test_grab_waits_until_active_keys_clear_before_grabbing(
         self,
         monkeypatch: pytest.MonkeyPatch,

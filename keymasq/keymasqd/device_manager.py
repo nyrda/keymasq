@@ -471,19 +471,25 @@ class DeviceManager:
             if clamped_count == self.output_state.virtual_gamepad_count:
                 return {"status": "ok", "count": clamped_count}
 
+            cancelled_rapidfire_tasks: list[asyncio.Task[None]] = []
             await runtime_combos.clear_combo_runtime(
                 self,
                 deps=runtime_grab_lifecycle._combo_runtime_deps(),  # pyright: ignore[reportPrivateUsage]
             )
             for devices in self.grabbed_devices.values():
                 for device in devices:
-                    release_outputs = getattr(device, "release_tracked_outputs", None)
-                    if callable(release_outputs):
-                        release_outputs()
                     state = getattr(device, "state", None)
                     if state is not None:
                         for task in list(getattr(state, "rapidfire_tasks", {}).values()):
                             if isinstance(task, asyncio.Task) and not task.done():
+                                cancelled_rapidfire_tasks.append(cast(asyncio.Task[None], task))
+                    release_outputs = getattr(device, "release_tracked_outputs", None)
+                    if callable(release_outputs):
+                        release_outputs()
+                    if state is not None:
+                        for task in list(getattr(state, "rapidfire_tasks", {}).values()):
+                            if isinstance(task, asyncio.Task) and not task.done():
+                                cancelled_rapidfire_tasks.append(cast(asyncio.Task[None], task))
                                 task.cancel()
                         getattr(state, "rapidfire_tasks", {}).clear()
                         getattr(state, "rapidfire_outputs", {}).clear()
@@ -494,6 +500,13 @@ class DeviceManager:
                         reset_result = reset()
                         if inspect.isawaitable(reset_result):
                             await reset_result
+
+            if cancelled_rapidfire_tasks:
+                unique_tasks = list(dict.fromkeys(cancelled_rapidfire_tasks))
+                for task in unique_tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*unique_tasks, return_exceptions=True)
 
             if self.output_state.device_count > 0:
                 runtime_outputs.configure_virtual_gamepads(

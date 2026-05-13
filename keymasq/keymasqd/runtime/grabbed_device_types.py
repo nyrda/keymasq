@@ -1,6 +1,14 @@
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping, Sequence
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field
 from typing import Final, Protocol, TypeVar, cast
 
@@ -52,6 +60,8 @@ class ManagedInputDevice(Protocol):
     def read_one(self) -> evdev.InputEvent | None: ...
 
     def active_keys(self) -> Sequence[int]: ...
+
+    def input_props(self) -> Iterable[int]: ...
 
     def close(self) -> None: ...
 

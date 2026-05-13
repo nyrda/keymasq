@@ -46,6 +46,8 @@ log = logging.getLogger("keymasqd.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
 ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
+DEFAULT_UINPUT_VERSION = 0x0001
+DEFAULT_UINPUT_BUSTYPE = 0x0003
 
 __all__ = [
     "ASYNCIO_RUNTIME",
@@ -70,6 +72,94 @@ def _device_input(path: str) -> _ManagedInputDevice:
 
 def _uinput_writer(device: object | None) -> _WritableUInput | None:
     return identity_uinput_writer(device)
+
+
+def _is_gamepad_passthrough(device_type: DeviceType, device_types: Sequence[str]) -> bool:
+    if device_type == DeviceType.GAMEPAD:
+        return True
+    return "gamepad" in {str(value or "").strip().lower() for value in device_types}
+
+
+def _passthrough_name(
+    device: _ManagedInputDevice,
+    hardware_id: str,
+    interface_id: str,
+    *,
+    is_gamepad: bool,
+) -> str:
+    if not is_gamepad:
+        return f"keymasq-{hardware_id}"
+
+    source_name = str(getattr(device, "name", "") or "").strip()
+    if source_name:
+        return source_name
+
+    suffix = str(interface_id or "").strip() or str(hardware_id or "").strip()
+    if suffix:
+        return f"Keymasq Gamepad Passthrough ({suffix})"
+    return "Keymasq Gamepad Passthrough"
+
+
+def _int_u16(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = int(value, 0)
+        except ValueError:
+            return None
+    else:
+        return None
+    if 0 <= parsed <= 0xFFFF:
+        return parsed
+    return None
+
+
+def _hardware_id_vendor_product(hardware_id: str) -> tuple[int | None, int | None]:
+    parts = str(hardware_id or "").split(":", 1)
+    if len(parts) != 2:
+        return None, None
+    try:
+        vendor = int(parts[0], 16)
+        product = int(parts[1], 16)
+    except ValueError:
+        return None, None
+    return _int_u16(vendor), _int_u16(product)
+
+
+def _passthrough_input_id(
+    device: _ManagedInputDevice,
+    hardware_id: str,
+) -> tuple[int | None, int | None, int, int]:
+    info = getattr(device, "info", None)
+    vendor = _int_u16(getattr(info, "vendor", None))
+    product = _int_u16(getattr(info, "product", None))
+    if vendor is None or product is None:
+        vendor, product = _hardware_id_vendor_product(hardware_id)
+
+    version = _int_u16(getattr(info, "version", None))
+    bustype = _int_u16(getattr(info, "bustype", None))
+    return (
+        vendor,
+        product,
+        DEFAULT_UINPUT_VERSION if version is None else version,
+        DEFAULT_UINPUT_BUSTYPE if bustype is None else bustype,
+    )
+
+
+def _passthrough_input_props(device: _ManagedInputDevice) -> Sequence[int] | None:
+    try:
+        converted: list[int] = []
+        for value in device.input_props():
+            parsed = _int_u16(value)
+            if parsed is None:
+                return None
+            converted.append(parsed)
+        return converted
+    except Exception:
+        return None
 
 
 class GrabbedDevice:
@@ -173,17 +263,59 @@ class GrabbedDevice:
         self.device = _device_input(self.path)
         caps = self.device.capabilities()
         caps.pop(evdev.ecodes.EV_SYN, None)
+        is_gamepad_passthrough = _is_gamepad_passthrough(self.device_type, self.device_types)
 
         passthrough_name, passthrough_vendor, passthrough_product = uinput_identity(
-            f"keymasq-{self.hardware_id}",
+            _passthrough_name(
+                self.device,
+                self.hardware_id,
+                self.interface_id,
+                is_gamepad=is_gamepad_passthrough,
+            ),
             "passthrough",
             test_name=f"passthrough-{self.hardware_id}",
         )
+        passthrough_version: int | None = None
+        passthrough_bustype: int | None = None
+        passthrough_input_props = None
+        if (
+            is_gamepad_passthrough
+            and passthrough_vendor is None
+            and passthrough_product is None
+        ):
+            (
+                passthrough_vendor,
+                passthrough_product,
+                passthrough_version,
+                passthrough_bustype,
+            ) = _passthrough_input_id(self.device, self.hardware_id)
+            passthrough_input_props = _passthrough_input_props(self.device)
+
         if passthrough_vendor is None or passthrough_product is None:
             self.uinput = evdev.UInput(
                 events=cast(dict[int, Sequence[int]], caps),
                 name=passthrough_name,
             )
+        elif passthrough_version is not None and passthrough_bustype is not None:
+            if passthrough_input_props is None:
+                self.uinput = evdev.UInput(
+                    events=cast(dict[int, Sequence[int]], caps),
+                    name=passthrough_name,
+                    vendor=passthrough_vendor,
+                    product=passthrough_product,
+                    version=passthrough_version,
+                    bustype=passthrough_bustype,
+                )
+            else:
+                self.uinput = evdev.UInput(
+                    events=cast(dict[int, Sequence[int]], caps),
+                    name=passthrough_name,
+                    vendor=passthrough_vendor,
+                    product=passthrough_product,
+                    version=passthrough_version,
+                    bustype=passthrough_bustype,
+                    input_props=passthrough_input_props,
+                )
         else:
             self.uinput = evdev.UInput(
                 events=cast(dict[int, Sequence[int]], caps),

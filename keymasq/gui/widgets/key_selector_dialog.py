@@ -916,8 +916,7 @@ class KeySelectorDialog(Adw.Dialog):
 
     def _build_gamepad_output_header(self) -> Gtk.Widget | None:
         choices = self._gamepad_output_choices()
-        concrete_count = sum(1 for output_id, _label in choices if output_id is not None)
-        if concrete_count <= 1 and not self._selected_gamepad_output_id:
+        if len(choices) <= 1 and not self._selected_gamepad_output_id:
             return None
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -941,21 +940,25 @@ class KeySelectorDialog(Adw.Dialog):
         return box
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
-        choices: list[tuple[str | None, str]] = [(None, "Default")]
         try:
             count = load_virtual_gamepad_count()
         except Exception:
             count = 1
-        for index in range(1, count + 1):
+        choices: list[tuple[str | None, str]] = [(None, "Virtual Gamepad 1")]
+        for index in range(2, count + 1):
             output_id = virtual_gamepad_output_id(index)
-            label = "Virtual Gamepad 1" if index == 1 else f"Virtual Gamepad {index}"
-            choices.append((output_id, label))
+            choices.append((output_id, f"Virtual Gamepad {index}"))
 
         try:
             hardware = HardwareManager()
             for config in hardware.list_hardware():
                 if self._is_hardware_gamepad(config):
-                    choices.append((config.hardware_id, config.hardware_id))
+                    choices.append(
+                        (
+                            config.hardware_id,
+                            self._hardware_gamepad_output_label(config),
+                        )
+                    )
         except Exception:
             pass
 
@@ -980,6 +983,13 @@ class KeySelectorDialog(Adw.Dialog):
             is_gamepad_button_name(getattr(button, "evdev", None))
             for button in getattr(config, "buttons", []) or []
         )
+
+    def _hardware_gamepad_output_label(self, config: object) -> str:
+        hardware_id = str(getattr(config, "hardware_id", "") or "")
+        name = str(getattr(config, "name", "") or "").strip()
+        if name and hardware_id:
+            return f"{name} ({hardware_id})"
+        return name or hardware_id
 
     def _on_gamepad_output_selected(self, dropdown: Gtk.DropDown, _param) -> None:
         selected = int(dropdown.get_selected())
@@ -2434,8 +2444,7 @@ class SuperkeyActionDialog(Adw.Dialog):
 
     def _build_gamepad_tab(self) -> Gtk.Widget:
         choices = self._gamepad_output_choices()
-        concrete_count = sum(1 for output_id, _label in choices if output_id is not None)
-        if concrete_count <= 1 and not self._selected_gamepad_output_id:
+        if len(choices) <= 1 and not self._selected_gamepad_output_id:
             return build_shared_gamepad_tab(self)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         outer.set_margin_top(8)
@@ -2461,19 +2470,23 @@ class SuperkeyActionDialog(Adw.Dialog):
         return outer
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
-        choices: list[tuple[str | None, str]] = [(None, "Default")]
         try:
             count = load_virtual_gamepad_count()
         except Exception:
             count = 1
-        for index in range(1, count + 1):
+        choices: list[tuple[str | None, str]] = [(None, "Virtual Gamepad 1")]
+        for index in range(2, count + 1):
             output_id = virtual_gamepad_output_id(index)
-            label = "Virtual Gamepad 1" if index == 1 else f"Virtual Gamepad {index}"
-            choices.append((output_id, label))
+            choices.append((output_id, f"Virtual Gamepad {index}"))
         try:
             for config in HardwareManager().list_hardware():
                 if KeySelectorDialog._is_hardware_gamepad(self, config):
-                    choices.append((config.hardware_id, config.hardware_id))
+                    choices.append(
+                        (
+                            config.hardware_id,
+                            KeySelectorDialog._hardware_gamepad_output_label(self, config),
+                        )
+                    )
         except Exception:
             pass
         if self._selected_gamepad_output_id and all(

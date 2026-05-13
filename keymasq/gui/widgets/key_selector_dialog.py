@@ -26,7 +26,7 @@ from keymasq.common.models import (
     action_type_supports_rapidfire,
 )
 from keymasq.common.slurp import get_slurp_capture
-from keymasq.common.virtual_devices import virtual_gamepad_output_id
+from keymasq.common.virtual_devices import is_virtual_gamepad_output_id, virtual_gamepad_output_id
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.gui.widgets.compositor_actions import (
@@ -54,6 +54,45 @@ from keymasq.session.superkeys import SuperkeyManager
 from keymasq.session.virtual_devices import load_virtual_gamepad_count
 
 log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
+
+
+def _virtual_gamepad_count() -> int:
+    try:
+        return max(0, int(load_virtual_gamepad_count()))
+    except Exception:
+        return 1
+
+
+def _virtual_gamepad_index(output_id: str | None) -> int | None:
+    if output_id is None:
+        return 1
+    if not is_virtual_gamepad_output_id(output_id):
+        return None
+    try:
+        return int(output_id.removeprefix("virtual-gamepad-"))
+    except ValueError:
+        return None
+
+
+def _gamepad_output_unavailable_message(output_id: str | None, count: int) -> str | None:
+    index = _virtual_gamepad_index(output_id)
+    if index is None:
+        return None
+    if index <= count:
+        return None
+    if output_id is None:
+        return "No virtual gamepads are configured."
+    return (
+        f"{output_id} is not configured. This mapping will be saved, but output will be "
+        "dropped until that virtual gamepad is enabled."
+    )
+
+
+def _format_current_virtual_output_choice(output_id: str) -> str:
+    if is_virtual_gamepad_output_id(output_id):
+        return f"{output_id} (unavailable)"
+    return f"{output_id} (unknown)"
+
 
 KEYBOARD_LAYOUT = [
     ["Esc", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"],
@@ -389,6 +428,7 @@ class KeySelectorDialog(Adw.Dialog):
         self._gamepad_output_ids: list[str | None] = []
         self._gamepad_output_dropdown: Gtk.DropDown | None = None
         self._gamepad_output_header: Gtk.Widget | None = None
+        self._gamepad_output_warning_label: Gtk.Label | None = None
         self._profile_name_items: list[str] = []
         self._exec_cmd: str = ""
         self._mouse_move_x: int = 0
@@ -912,7 +952,20 @@ class KeySelectorDialog(Adw.Dialog):
         return box
 
     def _build_gamepad_tab(self) -> Gtk.Widget:
-        return build_shared_gamepad_tab(self)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        warning = Gtk.Label(label="")
+        warning.set_margin_top(8)
+        warning.set_margin_start(12)
+        warning.set_margin_end(12)
+        warning.set_wrap(True)
+        warning.set_xalign(0)
+        warning.add_css_class("dim-label")
+        warning.add_css_class("warning")
+        self._gamepad_output_warning_label = warning
+        box.append(warning)
+        box.append(build_shared_gamepad_tab(self))
+        self._update_gamepad_output_warning()
+        return box
 
     def _build_gamepad_output_header(self) -> Gtk.Widget | None:
         choices = self._gamepad_output_choices()
@@ -940,11 +993,9 @@ class KeySelectorDialog(Adw.Dialog):
         return box
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
-        try:
-            count = load_virtual_gamepad_count()
-        except Exception:
-            count = 1
-        choices: list[tuple[str | None, str]] = [(None, "Virtual Gamepad 1")]
+        count = _virtual_gamepad_count()
+        default_label = "Virtual Gamepad 1" if count > 0 else "Default output unavailable"
+        choices: list[tuple[str | None, str]] = [(None, default_label)]
         for index in range(2, count + 1):
             output_id = virtual_gamepad_output_id(index)
             choices.append((output_id, f"Virtual Gamepad {index}"))
@@ -968,7 +1019,7 @@ class KeySelectorDialog(Adw.Dialog):
             choices.append(
                 (
                     self._selected_gamepad_output_id,
-                    f"{self._selected_gamepad_output_id} (unknown)",
+                    _format_current_virtual_output_choice(self._selected_gamepad_output_id),
                 )
             )
         return choices
@@ -995,6 +1046,18 @@ class KeySelectorDialog(Adw.Dialog):
         selected = int(dropdown.get_selected())
         if 0 <= selected < len(self._gamepad_output_ids):
             self._selected_gamepad_output_id = self._gamepad_output_ids[selected]
+        self._update_gamepad_output_warning()
+
+    def _update_gamepad_output_warning(self) -> None:
+        label = self._gamepad_output_warning_label
+        if label is None:
+            return
+        message = _gamepad_output_unavailable_message(
+            self._selected_gamepad_output_id,
+            _virtual_gamepad_count(),
+        )
+        label.set_label(message or "")
+        label.set_visible(bool(message))
 
     def _build_options_box(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -2000,6 +2063,7 @@ class SuperkeyActionDialog(Adw.Dialog):
             else None
         )
         self._gamepad_output_ids: list[str | None] = []
+        self._gamepad_output_warning_label: Gtk.Label | None = None
 
         if current_action:
             self._rapidfire_enabled = current_action.rapidfire_enabled
@@ -2444,37 +2508,44 @@ class SuperkeyActionDialog(Adw.Dialog):
 
     def _build_gamepad_tab(self) -> Gtk.Widget:
         choices = self._gamepad_output_choices()
-        if len(choices) <= 1 and not self._selected_gamepad_output_id:
-            return build_shared_gamepad_tab(self)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         outer.set_margin_top(8)
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        row.set_margin_start(12)
-        row.set_margin_end(12)
-        label = Gtk.Label(label="Output")
-        label.set_xalign(0)
-        label.set_hexpand(True)
-        self._gamepad_output_ids = [output_id for output_id, _label in choices]
-        dropdown = Gtk.DropDown.new_from_strings([label for _output_id, label in choices])
-        selected = 0
-        for index, output_id in enumerate(self._gamepad_output_ids):
-            if output_id == self._selected_gamepad_output_id:
-                selected = index
-                break
-        dropdown.set_selected(selected)
-        dropdown.connect("notify::selected", self._on_gamepad_output_selected)
-        row.append(label)
-        row.append(dropdown)
-        outer.append(row)
+        if len(choices) > 1 or self._selected_gamepad_output_id:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            row.set_margin_start(12)
+            row.set_margin_end(12)
+            label = Gtk.Label(label="Output")
+            label.set_xalign(0)
+            label.set_hexpand(True)
+            self._gamepad_output_ids = [output_id for output_id, _label in choices]
+            dropdown = Gtk.DropDown.new_from_strings([label for _output_id, label in choices])
+            selected = 0
+            for index, output_id in enumerate(self._gamepad_output_ids):
+                if output_id == self._selected_gamepad_output_id:
+                    selected = index
+                    break
+            dropdown.set_selected(selected)
+            dropdown.connect("notify::selected", self._on_gamepad_output_selected)
+            row.append(label)
+            row.append(dropdown)
+            outer.append(row)
+        warning = Gtk.Label(label="")
+        warning.set_margin_start(12)
+        warning.set_margin_end(12)
+        warning.set_wrap(True)
+        warning.set_xalign(0)
+        warning.add_css_class("dim-label")
+        warning.add_css_class("warning")
+        self._gamepad_output_warning_label = warning
+        outer.append(warning)
         outer.append(build_shared_gamepad_tab(self))
+        self._update_gamepad_output_warning()
         return outer
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
-        try:
-            count = load_virtual_gamepad_count()
-        except Exception:
-            count = 1
-        choices: list[tuple[str | None, str]] = [(None, "Virtual Gamepad 1")]
+        count = _virtual_gamepad_count()
+        default_label = "Virtual Gamepad 1" if count > 0 else "Default output unavailable"
+        choices: list[tuple[str | None, str]] = [(None, default_label)]
         for index in range(2, count + 1):
             output_id = virtual_gamepad_output_id(index)
             choices.append((output_id, f"Virtual Gamepad {index}"))
@@ -2495,7 +2566,7 @@ class SuperkeyActionDialog(Adw.Dialog):
             choices.append(
                 (
                     self._selected_gamepad_output_id,
-                    f"{self._selected_gamepad_output_id} (unknown)",
+                    _format_current_virtual_output_choice(self._selected_gamepad_output_id),
                 )
             )
         return choices
@@ -2504,6 +2575,18 @@ class SuperkeyActionDialog(Adw.Dialog):
         selected = int(dropdown.get_selected())
         if 0 <= selected < len(self._gamepad_output_ids):
             self._selected_gamepad_output_id = self._gamepad_output_ids[selected]
+        self._update_gamepad_output_warning()
+
+    def _update_gamepad_output_warning(self) -> None:
+        label = self._gamepad_output_warning_label
+        if label is None:
+            return
+        message = _gamepad_output_unavailable_message(
+            self._selected_gamepad_output_id,
+            _virtual_gamepad_count(),
+        )
+        label.set_label(message or "")
+        label.set_visible(bool(message))
 
     def _on_f_key_selected(self, btn):
         idx = self.f_dropdown.get_selected()

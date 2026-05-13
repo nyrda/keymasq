@@ -654,6 +654,63 @@ def test_key_selector_dialog_gamepad_output_labels_hardware_by_name(monkeypatch)
     assert ("045e:028e@2", "Living Room Pad (045e:028e@2)") in dialog._gamepad_output_choices()
 
 
+def test_key_selector_dialog_gamepad_default_warns_when_virtual_count_zero(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 0)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Extra Button 14")
+
+    assert dialog._gamepad_output_choices()[0] == (None, "Default output unavailable")
+    assert dialog._gamepad_output_warning_label is not None
+    assert dialog._gamepad_output_warning_label.get_visible() is True
+    assert dialog._gamepad_output_warning_label.get_label() == "No virtual gamepads are configured."
+
+
+def test_key_selector_dialog_explicit_missing_virtual_output_warns(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Extra Button 14",
+        MappingAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_south",
+            output_id="virtual-gamepad-3",
+        ),
+    )
+
+    assert ("virtual-gamepad-3", "virtual-gamepad-3 (unavailable)") in (
+        dialog._gamepad_output_choices()
+    )
+    assert dialog._gamepad_output_warning_label is not None
+    assert dialog._gamepad_output_warning_label.get_visible() is True
+    assert "virtual-gamepad-3 is not configured" in (
+        dialog._gamepad_output_warning_label.get_label()
+    )
+
+
 def test_key_selector_dialog_mouse_back_forward_use_browser_button_codes():
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

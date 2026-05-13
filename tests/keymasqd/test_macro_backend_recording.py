@@ -754,6 +754,56 @@ async def test_macro_abs_cleanup_ignores_explicit_neutral_value() -> None:
 
 
 @pytest.mark.asyncio
+async def test_play_macro_routes_gamepad_event_output_id() -> None:
+    manager = DeviceManager()
+    default_gamepad = MagicMock()
+    second_gamepad = MagicMock()
+    manager.output_state.virtual_gamepad_uinputs = {
+        "virtual-gamepad-1": default_gamepad,
+        "virtual-gamepad-2": second_gamepad,
+    }
+
+    await _play_macro_task(
+        manager,
+        instance_id=1,
+        macro_events=[
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.BTN_SOUTH,
+                "value": 1,
+                "device_type": "gamepad",
+                "output_id": "virtual-gamepad-2",
+            },
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.BTN_SOUTH,
+                "value": 0,
+                "device_type": "gamepad",
+                "output_id": "virtual-gamepad-2",
+            },
+        ],
+        macro_name="routed_gamepad",
+        replay_mouse_movement=True,
+        replay_mouse_clicks=True,
+        speed=1.0,
+        loop_mode="none",
+        loop_count=1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+    )
+
+    default_gamepad.write.assert_not_called()
+    assert [call.args for call in second_gamepad.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_macro_switch_interrupt_releases_held_state_for_previous_instance() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()

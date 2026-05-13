@@ -1,9 +1,12 @@
 # ruff: noqa: F403, F405, I001
 from collections.abc import Callable
 
+from keymasq.common.models import MappingAction
 from keymasq.gui.widgets.macro_editor_dialog import EditableControl
 
 from tests.gui.macro_editor_dialog_support import *
+
+from gi.repository import Gtk
 
 def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> None:
     from keymasq.gui.session_client import GuiTaskResult
@@ -86,6 +89,58 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert dialog._macro_start_x_spin.get_sensitive() is True
     assert dialog._macro_start_y_spin.get_sensitive() is True
     assert dialog._macro_block_mouse_check.get_active() is True
+
+
+def test_macro_editor_gamepad_events_round_trip_output_id(monkeypatch) -> None:
+    raw_events = [
+        {
+            "device_type": "gamepad",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.BTN_SOUTH,
+            "value": 1,
+            "t_us": 1000,
+            "output_id": "virtual-gamepad-2",
+        },
+        {
+            "device_type": "gamepad",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.BTN_SOUTH,
+            "value": 0,
+            "t_us": 5000,
+            "output_id": "virtual-gamepad-2",
+        },
+    ]
+
+    events, rel_events, passthrough_events, moves, controls = parse_events(raw_events)
+
+    assert len(events) == 1
+    assert events[0].device_type == "gamepad"
+    assert events[0].output_id == "virtual-gamepad-2"
+    assert _passthrough_track(raw_events[0]) == "gamepad"
+    assert reconstruct_events(events, rel_events, passthrough_events, moves, controls) == raw_events
+
+
+def test_macro_editor_insert_gamepad_action_adds_timeline_event(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD,
+        target="btn_south",
+        output_id="virtual-gamepad-2",
+    )
+
+    dialog._on_key_selected_for_insert(Gtk.Window(), action, 12000)
+
+    assert len(dialog._events) == 1
+    event = dialog._events[0]
+    assert event.device_type == "gamepad"
+    assert event.code == evdev.ecodes.BTN_SOUTH
+    assert event.output_id == "virtual-gamepad-2"
+    payload = dialog._build_macro_payload("demo_macro")
+    gamepad_events = [ev for ev in payload["events"] if ev.get("device_type") == "gamepad"]
+    assert [ev.get("output_id") for ev in gamepad_events] == [
+        "virtual-gamepad-2",
+        "virtual-gamepad-2",
+    ]
 
 
 def test_macro_editor_event_selection_and_timing_edits_refresh_event(monkeypatch) -> None:
@@ -804,10 +859,18 @@ def test_macro_editor_shift_timeline_for_gap_respects_scopes(monkeypatch) -> Non
         press_t_us=1000,
         release_t_us=2000,
     )
+    gamepad = EditableEvent(
+        device_type="gamepad",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.BTN_SOUTH,
+        press_t_us=1000,
+        release_t_us=2000,
+        output_id="virtual-gamepad-2",
+    )
     excluded = EditableControl(mode="wait", t_us=1000, duration_us=500)
     shifted = EditableControl(mode="wait_random", t_us=2000, min_us=500, max_us=1500)
     move = EditableMove(mode="rel", t_us=1000, x=1, y=1)
-    dialog._events = [keyboard, mouse]
+    dialog._events = [keyboard, mouse, gamepad]
     dialog._synthetic_moves = [move]
     dialog._control_events = [excluded, shifted]
     dialog._rel_events = [
@@ -844,6 +907,7 @@ def test_macro_editor_shift_timeline_for_gap_respects_scopes(monkeypatch) -> Non
     ) is True
     assert keyboard.press_t_us == 1000
     assert mouse.press_t_us == 1000
+    assert gamepad.press_t_us == 1000
     assert move.t_us == 1500
     assert dialog._rel_events[0]["t_us"] == 1500
     assert excluded.t_us == 1000
@@ -861,6 +925,16 @@ def test_macro_editor_shift_timeline_for_gap_respects_scopes(monkeypatch) -> Non
     assert keyboard.release_t_us == 1250
     assert mouse.press_t_us == 1000
     assert dialog._passthrough_events[0]["t_us"] == 250
+
+    assert dialog._shift_timeline_for_gap(
+        at_us=1000,
+        delta_us=500,
+        scope="gamepad",
+        exclude_control=None,
+    ) is True
+    assert keyboard.press_t_us == 250
+    assert mouse.press_t_us == 1000
+    assert gamepad.press_t_us == 1500
 
 
 def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> None:
@@ -880,6 +954,14 @@ def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> No
         code=evdev.ecodes.BTN_LEFT,
         press_t_us=60_000,
         release_t_us=220_000,
+    )
+    gamepad = EditableEvent(
+        device_type="gamepad",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.BTN_SOUTH,
+        press_t_us=80_000,
+        release_t_us=200_000,
+        output_id="virtual-gamepad-2",
     )
     move = EditableMove(mode="rel", t_us=40_000, x=8, y=-6)
     absolute_move = EditableMove(mode="abs", t_us=280_000, x=640, y=360)
@@ -905,7 +987,7 @@ def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> No
         "value": -3,
         "t_us": 210_000,
     }
-    dialog._events = [keyboard, mouse]
+    dialog._events = [keyboard, mouse, gamepad]
     dialog._rel_events = [
         {
             "device_type": "mouse",
@@ -928,6 +1010,7 @@ def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> No
 
     assert timeline._get_track_at_y(timeline._kb_y + 5) == "keyboard"
     assert timeline._get_track_at_y(timeline._m_y + 5) == "mouse"
+    assert timeline._get_track_at_y(timeline._g_y + 5) == "gamepad"
     assert timeline._get_track_at_y(timeline._wave_y + 5) == "movement"
     assert timeline._hit_test(
         timeline._time_to_x(keyboard.press_t_us) + 2,
@@ -937,6 +1020,10 @@ def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> No
         timeline._time_to_x(mouse.press_t_us) + 2,
         timeline._m_y + 12,
     ) is mouse
+    assert timeline._hit_test(
+        timeline._time_to_x(gamepad.press_t_us) + 2,
+        timeline._g_y + 12,
+    ) is gamepad
     assert timeline._hit_test_move(
         timeline._time_to_x(move.t_us),
         timeline._wave_y + 14,

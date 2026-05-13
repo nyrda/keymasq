@@ -182,8 +182,9 @@ Additional configured virtual gamepads use the same Xbox 360 template. Their
 names are `keymasq-gamepad-2`, `keymasq-gamepad-3`, and
 `keymasq-gamepad-4`.
 
-Macro playback does not store per-event gamepad routing. Recorded gamepad
-macro events still play through the default gamepad output.
+Macro gamepad events may include `output_id` and use the same strict routing
+rules as gamepad mappings. Macro events without `output_id` still play through
+the default gamepad output.
 
 ### Linux Gamepad Specification
 

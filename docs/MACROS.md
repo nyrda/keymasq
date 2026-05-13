@@ -292,6 +292,7 @@ The editor lets you insert several kinds of events into the timeline:
 |---|---|
 | **Key press / release** | Any keyboard key — letters, modifiers, function keys, media keys, etc. |
 | **Mouse click** | Press or release of any mouse button. |
+| **Gamepad button** | Press or release of a gamepad button. Routed events can target a configured virtual or hardware gamepad output. |
 | **Relative mouse movement** | Move the pointer by a delta (pixels). Useful for macros that should work regardless of where the cursor starts. |
 | **Absolute mouse movement** | Move the pointer to an exact screen coordinate. Useful when a macro always targets a fixed UI element. |
 | **Wait** | Pause macro playback for a fixed duration. The editor stores it at its timestamp and does not move later events. |

@@ -90,6 +90,7 @@ async def play_macro(
         manager.output_state.keyboard_uinput
         or manager.output_state.mouse_uinput
         or manager.output_state.gamepad_uinput
+        or manager.output_state.virtual_gamepad_uinputs
     ):
         return {"status": "error", "message": "No output uinput devices available"}
 
@@ -461,8 +462,15 @@ async def play_macro_task(
                     uinput = manager.output_state.mouse_uinput
                     output_class = "mouse"
                 elif device_type == "gamepad":
-                    uinput = manager.output_state.gamepad_uinput
-                    output_class = "gamepad"
+                    output_id = str_value_fn(ev.get("output_id"), "").strip() or None
+                    target = manager.resolve_gamepad_output(
+                        output_id,
+                        context=f"macro {macro_name or '<unnamed>'}",
+                    )
+                    if target is None:
+                        continue
+                    uinput = target.uinput
+                    output_class = target.bucket
                 else:
                     if event_type == evdev_mod.ecodes.EV_KEY:
                         uinput = manager.output_state.keyboard_uinput
@@ -586,6 +594,15 @@ def _is_wheel_event(event_type: int, event_code: int, *, evdev_mod: Any) -> bool
     }
 
 
+def gamepad_output_class(device_class: str) -> str | None:
+    if device_class == "gamepad":
+        return "virtual-gamepad-1"
+    if device_class.startswith("gamepad:"):
+        output_id = device_class.removeprefix("gamepad:").strip()
+        return output_id or None
+    return None
+
+
 def track_macro_key_press(
     manager: _MacroManager, instance_id: int, device_class: str, code: int
 ) -> None:
@@ -623,7 +640,7 @@ def track_macro_abs_value(
     *,
     deps: MacroRuntimeDeps,
 ) -> None:
-    if device_class != "gamepad":
+    if not gamepad_output_class(device_class):
         return
     if int(code) not in gamepad_abs_cleanup_codes(deps.evdev_mod):
         return
@@ -664,6 +681,20 @@ def release_macro_held_for_instance(
         "mouse": deps.uinput_writer(manager.output_state.mouse_uinput),
         "gamepad": deps.uinput_writer(manager.output_state.gamepad_uinput),
     }
+    for output_id, uinput_dev in getattr(
+        manager.output_state, "virtual_gamepad_uinputs", {}
+    ).items():
+        uinputs[f"gamepad:{output_id}"] = deps.uinput_writer(uinput_dev)
+    for key in [*held, *held_abs]:
+        device_class = str(key[0])
+        output_id = gamepad_output_class(device_class)
+        if output_id is None or device_class in uinputs:
+            continue
+        target = manager.resolve_gamepad_output(
+            output_id,
+            context="macro cleanup",
+        )
+        uinputs[device_class] = deps.uinput_writer(target.uinput) if target is not None else None
     synced: set[str] = set()
     held_refcount = manager.macro_state.held_refcount
     held_abs_refcount = manager.macro_state.held_abs_refcount

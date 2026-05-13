@@ -711,6 +711,76 @@ def test_key_selector_dialog_explicit_missing_virtual_output_warns(monkeypatch):
     )
 
 
+def test_key_selector_dialog_explicit_first_virtual_output_uses_default_choice(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Extra Button 14",
+        MappingAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_south",
+            output_id="virtual-gamepad-1",
+        ),
+    )
+
+    assert dialog._gamepad_output_choices() == [(None, "Virtual Gamepad 1")]
+    assert dialog._gamepad_output_dropdown is not None
+    assert dialog._gamepad_output_dropdown.get_selected() == 0
+    assert dialog._gamepad_output_warning_label is not None
+    assert dialog._gamepad_output_warning_label.get_visible() is False
+
+
+def test_superkey_action_dialog_explicit_first_virtual_output_uses_default_choice(
+    monkeypatch,
+):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, SuperkeyAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import SuperkeyActionDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+    monkeypatch.setattr(
+        dialog_module,
+        "session_request_async",
+        lambda payload, callback, timeout=5.0: None,
+    )
+
+    dialog = SuperkeyActionDialog(
+        Gtk.Box(),
+        "hold",
+        SuperkeyAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_south",
+            output_id="virtual-gamepad-1",
+        ),
+    )
+
+    assert dialog._gamepad_output_choices() == [(None, "Virtual Gamepad 1")]
+    assert dialog._gamepad_output_ids == [None]
+    assert dialog._gamepad_output_warning_label is not None
+    assert dialog._gamepad_output_warning_label.get_visible() is False
+
+
 def test_key_selector_dialog_mouse_back_forward_use_browser_button_codes():
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

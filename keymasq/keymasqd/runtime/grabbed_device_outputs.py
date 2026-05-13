@@ -237,7 +237,8 @@ def release_all_keys(
     for bucket, uinput_dev in devices.items():
         writer = uinput_writer(uinput_dev)
         if writer is None:
-            device_runtime.state.held_output_keys[bucket].clear()
+            device_runtime.state.held_output_keys.get(bucket, set()).clear()
+            device_runtime.state.held_output_abs.get(bucket, set()).clear()
             if bucket in device_runtime.state.superkey_output_refcounts:
                 device_runtime.state.superkey_output_refcounts[bucket].clear()
             continue

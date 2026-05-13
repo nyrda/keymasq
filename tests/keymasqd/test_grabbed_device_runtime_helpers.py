@@ -1020,6 +1020,70 @@ class TestGrabbedDeviceHelpers:
         assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0) in second_gamepad.writes
         assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == set()
 
+    def test_combo_restore_routes_gamepad_output_id_and_tracks_bucket(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = _make_grabbed_device(monkeypatch)
+        default_gamepad = _FakeUInput()
+        second_gamepad = _FakeUInput()
+        device.gamepad_uinput = default_gamepad  # type: ignore[assignment]
+        device._gamepad_output_resolver = lambda output_id, context: SimpleNamespace(  # type: ignore[method-assign, reportPrivateUsage]
+            output_id=output_id,
+            uinput=second_gamepad if output_id == "virtual-gamepad-2" else default_gamepad,
+            bucket=f"gamepad:{output_id or 'virtual-gamepad-1'}",
+            is_virtual=True,
+        )
+        device.state.held_source_actions["key_x"] = dm.MappingAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_south",
+            output_id="virtual-gamepad-2",
+        )
+        device.state.held_output_keys["gamepad:virtual-gamepad-2"] = {
+            evdev.ecodes.BTN_SOUTH
+        }
+
+        assert device.combo_passthrough_binding_active("key_x") is True
+
+        device.emit_combo_release("key_x")
+
+        assert default_gamepad.writes == []
+        assert second_gamepad.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0)
+        ]
+        assert device.state.held_output_keys["gamepad:virtual-gamepad-2"] == set()
+
+        device.emit_combo_press("key_x")
+
+        assert default_gamepad.writes == []
+        assert second_gamepad.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1),
+        ]
+        assert device.state.held_output_keys["gamepad:virtual-gamepad-2"] == {
+            evdev.ecodes.BTN_SOUTH
+        }
+
+    def test_release_all_keys_clears_missing_routed_abs_bucket_without_key_bucket(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = _make_grabbed_device(monkeypatch)
+        device._gamepad_output_resolver = lambda output_id, context: None  # type: ignore[method-assign, reportPrivateUsage]
+        device.state.held_output_abs["gamepad:virtual-gamepad-2"] = {
+            evdev.ecodes.ABS_Z
+        }
+        device.state.held_output_keys.pop("gamepad:virtual-gamepad-2", None)
+
+        gdo.release_all_keys(
+            device,
+            evdev_mod=evdev,
+            uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+        )
+
+        assert "gamepad:virtual-gamepad-2" not in device.state.held_output_keys
+        assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == set()
+
     @pytest.mark.asyncio
     async def test_execute_action_mouse_move_abs_uses_cursor_position_setter(
         self,

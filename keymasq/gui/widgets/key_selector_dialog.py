@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 
 import evdev
 import gi
@@ -92,6 +93,60 @@ def _format_current_virtual_output_choice(output_id: str) -> str:
     if is_virtual_gamepad_output_id(output_id):
         return f"{output_id} (unavailable)"
     return f"{output_id} (unknown)"
+
+
+def _is_hardware_gamepad(config: object) -> bool:
+    evdev_devices = getattr(config, "evdev_devices", []) or []
+    for device in evdev_devices:
+        device_type = getattr(device, "device_type", None)
+        if getattr(device_type, "value", device_type) == "gamepad":
+            return True
+    return any(
+        is_gamepad_button_name(getattr(button, "evdev", None))
+        for button in getattr(config, "buttons", []) or []
+    )
+
+
+def _hardware_gamepad_output_label(config: object) -> str:
+    hardware_id = str(getattr(config, "hardware_id", "") or "")
+    name = str(getattr(config, "name", "") or "").strip()
+    if name and hardware_id:
+        return f"{name} ({hardware_id})"
+    return name or hardware_id
+
+
+def _gamepad_output_choice_matches(choice_id: str | None, selected_id: str | None) -> bool:
+    if choice_id == selected_id:
+        return True
+    return choice_id is None and selected_id == "virtual-gamepad-1"
+
+
+def _gamepad_output_choices_for(
+    selected_id: str | None,
+    count: int,
+    hardware_configs: Sequence[object],
+) -> list[tuple[str | None, str]]:
+    default_label = "Virtual Gamepad 1" if count > 0 else "Default output unavailable"
+    choices: list[tuple[str | None, str]] = [(None, default_label)]
+    for index in range(2, count + 1):
+        output_id = virtual_gamepad_output_id(index)
+        choices.append((output_id, f"Virtual Gamepad {index}"))
+
+    for config in hardware_configs:
+        if _is_hardware_gamepad(config):
+            choices.append(
+                (
+                    str(getattr(config, "hardware_id", "") or ""),
+                    _hardware_gamepad_output_label(config),
+                )
+            )
+
+    if selected_id and all(
+        not _gamepad_output_choice_matches(output_id, selected_id)
+        for output_id, _label in choices
+    ):
+        choices.append((selected_id, _format_current_virtual_output_choice(selected_id)))
+    return choices
 
 
 KEYBOARD_LAYOUT = [
@@ -981,7 +1036,7 @@ class KeySelectorDialog(Adw.Dialog):
         dropdown.set_valign(Gtk.Align.CENTER)
         selected = 0
         for index, output_id in enumerate(self._gamepad_output_ids):
-            if output_id == self._selected_gamepad_output_id:
+            if _gamepad_output_choice_matches(output_id, self._selected_gamepad_output_id):
                 selected = index
                 break
         dropdown.set_selected(selected)
@@ -994,53 +1049,15 @@ class KeySelectorDialog(Adw.Dialog):
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
         count = _virtual_gamepad_count()
-        default_label = "Virtual Gamepad 1" if count > 0 else "Default output unavailable"
-        choices: list[tuple[str | None, str]] = [(None, default_label)]
-        for index in range(2, count + 1):
-            output_id = virtual_gamepad_output_id(index)
-            choices.append((output_id, f"Virtual Gamepad {index}"))
-
         try:
-            hardware = HardwareManager()
-            for config in hardware.list_hardware():
-                if self._is_hardware_gamepad(config):
-                    choices.append(
-                        (
-                            config.hardware_id,
-                            self._hardware_gamepad_output_label(config),
-                        )
-                    )
+            hardware_configs = list(HardwareManager().list_hardware())
         except Exception:
-            pass
-
-        if self._selected_gamepad_output_id and all(
-            output_id != self._selected_gamepad_output_id for output_id, _label in choices
-        ):
-            choices.append(
-                (
-                    self._selected_gamepad_output_id,
-                    _format_current_virtual_output_choice(self._selected_gamepad_output_id),
-                )
-            )
-        return choices
-
-    def _is_hardware_gamepad(self, config: object) -> bool:
-        evdev_devices = getattr(config, "evdev_devices", []) or []
-        for device in evdev_devices:
-            device_type = getattr(device, "device_type", None)
-            if getattr(device_type, "value", device_type) == "gamepad":
-                return True
-        return any(
-            is_gamepad_button_name(getattr(button, "evdev", None))
-            for button in getattr(config, "buttons", []) or []
+            hardware_configs = []
+        return _gamepad_output_choices_for(
+            self._selected_gamepad_output_id,
+            count,
+            hardware_configs,
         )
-
-    def _hardware_gamepad_output_label(self, config: object) -> str:
-        hardware_id = str(getattr(config, "hardware_id", "") or "")
-        name = str(getattr(config, "name", "") or "").strip()
-        if name and hardware_id:
-            return f"{name} ({hardware_id})"
-        return name or hardware_id
 
     def _on_gamepad_output_selected(self, dropdown: Gtk.DropDown, _param) -> None:
         selected = int(dropdown.get_selected())
@@ -2521,7 +2538,7 @@ class SuperkeyActionDialog(Adw.Dialog):
             dropdown = Gtk.DropDown.new_from_strings([label for _output_id, label in choices])
             selected = 0
             for index, output_id in enumerate(self._gamepad_output_ids):
-                if output_id == self._selected_gamepad_output_id:
+                if _gamepad_output_choice_matches(output_id, self._selected_gamepad_output_id):
                     selected = index
                     break
             dropdown.set_selected(selected)
@@ -2544,32 +2561,15 @@ class SuperkeyActionDialog(Adw.Dialog):
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
         count = _virtual_gamepad_count()
-        default_label = "Virtual Gamepad 1" if count > 0 else "Default output unavailable"
-        choices: list[tuple[str | None, str]] = [(None, default_label)]
-        for index in range(2, count + 1):
-            output_id = virtual_gamepad_output_id(index)
-            choices.append((output_id, f"Virtual Gamepad {index}"))
         try:
-            for config in HardwareManager().list_hardware():
-                if KeySelectorDialog._is_hardware_gamepad(self, config):
-                    choices.append(
-                        (
-                            config.hardware_id,
-                            KeySelectorDialog._hardware_gamepad_output_label(self, config),
-                        )
-                    )
+            hardware_configs = list(HardwareManager().list_hardware())
         except Exception:
-            pass
-        if self._selected_gamepad_output_id and all(
-            output_id != self._selected_gamepad_output_id for output_id, _label in choices
-        ):
-            choices.append(
-                (
-                    self._selected_gamepad_output_id,
-                    _format_current_virtual_output_choice(self._selected_gamepad_output_id),
-                )
-            )
-        return choices
+            hardware_configs = []
+        return _gamepad_output_choices_for(
+            self._selected_gamepad_output_id,
+            count,
+            hardware_configs,
+        )
 
     def _on_gamepad_output_selected(self, dropdown: Gtk.DropDown, _param) -> None:
         selected = int(dropdown.get_selected())

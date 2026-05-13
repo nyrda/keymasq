@@ -208,7 +208,7 @@ class DeviceTab(ProfileManagedTab):
         mapped = self._count_mapped_buttons()
         total = len(self.device.buttons)
         base = (
-            f"{self._header_hardware_label()} | {len(self.device.evdev_devices)} evdev, "
+            f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
             f"{total} buttons"
         )
         if mapped > 0:
@@ -344,9 +344,6 @@ class DeviceTab(ProfileManagedTab):
 
         self.set_focusable(True)
 
-    def _header_hardware_label(self) -> str:
-        return self.device.model_id if self.device.id else self.device.hardware_id
-
     def _header_hardware_tooltip(self) -> str:
         lines = [f"Hardware ID: {self.device.hardware_id}"]
         paths = [str(device.path or "") for device in self.device.evdev_devices if device.path]
@@ -357,7 +354,7 @@ class DeviceTab(ProfileManagedTab):
 
     def _header_caption_text(self) -> str:
         return (
-            f"{self._header_hardware_label()} | {len(self.device.evdev_devices)} evdev, "
+            f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
             f"{len(self.device.buttons)} buttons"
         )
 
@@ -1411,10 +1408,10 @@ class DeviceTab(ProfileManagedTab):
             if self._add_keys_capturing:
                 return
             count = int(spin.get_value())
+            self._add_keys_pending_ids = [f"key_added_{i + 1}" for i in range(count)]
             status.set_text(self._capture_waiting_label())
             start_btn.set_sensitive(False)
             self._start_add_keys_capture(
-                count,
                 status,
                 dialog,
                 start_btn=start_btn,
@@ -1432,7 +1429,6 @@ class DeviceTab(ProfileManagedTab):
 
     def _start_add_keys_capture(
         self,
-        count: int,
         status_label: Gtk.Label,
         parent_dialog: Adw.Dialog,
         *,
@@ -1441,7 +1437,7 @@ class DeviceTab(ProfileManagedTab):
         privilege_status: Gtk.Label | None = None,
     ) -> None:
         self._capture_active_hardware_id = self.device.hardware_id
-        self._add_keys_pending_ids = [f"key_added_{i + 1}" for i in range(count)]
+
         def on_capture_begun(result: JsonDict | None) -> bool:
             return self._on_add_keys_capture_begun(
                 result,

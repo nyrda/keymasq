@@ -35,6 +35,7 @@ from keymasq.session.dbus import SessionDBus
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
+from keymasq.session.virtual_devices import load_virtual_gamepad_count
 
 from . import commands as session_commands
 from . import compositor as runtime_compositor
@@ -75,6 +76,7 @@ class SessionManager:
             auto_create_default_if_empty=True,
         )
         self.hardware = HardwareManager()
+        self.virtual_gamepad_count = load_virtual_gamepad_count()
         self.action_handler: ActionHandler | None = None
         self.running = False
         self._shutdown_event = asyncio.Event()
@@ -486,6 +488,7 @@ class SessionManager:
 
         await asyncio.to_thread(self.reload_config_from_disk)
         log.info("Reloaded all superkeys, profiles and hardware configs")
+        await self._sync_virtual_gamepads_to_daemon()
         runtime_profiles.invalidate_runtime_payload_signatures(self)
 
         configured_ids = set(self.hardware.list_hardware_ids())
@@ -506,6 +509,25 @@ class SessionManager:
         self.superkeys.reload()
         self.profiles.reload()
         self.hardware.reload()
+        self.virtual_gamepad_count = load_virtual_gamepad_count()
+
+    async def _sync_virtual_gamepads_to_daemon(self) -> None:
+        if not self.connected:
+            return
+        try:
+            response = await self.client.send_command(
+                Command(
+                    command=CommandType.SET_VIRTUAL_GAMEPADS,
+                    data={"count": int(self.virtual_gamepad_count)},
+                )
+            )
+            if response.status == "ok" and isinstance(response.data, dict):
+                data = cast(JsonObject, response.data)
+                raw_count = data.get("count", self.virtual_gamepad_count)
+                if isinstance(raw_count, (int, float, str)):
+                    self.virtual_gamepad_count = int(raw_count)
+        except Exception as exc:
+            log.warning("Failed to configure virtual gamepads in keymasqd: %s", exc)
 
     async def connect_loop(self) -> None:
         retry_delay = 1.0
@@ -520,6 +542,7 @@ class SessionManager:
                 log.info("Connected to keymasqd")
                 self._broadcast_keymasqd_status(True)
                 await runtime_compositor.sync_cursor_position_backend(self)
+                await self._sync_virtual_gamepads_to_daemon()
 
                 try:
                     await runtime_profiles.activate_initial_profiles(self)

@@ -14,6 +14,7 @@ from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     emit_configured_mouse_move,
     ensure_key_released,
     ensure_trigger_released,
+    track_abs_state,
     write_key,
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
@@ -53,6 +54,7 @@ def start_rapidfire_task(
     code: int | None,
     uinput: object | None,
     axis_code: int | None,
+    bucket: str | None = None,
 ) -> None:
     stop_rapidfire(device_runtime, event_name)
     task = task_factory()
@@ -67,6 +69,7 @@ def start_rapidfire_task(
         state.uinput = uinput
     if axis_code is not None:
         state.axis_code = int(axis_code)
+    state.bucket = bucket
     device_runtime.state.rapidfire_outputs[event_name] = state
 
 
@@ -87,6 +90,8 @@ def stop_rapidfire(device_runtime: GrabbedDeviceRuntime, event_name: str) -> Non
                 axis_code,
                 evdev_mod=evdev,
                 uinput_writer=_uinput_writer,
+                uinput_dev=state.uinput,
+                bucket=state.bucket,
             )
         return
     if kind == "relative":
@@ -95,7 +100,8 @@ def stop_rapidfire(device_runtime: GrabbedDeviceRuntime, event_name: str) -> Non
         code = state.code
         uinput = state.uinput
         if code is not None:
-            ensure_key_released(device_runtime, code, uinput)
+            ensure_key_released(device_runtime, code, uinput, bucket=state.bucket)
+            return
 
 
 async def stop_rapidfire_async(
@@ -131,6 +137,8 @@ def finish_rapidfire_task(
                 axis_code,
                 evdev_mod=evdev,
                 uinput_writer=_uinput_writer,
+                uinput_dev=state.uinput,
+                bucket=state.bucket,
             )
         return
     if kind == "relative":
@@ -139,7 +147,7 @@ def finish_rapidfire_task(
         code = state.code
         uinput = state.uinput
         if code is not None:
-            ensure_key_released(device_runtime, code, uinput)
+            ensure_key_released(device_runtime, code, uinput, bucket=state.bucket)
 
 
 async def rapidfire_trigger(
@@ -148,10 +156,12 @@ async def rapidfire_trigger(
     hold_ms: int,
     wait_ms: int,
     event_name: str,
+    uinput_dev: object | None,
     *,
     asyncio_mod: AsyncioModule,
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
+    bucket: str | None = None,
 ) -> None:
     hold = clamp_rapidfire_hold_ms(hold_ms) / 1000.0
     wait = clamp_rapidfire_wait_ms(wait_ms) / 1000.0
@@ -163,17 +173,19 @@ async def rapidfire_trigger(
             device_runtime.state.rapidfire_active.get(event_name, False)
             and runtime_is_running(device_runtime)
         ):
-            gamepad_uinput = uinput_writer(device_runtime.gamepad_uinput)
+            gamepad_uinput = uinput_writer(uinput_dev)
             if gamepad_uinput is None:
                 return
             gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 255)
             gamepad_uinput.syn()
+            track_abs_state(device_runtime, axis_code, 255, bucket=bucket)
             pressed = True
             await asyncio_mod.sleep(hold)
 
             if pressed:
                 gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 0)
                 gamepad_uinput.syn()
+                track_abs_state(device_runtime, axis_code, 0, bucket=bucket)
                 pressed = False
             if not device_runtime.state.rapidfire_active.get(event_name, False):
                 break
@@ -188,6 +200,8 @@ async def rapidfire_trigger(
                 axis_code,
                 evdev_mod=evdev_mod,
                 uinput_writer=uinput_writer,
+                uinput_dev=uinput_dev,
+                bucket=bucket,
             )
         if task is not None:
             finish_rapidfire_task(device_runtime, event_name, task)
@@ -198,22 +212,26 @@ async def tap_trigger(
     axis_code: int,
     hold_ms: int,
     event_name: str,
+    uinput_dev: object | None,
     *,
     asyncio_mod: AsyncioModule,
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
+    bucket: str | None = None,
 ) -> None:
     hold = hold_ms / 1000.0
 
     try:
-        gamepad_uinput = uinput_writer(device_runtime.gamepad_uinput)
+        gamepad_uinput = uinput_writer(uinput_dev)
         if gamepad_uinput is None:
             return
         gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 255)
         gamepad_uinput.syn()
+        track_abs_state(device_runtime, axis_code, 255, bucket=bucket)
         await asyncio_mod.sleep(hold)
         gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 0)
         gamepad_uinput.syn()
+        track_abs_state(device_runtime, axis_code, 0, bucket=bucket)
     except Exception:
         pass
     finally:
@@ -229,6 +247,7 @@ async def rapidfire_key(
     uinput_dev: object | None,
     *,
     asyncio_mod: AsyncioModule,
+    bucket: str | None = None,
 ) -> None:
     hold = clamp_rapidfire_hold_ms(hold_ms) / 1000.0
     wait = clamp_rapidfire_wait_ms(wait_ms) / 1000.0
@@ -247,6 +266,7 @@ async def rapidfire_key(
                 1,
                 evdev_mod=evdev,
                 uinput_writer=_uinput_writer,
+                bucket=bucket,
             )
             pressed = True
             await asyncio_mod.sleep(hold)
@@ -259,6 +279,7 @@ async def rapidfire_key(
                     0,
                     evdev_mod=evdev,
                     uinput_writer=_uinput_writer,
+                    bucket=bucket,
                 )
                 pressed = False
             if not device_runtime.state.rapidfire_active.get(event_name, False):
@@ -269,7 +290,7 @@ async def rapidfire_key(
         pass
     finally:
         if pressed:
-            ensure_key_released(device_runtime, code, uinput_dev)
+            ensure_key_released(device_runtime, code, uinput_dev, bucket=bucket)
         if task is not None:
             finish_rapidfire_task(device_runtime, event_name, task)
 
@@ -282,6 +303,7 @@ async def tap_key(
     uinput_dev: object | None,
     *,
     asyncio_mod: AsyncioModule,
+    bucket: str | None = None,
 ) -> None:
     hold = hold_ms / 1000.0
 
@@ -293,6 +315,7 @@ async def tap_key(
             1,
             evdev_mod=evdev,
             uinput_writer=_uinput_writer,
+            bucket=bucket,
         )
         await asyncio_mod.sleep(hold)
         write_key(
@@ -302,6 +325,7 @@ async def tap_key(
             0,
             evdev_mod=evdev,
             uinput_writer=_uinput_writer,
+            bucket=bucket,
         )
     except Exception:
         pass

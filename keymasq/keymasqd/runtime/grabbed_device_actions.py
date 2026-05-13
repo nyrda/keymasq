@@ -16,6 +16,7 @@ from keymasq.keymasqd.runtime.action_runner import (
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     bucket_for_uinput,
     passthrough,
+    track_abs_state,
     track_superkey_output,
     write_key,
 )
@@ -92,6 +93,14 @@ async def execute_action(
 
     elif action.action_type == ActionType.GAMEPAD:
         if action.target:
+            target = device_runtime.resolve_gamepad_output(
+                action.output_id,
+                f"{event_name} -> {action.target}",
+            )
+            if target is None:
+                return
+            target_uinput = getattr(target, "uinput", None)
+            target_bucket = str(getattr(target, "bucket", "gamepad"))
             is_trigger, axis_code = get_trigger_axis(action.target)
             if is_trigger:
                 if axis_code is None:
@@ -109,14 +118,17 @@ async def execute_action(
                                     action.rapidfire_hold_ms,
                                     action.rapidfire_wait_ms,
                                     event_name,
+                                    target_uinput,
                                     asyncio_mod=deps.asyncio_mod,
                                     evdev_mod=deps.evdev_mod,
                                     uinput_writer=deps.uinput_writer,
+                                    bucket=target_bucket,
                                 )
                             ),
                             axis_code=axis_code,
                             code=None,
-                            uinput=None,
+                            uinput=target_uinput,
+                            bucket=target_bucket,
                         )
                     elif event.value == 0:
                         await stop_rapidfire_async(
@@ -135,20 +147,22 @@ async def execute_action(
                                 axis_code,
                                 action.tap_hold_ms,
                                 event_name,
+                                target_uinput,
                                 asyncio_mod=deps.asyncio_mod,
                                 evdev_mod=deps.evdev_mod,
                                 uinput_writer=deps.uinput_writer,
+                                bucket=target_bucket,
                             ),
                             f"tap action {event_name}",
                         )
                 else:
-                    gamepad_uinput = uinput_writer(device_runtime.gamepad_uinput)
+                    gamepad_uinput = uinput_writer(target_uinput)
                     if gamepad_uinput is None:
                         return
                     should_emit = True
                     if shared_output_tracker is not None:
                         should_emit = shared_output_tracker(
-                            ActionType.GAMEPAD.value,
+                            target_bucket,
                             axis_code,
                             int(event.value),
                         )
@@ -160,6 +174,12 @@ async def execute_action(
                         255 if event.value else 0,
                     )
                     gamepad_uinput.syn()
+                    track_abs_state(
+                        device_runtime,
+                        axis_code,
+                        255 if event.value else 0,
+                        bucket=target_bucket,
+                    )
             else:
                 await _execute_key_action(
                     device_runtime,
@@ -167,7 +187,8 @@ async def execute_action(
                     event,
                     event_name,
                     deps=deps,
-                    uinput_dev=device_runtime.gamepad_uinput,
+                    uinput_dev=target_uinput,
+                    explicit_bucket=target_bucket,
                     target_kind="key",
                     trigger_kind="key",
                     shared_output_tracker=shared_output_tracker,
@@ -331,6 +352,7 @@ async def execute_action(
                     broadcast_callback=superkey_broadcast,
                     cursor_position_setter=device_runtime.cursor_position_setter,
                     key_event_tracker=superkey_key_event_tracker,
+                    gamepad_output_resolver=device_runtime.resolve_gamepad_output,
                 )
                 device_runtime.state.superkey_machines[event_name] = machine
 
@@ -348,6 +370,7 @@ async def execute_action_pulse(
     *,
     deps: ActionExecutionDeps,
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+    explicit_bucket: str | None = None,
 ) -> None:
     await execute_action(
         device_runtime,
@@ -461,6 +484,7 @@ async def _execute_key_action(
     target_kind: str,
     trigger_kind: str,
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+    explicit_bucket: str | None = None,
 ) -> None:
     del target_kind
     if not action.target:
@@ -483,11 +507,13 @@ async def _execute_key_action(
                         event_name,
                         uinput_dev,
                         asyncio_mod=deps.asyncio_mod,
+                        bucket=explicit_bucket,
                     )
                 ),
                 code=code,
                 uinput=uinput_dev,
                 axis_code=None,
+                bucket=explicit_bucket,
             )
         elif event.value == 0:
             await stop_rapidfire_async(
@@ -506,13 +532,14 @@ async def _execute_key_action(
                     event_name,
                     uinput_dev,
                     asyncio_mod=deps.asyncio_mod,
+                    bucket=explicit_bucket,
                 ),
                 f"tap action {event_name}",
             )
     else:
         should_emit = True
         if shared_output_tracker is not None:
-            bucket = bucket_for_uinput(device_runtime, uinput_dev)
+            bucket = explicit_bucket or bucket_for_uinput(device_runtime, uinput_dev)
             if bucket is not None:
                 should_emit = shared_output_tracker(bucket, int(code), int(event.value))
         if not should_emit:
@@ -524,6 +551,7 @@ async def _execute_key_action(
             int(event.value),
             evdev_mod=deps.evdev_mod,
             uinput_writer=deps.uinput_writer,
+            bucket=explicit_bucket,
         )
 
 

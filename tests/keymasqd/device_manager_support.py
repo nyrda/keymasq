@@ -271,6 +271,7 @@ async def _runtime_tap_grabbed_trigger(
         axis_code,
         hold_ms,
         event_name,
+        device.gamepad_uinput,
         asyncio_mod=gdm.ASYNCIO_RUNTIME,
         evdev_mod=evdev,
         uinput_writer=gdt.identity_uinput_writer,

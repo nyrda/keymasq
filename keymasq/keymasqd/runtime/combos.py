@@ -83,6 +83,8 @@ class ComboActionState:
     code: int | None = None
     axis_code: int | None = None
     uinput: object | None = None
+    bucket: str | None = None
+    output_id: str | None = None
     active: bool = False
     task: asyncio.Task[None] | None = None
     started: runtime_adapters.AsyncioEvent | None = None
@@ -549,9 +551,9 @@ def track_combo_superkey_output(
     code: int,
     value: int,
 ) -> bool:
-    bucket = action_type if action_type in manager.combo_state.superkey_output_refcounts else None
-    if bucket is None:
-        return True
+    bucket = action_type
+    manager.combo_state.superkey_output_refcounts.setdefault(bucket, {})
+    manager.combo_state.held_output_keys.setdefault(bucket, set())
 
     refcounts = manager.combo_state.superkey_output_refcounts[bucket]
     current = refcounts.get(int(code), 0)
@@ -691,6 +693,10 @@ async def _combo_superkey_machine(
         broadcast_callback=combo_superkey_broadcast,
         cursor_position_setter=manager.set_cursor_position,
         key_event_tracker=combo_superkey_output_tracker,
+        gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
+            output_id,
+            context=context,
+        ),
     )
     manager.combo_state.superkey_machines[combo_id] = machine
     return machine
@@ -812,6 +818,7 @@ async def combo_tap_trigger(
     axis_code: int,
     hold_ms: int,
     started: runtime_adapters.AsyncioEvent | None = None,
+    uinput_dev: object | None = None,
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
@@ -821,7 +828,7 @@ async def combo_tap_trigger(
 
     try:
         write_combo_trigger(
-            manager,
+            uinput_dev,
             axis_code,
             255,
             deps=deps,
@@ -835,7 +842,7 @@ async def combo_tap_trigger(
     finally:
         if pressed:
             write_combo_trigger(
-                manager,
+                uinput_dev,
                 axis_code,
                 0,
                 deps=deps,
@@ -1023,6 +1030,15 @@ async def _start_combo_action_instance(
         return
 
     if action.action_type == ActionType.GAMEPAD and action.target:
+        target = manager.resolve_gamepad_output(
+            action.output_id,
+            context=f"combo:{combo_id} -> {action.target}",
+        )
+        if target is None:
+            return
+        target_uinput = getattr(target, "uinput", None)
+        target_bucket = str(getattr(target, "bucket", "gamepad"))
+        target_output_id = str(getattr(target, "output_id", action.output_id or ""))
         is_trigger, axis_code = deps.get_trigger_axis_fn(action.target)
         if is_trigger and axis_code is not None:
             if action.tap_enabled:
@@ -1034,12 +1050,16 @@ async def _start_combo_action_instance(
                         axis_code,
                         action.tap_hold_ms,
                         started,
+                        target_uinput,
                         deps=deps,
                     )
                 )
                 manager.combo_state.active_actions[combo_id] = ComboActionState(
                     kind="tap_trigger",
                     axis_code=axis_code,
+                    uinput=target_uinput,
+                    bucket=target_bucket,
+                    output_id=target_output_id,
                     task=task,
                     started=started,
                 )
@@ -1054,19 +1074,23 @@ async def _start_combo_action_instance(
                         action.rapidfire_hold_ms,
                         action.rapidfire_wait_ms,
                         started,
+                        target_uinput,
                         deps=deps,
                     )
                 )
                 manager.combo_state.active_actions[combo_id] = ComboActionState(
                     kind="rapidfire_trigger",
                     axis_code=axis_code,
+                    uinput=target_uinput,
+                    bucket=target_bucket,
+                    output_id=target_output_id,
                     active=True,
                     task=task,
                     started=started,
                 )
                 return
             write_combo_trigger(
-                manager,
+                target_uinput,
                 axis_code,
                 255,
                 deps=deps,
@@ -1074,14 +1098,18 @@ async def _start_combo_action_instance(
             manager.combo_state.active_actions[combo_id] = ComboActionState(
                 kind="trigger",
                 axis_code=axis_code,
+                uinput=target_uinput,
+                bucket=target_bucket,
+                output_id=target_output_id,
             )
             return
         await start_combo_key_action(
             manager,
             combo_id,
             action,
-            manager.output_state.gamepad_uinput,
+            target_uinput,
             deps=deps,
+            bucket=target_bucket,
         )
         return
 
@@ -1164,6 +1192,7 @@ async def start_combo_key_action(
     uinput_dev: object | None,
     *,
     deps: ComboRuntimeDeps,
+    bucket: str | None = None,
 ) -> None:
     target = str(action.target or "")
     if not target:
@@ -1190,6 +1219,7 @@ async def start_combo_key_action(
             code=code,
             task=task,
             started=started,
+            bucket=bucket,
         )
         return
     if action.rapidfire_enabled:
@@ -1213,6 +1243,7 @@ async def start_combo_key_action(
             active=True,
             task=task,
             started=started,
+            bucket=bucket,
         )
         return
     write_combo_key(uinput_dev, code, 1, deps=deps)
@@ -1220,6 +1251,7 @@ async def start_combo_key_action(
         kind="key",
         uinput=uinput_dev,
         code=code,
+        bucket=bucket,
     )
 
 
@@ -1370,7 +1402,7 @@ async def stop_combo_action(
         axis_code = state.axis_code
         if axis_code is not None:
             write_combo_trigger(
-                manager,
+                state.uinput,
                 axis_code,
                 0,
                 deps=deps,
@@ -1677,6 +1709,7 @@ async def combo_rapidfire_trigger(
     hold_ms: int,
     wait_ms: int,
     started: runtime_adapters.AsyncioEvent | None = None,
+    uinput_dev: object | None = None,
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
@@ -1685,7 +1718,7 @@ async def combo_rapidfire_trigger(
     try:
         while _combo_action_active(manager, combo_id):
             write_combo_trigger(
-                manager,
+                uinput_dev,
                 axis_code,
                 255,
                 deps=deps,
@@ -1697,7 +1730,7 @@ async def combo_rapidfire_trigger(
             if not _combo_action_active(manager, combo_id):
                 break
             write_combo_trigger(
-                manager,
+                uinput_dev,
                 axis_code,
                 0,
                 deps=deps,
@@ -1706,7 +1739,7 @@ async def combo_rapidfire_trigger(
     except deps.asyncio_mod.CancelledError:
         raise
     finally:
-        write_combo_trigger(manager, axis_code, 0, deps=deps)
+        write_combo_trigger(uinput_dev, axis_code, 0, deps=deps)
         if not started_set:
             mark_combo_action_started(started)
 
@@ -1742,13 +1775,13 @@ def write_combo_relative(
 
 
 def write_combo_trigger(
-    manager: _ComboManager,
+    uinput_dev: object | None,
     axis_code: int,
     value: int,
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
-    writer = deps.uinput_writer(manager.output_state.gamepad_uinput)
+    writer = deps.uinput_writer(uinput_dev)
     if writer is None:
         return
     writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))

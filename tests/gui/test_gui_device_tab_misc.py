@@ -598,6 +598,189 @@ def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     assert tap_results[0].tap_hold_ms == 70
 
 
+def test_key_selector_dialog_gamepad_output_selector_lives_in_title(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 2)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Extra Button 14")
+    gamepad_tab = dialog.stack.get_child_by_name("gamepad")
+
+    assert dialog._gamepad_output_header is not None
+    assert dialog._gamepad_output_dropdown is not None
+    assert dialog._gamepad_output_header.get_parent() is not gamepad_tab
+    assert dialog._gamepad_output_dropdown.get_parent() is dialog._gamepad_output_header
+    assert dialog._gamepad_output_header.get_visible() is False
+
+    dialog.stack.set_visible_child_name("gamepad")
+
+    assert dialog._gamepad_output_header.get_visible() is True
+
+
+def test_key_selector_dialog_gamepad_output_labels_hardware_by_name(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ButtonDefinition, HardwareConfig
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    hardware = HardwareConfig(
+        vendor_id="045e",
+        product_id="028e",
+        name="Living Room Pad",
+        evdev_devices=[],
+        buttons=[ButtonDefinition(id="btn_a", label="A", evdev="btn_a")],
+        id="045e:028e@2",
+    )
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: [hardware]),
+    )
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Extra Button 14")
+
+    assert ("045e:028e@2", "Living Room Pad (045e:028e@2)") in dialog._gamepad_output_choices()
+
+
+def test_key_selector_dialog_gamepad_default_warns_when_virtual_count_zero(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 0)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Extra Button 14")
+
+    assert dialog._gamepad_output_choices()[0] == (None, "Default output unavailable")
+    assert dialog._gamepad_output_warning_label is not None
+    assert dialog._gamepad_output_warning_label.get_visible() is True
+    assert dialog._gamepad_output_warning_label.get_label() == "No virtual gamepads are configured."
+
+
+def test_key_selector_dialog_explicit_missing_virtual_output_warns(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Extra Button 14",
+        MappingAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_south",
+            output_id="virtual-gamepad-3",
+        ),
+    )
+
+    assert ("virtual-gamepad-3", "virtual-gamepad-3 (unavailable)") in (
+        dialog._gamepad_output_choices()
+    )
+    assert dialog._gamepad_output_warning_label is not None
+    assert dialog._gamepad_output_warning_label.get_visible() is True
+    assert "virtual-gamepad-3 is not configured" in (
+        dialog._gamepad_output_warning_label.get_label()
+    )
+
+
+def test_key_selector_dialog_explicit_first_virtual_output_uses_default_choice(monkeypatch):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Extra Button 14",
+        MappingAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_south",
+            output_id="virtual-gamepad-1",
+        ),
+    )
+
+    assert dialog._gamepad_output_choices() == [(None, "Virtual Gamepad 1")]
+    assert dialog._gamepad_output_dropdown is not None
+    assert dialog._gamepad_output_dropdown.get_selected() == 0
+    assert dialog._gamepad_output_warning_label is not None
+    assert dialog._gamepad_output_warning_label.get_visible() is False
+
+
+def test_superkey_action_dialog_explicit_first_virtual_output_uses_default_choice(
+    monkeypatch,
+):
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, SuperkeyAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import SuperkeyActionDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+    monkeypatch.setattr(
+        dialog_module,
+        "session_request_async",
+        lambda payload, callback, timeout=5.0: None,
+    )
+
+    dialog = SuperkeyActionDialog(
+        Gtk.Box(),
+        "hold",
+        SuperkeyAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_south",
+            output_id="virtual-gamepad-1",
+        ),
+    )
+
+    assert dialog._gamepad_output_choices() == [(None, "Virtual Gamepad 1")]
+    assert dialog._gamepad_output_ids == [None]
+    assert dialog._gamepad_output_warning_label is not None
+    assert dialog._gamepad_output_warning_label.get_visible() is False
+
+
 def test_key_selector_dialog_mouse_back_forward_use_browser_button_codes():
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

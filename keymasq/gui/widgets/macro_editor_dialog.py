@@ -68,6 +68,8 @@ def _passthrough_track(ev: MacroEvent) -> str:
             return "keyboard"
         if device_type == "mouse":
             return "mouse"
+        if device_type == "gamepad":
+            return "gamepad"
     return "movement"
 
 
@@ -152,11 +154,12 @@ def _set_entry_text_if_needed(entry: Gtk.Entry, text: str) -> None:
 
 @dataclass
 class EditableEvent:
-    device_type: str  # "keyboard" or "mouse"
+    device_type: str  # "keyboard", "mouse", or "gamepad"
     ev_type: int  # evdev EV_KEY (1)
     code: int  # e.g. 30=KEY_A, 272=BTN_LEFT
     press_t_us: int  # microseconds from macro start (press)
     release_t_us: int  # microseconds from macro start (release)
+    output_id: str | None = None
 
 
 @dataclass
@@ -228,7 +231,7 @@ def parse_events(
     passthrough_events: list[MacroEvent] = []
     editable_moves: list[EditableMove] = []
     control_events: list[EditableControl] = []
-    open_presses: dict[tuple, list[int]] = {}  # (device_type, code) -> press_t_us stack
+    open_presses: dict[tuple, list[int]] = {}
 
     for ev in raw_events:
         macro_action = str(ev.get("macro_action", "") or "")
@@ -261,7 +264,8 @@ def parse_events(
             continue
 
         if ev["type"] == ev_key:
-            key = (ev["device_type"], ev["code"])
+            output_id = str(ev.get("output_id", "") or "").strip() or None
+            key = (ev["device_type"], ev["code"], output_id)
             if ev["value"] == 1:
                 open_presses.setdefault(key, []).append(ev["t_us"])
             elif ev["value"] == 0:
@@ -275,6 +279,7 @@ def parse_events(
                             code=ev["code"],
                             press_t_us=press_t,
                             release_t_us=ev["t_us"],
+                            output_id=output_id if ev["device_type"] == "gamepad" else None,
                         )
                     )
                 else:
@@ -286,17 +291,18 @@ def parse_events(
         else:
             passthrough_events.append(ev)
 
-    for (device_type, code), presses in open_presses.items():
+    for (device_type, code, output_id), presses in open_presses.items():
         for press_t in presses:
-            passthrough_events.append(
-                {
-                    "device_type": device_type,
-                    "type": ev_key,
-                    "code": code,
-                    "value": 1,
-                    "t_us": press_t,
-                }
-            )
+            event = {
+                "device_type": device_type,
+                "type": ev_key,
+                "code": code,
+                "value": 1,
+                "t_us": press_t,
+            }
+            if device_type == "gamepad" and output_id:
+                event["output_id"] = output_id
+            passthrough_events.append(event)
 
     editable.sort(key=lambda e: e.press_t_us)
     editable_moves.sort(key=lambda m: m.t_us)
@@ -317,24 +323,25 @@ def reconstruct_events(
     raw: list[MacroEvent] = []
 
     for ev in editable:
-        raw.append(
-            {
-                "device_type": ev.device_type,
-                "type": ev_key,
-                "code": ev.code,
-                "value": 1,
-                "t_us": ev.press_t_us,
-            }
-        )
-        raw.append(
-            {
-                "device_type": ev.device_type,
-                "type": ev_key,
-                "code": ev.code,
-                "value": 0,
-                "t_us": ev.release_t_us,
-            }
-        )
+        press_event = {
+            "device_type": ev.device_type,
+            "type": ev_key,
+            "code": ev.code,
+            "value": 1,
+            "t_us": ev.press_t_us,
+        }
+        release_event = {
+            "device_type": ev.device_type,
+            "type": ev_key,
+            "code": ev.code,
+            "value": 0,
+            "t_us": ev.release_t_us,
+        }
+        if ev.device_type == "gamepad" and ev.output_id:
+            press_event["output_id"] = ev.output_id
+            release_event["output_id"] = ev.output_id
+        raw.append(press_event)
+        raw.append(release_event)
 
     raw.extend(rel_events)
 
@@ -441,9 +448,10 @@ def _compute_macro_editor_dialog_size(parent: Gtk.Window) -> tuple[int, int]:
 
 class TimelineWidget(Gtk.DrawingArea):
     """
-    Custom Gtk.DrawingArea that renders the macro timeline with three tracks:
+    Custom Gtk.DrawingArea that renders the macro timeline with four tracks:
       K  — keyboard key press/release rectangles
       M  — mouse click press/release rectangles
+      G  — gamepad button press/release rectangles
       ≈  — mouse movement waveform (read-only, from EV_REL events)
 
     The left 28px column is used for track labels and scrolls with the content.
@@ -470,8 +478,10 @@ class TimelineWidget(Gtk.DrawingArea):
         # Lane assignment — recomputed before each draw
         self._kb_lanes: dict[int, int] = {}  # id(ev) -> lane index
         self._m_lanes: dict[int, int] = {}
+        self._g_lanes: dict[int, int] = {}
         self._kb_num_lanes: int = 1
         self._m_num_lanes: int = 1
+        self._g_num_lanes: int = 1
 
         # Drag state
         self._drag_event: EditableEvent | None = None
@@ -538,6 +548,10 @@ class TimelineWidget(Gtk.DrawingArea):
         return self._get_track_h(self._m_num_lanes)
 
     @property
+    def _g_track_h(self) -> int:
+        return self._get_track_h(self._g_num_lanes)
+
+    @property
     def _kb_y(self) -> int:
         return self.RULER_HEIGHT
 
@@ -546,18 +560,29 @@ class TimelineWidget(Gtk.DrawingArea):
         return self.RULER_HEIGHT + self._kb_track_h
 
     @property
-    def _wave_y(self) -> int:
+    def _g_y(self) -> int:
         return self.RULER_HEIGHT + self._kb_track_h + self._m_track_h
 
     @property
+    def _wave_y(self) -> int:
+        return self.RULER_HEIGHT + self._kb_track_h + self._m_track_h + self._g_track_h
+
+    @property
     def _total_height(self) -> int:
-        return self.RULER_HEIGHT + self._kb_track_h + self._m_track_h + self.TRACK_HEIGHT
+        return (
+            self.RULER_HEIGHT
+            + self._kb_track_h
+            + self._m_track_h
+            + self._g_track_h
+            + self.TRACK_HEIGHT
+        )
 
     def _recompute_lanes(self) -> None:
         """Recompute lane assignments from current events and update size request."""
         events = self._editor._events
         self._kb_lanes, self._kb_num_lanes = _assign_lanes(events, "keyboard")
         self._m_lanes, self._m_num_lanes = _assign_lanes(events, "mouse")
+        self._g_lanes, self._g_num_lanes = _assign_lanes(events, "gamepad")
         self.set_size_request(-1, self._total_height)
 
     # ------------------------------------------------------------------
@@ -589,6 +614,7 @@ class TimelineWidget(Gtk.DrawingArea):
         self._draw_ruler(cr, width, duration_us)
         self._draw_keyboard_track(cr, width, events)
         self._draw_mouse_track(cr, width, events)
+        self._draw_gamepad_track(cr, width, events)
         self._draw_movement_track(cr, width, rel_events)
         self._draw_passthrough_markers(cr, width)
         self._draw_synthetic_move_markers(cr, width)
@@ -599,7 +625,7 @@ class TimelineWidget(Gtk.DrawingArea):
         # Horizontal separator lines between tracks
         cr.set_source_rgba(0.30, 0.30, 0.30, 0.8)
         cr.set_line_width(1)
-        for y in [self._kb_y, self._m_y, self._wave_y]:
+        for y in [self._kb_y, self._m_y, self._g_y, self._wave_y]:
             cr.move_to(0, y + 0.5)
             cr.line_to(width, y + 0.5)
             cr.stroke()
@@ -799,6 +825,23 @@ class TimelineWidget(Gtk.DrawingArea):
             sel_border_rgba=(1.00, 0.85, 0.40, 1.0),
         )
 
+    def _draw_gamepad_track(self, cr, width: int, events: list) -> None:
+        self._draw_track_with_lanes(
+            cr,
+            width,
+            events,
+            device_type="gamepad",
+            y_top=self._g_y,
+            track_h=self._g_track_h,
+            num_lanes=self._g_num_lanes,
+            lanes_dict=self._g_lanes,
+            bg_rgb=(0.10, 0.14, 0.15),
+            fill_rgba=(0.10, 0.66, 0.72, 0.75),
+            border_rgba=(0.28, 0.82, 0.86, 0.9),
+            sel_fill_rgba=(0.18, 0.85, 0.92, 0.92),
+            sel_border_rgba=(0.60, 1.00, 1.00, 1.0),
+        )
+
     def _draw_movement_track(self, cr, width: int, rel_events: list[MacroEvent]) -> None:
         y_top = self._wave_y
         track_h = self.TRACK_HEIGHT
@@ -848,6 +891,13 @@ class TimelineWidget(Gtk.DrawingArea):
             track="mouse",
             y_top=self._m_y,
             track_h=self._m_track_h,
+        )
+        self._draw_passthrough_markers_for_track(
+            cr,
+            width,
+            track="gamepad",
+            y_top=self._g_y,
+            track_h=self._g_track_h,
         )
         self._draw_passthrough_markers_for_track(
             cr,
@@ -944,6 +994,7 @@ class TimelineWidget(Gtk.DrawingArea):
         labels = [
             (self._kb_y + self._kb_track_h * 0.5, "K"),
             (self._m_y + self._m_track_h * 0.5, "M"),
+            (self._g_y + self._g_track_h * 0.5, "G"),
             (self._wave_y + self.TRACK_HEIGHT * 0.5, "≈"),
         ]
         for y_center, label in labels:
@@ -1096,13 +1147,15 @@ class TimelineWidget(Gtk.DrawingArea):
     # ------------------------------------------------------------------
 
     def _get_track_at_y(self, y: float) -> str | None:
-        """Return 'keyboard', 'mouse', 'movement', or None (ruler)."""
+        """Return 'keyboard', 'mouse', 'gamepad', 'movement', or None (ruler)."""
         if y < self.RULER_HEIGHT:
             return None
         if y < self._m_y:
             return "keyboard"
-        if y < self._wave_y:
+        if y < self._g_y:
             return "mouse"
+        if y < self._wave_y:
+            return "gamepad"
         if y < self._wave_y + self.TRACK_HEIGHT:
             return "movement"
         return None
@@ -1134,6 +1187,9 @@ class TimelineWidget(Gtk.DrawingArea):
         elif track == "mouse":
             y_top = self._m_y
             track_h = self._m_track_h
+        elif track == "gamepad":
+            y_top = self._g_y
+            track_h = self._g_track_h
         else:
             y_top = self._wave_y
             track_h = self.TRACK_HEIGHT
@@ -1168,6 +1224,12 @@ class TimelineWidget(Gtk.DrawingArea):
             track_h = self._m_track_h
             num_lanes = self._m_num_lanes
             lanes_dict = self._m_lanes
+        elif track == "gamepad":
+            device_type = "gamepad"
+            track_y = self._g_y
+            track_h = self._g_track_h
+            num_lanes = self._g_num_lanes
+            lanes_dict = self._g_lanes
         elif track == "movement":
             control = self._hit_test_control(x, y)
             if control is not None:
@@ -1347,6 +1409,17 @@ class TimelineWidget(Gtk.DrawingArea):
             add_btn.connect("clicked", _add_click)
             box.append(add_btn)
 
+        elif track == "gamepad":
+            add_btn = Gtk.Button(label=f"Add Gamepad Button at {t_label}")
+            add_btn.add_css_class("flat")
+
+            def _add_gamepad(_b, _t=t_us, _p=popover):
+                _p.popdown()
+                self._editor._present_add_key_dialog(default_t_us=_t)
+
+            add_btn.connect("clicked", _add_gamepad)
+            box.append(add_btn)
+
         elif track == "movement":
             add_rel_btn = Gtk.Button(label=f"Add Move REL at {t_label}")
             add_rel_btn.add_css_class("flat")
@@ -1376,7 +1449,7 @@ class TimelineWidget(Gtk.DrawingArea):
             add_abs_btn.connect("clicked", _add_abs)
             box.append(add_abs_btn)
 
-        if track in ("keyboard", "mouse", "movement"):
+        if track in ("keyboard", "mouse", "gamepad", "movement"):
             if box.get_first_child():
                 box.append(Gtk.Separator())
 
@@ -3150,7 +3223,7 @@ class MacroEditorDialog(Adw.Dialog):
 
         changed = False
 
-        if scope in ("all", "keyboard", "mouse"):
+        if scope in ("all", "keyboard", "mouse", "gamepad"):
             for ev in self._events:
                 if scope != "all" and ev.device_type != scope:
                     continue
@@ -3196,6 +3269,8 @@ class MacroEditorDialog(Adw.Dialog):
                 matches_scope = ev_type == evdev.ecodes.EV_KEY and device_type == "keyboard"
             elif scope == "mouse":
                 matches_scope = ev_type == evdev.ecodes.EV_KEY and device_type == "mouse"
+            elif scope == "gamepad":
+                matches_scope = ev_type == evdev.ecodes.EV_KEY and device_type == "gamepad"
             elif scope == "movement":
                 matches_scope = ev_type == evdev.ecodes.EV_REL and device_type == "mouse"
 
@@ -3348,7 +3423,8 @@ class MacroEditorDialog(Adw.Dialog):
         ev = selected_obj
         name = _get_key_name(ev.code)
         self._prop_title.set_label(name)
-        self._key_info_label.set_label(f"{name} (code {ev.code})")
+        output_suffix = f" @ {ev.output_id}" if ev.device_type == "gamepad" and ev.output_id else ""
+        self._key_info_label.set_label(f"{name} (code {ev.code}){output_suffix}")
         self._press_label.set_label("Press:")
         self._duration_text_label.set_visible(True)
         self._duration_spin.set_visible(True)
@@ -3489,10 +3565,16 @@ class MacroEditorDialog(Adw.Dialog):
                 action_type=ActionType.KEYBOARD,
                 target=key_name_lower,
             )
-        else:
+        elif ev.device_type == "mouse":
             current_action = MappingAction(
                 action_type=ActionType.MOUSE,
                 target=key_name_lower,
+            )
+        else:
+            current_action = MappingAction(
+                action_type=ActionType.GAMEPAD,
+                target=key_name_lower,
+                output_id=ev.output_id,
             )
 
         dialog = KeySelectorDialog(self._parent, _get_key_name(ev.code), current_action)
@@ -3513,11 +3595,19 @@ class MacroEditorDialog(Adw.Dialog):
             if code is not None:
                 ev.code = code
                 ev.device_type = "keyboard"
+                ev.output_id = None
         elif action.action_type == ActionType.MOUSE and target:
             code = getattr(evdev.ecodes, target.upper(), None)
             if code is not None:
                 ev.code = code
                 ev.device_type = "mouse"
+                ev.output_id = None
+        elif action.action_type == ActionType.GAMEPAD and target:
+            code = getattr(evdev.ecodes, target.upper(), None)
+            if code is not None:
+                ev.code = code
+                ev.device_type = "gamepad"
+                ev.output_id = getattr(action, "output_id", None)
         else:
             return
 
@@ -4059,7 +4149,7 @@ class MacroEditorDialog(Adw.Dialog):
     def _on_key_selected_for_insert(self, dialog: Gtk.Widget, action, default_t_us: int) -> None:
         from keymasq.common.models import ActionType
 
-        if action is None or action.action_type != ActionType.KEYBOARD:
+        if action is None or action.action_type not in {ActionType.KEYBOARD, ActionType.GAMEPAD}:
             return
 
         target = getattr(action, "target", None)
@@ -4071,11 +4161,14 @@ class MacroEditorDialog(Adw.Dialog):
             return
 
         ev = EditableEvent(
-            device_type="keyboard",
+            device_type="gamepad" if action.action_type == ActionType.GAMEPAD else "keyboard",
             ev_type=evdev.ecodes.EV_KEY,
             code=code,
             press_t_us=max(0, int(default_t_us)),
             release_t_us=max(1000, int(default_t_us) + 50000),
+            output_id=getattr(action, "output_id", None)
+            if action.action_type == ActionType.GAMEPAD
+            else None,
         )
         self._events.append(ev)
         self._events.sort(key=lambda item: item.press_t_us)

@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, cast
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import normalize_macro_loop_stop_behavior
 from keymasq.common.security import PeerCredentials, command_allowed
+from keymasq.common.virtual_devices import MAX_VIRTUAL_GAMEPADS, MIN_VIRTUAL_GAMEPADS
+from keymasq.session.virtual_devices import save_virtual_gamepad_count
 
 from . import compositor as runtime_compositor
 from . import profiles as runtime_profiles
@@ -77,6 +79,10 @@ async def handle_session_request(
     if result is not None:
         return result
 
+    result = await _handle_virtual_gamepad_commands(manager, command, request)
+    if result is not None:
+        return result
+
     if command == "set_diagnostics":
         return await _handle_set_diagnostics(manager, request)
 
@@ -121,6 +127,45 @@ async def _handle_profile_commands(
         return {"status": "ok"}
 
     return None
+
+
+async def _handle_virtual_gamepad_commands(
+    manager: "SessionManager",
+    command: str,
+    request: JsonObject,
+) -> JsonObject | None:
+    if command == "get_virtual_gamepads":
+        return {
+            "status": "ok",
+            "count": int(manager.virtual_gamepad_count),
+            "min_count": MIN_VIRTUAL_GAMEPADS,
+            "max_count": MAX_VIRTUAL_GAMEPADS,
+        }
+    if command != "set_virtual_gamepads":
+        return None
+
+    requested_count = int_value(request.get("count"), manager.virtual_gamepad_count)
+    count = save_virtual_gamepad_count(requested_count)
+    manager.virtual_gamepad_count = count
+    if manager.connected:
+        response = await manager.client.send_command(
+            Command(command=CommandType.SET_VIRTUAL_GAMEPADS, data={"count": count})
+        )
+        if response.status != "ok":
+            return {"status": "error", "message": response.error or "daemon rejected count"}
+        if isinstance(response.data, dict):
+            data = cast(JsonObject, response.data)
+            count = int_value(data.get("count"), count)
+            manager.virtual_gamepad_count = count
+    manager.broadcast_to_session_clients(
+        {"event": "virtual_gamepads_changed", "count": int(manager.virtual_gamepad_count)}
+    )
+    return {
+        "status": "ok",
+        "count": int(manager.virtual_gamepad_count),
+        "min_count": MIN_VIRTUAL_GAMEPADS,
+        "max_count": MAX_VIRTUAL_GAMEPADS,
+    }
 
 
 async def _handle_compositor_commands(

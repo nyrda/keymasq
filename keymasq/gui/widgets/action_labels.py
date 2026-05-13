@@ -35,7 +35,8 @@ def describe_mapping_action_compact(
     elif action.action_type == ActionType.MOUSE_MOVE_ABS:
         parts.append(f"⌖ {action.move_x},{action.move_y}")
     elif action.action_type == ActionType.GAMEPAD:
-        parts.append(f"🎮 {action.target or '?'}")
+        suffix = f" @{action.output_id}" if action.output_id else ""
+        parts.append(f"🎮 {action.target or '?'}{suffix}")
     elif action.action_type == ActionType.EXEC:
         cmd = action.cmd or "exec"
         parts.append(f"▶ {cmd}")
@@ -106,7 +107,8 @@ def describe_mapping_action_verbose(
     if action.action_type == ActionType.MOUSE_MOVE_ABS:
         return f"Mouse Move (abs) → {action.move_x}, {action.move_y}"
     if action.action_type == ActionType.GAMEPAD:
-        return f"Gamepad → {_resolved_label(action.target, gamepad_label)}"
+        suffix = f" @ {_gamepad_output_label(action.output_id)}" if action.output_id else ""
+        return f"Gamepad → {_resolved_label(action.target, gamepad_label)}{suffix}"
     if action.action_type == ActionType.MACRO:
         return f"Macro → {action.macro_name or '?'}"
     if action.action_type == ActionType.EXEC:
@@ -136,3 +138,15 @@ def describe_mapping_action_verbose(
     if action.action_type == ActionType.PROFILE_TOGGLE:
         return f"Toggle Profile → {action.profile_name or '?'}"
     return action.action_type.value
+
+
+def _gamepad_output_label(output_id: str | None) -> str:
+    if not output_id:
+        return ""
+    if output_id.startswith("virtual-gamepad-"):
+        try:
+            index = int(output_id.removeprefix("virtual-gamepad-"))
+        except ValueError:
+            return output_id
+        return f"Virtual Gamepad {index}"
+    return output_id

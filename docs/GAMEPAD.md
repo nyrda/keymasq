@@ -6,6 +6,22 @@ Keymasq can remap mouse buttons, keyboard keys, or any input to virtual gamepad 
 
 When you map a button to a gamepad action, Keymasq creates a virtual gamepad device using Linux uinput. Games see this as a standard gamepad and can receive input from it.
 
+Keymasq creates one virtual Xbox 360 gamepad by default. You can configure
+0-4 virtual gamepads from the GUI hamburger menu under **Virtual Gamepads**.
+The setting is stored in `~/.config/keymasq/virtual_devices.toml`:
+
+```toml
+[gamepads]
+virtual_count = 1
+```
+
+Gamepad actions can optionally set `output_id` to route output. Valid values
+are `virtual-gamepad-1` through `virtual-gamepad-4`, or a configured hardware
+gamepad ID such as `045e:028e@2`. If `output_id` is omitted, output uses the
+default `virtual-gamepad-1`. Explicit `output_id` values are strict: if the
+target is not configured, connected, or grabbed, `keymasqd` logs a warning and
+drops the output with no fallback.
+
 ## Available Gamepad Buttons
 
 The virtual gamepad appears as an Xbox 360 controller. Button codes follow the Linux evdev naming convention.
@@ -89,6 +105,11 @@ target = "btn_y"  # Y button (top)
 rapidfire_enabled = true
 rapidfire_hold_ms = 30
 rapidfire_wait_ms = 20
+
+[devices."046d:c548".mapping.btn_forward]
+action = "gamepad"
+target = "btn_a"
+output_id = "virtual-gamepad-2"
 ```
 
 ## Rapidfire and Tap
@@ -156,6 +177,14 @@ Keymasq creates a uinput device with Xbox 360 hardware IDs for maximum compatibi
 - **Capabilities**:
   - 17 digital buttons (all standard gamepad buttons)
   - 8 analog axes (sticks, triggers, D-pad)
+
+Additional configured virtual gamepads use the same Xbox 360 template. Their
+names are `keymasq-gamepad-2`, `keymasq-gamepad-3`, and
+`keymasq-gamepad-4`.
+
+Macro gamepad events may include `output_id` and use the same strict routing
+rules as gamepad mappings. Macro events without `output_id` still play through
+the default gamepad output.
 
 ### Linux Gamepad Specification
 

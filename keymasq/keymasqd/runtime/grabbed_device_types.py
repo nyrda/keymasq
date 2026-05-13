@@ -173,6 +173,7 @@ class RapidfireOutputState:
     code: int | None = None
     uinput: object | None = None
     axis_code: int | None = None
+    bucket: str | None = None
 
 
 @dataclass
@@ -190,6 +191,11 @@ class GrabbedDeviceState:
             "passthrough": set(),
             "keyboard": set(),
             "mouse": set(),
+            "gamepad": set(),
+        }
+    )
+    held_output_abs: dict[str, set[int]] = field(
+        default_factory=lambda: {
             "gamepad": set(),
         }
     )
@@ -283,6 +289,8 @@ class GrabbedDeviceRuntime(Protocol):
     def _running(self) -> bool: ...
 
     async def reset_superkeys(self) -> None: ...
+
+    def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None: ...
 
 
 def runtime_is_running(device_runtime: GrabbedDeviceRuntime) -> bool:

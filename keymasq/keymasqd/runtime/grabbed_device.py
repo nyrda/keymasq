@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from types import SimpleNamespace
 from typing import Final, cast
 
 import evdev
@@ -176,6 +177,7 @@ class GrabbedDevice:
         keyboard_uinput: evdev.UInput | None = None,
         mouse_uinput: evdev.UInput | None = None,
         gamepad_uinput: evdev.UInput | None = None,
+        gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None,
         broadcast_callback: BroadcastCallback | None = None,
         cursor_position_setter: CursorPositionSetter | None = None,
         recording_manager: RecordingManager | None = None,
@@ -207,6 +209,7 @@ class GrabbedDevice:
         self.keyboard_uinput = keyboard_uinput
         self.mouse_uinput = mouse_uinput
         self.gamepad_uinput = gamepad_uinput
+        self._gamepad_output_resolver = gamepad_output_resolver
         self.broadcast_callback = broadcast_callback
         self.cursor_position_setter = cursor_position_setter
         self.recording_manager: RecordingManager | None = recording_manager
@@ -391,6 +394,16 @@ class GrabbedDevice:
     def release_tracked_outputs(self) -> None:
         runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
 
+    def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None:
+        if self._gamepad_output_resolver is None:
+            return SimpleNamespace(
+                output_id=output_id or "virtual-gamepad-1",
+                uinput=self.gamepad_uinput,
+                bucket="gamepad",
+                is_virtual=True,
+            )
+        return self._gamepad_output_resolver(output_id, context)
+
     def _combo_binding_action(self, evdev_name: str) -> object | None:
         return self.state.held_source_actions.get(str(evdev_name or "").lower())
 
@@ -399,8 +412,6 @@ class GrabbedDevice:
             return self.keyboard_uinput
         if action_type == ActionType.MOUSE:
             return self.mouse_uinput
-        if action_type == ActionType.GAMEPAD:
-            return self.gamepad_uinput
         return None
 
     def _combo_binding_output(self, evdev_name: str) -> tuple[object, int, str] | None:
@@ -426,16 +437,30 @@ class GrabbedDevice:
             return (self.uinput, int(code), "passthrough")
         if held_action.rapidfire_enabled or held_action.tap_enabled:
             return None
-        target_uinput = self._combo_binding_target_uinput(held_action.action_type)
         code = resolve_output_code(held_action.target or "")
-        if target_uinput is None or code is None:
+        if code is None:
             return None
         if held_action.action_type == ActionType.KEYBOARD:
+            target_uinput = self._combo_binding_target_uinput(held_action.action_type)
+            if target_uinput is None:
+                return None
             bucket = "keyboard"
         elif held_action.action_type == ActionType.MOUSE:
+            target_uinput = self._combo_binding_target_uinput(held_action.action_type)
+            if target_uinput is None:
+                return None
             bucket = "mouse"
         elif held_action.action_type == ActionType.GAMEPAD:
-            bucket = "gamepad"
+            target = self.resolve_gamepad_output(
+                held_action.output_id,
+                f"combo binding {evdev_name} -> {held_action.target}",
+            )
+            if target is None:
+                return None
+            target_uinput = getattr(target, "uinput", None)
+            if target_uinput is None:
+                return None
+            bucket = str(getattr(target, "bucket", "gamepad"))
         else:
             return None
         return (target_uinput, int(code), bucket)
@@ -444,7 +469,7 @@ class GrabbedDevice:
         output = self._combo_binding_output(evdev_name)
         if output is None:
             return
-        target_uinput, code, _bucket = output
+        target_uinput, code, bucket = output
         runtime_outputs.write_key(
             self,
             target_uinput,
@@ -452,6 +477,7 @@ class GrabbedDevice:
             0,
             evdev_mod=evdev,
             uinput_writer=_uinput_writer,
+            bucket=bucket,
         )
 
     def emit_combo_press(self, evdev_name: str) -> None:
@@ -466,6 +492,7 @@ class GrabbedDevice:
             1,
             evdev_mod=evdev,
             uinput_writer=_uinput_writer,
+            bucket=bucket,
         )
         if bucket == "passthrough":
             self.state.combo_passthrough_held.add(str(evdev_name or "").lower())
@@ -475,7 +502,7 @@ class GrabbedDevice:
         if output is None:
             return False
         _target_uinput, code, bucket = output
-        return int(code) in self.state.held_output_keys[bucket]
+        return int(code) in self.state.held_output_keys.get(bucket, set())
 
     def combo_source_binding_held(self, evdev_name: str) -> bool:
         normalized = str(evdev_name or "").lower()

@@ -210,6 +210,22 @@ def test_superkey_action_roundtrip_preserves_shared_fields() -> None:
     assert round_tripped.rapidfire_wait_ms == 60
 
 
+def test_superkey_action_roundtrip_preserves_gamepad_output_id() -> None:
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD,
+        target="btn_a",
+        output_id="virtual-gamepad-2",
+    )
+
+    superkey_action = mapping_action_to_superkey_action(action)
+    round_tripped = superkey_action_to_mapping_action(superkey_action)
+
+    assert superkey_action.output_id == "virtual-gamepad-2"
+    assert round_tripped.output_id == "virtual-gamepad-2"
+    non_gamepad = MappingAction(action_type=ActionType.KEYBOARD, output_id="virtual-gamepad-2")
+    assert non_gamepad.output_id is None
+
+
 def test_superkey_action_roundtrip_strips_unsupported_rapidfire() -> None:
     action = MappingAction(
         action_type=ActionType.MACRO,

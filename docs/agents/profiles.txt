@@ -86,6 +86,8 @@ target = "btn_left"
 # output virtual Xbox-style gamepad button
 action = "gamepad"
 target = "btn_x"
+# optional strict output route:
+# output_id = "virtual-gamepad-2" # or configured hardware gamepad ID
 
 # run shell command in the user's session
 action = "exec"

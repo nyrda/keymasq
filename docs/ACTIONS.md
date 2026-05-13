@@ -151,6 +151,13 @@ Map to a gamepad button or trigger. Available inputs include:
 
 ![Gamepad tab — face buttons, shoulders, triggers, D-pad, and sticks](assets/screenshots/key_selector_gamepad.png)
 
+Gamepad actions can route to a specific output with `output_id`. Use
+`virtual-gamepad-1` through `virtual-gamepad-4` for configured virtual Xbox
+360 outputs, or a configured hardware gamepad ID such as `045e:028e@2`.
+Omitting `output_id` uses the default output, `virtual-gamepad-1` when it
+exists. Explicit targets never fall back: if the daemon cannot route to the
+configured output, it logs a warning and drops the gamepad event.
+
 ## Compositor
 
 Send a command to your window compositor. Currently Keymasq supports

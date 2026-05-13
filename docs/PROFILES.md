@@ -47,6 +47,19 @@ What "matching layers" means:
 - when input comes from your keyboard, Keymasq only looks at the keyboard
   parts of the active profiles
 
+Gamepad actions can route to a specific output with `output_id`:
+
+```toml
+[devices."046d:c548".mapping.btn_back]
+action = "gamepad"
+target = "btn_a"
+output_id = "virtual-gamepad-2"
+```
+
+Valid output IDs are `virtual-gamepad-1` through `virtual-gamepad-4`, or a
+configured hardware gamepad ID. Explicit output IDs are strict: unavailable
+outputs log a daemon warning and emit nothing.
+
 Simple example:
 
 - `Base` is your normal everyday profile

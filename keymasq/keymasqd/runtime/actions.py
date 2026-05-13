@@ -85,6 +85,7 @@ def parse_action(
     return MappingAction(
         action_type=action_type,
         target=optional_str(target),
+        output_id=optional_str(action_data.get("output_id")),
         keys=cast(list[str] | None, action_data.get("keys")),
         cmd=optional_str(cmd),
         exec_ref=int_or_none(action_data.get("exec_ref")),
@@ -384,6 +385,7 @@ def parse_superkey_action(
     return SuperkeyActionData(
         action_type=action_type.value,
         target=optional_str(action.get("target")),
+        output_id=optional_str(action.get("output_id")),
         cmd=optional_str(action.get("cmd")),
         exec_ref=int_or_none(action.get("exec_ref")),
         macro_name=optional_str(action.get("macro_name")),

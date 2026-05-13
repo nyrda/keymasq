@@ -474,7 +474,7 @@ class DeviceManager:
             cancelled_rapidfire_tasks: list[asyncio.Task[None]] = []
             await runtime_combos.clear_combo_runtime(
                 self,
-                deps=runtime_grab_lifecycle._combo_runtime_deps(),  # pyright: ignore[reportPrivateUsage]
+                deps=runtime_grab_lifecycle.combo_runtime_deps(),
             )
             for devices in self.grabbed_devices.values():
                 for device in devices:

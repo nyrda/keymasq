@@ -48,7 +48,7 @@ def _fire_and_forget(coro: Awaitable[object], _label: str) -> asyncio.Task[objec
     return asyncio.ensure_future(coro)
 
 
-def _combo_runtime_deps(
+def combo_runtime_deps(
     *,
     resolve_code_fn: runtime_combos.ResolveCodeFn = resolve_output_code,
     fire_and_observe_fn: runtime_combos.FireAndObserve = _fire_and_forget,
@@ -170,7 +170,7 @@ async def grab_device_unlocked(
             get_interface_id_fn=get_interface_id_fn,
             int_value_fn=int_value_fn,
             str_value_fn=str_value_fn,
-            deps=_combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
         )
 
     async def runtime_cleanup_callback(
@@ -181,7 +181,7 @@ async def grab_device_unlocked(
             manager,
             cleanup_hardware_id,
             cleanup_source,
-            deps=_combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
         )
 
     for path in sorted(requested_paths):
@@ -405,7 +405,7 @@ async def release_device_unlocked(
         manager,
         hardware_id,
         None,
-        deps=_combo_runtime_deps(),
+        deps=combo_runtime_deps(),
     )
     manager.grab_state.desired_grabs.pop(hardware_id, None)
     devices = manager.grabbed_devices.pop(hardware_id, [])
@@ -582,7 +582,7 @@ async def release_interface_unlocked(
         manager,
         hardware_id,
         str(getattr(removed, "interface_id", "") or "").lower(),
-        deps=_combo_runtime_deps(),
+        deps=combo_runtime_deps(),
     )
     removed.release_tracked_outputs()
     await removed.release()
@@ -605,7 +605,7 @@ async def release_all_devices(
         await manager.cancel_macro_playback()
         await runtime_combos.clear_combo_runtime(
             manager,
-            deps=_combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
         )
         hardware_ids = set(manager.grabbed_devices) | set(manager.grab_state.desired_grabs)
         for hardware_id in list(hardware_ids):

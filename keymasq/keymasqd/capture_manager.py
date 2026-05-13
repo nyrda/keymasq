@@ -367,6 +367,7 @@ class CaptureManager:
         if ":" not in hardware_id:
             raise ValueError("Invalid hardware_id")
         vendor_id, product_id = hardware_id.split(":", 1)
+        product_id = product_id.split("@", 1)[0]
         return vendor_id.lower(), product_id.lower()
 
     def _find_devices(self, vendor_id: str, product_id: str) -> list[_CaptureInputDevice]:

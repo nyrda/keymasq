@@ -123,7 +123,7 @@ def _hardware_id_vendor_product(hardware_id: str) -> tuple[int | None, int | Non
         return None, None
     try:
         vendor = int(parts[0], 16)
-        product = int(parts[1], 16)
+        product = int(parts[1].split("@", 1)[0], 16)
     except ValueError:
         return None, None
     return _int_u16(vendor), _int_u16(product)

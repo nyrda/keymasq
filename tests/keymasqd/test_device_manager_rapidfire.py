@@ -498,6 +498,11 @@ class TestRapidfireRelease:
             == "Keymasq Gamepad Passthrough (045e:02a1)"
         )
 
+    def test_passthrough_input_id_parses_numbered_hardware_id(self) -> None:
+        assert gdm._hardware_id_vendor_product(  # pyright: ignore[reportPrivateUsage]
+            "045e:02a1@2"
+        ) == (0x045E, 0x02A1)
+
     def test_passthrough_uinput_identity_is_bounded_for_opaque_hardware_ids(
         self,
         monkeypatch: pytest.MonkeyPatch,

@@ -102,6 +102,20 @@ def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:
     assert captured["evdev"] == "key_a"
 
 
+def test_capture_manager_begin_numbered_hardware_id_falls_back_to_model_id(monkeypatch) -> None:
+    keyboard_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    fake = _FakeDevice("/dev/input/event1", 0x045E, 0x02A1, [keyboard_event])
+
+    monkeypatch.setattr(evdev, "list_devices", lambda: ["/dev/input/event1"])
+    monkeypatch.setattr(evdev, "InputDevice", lambda path: fake)
+
+    manager = CaptureManager()
+    begin = manager.begin("045e:02a1@2")
+
+    assert begin["hardware_id"] == "045e:02a1@2"
+    assert fake.grabbed is True
+
+
 def test_capture_manager_end_invalid_token_is_safe() -> None:
     manager = CaptureManager()
     result = manager.end("missing")
@@ -355,3 +369,9 @@ def test_capture_manager_parse_hardware_id_rejects_invalid_value() -> None:
 
     with pytest.raises(ValueError, match="Invalid hardware_id"):
         manager._parse_hardware_id("1234")
+
+
+def test_capture_manager_parse_hardware_id_strips_duplicate_suffix() -> None:
+    manager = CaptureManager()
+
+    assert manager._parse_hardware_id("045E:02A1@2") == ("045e", "02a1")

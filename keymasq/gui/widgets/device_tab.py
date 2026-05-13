@@ -208,7 +208,7 @@ class DeviceTab(ProfileManagedTab):
         mapped = self._count_mapped_buttons()
         total = len(self.device.buttons)
         base = (
-            f"{self.device.hardware_id} | {len(self.device.evdev_devices)} evdev, "
+            f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
             f"{total} buttons"
         )
         if mapped > 0:
@@ -216,6 +216,7 @@ class DeviceTab(ProfileManagedTab):
         else:
             caption = base
         self._header_caption_label.set_text(caption)
+        self._header_caption_label.set_tooltip_text(self._header_hardware_tooltip())
 
     def _profile_layer_for_hardware(self, hardware_id: str, create: bool = False):
         if not self._selected_profile:
@@ -328,14 +329,12 @@ class DeviceTab(ProfileManagedTab):
 
         info_box.append(name_row)
 
-        caption = (
-            f"{self.device.hardware_id} | {len(self.device.evdev_devices)} evdev, "
-            f"{len(self.device.buttons)} buttons"
-        )
+        caption = self._header_caption_text()
         self._header_caption_label = Gtk.Label(label=caption)
         self._header_caption_label.add_css_class("dim-label")
         self._header_caption_label.add_css_class("caption")
         self._header_caption_label.set_halign(Gtk.Align.START)
+        self._header_caption_label.set_tooltip_text(self._header_hardware_tooltip())
         info_box.append(self._header_caption_label)
 
         header_box.append(info_box)
@@ -344,6 +343,20 @@ class DeviceTab(ProfileManagedTab):
         self.append(header_box)
 
         self.set_focusable(True)
+
+    def _header_hardware_tooltip(self) -> str:
+        lines = [f"Hardware ID: {self.device.hardware_id}"]
+        paths = [str(device.path or "") for device in self.device.evdev_devices if device.path]
+        if paths:
+            lines.append("Interfaces:")
+            lines.extend(paths)
+        return "\n".join(lines)
+
+    def _header_caption_text(self) -> str:
+        return (
+            f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
+            f"{len(self.device.buttons)} buttons"
+        )
 
     def _device_grab_label_text(self, device: HardwareConfig | None = None) -> str:
         device = device or self.device
@@ -1395,10 +1408,10 @@ class DeviceTab(ProfileManagedTab):
             if self._add_keys_capturing:
                 return
             count = int(spin.get_value())
+            self._add_keys_pending_ids = [f"key_added_{i + 1}" for i in range(count)]
             status.set_text(self._capture_waiting_label())
             start_btn.set_sensitive(False)
             self._start_add_keys_capture(
-                count,
                 status,
                 dialog,
                 start_btn=start_btn,
@@ -1416,7 +1429,6 @@ class DeviceTab(ProfileManagedTab):
 
     def _start_add_keys_capture(
         self,
-        count: int,
         status_label: Gtk.Label,
         parent_dialog: Adw.Dialog,
         *,
@@ -1424,10 +1436,8 @@ class DeviceTab(ProfileManagedTab):
         unlock_btn: Gtk.Button | None = None,
         privilege_status: Gtk.Label | None = None,
     ) -> None:
-        vid = self.device.vendor_id
-        pid = self.device.product_id
-        self._capture_active_hardware_id = f"{vid}:{pid}"
-        self._add_keys_pending_ids = [f"key_added_{i + 1}" for i in range(count)]
+        self._capture_active_hardware_id = self.device.hardware_id
+
         def on_capture_begun(result: JsonDict | None) -> bool:
             return self._on_add_keys_capture_begun(
                 result,
@@ -1442,6 +1452,7 @@ class DeviceTab(ProfileManagedTab):
             {
                 "command": "begin_capture",
                 "hardware_id": self._capture_active_hardware_id,
+                "evdev_paths": [device.path for device in self.device.evdev_devices],
             },
             on_capture_begun,
         )

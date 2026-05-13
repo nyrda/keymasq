@@ -1,4 +1,5 @@
 import logging
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, cast
@@ -15,6 +16,15 @@ from keymasq.common.models import (
 )
 
 log = logging.getLogger("keymasq-session.hardware")
+
+
+def _valid_hardware_id_for_model(hardware_id: str, model_id: str) -> bool:
+    return hardware_id == model_id or hardware_id.startswith(f"{model_id}@")
+
+
+def _hardware_storage_stem(hardware_id: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", hardware_id).strip("._")
+    return (safe or "hardware").lower()
 
 
 class HardwareManager:
@@ -43,6 +53,14 @@ class HardwareManager:
             data = tomllib.load(f)
 
         hw = cast(dict[str, Any], data["hardware"])
+        vendor_id = str(hw["vendor_id"])
+        product_id = str(hw["product_id"])
+        model_id = f"{vendor_id}:{product_id}"
+        hardware_id = str(hw.get("hardware_id", "") or "")
+        if hardware_id and not _valid_hardware_id_for_model(hardware_id, model_id):
+            raise ValueError(
+                f"hardware_id '{hardware_id}' does not match vendor/product '{model_id}'"
+            )
 
         evdev_devices: list[EvdevDevice] = []
         evdev_config = cast(dict[str, Any], hw.get("evdev", {}))
@@ -52,6 +70,7 @@ class HardwareManager:
                     path=dev["path"],
                     device_type=DeviceType(dev.get("type", "other")),
                     id=dev.get("id"),
+                    phys=dev.get("phys"),
                     capabilities=dev.get("capabilities", []),
                 )
             )
@@ -75,12 +94,13 @@ class HardwareManager:
             )
 
         return HardwareConfig(
-            vendor_id=hw["vendor_id"],
-            product_id=hw["product_id"],
-            name=hw.get("name", f"{hw['vendor_id']}:{hw['product_id']}"),
+            vendor_id=vendor_id,
+            product_id=product_id,
+            name=hw.get("name", model_id),
             evdev_devices=evdev_devices,
             buttons=buttons,
             image=hw.get("image"),
+            id=hardware_id or None,
         )
 
     def get_hardware(self, hardware_id: str) -> HardwareConfig | None:
@@ -95,7 +115,7 @@ class HardwareManager:
     def save_hardware(self, config: HardwareConfig) -> None:
         paths.ensure_config_dirs()
 
-        path = paths.HARDWARE_DIR / f"{config.hardware_id.replace(':', '_')}.toml"
+        path = paths.HARDWARE_DIR / f"{_hardware_storage_stem(config.hardware_id)}.toml"
 
         buttons_data: list[dict[str, object]] = []
         for btn in config.buttons:
@@ -128,6 +148,8 @@ class HardwareManager:
             }
             if d.id:
                 dev_data["id"] = d.id
+            if d.phys:
+                dev_data["phys"] = d.phys
             if d.capabilities:
                 dev_data["capabilities"] = d.capabilities
             evdev_devices_data.append(dev_data)
@@ -155,6 +177,9 @@ class HardwareManager:
                 },
             }
         }
+
+        if config.id:
+            data["hardware"]["hardware_id"] = config.hardware_id
 
         if config.image:
             data["hardware"]["image"] = config.image
@@ -189,7 +214,7 @@ class HardwareManager:
         if hardware_id not in self._cache:
             return False
 
-        path = paths.HARDWARE_DIR / f"{hardware_id.replace(':', '_')}.toml"
+        path = paths.HARDWARE_DIR / f"{_hardware_storage_stem(hardware_id)}.toml"
 
         if path.exists():
             try:

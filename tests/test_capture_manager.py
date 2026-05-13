@@ -77,6 +77,45 @@ def test_capture_manager_begin_read_end(monkeypatch) -> None:
     assert ended["ended"] is True
 
 
+def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:
+    wanted_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    wanted = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [wanted_event])
+    other = _FakeDevice("/dev/input/event1", 0x1234, 0x5678, [])
+
+    def fake_input_device(path: str):
+        if path == "/dev/input/event2":
+            return wanted
+        if path == "/dev/input/event1":
+            return other
+        raise OSError("missing")
+
+    monkeypatch.setattr(evdev, "InputDevice", fake_input_device)
+
+    manager = CaptureManager()
+    begin = manager.begin("1234:5678@slot2", ["/dev/input/event2"])
+    token = str(begin["token"])
+
+    assert wanted.grabbed is True
+    assert other.grabbed is False
+
+    captured = cast(dict[str, object], manager.read(token)["captured"])
+    assert captured["evdev"] == "key_a"
+
+
+def test_capture_manager_begin_numbered_hardware_id_falls_back_to_model_id(monkeypatch) -> None:
+    keyboard_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    fake = _FakeDevice("/dev/input/event1", 0x045E, 0x02A1, [keyboard_event])
+
+    monkeypatch.setattr(evdev, "list_devices", lambda: ["/dev/input/event1"])
+    monkeypatch.setattr(evdev, "InputDevice", lambda path: fake)
+
+    manager = CaptureManager()
+    begin = manager.begin("045e:02a1@2")
+
+    assert begin["hardware_id"] == "045e:02a1@2"
+    assert fake.grabbed is True
+
+
 def test_capture_manager_end_invalid_token_is_safe() -> None:
     manager = CaptureManager()
     result = manager.end("missing")
@@ -236,6 +275,11 @@ def test_capture_manager_parse_helpers(monkeypatch) -> None:
         device,
         evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
     )
+    mapped_combo_press = manager._parse_combo_event(
+        device,
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        {"/stable/dev/input/event3": "1234:5678@2"},
+    )
     combo_wheel = manager._parse_combo_event(
         device,
         evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
@@ -269,6 +313,8 @@ def test_capture_manager_parse_helpers(monkeypatch) -> None:
         "stable_path": "/stable/dev/input/event3",
         "device_path": "/dev/input/event3",
     }
+    assert mapped_combo_press is not None
+    assert mapped_combo_press["hardware_id"] == "1234:5678@2"
     assert combo_wheel == {
         "evdev": "wheel_down",
         "code": evdev.ecodes.REL_WHEEL,
@@ -309,9 +355,23 @@ def test_capture_manager_find_combo_devices_filters_inputs(monkeypatch) -> None:
 
     assert matched == [good]
 
+    matched_by_path = manager._find_combo_devices(
+        exclude_paths=set(),
+        hardware_ids={"0000:0000"},
+        path_hardware_ids={"/dev/input/event5": "1234:5678@2"},
+    )
+
+    assert matched_by_path == [good]
+
 
 def test_capture_manager_parse_hardware_id_rejects_invalid_value() -> None:
     manager = CaptureManager()
 
     with pytest.raises(ValueError, match="Invalid hardware_id"):
         manager._parse_hardware_id("1234")
+
+
+def test_capture_manager_parse_hardware_id_strips_duplicate_suffix() -> None:
+    manager = CaptureManager()
+
+    assert manager._parse_hardware_id("045E:02A1@2") == ("045e", "02a1")

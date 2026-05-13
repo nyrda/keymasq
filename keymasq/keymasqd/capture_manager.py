@@ -1,13 +1,15 @@
 import asyncio
+import contextlib
 import errno
 import logging
+import os
 import queue
 import select
 import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, cast
 
 import evdev
@@ -69,6 +71,7 @@ class CaptureSession:
     reader_thread: threading.Thread | None = None
     notify_loop: asyncio.AbstractEventLoop | None = None
     notify_event: asyncio.Event | None = None
+    path_hardware_ids: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -81,9 +84,12 @@ class CaptureManager:
         self._sessions: dict[str, CaptureSession] = {}
         self._combo_capture_authorizations: set[str] = set()
 
-    def begin(self, hardware_id: str) -> JsonObject:
-        vendor_id, product_id = self._parse_hardware_id(hardware_id)
-        matched = self._find_devices(vendor_id, product_id)
+    def begin(self, hardware_id: str, evdev_paths: list[str] | None = None) -> JsonObject:
+        matched = (
+            self._find_devices_by_paths(evdev_paths)
+            if evdev_paths
+            else self._find_devices(*self._parse_hardware_id(hardware_id))
+        )
         if not matched:
             raise ValueError(f"No devices found for {hardware_id}")
 
@@ -144,14 +150,17 @@ class CaptureManager:
         exclude_paths: set[str] | None = None,
         allow_empty: bool = False,
         hardware_ids: set[str] | None = None,
+        hardware_paths: Mapping[str, Sequence[str]] | None = None,
         authorization: _ComboCaptureAuthorization | None = None,
     ) -> JsonObject:
         if not self._consume_combo_capture_authorization(authorization):
             raise PermissionError("combo_capture_denied: missing authorization")
 
+        path_hardware_ids = _hardware_path_lookup(hardware_paths or {})
         matched = self._find_combo_devices(
             exclude_paths=exclude_paths or set(),
             hardware_ids=hardware_ids or set(),
+            path_hardware_ids=path_hardware_ids,
         )
         if not matched and not allow_empty:
             raise ValueError("No keyboard devices found for combo capture")
@@ -175,6 +184,7 @@ class CaptureManager:
             started_at=time.time(),
             event_queue=queue.SimpleQueue(),
             stop_event=threading.Event(),
+            path_hardware_ids=path_hardware_ids,
         )
         self._sessions[token] = session
         self._start_combo_reader(session)
@@ -319,7 +329,11 @@ class CaptureManager:
                     continue
                 try:
                     for event in device.read():
-                        parsed = self._parse_combo_event(device, event)
+                        parsed = self._parse_combo_event(
+                            device,
+                            event,
+                            session.path_hardware_ids,
+                        )
                         if parsed is None:
                             continue
                         session.event_queue.put(parsed)
@@ -353,6 +367,7 @@ class CaptureManager:
         if ":" not in hardware_id:
             raise ValueError("Invalid hardware_id")
         vendor_id, product_id = hardware_id.split(":", 1)
+        product_id = product_id.split("@", 1)[0]
         return vendor_id.lower(), product_id.lower()
 
     def _find_devices(self, vendor_id: str, product_id: str) -> list[_CaptureInputDevice]:
@@ -371,13 +386,30 @@ class CaptureManager:
                 devices.append(device)
         return devices
 
+    def _find_devices_by_paths(self, evdev_paths: list[str]) -> list[_CaptureInputDevice]:
+        clear_device_path_cache()
+        devices: list[_CaptureInputDevice] = []
+        seen: set[str] = set()
+        for path in evdev_paths:
+            normalized = str(path or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            try:
+                devices.append(cast(_CaptureInputDevice, evdev.InputDevice(normalized)))
+            except Exception:
+                continue
+        return devices
+
     def _find_combo_devices(
         self,
         exclude_paths: set[str],
         hardware_ids: set[str],
+        path_hardware_ids: Mapping[str, str] | None = None,
     ) -> list[_CaptureInputDevice]:
         clear_device_path_cache()
         devices: list[_CaptureInputDevice] = []
+        path_hardware_ids = path_hardware_ids or {}
         list_devices = cast(Callable[[], list[str]], evdev.list_devices)
         for path in list_devices():
             if path in exclude_paths:
@@ -389,7 +421,10 @@ class CaptureManager:
 
             if device.name.startswith("keymasq-"):
                 continue
-            if hardware_ids:
+            if path_hardware_ids:
+                if not _hardware_id_for_path(device.path, path_hardware_ids):
+                    continue
+            elif hardware_ids:
                 device_hardware_id = (
                     f"{device.info.vendor:04x}:{device.info.product:04x}"
                 ).lower()
@@ -460,8 +495,12 @@ class CaptureManager:
         return None
 
     def _parse_combo_event(
-        self, device: _CaptureInputDevice, event: evdev.InputEvent
+        self,
+        device: _CaptureInputDevice,
+        event: evdev.InputEvent,
+        path_hardware_ids: Mapping[str, str] | None = None,
     ) -> JsonObject | None:
+        hardware_id = _hardware_id_for_device(device, path_hardware_ids or {})
         if event.type == evdev.ecodes.EV_REL:
             if event.code == evdev.ecodes.REL_WHEEL:
                 normalized_value = normalize_wheel_value(int(event.value))
@@ -477,7 +516,7 @@ class CaptureManager:
                 "evdev": evdev_name,
                 "code": int(event.code),
                 "value": 1,
-                "hardware_id": f"{device.info.vendor:04x}:{device.info.product:04x}",
+                "hardware_id": hardware_id,
                 "source": self._source_for_path(device.path),
                 "stable_path": resolve_stable_path(device.path),
                 "device_path": device.path,
@@ -493,7 +532,7 @@ class CaptureManager:
             "evdev": evdev_name,
             "code": int(event.code),
             "value": int(event.value),
-            "hardware_id": f"{device.info.vendor:04x}:{device.info.product:04x}",
+            "hardware_id": hardware_id,
             "source": self._source_for_path(device.path),
             "stable_path": resolve_stable_path(device.path),
             "device_path": device.path,
@@ -502,3 +541,42 @@ class CaptureManager:
     def _source_for_path(self, device_path: str) -> str:
         stable_path = resolve_stable_path(device_path)
         return get_interface_id(stable_path)
+
+
+def _path_aliases(path: str) -> set[str]:
+    aliases = {str(path)}
+    with contextlib.suppress(Exception):
+        aliases.add(resolve_stable_path(path))
+    with contextlib.suppress(Exception):
+        aliases.add(os.path.realpath(path))
+    return {alias for alias in aliases if alias}
+
+
+def _hardware_path_lookup(hardware_paths: Mapping[str, Sequence[str]]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for hardware_id, paths in hardware_paths.items():
+        normalized_hardware_id = str(hardware_id or "").lower()
+        if not normalized_hardware_id:
+            continue
+        for path in paths:
+            for alias in _path_aliases(str(path or "")):
+                lookup[alias] = normalized_hardware_id
+    return lookup
+
+
+def _hardware_id_for_path(path: str, path_hardware_ids: Mapping[str, str]) -> str:
+    for alias in _path_aliases(path):
+        hardware_id = path_hardware_ids.get(alias)
+        if hardware_id:
+            return hardware_id
+    return ""
+
+
+def _hardware_id_for_device(
+    device: _CaptureInputDevice,
+    path_hardware_ids: Mapping[str, str],
+) -> str:
+    return _hardware_id_for_path(
+        device.path,
+        path_hardware_ids,
+    ) or f"{device.info.vendor:04x}:{device.info.product:04x}"

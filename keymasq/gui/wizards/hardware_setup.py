@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 from typing import Any, cast
@@ -40,6 +41,45 @@ from keymasq.session.hardware import HardwareManager
 DetectedDevice = dict[str, Any]
 DetectedInterface = dict[str, Any]
 DetectedButton = dict[str, Any]
+
+
+def _strip_input_suffix(phys: str) -> str:
+    return re.sub(r"/input\d+$", "", str(phys or "").strip())
+
+
+def _is_usb_phys(phys: str) -> bool:
+    return str(phys or "").startswith("usb-")
+
+
+def _by_id_device_stem(stable_path: str) -> str:
+    name = str(stable_path or "").rsplit("/", 1)[-1]
+    name = re.sub(r"-event-[^-]+$", "", name)
+    name = re.sub(r"-event$", "", name)
+    name = re.sub(r"-(mouse|joystick|kbd)$", "", name)
+    name = re.sub(r"-if\d+(?:_[^-]+)?$", "", name)
+    return name
+
+
+def _looks_like_by_id_path(stable_path: str) -> bool:
+    return "/by-id/" in str(stable_path or "")
+
+
+def _logical_hardware_identity_key(
+    *,
+    model_id: str,
+    device_types: list[str],
+    stable_path: str,
+    phys: str = "",
+) -> str:
+    normalized_types = normalize_input_classes(device_types)
+    if "gamepad" in normalized_types and _looks_like_by_id_path(stable_path):
+        return f"path:{stable_path}"
+    if _looks_like_by_id_path(stable_path):
+        return f"by-id:{_by_id_device_stem(stable_path)}"
+    phys_base = _strip_input_suffix(phys)
+    if phys_base and not _is_usb_phys(phys_base):
+        return f"phys:{phys_base}"
+    return f"model:{model_id}"
 
 
 class HardwareSetupDialog(Adw.Window):
@@ -300,7 +340,7 @@ class HardwareSetupDialog(Adw.Window):
             ),
         )
 
-        for vid_pid, dev_info in sorted_devices:
+        for hardware_id, dev_info in sorted_devices:
             row = Gtk.ListBoxRow()
             row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             row_box.set_margin_top(8)
@@ -318,7 +358,10 @@ class HardwareSetupDialog(Adw.Window):
             type_text = " · ".join(self._device_type_label(t) for t in grouped_types)
             iface_text = "interface" if iface_count == 1 else "interfaces"
 
-            vidpid = Gtk.Label(label=f"{vid_pid} · {iface_count} evdev {iface_text} · {type_text}")
+            model_id = str(dev_info.get("model_id", hardware_id))
+            vidpid = Gtk.Label(
+                label=f"{model_id} · {iface_count} evdev {iface_text} · {type_text}"
+            )
             vidpid.add_css_class("dim-label")
             vidpid.add_css_class("caption")
             vidpid.set_halign(Gtk.Align.START)
@@ -341,7 +384,7 @@ class HardwareSetupDialog(Adw.Window):
             row_box.append(expander)
 
             row.set_child(row_box)
-            row.vid_pid = vid_pid
+            row.hardware_id = hardware_id
             row._expander = expander
             self.device_list.append(row)
 
@@ -384,20 +427,46 @@ class HardwareSetupDialog(Adw.Window):
         lsusb_map: dict[str, dict[str, str]],
         detected_devices: dict[str, dict],
     ) -> None:
-        seen_ids = set()
+        used_hardware_ids = self._configured_hardware_ids()
+        configured_identity_keys = self._configured_identity_keys()
+        pending_identity_hardware_ids: dict[str, str] = {}
+        has_config_inventory = callable(getattr(self.hardware_manager, "list_hardware", None))
 
-        for path in evdev.list_devices():
+        def local_sort_key(path: str) -> str:
+            try:
+                return resolve_stable_path(path)
+            except Exception:
+                return path
+
+        for path in sorted(evdev.list_devices(), key=local_sort_key):
             try:
                 device = evdev.InputDevice(path)
                 if self._should_skip_detected_device(device):
                     continue
                 info = device.info
-                vid_pid = f"{info.vendor:04x}:{info.product:04x}"
-                if self._hardware_config_exists(vid_pid):
-                    continue
+                vendor_id = f"{info.vendor:04x}"
+                product_id = f"{info.product:04x}"
+                vid_pid = f"{vendor_id}:{product_id}"
                 device_types = detect_input_classes(device)
                 if not self._should_include_detected_interface(device_types):
                     continue
+                stable_path = resolve_stable_path(path)
+                phys = str(getattr(device, "phys", "") or "")
+                identity_key = _logical_hardware_identity_key(
+                    model_id=vid_pid,
+                    device_types=device_types,
+                    stable_path=stable_path,
+                    phys=phys,
+                )
+                if identity_key in configured_identity_keys or (
+                    not has_config_inventory and self._hardware_config_exists(vid_pid)
+                ):
+                    continue
+                hardware_id = pending_identity_hardware_ids.get(identity_key)
+                if hardware_id is None:
+                    hardware_id = self._allocate_hardware_id(vid_pid, used_hardware_ids)
+                    used_hardware_ids.add(hardware_id)
+                    pending_identity_hardware_ids[identity_key] = hardware_id
                 device_type = primary_input_class(device_types)
                 lsusb_entry = lsusb_map.get(vid_pid)
                 display_name = (
@@ -407,30 +476,34 @@ class HardwareSetupDialog(Adw.Window):
                     lsusb_entry["name"] if lsusb_entry and lsusb_entry["name"] else device.name
                 )
 
-                if vid_pid not in seen_ids:
-                    seen_ids.add(vid_pid)
-
-                    detected_devices[vid_pid] = {
+                if hardware_id not in detected_devices:
+                    detected_devices[hardware_id] = {
                         "name": human_name,
                         "display_name": display_name,
-                        "vendor_id": f"{info.vendor:04x}",
-                        "product_id": f"{info.product:04x}",
+                        "hardware_id": hardware_id,
+                        "model_id": vid_pid,
+                        "vendor_id": vendor_id,
+                        "product_id": product_id,
                         "paths": [path],
                         "interfaces": [
                             {
                                 "path": path,
+                                "stable_path": stable_path,
                                 "name": device.name,
+                                "phys": phys,
                                 "device_type": device_type,
                                 "device_types": device_types,
                             }
                         ],
                     }
                 else:
-                    detected_devices[vid_pid]["paths"].append(path)
-                    detected_devices[vid_pid]["interfaces"].append(
+                    detected_devices[hardware_id]["paths"].append(path)
+                    detected_devices[hardware_id]["interfaces"].append(
                         {
                             "path": path,
+                            "stable_path": stable_path,
                             "name": device.name,
+                            "phys": phys,
                             "device_type": device_type,
                             "device_types": device_types,
                         }
@@ -444,12 +517,26 @@ class HardwareSetupDialog(Adw.Window):
         if result.get("status") != "ok":
             return False
 
-        seen_ids = set(detected_devices.keys())
+        used_hardware_ids = self._configured_hardware_ids()
+        configured_identity_keys = self._configured_identity_keys()
+        pending_identity_hardware_ids: dict[str, str] = {}
+        has_config_inventory = callable(getattr(self.hardware_manager, "list_hardware", None))
 
-        for dev in result.get("devices", []):
-            if not isinstance(dev, dict):
-                continue
+        raw_devices = result.get("devices", [])
+        session_devices: list[dict[str, Any]] = [
+            cast(dict[str, Any], dev)
+            for dev in raw_devices
+            if isinstance(dev, dict)
+        ]
+        session_devices.sort(
+            key=lambda dev: (
+                str(dev.get("vendor_id", "") or "").lower(),
+                str(dev.get("product_id", "") or "").lower(),
+                str(dev.get("stable_path", "") or dev.get("path", "") or ""),
+            )
+        )
 
+        for dev in session_devices:
             if self._should_skip_detected_device_info(dev):
                 continue
 
@@ -459,8 +546,6 @@ class HardwareSetupDialog(Adw.Window):
                 continue
 
             vid_pid = f"{vendor_id}:{product_id}"
-            if self._hardware_config_exists(vid_pid):
-                continue
             path = str(dev.get("path", "") or "")
             name = str(dev.get("name", "") or path or vid_pid)
             dtype_raw = str(dev.get("device_type", "other") or "other")
@@ -468,19 +553,39 @@ class HardwareSetupDialog(Adw.Window):
             device_types = normalize_input_classes(dev.get("device_types"), dtype_raw)
             if not self._should_include_detected_interface(device_types):
                 continue
+            stable_path = str(dev.get("stable_path", "") or path)
+            phys = str(dev.get("phys", "") or "")
+            identity_key = _logical_hardware_identity_key(
+                model_id=vid_pid,
+                device_types=device_types,
+                stable_path=stable_path,
+                phys=phys,
+            )
+            if identity_key in configured_identity_keys or (
+                not has_config_inventory and self._hardware_config_exists(vid_pid)
+            ):
+                continue
+            hardware_id = pending_identity_hardware_ids.get(identity_key)
+            if hardware_id is None:
+                hardware_id = self._allocate_hardware_id(vid_pid, used_hardware_ids)
+                used_hardware_ids.add(hardware_id)
+                pending_identity_hardware_ids[identity_key] = hardware_id
 
-            if vid_pid not in seen_ids:
-                seen_ids.add(vid_pid)
-                detected_devices[vid_pid] = {
+            if hardware_id not in detected_devices:
+                detected_devices[hardware_id] = {
                     "name": name,
                     "display_name": name,
+                    "hardware_id": hardware_id,
+                    "model_id": vid_pid,
                     "vendor_id": vendor_id,
                     "product_id": product_id,
                     "paths": [path] if path else [],
                     "interfaces": [
                         {
                             "path": path,
+                            "stable_path": stable_path,
                             "name": name,
+                            "phys": phys,
                             "device_type": dtype,
                             "device_types": device_types,
                         }
@@ -490,11 +595,13 @@ class HardwareSetupDialog(Adw.Window):
                 }
             else:
                 if path:
-                    detected_devices[vid_pid]["paths"].append(path)
-                    detected_devices[vid_pid]["interfaces"].append(
+                    detected_devices[hardware_id]["paths"].append(path)
+                    detected_devices[hardware_id]["interfaces"].append(
                         {
                             "path": path,
+                            "stable_path": stable_path,
                             "name": name,
+                            "phys": phys,
                             "device_type": dtype,
                             "device_types": device_types,
                         }
@@ -538,9 +645,120 @@ class HardwareSetupDialog(Adw.Window):
 
         return False
 
+    def _configured_hardware_ids(self) -> set[str]:
+        list_ids = getattr(self.hardware_manager, "list_hardware_ids", None)
+        if callable(list_ids):
+            try:
+                configured_ids = list_ids()
+            except Exception:
+                configured_ids = []
+            if isinstance(configured_ids, list):
+                return {str(item) for item in configured_ids}
+
+        list_hardware = getattr(self.hardware_manager, "list_hardware", None)
+        if callable(list_hardware):
+            try:
+                return {
+                    str(getattr(config, "hardware_id", "") or "")
+                    for config in cast(list[object], list_hardware())
+                    if str(getattr(config, "hardware_id", "") or "")
+                }
+            except Exception:
+                return set()
+
+        return set()
+
+    def _configured_identity_keys(self) -> set[str]:
+        list_hardware = getattr(self.hardware_manager, "list_hardware", None)
+        if not callable(list_hardware):
+            return set()
+        try:
+            configs = cast(list[object], list_hardware())
+        except Exception:
+            return set()
+
+        keys: set[str] = set()
+        for config in configs:
+            model_id = str(getattr(config, "model_id", "") or "")
+            if not model_id:
+                continue
+            for device in getattr(config, "evdev_devices", []):
+                path = str(getattr(device, "path", "") or "")
+                if not path:
+                    continue
+                device_type = getattr(getattr(device, "device_type", None), "value", None)
+                device_types = [str(device_type or "other")]
+                keys.add(
+                    _logical_hardware_identity_key(
+                        model_id=model_id,
+                        device_types=device_types,
+                        stable_path=self._configured_device_stable_path(path),
+                        phys=self._configured_device_phys(device),
+                    )
+                )
+        return keys
+
+    def _configured_device_stable_path(self, path: str) -> str:
+        path = str(path or "")
+        if not path:
+            return ""
+        candidates = [path]
+        try:
+            real_path = os.path.realpath(path)
+        except Exception:
+            real_path = ""
+        if real_path and real_path != path:
+            candidates.append(real_path)
+
+        for candidate in candidates:
+            try:
+                stable_path = resolve_stable_path(candidate)
+            except Exception:
+                continue
+            if _looks_like_by_id_path(stable_path):
+                return stable_path
+        return path
+
+    def _configured_device_phys(self, device: object) -> str:
+        phys = str(getattr(device, "phys", "") or "")
+        if phys:
+            return phys
+
+        path = str(getattr(device, "path", "") or "")
+        if not path:
+            return ""
+
+        try:
+            input_device = evdev.InputDevice(path)
+        except Exception:
+            return ""
+        try:
+            return str(getattr(input_device, "phys", "") or "")
+        finally:
+            try:
+                input_device.close()
+            except Exception:
+                pass
+
+    def _allocate_hardware_id(self, model_id: str, used_hardware_ids: set[str]) -> str:
+        if model_id not in used_hardware_ids:
+            return model_id
+
+        index = 2
+        while True:
+            candidate = f"{model_id}@{index}"
+            if candidate not in used_hardware_ids:
+                return candidate
+            index += 1
+
+    def _selected_config_id(self, selected_device: DetectedDevice) -> str | None:
+        model_id = f"{selected_device['vendor_id']}:{selected_device['product_id']}"
+        hardware_id = str(selected_device.get("hardware_id") or model_id)
+        return hardware_id if hardware_id != model_id else None
+
     def _on_device_selected(self, list_box, row) -> None:
         if row:
-            self.selected_device = self.detected_devices[row.vid_pid]
+            self.selected_device = self.detected_devices[row.hardware_id]
             row._expander.set_expanded(True)
 
             idx = 0
@@ -718,7 +936,9 @@ class HardwareSetupDialog(Adw.Window):
 
         vid = self.selected_device["vendor_id"]
         pid = self.selected_device["product_id"]
-        self._capture_hardware_id = f"{vid}:{pid}"
+        self._capture_hardware_id = str(
+            self.selected_device.get("hardware_id") or f"{vid}:{pid}"
+        )
 
         self.discovered_interfaces = {}
 
@@ -727,7 +947,7 @@ class HardwareSetupDialog(Adw.Window):
             raw_path = str(iface.get("path", "") or "")
             if not raw_path:
                 continue
-            stable_path = resolve_stable_path(raw_path)
+            stable_path = str(iface.get("stable_path", "") or resolve_stable_path(raw_path))
             capability_names, raw_capabilities = self._read_interface_capabilities(raw_path)
             interfaces.append(
                 {
@@ -735,6 +955,7 @@ class HardwareSetupDialog(Adw.Window):
                     "stable_path": stable_path,
                     "id": get_interface_id(stable_path),
                     "name": str(iface.get("name", "") or raw_path),
+                    "phys": str(iface.get("phys", "") or ""),
                     "capabilities": capability_names,
                     "raw_capabilities": raw_capabilities,
                 }
@@ -762,6 +983,7 @@ class HardwareSetupDialog(Adw.Window):
                 "stable_path": iface["stable_path"],
                 "path": iface["path"],
                 "name": iface["name"],
+                "phys": str(iface.get("phys", "") or ""),
                 "device_type": iface_info_by_path.get(iface["path"], {}).get(
                     "device_type",
                     DeviceType.OTHER,
@@ -941,6 +1163,11 @@ class HardwareSetupDialog(Adw.Window):
             {
                 "command": "begin_capture",
                 "hardware_id": self._capture_hardware_id,
+                "evdev_paths": [
+                    str(iface.get("stable_path") or iface.get("path") or "")
+                    for iface in self.discovered_interfaces.values()
+                    if str(iface.get("stable_path") or iface.get("path") or "")
+                ],
             },
             self._on_capture_begin_response,
         )
@@ -1104,6 +1331,7 @@ class HardwareSetupDialog(Adw.Window):
                     path=stable_path,
                     device_type=device_type,
                     id=iface_id,
+                    phys=str(iface_info.get("phys", "") or "") or None,
                 )
             )
 
@@ -1126,6 +1354,7 @@ class HardwareSetupDialog(Adw.Window):
             name=selected_device["name"],
             evdev_devices=evdev_devices,
             buttons=buttons,
+            id=self._selected_config_id(selected_device),
         )
 
         self.hardware_manager.save_hardware(config)
@@ -1154,6 +1383,7 @@ class HardwareSetupDialog(Adw.Window):
             name=selected_device["name"],
             evdev_devices=evdev_devices,
             buttons=buttons,
+            id=self._selected_config_id(selected_device),
         )
 
         self.hardware_manager.save_hardware(config)
@@ -1182,6 +1412,7 @@ class HardwareSetupDialog(Adw.Window):
                     "rel_hwheel",
                 ),
             ),
+            id=self._selected_config_id(selected_device),
         )
 
         self.hardware_manager.save_hardware(config)
@@ -1220,6 +1451,7 @@ class HardwareSetupDialog(Adw.Window):
             name=selected_device["name"],
             evdev_devices=self._build_evdev_devices(interfaces),
             buttons=buttons,
+            id=self._selected_config_id(selected_device),
         )
 
         self.hardware_manager.save_hardware(config)
@@ -1302,6 +1534,7 @@ class HardwareSetupDialog(Adw.Window):
                     path=stable_path,
                     device_type=primary_input_class(iface.get("device_types")),
                     id=iface_id,
+                    phys=str(iface.get("phys", "") or "") or None,
                     capabilities=list(iface.get("capabilities", [])),
                 )
             )
@@ -1446,6 +1679,7 @@ class HardwareSetupDialog(Adw.Window):
                     path=stable_path,
                     device_type=dev_type,
                     id=iface_id,
+                    phys=str(iface.get("phys", "") or "") or None,
                     capabilities=list(iface.get("capabilities", [])),
                 )
             )
@@ -1456,6 +1690,7 @@ class HardwareSetupDialog(Adw.Window):
             name=selected_device["name"],
             evdev_devices=evdev_devices,
             buttons=self._build_gamepad_buttons(gamepad_interfaces),
+            id=self._selected_config_id(selected_device),
         )
 
         self.hardware_manager.save_hardware(config)

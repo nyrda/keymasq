@@ -179,6 +179,7 @@ class EvdevDevice:
     path: str
     device_type: DeviceType
     id: str | None = None
+    phys: str | None = None
     capabilities: list[str] = field(default_factory=list)
 
 
@@ -204,9 +205,14 @@ class HardwareConfig:
     evdev_devices: list[EvdevDevice]
     buttons: list[ButtonDefinition]
     image: str | None = None
+    id: str | None = None
 
     @property
     def hardware_id(self) -> str:
+        return self.id or f"{self.vendor_id}:{self.product_id}"
+
+    @property
+    def model_id(self) -> str:
         return f"{self.vendor_id}:{self.product_id}"
 
 

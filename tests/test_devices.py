@@ -139,6 +139,7 @@ def test_find_all_interfaces_filters_matching_devices(monkeypatch: pytest.Monkey
             "stable_path": "/dev/input/by-id/event1",
             "id": "id-event1",
             "name": "Main Keyboard",
+            "phys": "",
         }
     ]
 

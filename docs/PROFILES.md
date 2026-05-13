@@ -192,8 +192,10 @@ Typical fields are:
 Each profile file contains:
 
 - one `[profile]` section for global profile metadata
-- one `[devices."<hardware_id>"]` section per device layer (the hardware ID is
-  the USB vendor:product ID shown in the GUI device tab header, e.g. `046d:c548`)
+- one `[devices."<hardware_id>"]` section per device layer. Hardware IDs are
+  USB vendor:product IDs such as `046d:c548` for the first configured device of
+  a model. Additional identical devices use numbered internal IDs such as
+  `046d:c548@2`.
 - one `[devices."<hardware_id>".mapping.<button_id>]` section per mapped button
 
 Example:

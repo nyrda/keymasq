@@ -263,6 +263,80 @@ async def test_reevaluate_profiles_sends_combo_payload_and_forces_combo_grab() -
     assert sent[2].args[0].data["combos"][0]["steps"][0]["timeout_ms"] == 750
 
 
+@pytest.mark.asyncio
+async def test_reevaluate_profiles_keeps_numbered_duplicate_hardware_separate() -> None:
+    manager = SessionManager()
+    left_id = "cafe:00dd"
+    right_id = "cafe:00dd@2"
+    profile = ProfileConfig(name="Desktop", enabled=True, is_permanent=True)
+    hardware_by_id = {
+        left_id: SimpleNamespace(
+            hardware_id=left_id,
+            name="Duplicate Keyboard 1",
+            evdev_devices=[SimpleNamespace(id="kbd", path="/dev/input/event-left")],
+            buttons=[SimpleNamespace(id="key_l", evdev="key_l", source="kbd")],
+        ),
+        right_id: SimpleNamespace(
+            hardware_id=right_id,
+            name="Duplicate Keyboard 2",
+            evdev_devices=[SimpleNamespace(id="kbd", path="/dev/input/event-right")],
+            buttons=[SimpleNamespace(id="key_l", evdev="key_l", source="kbd")],
+        ),
+    }
+
+    manager.hardware.list_hardware_ids = lambda: [left_id, right_id]  # type: ignore[assignment]
+    manager.hardware.get_hardware = lambda hardware_id: hardware_by_id.get(hardware_id)  # type: ignore[assignment]
+    manager.profiles.resolve_active_profiles = lambda *_args, **_kwargs: ResolvedProfiles(  # type: ignore[assignment]
+        active_profiles=[profile],
+        devices={
+            left_id: ResolvedDeviceProfile(
+                hardware_id=left_id,
+                active_profile_names=["Desktop"],
+                mappings={
+                    "key_l": MappingAction(action_type=ActionType.KEYBOARD, target="key_1")
+                },
+            ),
+            right_id: ResolvedDeviceProfile(
+                hardware_id=right_id,
+                active_profile_names=["Desktop"],
+                mappings={
+                    "key_l": MappingAction(action_type=ActionType.KEYBOARD, target="key_2")
+                },
+            ),
+        },
+        combos=[],
+    )
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            Response(status="ok", data={"grabbed_count": 1}),
+            Response(status="ok", data={"updated": True}),
+            Response(status="ok", data={"grabbed_count": 1}),
+            Response(status="ok", data={"updated": True}),
+            Response(status="ok", data={"updated": True, "combo_count": 0}),
+        ]
+    )
+
+    await session_profiles_module.reevaluate_profiles(manager)
+
+    sent = manager.client.send_command.await_args_list
+    assert [call.args[0].command for call in sent[:4]] == [
+        CommandType.GRAB_DEVICE,
+        CommandType.SET_MAPPING,
+        CommandType.GRAB_DEVICE,
+        CommandType.SET_MAPPING,
+    ]
+    left_grab = sent[0].args[0].data
+    right_grab = sent[2].args[0].data
+    assert left_grab["hardware_id"] == left_id
+    assert left_grab["evdev_paths"] == ["/dev/input/event-left"]
+    assert right_grab["hardware_id"] == right_id
+    assert right_grab["evdev_paths"] == ["/dev/input/event-right"]
+    assert sent[1].args[0].data["hardware_id"] == left_id
+    assert sent[1].args[0].data["mapping"]["key_l"]["target"] == "key_1"
+    assert sent[3].args[0].data["hardware_id"] == right_id
+    assert sent[3].args[0].data["mapping"]["key_l"]["target"] == "key_2"
+
+
 def test_resolved_combo_signature_changes_when_superkey_definition_changes() -> None:
     manager = SessionManager()
     combo_action = MappingAction(action_type=ActionType.SUPERKEY, superkey_name="combo-superkey")

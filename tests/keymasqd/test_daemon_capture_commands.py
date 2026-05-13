@@ -188,7 +188,7 @@ async def test_cursor_position_backend_commands_forward_to_device_manager(daemon
             CommandType.CAPTURE_COMBO,
             {"hardware_ids": ["1234:5678"], "timeout_s": 9.0},
             "_capture_combo",
-            ({"1234:5678"}, 9.0),
+            ({"1234:5678"}, 9.0, {}),
             {"events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}]},
         ),
     ],
@@ -224,6 +224,43 @@ async def test_capture_commands_forward_to_capture_manager(
     else:
         getattr(capture_manager, manager_method).assert_called_once_with(expected_call)
     monkeypatch.undo()
+
+
+@pytest.mark.asyncio
+async def test_capture_begin_forwards_explicit_evdev_paths(daemon_testbed):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+
+    result = await daemon._handle_command(
+        CommandType.CAPTURE_BEGIN,
+        {"hardware_id": "1234:5678@slot2", "evdev_paths": ["/dev/input/event2"]},
+    )
+
+    assert result == {"token": "cap-token"}
+    capture_manager.begin.assert_called_once_with("1234:5678@slot2", ["/dev/input/event2"])
+
+
+@pytest.mark.asyncio
+async def test_capture_combo_forwards_explicit_hardware_paths(daemon_testbed, monkeypatch):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    capture_combo = AsyncMock(return_value={"events": []})
+    monkeypatch.setattr(daemon_capture_commands, "capture_combo", capture_combo)
+
+    result = await daemon._handle_command(
+        CommandType.CAPTURE_COMBO,
+        {
+            "hardware_ids": ["1234:5678@2"],
+            "hardware_paths": {"1234:5678@2": ["/dev/input/by-path/test-event-kbd"]},
+            "timeout_s": 2.0,
+        },
+    )
+
+    assert result == {"events": []}
+    capture_combo.assert_awaited_once_with(
+        daemon,
+        {"1234:5678@2"},
+        2.0,
+        {"1234:5678@2": ["/dev/input/by-path/test-event-kbd"]},
+    )
 
 
 @pytest.mark.asyncio

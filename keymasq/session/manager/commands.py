@@ -596,7 +596,12 @@ async def _handle_capture_commands(
         hardware_id = str_value(request.get("hardware_id"), "")
         if not hardware_id:
             return {"error": "missing hardware_id"}
-        return await runtime_recording.capture_begin(manager, hardware_id)
+        evdev_paths = [
+            str_value(path, "")
+            for path in json_list(request.get("evdev_paths"))
+            if str_value(path, "")
+        ]
+        return await runtime_recording.capture_begin_for_paths(manager, hardware_id, evdev_paths)
 
     if command == "capture_read":
         hardware_id = str_value(request.get("hardware_id"), "")

@@ -1,10 +1,13 @@
 import logging
 import os
+import re
 from collections.abc import Callable, Mapping, Sequence
+from hashlib import blake2b
 from typing import Final, Protocol, cast
 
 TEST_UINPUT_ENV = "KEYMASQ_TEST_UINPUT"
 TEST_UINPUT_PREFIX = "keymasq-test"
+UINPUT_NAME_MAX_BYTES = 80
 TEST_UINPUT_VENDOR = 0x4B46
 TEST_UINPUT_PRODUCTS = {
     "keyboard": 0x1001,
@@ -219,6 +222,53 @@ def _test_uinput_enabled() -> bool:
     return value not in {"", "0", "false", "no"}
 
 
+def bounded_uinput_name(
+    prefix: str,
+    identity: str,
+    *,
+    max_bytes: int = UINPUT_NAME_MAX_BYTES,
+) -> str:
+    identity = identity.replace("/dev/input/by-id/", "")
+    identity = identity.replace("/dev/input/", "")
+    name = f"{prefix}-{identity}" if identity else prefix
+    if len(name.encode("utf-8")) <= max_bytes:
+        return name
+
+    ascii_identity = re.sub(r"[^A-Za-z0-9_.:-]+", "-", identity).strip("-")
+    digest = blake2b(identity.encode("utf-8"), digest_size=4).hexdigest()
+    suffix = f"-{digest}"
+    budget = max_bytes - len(prefix.encode("utf-8")) - len(b"-") - len(suffix)
+    if budget <= 0:
+        return f"{prefix[: max(1, max_bytes - len(suffix))]}{suffix}"
+
+    kept = ascii_identity.encode("utf-8")[:budget].decode("utf-8", "ignore").strip("-")
+    if not kept:
+        kept = "device"
+    return f"{prefix}-{kept}{suffix}"
+
+
+def bounded_passthrough_name(
+    name: str,
+    *,
+    max_bytes: int = UINPUT_NAME_MAX_BYTES,
+) -> str:
+    normalized = str(name or "").strip() or "Keymasq Passthrough"
+    if len(normalized.encode("utf-8")) <= max_bytes:
+        return normalized
+
+    ascii_name = re.sub(r"[^A-Za-z0-9_.:-]+", "-", normalized).strip("-")
+    digest = blake2b(normalized.encode("utf-8"), digest_size=4).hexdigest()
+    suffix = f"-{digest}"
+    budget = max_bytes - len(suffix.encode("utf-8"))
+    if budget <= 0:
+        return suffix[-max_bytes:]
+
+    kept = ascii_name.encode("utf-8")[:budget].decode("utf-8", "ignore").strip("-")
+    if not kept:
+        kept = "device"
+    return f"{kept}{suffix}"
+
+
 def uinput_identity(
     normal_name: str,
     kind: str,
@@ -226,9 +276,11 @@ def uinput_identity(
     test_name: str | None = None,
 ) -> tuple[str, int | None, int | None]:
     if not _test_uinput_enabled():
-        return normal_name, None, None
+        if normal_name.startswith("keymasq-"):
+            return bounded_uinput_name("keymasq", normal_name.removeprefix("keymasq-")), None, None
+        return bounded_passthrough_name(normal_name), None, None
     return (
-        f"{TEST_UINPUT_PREFIX}-{test_name or kind}",
+        bounded_uinput_name(TEST_UINPUT_PREFIX, test_name or kind),
         TEST_UINPUT_VENDOR,
         TEST_UINPUT_PRODUCTS[kind],
     )

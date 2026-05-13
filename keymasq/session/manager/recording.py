@@ -582,6 +582,11 @@ async def capture_begin_for_paths(
 ) -> JsonObject:
     if not evdev_paths:
         evdev_paths = _hardware_evdev_paths(manager, hardware_id)
+    if not evdev_paths and _requires_explicit_evdev_paths(hardware_id):
+        return {
+            "status": "error",
+            "message": f"Hardware config for {hardware_id} has no evdev paths",
+        }
     lock_result = await _begin_capture(manager, hardware_id)
     try:
         result = await manager.client.send_command(
@@ -756,6 +761,10 @@ def _hardware_evdev_paths(manager: "SessionManager", hardware_id: str) -> list[s
         for device in getattr(hardware, "evdev_devices", [])
         if (path := str_value(getattr(device, "path", ""), ""))
     ]
+
+
+def _requires_explicit_evdev_paths(hardware_id: str) -> bool:
+    return "@" in str(hardware_id or "")
 
 
 async def stop_recording(

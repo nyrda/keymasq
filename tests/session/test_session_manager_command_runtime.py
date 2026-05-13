@@ -620,6 +620,36 @@ async def test_begin_capture_for_numbered_hardware_uses_configured_paths() -> No
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_for_numbered_hardware_requires_configured_paths() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678@2"
+    manager.hardware.get_hardware = lambda _hardware_id: None  # type: ignore[assignment]
+    manager.client.send_command = AsyncMock()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-test",
+    }
+
+    result = await manager._handle_session_request(
+        {"command": "begin_capture", "hardware_id": hardware_id},
+        "client",
+        peer,
+        writer,
+    )
+
+    assert result == {
+        "status": "error",
+        "message": "Hardware config for 1234:5678@2 has no evdev paths",
+    }
+    manager.client.send_command.assert_not_called()
+    assert hardware_id not in manager.capture_state.locks
+
+
+@pytest.mark.asyncio
 async def test_handle_session_request_create_macro_broadcasts_saved_event() -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(

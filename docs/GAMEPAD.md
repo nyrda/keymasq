@@ -124,6 +124,11 @@ Analog axes still passthrough normally, but they are not editable remap sources 
 If your controller has unusual extra digital buttons, you can add them later from the
 device tab using the same listen/capture flow used for keyboards and mice.
 
+When Keymasq grabs a physical gamepad, it creates a passthrough uinput clone for
+unmapped controller events. That clone reuses the source controller name and input
+IDs, so tools such as Steam see it as the same controller model rather than a
+generic Keymasq device.
+
 ## Game Compatibility
 
 The virtual gamepad appears as a standard Linux gamepad. Most games detect it automatically through:

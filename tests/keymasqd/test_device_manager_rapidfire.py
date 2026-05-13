@@ -387,6 +387,117 @@ class TestRapidfireRelease:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+    @pytest.mark.asyncio
+    async def test_gamepad_passthrough_copies_source_identity(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("KEYMASQ_TEST_UINPUT", raising=False)
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "js")
+
+        class _FakeInputDevice:
+            name = "Xbox 360 Wireless Controller"
+            info = SimpleNamespace(
+                vendor=0x045E,
+                product=0x02A1,
+                version=0x0114,
+                bustype=0x0003,
+            )
+
+            def capabilities(self) -> dict[int, list[object]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [
+                        (
+                            evdev.ecodes.ABS_X,
+                            evdev.AbsInfo(0, -32768, 32767, 16, 128, 0),
+                        )
+                    ],
+                    evdev.ecodes.EV_SYN: [],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def active_keys(self) -> list[int]:
+                return []
+
+            def grab(self) -> None:
+                return
+
+        created_tasks: list[asyncio.Task[None]] = []
+        original_create_task = asyncio.create_task
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        def fake_create_task(coro):
+            coro.close()
+            task = original_create_task(asyncio.sleep(0))
+            created_tasks.append(task)
+            return task
+
+        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(gdm.evdev, "UInput", _FakeUInput)
+        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="045e:02a1",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.GAMEPAD,
+            device_types=["gamepad"],
+            gamepad_uinput=_FakeUInput(),  # type: ignore[arg-type]
+        )
+
+        await device.grab()
+        await asyncio.sleep(0)
+
+        assert isinstance(device.uinput, _FakeUInput)
+        assert device.uinput.kwargs["name"] == "Xbox 360 Wireless Controller"
+        assert device.uinput.kwargs["vendor"] == 0x045E
+        assert device.uinput.kwargs["product"] == 0x02A1
+        assert device.uinput.kwargs["version"] == 0x0114
+        assert device.uinput.kwargs["bustype"] == 0x0003
+
+        for task in created_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def test_gamepad_passthrough_fallback_name_includes_interface(self) -> None:
+        device = SimpleNamespace(name="")
+
+        assert (
+            gdm._passthrough_name(  # pyright: ignore[reportPrivateUsage]
+                device,  # type: ignore[arg-type]
+                "045e:02a1",
+                "js0",
+                is_gamepad=True,
+            )
+            == "Keymasq Gamepad Passthrough (js0)"
+        )
+
+    def test_gamepad_passthrough_fallback_name_uses_hardware_id_without_interface(
+        self,
+    ) -> None:
+        device = SimpleNamespace(name=None)
+
+        assert (
+            gdm._passthrough_name(  # pyright: ignore[reportPrivateUsage]
+                device,  # type: ignore[arg-type]
+                "045e:02a1",
+                "",
+                is_gamepad=True,
+            )
+            == "Keymasq Gamepad Passthrough (045e:02a1)"
+        )
+
     @pytest.mark.asyncio
     async def test_rapidfire_key_releases_before_exiting_when_stopped_during_hold(
         self,

@@ -58,6 +58,7 @@ class HardwareManager:
                     path=dev["path"],
                     device_type=DeviceType(dev.get("type", "other")),
                     id=dev.get("id"),
+                    phys=dev.get("phys"),
                     capabilities=dev.get("capabilities", []),
                 )
             )
@@ -135,6 +136,8 @@ class HardwareManager:
             }
             if d.id:
                 dev_data["id"] = d.id
+            if d.phys:
+                dev_data["phys"] = d.phys
             if d.capabilities:
                 dev_data["capabilities"] = d.capabilities
             evdev_devices_data.append(dev_data)

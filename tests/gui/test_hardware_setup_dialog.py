@@ -243,6 +243,58 @@ class TestHardwareSetupDialog:
             }
         }
 
+    def test_detect_devices_via_session_skips_configured_non_usb_phys(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event21",
+                        "stable_path": "/dev/input/event21",
+                        "name": "Integrated Keyboard",
+                        "phys": "isa0060/serio0/input0",
+                        "vendor_id": "1234",
+                        "product_id": "5678",
+                        "device_type": "keyboard",
+                        "device_types": ["keyboard"],
+                    }
+                ],
+            },
+        )
+        monkeypatch.setattr(
+            hardware_setup_mod.evdev,
+            "InputDevice",
+            lambda _path: SimpleNamespace(
+                phys="isa0060/serio0/input0",
+                close=lambda: None,
+            ),
+        )
+        configured = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Integrated Keyboard",
+            evdev_devices=[
+                EvdevDevice(path="/dev/input/event21", device_type=DeviceType.KEYBOARD)
+            ],
+            buttons=[],
+        )
+        hardware_manager = SimpleNamespace(list_hardware=lambda: [configured])
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is False
+        assert detected_devices == {}
+
     def test_detect_devices_via_session_keeps_duplicate_gamepad_slots(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

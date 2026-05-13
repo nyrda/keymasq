@@ -692,9 +692,31 @@ class HardwareSetupDialog(Adw.Window):
                         model_id=model_id,
                         device_types=device_types,
                         stable_path=path,
+                        phys=self._configured_device_phys(device),
                     )
                 )
         return keys
+
+    def _configured_device_phys(self, device: object) -> str:
+        phys = str(getattr(device, "phys", "") or "")
+        if phys:
+            return phys
+
+        path = str(getattr(device, "path", "") or "")
+        if not path:
+            return ""
+
+        try:
+            input_device = evdev.InputDevice(path)
+        except Exception:
+            return ""
+        try:
+            return str(getattr(input_device, "phys", "") or "")
+        finally:
+            try:
+                input_device.close()
+            except Exception:
+                pass
 
     def _allocate_hardware_id(self, model_id: str, used_hardware_ids: set[str]) -> str:
         if model_id not in used_hardware_ids:
@@ -911,6 +933,7 @@ class HardwareSetupDialog(Adw.Window):
                     "stable_path": stable_path,
                     "id": get_interface_id(stable_path),
                     "name": str(iface.get("name", "") or raw_path),
+                    "phys": str(iface.get("phys", "") or ""),
                     "capabilities": capability_names,
                     "raw_capabilities": raw_capabilities,
                 }
@@ -938,6 +961,7 @@ class HardwareSetupDialog(Adw.Window):
                 "stable_path": iface["stable_path"],
                 "path": iface["path"],
                 "name": iface["name"],
+                "phys": str(iface.get("phys", "") or ""),
                 "device_type": iface_info_by_path.get(iface["path"], {}).get(
                     "device_type",
                     DeviceType.OTHER,
@@ -1285,6 +1309,7 @@ class HardwareSetupDialog(Adw.Window):
                     path=stable_path,
                     device_type=device_type,
                     id=iface_id,
+                    phys=str(iface_info.get("phys", "") or "") or None,
                 )
             )
 
@@ -1487,6 +1512,7 @@ class HardwareSetupDialog(Adw.Window):
                     path=stable_path,
                     device_type=primary_input_class(iface.get("device_types")),
                     id=iface_id,
+                    phys=str(iface.get("phys", "") or "") or None,
                     capabilities=list(iface.get("capabilities", [])),
                 )
             )
@@ -1631,6 +1657,7 @@ class HardwareSetupDialog(Adw.Window):
                     path=stable_path,
                     device_type=dev_type,
                     id=iface_id,
+                    phys=str(iface.get("phys", "") or "") or None,
                     capabilities=list(iface.get("capabilities", [])),
                 )
             )

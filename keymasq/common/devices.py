@@ -588,6 +588,7 @@ def find_all_interfaces(vendor_id: str, product_id: str) -> list[dict[str, str]]
                         "stable_path": stable_path,
                         "id": interface_id,
                         "name": device.name,
+                        "phys": str(getattr(device, "phys", "") or ""),
                     }
                 )
         except Exception:

@@ -179,6 +179,7 @@ class EvdevDevice:
     path: str
     device_type: DeviceType
     id: str | None = None
+    phys: str | None = None
     capabilities: list[str] = field(default_factory=list)
 
 

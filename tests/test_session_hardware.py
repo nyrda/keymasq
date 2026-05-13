@@ -17,9 +17,13 @@ product_id = "5678"
 image = "mouse.svg"
 
 [hardware.evdev]
-devices = [
-  { path = "/dev/input/event10", type = "mouse", id = "usb0", capabilities = ["btn_left"] },
-]
+
+[[hardware.evdev.devices]]
+path = "/dev/input/event10"
+type = "mouse"
+id = "usb0"
+phys = "usb-test/input0"
+capabilities = ["btn_left"]
 
 [hardware.layout]
 
@@ -47,6 +51,7 @@ type = "button"
             path="/dev/input/event10",
             device_type=DeviceType.MOUSE,
             id="usb0",
+            phys="usb-test/input0",
             capabilities=["btn_left"],
         )
     ]
@@ -116,6 +121,7 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
                 path="/dev/input/event99",
                 device_type=DeviceType.MOUSE,
                 id="mouse0",
+                phys="usb-test/input0",
                 capabilities=["btn_left", "rel_x"],
             )
         ],
@@ -139,6 +145,7 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
     saved_path = temp_config_dir / "hardware" / "1111_2222.toml"
     text = saved_path.read_text(encoding="utf-8")
     assert 'type = "mouse"' in text
+    assert 'phys = "usb-test/input0"' in text
     assert 'image = "mouse.png"' in text
     assert 'source = "evdev"' in text
     assert 'zone = "main"' in text

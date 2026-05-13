@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import signal
+import socket
 import sys
 import traceback
 from typing import cast
@@ -94,6 +95,7 @@ class SessionManager:
         self.compositor_state = CompositorRuntimeState()
         self.connect_task: asyncio.Task[None] | None = None
         self.session_server: asyncio.Server | None = None
+        self._session_socket_owned = False
         self.session_clients: set[asyncio.StreamWriter] = set()
         self.session_client_peers: dict[asyncio.StreamWriter, PeerCredentials] = {}
         self.session_client_drain_tasks: dict[
@@ -249,16 +251,20 @@ class SessionManager:
                 await self.connect_task
             self.connect_task = None
 
-        if SESSION_SOCKET_PATH.exists():
+        if self._session_socket_owned and SESSION_SOCKET_PATH.exists():
             try:
                 SESSION_SOCKET_PATH.unlink()
             except Exception:
                 pass
+            self._session_socket_owned = False
 
     async def _start_session_server(self) -> None:
         ensure_session_socket_dir()
 
         if SESSION_SOCKET_PATH.exists():
+            if await _session_socket_accepts_connections():
+                msg = f"keymasq-session is already listening on {SESSION_SOCKET_PATH}"
+                raise RuntimeError(msg)
             try:
                 SESSION_SOCKET_PATH.unlink()
             except Exception:
@@ -268,6 +274,7 @@ class SessionManager:
             self._handle_session_client,
             path=str(SESSION_SOCKET_PATH),
         )
+        self._session_socket_owned = True
         try:
             os.chmod(SESSION_SOCKET_PATH, 0o600)
         except OSError:
@@ -661,6 +668,23 @@ def main() -> None:
 
 def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+async def _session_socket_accepts_connections(timeout_s: float = 0.2) -> bool:
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.setblocking(False)
+    try:
+        await asyncio.wait_for(
+            asyncio.get_running_loop().sock_connect(sock, str(SESSION_SOCKET_PATH)),
+            timeout=timeout_s,
+        )
+    except TimeoutError:
+        return True
+    except OSError:
+        return False
+    finally:
+        sock.close()
+    return True
 
 
 if __name__ == "__main__":

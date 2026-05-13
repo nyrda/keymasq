@@ -247,6 +247,28 @@ def bounded_uinput_name(
     return f"{prefix}-{kept}{suffix}"
 
 
+def bounded_passthrough_name(
+    name: str,
+    *,
+    max_bytes: int = UINPUT_NAME_MAX_BYTES,
+) -> str:
+    normalized = str(name or "").strip() or "Keymasq Passthrough"
+    if len(normalized.encode("utf-8")) <= max_bytes:
+        return normalized
+
+    ascii_name = re.sub(r"[^A-Za-z0-9_.:-]+", "-", normalized).strip("-")
+    digest = blake2b(normalized.encode("utf-8"), digest_size=4).hexdigest()
+    suffix = f"-{digest}"
+    budget = max_bytes - len(suffix.encode("utf-8"))
+    if budget <= 0:
+        return suffix[-max_bytes:]
+
+    kept = ascii_name.encode("utf-8")[:budget].decode("utf-8", "ignore").strip("-")
+    if not kept:
+        kept = "device"
+    return f"{kept}{suffix}"
+
+
 def uinput_identity(
     normal_name: str,
     kind: str,
@@ -254,7 +276,9 @@ def uinput_identity(
     test_name: str | None = None,
 ) -> tuple[str, int | None, int | None]:
     if not _test_uinput_enabled():
-        return bounded_uinput_name("keymasq", normal_name.removeprefix("keymasq-")), None, None
+        if normal_name.startswith("keymasq-"):
+            return bounded_uinput_name("keymasq", normal_name.removeprefix("keymasq-")), None, None
+        return bounded_passthrough_name(normal_name), None, None
     return (
         bounded_uinput_name(TEST_UINPUT_PREFIX, test_name or kind),
         TEST_UINPUT_VENDOR,

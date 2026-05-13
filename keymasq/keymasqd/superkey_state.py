@@ -43,6 +43,7 @@ class SuperkeyState(Enum):
 class SuperkeyActionData:
     action_type: str
     target: str | None = None
+    output_id: str | None = None
     cmd: str | None = None
     exec_ref: int | None = None
     macro_name: str | None = None
@@ -67,6 +68,11 @@ class SuperkeyActionData:
     rapidfire_wait_ms: int = 20
 
     def __post_init__(self) -> None:
+        self.output_id = (
+            str(self.output_id).strip()
+            if self.action_type == ActionType.GAMEPAD.value and self.output_id is not None
+            else None
+        ) or None
         self.rapidfire_hold_ms = clamp_rapidfire_hold_ms(self.rapidfire_hold_ms)
         self.rapidfire_wait_ms = clamp_rapidfire_wait_ms(self.rapidfire_wait_ms)
 
@@ -126,6 +132,7 @@ class SuperkeyMachine:
         broadcast_callback: Callable[[dict[str, object]], Awaitable[None]] | None = None,
         cursor_position_setter: CursorPositionSetter | None = None,
         key_event_tracker: Callable[[str, int, int], bool] | None = None,
+        gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None,
     ) -> None:
         self.config = config
         self.event_name = event_name
@@ -136,6 +143,7 @@ class SuperkeyMachine:
         self.broadcast_callback = broadcast_callback
         self.cursor_position_setter = cursor_position_setter
         self.key_event_tracker = key_event_tracker
+        self.gamepad_output_resolver = gamepad_output_resolver
 
         self.state = SuperkeyState.IDLE
         self._hold_task: asyncio.Task[None] | None = None
@@ -422,7 +430,7 @@ class SuperkeyMachine:
             if code is None:
                 return
 
-            uinput = self._get_uinput(action.action_type)
+            uinput, bucket = self._get_action_output(action)
             if uinput is None:
                 return
 
@@ -447,7 +455,7 @@ class SuperkeyMachine:
             else:
                 should_emit = True
                 if self.key_event_tracker:
-                    should_emit = self.key_event_tracker(action.action_type, int(code), 1)
+                    should_emit = self.key_event_tracker(bucket, int(code), 1)
                 if should_emit:
                     uinput.write(evdev.ecodes.EV_KEY, code, 1)
                     uinput.syn()
@@ -479,7 +487,7 @@ class SuperkeyMachine:
             if code is None:
                 return
 
-            uinput = self._get_uinput(action.action_type)
+            uinput, bucket = self._get_action_output(action)
             if uinput is None:
                 return
 
@@ -498,7 +506,7 @@ class SuperkeyMachine:
             else:
                 should_emit = True
                 if self.key_event_tracker:
-                    should_emit = self.key_event_tracker(action.action_type, int(code), 0)
+                    should_emit = self.key_event_tracker(bucket, int(code), 0)
                 if should_emit:
                     uinput.write(evdev.ecodes.EV_KEY, code, 0)
                     uinput.syn()
@@ -511,6 +519,21 @@ class SuperkeyMachine:
         elif action_type == "gamepad":
             return self.gamepad_uinput
         return None
+
+    def _get_action_output(self, action: SuperkeyActionData) -> tuple[_WritableUInput | None, str]:
+        if action.action_type != "gamepad":
+            return self._get_uinput(action.action_type), action.action_type
+        if self.gamepad_output_resolver is not None:
+            target = self.gamepad_output_resolver(
+                action.output_id,
+                f"{self.event_name} -> {action.target or ''}",
+            )
+            if target is None:
+                return None, "gamepad"
+            return cast(_WritableUInput | None, getattr(target, "uinput", None)), str(
+                getattr(target, "bucket", "gamepad")
+            )
+        return self.gamepad_uinput, "gamepad"
 
     def _resolve_code(self, target: str | None) -> int | None:
         return resolve_output_code(target)

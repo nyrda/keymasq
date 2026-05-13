@@ -34,9 +34,14 @@ def bucket_for_uinput(
 
 
 def track_key_state(
-    device_runtime: GrabbedDeviceRuntime, uinput_dev: object | None, code: int, value: int
+    device_runtime: GrabbedDeviceRuntime,
+    uinput_dev: object | None,
+    code: int,
+    value: int,
+    *,
+    bucket: str | None = None,
 ) -> None:
-    bucket = bucket_for_uinput(device_runtime, uinput_dev)
+    bucket = bucket or bucket_for_uinput(device_runtime, uinput_dev)
     if not bucket:
         return
     held = device_runtime.state.held_output_keys[bucket]
@@ -54,23 +59,22 @@ def write_key(
     *,
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
+    bucket: str | None = None,
 ) -> None:
     writer = uinput_writer(uinput_dev)
     if writer is None:
         return
     writer.write(evdev_mod.ecodes.EV_KEY, int(code), int(value))
     writer.syn()
-    track_key_state(device_runtime, uinput_dev, int(code), int(value))
+    track_key_state(device_runtime, uinput_dev, int(code), int(value), bucket=bucket)
 
 
 def track_superkey_output(
     device_runtime: GrabbedDeviceRuntime, action_type: str, code: int, value: int
 ) -> bool:
-    bucket = (
-        action_type if action_type in device_runtime.state.superkey_output_refcounts else None
-    )
-    if bucket is None:
-        return True
+    bucket = action_type
+    if bucket not in device_runtime.state.superkey_output_refcounts:
+        device_runtime.state.superkey_output_refcounts[bucket] = {}
 
     refcounts = device_runtime.state.superkey_output_refcounts[bucket]
     current = refcounts.get(int(code), 0)
@@ -130,9 +134,10 @@ def ensure_trigger_released(
     *,
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
+    uinput_dev: object | None = None,
 ) -> None:
     try:
-        gamepad_uinput = uinput_writer(device_runtime.gamepad_uinput)
+        gamepad_uinput = uinput_writer(uinput_dev or device_runtime.gamepad_uinput)
         if gamepad_uinput is not None:
             gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 0)
             gamepad_uinput.syn()
@@ -147,7 +152,11 @@ def ensure_trigger_released(
 
 
 def ensure_key_released(
-    device_runtime: GrabbedDeviceRuntime, code: int, uinput_dev: object | None
+    device_runtime: GrabbedDeviceRuntime,
+    code: int,
+    uinput_dev: object | None,
+    *,
+    bucket: str | None = None,
 ) -> None:
     try:
         if uinput_dev:
@@ -158,6 +167,7 @@ def ensure_key_released(
                 0,
                 evdev_mod=evdev,
                 uinput_writer=identity_uinput_writer,
+                bucket=bucket,
             )
     except Exception as exc:
         log.debug(
@@ -187,15 +197,25 @@ def release_all_keys(
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
 ) -> None:
-    devices = {
+    devices: dict[str, object | None] = {
         "passthrough": device_runtime.uinput,
         "keyboard": device_runtime.keyboard_uinput,
         "mouse": device_runtime.mouse_uinput,
         "gamepad": device_runtime.gamepad_uinput,
     }
+    for bucket in device_runtime.state.held_output_keys:
+        if bucket.startswith("gamepad:") and bucket not in devices:
+            target = device_runtime.resolve_gamepad_output(
+                bucket.removeprefix("gamepad:"),
+                f"release tracked {bucket}",
+            )
+            devices[bucket] = getattr(target, "uinput", None) if target is not None else None
     for bucket, uinput_dev in devices.items():
         writer = uinput_writer(uinput_dev)
         if writer is None:
+            device_runtime.state.held_output_keys[bucket].clear()
+            if bucket in device_runtime.state.superkey_output_refcounts:
+                device_runtime.state.superkey_output_refcounts[bucket].clear()
             continue
         held = sorted(device_runtime.state.held_output_keys.get(bucket, set()))
         if not held:

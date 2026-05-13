@@ -138,6 +138,8 @@ def action_signature_payload(
         "mouse_move_abs",
     ):
         data["target"] = action.target or ""
+        if action_type == "gamepad" and action.output_id:
+            data["output_id"] = action.output_id
         if action_type in ("mouse_move_rel", "mouse_move_abs"):
             data["x"] = int(action.move_x)
             data["y"] = int(action.move_y)
@@ -252,6 +254,8 @@ def profile_to_mapping(
             "mouse_move_abs",
         ):
             action_data["target"] = action.target
+            if action.action_type.value == "gamepad" and action.output_id:
+                action_data["output_id"] = action.output_id
             if action.action_type.value in ("mouse_move_rel", "mouse_move_abs"):
                 action_data["x"] = int(action.move_x)
                 action_data["y"] = int(action.move_y)
@@ -387,6 +391,8 @@ def combo_action_to_payload(
         "mouse_move_abs",
     ):
         action_data["target"] = action.target
+        if action_type == "gamepad" and action.output_id:
+            action_data["output_id"] = action.output_id
         if action_type in ("mouse_move_rel", "mouse_move_abs"):
             action_data["x"] = int(action.move_x)
             action_data["y"] = int(action.move_y)
@@ -668,6 +674,8 @@ def serialize_overload_action(
         "mouse_move_abs",
     ):
         action_data["target"] = action.target
+        if action_type == "gamepad" and action.output_id:
+            action_data["output_id"] = action.output_id
         if action_type in ("mouse_move_rel", "mouse_move_abs"):
             action_data["x"] = int(action.move_x)
             action_data["y"] = int(action.move_y)

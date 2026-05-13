@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from types import SimpleNamespace
 from typing import Final, cast
 
 import evdev
@@ -176,6 +177,7 @@ class GrabbedDevice:
         keyboard_uinput: evdev.UInput | None = None,
         mouse_uinput: evdev.UInput | None = None,
         gamepad_uinput: evdev.UInput | None = None,
+        gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None,
         broadcast_callback: BroadcastCallback | None = None,
         cursor_position_setter: CursorPositionSetter | None = None,
         recording_manager: RecordingManager | None = None,
@@ -207,6 +209,7 @@ class GrabbedDevice:
         self.keyboard_uinput = keyboard_uinput
         self.mouse_uinput = mouse_uinput
         self.gamepad_uinput = gamepad_uinput
+        self._gamepad_output_resolver = gamepad_output_resolver
         self.broadcast_callback = broadcast_callback
         self.cursor_position_setter = cursor_position_setter
         self.recording_manager: RecordingManager | None = recording_manager
@@ -390,6 +393,16 @@ class GrabbedDevice:
 
     def release_tracked_outputs(self) -> None:
         runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
+
+    def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None:
+        if self._gamepad_output_resolver is None:
+            return SimpleNamespace(
+                output_id=output_id or "virtual-gamepad-1",
+                uinput=self.gamepad_uinput,
+                bucket="gamepad",
+                is_virtual=True,
+            )
+        return self._gamepad_output_resolver(output_id, context)
 
     def _combo_binding_action(self, evdev_name: str) -> object | None:
         return self.state.held_source_actions.get(str(evdev_name or "").lower())

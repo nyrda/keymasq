@@ -72,6 +72,7 @@ Primary docs:
   profiles/<profile_name>.toml
   superkeys/<superkey_name>.toml
   recording_settings.toml
+  virtual_devices.toml
 ```
 
 Macros are daemon-owned:
@@ -79,6 +80,17 @@ Macros are daemon-owned:
 ```text
 /var/lib/keymasq/macros/*.kmacro.xz
 ```
+
+Virtual gamepad count lives in `~/.config/keymasq/virtual_devices.toml`:
+
+```toml
+[gamepads]
+virtual_count = 1
+```
+
+Clamp `virtual_count` to 0..4. Gamepad profile actions may include
+`output_id`; valid values are `virtual-gamepad-1`..`virtual-gamepad-4` or a
+configured hardware gamepad ID. Explicit gamepad outputs do not fall back.
 
 Do not edit macro storage directly. Use `keymasq macros ...` or the GUI.
 

@@ -174,6 +174,15 @@ def normalize_macro_loop_stop_behavior(value: object) -> str:
     return DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 
 
+def normalize_gamepad_output_id(action_type: ActionType, output_id: object) -> str | None:
+    if action_type != ActionType.GAMEPAD:
+        return None
+    if output_id is None:
+        return None
+    normalized = str(output_id).strip()
+    return normalized or None
+
+
 @dataclass
 class EvdevDevice:
     path: str
@@ -220,6 +229,7 @@ class HardwareConfig:
 class MappingAction:
     action_type: ActionType
     target: str | None = None
+    output_id: str | None = None
     keys: list[str] | None = None
     cmd: str | None = None
     exec_ref: int | None = None
@@ -254,6 +264,7 @@ class MappingAction:
     tap_hold_ms: int = 10
 
     def __post_init__(self) -> None:
+        self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
         rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
             self.action_type,
             rapidfire_enabled=bool(self.rapidfire_enabled),
@@ -269,6 +280,7 @@ class MappingAction:
 class SuperkeyAction:
     action_type: ActionType
     target: str | None = None
+    output_id: str | None = None
     cmd: str | None = None
     exec_ref: int | None = None
     macro_name: str | None = None
@@ -297,6 +309,7 @@ class SuperkeyAction:
         return self.action_type in SUPERKEY_ACTION_TYPES
 
     def __post_init__(self) -> None:
+        self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
         rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
             self.action_type,
             rapidfire_enabled=bool(self.rapidfire_enabled),
@@ -310,6 +323,7 @@ class SuperkeyAction:
 
 SUPERKEY_ACTION_SHARED_FIELDS = (
     "target",
+    "output_id",
     "cmd",
     "exec_ref",
     "macro_name",

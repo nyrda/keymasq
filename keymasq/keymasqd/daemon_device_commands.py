@@ -52,6 +52,8 @@ class _DeviceCommandManager(Protocol):
         categories: Sequence[object] | None = None,
     ) -> JsonObject: ...
 
+    async def set_virtual_gamepads(self, count: object) -> JsonObject: ...
+
 
 class _DeviceCommandMacroStore(Protocol):
     def get(self, name: str) -> JsonObject: ...
@@ -138,5 +140,8 @@ async def handle_device_command(
             else None
         )
         return await daemon.device_manager.set_diagnostics(enabled, interval, categories)
+
+    if command_type == CommandType.SET_VIRTUAL_GAMEPADS:
+        return await daemon.device_manager.set_virtual_gamepads(data.get("count"))
 
     return None

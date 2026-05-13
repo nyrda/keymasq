@@ -260,6 +260,7 @@ class SuperkeyManager:
         return MappingAction(
             action_type=action_type,
             target=str(target) if target is not None else None,
+            output_id=str(action_data.get("output_id", "") or "") or None,
             keys=cast(list[str] | None, action_data.get("keys")),
             cmd=str(cmd) if cmd is not None else None,
             rapidfire_enabled=rapidfire_enabled,
@@ -382,6 +383,8 @@ class SuperkeyManager:
         action_data: dict[str, object] = {"action": action.action_type.value}
         if action.target:
             action_data["target"] = action.target
+        if action.action_type == ActionType.GAMEPAD and action.output_id:
+            action_data["output_id"] = action.output_id
         if action.keys:
             action_data["keys"] = action.keys
         if action.cmd:

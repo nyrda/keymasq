@@ -3,7 +3,9 @@ import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from hashlib import blake2b
-from typing import Final, Protocol, cast
+from typing import Any, Final, Protocol, cast
+
+from keymasq.common.virtual_devices import clamp_virtual_gamepad_count, virtual_gamepad_output_id
 
 TEST_UINPUT_ENV = "KEYMASQ_TEST_UINPUT"
 TEST_UINPUT_PREFIX = "keymasq-test"
@@ -35,6 +37,8 @@ class _OutputState(Protocol):
     keyboard_uinput: _ClosableUInput | None
     mouse_uinput: _ClosableUInput | None
     gamepad_uinput: _ClosableUInput | None
+    virtual_gamepad_uinputs: dict[str, _ClosableUInput]
+    virtual_gamepad_count: int
 
 
 class _OutputManager(Protocol):
@@ -286,6 +290,125 @@ def uinput_identity(
     )
 
 
+def gamepad_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
+    return {
+        evdev_mod.ecodes.EV_KEY: [
+            evdev_mod.ecodes.BTN_SOUTH,
+            evdev_mod.ecodes.BTN_EAST,
+            evdev_mod.ecodes.BTN_NORTH,
+            evdev_mod.ecodes.BTN_WEST,
+            evdev_mod.ecodes.BTN_TL,
+            evdev_mod.ecodes.BTN_TR,
+            evdev_mod.ecodes.BTN_TL2,
+            evdev_mod.ecodes.BTN_TR2,
+            evdev_mod.ecodes.BTN_SELECT,
+            evdev_mod.ecodes.BTN_START,
+            evdev_mod.ecodes.BTN_MODE,
+            evdev_mod.ecodes.BTN_THUMBL,
+            evdev_mod.ecodes.BTN_THUMBR,
+            evdev_mod.ecodes.BTN_DPAD_UP,
+            evdev_mod.ecodes.BTN_DPAD_DOWN,
+            evdev_mod.ecodes.BTN_DPAD_LEFT,
+            evdev_mod.ecodes.BTN_DPAD_RIGHT,
+        ],
+        evdev_mod.ecodes.EV_ABS: [
+            (evdev_mod.ecodes.ABS_X, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
+            (evdev_mod.ecodes.ABS_Y, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
+            (evdev_mod.ecodes.ABS_RX, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
+            (evdev_mod.ecodes.ABS_RY, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
+            (evdev_mod.ecodes.ABS_Z, evdev_mod.AbsInfo(0, 0, 255, 0, 0, 0)),
+            (evdev_mod.ecodes.ABS_RZ, evdev_mod.AbsInfo(0, 0, 255, 0, 0, 0)),
+            (evdev_mod.ecodes.ABS_HAT0X, evdev_mod.AbsInfo(0, -1, 1, 0, 0, 0)),
+            (evdev_mod.ecodes.ABS_HAT0Y, evdev_mod.AbsInfo(0, -1, 1, 0, 0, 0)),
+        ],
+        evdev_mod.ecodes.EV_SYN: [],
+    }
+
+
+def _initialize_gamepad_axes(
+    uinput_dev: _WritableUInput | None,
+    evdev_mod: _EvdevModule,
+) -> None:
+    if uinput_dev is None:
+        return
+    for axis in (
+        evdev_mod.ecodes.ABS_X,
+        evdev_mod.ecodes.ABS_Y,
+        evdev_mod.ecodes.ABS_RX,
+        evdev_mod.ecodes.ABS_RY,
+        evdev_mod.ecodes.ABS_Z,
+        evdev_mod.ecodes.ABS_RZ,
+        evdev_mod.ecodes.ABS_HAT0X,
+        evdev_mod.ecodes.ABS_HAT0Y,
+    ):
+        uinput_dev.write(evdev_mod.ecodes.EV_ABS, axis, 0)
+    uinput_dev.syn()
+
+
+def create_virtual_gamepad(
+    _manager: _OutputManager,
+    output_id: str,
+    index: int,
+    evdev_mod: _EvdevModule,
+    uinput_writer: UInputWriter,
+) -> _ClosableUInput:
+    normal_name = "keymasq-gamepad" if index == 1 else f"keymasq-gamepad-{index}"
+    gamepad_name, gamepad_vendor, gamepad_product = uinput_identity(
+        normal_name,
+        "gamepad",
+        test_name="gamepad" if index == 1 else f"gamepad-{index}",
+    )
+    uinput_dev = evdev_mod.UInput(
+        events=cast(dict[int, Sequence[int]], gamepad_caps(evdev_mod)),
+        name=gamepad_name,
+        vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
+        product=0x028E if gamepad_product is None else gamepad_product,
+        version=0x0110,
+        bustype=0x0003,
+    )
+    _initialize_gamepad_axes(uinput_writer(uinput_dev), evdev_mod)
+    return uinput_dev
+
+
+def configure_virtual_gamepads(
+    manager: _OutputManager,
+    count: int,
+    *,
+    evdev_mod: _EvdevModule,
+    log: logging.Logger,
+    uinput_writer: UInputWriter,
+) -> int:
+    count = clamp_virtual_gamepad_count(count)
+    output_state = cast(Any, manager.output_state)
+    if not hasattr(output_state, "virtual_gamepad_uinputs"):
+        output_state.virtual_gamepad_uinputs = {}
+    current = cast(dict[str, _ClosableUInput], output_state.virtual_gamepad_uinputs)
+    desired_ids = {virtual_gamepad_output_id(index) for index in range(1, count + 1)}
+
+    for output_id in sorted(set(current) - desired_ids):
+        uinput_dev = current.pop(output_id)
+        try:
+            uinput_dev.close()
+        except Exception as exc:
+            log.warning("Failed to close virtual gamepad %s: %s", output_id, exc)
+
+    for index in range(1, count + 1):
+        output_id = virtual_gamepad_output_id(index)
+        if output_id in current:
+            continue
+        current[output_id] = create_virtual_gamepad(
+            manager,
+            output_id,
+            index,
+            evdev_mod,
+            uinput_writer,
+        )
+        log.info("Created virtual gamepad %s", output_id)
+
+    output_state.virtual_gamepad_count = count
+    return count
+
+
 def create_global_uinputs(
     manager: _OutputManager,
     *,
@@ -469,62 +592,13 @@ def create_global_uinputs(
                 product=mouse_product,
             )
 
-        gamepad_caps = {
-            evdev_mod.ecodes.EV_KEY: [
-                evdev_mod.ecodes.BTN_SOUTH,
-                evdev_mod.ecodes.BTN_EAST,
-                evdev_mod.ecodes.BTN_NORTH,
-                evdev_mod.ecodes.BTN_WEST,
-                evdev_mod.ecodes.BTN_TL,
-                evdev_mod.ecodes.BTN_TR,
-                evdev_mod.ecodes.BTN_TL2,
-                evdev_mod.ecodes.BTN_TR2,
-                evdev_mod.ecodes.BTN_SELECT,
-                evdev_mod.ecodes.BTN_START,
-                evdev_mod.ecodes.BTN_MODE,
-                evdev_mod.ecodes.BTN_THUMBL,
-                evdev_mod.ecodes.BTN_THUMBR,
-                evdev_mod.ecodes.BTN_DPAD_UP,
-                evdev_mod.ecodes.BTN_DPAD_DOWN,
-                evdev_mod.ecodes.BTN_DPAD_LEFT,
-                evdev_mod.ecodes.BTN_DPAD_RIGHT,
-            ],
-            evdev_mod.ecodes.EV_ABS: [
-                (evdev_mod.ecodes.ABS_X, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
-                (evdev_mod.ecodes.ABS_Y, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
-                (evdev_mod.ecodes.ABS_RX, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
-                (evdev_mod.ecodes.ABS_RY, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
-                (evdev_mod.ecodes.ABS_Z, evdev_mod.AbsInfo(0, 0, 255, 0, 0, 0)),
-                (evdev_mod.ecodes.ABS_RZ, evdev_mod.AbsInfo(0, 0, 255, 0, 0, 0)),
-                (evdev_mod.ecodes.ABS_HAT0X, evdev_mod.AbsInfo(0, -1, 1, 0, 0, 0)),
-                (evdev_mod.ecodes.ABS_HAT0Y, evdev_mod.AbsInfo(0, -1, 1, 0, 0, 0)),
-            ],
-            evdev_mod.ecodes.EV_SYN: [],
-        }
-        gamepad_name, gamepad_vendor, gamepad_product = uinput_identity(
-            "keymasq-gamepad",
-            "gamepad",
+        configure_virtual_gamepads(
+            manager,
+            getattr(manager.output_state, "virtual_gamepad_count", 1),
+            evdev_mod=evdev_mod,
+            log=log,
+            uinput_writer=uinput_writer,
         )
-        manager.output_state.gamepad_uinput = evdev_mod.UInput(
-            events=cast(dict[int, Sequence[int]], gamepad_caps),
-            name=gamepad_name,
-            vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
-            product=0x028E if gamepad_product is None else gamepad_product,
-            version=0x0110,
-            bustype=0x0003,
-        )
-
-        gamepad_uinput = uinput_writer(manager.output_state.gamepad_uinput)
-        if gamepad_uinput is not None:
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_X, 0)
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_Y, 0)
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_RX, 0)
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_RY, 0)
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_Z, 0)
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_RZ, 0)
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_HAT0X, 0)
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, evdev_mod.ecodes.ABS_HAT0Y, 0)
-            gamepad_uinput.syn()
 
     manager.output_state.device_count += 1
 
@@ -538,7 +612,7 @@ def destroy_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> N
         for uinput_dev in [
             manager.output_state.keyboard_uinput,
             manager.output_state.mouse_uinput,
-            manager.output_state.gamepad_uinput,
+            *manager.output_state.virtual_gamepad_uinputs.values(),
         ]:
             if uinput_dev:
                 try:
@@ -548,4 +622,4 @@ def destroy_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> N
 
         manager.output_state.keyboard_uinput = None
         manager.output_state.mouse_uinput = None
-        manager.output_state.gamepad_uinput = None
+        manager.output_state.virtual_gamepad_uinputs.clear()

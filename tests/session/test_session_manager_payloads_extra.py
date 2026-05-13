@@ -124,6 +124,49 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
     assert manager.exec_state.exec_refs[2].hardware_id == "kbd"
 
 
+def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:
+    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+    from keymasq.session.manager import payloads
+    from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
+
+    manager = _manager_with_superkeys()
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD,
+        target="btn_a",
+        output_id="virtual-gamepad-2",
+    )
+    resolved = ResolvedDeviceProfile(hardware_id="pad", mappings={"x": action})
+
+    mapping = payloads.profile_to_mapping(manager, resolved, "pad")
+    mapped_action = cast(dict[str, object], mapping["x"])
+    assert mapped_action["output_id"] == "virtual-gamepad-2"
+
+    combo_payload = payloads.resolved_combos_payload(
+        manager,
+        [
+            ResolvedCombo(
+                id="combo",
+                name="combo",
+                steps=[ComboStep(events=[ComboEvent(hardware_id="pad", evdev="btn_x")])],
+                action=action,
+            )
+        ],
+    )
+    combo_action = cast(dict[str, object], combo_payload[0]["action"])
+    assert combo_action["output_id"] == "virtual-gamepad-2"
+
+    default_sig = payloads.resolved_mapping_signature(
+        manager,
+        ResolvedDeviceProfile(
+            hardware_id="pad",
+            mappings={"x": MappingAction(action_type=ActionType.GAMEPAD, target="btn_a")},
+        ),
+        "pad",
+    )
+    routed_sig = payloads.resolved_mapping_signature(manager, resolved, "pad")
+    assert default_sig != routed_sig
+
+
 def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
     from keymasq.common.models import (
         ActionType,

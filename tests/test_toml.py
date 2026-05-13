@@ -108,6 +108,39 @@ class TestProfileTOML:
         assert layer.mappings["btn_forward"].rapidfire_enabled is True
         assert layer.mappings["btn_forward"].rapidfire_hold_ms == 50
 
+    def test_profile_gamepad_output_id_roundtrip(self, temp_config_dir):
+        original = ProfileConfig(
+            name="Routed Gamepad",
+            device_layers={
+                "1234:5678": DeviceProfileLayer(
+                    hardware_id="1234:5678",
+                    mappings={
+                        "btn_back": MappingAction(
+                            action_type=ActionType.GAMEPAD,
+                            target="btn_a",
+                            output_id="virtual-gamepad-2",
+                        ),
+                        "btn_forward": MappingAction(
+                            action_type=ActionType.KEYBOARD,
+                            target="key_a",
+                            output_id="virtual-gamepad-3",
+                        ),
+                    },
+                )
+            },
+        )
+
+        manager = ProfileManager()
+        manager.save_profile(original)
+        content = manager.get_profile(original.name).path.read_text(encoding="utf-8")
+
+        loaded = manager.get_profile(original.name).config
+        layer = loaded.device_layers["1234:5678"]
+        assert layer.mappings["btn_back"].output_id == "virtual-gamepad-2"
+        assert layer.mappings["btn_forward"].output_id is None
+        assert 'output_id = "virtual-gamepad-2"' in content
+        assert 'output_id = "virtual-gamepad-3"' not in content
+
     def test_profile_file_is_human_readable(self, temp_config_dir, sample_profile_config):
         manager = ProfileManager()
         manager.save_profile(sample_profile_config)

@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
 import errno
+import inspect
 import logging
+import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, field
@@ -28,6 +30,11 @@ from keymasq.common.models import (
     DeviceType,
     MappingAction,
     SuperkeyMode,
+)
+from keymasq.common.virtual_devices import (
+    DEFAULT_VIRTUAL_GAMEPADS,
+    clamp_virtual_gamepad_count,
+    is_virtual_gamepad_output_id,
 )
 from keymasq.keymasqd.combo_engine import (
     ComboDecision,
@@ -268,7 +275,29 @@ class OutputRuntimeState:
     device_count: int = 0
     keyboard_uinput: runtime_adapters.WritableUInput | None = None
     mouse_uinput: runtime_adapters.WritableUInput | None = None
-    gamepad_uinput: runtime_adapters.WritableUInput | None = None
+    virtual_gamepad_uinputs: dict[str, runtime_adapters.WritableUInput] = field(
+        default_factory=dict
+    )
+    virtual_gamepad_count: int = DEFAULT_VIRTUAL_GAMEPADS
+
+    @property
+    def gamepad_uinput(self) -> runtime_adapters.WritableUInput | None:
+        return self.virtual_gamepad_uinputs.get("virtual-gamepad-1")
+
+    @gamepad_uinput.setter
+    def gamepad_uinput(self, value: runtime_adapters.WritableUInput | None) -> None:
+        if value is None:
+            self.virtual_gamepad_uinputs.pop("virtual-gamepad-1", None)
+        else:
+            self.virtual_gamepad_uinputs["virtual-gamepad-1"] = value
+
+
+@dataclass(frozen=True)
+class GamepadOutputTarget:
+    output_id: str
+    uinput: object
+    bucket: str
+    is_virtual: bool
 
 
 @dataclass
@@ -423,6 +452,7 @@ class DeviceManager:
         self._command_type = CommandType
         self._desired_grab_config_cls = DesiredGrabConfig
         self._device_input = _device_input
+        self._gamepad_output_warning_at: dict[tuple[str, str], float] = {}
 
     def initialize_output_devices(self) -> None:
         runtime_outputs.create_global_uinputs(
@@ -434,6 +464,116 @@ class DeviceManager:
 
     def shutdown_output_devices(self) -> None:
         runtime_outputs.destroy_global_uinputs(cast(Any, self), log=log)
+
+    async def set_virtual_gamepads(self, count: object) -> JsonObject:
+        clamped_count = clamp_virtual_gamepad_count(count)
+        async with self._op_lock:
+            if clamped_count == self.output_state.virtual_gamepad_count:
+                return {"status": "ok", "count": clamped_count}
+
+            await runtime_combos.clear_combo_runtime(
+                self,
+                deps=runtime_grab_lifecycle._combo_runtime_deps(),  # pyright: ignore[reportPrivateUsage]
+            )
+            for devices in self.grabbed_devices.values():
+                for device in devices:
+                    release_outputs = getattr(device, "release_tracked_outputs", None)
+                    if callable(release_outputs):
+                        release_outputs()
+                    state = getattr(device, "state", None)
+                    if state is not None:
+                        for task in list(getattr(state, "rapidfire_tasks", {}).values()):
+                            if isinstance(task, asyncio.Task) and not task.done():
+                                task.cancel()
+                        getattr(state, "rapidfire_tasks", {}).clear()
+                        getattr(state, "rapidfire_outputs", {}).clear()
+                        getattr(state, "rapidfire_active", {}).clear()
+                        getattr(state, "tap_active", {}).clear()
+                    reset = getattr(device, "reset_superkeys", None)
+                    if callable(reset):
+                        reset_result = reset()
+                        if inspect.isawaitable(reset_result):
+                            await reset_result
+
+            if self.output_state.device_count > 0:
+                runtime_outputs.configure_virtual_gamepads(
+                    cast(Any, self),
+                    clamped_count,
+                    evdev_mod=evdev,  # pyright: ignore[reportArgumentType]
+                    log=log,
+                    uinput_writer=runtime_adapters.identity_uinput_writer,
+                )
+            else:
+                self.output_state.virtual_gamepad_count = clamped_count
+            log.info("Configured %d virtual gamepad output(s)", clamped_count)
+            return {"status": "ok", "count": clamped_count}
+
+    def resolve_gamepad_output(
+        self,
+        output_id: str | None,
+        *,
+        context: str = "",
+    ) -> GamepadOutputTarget | None:
+        explicit = output_id is not None
+        resolved_id = str(output_id or "virtual-gamepad-1").strip()
+        if not resolved_id:
+            resolved_id = "virtual-gamepad-1"
+
+        if is_virtual_gamepad_output_id(resolved_id):
+            uinput = self.output_state.virtual_gamepad_uinputs.get(resolved_id)
+            if uinput is None:
+                reason = "virtual output is not configured"
+                self._warn_gamepad_output_unavailable(resolved_id, reason, context, explicit)
+                return None
+            return GamepadOutputTarget(
+                output_id=resolved_id,
+                uinput=uinput,
+                bucket=f"gamepad:{resolved_id}",
+                is_virtual=True,
+            )
+
+        devices = self.grabbed_devices.get(resolved_id)
+        if not devices:
+            reason = "target hardware is not grabbed"
+            self._warn_gamepad_output_unavailable(resolved_id, reason, context, explicit)
+            return None
+
+        for device in devices:
+            device_type = getattr(device, "device_type", None)
+            raw_device_types = getattr(device, "device_types", None)
+            device_types: set[object] = set()
+            if isinstance(raw_device_types, Sequence):
+                device_types = set(cast(Sequence[object], raw_device_types))
+            if device_type == DeviceType.GAMEPAD or DeviceType.GAMEPAD in device_types:
+                uinput = getattr(device, "uinput", None)
+                if uinput is not None:
+                    return GamepadOutputTarget(
+                        output_id=resolved_id,
+                        uinput=uinput,
+                        bucket=f"gamepad:{resolved_id}",
+                        is_virtual=False,
+                    )
+        reason = "target hardware has no grabbed gamepad passthrough output"
+        self._warn_gamepad_output_unavailable(resolved_id, reason, context, explicit)
+        return None
+
+    def _warn_gamepad_output_unavailable(
+        self,
+        output_id: str,
+        reason: str,
+        context: str,
+        explicit: bool,
+    ) -> None:
+        key = (output_id, reason)
+        now = time.monotonic()
+        last = self._gamepad_output_warning_at.get(key)
+        if last is not None and now - last < 5.0:
+            return
+        self._gamepad_output_warning_at[key] = now
+        prefix = f"Gamepad output target {output_id} unavailable"
+        context_text = f" for {context}" if context else ""
+        mode_text = "" if explicit else " default"
+        log.warning("%s%s%s: %s; dropping output", prefix, mode_text, context_text, reason)
 
     @property
     def active_combos(self) -> list[RuntimeCombo]:
@@ -993,7 +1133,6 @@ class DeviceManager:
         output_devices = {
             "keyboard": self.output_state.keyboard_uinput,
             "mouse": self.output_state.mouse_uinput,
-            "gamepad": self.output_state.gamepad_uinput,
         }
         for output_class, uinput_dev in output_devices.items():
             path = _uinput_device_path(uinput_dev)
@@ -1003,6 +1142,21 @@ class DeviceManager:
                 "recording_id": f"keymasq:output:{output_class}",
                 "recording_kind": "keymasq_output",
                 "keymasq_output": output_class,
+            }
+        for output_id, uinput_dev in sorted(self.output_state.virtual_gamepad_uinputs.items()):
+            path = _uinput_device_path(uinput_dev)
+            if not path:
+                continue
+            recording_id = (
+                "keymasq:output:gamepad"
+                if output_id == "virtual-gamepad-1"
+                else f"keymasq:output:gamepad:{output_id}"
+            )
+            metadata[path] = {
+                "recording_id": recording_id,
+                "recording_kind": "keymasq_output",
+                "keymasq_output": "gamepad",
+                "keymasq_output_id": output_id,
             }
 
         for devices in self.grabbed_devices.values():

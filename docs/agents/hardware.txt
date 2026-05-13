@@ -102,3 +102,9 @@ btn_select, btn_start, btn_mode,
 btn_thumbl, btn_thumbr,
 btn_dpad_up, btn_dpad_down, btn_dpad_left, btn_dpad_right
 ```
+
+Gamepad action output routing uses `output_id`, not the button target name.
+Virtual output IDs are `virtual-gamepad-1` through `virtual-gamepad-4`.
+Hardware gamepad output IDs are the configured hardware IDs, for example
+`045e:028e` or `045e:028e@2`. Explicit output routes are strict and do not
+fall back if unavailable.

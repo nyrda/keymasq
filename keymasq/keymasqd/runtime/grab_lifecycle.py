@@ -216,6 +216,12 @@ async def grab_device_unlocked(
                 def diagnostics_recorder(label: str, duration_us: float) -> None:
                     manager._record_diagnostic(label, duration_us)
 
+                def gamepad_output_resolver(
+                    output_id: str | None,
+                    context: str,
+                ) -> object | None:
+                    return manager.resolve_gamepad_output(output_id, context=context)
+
                 device = grabbed_device_cls(
                     path=path,
                     hardware_id=hardware_id,
@@ -230,6 +236,7 @@ async def grab_device_unlocked(
                     keyboard_uinput=manager.output_state.keyboard_uinput,
                     mouse_uinput=manager.output_state.mouse_uinput,
                     gamepad_uinput=manager.output_state.gamepad_uinput,
+                    gamepad_output_resolver=gamepad_output_resolver,
                     broadcast_callback=manager.broadcast_callback,
                     cursor_position_setter=manager.set_cursor_position,
                     recording_manager=manager.recording_manager,

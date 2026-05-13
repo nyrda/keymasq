@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
 import errno
-import inspect
 import logging
 import time
 from collections import deque
@@ -478,28 +477,13 @@ class DeviceManager:
             )
             for devices in self.grabbed_devices.values():
                 for device in devices:
-                    state = getattr(device, "state", None)
-                    if state is not None:
-                        for task in list(getattr(state, "rapidfire_tasks", {}).values()):
-                            if isinstance(task, asyncio.Task) and not task.done():
-                                cancelled_rapidfire_tasks.append(cast(asyncio.Task[None], task))
-                    release_outputs = getattr(device, "release_tracked_outputs", None)
-                    if callable(release_outputs):
-                        release_outputs()
-                    if state is not None:
-                        for task in list(getattr(state, "rapidfire_tasks", {}).values()):
-                            if isinstance(task, asyncio.Task) and not task.done():
-                                cancelled_rapidfire_tasks.append(cast(asyncio.Task[None], task))
-                                task.cancel()
-                        getattr(state, "rapidfire_tasks", {}).clear()
-                        getattr(state, "rapidfire_outputs", {}).clear()
-                        getattr(state, "rapidfire_active", {}).clear()
-                        getattr(state, "tap_active", {}).clear()
-                    reset = getattr(device, "reset_superkeys", None)
-                    if callable(reset):
-                        reset_result = reset()
-                        if inspect.isawaitable(reset_result):
-                            await reset_result
+                    cancelled_rapidfire_tasks.extend(
+                        task
+                        for task in list(device.state.rapidfire_tasks.values())
+                        if not task.done()
+                    )
+                    device.release_tracked_outputs()
+                    await device.reset_mapping_runtime_state()
 
             if cancelled_rapidfire_tasks:
                 unique_tasks = list(dict.fromkeys(cancelled_rapidfire_tasks))

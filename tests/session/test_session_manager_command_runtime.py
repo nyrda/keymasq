@@ -585,6 +585,41 @@ async def test_capture_commands_with_owner_return_error_on_missing_hardware_id(
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_for_numbered_hardware_uses_configured_paths() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678@2"
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        evdev_devices=[SimpleNamespace(path="/dev/input/by-path/test-event-kbd")]
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"token": "capture-token", "warnings": []})
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-test",
+    }
+
+    result = await manager._handle_session_request(
+        {"command": "begin_capture", "hardware_id": hardware_id},
+        "client",
+        peer,
+        writer,
+    )
+
+    assert result["status"] == "ok"
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.CAPTURE_BEGIN
+    assert sent.data == {
+        "hardware_id": hardware_id,
+        "evdev_paths": ["/dev/input/by-path/test-event-kbd"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_handle_session_request_create_macro_broadcasts_saved_event() -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(
@@ -763,6 +798,9 @@ async def test_handle_session_request_delete_macro_broadcasts_deleted_event() ->
 async def test_capture_combo_session_command_round_trip() -> None:
     manager = SessionManager()
     manager.hardware.list_hardware_ids = lambda: ["1234:5678"]  # type: ignore[assignment]
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        evdev_devices=[SimpleNamespace(path="/dev/input/by-id/test-kbd")]
+    )
     manager.profiles.get_profile = Mock(
         return_value=SimpleNamespace(config=SimpleNamespace(device_layers={"1234:5678": object()}))
     )
@@ -803,3 +841,6 @@ async def test_capture_combo_session_command_round_trip() -> None:
         "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}],
         "warnings": [],
     }
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.CAPTURE_COMBO
+    assert sent.data["hardware_paths"] == {"1234:5678": ["/dev/input/by-id/test-kbd"]}

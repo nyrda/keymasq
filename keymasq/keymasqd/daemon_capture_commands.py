@@ -113,8 +113,9 @@ async def handle_capture_command(
             for hardware_id in str_list(data.get("hardware_ids", []))
             if str(hardware_id).strip()
         }
+        hardware_paths = _hardware_paths(data.get("hardware_paths", {}))
         timeout_s = float_like(data.get("timeout_s", 15.0), 15.0)
-        return await capture_combo(daemon, hardware_ids, timeout_s)
+        return await capture_combo(daemon, hardware_ids, timeout_s, hardware_paths)
 
     return None
 
@@ -140,6 +141,7 @@ async def capture_combo(
     daemon: _CaptureCommandDaemon,
     hardware_ids: set[str],
     timeout_s: float,
+    hardware_paths: dict[str, list[str]] | None = None,
 ) -> JsonObject:
     if not hardware_ids:
         raise ValueError("capture_combo requires at least one hardware_id")
@@ -162,7 +164,8 @@ async def capture_combo(
             grabbed_paths,
             True,
             hardware_ids,
-            authorization,
+            authorization=authorization,
+            hardware_paths=hardware_paths or {},
         )
         daemon.capture_manager.register_combo_notifier(token, loop, notify_event)
         warnings = str_list(capture_result.get("warnings", []))
@@ -237,6 +240,23 @@ async def capture_combo(
     finally:
         daemon.device_manager.end_combo_capture(token)
         await asyncio.to_thread(daemon.capture_manager.end, token)
+
+
+def _hardware_paths(value: object) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, list[str]] = {}
+    for hardware_id, paths in cast(dict[object, object], value).items():
+        normalized = str(hardware_id or "").lower()
+        if not normalized:
+            continue
+        if isinstance(paths, tuple):
+            path_values = str_list(list(cast(tuple[object, ...], paths)))
+        else:
+            path_values = str_list(paths)
+        if path_values:
+            result[normalized] = path_values
+    return result
 
 
 async def read_capture_combo_event(

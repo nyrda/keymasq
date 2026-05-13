@@ -261,6 +261,11 @@ def test_capture_manager_parse_helpers(monkeypatch) -> None:
         device,
         evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
     )
+    mapped_combo_press = manager._parse_combo_event(
+        device,
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        {"/stable/dev/input/event3": "1234:5678@2"},
+    )
     combo_wheel = manager._parse_combo_event(
         device,
         evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
@@ -294,6 +299,8 @@ def test_capture_manager_parse_helpers(monkeypatch) -> None:
         "stable_path": "/stable/dev/input/event3",
         "device_path": "/dev/input/event3",
     }
+    assert mapped_combo_press is not None
+    assert mapped_combo_press["hardware_id"] == "1234:5678@2"
     assert combo_wheel == {
         "evdev": "wheel_down",
         "code": evdev.ecodes.REL_WHEEL,
@@ -333,6 +340,14 @@ def test_capture_manager_find_combo_devices_filters_inputs(monkeypatch) -> None:
     )
 
     assert matched == [good]
+
+    matched_by_path = manager._find_combo_devices(
+        exclude_paths=set(),
+        hardware_ids={"0000:0000"},
+        path_hardware_ids={"/dev/input/event5": "1234:5678@2"},
+    )
+
+    assert matched_by_path == [good]
 
 
 def test_capture_manager_parse_hardware_id_rejects_invalid_value() -> None:

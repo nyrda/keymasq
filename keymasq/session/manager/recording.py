@@ -580,6 +580,8 @@ async def capture_begin_for_paths(
     hardware_id: str,
     evdev_paths: list[str],
 ) -> JsonObject:
+    if not evdev_paths:
+        evdev_paths = _hardware_evdev_paths(manager, hardware_id)
     lock_result = await _begin_capture(manager, hardware_id)
     try:
         result = await manager.client.send_command(
@@ -698,11 +700,17 @@ async def capture_combo(
         }
 
     try:
+        hardware_paths = {
+            hardware_id: paths
+            for hardware_id in hardware_ids
+            if (paths := _hardware_evdev_paths(manager, hardware_id))
+        }
         result = await manager.client.send_command(
             Command(
                 command=CommandType.CAPTURE_COMBO,
                 data={
                     "hardware_ids": hardware_ids,
+                    "hardware_paths": hardware_paths,
                     "timeout_s": float(timeout_s),
                 },
             )
@@ -737,6 +745,17 @@ async def capture_combo(
         "events": events,
         "warnings": json_list(result_data.get("warnings")),
     }
+
+
+def _hardware_evdev_paths(manager: "SessionManager", hardware_id: str) -> list[str]:
+    hardware = manager.hardware.get_hardware(hardware_id)
+    if hardware is None:
+        return []
+    return [
+        path
+        for device in getattr(hardware, "evdev_devices", [])
+        if (path := str_value(getattr(device, "path", ""), ""))
+    ]
 
 
 async def stop_recording(

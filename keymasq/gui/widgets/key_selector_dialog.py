@@ -388,6 +388,7 @@ class KeySelectorDialog(Adw.Dialog):
         )
         self._gamepad_output_ids: list[str | None] = []
         self._gamepad_output_dropdown: Gtk.DropDown | None = None
+        self._gamepad_output_header: Gtk.Widget | None = None
         self._profile_name_items: list[str] = []
         self._exec_cmd: str = ""
         self._mouse_move_x: int = 0
@@ -482,12 +483,21 @@ class KeySelectorDialog(Adw.Dialog):
 
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title_row.set_halign(Gtk.Align.CENTER)
+        title_row.set_margin_top(12)
+        title_row.set_margin_bottom(6)
+
         title_label = Gtk.Label(label=f"Map: {self._button_label}")
         title_label.add_css_class("title-3")
         title_label.set_halign(Gtk.Align.CENTER)
-        title_label.set_margin_top(12)
-        title_label.set_margin_bottom(6)
-        inner.append(title_label)
+        title_row.append(title_label)
+
+        self._gamepad_output_header = self._build_gamepad_output_header()
+        if self._gamepad_output_header is not None:
+            title_row.append(self._gamepad_output_header)
+
+        inner.append(title_row)
 
         if self._current_action:
             current_label = Gtk.Label(label=self._describe_current_action())
@@ -496,7 +506,7 @@ class KeySelectorDialog(Adw.Dialog):
             current_label.set_margin_bottom(10)
             inner.append(current_label)
         else:
-            title_label.set_margin_bottom(12)
+            title_row.set_margin_bottom(12)
 
         inner.append(Gtk.Separator())
 
@@ -902,21 +912,21 @@ class KeySelectorDialog(Adw.Dialog):
         return box
 
     def _build_gamepad_tab(self) -> Gtk.Widget:
+        return build_shared_gamepad_tab(self)
+
+    def _build_gamepad_output_header(self) -> Gtk.Widget | None:
         choices = self._gamepad_output_choices()
         concrete_count = sum(1 for output_id, _label in choices if output_id is not None)
         if concrete_count <= 1 and not self._selected_gamepad_output_id:
-            return build_shared_gamepad_tab(self)
+            return None
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        outer.set_margin_top(8)
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        row.set_margin_start(12)
-        row.set_margin_end(12)
-        label = Gtk.Label(label="Output")
-        label.set_xalign(0)
-        label.set_hexpand(True)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_valign(Gtk.Align.CENTER)
+        arrow = Gtk.Label(label="→")
+        arrow.add_css_class("dim-label")
         self._gamepad_output_ids = [output_id for output_id, _label in choices]
         dropdown = Gtk.DropDown.new_from_strings([label for _output_id, label in choices])
+        dropdown.set_valign(Gtk.Align.CENTER)
         selected = 0
         for index, output_id in enumerate(self._gamepad_output_ids):
             if output_id == self._selected_gamepad_output_id:
@@ -925,11 +935,10 @@ class KeySelectorDialog(Adw.Dialog):
         dropdown.set_selected(selected)
         dropdown.connect("notify::selected", self._on_gamepad_output_selected)
         self._gamepad_output_dropdown = dropdown
-        row.append(label)
-        row.append(dropdown)
-        outer.append(row)
-        outer.append(build_shared_gamepad_tab(self))
-        return outer
+        box.append(arrow)
+        box.append(dropdown)
+        box.set_visible(False)
+        return box
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
         choices: list[tuple[str | None, str]] = [(None, "Default")]
@@ -1098,6 +1107,7 @@ class KeySelectorDialog(Adw.Dialog):
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
         is_exec = child_name == "exec"
+        is_gamepad = child_name == "gamepad"
         is_compositor_action = child_name in self._compositor_action_page_ids
         has_options = self._allow_rapidfire or self._allow_tap
         options_enabled = (
@@ -1126,6 +1136,8 @@ class KeySelectorDialog(Adw.Dialog):
             self.map_btn.set_sensitive(bool(self._selected_profile_name))
         else:
             self.map_btn.set_sensitive(False)
+        if self._gamepad_output_header is not None:
+            self._gamepad_output_header.set_visible(is_gamepad)
         self._update_actions_docs_button()
 
     def _active_actions_docs_link(self) -> tuple[str, str] | None:

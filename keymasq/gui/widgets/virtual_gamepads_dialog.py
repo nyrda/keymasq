@@ -18,8 +18,7 @@ from keymasq.session.virtual_devices import (
 
 class VirtualGamepadsDialog(Adw.Dialog):
     def __init__(self, parent: Gtk.Window | None = None) -> None:
-        super().__init__(title="Virtual Gamepads")
-        self.set_default_size(420, 220)
+        super().__init__(title="Virtual Gamepads", content_width=420, content_height=220)
         self._parent = parent
 
         toolbar = Adw.ToolbarView()

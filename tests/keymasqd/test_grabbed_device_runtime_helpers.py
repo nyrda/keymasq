@@ -478,9 +478,22 @@ class TestGrabbedDeviceHelpers:
         device.keyboard_uinput = keyboard  # type: ignore[assignment]
         device.mouse_uinput = mouse  # type: ignore[assignment]
         device.gamepad_uinput = gamepad  # type: ignore[assignment]
+        device._gamepad_output_resolver = lambda output_id, context: SimpleNamespace(  # type: ignore[method-assign, reportPrivateUsage]
+            output_id=output_id,
+            uinput=gamepad,
+            bucket=f"gamepad:{output_id}",
+            is_virtual=True,
+        )
         gdo.track_key_state(device, device.uinput, evdev.ecodes.KEY_A, 1)
         gdo.track_key_state(device, device.keyboard_uinput, evdev.ecodes.KEY_B, 1)
         gdo.track_key_state(device, device.mouse_uinput, evdev.ecodes.BTN_LEFT, 1)
+        gdo.track_key_state(
+            device,
+            gamepad,
+            evdev.ecodes.BTN_EAST,
+            1,
+            bucket="gamepad:virtual-gamepad-1",
+        )
         gdo.track_superkey_output(device, "gamepad", evdev.ecodes.BTN_SOUTH, 1)
         device.state.rapidfire_tasks["btn_side"] = task  # type: ignore[assignment]
         device.state.rapidfire_outputs["btn_side"] = gdt.RapidfireOutputState(kind="key")
@@ -501,6 +514,7 @@ class TestGrabbedDeviceHelpers:
         assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)]
         assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)]
         assert mouse.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)]
+        assert (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_EAST, 0) in gamepad.writes
         assert gamepad.writes[-2:] == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0),

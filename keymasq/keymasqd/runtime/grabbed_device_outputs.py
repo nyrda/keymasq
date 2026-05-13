@@ -44,7 +44,7 @@ def track_key_state(
     bucket = bucket or bucket_for_uinput(device_runtime, uinput_dev)
     if not bucket:
         return
-    held = device_runtime.state.held_output_keys[bucket]
+    held = device_runtime.state.held_output_keys.setdefault(bucket, set())
     if int(value) == 1:
         held.add(int(code))
     elif int(value) == 0:
@@ -75,19 +75,20 @@ def track_superkey_output(
     bucket = action_type
     if bucket not in device_runtime.state.superkey_output_refcounts:
         device_runtime.state.superkey_output_refcounts[bucket] = {}
+    held = device_runtime.state.held_output_keys.setdefault(bucket, set())
 
     refcounts = device_runtime.state.superkey_output_refcounts[bucket]
     current = refcounts.get(int(code), 0)
 
     if int(value) == 1:
         refcounts[int(code)] = current + 1
-        device_runtime.state.held_output_keys[bucket].add(int(code))
+        held.add(int(code))
         return current == 0
 
     if int(value) == 0:
         if current <= 1:
             refcounts.pop(int(code), None)
-            device_runtime.state.held_output_keys[bucket].discard(int(code))
+            held.discard(int(code))
             return current == 1
 
         refcounts[int(code)] = current - 1

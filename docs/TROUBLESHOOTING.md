@@ -189,6 +189,63 @@ What to verify:
 - no other input remapping tool has already grabbed the device — only one program can exclusively
   hold a device at a time
 
+### Duplicate hardware cannot be identified reliably
+
+Some devices do not expose enough stable identity data for Linux to distinguish
+two physical units of the same model. This usually happens when both devices
+report the same USB vendor ID, product ID, name, and serial number. Keymasq can
+keep separate numbered hardware IDs such as `045e:02a1` and `045e:02a1@2`, but
+the saved evdev path still has to point at the intended physical interface.
+
+Symptoms:
+
+- two identical devices appear as one configurable device
+- a numbered device such as `045e:02a1@2` grabs the wrong unit
+- mappings swap between identical receivers or devices after reconnecting
+- `/dev/input/by-id/` links look identical except for interface suffixes, or the
+  serial number is missing or all zeroes
+
+First inspect the kernel-provided paths:
+
+```bash
+ls -l /dev/input/by-id/
+ls -l /dev/input/by-path/
+```
+
+Prefer `/dev/input/by-id/...` when it uniquely identifies the physical device.
+If `by-id` cannot distinguish the devices, manually use `/dev/input/by-path/...`
+instead. `by-path` is stable across reboots as long as the device stays in the
+same USB or PCI path. If you move the receiver or device to another port, the
+`by-path` link changes and you must update the config again.
+
+Edit the affected hardware file:
+
+```bash
+ls ~/.config/keymasq/hardware/
+$EDITOR ~/.config/keymasq/hardware/<hardware_id>.toml
+```
+
+Change the `path` field inside each `[[hardware.evdev.devices]]` entry from a
+bad or ambiguous `by-id` path to the matching `by-path` link:
+
+```toml
+[[hardware.evdev.devices]]
+path = "/dev/input/by-path/pci-0000:00:14.0-usb-0:3:1.0-event-kbd"
+type = "keyboard"
+id = "kbd"
+```
+
+For multi-interface devices, update every relevant entry in the hardware file
+and keep the existing `id` values unchanged. Profile mappings refer to those
+`id` values and to the hardware ID, not to the path string.
+
+After editing, restart the user session service so Keymasq reloads the hardware
+configuration:
+
+```bash
+systemctl --user restart keymasq-session
+```
+
 ### `keymasq-session` user service does not start
 
 Symptoms:

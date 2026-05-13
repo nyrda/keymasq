@@ -35,6 +35,38 @@ class TestDeviceTabWidget:
         assert h_policy == Gtk.PolicyType.AUTOMATIC
         assert v_policy == Gtk.PolicyType.AUTOMATIC
 
+    def test_numbered_hardware_id_header_keeps_path_in_tooltip(self):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        stable_path = (
+            "/dev/input/by-id/"
+            "usb-\u00a9Microsoft_Xbox_360_Wireless_Receiver_for_Windows_"
+            "FD161BB0-if02-event-joystick"
+        )
+        hardware_id = "045e:02a1@2"
+        device = HardwareConfig(
+            vendor_id="045e",
+            product_id="02a1",
+            name="Xbox 360 2",
+            evdev_devices=[
+                EvdevDevice(
+                    path=stable_path,
+                    device_type=DeviceType.GAMEPAD,
+                    id="if02_joystick",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_south", label="A", evdev="btn_south")],
+            id=hardware_id,
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+
+        assert tab._header_caption_label.get_text() == "045e:02a1 | 1 evdev, 1 buttons"
+        assert tab._header_caption_label.get_tooltip_text() == (
+            f"Hardware ID: {hardware_id}\nInterfaces:\n{stable_path}"
+        )
+
     def test_keyboard_left_layout_does_not_request_seventh_column(self):
         from gi.repository import Gtk
 

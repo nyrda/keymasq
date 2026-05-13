@@ -474,10 +474,7 @@ async def on_device_connected(manager: "SessionManager", device_info: JsonObject
     )
     if not hardware_id or ":" not in hardware_id:
         return
-    if (
-        manager.hardware.get_hardware(hardware_id) is None
-        and hardware_id not in manager.profile_state.resolved_devices
-    ):
+    if not _hardware_or_model_known(manager, hardware_id):
         return
     runtime_profiles.schedule_topology_refresh(
         manager,
@@ -500,10 +497,7 @@ async def on_device_disconnected(manager: "SessionManager", device_info: JsonObj
         )
     if not hardware_id or ":" not in hardware_id:
         return
-    if (
-        manager.hardware.get_hardware(hardware_id) is None
-        and hardware_id not in manager.profile_state.resolved_devices
-    ):
+    if not _hardware_or_model_known(manager, hardware_id):
         return
     runtime_profiles.schedule_topology_refresh(
         manager,
@@ -527,6 +521,17 @@ def device_name_for_hardware(manager: "SessionManager", hardware_id: str) -> str
     if hardware is None:
         return hardware_id
     return str(getattr(hardware, "name", "") or hardware_id)
+
+
+def _hardware_or_model_known(manager: "SessionManager", hardware_id: str) -> bool:
+    if manager.hardware.get_hardware(hardware_id) is not None:
+        return True
+    if hardware_id in manager.profile_state.resolved_devices:
+        return True
+    return any(
+        getattr(hardware, "model_id", "") == hardware_id
+        for hardware in manager.hardware.list_hardware()
+    )
 
 
 def event_log_view(data: JsonObject) -> JsonObject:

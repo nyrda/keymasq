@@ -227,6 +227,19 @@ async def test_capture_commands_forward_to_capture_manager(
 
 
 @pytest.mark.asyncio
+async def test_capture_begin_forwards_explicit_evdev_paths(daemon_testbed):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+
+    result = await daemon._handle_command(
+        CommandType.CAPTURE_BEGIN,
+        {"hardware_id": "1234:5678@slot2", "evdev_paths": ["/dev/input/event2"]},
+    )
+
+    assert result == {"token": "cap-token"}
+    capture_manager.begin.assert_called_once_with("1234:5678@slot2", ["/dev/input/event2"])
+
+
+@pytest.mark.asyncio
 async def test_capture_combo_waits_on_event_not_sleep(daemon_testbed, monkeypatch):
     daemon, device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
     original_sleep = asyncio.sleep

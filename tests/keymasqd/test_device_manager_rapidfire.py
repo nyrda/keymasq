@@ -498,6 +498,44 @@ class TestRapidfireRelease:
             == "Keymasq Gamepad Passthrough (045e:02a1)"
         )
 
+    def test_passthrough_uinput_identity_is_bounded_for_opaque_hardware_ids(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        hardware_id = (
+            "045e:02a1@/dev/input/by-id/"
+            "usb-\u00a9Microsoft_Xbox_360_Wireless_Receiver_for_Windows_"
+            "FD161BB0-if02-event-joystick"
+        )
+        monkeypatch.delenv("KEYMASQ_TEST_UINPUT", raising=False)
+
+        normal_name, normal_vendor, normal_product = ldm.runtime_outputs.uinput_identity(
+            f"keymasq-{hardware_id}",
+            "passthrough",
+            test_name=f"passthrough-{hardware_id}",
+        )
+
+        assert len(normal_name.encode("utf-8")) <= ldm.runtime_outputs.UINPUT_NAME_MAX_BYTES
+        assert normal_name.startswith("keymasq-")
+        assert "dev-input-by-id" not in normal_name
+        assert normal_name != f"keymasq-{hardware_id}"
+        assert normal_vendor is None
+        assert normal_product is None
+
+        monkeypatch.setenv("KEYMASQ_TEST_UINPUT", "1")
+        test_name, test_vendor, test_product = ldm.runtime_outputs.uinput_identity(
+            f"keymasq-{hardware_id}",
+            "passthrough",
+            test_name=f"passthrough-{hardware_id}",
+        )
+
+        assert len(test_name.encode("utf-8")) <= ldm.runtime_outputs.UINPUT_NAME_MAX_BYTES
+        assert test_name.startswith("keymasq-test-")
+        assert "dev-input-by-id" not in test_name
+        assert test_name != f"keymasq-test-passthrough-{hardware_id}"
+        assert test_vendor == 0x4B46
+        assert test_product == 0x1004
+
     @pytest.mark.asyncio
     async def test_rapidfire_key_releases_before_exiting_when_stopped_during_hold(
         self,

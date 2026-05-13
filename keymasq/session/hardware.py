@@ -1,4 +1,5 @@
 import logging
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, cast
@@ -15,6 +16,11 @@ from keymasq.common.models import (
 )
 
 log = logging.getLogger("keymasq-session.hardware")
+
+
+def _hardware_storage_stem(hardware_id: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", hardware_id).strip("._")
+    return (safe or "hardware").lower()
 
 
 class HardwareManager:
@@ -81,6 +87,7 @@ class HardwareManager:
             evdev_devices=evdev_devices,
             buttons=buttons,
             image=hw.get("image"),
+            id=hw.get("hardware_id"),
         )
 
     def get_hardware(self, hardware_id: str) -> HardwareConfig | None:
@@ -95,7 +102,7 @@ class HardwareManager:
     def save_hardware(self, config: HardwareConfig) -> None:
         paths.ensure_config_dirs()
 
-        path = paths.HARDWARE_DIR / f"{config.hardware_id.replace(':', '_')}.toml"
+        path = paths.HARDWARE_DIR / f"{_hardware_storage_stem(config.hardware_id)}.toml"
 
         buttons_data: list[dict[str, object]] = []
         for btn in config.buttons:
@@ -156,6 +163,9 @@ class HardwareManager:
             }
         }
 
+        if config.id:
+            data["hardware"]["hardware_id"] = config.hardware_id
+
         if config.image:
             data["hardware"]["image"] = config.image
 
@@ -189,7 +199,7 @@ class HardwareManager:
         if hardware_id not in self._cache:
             return False
 
-        path = paths.HARDWARE_DIR / f"{hardware_id.replace(':', '_')}.toml"
+        path = paths.HARDWARE_DIR / f"{_hardware_storage_stem(hardware_id)}.toml"
 
         if path.exists():
             try:

@@ -572,10 +572,24 @@ async def _begin_capture(
 
 
 async def capture_begin(manager: "SessionManager", hardware_id: str) -> JsonObject:
+    return await capture_begin_for_paths(manager, hardware_id, [])
+
+
+async def capture_begin_for_paths(
+    manager: "SessionManager",
+    hardware_id: str,
+    evdev_paths: list[str],
+) -> JsonObject:
     lock_result = await _begin_capture(manager, hardware_id)
     try:
         result = await manager.client.send_command(
-            Command(command=CommandType.CAPTURE_BEGIN, data={"hardware_id": hardware_id})
+            Command(
+                command=CommandType.CAPTURE_BEGIN,
+                data={
+                    "hardware_id": hardware_id,
+                    **({"evdev_paths": evdev_paths} if evdev_paths else {}),
+                },
+            )
         )
     except Exception:
         await _end_capture(manager, hardware_id)
@@ -1198,6 +1212,8 @@ async def get_devices_for_recording(
                 "stable_path": stable_path,
                 "interface_id": str_value(d.get("interface_id"), ""),
                 "name": str_value(d.get("name"), path),
+                "phys": str_value(d.get("phys"), ""),
+                "uniq": str_value(d.get("uniq"), ""),
                 "vendor_id": str(d.get("vendor_id", "") or ""),
                 "product_id": str(d.get("product_id", "") or ""),
                 "device_type": dtype,

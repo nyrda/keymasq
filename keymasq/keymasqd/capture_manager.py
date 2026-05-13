@@ -81,9 +81,12 @@ class CaptureManager:
         self._sessions: dict[str, CaptureSession] = {}
         self._combo_capture_authorizations: set[str] = set()
 
-    def begin(self, hardware_id: str) -> JsonObject:
-        vendor_id, product_id = self._parse_hardware_id(hardware_id)
-        matched = self._find_devices(vendor_id, product_id)
+    def begin(self, hardware_id: str, evdev_paths: list[str] | None = None) -> JsonObject:
+        matched = (
+            self._find_devices_by_paths(evdev_paths)
+            if evdev_paths
+            else self._find_devices(*self._parse_hardware_id(hardware_id))
+        )
         if not matched:
             raise ValueError(f"No devices found for {hardware_id}")
 
@@ -369,6 +372,21 @@ class CaptureManager:
                 and f"{device.info.product:04x}" == product_id
             ):
                 devices.append(device)
+        return devices
+
+    def _find_devices_by_paths(self, evdev_paths: list[str]) -> list[_CaptureInputDevice]:
+        clear_device_path_cache()
+        devices: list[_CaptureInputDevice] = []
+        seen: set[str] = set()
+        for path in evdev_paths:
+            normalized = str(path or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            try:
+                devices.append(cast(_CaptureInputDevice, evdev.InputDevice(normalized)))
+            except Exception:
+                continue
         return devices
 
     def _find_combo_devices(

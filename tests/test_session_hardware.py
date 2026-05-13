@@ -151,6 +151,35 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
     assert manager.delete_hardware("1111:2222") is False
 
 
+def test_hardware_manager_preserves_explicit_hardware_id(temp_config_dir) -> None:
+    manager = HardwareManager()
+    config = HardwareConfig(
+        vendor_id="045e",
+        product_id="02a1",
+        name="Xbox Receiver Player 2",
+        evdev_devices=[
+            EvdevDevice(
+                path="/dev/input/by-id/xbox-if02-event-joystick",
+                device_type=DeviceType.GAMEPAD,
+                id="if02_joystick",
+            )
+        ],
+        buttons=[],
+        id="045e:02a1@2",
+    )
+
+    manager.save_hardware(config)
+
+    saved_files = list((temp_config_dir / "hardware").glob("*.toml"))
+    assert len(saved_files) == 1
+    assert saved_files[0].name == "045e_02a1_2.toml"
+    assert manager.get_hardware(config.hardware_id) == config
+    assert manager.get_hardware("045e:02a1") is None
+
+    reloaded = HardwareManager().get_hardware(config.hardware_id)
+    assert reloaded == config
+
+
 def test_hardware_manager_save_keyboard_layout_appends_helper_comments(temp_config_dir) -> None:
     manager = HardwareManager()
     config = HardwareConfig(

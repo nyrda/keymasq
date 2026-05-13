@@ -47,7 +47,7 @@ class _CaptureCommandRecordingManager(Protocol):
 
 
 class _CaptureCommandCaptureManager(Protocol):
-    def begin(self, hardware_id: str) -> JsonObject: ...
+    def begin(self, hardware_id: str, evdev_paths: list[str] | None = None) -> JsonObject: ...
 
     def read(self, token: str) -> JsonObject: ...
 
@@ -94,6 +94,9 @@ async def handle_capture_command(
 
     if command_type == CommandType.CAPTURE_BEGIN:
         hardware_id = str(data.get("hardware_id", ""))
+        evdev_paths = str_list(data.get("evdev_paths", []))
+        if evdev_paths:
+            return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id, evdev_paths)
         return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id)
 
     if command_type == CommandType.CAPTURE_READ:

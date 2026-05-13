@@ -77,6 +77,31 @@ def test_capture_manager_begin_read_end(monkeypatch) -> None:
     assert ended["ended"] is True
 
 
+def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:
+    wanted_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    wanted = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [wanted_event])
+    other = _FakeDevice("/dev/input/event1", 0x1234, 0x5678, [])
+
+    def fake_input_device(path: str):
+        if path == "/dev/input/event2":
+            return wanted
+        if path == "/dev/input/event1":
+            return other
+        raise OSError("missing")
+
+    monkeypatch.setattr(evdev, "InputDevice", fake_input_device)
+
+    manager = CaptureManager()
+    begin = manager.begin("1234:5678@slot2", ["/dev/input/event2"])
+    token = str(begin["token"])
+
+    assert wanted.grabbed is True
+    assert other.grabbed is False
+
+    captured = cast(dict[str, object], manager.read(token)["captured"])
+    assert captured["evdev"] == "key_a"
+
+
 def test_capture_manager_end_invalid_token_is_safe() -> None:
     manager = CaptureManager()
     result = manager.end("missing")

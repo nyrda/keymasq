@@ -187,6 +187,34 @@ def test_hardware_manager_preserves_explicit_hardware_id(temp_config_dir) -> Non
     assert reloaded == config
 
 
+def test_hardware_manager_rejects_mismatched_explicit_hardware_id(
+    temp_config_dir,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    (temp_config_dir / "hardware" / "bad_id.toml").write_text(
+        """
+[hardware]
+name = "Bad Hardware"
+vendor_id = "045e"
+product_id = "02a1"
+hardware_id = "1234:5678@2"
+
+[hardware.evdev]
+devices = []
+
+[hardware.layout]
+buttons = []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.ERROR):
+        manager = HardwareManager()
+
+    assert manager.list_hardware() == []
+    assert "hardware_id '1234:5678@2' does not match vendor/product '045e:02a1'" in caplog.text
+
+
 def test_hardware_manager_save_keyboard_layout_appends_helper_comments(temp_config_dir) -> None:
     manager = HardwareManager()
     config = HardwareConfig(

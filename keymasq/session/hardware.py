@@ -18,6 +18,10 @@ from keymasq.common.models import (
 log = logging.getLogger("keymasq-session.hardware")
 
 
+def _valid_hardware_id_for_model(hardware_id: str, model_id: str) -> bool:
+    return hardware_id == model_id or hardware_id.startswith(f"{model_id}@")
+
+
 def _hardware_storage_stem(hardware_id: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", hardware_id).strip("._")
     return (safe or "hardware").lower()
@@ -49,6 +53,14 @@ class HardwareManager:
             data = tomllib.load(f)
 
         hw = cast(dict[str, Any], data["hardware"])
+        vendor_id = str(hw["vendor_id"])
+        product_id = str(hw["product_id"])
+        model_id = f"{vendor_id}:{product_id}"
+        hardware_id = str(hw.get("hardware_id", "") or "")
+        if hardware_id and not _valid_hardware_id_for_model(hardware_id, model_id):
+            raise ValueError(
+                f"hardware_id '{hardware_id}' does not match vendor/product '{model_id}'"
+            )
 
         evdev_devices: list[EvdevDevice] = []
         evdev_config = cast(dict[str, Any], hw.get("evdev", {}))
@@ -82,13 +94,13 @@ class HardwareManager:
             )
 
         return HardwareConfig(
-            vendor_id=hw["vendor_id"],
-            product_id=hw["product_id"],
-            name=hw.get("name", f"{hw['vendor_id']}:{hw['product_id']}"),
+            vendor_id=vendor_id,
+            product_id=product_id,
+            name=hw.get("name", model_id),
             evdev_devices=evdev_devices,
             buttons=buttons,
             image=hw.get("image"),
-            id=hw.get("hardware_id"),
+            id=hardware_id or None,
         )
 
     def get_hardware(self, hardware_id: str) -> HardwareConfig | None:

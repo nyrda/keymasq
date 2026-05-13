@@ -97,6 +97,10 @@ class VirtualGamepadsDialog(Adw.Dialog):
                 saved = int(raw_saved if isinstance(raw_saved, (int, float, str)) else count)
                 self._status.set_text(f"Saved {saved} virtual gamepad(s)")
                 return False
+            if isinstance(response, dict):
+                message = str(response.get("message") or "Failed to apply virtual gamepad count")
+                self._status.set_text(message)
+                return False
             saved = save_virtual_gamepad_count(count)
             self._status.set_text(f"Saved {saved} virtual gamepad(s)")
             return False

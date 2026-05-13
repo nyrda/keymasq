@@ -16,6 +16,7 @@ from keymasq.keymasqd.runtime.action_runner import (
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     bucket_for_uinput,
     passthrough,
+    track_abs_state,
     track_superkey_output,
     write_key,
 )
@@ -121,6 +122,7 @@ async def execute_action(
                                     asyncio_mod=deps.asyncio_mod,
                                     evdev_mod=deps.evdev_mod,
                                     uinput_writer=deps.uinput_writer,
+                                    bucket=target_bucket,
                                 )
                             ),
                             axis_code=axis_code,
@@ -149,6 +151,7 @@ async def execute_action(
                                 asyncio_mod=deps.asyncio_mod,
                                 evdev_mod=deps.evdev_mod,
                                 uinput_writer=deps.uinput_writer,
+                                bucket=target_bucket,
                             ),
                             f"tap action {event_name}",
                         )
@@ -171,6 +174,12 @@ async def execute_action(
                         255 if event.value else 0,
                     )
                     gamepad_uinput.syn()
+                    track_abs_state(
+                        device_runtime,
+                        axis_code,
+                        255 if event.value else 0,
+                        bucket=target_bucket,
+                    )
             else:
                 await _execute_key_action(
                     device_runtime,

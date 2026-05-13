@@ -194,6 +194,11 @@ class GrabbedDeviceState:
             "gamepad": set(),
         }
     )
+    held_output_abs: dict[str, set[int]] = field(
+        default_factory=lambda: {
+            "gamepad": set(),
+        }
+    )
     superkey_output_refcounts: dict[str, dict[int, int]] = field(
         default_factory=lambda: {
             "keyboard": {},

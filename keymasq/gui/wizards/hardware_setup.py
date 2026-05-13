@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 from typing import Any, cast
@@ -691,11 +692,32 @@ class HardwareSetupDialog(Adw.Window):
                     _logical_hardware_identity_key(
                         model_id=model_id,
                         device_types=device_types,
-                        stable_path=path,
+                        stable_path=self._configured_device_stable_path(path),
                         phys=self._configured_device_phys(device),
                     )
                 )
         return keys
+
+    def _configured_device_stable_path(self, path: str) -> str:
+        path = str(path or "")
+        if not path:
+            return ""
+        candidates = [path]
+        try:
+            real_path = os.path.realpath(path)
+        except Exception:
+            real_path = ""
+        if real_path and real_path != path:
+            candidates.append(real_path)
+
+        for candidate in candidates:
+            try:
+                stable_path = resolve_stable_path(candidate)
+            except Exception:
+                continue
+            if _looks_like_by_id_path(stable_path):
+                return stable_path
+        return path
 
     def _configured_device_phys(self, device: object) -> str:
         phys = str(getattr(device, "phys", "") or "")

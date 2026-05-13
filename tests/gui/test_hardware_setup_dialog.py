@@ -413,6 +413,68 @@ class TestHardwareSetupDialog:
         assert set(detected_devices) == {"045e:02a1@2"}
         assert detected_devices["045e:02a1@2"]["interfaces"][0]["stable_path"] == second_slot_path
 
+    def test_detect_devices_via_session_skips_configured_by_path_alias(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        configured_path = "/dev/input/by-path/pci-0000:00:14.0-usb-0:1-event-mouse"
+        event_path = "/dev/input/event20"
+        stable_path = "/dev/input/by-id/usb-Test_Mouse-event-mouse"
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": event_path,
+                        "stable_path": stable_path,
+                        "name": "Test Mouse",
+                        "phys": "usb-0000:00:14.0-1/input0",
+                        "vendor_id": "1234",
+                        "product_id": "5678",
+                        "device_type": "mouse",
+                        "device_types": ["mouse"],
+                    },
+                ],
+            },
+        )
+        monkeypatch.setattr(
+            hardware_setup_mod.os.path,
+            "realpath",
+            lambda path: event_path if path == configured_path else path,
+        )
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "resolve_stable_path",
+            lambda path: stable_path if path == event_path else path,
+        )
+        configured = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[
+                EvdevDevice(path=configured_path, device_type=DeviceType.MOUSE)
+            ],
+            buttons=[],
+        )
+        hardware_manager = SimpleNamespace(
+            list_hardware_ids=lambda: ["1234:5678"],
+            list_hardware=lambda: [configured],
+        )
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is False
+        assert detected_devices == {}
+
     def test_detect_devices_via_session_ignores_unstable_usb_phys_for_identity(
         self, monkeypatch
     ):

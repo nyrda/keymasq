@@ -57,13 +57,16 @@ def temp_config_dir(tmp_path: Path) -> Generator[Path, None, None]:
     config_dir = tmp_path / "keymasq"
     hardware_dir = config_dir / "hardware"
     profiles_dir = config_dir / "profiles"
+    analog_controls_dir = config_dir / "analog_controls"
     hardware_dir.mkdir(parents=True)
     profiles_dir.mkdir(parents=True)
+    analog_controls_dir.mkdir(parents=True)
 
     with (
         mock.patch("keymasq.common.paths.CONFIG_DIR", config_dir),
         mock.patch("keymasq.common.paths.HARDWARE_DIR", hardware_dir),
         mock.patch("keymasq.common.paths.PROFILES_DIR", profiles_dir),
+        mock.patch("keymasq.common.paths.ANALOG_CONTROLS_DIR", analog_controls_dir),
     ):
         yield config_dir
 

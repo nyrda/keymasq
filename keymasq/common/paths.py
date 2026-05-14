@@ -9,6 +9,8 @@ __all__ = [
     "PROFILES_DIR",
     "SUPERKEYS_DIR",
     "SETTINGS_PATH",
+    "ANALOG_CONTROLS_DIR",
+    "VIRTUAL_DEVICES_PATH",
     "STATE_DIR",
     "SECURITY_POLICY_PATH",
     "RECORDING_UNLOCK_RUNTIME_DIR",
@@ -48,6 +50,8 @@ HARDWARE_DIR = CONFIG_DIR / "hardware"
 PROFILES_DIR = CONFIG_DIR / "profiles"
 SUPERKEYS_DIR = CONFIG_DIR / "superkeys"
 SETTINGS_PATH = CONFIG_DIR / "settings.toml"
+ANALOG_CONTROLS_DIR = CONFIG_DIR / "analog_controls"
+VIRTUAL_DEVICES_PATH = CONFIG_DIR / "virtual_devices.toml"
 
 _build_helper_path = "/usr/bin/keymasq-record"
 _build_slurp_path = "/usr/bin/slurp"
@@ -72,6 +76,7 @@ def ensure_config_dirs() -> None:
     HARDWARE_DIR.mkdir(parents=True, exist_ok=True)
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     SUPERKEYS_DIR.mkdir(parents=True, exist_ok=True)
+    ANALOG_CONTROLS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def ensure_session_socket_dir() -> None:

@@ -23,6 +23,7 @@ class _DeviceCommandManager(Protocol):
         button_map: dict[str, str],
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
+        analog_inputs: JsonObject | None = None,
         force_grab_unmapped: bool = False,
     ) -> JsonObject: ...
 
@@ -74,6 +75,7 @@ async def handle_device_command(
             button_map=str_dict(data.get("button_map", {})),
             button_codes=int_dict(data.get("button_codes", {})),
             button_values=int_dict(data.get("button_values", {})),
+            analog_inputs=json_object(data.get("analog_inputs", {})),
             force_grab_unmapped=bool(data.get("force_grab_unmapped", False)),
         )
 

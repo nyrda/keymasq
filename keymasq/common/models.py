@@ -18,6 +18,7 @@ class ActionType(Enum):
     MOUSE = "mouse"
     GAMEPAD = "gamepad"
     GAMEPAD_AXIS = "gamepad_axis"
+    ANALOG_CONTROL = "analog_control"
     EXEC = "exec"
     COMPOSITOR_DISPATCH = "compositor_dispatch"
     SUPPRESS = "suppress"
@@ -212,12 +213,29 @@ class ButtonDefinition:
 
 
 @dataclass
+class AnalogAxisDefinition:
+    role: str
+    evdev: str
+    evdev_code: int | None = None
+
+
+@dataclass
+class AnalogInputDefinition:
+    id: str
+    label: str
+    type: str
+    source: str | None = None
+    axes: list[AnalogAxisDefinition] = field(default_factory=list)
+
+
+@dataclass
 class HardwareConfig:
     vendor_id: str
     product_id: str
     name: str
     evdev_devices: list[EvdevDevice]
     buttons: list[ButtonDefinition]
+    analog_inputs: list[AnalogInputDefinition] = field(default_factory=list)
     image: str | None = None
     id: str | None = None
 
@@ -240,6 +258,8 @@ class MappingAction:
     exec_ref: int | None = None
     superkey_name: str | None = None
     superkey_config: "SuperkeyConfig | None" = None
+    analog_control_name: str | None = None
+    analog_control_config: "AnalogControlConfig | None" = None
     macro_name: str | None = None
     macro_events: list[dict[str, object]] | None = None
     macro_replay_mouse_movement: bool = True
@@ -283,6 +303,99 @@ class MappingAction:
         self.rapidfire_enabled = rapidfire_enabled
         self.rapidfire_hold_ms = rapidfire_hold_ms
         self.rapidfire_wait_ms = rapidfire_wait_ms
+
+
+ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
+    action_type
+    for action_type in ActionType
+    if action_type
+    not in {
+        ActionType.PASSTHROUGH,
+        ActionType.SUPPRESS,
+        ActionType.ANALOG_CONTROL,
+    }
+)
+
+ANALOG_MOUSE_CURVES = frozenset({"linear", "soft", "fast"})
+
+
+def clamp_analog_value(value: object) -> float:
+    return max(-1.0, min(1.0, float(cast(int | float | str | bytes, value))))
+
+
+@dataclass
+class AnalogMouseMotionConfig:
+    enabled: bool = False
+    speed: float = 900.0
+    deadzone: float = 0.15
+    curve: str = "soft"
+    invert_x: bool = False
+    invert_y: bool = False
+    tick_ms: int = 8
+
+    def __post_init__(self) -> None:
+        self.speed = max(0.0, float(self.speed))
+        self.deadzone = max(0.0, min(0.95, float(self.deadzone)))
+        self.curve = str(self.curve or "soft").lower()
+        if self.curve not in ANALOG_MOUSE_CURVES:
+            self.curve = "soft"
+        self.tick_ms = max(1, int(self.tick_ms))
+
+
+@dataclass
+class AnalogActionThreshold:
+    axis: str
+    trigger_min: float
+    trigger_max: float
+    release_min: float
+    release_max: float
+    actions: list[MappingAction] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.axis = str(self.axis or "").lower()
+        self.trigger_min = clamp_analog_value(self.trigger_min)
+        self.trigger_max = clamp_analog_value(self.trigger_max)
+        self.release_min = clamp_analog_value(self.release_min)
+        self.release_max = clamp_analog_value(self.release_max)
+
+
+@dataclass
+class AnalogControlConfig:
+    name: str
+    description: str | None = None
+    input_type: str = "stick"
+    mouse_motion: AnalogMouseMotionConfig = field(default_factory=AnalogMouseMotionConfig)
+    thresholds: list[AnalogActionThreshold] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.input_type = str(self.input_type or "stick").lower()
+        validate_analog_control_config(self)
+
+
+def validate_analog_control_config(config: AnalogControlConfig) -> None:
+    if not str(config.name or "").strip():
+        raise ValueError("analog control name is required")
+    if config.input_type != "stick":
+        raise ValueError("only stick analog controls are supported")
+    for index, threshold in enumerate(config.thresholds, start=1):
+        if threshold.axis not in {"x", "y"}:
+            raise ValueError(f"threshold {index} axis must be 'x' or 'y'")
+        if threshold.trigger_min > threshold.trigger_max:
+            raise ValueError(f"threshold {index} activation range is invalid")
+        if threshold.release_min > threshold.release_max:
+            raise ValueError(f"threshold {index} release range is invalid")
+        if (
+            threshold.trigger_min < threshold.release_min
+            or threshold.trigger_max > threshold.release_max
+        ):
+            raise ValueError(
+                f"threshold {index} activation range must be inside release range"
+            )
+        for action in threshold.actions:
+            if action.action_type not in ANALOG_THRESHOLD_ACTION_TYPES:
+                raise ValueError(
+                    f"invalid analog threshold action type: {action.action_type.value}"
+                )
 
 
 @dataclass

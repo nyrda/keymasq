@@ -22,6 +22,7 @@ from keymasq.common.devices import (
 )
 from keymasq.common.models import (
     ActionType,
+    AnalogInputDefinition,
     ButtonDefinition,
     DeviceType,
     EvdevDevice,
@@ -206,7 +207,7 @@ class DeviceTab(ProfileManagedTab):
 
     def _update_header_caption(self) -> None:
         mapped = self._count_mapped_buttons()
-        total = len(self.device.buttons)
+        total = len(self.device.buttons) + len(self.device.analog_inputs)
         base = (
             f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
             f"{total} buttons"
@@ -737,6 +738,7 @@ class DeviceTab(ProfileManagedTab):
                     prepend=True,
                 )
 
+            self._append_analog_controls_section(content)
             self._append_learn_tile(content)
             scrolled.set_child(content)
             self.append(scrolled)
@@ -985,6 +987,79 @@ class DeviceTab(ProfileManagedTab):
 
         return btn
 
+    def _append_analog_controls_section(self, parent: Gtk.Box) -> None:
+        if not self.device.analog_inputs:
+            return
+        label = Gtk.Label(label="Analog Controls")
+        label.add_css_class("button-section-title")
+        label.set_halign(Gtk.Align.START)
+        parent.append(label)
+
+        grid = Gtk.Grid()
+        grid.set_column_spacing(12)
+        grid.set_row_spacing(12)
+        for index, analog in enumerate(self.device.analog_inputs):
+            widget = self._create_analog_widget(analog)
+            grid.attach(widget, index % 3, index // 3, 1, 1)
+            self._button_widgets[analog.id] = widget
+        parent.append(grid)
+
+    def _create_analog_widget(self, analog: AnalogInputDefinition) -> Gtk.Button:
+        btn = Gtk.Button()
+        btn.add_css_class("card")
+        btn.add_css_class("button-card-passthrough")
+        btn.set_margin_top(2)
+        btn.set_margin_bottom(2)
+        btn.set_margin_start(2)
+        btn.set_margin_end(2)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_halign(Gtk.Align.FILL)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(6)
+        box.set_margin_bottom(7)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+
+        name_label = Gtk.Label(label=analog.label)
+        name_label.add_css_class("heading")
+        name_label.set_xalign(0.0)
+        name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        name_label.set_width_chars(1)
+        name_label.set_max_width_chars(_POINTER_NAME_LABEL_CHARS)
+        box.append(name_label)
+
+        action_label = Gtk.Label(label="Analog passthrough")
+        action_label.add_css_class("caption")
+        action_label.add_css_class("button-card-action-label")
+        action_label.set_halign(Gtk.Align.FILL)
+        action_label.set_xalign(0.0)
+        action_label.set_hexpand(True)
+        action_label.set_single_line_mode(True)
+        action_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        action_label.set_width_chars(1)
+        action_label.set_max_width_chars(_POINTER_ACTION_SUMMARY_CHARS)
+        box.append(action_label)
+
+        btn._action_label = action_label
+        btn._name_label = name_label
+        btn._button_id = analog.id
+        btn._protected = False
+        btn._analog_source = True
+        btn.set_size_request(self._button_card_width(), -1)
+        btn.set_halign(Gtk.Align.START)
+        btn.set_hexpand(False)
+        btn.set_child(box)
+        btn.connect("clicked", self._on_analog_mapping_clicked, analog)
+        return btn
+
+    def _on_analog_mapping_clicked(
+        self,
+        _button_widget: Gtk.Button,
+        analog: AnalogInputDefinition,
+    ) -> None:
+        self._activate_analog_mapping(analog)
+
     def _on_mapping_button_clicked(
         self,
         _button_widget: Gtk.Button,
@@ -1017,6 +1092,12 @@ class DeviceTab(ProfileManagedTab):
             return
 
         self._show_function_editor(button)
+
+    def _activate_analog_mapping(self, analog: AnalogInputDefinition) -> None:
+        if self._selected_profile is None:
+            self._show_no_profile_dialog()
+            return
+        self._show_analog_editor(analog)
 
     def _on_action_label_right_clicked(
         self, click, n_press, x, y, button: ButtonDefinition
@@ -1213,6 +1294,36 @@ class DeviceTab(ProfileManagedTab):
         dialog.connect("key-selected", on_key_selected)
         dialog.present(self.get_root())
 
+    def _show_analog_editor(self, analog: AnalogInputDefinition) -> None:
+        current_action = None
+        layer = self._selected_layer()
+        if layer:
+            current_action = layer.mappings.get(analog.id)
+
+        def on_key_selected(dialog, action):
+            layer = self._selected_layer(create=True)
+            if layer is None:
+                return
+            if action is None:
+                layer.mappings.pop(analog.id, None)
+            else:
+                layer.mappings[analog.id] = action
+            self._save_profile()
+            self._update_button_display(analog.id)
+            self._update_header_caption()
+
+        dialog = KeySelectorDialog(
+            self,
+            analog.label,
+            current_action,
+            allow_rapidfire=False,
+            allow_tap=False,
+            allow_macro_options=False,
+            source_type="analog",
+        )
+        dialog.connect("key-selected", on_key_selected)
+        dialog.present(self.get_root())
+
     def _profile_info_by_name(self, profile_name: str) -> ProfileInfo | None:
         if self.profile_manager:
             return self.profile_manager.get_profile(profile_name)
@@ -1289,7 +1400,11 @@ class DeviceTab(ProfileManagedTab):
             (candidate for candidate in self.device.buttons if candidate.id == button_id),
             None,
         )
-        if button is None:
+        analog = next(
+            (candidate for candidate in self.device.analog_inputs if candidate.id == button_id),
+            None,
+        )
+        if button is None and analog is None:
             return
 
         winner_profile_name, winner_mapping = self._get_effective_mapping_for_button(button_id)
@@ -1327,9 +1442,14 @@ class DeviceTab(ProfileManagedTab):
                 else:
                     widget.set_tooltip_text("This binding is not currently active")
         else:
+            passthrough_label = (
+                self._describe_passthrough_output(button)
+                if button is not None
+                else "Analog passthrough"
+            )
             self._set_action_label_text(
                 action_label,
-                self._describe_passthrough_output(button),
+                passthrough_label,
             )
             action_label.add_css_class("dim-label")
             widget.add_css_class("button-card-passthrough")

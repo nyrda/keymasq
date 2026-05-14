@@ -85,6 +85,10 @@ class TestProfileTOML:
                             rapidfire_hold_ms=50,
                             rapidfire_wait_ms=30,
                         ),
+                        "left_stick": MappingAction(
+                            action_type=ActionType.ANALOG_CONTROL,
+                            analog_control_name="FPS Mouse",
+                        ),
                     },
                 )
             },
@@ -107,6 +111,8 @@ class TestProfileTOML:
         assert layer.mappings["btn_back"].action_type == ActionType.KEYBOARD
         assert layer.mappings["btn_forward"].rapidfire_enabled is True
         assert layer.mappings["btn_forward"].rapidfire_hold_ms == 50
+        assert layer.mappings["left_stick"].action_type == ActionType.ANALOG_CONTROL
+        assert layer.mappings["left_stick"].analog_control_name == "FPS Mouse"
 
     def test_profile_gamepad_output_id_roundtrip(self, temp_config_dir):
         original = ProfileConfig(

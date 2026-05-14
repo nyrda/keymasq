@@ -685,6 +685,16 @@ class MainWindow(Adw.ApplicationWindow):
         superkeys_btn.connect("clicked", self._on_menu_action_clicked, "superkeys", menu_popover)
         menu_box.append(superkeys_btn)
 
+        analog_controls_btn = Gtk.Button(label="Analog Controls")
+        self._configure_menu_button(analog_controls_btn)
+        analog_controls_btn.connect(
+            "clicked",
+            self._on_menu_action_clicked,
+            "analog-controls",
+            menu_popover,
+        )
+        menu_box.append(analog_controls_btn)
+
         macros_btn = Gtk.Button(label="Macros")
         self._configure_menu_button(macros_btn)
         macros_btn.connect("clicked", self._on_menu_action_clicked, "macros", menu_popover)

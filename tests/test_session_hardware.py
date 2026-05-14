@@ -2,7 +2,14 @@ import logging
 
 import pytest
 
-from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+from keymasq.common.models import (
+    AnalogAxisDefinition,
+    AnalogInputDefinition,
+    ButtonDefinition,
+    DeviceType,
+    EvdevDevice,
+    HardwareConfig,
+)
 from keymasq.session.hardware import HardwareManager
 
 
@@ -137,6 +144,18 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
                 type="button",
             )
         ],
+        analog_inputs=[
+            AnalogInputDefinition(
+                id="left_stick",
+                label="Left Stick",
+                type="stick",
+                source="joystick",
+                axes=[
+                    AnalogAxisDefinition(role="x", evdev="abs_x", evdev_code=0),
+                    AnalogAxisDefinition(role="y", evdev="abs_y", evdev_code=1),
+                ],
+            )
+        ],
         image="mouse.png",
     )
 
@@ -148,6 +167,8 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
     assert 'phys = "usb-test/input0"' in text
     assert 'image = "mouse.png"' in text
     assert 'source = "evdev"' in text
+    assert 'id = "left_stick"' in text
+    assert 'evdev = "abs_x"' in text
     assert 'zone = "main"' in text
 
     reloaded = HardwareManager().get_hardware("1111:2222")

@@ -104,6 +104,7 @@ class ResolvedProfiles:
 
 
 if TYPE_CHECKING:
+    from keymasq.session.analog_controls import AnalogControlManager
     from keymasq.session.superkeys import SuperkeyManager
 
 
@@ -111,10 +112,12 @@ class ProfileManager:
     def __init__(
         self,
         superkey_manager: "SuperkeyManager | None" = None,
+        analog_control_manager: "AnalogControlManager | None" = None,
         auto_create_default_if_empty: bool = False,
     ) -> None:
         paths.ensure_config_dirs()
         self._superkey_manager = superkey_manager
+        self._analog_control_manager = analog_control_manager
         self._auto_create_default_if_empty = auto_create_default_if_empty
         self._profiles: dict[str, ProfileInfo] = {}
         self._pending_repairs: set[asyncio.Task[None]] = set()
@@ -303,6 +306,32 @@ class ProfileManager:
             log.warning("Superkey action missing superkey_name, replacing with suppress")
             return MappingAction(action_type=ActionType.SUPPRESS)
 
+        if action_type == ActionType.ANALOG_CONTROL:
+            analog_control_name_raw = action_data.get("analog_control_name")
+            analog_control_name = (
+                str(analog_control_name_raw) if analog_control_name_raw is not None else None
+            )
+            if analog_control_name:
+                if (
+                    self._analog_control_manager
+                    and not self._analog_control_manager.get_analog_control(
+                        analog_control_name
+                    )
+                ):
+                    log.warning(
+                        "Unknown analog control '%s', replacing with suppress",
+                        analog_control_name,
+                    )
+                    return MappingAction(action_type=ActionType.SUPPRESS)
+                return MappingAction(
+                    action_type=ActionType.ANALOG_CONTROL,
+                    analog_control_name=analog_control_name,
+                )
+            log.warning(
+                "Analog control action missing analog_control_name, replacing with suppress"
+            )
+            return MappingAction(action_type=ActionType.SUPPRESS)
+
         if action_type == ActionType.MACRO:
             return MappingAction(
                 action_type=ActionType.MACRO,
@@ -414,6 +443,8 @@ class ProfileManager:
             action_data["cmd"] = action.cmd
         if action.superkey_name:
             action_data["superkey_name"] = action.superkey_name
+        if action.action_type == ActionType.ANALOG_CONTROL and action.analog_control_name:
+            action_data["analog_control_name"] = action.analog_control_name
         if action.action_type == ActionType.MACRO:
             action_data["target"] = action.macro_name or ""
             action_data["replay_mouse_movement"] = action.macro_replay_mouse_movement
@@ -944,6 +975,45 @@ class ProfileManager:
                     result.append(("combo", info.config.name))
                     break
         return result
+
+    def find_profiles_using_analog_control(
+        self,
+        analog_control_name: str,
+    ) -> list[tuple[str, str]]:
+        result: list[tuple[str, str]] = []
+        for info in self.list_profiles():
+            for hardware_id, layer in info.config.device_layers.items():
+                for action in layer.mappings.values():
+                    if (
+                        action.action_type == ActionType.ANALOG_CONTROL
+                        and action.analog_control_name == analog_control_name
+                    ):
+                        result.append((hardware_id, info.config.name))
+                        break
+        return result
+
+    def replace_analog_control_with_suppress(self, analog_control_name: str) -> int:
+        count = 0
+        for info in self.list_profiles():
+            modified = False
+            for layer in info.config.device_layers.values():
+                for button_id, action in list(layer.mappings.items()):
+                    if (
+                        action.action_type == ActionType.ANALOG_CONTROL
+                        and action.analog_control_name == analog_control_name
+                    ):
+                        layer.mappings[button_id] = MappingAction(action_type=ActionType.SUPPRESS)
+                        modified = True
+                        count += 1
+            if modified:
+                self.save_profile(info.config)
+        if count > 0:
+            log.info(
+                "Replaced analog control '%s' with suppress in %d references",
+                analog_control_name,
+                count,
+            )
+        return count
 
     def replace_superkey_with_suppress(self, superkey_name: str) -> int:
         count = 0

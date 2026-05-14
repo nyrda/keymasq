@@ -52,6 +52,8 @@ def describe_mapping_action_compact(
         parts.append(f"🪟 {dispatcher}{f' {args}' if args else ''}")
     elif action.action_type == ActionType.SUPERKEY:
         parts.append(f"🌟S: {action.superkey_name or '?'}")
+    elif action.action_type == ActionType.ANALOG_CONTROL:
+        parts.append(f"Analog: {action.analog_control_name or '?'}")
     elif action.action_type == ActionType.MACRO:
         parts.append(f"🎬 {action.macro_name or '?'}")
     elif action.action_type == ActionType.START_MACRO_RECORDING:
@@ -105,6 +107,8 @@ def describe_mapping_action_verbose(
         return "Suppress"
     if action.action_type == ActionType.SUPERKEY:
         return f"Super Key → {action.superkey_name or '?'}"
+    if action.action_type == ActionType.ANALOG_CONTROL:
+        return f"Analog Control -> {action.analog_control_name or '?'}"
     if action.action_type == ActionType.KEYBOARD:
         return f"Keyboard → {_resolved_label(action.target, keyboard_label)}"
     if action.action_type == ActionType.MOUSE:

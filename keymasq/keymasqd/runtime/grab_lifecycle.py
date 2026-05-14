@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import evdev
 
-from keymasq.common.devices import resolve_evdev_event_type
+from keymasq.common.devices import resolve_evdev_code, resolve_evdev_event_type
 from keymasq.common.models import DeviceType, MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.output_helpers import resolve_output_code
@@ -70,6 +70,7 @@ async def grab_device_unlocked(
     button_map: dict[str, str],
     button_codes: dict[str, int] | None,
     button_values: dict[str, int] | None,
+    analog_inputs: dict[str, object] | None,
     force_grab_unmapped: bool,
     *,
     update_desired: bool,
@@ -105,6 +106,8 @@ async def grab_device_unlocked(
         for button_id, code in resolved_button_codes.items()
         if (event_type := resolve_evdev_event_type(button_map.get(button_id))) is not None
     }
+    analog_bindings = analog_input_bindings(analog_inputs or {})
+    mapped_bindings |= analog_bindings
     if update_desired:
         manager.grab_state.desired_paths[hardware_id] = set(requested_paths)
         manager.grab_state.desired_grabs[hardware_id] = desired_grab_config_cls(
@@ -112,6 +115,7 @@ async def grab_device_unlocked(
             button_map=dict(button_map),
             button_codes=dict(resolved_button_codes),
             button_values=dict(resolved_button_values),
+            analog_inputs=dict(analog_inputs or {}),
             force_grab_unmapped=bool(force_grab_unmapped),
         )
     log.info(
@@ -127,6 +131,9 @@ async def grab_device_unlocked(
     }
     for device in existing_by_path.values():
         device.update_button_map(button_map, resolved_button_codes, resolved_button_values)
+        update_analog_inputs = getattr(device, "update_analog_inputs", None)
+        if callable(update_analog_inputs):
+            update_analog_inputs(dict(analog_inputs or {}))
 
     devices = list(existing_by_path.values())
     grabbed_count = 0
@@ -227,6 +234,7 @@ async def grab_device_unlocked(
                     button_map=button_map,
                     button_codes=resolved_button_codes,
                     button_values=resolved_button_values,
+                    analog_inputs=dict(analog_inputs or {}),
                     mapping_getter=mapping_getter,
                     event_callback=event_callback,
                     device_type=detected_type,
@@ -393,6 +401,37 @@ def device_has_mapped_buttons(
             except Exception:
                 pass
     return False
+
+
+def analog_input_bindings(analog_inputs: dict[str, object]) -> set[tuple[int, int]]:
+    bindings: set[tuple[int, int]] = set()
+    for raw_input in analog_inputs.values():
+        if not isinstance(raw_input, dict):
+            continue
+        input_data = cast(dict[str, object], raw_input)
+        raw_axes = input_data.get("axes")
+        if not isinstance(raw_axes, list):
+            continue
+        for raw_axis in cast(list[object], raw_axes):
+            if not isinstance(raw_axis, dict):
+                continue
+            axis_data = cast(dict[str, object], raw_axis)
+            code = _axis_code(axis_data)
+            if code is not None:
+                bindings.add((int(evdev.ecodes.EV_ABS), int(code)))
+    return bindings
+
+
+def _axis_code(axis: dict[str, object]) -> int | None:
+    evdev_code = axis.get("evdev_code")
+    if isinstance(evdev_code, int):
+        return evdev_code
+    if isinstance(evdev_code, str):
+        try:
+            return int(evdev_code, 0)
+        except ValueError:
+            return None
+    return resolve_evdev_code(str(axis.get("evdev", "") or ""))
 
 
 async def release_device_unlocked(

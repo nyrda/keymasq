@@ -9,6 +9,8 @@ import tomli_w
 from keymasq.common import paths
 from keymasq.common.devices import is_gamepad_button_name
 from keymasq.common.models import (
+    AnalogAxisDefinition,
+    AnalogInputDefinition,
     ButtonDefinition,
     DeviceType,
     EvdevDevice,
@@ -93,12 +95,34 @@ class HardwareManager:
                 )
             )
 
+        analog_inputs: list[AnalogInputDefinition] = []
+        for analog in cast(list[dict[str, Any]], layout.get("analogs", [])):
+            axes = [
+                AnalogAxisDefinition(
+                    role=str(axis.get("role", "")),
+                    evdev=str(axis.get("evdev", "")),
+                    evdev_code=axis.get("evdev_code"),
+                )
+                for axis in cast(list[dict[str, Any]], analog.get("axes", []))
+                if axis.get("role") and axis.get("evdev")
+            ]
+            analog_inputs.append(
+                AnalogInputDefinition(
+                    id=analog["id"],
+                    label=analog.get("label", analog["id"]),
+                    type=analog.get("type", "stick"),
+                    source=analog.get("source"),
+                    axes=axes,
+                )
+            )
+
         return HardwareConfig(
             vendor_id=vendor_id,
             product_id=product_id,
             name=hw.get("name", model_id),
             evdev_devices=evdev_devices,
             buttons=buttons,
+            analog_inputs=analog_inputs,
             image=hw.get("image"),
             id=hardware_id or None,
         )
@@ -140,6 +164,27 @@ class HardwareManager:
                 btn_data["type"] = btn.type
             buttons_data.append(btn_data)
 
+        analogs_data: list[dict[str, object]] = []
+        for analog in config.analog_inputs:
+            analog_data: dict[str, object] = {
+                "id": analog.id,
+                "label": analog.label,
+                "type": analog.type,
+            }
+            if analog.source:
+                analog_data["source"] = analog.source
+            axes_data: list[dict[str, object]] = []
+            for axis in analog.axes:
+                axis_data: dict[str, object] = {
+                    "role": axis.role,
+                    "evdev": axis.evdev,
+                }
+                if axis.evdev_code is not None:
+                    axis_data["evdev_code"] = axis.evdev_code
+                axes_data.append(axis_data)
+            analog_data["axes"] = axes_data
+            analogs_data.append(analog_data)
+
         evdev_devices_data: list[dict[str, object]] = []
         for d in config.evdev_devices:
             dev_data: dict[str, object] = {
@@ -174,6 +219,7 @@ class HardwareManager:
                 "layout": {
                     "type": layout_type,
                     "buttons": buttons_data,
+                    **({"analogs": analogs_data} if analogs_data else {}),
                 },
             }
         }

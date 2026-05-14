@@ -550,6 +550,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         allow_tap: bool = True,
         allow_macro_options: bool = True,
         source_type: str = "button",
+        analog_input_type: str | None = None,
     ):
         super().__init__(title=f"Map: {button_label}", content_width=570, content_height=580)
         self._parent = parent
@@ -563,6 +564,11 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._allow_tap = allow_tap
         self._allow_macro_options = allow_macro_options
         self._source_type = str(source_type or "button")
+        self._analog_input_type = (
+            str(analog_input_type or "").lower()
+            if self._source_type == "analog" and analog_input_type
+            else None
+        )
         self._compositor_action_status = self._resolve_compositor_action_status(
             compositor_action_status
         )
@@ -2079,6 +2085,10 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             config
             for name in self._analog_control_names
             if (config := configs.get(name)) is not None
+            and (
+                self._analog_input_type is None
+                or config.input_type == self._analog_input_type
+            )
         ]
         self._populate_analog_control_listbox()
 
@@ -2090,7 +2100,12 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self._selected_analog_control = None
             row = Gtk.ListBoxRow()
             row.set_selectable(False)
-            lbl = Gtk.Label(label="No analog controls saved yet")
+            label = "No analog controls saved yet"
+            if self._analog_input_type == "trigger":
+                label = "No trigger controls saved yet"
+            elif self._analog_input_type == "stick":
+                label = "No stick controls saved yet"
+            lbl = Gtk.Label(label=label)
             lbl.add_css_class("dim-label")
             lbl.set_margin_top(12)
             lbl.set_margin_bottom(12)
@@ -2131,13 +2146,13 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self._selected_analog_control = None
 
     def _describe_analog_control_row(self, config: AnalogControlConfig) -> str:
-        parts: list[str] = []
+        parts: list[str] = ["Trigger" if config.input_type == "trigger" else "Stick"]
         if config.mouse_motion.enabled:
             parts.append("Mouse")
         if config.thresholds:
             count = len(config.thresholds)
             parts.append(f"{count} range{'s' if count != 1 else ''}")
-        return " · ".join(parts) or "Stick"
+        return " · ".join(parts)
 
     def _on_analog_control_refresh(self, btn) -> None:
         self._load_analog_control_list()

@@ -20,6 +20,8 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
 log = logging.getLogger("keymasqd.runtime.analog_controls")
 DEFAULT_STICK_MIN = -32768
 DEFAULT_STICK_MAX = 32767
+DEFAULT_TRIGGER_MIN = 0
+DEFAULT_TRIGGER_MAX = 255
 
 
 @dataclass
@@ -43,6 +45,15 @@ def normalize_axis_value(raw_value: int, minimum: int, maximum: int) -> float:
         span = max(1.0, float(maximum) - midpoint)
         normalized = (raw - midpoint) / span
     return max(-1.0, min(1.0, normalized))
+
+
+def normalize_trigger_value(raw_value: int, minimum: int, maximum: int) -> float:
+    if minimum >= maximum:
+        minimum = DEFAULT_TRIGGER_MIN
+        maximum = DEFAULT_TRIGGER_MAX
+    span = max(1.0, float(maximum) - float(minimum))
+    normalized = (float(raw_value) - float(minimum)) / span
+    return max(0.0, min(1.0, normalized))
 
 
 async def process_analog_event(
@@ -70,11 +81,17 @@ async def process_analog_event(
     if config is None:
         return True
 
-    minimum, maximum = device_runtime.analog_axis_ranges.get(
-        (analog_id, axis_role),
-        (DEFAULT_STICK_MIN, DEFAULT_STICK_MAX),
+    fallback_range = (
+        (DEFAULT_TRIGGER_MIN, DEFAULT_TRIGGER_MAX)
+        if config.input_type == "trigger"
+        else (DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
     )
-    normalized = normalize_axis_value(int(event.value), minimum, maximum)
+    minimum, maximum = device_runtime.analog_axis_ranges.get((analog_id, axis_role), fallback_range)
+    normalized = (
+        normalize_trigger_value(int(event.value), minimum, maximum)
+        if config.input_type == "trigger"
+        else normalize_axis_value(int(event.value), minimum, maximum)
+    )
     axis_values = device_runtime.state.analog_axis_values.setdefault(analog_id, {})
     axis_values[axis_role] = normalized
 
@@ -225,7 +242,7 @@ def _ensure_mouse_task(
 ) -> None:
     action = device_runtime.mapping_getter().get(source_id)
     config = action.analog_control_config if action else None
-    if config is None or not config.mouse_motion.enabled:
+    if config is None or config.input_type != "stick" or not config.mouse_motion.enabled:
         return
 
     task = device_runtime.state.analog_mouse_tasks.get(source_id)
@@ -252,6 +269,7 @@ async def _mouse_motion_loop(
                 action is None
                 or action.action_type != ActionType.ANALOG_CONTROL
                 or config is None
+                or config.input_type != "stick"
                 or not config.mouse_motion.enabled
             ):
                 return

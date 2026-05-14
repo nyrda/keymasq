@@ -61,6 +61,17 @@ evdev_code = 0
 role = "y"
 evdev = "abs_y"
 evdev_code = 1
+
+[[hardware.layout.analogs]]
+id = "left_trigger"
+label = "Left Trigger"
+type = "trigger"
+source = "joystick"
+
+[[hardware.layout.analogs.axes]]
+role = "x"
+evdev = "abs_z"
+evdev_code = 2
 ```
 
 ## Fields
@@ -95,10 +106,10 @@ evdev_code = 1
 
 - `id`: source ID used in profile mappings, such as `left_stick`
 - `label`: display label
-- `type`: logical analog type; MVP supports `stick`
+- `type`: logical analog type; supports `stick` and `trigger`
 - `source`: optional evdev device `id`
-- `axes`: list of axis definitions with `role` (`x` or `y`), `evdev`, and
-  optional `evdev_code`
+- `axes`: list of axis definitions with `role` (`x` or `y` for sticks, `x`
+  for triggers), `evdev`, and optional `evdev_code`
 
 ## Mapping source IDs
 

@@ -4,6 +4,7 @@ from keymasq.common.models import (
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
+    AnalogMouseMotionConfig,
     MappingAction,
 )
 from keymasq.session.analog_controls import (
@@ -98,6 +99,55 @@ def test_analog_control_validation_allows_overlapping_thresholds() -> None:
     )
 
     assert len(config.thresholds) == 2
+
+
+def test_trigger_analog_control_uses_single_positive_axis(temp_config_dir) -> None:
+    manager = AnalogControlManager()
+    config = AnalogControlConfig(
+        name="Trigger Pull",
+        input_type="trigger",
+        thresholds=[
+            AnalogActionThreshold(
+                axis="x",
+                trigger_min=0.5,
+                trigger_max=1.0,
+                release_min=0.45,
+                release_max=1.0,
+                actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_e")],
+            )
+        ],
+    )
+
+    manager.save_analog_control(config)
+
+    loaded = AnalogControlManager().get_analog_control("Trigger Pull")
+    assert loaded is not None
+    assert loaded.input_type == "trigger"
+    assert loaded.thresholds[0].trigger_min == 0.5
+
+
+def test_trigger_analog_control_rejects_mouse_motion_and_y_axis() -> None:
+    with pytest.raises(ValueError, match="only support digital"):
+        AnalogControlConfig(
+            name="Bad Trigger",
+            input_type="trigger",
+            mouse_motion=AnalogMouseMotionConfig(enabled=True),
+        )
+
+    with pytest.raises(ValueError, match="axis must be 'x'"):
+        AnalogControlConfig(
+            name="Bad Trigger",
+            input_type="trigger",
+            thresholds=[
+                AnalogActionThreshold(
+                    axis="y",
+                    trigger_min=0.5,
+                    trigger_max=1.0,
+                    release_min=0.45,
+                    release_max=1.0,
+                )
+            ],
+        )
 
 
 def test_analog_control_templates_produce_threshold_actions() -> None:

@@ -1669,8 +1669,26 @@ class HardwareSetupDialog(Adw.Window):
 
     def _build_gamepad_analog_inputs(self, interfaces: list[dict]) -> list[AnalogInputDefinition]:
         axis_specs = {
-            "left_stick": ("Left Stick", (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y)),
-            "right_stick": ("Right Stick", (evdev.ecodes.ABS_RX, evdev.ecodes.ABS_RY)),
+            "left_stick": (
+                "Left Stick",
+                "stick",
+                ((evdev.ecodes.ABS_X, "x"), (evdev.ecodes.ABS_Y, "y")),
+            ),
+            "right_stick": (
+                "Right Stick",
+                "stick",
+                ((evdev.ecodes.ABS_RX, "x"), (evdev.ecodes.ABS_RY, "y")),
+            ),
+            "left_trigger": (
+                "Left Trigger",
+                "trigger",
+                ((evdev.ecodes.ABS_Z, "x"),),
+            ),
+            "right_trigger": (
+                "Right Trigger",
+                "trigger",
+                ((evdev.ecodes.ABS_RZ, "x"),),
+            ),
         }
         discovered: dict[str, dict[int, tuple[str, str]]] = {}
 
@@ -1683,24 +1701,26 @@ class HardwareSetupDialog(Adw.Window):
                 int(code[0] if isinstance(code, tuple) else code)
                 for code in raw_capabilities.get(evdev.ecodes.EV_ABS, [])
             }
-            for analog_id, (_label, codes) in axis_specs.items():
+            for analog_id, (_label, _input_type, axes) in axis_specs.items():
+                codes = tuple(code for code, _role in axes)
                 if all(code in abs_codes for code in codes):
-                    discovered[analog_id] = {
-                        codes[0]: ("x", source_id),
-                        codes[1]: ("y", source_id),
-                    }
+                    discovered[analog_id] = {code: (role, source_id) for code, role in axes}
 
         analog_inputs: list[AnalogInputDefinition] = []
-        for analog_id, (label, codes) in axis_specs.items():
+        for analog_id, (label, input_type, axes) in axis_specs.items():
             axis_data = discovered.get(analog_id)
             if axis_data is None:
                 continue
-            source_id = axis_data[codes[0]][1] or axis_data[codes[1]][1] or None
+            codes = tuple(code for code, _role in axes)
+            source_id = next(
+                (axis_data[code][1] for code in codes if axis_data[code][1]),
+                None,
+            )
             analog_inputs.append(
                 AnalogInputDefinition(
                     id=analog_id,
                     label=label,
-                    type="stick",
+                    type=input_type,
                     source=source_id,
                     axes=[
                         AnalogAxisDefinition(

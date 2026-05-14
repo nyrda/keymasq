@@ -54,3 +54,52 @@ def test_saved_analog_control_keeps_action_edits_when_current_row_reselected(
     assert dialog._current_name == "Saved Control"
     assert len(dialog._thresholds) == 4
     assert dialog._thresholds[0].actions == [action]
+
+
+def test_trigger_analog_control_saves_digital_only_positive_ranges(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    parent = Gtk.Window()
+    dialog = AnalogControlDialog(parent)
+
+    dialog.name_entry.set_text("Trigger Control")
+    dialog.input_type_dropdown.set_selected(1)
+    dialog._on_add_range_clicked()
+
+    assert dialog.mouse_group.get_visible() is False
+    assert dialog.digital_group.get_visible() is True
+    assert dialog.template_group.get_visible() is False
+    assert dialog._thresholds[0].axis == "x"
+    assert dialog._thresholds[0].trigger_min >= 0.0
+    assert dialog._save_current_control() is True
+
+    saved = dialog.manager.get_analog_control("Trigger Control")
+    assert saved is not None
+    assert saved.input_type == "trigger"
+    assert saved.mouse_motion.enabled is False
+    assert saved.thresholds[0].axis == "x"
+
+
+def test_analog_selector_filters_controls_by_source_input_type(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(AnalogControlConfig(name="Stick Control"))
+    manager.save_analog_control(AnalogControlConfig(name="Trigger Control", input_type="trigger"))
+
+    dialog = KeySelectorDialog(
+        Gtk.Window(),
+        "Left Trigger",
+        source_type="analog",
+        analog_input_type="trigger",
+    )
+
+    assert [config.name for config in dialog._analog_control_list] == ["Trigger Control"]

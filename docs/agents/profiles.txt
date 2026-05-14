@@ -216,6 +216,9 @@ actions = [
 ]
 ```
 
+Trigger Analog Controls use `input_type = "trigger"`, one threshold axis
+(`axis = "x"`), and normalized ranges from `0.0` to `1.0`.
+
 Bind a saved macro:
 
 ```toml

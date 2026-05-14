@@ -83,6 +83,36 @@ def test_trigger_analog_control_saves_digital_only_positive_ranges(temp_config_d
     assert saved.thresholds[0].axis == "x"
 
 
+def test_gamepad_output_dropdown_preserves_saved_selection(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+
+    monkeypatch.setattr(analog_dialog, "_virtual_gamepad_count", lambda: 2)
+
+    parent = Gtk.Window()
+    dialog = analog_dialog.AnalogControlDialog(parent)
+    dialog.name_entry.set_text("Route Stick")
+    dialog.mode_dropdown.set_selected(2)
+    assert dialog._gamepad_output_dropdown is not None
+    dialog._gamepad_output_dropdown.set_selected(1)
+
+    assert dialog._save_current_control() is True
+    saved = dialog.manager.get_analog_control("Route Stick")
+    assert saved is not None
+    assert saved.gamepad_output.output_id == "virtual-gamepad-2"
+
+    reloaded = analog_dialog.AnalogControlDialog(parent)
+    assert reloaded._current_name == "Route Stick"
+    assert reloaded._selected_gamepad_output_id == "virtual-gamepad-2"
+    assert reloaded._gamepad_output_dropdown is not None
+    assert reloaded._gamepad_output_dropdown.get_selected() == 1
+
+
 def test_analog_selector_filters_controls_by_source_input_type(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

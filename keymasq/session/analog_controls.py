@@ -10,6 +10,7 @@ from keymasq.common.models import (
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
+    AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
     MappingAction,
     normalize_macro_loop_stop_behavior,
@@ -67,6 +68,7 @@ class AnalogControlManager:
             data = cast(TomlDict, tomllib.load(f))
 
         mouse_data = _as_toml_dict(data.get("mouse_motion")) or {}
+        gamepad_data = _as_toml_dict(data.get("gamepad_output")) or {}
         thresholds: list[AnalogActionThreshold] = []
         raw_thresholds = data.get("thresholds")
         if isinstance(raw_thresholds, list):
@@ -88,6 +90,11 @@ class AnalogControlManager:
                 invert_x=bool(mouse_data.get("invert_x", False)),
                 invert_y=bool(mouse_data.get("invert_y", False)),
                 tick_ms=_int_value(mouse_data.get("tick_ms"), 8),
+            ),
+            gamepad_output=AnalogGamepadOutputConfig(
+                enabled=bool(gamepad_data.get("enabled", False)),
+                output_id=_toml_str(gamepad_data, "output_id"),
+                deadzone=_float_value(gamepad_data.get("deadzone"), 0.15),
             ),
             thresholds=thresholds,
         )
@@ -248,7 +255,14 @@ class AnalogControlManager:
                 "invert_y": bool(config.mouse_motion.invert_y),
                 "tick_ms": int(config.mouse_motion.tick_ms),
             },
+            "gamepad_output": {
+                "enabled": bool(config.gamepad_output.enabled),
+                "deadzone": float(config.gamepad_output.deadzone),
+            },
         }
+        if config.gamepad_output.output_id:
+            gamepad_output = cast(dict[str, object], data["gamepad_output"])
+            gamepad_output["output_id"] = config.gamepad_output.output_id
         if config.description:
             data["description"] = config.description
         if config.thresholds:

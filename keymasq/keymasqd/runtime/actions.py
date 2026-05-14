@@ -7,6 +7,7 @@ from keymasq.common.models import (
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
+    AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
     MappingAction,
     SuperkeyMode,
@@ -174,6 +175,16 @@ def parse_analog_control_config(
         tick_ms=int_value((mouse_config or {}).get("tick_ms"), 8),
     )
 
+    gamepad_data = config.get("gamepad_output")
+    gamepad_config = json_object(gamepad_data) if json_object is not None else None
+    if gamepad_config is None and isinstance(gamepad_data, dict):
+        gamepad_config = cast(JsonObject, gamepad_data)
+    gamepad_output = AnalogGamepadOutputConfig(
+        enabled=bool((gamepad_config or {}).get("enabled", False)),
+        output_id=optional_str((gamepad_config or {}).get("output_id")),
+        deadzone=float_value((gamepad_config or {}).get("deadzone"), 0.15),
+    )
+
     thresholds: list[AnalogActionThreshold] = []
     raw_thresholds = config.get("thresholds")
     if isinstance(raw_thresholds, list):
@@ -220,6 +231,7 @@ def parse_analog_control_config(
         description=optional_str(config.get("description")),
         input_type=str_value(config.get("input_type"), "stick") or "stick",
         mouse_motion=mouse,
+        gamepad_output=gamepad_output,
         thresholds=thresholds,
     )
 

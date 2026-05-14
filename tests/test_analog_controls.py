@@ -4,6 +4,7 @@ from keymasq.common.models import (
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
+    AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
     MappingAction,
 )
@@ -124,6 +125,26 @@ def test_trigger_analog_control_uses_single_positive_axis(temp_config_dir) -> No
     assert loaded is not None
     assert loaded.input_type == "trigger"
     assert loaded.thresholds[0].trigger_min == 0.5
+
+
+def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Route Stick",
+            gamepad_output=AnalogGamepadOutputConfig(
+                enabled=True,
+                output_id="virtual-gamepad-2",
+                deadzone=0.2,
+            ),
+        )
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Route Stick")
+    assert loaded is not None
+    assert loaded.gamepad_output.enabled is True
+    assert loaded.gamepad_output.output_id == "virtual-gamepad-2"
+    assert loaded.gamepad_output.deadzone == 0.2
 
 
 def test_trigger_analog_control_rejects_mouse_motion_and_y_axis() -> None:

@@ -2143,6 +2143,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         parts: list[str] = ["Trigger" if config.input_type == "trigger" else "Stick"]
         if config.mouse_motion.enabled:
             parts.append("Mouse")
+        if config.gamepad_output.enabled:
+            parts.append("Gamepad output")
         if config.thresholds:
             count = len(config.thresholds)
             parts.append(f"{count} range{'s' if count != 1 else ''}")

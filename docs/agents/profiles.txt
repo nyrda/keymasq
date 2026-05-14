@@ -205,6 +205,11 @@ invert_x = false
 invert_y = false
 tick_ms = 8
 
+[gamepad_output]
+enabled = false
+output_id = "virtual-gamepad-2"
+deadzone = 0.15
+
 [[thresholds]]
 axis = "x"
 trigger_min = 0.65

@@ -583,6 +583,68 @@ class TestHardwareSetupDialog:
         assert all(button.type == "gamepad" for button in saved.buttons)
         assert emitted == [("device-created", saved)]
 
+    def test_save_gamepad_config_builds_sticks_and_triggers_from_abs_capabilities(
+        self,
+        monkeypatch,
+    ):
+        gi.require_version("Gtk", "4.0")
+        import evdev
+        from gi.repository import Gtk
+
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved = []
+
+            def save_hardware(self, config) -> None:
+                self.saved.append(config)
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        hardware_manager = _HardwareManager()
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "5678",
+            "name": "Test Pad",
+        }
+        dialog.discovered_interfaces = {
+            "joystick": {
+                "id": "joystick",
+                "stable_path": "/dev/input/by-id/test-pad",
+                "path": "/dev/input/event10",
+                "name": "Test Pad",
+                "device_type": DeviceType.GAMEPAD,
+                "device_types": ["gamepad"],
+                "capabilities": [],
+                "raw_capabilities": {
+                    evdev.ecodes.EV_ABS: [
+                        evdev.ecodes.ABS_X,
+                        evdev.ecodes.ABS_Y,
+                        evdev.ecodes.ABS_RX,
+                        evdev.ecodes.ABS_RY,
+                        evdev.ecodes.ABS_Z,
+                        evdev.ecodes.ABS_RZ,
+                    ]
+                },
+            }
+        }
+        dialog.emit = lambda _signal, _config: None
+        dialog.close = lambda: None
+
+        dialog._save_gamepad_config()
+
+        saved = hardware_manager.saved[0]
+        analogs = {analog.id: analog for analog in saved.analog_inputs}
+        assert set(analogs) == {"left_stick", "right_stick", "left_trigger", "right_trigger"}
+        assert analogs["left_trigger"].type == "trigger"
+        assert analogs["left_trigger"].axes[0].role == "x"
+        assert analogs["left_trigger"].axes[0].evdev_code == evdev.ecodes.ABS_Z
+        assert analogs["right_trigger"].type == "trigger"
+        assert analogs["right_trigger"].axes[0].evdev_code == evdev.ecodes.ABS_RZ
+
     def test_save_mouse_keyboard_config_builds_standard_template(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

@@ -10,7 +10,11 @@ from keymasq.common.models import (
     AnalogControlConfig,
     MappingAction,
 )
-from keymasq.keymasqd.runtime.analog_controls import normalize_axis_value, process_analog_event
+from keymasq.keymasqd.runtime.analog_controls import (
+    normalize_axis_value,
+    normalize_trigger_value,
+    process_analog_event,
+)
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
     GrabbedDeviceState,
@@ -75,6 +79,12 @@ def test_normalize_axis_value_maps_sides_independently() -> None:
     assert abs(normalize_axis_value(0, -32768, 32767)) < 0.001
 
 
+def test_normalize_trigger_value_maps_min_to_zero_and_max_to_one() -> None:
+    assert normalize_trigger_value(0, 0, 255) == pytest.approx(0.0)
+    assert normalize_trigger_value(255, 0, 255) == pytest.approx(1.0)
+    assert normalize_trigger_value(128, 0, 255) == pytest.approx(0.5019, abs=0.0001)
+
+
 @pytest.mark.asyncio
 async def test_threshold_enter_and_release_emit_child_actions() -> None:
     keyboard = FakeUInput()
@@ -102,6 +112,45 @@ async def test_threshold_enter_and_release_emit_child_actions() -> None:
     assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
 
     assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
+    assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
+
+
+@pytest.mark.asyncio
+async def test_trigger_threshold_uses_positive_normalized_range() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_trigger": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Trigger",
+                input_type="trigger",
+                thresholds=[
+                    AnalogActionThreshold(
+                        axis="x",
+                        trigger_min=0.5,
+                        trigger_max=1.0,
+                        release_min=0.45,
+                        release_max=1.0,
+                        actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_a")],
+                    )
+                ],
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.analog_axis_bindings = {
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z): ("left_trigger", "x")
+    }
+    runtime.analog_axis_ranges = {("left_trigger", "x"): (0, 255)}
+    event = FakeEvent(200)
+    event.code = evdev.ecodes.ABS_Z
+
+    assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
+    assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+
+    event = FakeEvent(0)
+    event.code = evdev.ecodes.ABS_Z
+    assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
     assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
 
 

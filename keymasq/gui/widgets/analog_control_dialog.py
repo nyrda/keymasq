@@ -29,6 +29,8 @@ log = logging.getLogger("keymasq.gui.widgets.analog_control_dialog")
 
 _MODE_ITEMS = ("mouse", "digital", "both")
 _MODE_LABELS = ("Mouse Movement", "Digital Actions", "Mouse + Digital")
+_INPUT_TYPE_ITEMS = ("stick", "trigger")
+_INPUT_TYPE_LABELS = ("Stick", "Trigger")
 _AXIS_ITEMS = ("x", "y")
 
 
@@ -129,9 +131,9 @@ class AnalogControlDialog(Adw.Dialog):
         self.mode_dropdown.connect("notify::selected", self._on_mode_changed)
         self._attach_labeled(fields_grid, "Mode:", 2, self.mode_dropdown)
 
-        input_type = Gtk.Label(label="Stick")
-        input_type.set_xalign(0)
-        self._attach_labeled(fields_grid, "Input Type:", 3, input_type)
+        self.input_type_dropdown = Gtk.DropDown.new_from_strings(list(_INPUT_TYPE_LABELS))
+        self.input_type_dropdown.connect("notify::selected", self._on_input_type_changed)
+        self._attach_labeled(fields_grid, "Input Type:", 3, self.input_type_dropdown)
 
         self.editor_box.append(fields_grid)
         self.editor_box.append(Gtk.Separator())
@@ -311,19 +313,33 @@ class AnalogControlDialog(Adw.Dialog):
         return row
 
     def _current_mode(self) -> str:
+        if self._current_input_type() == "trigger":
+            return "digital"
         selected = int(self.mode_dropdown.get_selected())
         if selected < 0 or selected >= len(_MODE_ITEMS):
             return "mouse"
         return _MODE_ITEMS[selected]
 
+    def _current_input_type(self) -> str:
+        selected = int(self.input_type_dropdown.get_selected())
+        if selected < 0 or selected >= len(_INPUT_TYPE_ITEMS):
+            return "stick"
+        return _INPUT_TYPE_ITEMS[selected]
+
+    def _is_trigger_control(self) -> bool:
+        return self._current_input_type() == "trigger"
+
     def _update_mode_visibility(self) -> None:
         if not hasattr(self, "mouse_group"):
             return
+        input_type = self._current_input_type()
         mode = self._current_mode()
-        digital_visible = mode in {"digital", "both"}
-        self.mouse_group.set_visible(mode in {"mouse", "both"})
+        is_trigger = input_type == "trigger"
+        digital_visible = is_trigger or mode in {"digital", "both"}
+        self.mode_dropdown.set_sensitive(not is_trigger)
+        self.mouse_group.set_visible(not is_trigger and mode in {"mouse", "both"})
         self.digital_group.set_visible(digital_visible)
-        self.template_group.set_visible(digital_visible)
+        self.template_group.set_visible(digital_visible and not is_trigger)
 
     def _load_controls(self) -> None:
         while row := self.list_box.get_row_at_index(0):
@@ -379,6 +395,7 @@ class AnalogControlDialog(Adw.Dialog):
         self.editor_box.set_sensitive(True)
         self.name_entry.set_text(config.name)
         self.description_entry.set_text(config.description or "")
+        self.input_type_dropdown.set_selected(self._input_type_index(config))
         self.mode_dropdown.set_selected(self._mode_index(config))
         self.speed_row.set_value(config.mouse_motion.speed)
         self.deadzone_row.set_value(config.mouse_motion.deadzone)
@@ -391,6 +408,8 @@ class AnalogControlDialog(Adw.Dialog):
         self._update_mode_visibility()
 
     def _mode_index(self, config: AnalogControlConfig) -> int:
+        if config.input_type == "trigger":
+            return _MODE_ITEMS.index("digital")
         has_mouse = bool(config.mouse_motion.enabled)
         has_digital = bool(config.thresholds)
         if has_mouse and has_digital:
@@ -398,6 +417,11 @@ class AnalogControlDialog(Adw.Dialog):
         if has_digital:
             return _MODE_ITEMS.index("digital")
         return _MODE_ITEMS.index("mouse")
+
+    def _input_type_index(self, config: AnalogControlConfig) -> int:
+        if config.input_type == "trigger":
+            return _INPUT_TYPE_ITEMS.index("trigger")
+        return _INPUT_TYPE_ITEMS.index("stick")
 
     def _refresh_thresholds(self, expanded_indices: set[int] | None = None) -> None:
         for row in getattr(self, "_threshold_rows", []):
@@ -423,8 +447,12 @@ class AnalogControlDialog(Adw.Dialog):
         index: int,
         threshold: AnalogActionThreshold,
     ) -> Adw.ExpanderRow:
+        is_trigger = self._is_trigger_control()
         row = Adw.ExpanderRow()
-        row.set_title(f"Range {index + 1}: {threshold.axis.upper()}")
+        title = f"Range {index + 1}"
+        if not is_trigger:
+            title = f"{title}: {threshold.axis.upper()}"
+        row.set_title(title)
         row.set_subtitle(self._threshold_subtitle(threshold))
         row.set_enable_expansion(True)
 
@@ -441,6 +469,8 @@ class AnalogControlDialog(Adw.Dialog):
 
         bar_row = Adw.ActionRow()
         range_bar = ThresholdRangeBar()
+        if is_trigger:
+            range_bar.set_domain(0.0, 1.0)
         range_bar.set_ranges(
             threshold.trigger_min,
             threshold.trigger_max,
@@ -451,28 +481,31 @@ class AnalogControlDialog(Adw.Dialog):
         row._range_bar = range_bar
         row.add_row(bar_row)
 
-        axis_row = Adw.ActionRow(title="Axis")
-        axis_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        axis_buttons.add_css_class("linked")
-        axis_group: Gtk.ToggleButton | None = None
-        for axis in _AXIS_ITEMS:
-            button = Gtk.ToggleButton(label=axis.upper())
-            if axis_group is None:
-                axis_group = button
-            else:
-                button.set_group(axis_group)
-            button.set_active(threshold.axis == axis)
-            button.connect("toggled", self._on_threshold_axis_toggled, index, axis, row)
-            axis_buttons.append(button)
-        axis_row.add_suffix(axis_buttons)
-        row.add_row(axis_row)
+        if not is_trigger:
+            axis_row = Adw.ActionRow(title="Axis")
+            axis_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+            axis_buttons.add_css_class("linked")
+            axis_group: Gtk.ToggleButton | None = None
+            for axis in _AXIS_ITEMS:
+                button = Gtk.ToggleButton(label=axis.upper())
+                if axis_group is None:
+                    axis_group = button
+                else:
+                    button.set_group(axis_group)
+                button.set_active(threshold.axis == axis)
+                button.connect("toggled", self._on_threshold_axis_toggled, index, axis, row)
+                axis_buttons.append(button)
+            axis_row.add_suffix(axis_buttons)
+            row.add_row(axis_row)
 
+        value_lower = 0.0 if is_trigger else -100.0
         trigger_min_spin = self._percent_spin_row(
             "Activation Min",
             threshold.trigger_min,
             self._on_primary_threshold_changed,
             index,
             row,
+            lower=value_lower,
         )
         trigger_max_spin = self._percent_spin_row(
             "Activation Max",
@@ -480,6 +513,7 @@ class AnalogControlDialog(Adw.Dialog):
             self._on_primary_threshold_changed,
             index,
             row,
+            lower=value_lower,
         )
         hysteresis_spin = self._percent_spin_row(
             "Hysteresis",
@@ -506,6 +540,7 @@ class AnalogControlDialog(Adw.Dialog):
             self._on_advanced_threshold_changed,
             index,
             row,
+            lower=value_lower,
         )
         release_max_spin = self._percent_spin_row(
             "Release Max",
@@ -513,6 +548,7 @@ class AnalogControlDialog(Adw.Dialog):
             self._on_advanced_threshold_changed,
             index,
             row,
+            lower=value_lower,
         )
         row._spin_release_min = release_min_spin
         row._spin_release_max = release_max_spin
@@ -564,6 +600,26 @@ class AnalogControlDialog(Adw.Dialog):
             f"{count} {noun}"
         )
 
+    def _threshold_domain(self) -> tuple[float, float]:
+        return (0.0, 1.0) if self._is_trigger_control() else (-1.0, 1.0)
+
+    def _sync_thresholds_for_input_type(self) -> None:
+        minimum, maximum = self._threshold_domain()
+        if self._is_trigger_control():
+            for threshold in self._thresholds:
+                threshold.axis = "x"
+                threshold.trigger_min = max(minimum, min(maximum, threshold.trigger_min))
+                threshold.trigger_max = max(minimum, min(maximum, threshold.trigger_max))
+                threshold.release_min = max(minimum, min(maximum, threshold.release_min))
+                threshold.release_max = max(minimum, min(maximum, threshold.release_max))
+                if threshold.trigger_min > threshold.trigger_max:
+                    threshold.trigger_min, threshold.trigger_max = (
+                        threshold.trigger_max,
+                        threshold.trigger_min,
+                    )
+                threshold.release_min = min(threshold.release_min, threshold.trigger_min)
+                threshold.release_max = max(threshold.release_max, threshold.trigger_max)
+
     def _begin_new_control(self) -> None:
         self._load_config(AnalogControlConfig(name="New Analog Control"))
         self._current_name = None
@@ -583,17 +639,19 @@ class AnalogControlDialog(Adw.Dialog):
             self._begin_new_control()
 
     def _on_add_range_clicked(self, *_args) -> None:
+        trigger_min = 0.50 if self._is_trigger_control() else 0.65
+        release_min = 0.45 if self._is_trigger_control() else 0.55
         self._thresholds.append(
             AnalogActionThreshold(
                 axis="x",
-                trigger_min=0.65,
+                trigger_min=trigger_min,
                 trigger_max=1.0,
-                release_min=0.55,
+                release_min=release_min,
                 release_max=1.0,
                 actions=[],
             )
         )
-        if self._current_mode() == "mouse":
+        if not self._is_trigger_control() and self._current_mode() == "mouse":
             self.mode_dropdown.set_selected(_MODE_ITEMS.index("both"))
         self._refresh_thresholds()
         self._on_modified()
@@ -669,8 +727,9 @@ class AnalogControlDialog(Adw.Dialog):
             self._set_spin_value(row._spin_trigger_max, trigger_max)
 
         hysteresis = max(0.0, min(1.0, _from_percent(row._spin_hysteresis.get_value())))
-        release_min = max(-1.0, trigger_min - hysteresis)
-        release_max = min(1.0, trigger_max + hysteresis)
+        minimum, maximum = self._threshold_domain()
+        release_min = max(minimum, trigger_min - hysteresis)
+        release_max = min(maximum, trigger_max + hysteresis)
         threshold.trigger_min = trigger_min
         threshold.trigger_max = trigger_max
         threshold.release_min = release_min
@@ -730,6 +789,8 @@ class AnalogControlDialog(Adw.Dialog):
         if not 0 <= index < len(self._thresholds):
             return
         threshold = self._thresholds[index]
+        minimum, maximum = self._threshold_domain()
+        row._range_bar.set_domain(minimum, maximum)
         row._range_bar.set_ranges(
             threshold.trigger_min,
             threshold.trigger_max,
@@ -748,10 +809,22 @@ class AnalogControlDialog(Adw.Dialog):
         self._apply_template(analog_control_mouse_wheel_template())
 
     def _apply_template(self, thresholds: list[AnalogActionThreshold]) -> None:
+        if self._is_trigger_control():
+            return
         self._thresholds.extend(self._copy_threshold(threshold) for threshold in thresholds)
         if self._current_mode() == "mouse":
             self.mode_dropdown.set_selected(_MODE_ITEMS.index("both"))
         self._refresh_thresholds()
+        self._on_modified()
+
+    def _on_input_type_changed(self, _dropdown, _param) -> None:
+        if not hasattr(self, "digital_group"):
+            return
+        if self._is_trigger_control():
+            self.mode_dropdown.set_selected(_MODE_ITEMS.index("digital"))
+        self._sync_thresholds_for_input_type()
+        self._refresh_thresholds(self._expanded_threshold_indices())
+        self._update_mode_visibility()
         self._on_modified()
 
     def _on_mode_changed(self, _dropdown, _param) -> None:
@@ -790,20 +863,26 @@ class AnalogControlDialog(Adw.Dialog):
             return False
 
         mode = self._current_mode()
+        input_type = self._current_input_type()
+        self._sync_thresholds_for_input_type()
         old_name = self._current_name
         config = AnalogControlConfig(
             name=name,
             description=self.description_entry.get_text().strip() or None,
-            input_type="stick",
+            input_type=input_type,
             mouse_motion=AnalogMouseMotionConfig(
-                enabled=mode in {"mouse", "both"},
+                enabled=input_type == "stick" and mode in {"mouse", "both"},
                 speed=self.speed_row.get_value(),
                 deadzone=self.deadzone_row.get_value(),
                 curve=["soft", "linear", "fast"][int(self.curve_row.get_selected())],
                 invert_x=self.invert_x_row.get_active(),
                 invert_y=self.invert_y_row.get_active(),
             ),
-            thresholds=list(self._thresholds) if mode in {"digital", "both"} else [],
+            thresholds=(
+                list(self._thresholds)
+                if input_type == "trigger" or mode in {"digital", "both"}
+                else []
+            ),
         )
         try:
             self.manager.save_analog_control(config, replacing_name=old_name)

@@ -1,7 +1,8 @@
 # Analog Controls
 
 Analog Controls are reusable configs for analog source inputs exposed by a
-hardware template.
+hardware template. Stick controls can drive mouse movement or digital actions.
+Trigger controls support digital action ranges only.
 
 Configs live in:
 
@@ -44,10 +45,26 @@ actions = [
 ]
 ```
 
-Thresholds use normalized stick values from `-1.0` to `1.0`. A threshold
-activates when the current axis value enters the trigger range and releases
-when it leaves the release range. The trigger range must be inside the release
-range so hysteresis is explicit.
+Stick thresholds use normalized values from `-1.0` to `1.0`. Trigger thresholds
+use normalized values from `0.0` to `1.0` and always use axis `x`. A threshold
+activates when the current axis value enters the trigger range and releases when
+it leaves the release range. The trigger range must be inside the release range
+so hysteresis is explicit.
+
+```toml
+name = "Left Trigger Action"
+input_type = "trigger"
+
+[[thresholds]]
+axis = "x"
+trigger_min = 0.50
+trigger_max = 1.0
+release_min = 0.45
+release_max = 1.0
+actions = [
+  { action = "keyboard", target = "key_e" },
+]
+```
 
 Overlapping thresholds are valid. They are evaluated independently; Keymasq
 does not prioritize or merge overlapping ranges.

@@ -170,13 +170,14 @@ actions are button-only.
 
 ## Analog Controls
 
-Analog Controls map a two-axis stick source, such as `left_stick` or
-`right_stick`, to a saved analog config. For the MVP a config can:
+Analog Controls map an analog source, such as `left_stick`, `right_stick`,
+`left_trigger`, or `right_trigger`, to a saved analog config. A config can:
 
 - turn stick position into continuous relative mouse movement
 - turn stick axis ranges into normal digital actions
+- turn trigger pull ranges into normal digital actions
 
-Create configs from **Analog Controls** in the app menu, then map a stick card
+Create configs from **Analog Controls** in the app menu, then map an analog card
 in a gamepad device tab to the saved config. Profile TOML uses:
 
 ```toml

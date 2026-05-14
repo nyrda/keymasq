@@ -49,6 +49,12 @@ _POINTER_BUTTON_CARD_WIDTH = 187
 _POINTER_NAME_LABEL_CHARS = 20
 _POINTER_ACTION_SUMMARY_CHARS = 24
 _ACTION_SUMMARY_MARKER = "..."
+_ANALOG_LAYOUT_ORDER = {
+    "left_trigger": 0,
+    "right_trigger": 1,
+    "left_stick": 2,
+    "right_stick": 3,
+}
 
 
 def _char_middle_shorten_text(text: str, max_chars: int) -> str:
@@ -86,6 +92,19 @@ def _compact_exec_summary(text: str, max_chars: int) -> str | None:
     if len(compact) <= max_chars:
         return compact
     return None
+
+
+def _ordered_analog_inputs(
+    analog_inputs: list[AnalogInputDefinition],
+) -> list[AnalogInputDefinition]:
+    return sorted(
+        analog_inputs,
+        key=lambda analog: (
+            _ANALOG_LAYOUT_ORDER.get(analog.id, len(_ANALOG_LAYOUT_ORDER)),
+            analog.label.lower(),
+            analog.id,
+        ),
+    )
 
 
 def _display_action_summary(text: str, max_chars: int) -> str:
@@ -998,9 +1017,9 @@ class DeviceTab(ProfileManagedTab):
         grid = Gtk.Grid()
         grid.set_column_spacing(12)
         grid.set_row_spacing(12)
-        for index, analog in enumerate(self.device.analog_inputs):
+        for index, analog in enumerate(_ordered_analog_inputs(self.device.analog_inputs)):
             widget = self._create_analog_widget(analog)
-            grid.attach(widget, index % 3, index // 3, 1, 1)
+            grid.attach(widget, index % 2, index // 2, 1, 1)
             self._button_widgets[analog.id] = widget
         parent.append(grid)
 
@@ -1029,7 +1048,10 @@ class DeviceTab(ProfileManagedTab):
         name_label.set_max_width_chars(_POINTER_NAME_LABEL_CHARS)
         box.append(name_label)
 
-        action_label = Gtk.Label(label="Analog passthrough")
+        passthrough_label = (
+            "Trigger passthrough" if analog.type == "trigger" else "Analog passthrough"
+        )
+        action_label = Gtk.Label(label=passthrough_label)
         action_label.add_css_class("caption")
         action_label.add_css_class("button-card-action-label")
         action_label.set_halign(Gtk.Align.FILL)
@@ -1320,6 +1342,7 @@ class DeviceTab(ProfileManagedTab):
             allow_tap=False,
             allow_macro_options=False,
             source_type="analog",
+            analog_input_type=analog.type,
         )
         dialog.connect("key-selected", on_key_selected)
         dialog.present(self.get_root())
@@ -1442,11 +1465,12 @@ class DeviceTab(ProfileManagedTab):
                 else:
                     widget.set_tooltip_text("This binding is not currently active")
         else:
-            passthrough_label = (
-                self._describe_passthrough_output(button)
-                if button is not None
-                else "Analog passthrough"
-            )
+            if button is not None:
+                passthrough_label = self._describe_passthrough_output(button)
+            elif analog is not None and analog.type == "trigger":
+                passthrough_label = "Trigger passthrough"
+            else:
+                passthrough_label = "Analog passthrough"
             self._set_action_label_text(
                 action_label,
                 passthrough_label,

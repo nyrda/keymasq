@@ -1518,3 +1518,22 @@ def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.
     assert dialog_module._actions_docs_url("mouse") == (
         "https://keymasq.tools/docs/master/ACTIONS/#mouse"
     )
+
+
+def test_analog_controls_layout_orders_triggers_then_sticks() -> None:
+    from keymasq.common.models import AnalogInputDefinition
+    from keymasq.gui.widgets.device_tab import _ordered_analog_inputs
+
+    analogs = [
+        AnalogInputDefinition(id="left_stick", label="Left Stick", type="stick"),
+        AnalogInputDefinition(id="left_trigger", label="Left Trigger", type="trigger"),
+        AnalogInputDefinition(id="right_stick", label="Right Stick", type="stick"),
+        AnalogInputDefinition(id="right_trigger", label="Right Trigger", type="trigger"),
+    ]
+
+    assert [analog.id for analog in _ordered_analog_inputs(analogs)] == [
+        "left_trigger",
+        "right_trigger",
+        "left_stick",
+        "right_stick",
+    ]

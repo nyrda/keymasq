@@ -154,7 +154,16 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
                     AnalogAxisDefinition(role="x", evdev="abs_x", evdev_code=0),
                     AnalogAxisDefinition(role="y", evdev="abs_y", evdev_code=1),
                 ],
-            )
+            ),
+            AnalogInputDefinition(
+                id="left_trigger",
+                label="Left Trigger",
+                type="trigger",
+                source="joystick",
+                axes=[
+                    AnalogAxisDefinition(role="x", evdev="abs_z", evdev_code=2),
+                ],
+            ),
         ],
         image="mouse.png",
     )
@@ -168,7 +177,10 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
     assert 'image = "mouse.png"' in text
     assert 'source = "evdev"' in text
     assert 'id = "left_stick"' in text
+    assert 'id = "left_trigger"' in text
+    assert 'type = "trigger"' in text
     assert 'evdev = "abs_x"' in text
+    assert 'evdev = "abs_z"' in text
     assert 'zone = "main"' in text
 
     reloaded = HardwareManager().get_hardware("1111:2222")

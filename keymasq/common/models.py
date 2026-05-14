@@ -375,11 +375,23 @@ class AnalogControlConfig:
 def validate_analog_control_config(config: AnalogControlConfig) -> None:
     if not str(config.name or "").strip():
         raise ValueError("analog control name is required")
-    if config.input_type != "stick":
-        raise ValueError("only stick analog controls are supported")
+    if config.input_type not in {"stick", "trigger"}:
+        raise ValueError("analog control input_type must be 'stick' or 'trigger'")
+    if config.input_type == "trigger" and config.mouse_motion.enabled:
+        raise ValueError("trigger analog controls only support digital action ranges")
     for index, threshold in enumerate(config.thresholds, start=1):
-        if threshold.axis not in {"x", "y"}:
+        allowed_axes = {"x", "y"} if config.input_type == "stick" else {"x"}
+        if threshold.axis not in allowed_axes:
+            if config.input_type == "trigger":
+                raise ValueError(f"threshold {index} axis must be 'x' for trigger controls")
             raise ValueError(f"threshold {index} axis must be 'x' or 'y'")
+        if config.input_type == "trigger" and min(
+            threshold.trigger_min,
+            threshold.trigger_max,
+            threshold.release_min,
+            threshold.release_max,
+        ) < 0.0:
+            raise ValueError(f"threshold {index} trigger range values must be between 0 and 1")
         if threshold.trigger_min > threshold.trigger_max:
             raise ValueError(f"threshold {index} activation range is invalid")
         if threshold.release_min > threshold.release_max:

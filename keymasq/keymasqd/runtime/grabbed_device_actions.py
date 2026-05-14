@@ -16,6 +16,7 @@ from keymasq.keymasqd.runtime.action_runner import (
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     bucket_for_uinput,
     passthrough,
+    track_superkey_abs_output,
     track_superkey_output,
     write_abs_axis,
     write_key,
@@ -57,6 +58,7 @@ async def execute_action(
     *,
     deps: ActionExecutionDeps,
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+    shared_abs_output_tracker: Callable[[str, int, int], bool] | None = None,
 ) -> None:
     evdev_mod = deps.evdev_mod
     uinput_writer = deps.uinput_writer
@@ -98,6 +100,7 @@ async def execute_action(
             event_name,
             deps=deps,
             shared_output_tracker=shared_output_tracker,
+            shared_abs_output_tracker=shared_abs_output_tracker,
         )
 
     elif action.action_type == ActionType.GAMEPAD:
@@ -271,6 +274,18 @@ async def execute_action(
                         value,
                     )
 
+                def superkey_abs_event_tracker(
+                    bucket: str,
+                    axis_code: int,
+                    value: int,
+                ) -> bool:
+                    return track_superkey_abs_output(
+                        device_runtime,
+                        bucket,
+                        axis_code,
+                        value,
+                    )
+
                 machine = SuperkeyMachine(
                     config=cast(RuntimeSuperkeyConfig, action.superkey_config),
                     event_name=event_name,
@@ -281,6 +296,7 @@ async def execute_action(
                     broadcast_callback=superkey_broadcast,
                     cursor_position_setter=device_runtime.cursor_position_setter,
                     key_event_tracker=superkey_key_event_tracker,
+                    axis_event_tracker=superkey_abs_event_tracker,
                     gamepad_output_resolver=device_runtime.resolve_gamepad_output,
                 )
                 device_runtime.state.superkey_machines[event_name] = machine
@@ -299,8 +315,10 @@ async def execute_action_pulse(
     *,
     deps: ActionExecutionDeps,
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+    shared_abs_output_tracker: Callable[[str, int, int], bool] | None = None,
     explicit_bucket: str | None = None,
 ) -> None:
+    del explicit_bucket
     await execute_action(
         device_runtime,
         action,
@@ -308,6 +326,7 @@ async def execute_action_pulse(
         event_name,
         deps=deps,
         shared_output_tracker=shared_output_tracker,
+        shared_abs_output_tracker=shared_abs_output_tracker,
     )
     await execute_action(
         device_runtime,
@@ -316,6 +335,7 @@ async def execute_action_pulse(
         event_name,
         deps=deps,
         shared_output_tracker=shared_output_tracker,
+        shared_abs_output_tracker=shared_abs_output_tracker,
     )
 
 
@@ -346,6 +366,14 @@ async def _execute_overload_superkey(
             value,
         )
 
+    def overload_abs_output_tracker(bucket: str, axis_code: int, value: int) -> bool:
+        return track_superkey_abs_output(
+            device_runtime,
+            bucket,
+            axis_code,
+            value,
+        )
+
     if int(event.value) == 0:
         for index, child_action in enumerate(config.overload_up_actions):
             if child_action.action_type == ActionType.SUPERKEY:
@@ -363,6 +391,7 @@ async def _execute_overload_superkey(
                 child_event_name,
                 deps=deps,
                 shared_output_tracker=overload_output_tracker,
+                shared_abs_output_tracker=overload_abs_output_tracker,
             )
 
     for index, child_action in enumerate(config.overload_actions):
@@ -381,6 +410,7 @@ async def _execute_overload_superkey(
             child_event_name,
             deps=deps,
             shared_output_tracker=overload_output_tracker,
+            shared_abs_output_tracker=overload_abs_output_tracker,
         )
 
     if int(event.value) == 1:
@@ -400,6 +430,7 @@ async def _execute_overload_superkey(
                 child_event_name,
                 deps=deps,
                 shared_output_tracker=overload_output_tracker,
+                shared_abs_output_tracker=overload_abs_output_tracker,
             )
 
 
@@ -411,6 +442,7 @@ async def _execute_gamepad_axis_action(
     *,
     deps: ActionExecutionDeps,
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+    shared_abs_output_tracker: Callable[[str, int, int], bool] | None = None,
 ) -> None:
     del shared_output_tracker
     if not action.target:
@@ -437,6 +469,7 @@ async def _execute_gamepad_axis_action(
         target_bucket=str(getattr(target, "bucket", "gamepad")),
         rapidfire_kind="axis",
         tap_label=f"tap axis action {event_name}",
+        shared_abs_output_tracker=shared_abs_output_tracker,
     )
 
 
@@ -454,7 +487,7 @@ async def _execute_abs_axis_output(
     target_bucket: str,
     rapidfire_kind: str,
     tap_label: str,
-    shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+    shared_abs_output_tracker: Callable[[str, int, int], bool] | None = None,
 ) -> None:
     if action.rapidfire_enabled:
         if event.value == 1:
@@ -515,8 +548,8 @@ async def _execute_abs_axis_output(
 
     output_value = active_value if int(event.value) else release_value
     should_emit = True
-    if shared_output_tracker is not None:
-        should_emit = shared_output_tracker(target_bucket, int(axis_code), int(output_value))
+    if shared_abs_output_tracker is not None:
+        should_emit = shared_abs_output_tracker(target_bucket, int(axis_code), int(output_value))
     if not should_emit:
         return
     write_abs_axis(

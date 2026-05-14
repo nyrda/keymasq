@@ -55,7 +55,7 @@ def gamepad_axis_range(target: object) -> GamepadAxisRange | None:
     return GAMEPAD_AXIS_RANGES.get(normalized)
 
 
-def gamepad_axis_default_value(target: object) -> int:
+def gamepad_axis_max_value(target: object) -> int:
     axis_range = gamepad_axis_range(target)
     return axis_range.maximum if axis_range is not None else 0
 
@@ -63,10 +63,7 @@ def gamepad_axis_default_value(target: object) -> int:
 def clamp_gamepad_axis_value(target: object, value: object) -> int:
     axis_range = gamepad_axis_range(target)
     if axis_range is None:
-        try:
-            return int(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            return 0
+        return 0
     try:
         raw_value = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):

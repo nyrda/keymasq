@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 from typing import cast
 
-from keymasq.common.gamepad_axes import gamepad_axis_default_value
+from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -61,7 +61,7 @@ def parse_action(
     target = action_data.get("target")
     axis_value = 0
     if action_type == ActionType.GAMEPAD_AXIS:
-        axis_value = int_value(action_data.get("value"), gamepad_axis_default_value(target))
+        axis_value = int_value(action_data.get("value"), gamepad_axis_max_value(target))
     cmd = action_data.get("cmd")
     macro_name = action_data.get("macro_name")
     profile_name = action_data.get("profile_name")
@@ -390,7 +390,7 @@ def parse_superkey_action(
     target = action.get("target")
     axis_value = 0
     if action_type == ActionType.GAMEPAD_AXIS:
-        axis_value = int_value(action.get("value"), gamepad_axis_default_value(target))
+        axis_value = int_value(action.get("value"), gamepad_axis_max_value(target))
 
     return SuperkeyActionData(
         action_type=action_type.value,

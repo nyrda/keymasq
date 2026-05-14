@@ -142,6 +142,7 @@ class SuperkeyMachine:
         broadcast_callback: Callable[[dict[str, object]], Awaitable[None]] | None = None,
         cursor_position_setter: CursorPositionSetter | None = None,
         key_event_tracker: Callable[[str, int, int], bool] | None = None,
+        axis_event_tracker: Callable[[str, int, int], bool] | None = None,
         gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None,
     ) -> None:
         self.config = config
@@ -153,6 +154,7 @@ class SuperkeyMachine:
         self.broadcast_callback = broadcast_callback
         self.cursor_position_setter = cursor_position_setter
         self.key_event_tracker = key_event_tracker
+        self.axis_event_tracker = axis_event_tracker
         self.gamepad_output_resolver = gamepad_output_resolver
 
         self.state = SuperkeyState.IDLE
@@ -439,11 +441,19 @@ class SuperkeyMachine:
             axis_code = resolve_gamepad_axis_code(action.target)
             if axis_code is None:
                 return
-            uinput, _bucket = self._get_action_output(action)
+            uinput, bucket = self._get_action_output(action)
             if uinput is None:
                 return
-            uinput.write(evdev.ecodes.EV_ABS, axis_code, int(action.axis_value))
-            uinput.syn()
+            should_emit = True
+            if self.axis_event_tracker:
+                should_emit = self.axis_event_tracker(
+                    bucket,
+                    int(axis_code),
+                    int(action.axis_value),
+                )
+            if should_emit:
+                uinput.write(evdev.ecodes.EV_ABS, axis_code, int(action.axis_value))
+                uinput.syn()
             return
 
         if action.action_type in ("keyboard", "mouse", "gamepad"):
@@ -500,11 +510,15 @@ class SuperkeyMachine:
             axis_code = resolve_gamepad_axis_code(action.target)
             if axis_code is None:
                 return
-            uinput, _bucket = self._get_action_output(action)
+            uinput, bucket = self._get_action_output(action)
             if uinput is None:
                 return
-            uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
-            uinput.syn()
+            should_emit = True
+            if self.axis_event_tracker:
+                should_emit = self.axis_event_tracker(bucket, int(axis_code), 0)
+            if should_emit:
+                uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
+                uinput.syn()
             return
 
         if action.action_type in ("keyboard", "mouse", "gamepad"):

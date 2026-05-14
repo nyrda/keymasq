@@ -131,6 +131,35 @@ def track_superkey_output(
     return True
 
 
+def track_superkey_abs_output(
+    device_runtime: GrabbedDeviceRuntime,
+    bucket: str,
+    axis_code: int,
+    value: int,
+    *,
+    release_value: int = 0,
+) -> bool:
+    if bucket not in device_runtime.state.superkey_abs_refcounts:
+        device_runtime.state.superkey_abs_refcounts[bucket] = {}
+    held = device_runtime.state.held_output_abs.setdefault(bucket, set())
+
+    refcounts = device_runtime.state.superkey_abs_refcounts[bucket]
+    current = refcounts.get(int(axis_code), 0)
+
+    if int(value) != int(release_value):
+        refcounts[int(axis_code)] = current + 1
+        held.add(int(axis_code))
+        return current == 0
+
+    if current <= 1:
+        refcounts.pop(int(axis_code), None)
+        held.discard(int(axis_code))
+        return current == 1
+
+    refcounts[int(axis_code)] = current - 1
+    return False
+
+
 def passthrough(
     device_runtime: GrabbedDeviceRuntime,
     event: InputEventLike,
@@ -246,7 +275,7 @@ def release_all_keys(
         "gamepad": device_runtime.gamepad_uinput,
     }
     for state in device_runtime.state.rapidfire_outputs.values():
-        if state.kind == "trigger" and state.bucket:
+        if state.kind == "axis" and state.bucket:
             devices.setdefault(state.bucket, state.uinput)
     for bucket in set(device_runtime.state.held_output_keys) | set(
         device_runtime.state.held_output_abs
@@ -264,6 +293,8 @@ def release_all_keys(
             device_runtime.state.held_output_abs.get(bucket, set()).clear()
             if bucket in device_runtime.state.superkey_output_refcounts:
                 device_runtime.state.superkey_output_refcounts[bucket].clear()
+            if bucket in device_runtime.state.superkey_abs_refcounts:
+                device_runtime.state.superkey_abs_refcounts[bucket].clear()
             continue
         held = sorted(device_runtime.state.held_output_keys.get(bucket, set()))
         if not held:
@@ -285,6 +316,8 @@ def release_all_keys(
             device_runtime.state.held_output_keys[bucket].clear()
             if bucket in device_runtime.state.superkey_output_refcounts:
                 device_runtime.state.superkey_output_refcounts[bucket].clear()
+            if bucket in device_runtime.state.superkey_abs_refcounts:
+                device_runtime.state.superkey_abs_refcounts[bucket].clear()
 
     for bucket, held_abs in list(device_runtime.state.held_output_abs.items()):
         if not bucket.startswith("gamepad") and not held_abs:
@@ -309,6 +342,8 @@ def release_all_keys(
             )
         else:
             held_abs.clear()
+            if bucket in device_runtime.state.superkey_abs_refcounts:
+                device_runtime.state.superkey_abs_refcounts[bucket].clear()
 
     for task in list(device_runtime.state.rapidfire_tasks.values()):
         if not task.done():

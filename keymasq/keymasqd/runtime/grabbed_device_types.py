@@ -207,6 +207,11 @@ class GrabbedDeviceState:
             "gamepad": {},
         }
     )
+    superkey_abs_refcounts: dict[str, dict[int, int]] = field(
+        default_factory=lambda: {
+            "gamepad": {},
+        }
+    )
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
 
 

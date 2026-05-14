@@ -6,7 +6,7 @@ from typing import cast
 import tomli_w
 
 from keymasq.common import paths
-from keymasq.common.gamepad_axes import gamepad_axis_default_value
+from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -261,7 +261,7 @@ class SuperkeyManager:
         if action_type == ActionType.GAMEPAD_AXIS:
             axis_value = _int_value(
                 action_data.get("value"),
-                gamepad_axis_default_value(target),
+                gamepad_axis_max_value(target),
             )
         cmd = action_data.get("cmd")
         return MappingAction(

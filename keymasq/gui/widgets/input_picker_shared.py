@@ -9,7 +9,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.gamepad_axes import gamepad_axis_default_value
+from keymasq.common.gamepad_axes import gamepad_axis_max_value
 
 
 def _get_gamepad_svg_path() -> str:
@@ -372,7 +372,7 @@ def _build_gamepad_left_col(owner) -> Gtk.Box:
                 "clicked",
                 owner._on_gamepad_axis_clicked,
                 evdev_id,
-                gamepad_axis_default_value(evdev_id),
+                gamepad_axis_max_value(evdev_id),
             )
         else:
             btn.connect("clicked", owner._on_gamepad_clicked, evdev_id)
@@ -463,7 +463,7 @@ def _build_gamepad_right_col(owner) -> Gtk.Box:
                 "clicked",
                 owner._on_gamepad_axis_clicked,
                 evdev_id,
-                gamepad_axis_default_value(evdev_id),
+                gamepad_axis_max_value(evdev_id),
             )
         else:
             btn.connect("clicked", owner._on_gamepad_clicked, evdev_id)

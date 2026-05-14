@@ -505,6 +505,12 @@ class TestGrabbedDeviceHelpers:
             255,
             bucket="gamepad:virtual-gamepad-2",
         )
+        gdo.track_superkey_abs_output(
+            device,
+            "gamepad",
+            evdev.ecodes.ABS_RZ,
+            255,
+        )
         gdo.track_superkey_output(device, "gamepad", evdev.ecodes.BTN_SOUTH, 1)
         device.state.rapidfire_tasks["btn_side"] = task  # type: ignore[assignment]
         device.state.rapidfire_outputs["btn_side"] = gdt.RapidfireOutputState(kind="key")
@@ -526,11 +532,9 @@ class TestGrabbedDeviceHelpers:
         assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)]
         assert mouse.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)]
         assert (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_EAST, 0) in gamepad.writes
-        assert gamepad.writes[-2:] == [
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0),
-        ]
+        assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0) in gamepad.writes
         assert second_gamepad.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0)]
+        assert device.state.superkey_abs_refcounts["gamepad"] == {}
         assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == set()
         canceled.assert_called_once()
         assert device.state.rapidfire_tasks == {}

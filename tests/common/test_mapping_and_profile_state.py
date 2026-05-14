@@ -43,6 +43,23 @@ class TestMappingAction:
         assert action.axis_value == -32768
         assert action.rapidfire_enabled is True
 
+    def test_gamepad_axis_invalid_target_neutralizes_value(self):
+        mapping_action = MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="btn_lt",
+            axis_value=255,
+        )
+        superkey_action = SuperkeyAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="btn_rt",
+            axis_value=255,
+        )
+
+        assert mapping_action.target is None
+        assert mapping_action.axis_value == 0
+        assert superkey_action.target is None
+        assert superkey_action.axis_value == 0
+
     def test_gamepad_axis_superkey_conversion_preserves_value(self):
         action = MappingAction(
             action_type=ActionType.GAMEPAD_AXIS,

@@ -185,31 +185,12 @@ def ensure_abs_axis_released(
         )
     except Exception as exc:
         log.debug(
-            "Failed to release gamepad trigger axis %s on %s: %s",
+            "Failed to release gamepad ABS axis %s on %s: %s",
             axis_code,
             device_runtime.path,
             exc,
             exc_info=True,
         )
-
-
-def ensure_trigger_released(
-    device_runtime: GrabbedDeviceRuntime,
-    axis_code: int,
-    *,
-    evdev_mod: EvdevModule,
-    uinput_writer: UInputWriter,
-    uinput_dev: object | None = None,
-    bucket: str | None = None,
-) -> None:
-    ensure_abs_axis_released(
-        device_runtime,
-        axis_code,
-        evdev_mod=evdev_mod,
-        uinput_writer=uinput_writer,
-        uinput_dev=uinput_dev,
-        bucket=bucket,
-    )
 
 
 def ensure_key_released(
@@ -320,7 +301,7 @@ def release_all_keys(
             writer.syn()
         except Exception as exc:
             log.debug(
-                "Failed to release gamepad trigger axes on %s bucket=%s: %s",
+                "Failed to release gamepad ABS axes on %s bucket=%s: %s",
                 device_runtime.path,
                 bucket,
                 exc,

@@ -97,7 +97,7 @@ Xbox-style virtual gamepad output target names include:
 
 ```text
 btn_a, btn_b, btn_x, btn_y,
-btn_tl, btn_tr, btn_tl2, btn_tr2,
+btn_tl, btn_tr,
 btn_select, btn_start, btn_mode,
 btn_thumbl, btn_thumbr,
 btn_dpad_up, btn_dpad_down, btn_dpad_left, btn_dpad_right

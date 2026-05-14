@@ -162,8 +162,8 @@ configured output, it logs a warning and drops the gamepad event.
 Analog axis actions use `action = "gamepad_axis"`, a target such as `abs_x`
 or `abs_rz`, and a raw evdev `value`. Stick axes accept `-32768..32767`;
 trigger axes accept `0..255`. Releasing the source input returns the axis to
-neutral `0`. Legacy `gamepad` mappings to `btn_tl2`/`btn_tr2` still work, but
-new trigger mappings are saved as `gamepad_axis`.
+neutral `0`. LT and RT are axis actions (`abs_z` and `abs_rz`); `gamepad`
+actions are button-only.
 
 ## Compositor
 

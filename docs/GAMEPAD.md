@@ -51,9 +51,9 @@ value = -32768
 output_id = "virtual-gamepad-2"
 ```
 
-Legacy `gamepad` mappings to `btn_tl2`, `btn_tr2`, `btn_lt`, or `btn_rt`
-continue to output trigger axes at full value (`255`), but new trigger
-mappings created by the GUI use `gamepad_axis`.
+Triggers are analog axis outputs. Use `abs_z` for LT and `abs_rz` for RT.
+`gamepad` actions are button-only and do not translate trigger button aliases
+to axes.
 
 ### Face Buttons
 | Code | Xbox | Position | evdev Code |
@@ -70,16 +70,12 @@ mappings created by the GUI use `gamepad_axis`.
 |------|------|------------|
 | `btn_tl` | LB (Left Bumper) | 310 |
 | `btn_tr` | RB (Right Bumper) | 311 |
-| `btn_tl2` | LT (Left Trigger, digital) | 312 |
-| `btn_tr2` | RT (Right Trigger, digital) | 313 |
 
-### Shoulder Buttons (Bumpers & Triggers)
+### Shoulder Buttons
 | Code | Xbox | PlayStation | Description |
 |------|------|-------------|-------------|
 | `btn_tl` | LB | L1 | Left bumper |
 | `btn_tr` | RB | R1 | Right bumper |
-| `btn_tl2` | LT | L2 | Left trigger (digital) |
-| `btn_tr2` | RT | R2 | Right trigger (digital) |
 
 ### Thumb Buttons (Stick Clicks)
 | Code | Xbox | PlayStation | Description |
@@ -233,7 +229,7 @@ The full list of available codes (case-insensitive):
 
 ```
 btn_south (btn_a), btn_east (btn_b), btn_north (btn_x), btn_west (btn_y),
-btn_tl, btn_tr, btn_tl2, btn_tr2,
+btn_tl, btn_tr,
 btn_select, btn_start, btn_mode,
 btn_thumbl, btn_thumbr,
 btn_dpad_up, btn_dpad_down, btn_dpad_left, btn_dpad_right

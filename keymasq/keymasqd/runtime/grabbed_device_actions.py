@@ -5,7 +5,6 @@ from typing import cast
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
 from keymasq.keymasqd.output_helpers import (
-    get_trigger_axis,
     resolve_gamepad_axis_code,
     resolve_output_code,
 )
@@ -111,37 +110,18 @@ async def execute_action(
                 return
             target_uinput = getattr(target, "uinput", None)
             target_bucket = str(getattr(target, "bucket", "gamepad"))
-            is_trigger, axis_code = get_trigger_axis(action.target)
-            if is_trigger:
-                if axis_code is None:
-                    return
-                await _execute_abs_axis_output(
-                    device_runtime,
-                    action,
-                    event,
-                    event_name,
-                    deps=deps,
-                    axis_code=axis_code,
-                    active_value=255,
-                    release_value=0,
-                    target_uinput=target_uinput,
-                    target_bucket=target_bucket,
-                    rapidfire_kind="trigger",
-                    tap_label=f"tap action {event_name}",
-                )
-            else:
-                await _execute_key_action(
-                    device_runtime,
-                    action,
-                    event,
-                    event_name,
-                    deps=deps,
-                    uinput_dev=target_uinput,
-                    explicit_bucket=target_bucket,
-                    target_kind="key",
-                    trigger_kind="key",
-                    shared_output_tracker=shared_output_tracker,
-                )
+            await _execute_key_action(
+                device_runtime,
+                action,
+                event,
+                event_name,
+                deps=deps,
+                uinput_dev=target_uinput,
+                explicit_bucket=target_bucket,
+                target_kind="key",
+                trigger_kind="key",
+                shared_output_tracker=shared_output_tracker,
+            )
 
     elif action.action_type == ActionType.EXEC:
         if event.value == 1:

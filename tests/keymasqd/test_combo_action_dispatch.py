@@ -597,13 +597,13 @@ class TestComboActionDispatch:
         broadcast_combo_action = AsyncMock()
         emit_combo_mouse_move = Mock()
         resolve_code = Mock(return_value=evdev.ecodes.BTN_SOUTH)
-        combo_tap_trigger = AsyncMock()
-        combo_rapidfire_trigger = AsyncMock()
+        combo_tap_axis = AsyncMock()
+        combo_rapidfire_axis = AsyncMock()
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(cdm, "broadcast_combo_action", broadcast_combo_action)
         monkeypatch.setattr(cdm, "emit_combo_mouse_move", emit_combo_mouse_move)
-        monkeypatch.setattr(cdm, "combo_tap_trigger", combo_tap_trigger)
-        monkeypatch.setattr(cdm, "combo_rapidfire_trigger", combo_rapidfire_trigger)
+        monkeypatch.setattr(cdm, "combo_tap_axis", combo_tap_axis)
+        monkeypatch.setattr(cdm, "combo_rapidfire_axis", combo_rapidfire_axis)
 
         binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="mouse", evdev="btn_side")
 
@@ -685,31 +685,37 @@ class TestComboActionDispatch:
         )
         await _runtime_start_combo_action(
             manager,
-            "trigger",
-            dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt"),
+            "axis",
+            dm.MappingAction(
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_z",
+                axis_value=255,
+            ),
             binding,
             resolve_code_fn=resolve_code,
         )
-        await _runtime_stop_combo_action(manager, "trigger")
+        await _runtime_stop_combo_action(manager, "axis")
         await _runtime_start_combo_action(
             manager,
-            "tap-trigger",
+            "tap-axis",
             dm.MappingAction(
-                action_type=ActionType.GAMEPAD,
-                target="btn_lt",
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_z",
+                axis_value=255,
                 tap_enabled=True,
                 tap_hold_ms=25,
             ),
             binding,
             resolve_code_fn=resolve_code,
         )
-        await _runtime_stop_combo_action(manager, "tap-trigger")
+        await _runtime_stop_combo_action(manager, "tap-axis")
         await _runtime_start_combo_action(
             manager,
-            "rapid-trigger",
+            "rapid-axis",
             dm.MappingAction(
-                action_type=ActionType.GAMEPAD,
-                target="btn_lt",
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_z",
+                axis_value=255,
                 rapidfire_enabled=True,
                 rapidfire_hold_ms=10,
                 rapidfire_wait_ms=10,
@@ -717,7 +723,7 @@ class TestComboActionDispatch:
             binding,
             resolve_code_fn=resolve_code,
         )
-        await _runtime_stop_combo_action(manager, "rapid-trigger")
+        await _runtime_stop_combo_action(manager, "rapid-axis")
         await _runtime_stop_combo_action(manager, "macro")
 
         emit_combo_mouse_move.assert_called_once()

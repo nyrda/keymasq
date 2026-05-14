@@ -7,7 +7,6 @@ import evdev
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.output_helpers import (
-    get_trigger_axis,
     resolve_gamepad_axis_code,
     resolve_output_code,
 )
@@ -273,15 +272,6 @@ def reconcile_startup_held_action(
         return
 
     if action.action_type == ActionType.GAMEPAD:
-        is_trigger, axis_code = get_trigger_axis(action.target)
-        if is_trigger and axis_code is not None:
-            runtime_outputs.ensure_trigger_released(
-                device_runtime,
-                axis_code,
-                evdev_mod=evdev,
-                uinput_writer=_uinput_writer,
-            )
-            return
         code = resolve_output_code(action.target)
         if code is not None:
             runtime_outputs.ensure_key_released(

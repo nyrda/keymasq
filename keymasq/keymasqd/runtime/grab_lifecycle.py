@@ -8,7 +8,7 @@ import evdev
 from keymasq.common.devices import resolve_evdev_event_type
 from keymasq.common.models import DeviceType, MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
-from keymasq.keymasqd.output_helpers import get_trigger_axis, resolve_output_code
+from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime import actions as runtime_actions
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import combos as runtime_combos
@@ -58,7 +58,6 @@ def combo_runtime_deps(
         evdev_mod=COMBO_EVDEV_RUNTIME,
         uinput_writer=runtime_adapters.identity_uinput_writer,
         emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
-        get_trigger_axis_fn=get_trigger_axis,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )

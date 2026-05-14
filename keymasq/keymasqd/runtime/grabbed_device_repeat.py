@@ -84,7 +84,7 @@ def stop_rapidfire(device_runtime: GrabbedDeviceRuntime, event_name: str) -> Non
     if not state:
         return
     kind = state.kind
-    if kind in {"trigger", "axis"}:
+    if kind == "axis":
         axis_code = state.axis_code
         if axis_code is not None:
             ensure_abs_axis_released(
@@ -132,7 +132,7 @@ def finish_rapidfire_task(
     if not state:
         return
     kind = state.kind
-    if kind in {"trigger", "axis"}:
+    if kind == "axis":
         axis_code = state.axis_code
         if axis_code is not None:
             ensure_abs_axis_released(
@@ -269,62 +269,6 @@ async def tap_abs_axis(
         pass
     finally:
         device_runtime.state.tap_active.pop(event_name, None)
-
-
-async def rapidfire_trigger(
-    device_runtime: GrabbedDeviceRuntime,
-    axis_code: int,
-    hold_ms: int,
-    wait_ms: int,
-    event_name: str,
-    uinput_dev: object | None,
-    *,
-    asyncio_mod: AsyncioModule,
-    evdev_mod: EvdevModule,
-    uinput_writer: UInputWriter,
-    bucket: str | None = None,
-) -> None:
-    await rapidfire_abs_axis(
-        device_runtime,
-        axis_code,
-        255,
-        0,
-        hold_ms,
-        wait_ms,
-        event_name,
-        uinput_dev,
-        asyncio_mod=asyncio_mod,
-        evdev_mod=evdev_mod,
-        uinput_writer=uinput_writer,
-        bucket=bucket,
-    )
-
-
-async def tap_trigger(
-    device_runtime: GrabbedDeviceRuntime,
-    axis_code: int,
-    hold_ms: int,
-    event_name: str,
-    uinput_dev: object | None,
-    *,
-    asyncio_mod: AsyncioModule,
-    evdev_mod: EvdevModule,
-    uinput_writer: UInputWriter,
-    bucket: str | None = None,
-) -> None:
-    await tap_abs_axis(
-        device_runtime,
-        axis_code,
-        255,
-        0,
-        hold_ms,
-        event_name,
-        uinput_dev,
-        asyncio_mod=asyncio_mod,
-        evdev_mod=evdev_mod,
-        uinput_writer=uinput_writer,
-        bucket=bucket,
-    )
 
 
 async def rapidfire_key(

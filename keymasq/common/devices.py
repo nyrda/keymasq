@@ -56,9 +56,7 @@ WHEEL_BINDINGS = {
     ("rel_hwheel", 1): ("wheel_right", "Scroll Right"),
 }
 GAMEPAD_BUTTON_ORDER = (
-    "btn_tl2",
     "btn_tl",
-    "btn_tr2",
     "btn_tr",
     "btn_select",
     "btn_mode",
@@ -81,8 +79,6 @@ _GAMEPAD_BUTTON_LABELS = {
     "btn_west": "Y",
     "btn_tl": "LB",
     "btn_tr": "RB",
-    "btn_tl2": "LT",
-    "btn_tr2": "RT",
     "btn_select": "Select",
     "btn_start": "Start",
     "btn_mode": "Guide",
@@ -106,8 +102,6 @@ _GAMEPAD_BUTTON_ALIASES = {
     "btn_b": "btn_east",
     "btn_x": "btn_north",
     "btn_y": "btn_west",
-    "btn_lt": "btn_tl2",
-    "btn_rt": "btn_tr2",
 }
 
 

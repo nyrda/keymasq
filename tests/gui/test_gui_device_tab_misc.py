@@ -623,7 +623,7 @@ def test_key_selector_dialog_gamepad_axis_mapping_uses_raw_and_percent_values():
     assert results[0].axis_value == -32768
 
 
-def test_key_selector_dialog_gamepad_trigger_presets_use_trigger_axes():
+def test_key_selector_dialog_gamepad_trigger_presets_use_axis_actions():
     from gi.repository import Gtk
 
     from keymasq.common.models import ActionType, MappingAction

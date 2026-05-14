@@ -137,7 +137,7 @@ Combos can trigger the same kinds of actions as normal key mappings:
 |---|---|
 | **Keyboard** | Send a key press. |
 | **Mouse** | Send a mouse button or relative movement. |
-| **Gamepad** | Send a gamepad button or trigger. |
+| **Gamepad** | Send a gamepad button or analog axis. |
 | **Macro** | Play a saved macro. |
 | **Super Key** | Run a saved overload or pattern super key. |
 | **Command** | Run a shell command. |

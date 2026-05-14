@@ -62,8 +62,9 @@ target = "btn_south"
 action = "emergency_reset"
 
 [devices."$HARDWARE_ID".mapping.key_u]
-action = "gamepad"
-target = "btn_lt"
+action = "gamepad_axis"
+target = "abs_z"
+value = 255
 
 [devices."$HARDWARE_ID".mapping.key_v]
 action = "mouse"
@@ -77,8 +78,9 @@ action = "macro"
 target = "$LONG_MACRO_NAME"
 
 [devices."$HARDWARE_ID".mapping.key_i]
-action = "gamepad"
-target = "btn_rt"
+action = "gamepad_axis"
+target = "abs_rz"
+value = 255
 
 [devices."$SECOND_HARDWARE_ID"]
 always_grab_all = false

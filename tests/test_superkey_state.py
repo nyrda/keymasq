@@ -81,14 +81,16 @@ async def test_superkey_macro_action_broadcasts_macro_trigger() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gamepad_trigger_action_writes_absolute_axis() -> None:
+async def test_gamepad_axis_action_writes_absolute_axis() -> None:
     keyboard_uinput = MagicMock()
     mouse_uinput = MagicMock()
     gamepad_uinput = MagicMock()
 
     config = SuperkeyConfig(
-        name="trigger_test",
-        hold_actions=[SuperkeyActionData(action_type="gamepad", target="btn_tl2")],
+        name="axis_test",
+        hold_actions=[
+            SuperkeyActionData(action_type="gamepad_axis", target="abs_z", axis_value=255)
+        ],
     )
 
     machine = SuperkeyMachine(
@@ -99,7 +101,7 @@ async def test_gamepad_trigger_action_writes_absolute_axis() -> None:
         gamepad_uinput=gamepad_uinput,
     )
 
-    action = SuperkeyActionData(action_type="gamepad", target="btn_tl2")
+    action = SuperkeyActionData(action_type="gamepad_axis", target="abs_z", axis_value=255)
 
     await machine._execute_action_down(action)
     await machine._execute_action_up(action)

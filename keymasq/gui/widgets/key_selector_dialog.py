@@ -318,8 +318,6 @@ GAMEPAD_BUTTONS = {
     "Y": ("btn_west", False),
     "LB": ("btn_tl", False),
     "RB": ("btn_tr", False),
-    "LT": ("btn_tl2", True),
-    "RT": ("btn_tr2", True),
     "Select": ("btn_select", False),
     "Start": ("btn_start", False),
     "Guide": ("btn_mode", False),

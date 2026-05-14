@@ -88,6 +88,10 @@ class Application(Adw.Application):
         superkeys_action.connect("activate", self._on_superkeys)
         self.add_action(superkeys_action)
 
+        analog_controls_action = Gio.SimpleAction.new("analog-controls", None)
+        analog_controls_action.connect("activate", self._on_analog_controls)
+        self.add_action(analog_controls_action)
+
         macros_action = Gio.SimpleAction.new("macros", None)
         macros_action.connect("activate", self._on_macros)
         self.add_action(macros_action)
@@ -140,6 +144,23 @@ class Application(Adw.Application):
         dialog.present(self.window)
 
     def _on_superkey_changed(self, dialog, name: str) -> None:
+        notify_session_reload_async()
+
+    def _on_analog_controls(self, action, param) -> None:
+        self._open_analog_control_dialog()
+
+    def _open_analog_control_dialog(self) -> None:
+        if not self.window:
+            return
+
+        from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+        dialog = AnalogControlDialog(self.window, self.window.profile_manager)
+        dialog.connect("analog-control-saved", self._on_analog_control_changed)
+        dialog.connect("analog-control-deleted", self._on_analog_control_changed)
+        dialog.present(self.window)
+
+    def _on_analog_control_changed(self, dialog, name: str) -> None:
         notify_session_reload_async()
 
     def _on_macros(self, action, param) -> None:

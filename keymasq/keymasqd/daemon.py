@@ -84,6 +84,7 @@ class _DaemonDeviceManager(Protocol):
         button_map: dict[str, str],
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
+        analog_inputs: JsonObject | None = None,
         force_grab_unmapped: bool = False,
     ) -> JsonObject: ...
 

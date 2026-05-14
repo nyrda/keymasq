@@ -29,7 +29,14 @@ from keymasq.common.devices import (
     wheel_button_id,
     wheel_label,
 )
-from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+from keymasq.common.models import (
+    AnalogAxisDefinition,
+    AnalogInputDefinition,
+    ButtonDefinition,
+    DeviceType,
+    EvdevDevice,
+    HardwareConfig,
+)
 from keymasq.gui.session_client import (
     GuiTaskResult,
     run_gui_task,
@@ -1660,6 +1667,53 @@ class HardwareSetupDialog(Adw.Window):
 
         return buttons
 
+    def _build_gamepad_analog_inputs(self, interfaces: list[dict]) -> list[AnalogInputDefinition]:
+        axis_specs = {
+            "left_stick": ("Left Stick", (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y)),
+            "right_stick": ("Right Stick", (evdev.ecodes.ABS_RX, evdev.ecodes.ABS_RY)),
+        }
+        discovered: dict[str, dict[int, tuple[str, str]]] = {}
+
+        for iface in interfaces:
+            raw_capabilities = iface.get("raw_capabilities") or {}
+            if not isinstance(raw_capabilities, dict):
+                continue
+            source_id = str(iface.get("id", "") or "")
+            abs_codes = {
+                int(code[0] if isinstance(code, tuple) else code)
+                for code in raw_capabilities.get(evdev.ecodes.EV_ABS, [])
+            }
+            for analog_id, (_label, codes) in axis_specs.items():
+                if all(code in abs_codes for code in codes):
+                    discovered[analog_id] = {
+                        codes[0]: ("x", source_id),
+                        codes[1]: ("y", source_id),
+                    }
+
+        analog_inputs: list[AnalogInputDefinition] = []
+        for analog_id, (label, codes) in axis_specs.items():
+            axis_data = discovered.get(analog_id)
+            if axis_data is None:
+                continue
+            source_id = axis_data[codes[0]][1] or axis_data[codes[1]][1] or None
+            analog_inputs.append(
+                AnalogInputDefinition(
+                    id=analog_id,
+                    label=label,
+                    type="stick",
+                    source=source_id,
+                    axes=[
+                        AnalogAxisDefinition(
+                            role=axis_data[code][0],
+                            evdev=capability_name(evdev.ecodes.EV_ABS, code) or str(code),
+                            evdev_code=code,
+                        )
+                        for code in codes
+                    ],
+                )
+            )
+        return analog_inputs
+
     def _save_gamepad_config(self) -> None:
         selected_device = self.selected_device
         if selected_device is None:
@@ -1690,6 +1744,7 @@ class HardwareSetupDialog(Adw.Window):
             name=selected_device["name"],
             evdev_devices=evdev_devices,
             buttons=self._build_gamepad_buttons(gamepad_interfaces),
+            analog_inputs=self._build_gamepad_analog_inputs(gamepad_interfaces),
             id=self._selected_config_id(selected_device),
         )
 

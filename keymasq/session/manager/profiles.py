@@ -680,6 +680,10 @@ def get_interfaces_to_grab(
     button_to_source: dict[str, str] = {
         b.id: b.source for b in hardware_config.buttons if b.source
     }
+    analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
+    button_to_source.update(
+        {analog.id: analog.source for analog in analog_inputs if analog.source}
+    )
 
     sources_to_grab: set[str] = set()
     for button_id, action in resolved.mappings.items():
@@ -720,6 +724,7 @@ def build_grab_device_payload(
     resolved: ResolvedDeviceProfile,
     interfaces: dict[str, str],
 ) -> JsonObject:
+    analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
     return {
         "hardware_id": hardware_id,
         "evdev_paths": list(interfaces.values()),
@@ -731,6 +736,26 @@ def build_grab_device_payload(
             if (evdev_value := getattr(b, "evdev_value", None)) is not None
         },
         "button_sources": {b.id: b.source for b in hardware_config.buttons if b.source},
+        "analog_inputs": {
+            analog.id: {
+                "label": analog.label,
+                "type": analog.type,
+                **({"source": analog.source} if analog.source else {}),
+                "axes": [
+                    {
+                        "role": axis.role,
+                        "evdev": axis.evdev,
+                        **(
+                            {"evdev_code": int(axis.evdev_code)}
+                            if axis.evdev_code is not None
+                            else {}
+                        ),
+                    }
+                    for axis in analog.axes
+                ],
+            }
+            for analog in analog_inputs
+        },
         "force_grab_unmapped": bool(resolved.combo_event_count),
     }
 
@@ -741,6 +766,7 @@ def grab_device_payload_signature(payload: JsonObject) -> str:
         "button_map": payload.get("button_map", {}),
         "button_codes": payload.get("button_codes", {}),
         "button_values": payload.get("button_values", {}),
+        "analog_inputs": payload.get("analog_inputs", {}),
         "force_grab_unmapped": bool(payload.get("force_grab_unmapped", False)),
     }
     return json.dumps(signature_payload, sort_keys=True, separators=(",", ":"))

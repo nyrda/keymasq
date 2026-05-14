@@ -19,6 +19,8 @@ def test_config_dir_defaults_to_home_config(monkeypatch: pytest.MonkeyPatch) -> 
         assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
         assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
         assert reloaded.SETTINGS_PATH == reloaded.CONFIG_DIR / "settings.toml"
+        assert reloaded.ANALOG_CONTROLS_DIR == reloaded.CONFIG_DIR / "analog_controls"
+        assert reloaded.VIRTUAL_DEVICES_PATH == reloaded.CONFIG_DIR / "virtual_devices.toml"
     finally:
         importlib.reload(paths)
 
@@ -38,6 +40,8 @@ def test_config_dir_honors_xdg_config_home(
         assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
         assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
         assert reloaded.SETTINGS_PATH == reloaded.CONFIG_DIR / "settings.toml"
+        assert reloaded.ANALOG_CONTROLS_DIR == reloaded.CONFIG_DIR / "analog_controls"
+        assert reloaded.VIRTUAL_DEVICES_PATH == reloaded.CONFIG_DIR / "virtual_devices.toml"
     finally:
         importlib.reload(paths)
 
@@ -170,12 +174,14 @@ def test_ensure_config_dirs_creates_expected_directories(
     monkeypatch.setattr(paths, "HARDWARE_DIR", config_dir / "hardware")
     monkeypatch.setattr(paths, "PROFILES_DIR", config_dir / "profiles")
     monkeypatch.setattr(paths, "SUPERKEYS_DIR", config_dir / "superkeys")
+    monkeypatch.setattr(paths, "ANALOG_CONTROLS_DIR", config_dir / "analog_controls")
 
     paths.ensure_config_dirs()
 
     assert (config_dir / "hardware").is_dir()
     assert (config_dir / "profiles").is_dir()
     assert (config_dir / "superkeys").is_dir()
+    assert (config_dir / "analog_controls").is_dir()
 
 
 def test_ensure_session_socket_dir_logs_permission_failures(

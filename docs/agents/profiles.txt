@@ -127,6 +127,10 @@ args = ""
 action = "superkey"
 superkey_name = "Nav Layer"
 
+# analog control
+action = "analog_control"
+analog_control_name = "FPS Mouse"
+
 # macro controls
 action = "start_macro_recording"
 action = "stop_macro_recording"
@@ -176,6 +180,40 @@ target = "btn_left"
 rapidfire_enabled = true
 rapidfire_hold_ms = 10
 rapidfire_wait_ms = 10
+```
+
+Map a gamepad stick source to an Analog Control config:
+
+```toml
+[devices."045e:028e".mapping.right_stick]
+action = "analog_control"
+analog_control_name = "FPS Mouse"
+```
+
+Analog Control configs live under `~/.config/keymasq/analog_controls/`:
+
+```toml
+name = "FPS Mouse"
+input_type = "stick"
+
+[mouse_motion]
+enabled = true
+speed = 900.0
+deadzone = 0.15
+curve = "soft"
+invert_x = false
+invert_y = false
+tick_ms = 8
+
+[[thresholds]]
+axis = "x"
+trigger_min = 0.65
+trigger_max = 1.0
+release_min = 0.55
+release_max = 1.0
+actions = [
+  { action = "keyboard", target = "key_e" },
+]
 ```
 
 Bind a saved macro:

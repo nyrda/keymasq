@@ -45,6 +45,22 @@ evdev = "rel_wheel"
 evdev_value = 1
 source = "mouse"
 type = "wheel"
+
+[[hardware.layout.analogs]]
+id = "left_stick"
+label = "Left Stick"
+type = "stick"
+source = "joystick"
+
+[[hardware.layout.analogs.axes]]
+role = "x"
+evdev = "abs_x"
+evdev_code = 0
+
+[[hardware.layout.analogs.axes]]
+role = "y"
+evdev = "abs_y"
+evdev_code = 1
 ```
 
 ## Fields
@@ -75,6 +91,15 @@ type = "wheel"
 - `row`, `col`: optional keyboard/grid placement
 - `type`: optional logical type, such as `wheel` or `key`
 
+`[[hardware.layout.analogs]]` entries:
+
+- `id`: source ID used in profile mappings, such as `left_stick`
+- `label`: display label
+- `type`: logical analog type; MVP supports `stick`
+- `source`: optional evdev device `id`
+- `axes`: list of axis definitions with `role` (`x` or `y`), `evdev`, and
+  optional `evdev_code`
+
 ## Mapping source IDs
 
 Profile sections use the hardware button `id`, not the raw `evdev` name:
@@ -91,6 +116,14 @@ Wheel directions are normal source IDs when present in hardware config:
 [devices."046d:c08b".mapping.wheel_up]
 action = "keyboard"
 target = "key_pageup"
+```
+
+Analog source IDs are mapped to saved Analog Control configs:
+
+```toml
+[devices."045e:028e".mapping.left_stick]
+action = "analog_control"
+analog_control_name = "FPS Mouse"
 ```
 
 Xbox-style virtual gamepad output target names include:

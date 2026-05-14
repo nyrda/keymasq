@@ -352,6 +352,15 @@ def _collect_macro_names_from_action(action_data: JsonObject, macro_names: set[s
         macro_names.add(macro_name)
         return
 
+    if action_type == "analog_control":
+        analog_control = action_data.get("analog_control")
+        if isinstance(analog_control, dict):
+            _collect_macro_names_from_analog_control(
+                cast(JsonObject, analog_control),
+                macro_names,
+            )
+        return
+
     if action_type != "superkey":
         return
 
@@ -378,6 +387,24 @@ def _collect_macro_names_from_superkey(superkey: JsonObject, macro_names: set[st
                 _collect_macro_names_from_action(cast(JsonObject, item), macro_names)
 
 
+def _collect_macro_names_from_analog_control(
+    analog_control: JsonObject,
+    macro_names: set[str],
+) -> None:
+    thresholds = analog_control.get("thresholds")
+    if not isinstance(thresholds, list):
+        return
+    for threshold in cast(list[object], thresholds):
+        if not isinstance(threshold, dict):
+            continue
+        actions = cast(JsonObject, threshold).get("actions")
+        if not isinstance(actions, list):
+            continue
+        for item in cast(list[object], actions):
+            if isinstance(item, dict):
+                _collect_macro_names_from_action(cast(JsonObject, item), macro_names)
+
+
 def _resolve_action_macros(action_data: JsonObject, macros: dict[str, JsonObject]) -> JsonObject:
     updated: JsonObject = dict(action_data)
     action_type = str(updated.get("action", "") or "")
@@ -393,6 +420,15 @@ def _resolve_action_macros(action_data: JsonObject, macros: dict[str, JsonObject
             return apply_macro_definition(updated, macros[macro_name])
         except (TypeError, ValueError):
             return updated
+
+    if action_type == "analog_control":
+        analog_control = updated.get("analog_control")
+        if isinstance(analog_control, dict):
+            updated["analog_control"] = _resolve_analog_control_macros(
+                cast(JsonObject, analog_control),
+                macros,
+            )
+        return updated
 
     if action_type != "superkey":
         return updated
@@ -427,6 +463,36 @@ def _resolve_superkey_macros(superkey: JsonObject, macros: dict[str, JsonObject]
             )
             for item in cast(list[object], bundle)
         ]
+    return updated
+
+
+def _resolve_analog_control_macros(
+    analog_control: JsonObject,
+    macros: dict[str, JsonObject],
+) -> JsonObject:
+    updated: JsonObject = dict(analog_control)
+    thresholds = updated.get("thresholds")
+    if not isinstance(thresholds, list):
+        return updated
+
+    resolved_thresholds: list[object] = []
+    for threshold in cast(list[object], thresholds):
+        if not isinstance(threshold, dict):
+            resolved_thresholds.append(threshold)
+            continue
+        threshold_data: JsonObject = dict(cast(JsonObject, threshold))
+        actions = threshold_data.get("actions")
+        if isinstance(actions, list):
+            threshold_data["actions"] = [
+                (
+                    _resolve_action_macros(cast(JsonObject, item), macros)
+                    if isinstance(item, dict)
+                    else item
+                )
+                for item in cast(list[object], actions)
+            ]
+        resolved_thresholds.append(threshold_data)
+    updated["thresholds"] = resolved_thresholds
     return updated
 
 

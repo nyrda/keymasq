@@ -5,6 +5,9 @@ from typing import cast
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
     ActionType,
+    AnalogActionThreshold,
+    AnalogControlConfig,
+    AnalogMouseMotionConfig,
     MappingAction,
     SuperkeyMode,
     normalize_macro_loop_stop_behavior,
@@ -57,6 +60,18 @@ def parse_action(
             float_value=float_value,
             parse_superkey_action=parse_superkey_action,
         )
+    analog_control_config = None
+    if action_type == ActionType.ANALOG_CONTROL and "analog_control" in action_data:
+        analog_control_config = parse_analog_control_config(
+            manager,
+            action_data["analog_control"],
+            json_object=getattr(manager, "_json_object", None),
+            str_value=str_value,
+            optional_str=optional_str,
+            int_value=int_value,
+            int_or_none=int_or_none,
+            float_value=float_value,
+        )
 
     target = action_data.get("target")
     axis_value = 0
@@ -94,6 +109,8 @@ def parse_action(
         cmd=optional_str(cmd),
         exec_ref=int_or_none(action_data.get("exec_ref")),
         superkey_config=cast(CommonSuperkeyConfig | None, superkey_config),
+        analog_control_name=optional_str(action_data.get("analog_control_name")),
+        analog_control_config=analog_control_config,
         macro_name=optional_str(macro_name),
         macro_events=cast(list[JsonObject] | None, action_data.get("macro_events")),
         macro_replay_mouse_movement=bool(action_data.get("macro_replay_mouse_movement", True)),
@@ -122,6 +139,88 @@ def parse_action(
         rapidfire_wait_ms=rapidfire_wait_ms,
         tap_enabled=bool(action_data.get("tap_enabled", False)),
         tap_hold_ms=int_value(action_data.get("tap_hold_ms"), 10),
+    )
+
+
+def parse_analog_control_config(
+    manager: object,
+    data: object,
+    *,
+    json_object: Callable[[object], JsonObject | None] | None,
+    str_value: Callable[..., str],
+    optional_str: Callable[..., str | None],
+    int_value: Callable[..., int],
+    int_or_none: Callable[..., int | None],
+    float_value: Callable[..., float],
+) -> AnalogControlConfig:
+    if json_object is not None:
+        config = json_object(data)
+    else:
+        config = cast(JsonObject | None, data if isinstance(data, dict) else None)
+    if config is None:
+        raise TypeError("analog control config must be an object")
+
+    mouse_data = config.get("mouse_motion")
+    mouse_config = json_object(mouse_data) if json_object is not None else None
+    if mouse_config is None and isinstance(mouse_data, dict):
+        mouse_config = cast(JsonObject, mouse_data)
+    mouse = AnalogMouseMotionConfig(
+        enabled=bool((mouse_config or {}).get("enabled", False)),
+        speed=float_value((mouse_config or {}).get("speed"), 900.0),
+        deadzone=float_value((mouse_config or {}).get("deadzone"), 0.15),
+        curve=str_value((mouse_config or {}).get("curve"), "soft") or "soft",
+        invert_x=bool((mouse_config or {}).get("invert_x", False)),
+        invert_y=bool((mouse_config or {}).get("invert_y", False)),
+        tick_ms=int_value((mouse_config or {}).get("tick_ms"), 8),
+    )
+
+    thresholds: list[AnalogActionThreshold] = []
+    raw_thresholds = config.get("thresholds")
+    if isinstance(raw_thresholds, list):
+        for raw_threshold in cast(list[object], raw_thresholds):
+            threshold = json_object(raw_threshold) if json_object is not None else None
+            if threshold is None and isinstance(raw_threshold, dict):
+                threshold = cast(JsonObject, raw_threshold)
+            if threshold is None:
+                continue
+            actions: list[MappingAction] = []
+            raw_actions = threshold.get("actions")
+            if isinstance(raw_actions, list):
+                for raw_action in cast(list[object], raw_actions):
+                    child = json_object(raw_action) if json_object is not None else None
+                    if child is None and isinstance(raw_action, dict):
+                        child = cast(JsonObject, raw_action)
+                    if child is None:
+                        continue
+                    parsed = parse_action(
+                        manager,
+                        child,
+                        str_value=str_value,
+                        optional_str=optional_str,
+                        int_value=int_value,
+                        int_or_none=int_or_none,
+                        float_value=float_value,
+                    )
+                    if parsed.action_type == ActionType.ANALOG_CONTROL:
+                        continue
+                    actions.append(parsed)
+            thresholds.append(
+                AnalogActionThreshold(
+                    axis=str_value(threshold.get("axis"), ""),
+                    trigger_min=float_value(threshold.get("trigger_min"), 0.0),
+                    trigger_max=float_value(threshold.get("trigger_max"), 0.0),
+                    release_min=float_value(threshold.get("release_min"), 0.0),
+                    release_max=float_value(threshold.get("release_max"), 0.0),
+                    actions=actions,
+                )
+            )
+
+    return AnalogControlConfig(
+        name=str_value(config.get("name"), ""),
+        description=optional_str(config.get("description")),
+        input_type=str_value(config.get("input_type"), "stick") or "stick",
+        mouse_motion=mouse,
+        thresholds=thresholds,
     )
 
 

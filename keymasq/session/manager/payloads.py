@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from keymasq.common.models import (
     ActionType,
+    AnalogActionThreshold,
+    AnalogControlConfig,
     MappingAction,
     SuperkeyAction,
     SuperkeyConfig,
@@ -207,6 +209,16 @@ def action_signature_payload(
                 )
         return data
 
+    if action_type == "analog_control":
+        config = _resolved_analog_control_config(manager, action)
+        if config is not None:
+            data["analog_control"] = serialize_analog_control_signature(
+                manager,
+                config,
+                hardware_id,
+            )
+        return data
+
     return data
 
 
@@ -227,6 +239,8 @@ def combo_action_signature_payload(
 
     data = action_signature_payload(manager, action, "")
     if data.get("action") == "superkey":
+        return None
+    if data.get("action") == "analog_control":
         return None
     if data.get("action") == "exec" and not str(data.get("cmd", "") or ""):
         return None
@@ -319,6 +333,15 @@ def profile_to_mapping(
                     action_data["superkey"] = serialize_superkey(
                         manager,
                         superkey_config,
+                        hardware_id,
+                    )
+        elif action.action_type.value == "analog_control":
+            if action.analog_control_name:
+                analog_config = _resolved_analog_control_config(manager, action)
+                if analog_config:
+                    action_data["analog_control"] = serialize_analog_control(
+                        manager,
+                        analog_config,
                         hardware_id,
                     )
 
@@ -474,7 +497,24 @@ def combo_action_to_payload(
         )
         return action_data
 
+    if action_type == "analog_control":
+        return None
+
     return None
+
+
+def _resolved_analog_control_config(
+    manager: "SessionManager",
+    action: MappingAction,
+) -> AnalogControlConfig | None:
+    if not action.analog_control_name:
+        return None
+    analog_controls = getattr(manager, "analog_controls", None)
+    get_analog_control = getattr(analog_controls, "get_analog_control", None)
+    if not callable(get_analog_control):
+        return None
+    config = get_analog_control(action.analog_control_name)
+    return config if isinstance(config, AnalogControlConfig) else None
 
 
 def _resolved_combo_superkey_config(
@@ -582,6 +622,90 @@ def serialize_superkey(
     return data
 
 
+def serialize_analog_control(
+    manager: "SessionManager",
+    config: AnalogControlConfig,
+    hardware_id: str,
+) -> JsonObject:
+    return {
+        "name": config.name,
+        "input_type": config.input_type,
+        "mouse_motion": {
+            "enabled": bool(config.mouse_motion.enabled),
+            "speed": float(config.mouse_motion.speed),
+            "deadzone": float(config.mouse_motion.deadzone),
+            "curve": config.mouse_motion.curve,
+            "invert_x": bool(config.mouse_motion.invert_x),
+            "invert_y": bool(config.mouse_motion.invert_y),
+            "tick_ms": int(config.mouse_motion.tick_ms),
+        },
+        "thresholds": [
+            serialize_analog_threshold(manager, threshold, hardware_id)
+            for threshold in config.thresholds
+        ],
+    }
+
+
+def serialize_analog_threshold(
+    manager: "SessionManager",
+    threshold: AnalogActionThreshold,
+    hardware_id: str,
+) -> JsonObject:
+    return {
+        "axis": threshold.axis,
+        "trigger_min": float(threshold.trigger_min),
+        "trigger_max": float(threshold.trigger_max),
+        "release_min": float(threshold.release_min),
+        "release_max": float(threshold.release_max),
+        "actions": [
+            serialize_overload_action(manager, action, hardware_id)
+            for action in threshold.actions
+        ],
+    }
+
+
+def serialize_analog_control_signature(
+    manager: "SessionManager",
+    config: AnalogControlConfig,
+    hardware_id: str,
+) -> JsonObject:
+    return {
+        "name": config.name,
+        "input_type": config.input_type,
+        "mouse_motion": {
+            "enabled": bool(config.mouse_motion.enabled),
+            "speed": float(config.mouse_motion.speed),
+            "deadzone": float(config.mouse_motion.deadzone),
+            "curve": config.mouse_motion.curve,
+            "invert_x": bool(config.mouse_motion.invert_x),
+            "invert_y": bool(config.mouse_motion.invert_y),
+            "tick_ms": int(config.mouse_motion.tick_ms),
+        },
+        "thresholds": [
+            serialize_analog_threshold_signature(manager, threshold, hardware_id)
+            for threshold in config.thresholds
+        ],
+    }
+
+
+def serialize_analog_threshold_signature(
+    manager: "SessionManager",
+    threshold: AnalogActionThreshold,
+    hardware_id: str,
+) -> JsonObject:
+    return {
+        "axis": threshold.axis,
+        "trigger_min": float(threshold.trigger_min),
+        "trigger_max": float(threshold.trigger_max),
+        "release_min": float(threshold.release_min),
+        "release_max": float(threshold.release_max),
+        "actions": [
+            action_signature_payload(manager, action, hardware_id)
+            for action in threshold.actions
+        ],
+    }
+
+
 def serialize_superkey_signature(
     manager: "SessionManager",
     config: SuperkeyConfig,
@@ -673,6 +797,8 @@ def serialize_overload_action(
     action_type = action.action_type.value
     if action.action_type == ActionType.SUPERKEY:
         raise ValueError("nested superkeys are not allowed inside superkeys")
+    if action.action_type == ActionType.ANALOG_CONTROL:
+        raise ValueError("nested analog controls are not allowed inside analog controls")
     action_data: JsonObject = {"action": action_type}
 
     if action_type in (

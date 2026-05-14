@@ -61,6 +61,8 @@ class ManagedInputDevice(Protocol):
 
     def active_keys(self) -> Sequence[int]: ...
 
+    def absinfo(self, code: int) -> object: ...
+
     def input_props(self) -> Iterable[int]: ...
 
     def close(self) -> None: ...
@@ -213,6 +215,10 @@ class GrabbedDeviceState:
         }
     )
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
+    analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
+    analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
+    analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
 class GrabbedDeviceRuntime(Protocol):
@@ -289,12 +295,20 @@ class GrabbedDeviceRuntime(Protocol):
     def event_code_to_button(self) -> dict[tuple[int, int], str]: ...
 
     @property
+    def analog_axis_bindings(self) -> dict[tuple[int, int], tuple[str, str]]: ...
+
+    @property
+    def analog_axis_ranges(self) -> dict[tuple[str, str], tuple[int, int]]: ...
+
+    @property
     def state(self) -> GrabbedDeviceState: ...
 
     @property
     def _running(self) -> bool: ...
 
     async def reset_superkeys(self) -> None: ...
+
+    async def reset_analog_controls(self) -> None: ...
 
     def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None: ...
 

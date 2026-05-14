@@ -159,6 +159,8 @@ def combo_action_label(action: MappingAction | None) -> str:
         return combo_key_label(action.target or "?")
     if action.action_type == ActionType.GAMEPAD:
         return combo_key_label(action.target or "?")
+    if action.action_type == ActionType.GAMEPAD_AXIS:
+        return f"{action.target or '?'}={int(action.axis_value)}"
     if action.action_type == ActionType.EXEC:
         return action.cmd or "Exec"
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:

@@ -140,11 +140,12 @@ keymasqd's virtual mouse output.
 
 ## Gamepad
 
-Map to a gamepad button or trigger. Available inputs include:
+Map to a gamepad button, trigger axis, or stick axis. Available inputs include:
 
 - Face buttons (A, B, X, Y)
 - Shoulder buttons (LB, RB)
 - Triggers (LT, RT) — these output analog values, not simple on/off
+- Stick axes (left/right X and Y) — set a specific analog value while held
 - Stick clicks (LS, RS)
 - D-Pad (Up, Down, Left, Right)
 - Select, Start, Guide
@@ -157,6 +158,12 @@ Gamepad actions can route to a specific output with `output_id`. Use
 Omitting `output_id` uses the default output, `virtual-gamepad-1` when it
 exists. Explicit targets never fall back: if the daemon cannot route to the
 configured output, it logs a warning and drops the gamepad event.
+
+Analog axis actions use `action = "gamepad_axis"`, a target such as `abs_x`
+or `abs_rz`, and a raw evdev `value`. Stick axes accept `-32768..32767`;
+trigger axes accept `0..255`. Releasing the source input returns the axis to
+neutral `0`. Legacy `gamepad` mappings to `btn_tl2`/`btn_tr2` still work, but
+new trigger mappings are saved as `gamepad_axis`.
 
 ## Compositor
 

@@ -17,6 +17,12 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq import __version__
 from keymasq.common.devices import is_gamepad_button_name
+from keymasq.common.gamepad_axes import (
+    GAMEPAD_AXIS_RANGES,
+    gamepad_axis_percent_from_value,
+    gamepad_axis_range,
+    gamepad_axis_value_from_percent,
+)
 from keymasq.common.models import (
     MIN_RAPIDFIRE_HOLD_MS,
     MIN_RAPIDFIRE_WAIT_MS,
@@ -477,7 +483,8 @@ class KeySelectorDialog(Adw.Dialog):
         self._selected_profile_name: str = ""
         self._selected_gamepad_output_id: str | None = (
             current_action.output_id
-            if current_action and current_action.action_type == ActionType.GAMEPAD
+            if current_action
+            and current_action.action_type in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS)
             else None
         )
         self._gamepad_output_ids: list[str | None] = []
@@ -1022,6 +1029,94 @@ class KeySelectorDialog(Adw.Dialog):
         self._update_gamepad_output_warning()
         return box
 
+    def _build_gamepad_axis_controls(self) -> Gtk.Widget:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_halign(Gtk.Align.CENTER)
+
+        self.gamepad_axis_targets = list(GAMEPAD_AXIS_RANGES)
+        labels = [GAMEPAD_AXIS_RANGES[target].label for target in self.gamepad_axis_targets]
+        self.gamepad_axis_dropdown = Gtk.DropDown.new_from_strings(labels)
+        self.gamepad_axis_dropdown.connect("notify::selected", self._on_gamepad_axis_changed)
+        row.append(self.gamepad_axis_dropdown)
+
+        self.gamepad_axis_value = Gtk.SpinButton()
+        self.gamepad_axis_value.set_numeric(True)
+        self.gamepad_axis_value.set_increments(1, 256)
+        self.gamepad_axis_value.set_tooltip_text("Raw axis value")
+        self.gamepad_axis_value.connect("value-changed", self._on_gamepad_axis_value_changed)
+        row.append(self.gamepad_axis_value)
+
+        self.gamepad_axis_percent = Gtk.SpinButton(
+            adjustment=Gtk.Adjustment(value=100, lower=-100, upper=100, step_increment=1)
+        )
+        self.gamepad_axis_percent.set_numeric(True)
+        self.gamepad_axis_percent.set_tooltip_text("Percent")
+        self.gamepad_axis_percent.connect("value-changed", self._on_gamepad_axis_percent_changed)
+        row.append(self.gamepad_axis_percent)
+        row.append(Gtk.Label(label="%"))
+
+        apply_btn = Gtk.Button(label="Map Analog")
+        apply_btn.add_css_class("suggested-action")
+        apply_btn.connect("clicked", self._on_gamepad_axis_apply_clicked)
+        row.append(apply_btn)
+
+        self._on_gamepad_axis_changed(self.gamepad_axis_dropdown, None)
+        return row
+
+    def _selected_gamepad_axis_target(self) -> str:
+        index = int(self.gamepad_axis_dropdown.get_selected())
+        if index < 0 or index >= len(self.gamepad_axis_targets):
+            return "abs_x"
+        return self.gamepad_axis_targets[index]
+
+    def _on_gamepad_axis_changed(self, dropdown, _param) -> None:
+        target = self._selected_gamepad_axis_target()
+        axis = gamepad_axis_range(target)
+        if axis is None:
+            return
+        self._syncing_gamepad_axis_controls = True
+        self.gamepad_axis_value.set_adjustment(
+            Gtk.Adjustment(
+                value=axis.maximum,
+                lower=axis.minimum,
+                upper=axis.maximum,
+                step_increment=1,
+                page_increment=256,
+            )
+        )
+        lower = -100 if axis.minimum < 0 else 0
+        self.gamepad_axis_percent.set_adjustment(
+            Gtk.Adjustment(value=100, lower=lower, upper=100, step_increment=1)
+        )
+        self._syncing_gamepad_axis_controls = False
+
+    def _on_gamepad_axis_percent_changed(self, spin: Gtk.SpinButton) -> None:
+        if getattr(self, "_syncing_gamepad_axis_controls", False):
+            return
+        target = self._selected_gamepad_axis_target()
+        self._syncing_gamepad_axis_controls = True
+        self.gamepad_axis_value.set_value(
+            gamepad_axis_value_from_percent(target, spin.get_value())
+        )
+        self._syncing_gamepad_axis_controls = False
+
+    def _on_gamepad_axis_value_changed(self, spin: Gtk.SpinButton) -> None:
+        if getattr(self, "_syncing_gamepad_axis_controls", False):
+            return
+        target = self._selected_gamepad_axis_target()
+        self._syncing_gamepad_axis_controls = True
+        self.gamepad_axis_percent.set_value(
+            gamepad_axis_percent_from_value(target, spin.get_value())
+        )
+        self._syncing_gamepad_axis_controls = False
+
+    def _on_gamepad_axis_apply_clicked(self, btn) -> None:
+        self._on_gamepad_axis_clicked(
+            btn,
+            self._selected_gamepad_axis_target(),
+            int(self.gamepad_axis_value.get_value()),
+        )
+
     def _build_gamepad_output_header(self) -> Gtk.Widget | None:
         choices = self._gamepad_output_choices()
         if len(choices) <= 1 and not self._selected_gamepad_output_id:
@@ -1486,6 +1581,21 @@ class KeySelectorDialog(Adw.Dialog):
         action = MappingAction(
             action_type=ActionType.GAMEPAD,
             target=evdev_name,
+            output_id=self._selected_gamepad_output_id,
+            rapidfire_enabled=self._rapidfire_enabled,
+            rapidfire_hold_ms=int(self.hold_spin.get_value()),
+            rapidfire_wait_ms=int(self.wait_spin.get_value()),
+            tap_enabled=self._tap_enabled,
+            tap_hold_ms=int(self.tap_spin.get_value()),
+        )
+        self.emit("key-selected", action)
+        self.close()
+
+    def _on_gamepad_axis_clicked(self, btn, axis_target: str, axis_value: int):
+        action = MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target=axis_target,
+            axis_value=int(axis_value),
             output_id=self._selected_gamepad_output_id,
             rapidfire_enabled=self._rapidfire_enabled,
             rapidfire_hold_ms=int(self.hold_spin.get_value()),
@@ -2000,6 +2110,7 @@ class KeySelectorDialog(Adw.Dialog):
             ActionType.MOUSE_MOVE_REL: "mouse",
             ActionType.MOUSE_MOVE_ABS: "mouse",
             ActionType.GAMEPAD: "gamepad",
+            ActionType.GAMEPAD_AXIS: "gamepad",
             ActionType.MACRO: "macro",
             ActionType.PROFILE_ENABLE: "profile",
             ActionType.PROFILE_DISABLE: "profile",
@@ -2076,7 +2187,8 @@ class SuperkeyActionDialog(Adw.Dialog):
         self._superkey_selected_macro: str | None = None
         self._selected_gamepad_output_id: str | None = (
             current_action.output_id
-            if current_action and current_action.action_type == ActionType.GAMEPAD
+            if current_action
+            and current_action.action_type in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS)
             else None
         )
         self._gamepad_output_ids: list[str | None] = []
@@ -2475,6 +2587,19 @@ class SuperkeyActionDialog(Adw.Dialog):
         self.emit("action-selected", action)
         self.close()
 
+    def _on_gamepad_axis_clicked(self, btn, axis_target: str, axis_value: int):
+        action = SuperkeyAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target=axis_target,
+            axis_value=int(axis_value),
+            output_id=self._selected_gamepad_output_id,
+            rapidfire_enabled=self._rapidfire_enabled if self.rapidfire_check else False,
+            rapidfire_hold_ms=int(self.hold_spin.get_value()) if self.rapidfire_check else 20,
+            rapidfire_wait_ms=int(self.wait_spin.get_value()) if self.rapidfire_check else 20,
+        )
+        self.emit("action-selected", action)
+        self.close()
+
     def _set_initial_tab(self):
         if not self._current_action:
             return
@@ -2484,6 +2609,7 @@ class SuperkeyActionDialog(Adw.Dialog):
             ),
             ActionType.MOUSE: "mouse",
             ActionType.GAMEPAD: "gamepad",
+            ActionType.GAMEPAD_AXIS: "gamepad",
             ActionType.MACRO: "macro",
             ActionType.EXEC: "exec",
         }
@@ -2558,6 +2684,94 @@ class SuperkeyActionDialog(Adw.Dialog):
         outer.append(build_shared_gamepad_tab(self))
         self._update_gamepad_output_warning()
         return outer
+
+    def _build_gamepad_axis_controls(self) -> Gtk.Widget:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_halign(Gtk.Align.CENTER)
+
+        self.gamepad_axis_targets = list(GAMEPAD_AXIS_RANGES)
+        labels = [GAMEPAD_AXIS_RANGES[target].label for target in self.gamepad_axis_targets]
+        self.gamepad_axis_dropdown = Gtk.DropDown.new_from_strings(labels)
+        self.gamepad_axis_dropdown.connect("notify::selected", self._on_gamepad_axis_changed)
+        row.append(self.gamepad_axis_dropdown)
+
+        self.gamepad_axis_value = Gtk.SpinButton()
+        self.gamepad_axis_value.set_numeric(True)
+        self.gamepad_axis_value.set_increments(1, 256)
+        self.gamepad_axis_value.set_tooltip_text("Raw axis value")
+        self.gamepad_axis_value.connect("value-changed", self._on_gamepad_axis_value_changed)
+        row.append(self.gamepad_axis_value)
+
+        self.gamepad_axis_percent = Gtk.SpinButton(
+            adjustment=Gtk.Adjustment(value=100, lower=-100, upper=100, step_increment=1)
+        )
+        self.gamepad_axis_percent.set_numeric(True)
+        self.gamepad_axis_percent.set_tooltip_text("Percent")
+        self.gamepad_axis_percent.connect("value-changed", self._on_gamepad_axis_percent_changed)
+        row.append(self.gamepad_axis_percent)
+        row.append(Gtk.Label(label="%"))
+
+        apply_btn = Gtk.Button(label="Map Analog")
+        apply_btn.add_css_class("suggested-action")
+        apply_btn.connect("clicked", self._on_gamepad_axis_apply_clicked)
+        row.append(apply_btn)
+
+        self._on_gamepad_axis_changed(self.gamepad_axis_dropdown, None)
+        return row
+
+    def _selected_gamepad_axis_target(self) -> str:
+        index = int(self.gamepad_axis_dropdown.get_selected())
+        if index < 0 or index >= len(self.gamepad_axis_targets):
+            return "abs_x"
+        return self.gamepad_axis_targets[index]
+
+    def _on_gamepad_axis_changed(self, dropdown, _param) -> None:
+        target = self._selected_gamepad_axis_target()
+        axis = gamepad_axis_range(target)
+        if axis is None:
+            return
+        self._syncing_gamepad_axis_controls = True
+        self.gamepad_axis_value.set_adjustment(
+            Gtk.Adjustment(
+                value=axis.maximum,
+                lower=axis.minimum,
+                upper=axis.maximum,
+                step_increment=1,
+                page_increment=256,
+            )
+        )
+        lower = -100 if axis.minimum < 0 else 0
+        self.gamepad_axis_percent.set_adjustment(
+            Gtk.Adjustment(value=100, lower=lower, upper=100, step_increment=1)
+        )
+        self._syncing_gamepad_axis_controls = False
+
+    def _on_gamepad_axis_percent_changed(self, spin: Gtk.SpinButton) -> None:
+        if getattr(self, "_syncing_gamepad_axis_controls", False):
+            return
+        target = self._selected_gamepad_axis_target()
+        self._syncing_gamepad_axis_controls = True
+        self.gamepad_axis_value.set_value(
+            gamepad_axis_value_from_percent(target, spin.get_value())
+        )
+        self._syncing_gamepad_axis_controls = False
+
+    def _on_gamepad_axis_value_changed(self, spin: Gtk.SpinButton) -> None:
+        if getattr(self, "_syncing_gamepad_axis_controls", False):
+            return
+        target = self._selected_gamepad_axis_target()
+        self._syncing_gamepad_axis_controls = True
+        self.gamepad_axis_percent.set_value(
+            gamepad_axis_percent_from_value(target, spin.get_value())
+        )
+        self._syncing_gamepad_axis_controls = False
+
+    def _on_gamepad_axis_apply_clicked(self, btn) -> None:
+        self._on_gamepad_axis_clicked(
+            btn,
+            self._selected_gamepad_axis_target(),
+            int(self.gamepad_axis_value.get_value()),
+        )
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
         count = _virtual_gamepad_count()

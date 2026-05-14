@@ -1020,6 +1020,57 @@ class TestGrabbedDeviceHelpers:
         assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0) in second_gamepad.writes
         assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == set()
 
+    @pytest.mark.asyncio
+    async def test_gamepad_axis_action_writes_configured_value_and_release(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        gamepad = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
+        release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0)
+        action = dm.MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="abs_x",
+            axis_value=-32768,
+        )
+
+        await _runtime_execute_grabbed_action(device, action, press, "axis_btn")
+        await _runtime_execute_grabbed_action(device, action, release, "axis_btn")
+
+        assert gamepad.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_gamepad_axis_tap_uses_configured_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        ) -> None:
+        gamepad = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_rz",
+                axis_value=123,
+                tap_enabled=True,
+                tap_hold_ms=1,
+            ),
+            press,
+            "axis_tap",
+        )
+        await asyncio.sleep(0.01)
+
+        assert gamepad.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 123),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0),
+        ]
+
     def test_combo_restore_routes_gamepad_output_id_and_tracks_bucket(
         self,
         monkeypatch: pytest.MonkeyPatch,

@@ -6,6 +6,7 @@ from typing import cast
 import tomli_w
 
 from keymasq.common import paths
+from keymasq.common.gamepad_axes import gamepad_axis_default_value
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -256,6 +257,12 @@ class SuperkeyManager:
             )
 
         target = action_data.get("target")
+        axis_value = 0
+        if action_type == ActionType.GAMEPAD_AXIS:
+            axis_value = _int_value(
+                action_data.get("value"),
+                gamepad_axis_default_value(target),
+            )
         cmd = action_data.get("cmd")
         return MappingAction(
             action_type=action_type,
@@ -263,6 +270,7 @@ class SuperkeyManager:
             output_id=str(action_data.get("output_id", "") or "") or None,
             keys=cast(list[str] | None, action_data.get("keys")),
             cmd=str(cmd) if cmd is not None else None,
+            axis_value=axis_value,
             rapidfire_enabled=rapidfire_enabled,
             rapidfire_hold_ms=rapidfire_hold_ms,
             rapidfire_wait_ms=rapidfire_wait_ms,
@@ -383,7 +391,7 @@ class SuperkeyManager:
         action_data: dict[str, object] = {"action": action.action_type.value}
         if action.target:
             action_data["target"] = action.target
-        if action.action_type == ActionType.GAMEPAD and action.output_id:
+        if action.action_type in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS) and action.output_id:
             action_data["output_id"] = action.output_id
         if action.keys:
             action_data["keys"] = action.keys
@@ -405,6 +413,8 @@ class SuperkeyManager:
         if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
             action_data["x"] = int(action.move_x)
             action_data["y"] = int(action.move_y)
+        if action.action_type == ActionType.GAMEPAD_AXIS:
+            action_data["value"] = int(action.axis_value)
         if action.action_type in (
             ActionType.PROFILE_ENABLE,
             ActionType.PROFILE_DISABLE,

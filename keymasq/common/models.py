@@ -4,6 +4,8 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, cast, overload
 
+from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
+
 if TYPE_CHECKING:
     from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 
@@ -15,6 +17,7 @@ class ActionType(Enum):
     KEYBOARD = "keyboard"
     MOUSE = "mouse"
     GAMEPAD = "gamepad"
+    GAMEPAD_AXIS = "gamepad_axis"
     EXEC = "exec"
     COMPOSITOR_DISPATCH = "compositor_dispatch"
     SUPPRESS = "suppress"
@@ -43,6 +46,7 @@ SUPERKEY_ACTION_TYPES = frozenset(
         ActionType.MOUSE_MOVE_REL,
         ActionType.MOUSE_MOVE_ABS,
         ActionType.GAMEPAD,
+        ActionType.GAMEPAD_AXIS,
         ActionType.EXEC,
         ActionType.COMPOSITOR_DISPATCH,
         ActionType.START_MACRO_RECORDING,
@@ -61,6 +65,7 @@ RAPIDFIRE_ACTION_TYPES = frozenset(
         ActionType.KEYBOARD,
         ActionType.MOUSE,
         ActionType.GAMEPAD,
+        ActionType.GAMEPAD_AXIS,
         ActionType.MOUSE_MOVE_REL,
         ActionType.MOUSE_MOVE_ABS,
     }
@@ -175,7 +180,7 @@ def normalize_macro_loop_stop_behavior(value: object) -> str:
 
 
 def normalize_gamepad_output_id(action_type: ActionType, output_id: object) -> str | None:
-    if action_type != ActionType.GAMEPAD:
+    if action_type not in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS):
         return None
     if output_id is None:
         return None
@@ -253,6 +258,7 @@ class MappingAction:
     compositor_args: str | None = None
     move_x: int = 0
     move_y: int = 0
+    axis_value: int = 0
     move_speed: float = 1.0
     move_jitter: float = 0.3
 
@@ -265,6 +271,9 @@ class MappingAction:
 
     def __post_init__(self) -> None:
         self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
+        if self.action_type == ActionType.GAMEPAD_AXIS:
+            self.target = normalize_gamepad_axis_target(self.target)
+            self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)
         rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
             self.action_type,
             rapidfire_enabled=bool(self.rapidfire_enabled),
@@ -300,6 +309,7 @@ class SuperkeyAction:
     compositor_args: str | None = None
     move_x: int = 0
     move_y: int = 0
+    axis_value: int = 0
 
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
@@ -310,6 +320,9 @@ class SuperkeyAction:
 
     def __post_init__(self) -> None:
         self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
+        if self.action_type == ActionType.GAMEPAD_AXIS:
+            self.target = normalize_gamepad_axis_target(self.target)
+            self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)
         rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
             self.action_type,
             rapidfire_enabled=bool(self.rapidfire_enabled),
@@ -343,6 +356,7 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
     "compositor_args",
     "move_x",
     "move_y",
+    "axis_value",
     "rapidfire_enabled",
     "rapidfire_hold_ms",
     "rapidfire_wait_ms",

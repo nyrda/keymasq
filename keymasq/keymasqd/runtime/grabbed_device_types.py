@@ -173,6 +173,7 @@ class RapidfireOutputState:
     code: int | None = None
     uinput: object | None = None
     axis_code: int | None = None
+    axis_release_value: int = 0
     bucket: str | None = None
 
 

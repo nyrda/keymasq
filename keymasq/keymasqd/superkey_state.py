@@ -8,6 +8,7 @@ from typing import Protocol, cast
 
 import evdev
 
+from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -16,7 +17,12 @@ from keymasq.common.models import (
     clamp_rapidfire_wait_ms,
     superkey_action_shared_kwargs,
 )
-from keymasq.keymasqd.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
+from keymasq.keymasqd.output_helpers import (
+    emit_mouse_move,
+    get_trigger_axis,
+    resolve_gamepad_axis_code,
+    resolve_output_code,
+)
 from keymasq.keymasqd.runtime.action_runner import (
     build_action_trigger_payload,
     build_macro_playback_request,
@@ -63,6 +69,7 @@ class SuperkeyActionData:
     compositor_args: str | None = None
     move_x: int = 0
     move_y: int = 0
+    axis_value: int = 0
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = 20
     rapidfire_wait_ms: int = 20
@@ -70,9 +77,13 @@ class SuperkeyActionData:
     def __post_init__(self) -> None:
         self.output_id = (
             str(self.output_id).strip()
-            if self.action_type == ActionType.GAMEPAD.value and self.output_id is not None
+            if self.action_type in (ActionType.GAMEPAD.value, ActionType.GAMEPAD_AXIS.value)
+            and self.output_id is not None
             else None
         ) or None
+        if self.action_type == ActionType.GAMEPAD_AXIS.value:
+            self.target = normalize_gamepad_axis_target(self.target)
+            self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)
         self.rapidfire_hold_ms = clamp_rapidfire_hold_ms(self.rapidfire_hold_ms)
         self.rapidfire_wait_ms = clamp_rapidfire_wait_ms(self.rapidfire_wait_ms)
 
@@ -425,6 +436,17 @@ class SuperkeyMachine:
             await self.broadcast_callback(trigger_action)
             return
 
+        if action.action_type == "gamepad_axis":
+            axis_code = resolve_gamepad_axis_code(action.target)
+            if axis_code is None:
+                return
+            uinput, _bucket = self._get_action_output(action)
+            if uinput is None:
+                return
+            uinput.write(evdev.ecodes.EV_ABS, axis_code, int(action.axis_value))
+            uinput.syn()
+            return
+
         if action.action_type in ("keyboard", "mouse", "gamepad"):
             code = self._resolve_code(action.target)
             if code is None:
@@ -482,6 +504,17 @@ class SuperkeyMachine:
                 await self.broadcast_callback(trigger_payload)
             return
 
+        if action.action_type == "gamepad_axis":
+            axis_code = resolve_gamepad_axis_code(action.target)
+            if axis_code is None:
+                return
+            uinput, _bucket = self._get_action_output(action)
+            if uinput is None:
+                return
+            uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
+            uinput.syn()
+            return
+
         if action.action_type in ("keyboard", "mouse", "gamepad"):
             code = self._resolve_code(action.target)
             if code is None:
@@ -516,12 +549,12 @@ class SuperkeyMachine:
             return self.keyboard_uinput
         elif action_type == "mouse":
             return self.mouse_uinput
-        elif action_type == "gamepad":
+        elif action_type in ("gamepad", "gamepad_axis"):
             return self.gamepad_uinput
         return None
 
     def _get_action_output(self, action: SuperkeyActionData) -> tuple[_WritableUInput | None, str]:
-        if action.action_type != "gamepad":
+        if action.action_type not in ("gamepad", "gamepad_axis"):
             return self._get_uinput(action.action_type), action.action_type
         if self.gamepad_output_resolver is not None:
             target = self.gamepad_output_resolver(

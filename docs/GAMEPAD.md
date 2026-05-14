@@ -1,6 +1,6 @@
 # Gamepad Output Support
 
-Keymasq can remap mouse buttons, keyboard keys, or any input to virtual gamepad buttons. This is useful for games that expect controller input or for using mouse buttons as gamepad controls.
+Keymasq can remap mouse buttons, keyboard keys, or any input to virtual gamepad buttons and analog axes. This is useful for games that expect controller input or for using mouse buttons as gamepad controls.
 
 ## How It Works
 
@@ -25,6 +25,35 @@ drops the output with no fallback.
 ## Available Gamepad Buttons
 
 The virtual gamepad appears as an Xbox 360 controller. Button codes follow the Linux evdev naming convention.
+
+## Analog Axis Output
+
+Use `action = "gamepad_axis"` to set a gamepad axis to a specific raw evdev
+value while the source input is held. Releasing the source input returns the
+axis to neutral `0`.
+
+| Target | Control | Range |
+|--------|---------|-------|
+| `abs_x` | Left stick X | `-32768..32767` |
+| `abs_y` | Left stick Y | `-32768..32767` |
+| `abs_rx` | Right stick X | `-32768..32767` |
+| `abs_ry` | Right stick Y | `-32768..32767` |
+| `abs_z` | Left trigger | `0..255` |
+| `abs_rz` | Right trigger | `0..255` |
+
+Example:
+
+```toml
+[devices."046d:c548".mapping.btn_back]
+action = "gamepad_axis"
+target = "abs_x"
+value = -32768
+output_id = "virtual-gamepad-2"
+```
+
+Legacy `gamepad` mappings to `btn_tl2`, `btn_tr2`, `btn_lt`, or `btn_rt`
+continue to output trigger axes at full value (`255`), but new trigger
+mappings created by the GUI use `gamepad_axis`.
 
 ### Face Buttons
 | Code | Xbox | Position | evdev Code |

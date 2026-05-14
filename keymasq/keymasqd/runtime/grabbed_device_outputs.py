@@ -67,6 +67,24 @@ def track_abs_state(
         held.discard(int(axis_code))
 
 
+def write_abs_axis(
+    device_runtime: GrabbedDeviceRuntime,
+    uinput_dev: object | None,
+    axis_code: int,
+    value: int,
+    *,
+    evdev_mod: EvdevModule,
+    uinput_writer: UInputWriter,
+    bucket: str | None = None,
+) -> None:
+    writer = uinput_writer(uinput_dev)
+    if writer is None:
+        return
+    writer.write(evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
+    writer.syn()
+    track_abs_state(device_runtime, int(axis_code), int(value), bucket=bucket)
+
+
 def write_key(
     device_runtime: GrabbedDeviceRuntime,
     uinput_dev: object | None,
@@ -145,6 +163,36 @@ def passthrough(
     writer.syn()
 
 
+def ensure_abs_axis_released(
+    device_runtime: GrabbedDeviceRuntime,
+    axis_code: int,
+    *,
+    evdev_mod: EvdevModule,
+    uinput_writer: UInputWriter,
+    uinput_dev: object | None = None,
+    bucket: str | None = None,
+    release_value: int = 0,
+) -> None:
+    try:
+        write_abs_axis(
+            device_runtime,
+            uinput_dev or device_runtime.gamepad_uinput,
+            axis_code,
+            release_value,
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
+            bucket=bucket,
+        )
+    except Exception as exc:
+        log.debug(
+            "Failed to release gamepad trigger axis %s on %s: %s",
+            axis_code,
+            device_runtime.path,
+            exc,
+            exc_info=True,
+        )
+
+
 def ensure_trigger_released(
     device_runtime: GrabbedDeviceRuntime,
     axis_code: int,
@@ -154,20 +202,14 @@ def ensure_trigger_released(
     uinput_dev: object | None = None,
     bucket: str | None = None,
 ) -> None:
-    try:
-        gamepad_uinput = uinput_writer(uinput_dev or device_runtime.gamepad_uinput)
-        if gamepad_uinput is not None:
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 0)
-            gamepad_uinput.syn()
-            track_abs_state(device_runtime, axis_code, 0, bucket=bucket)
-    except Exception as exc:
-        log.debug(
-            "Failed to release gamepad trigger axis %s on %s: %s",
-            axis_code,
-            device_runtime.path,
-            exc,
-            exc_info=True,
-        )
+    ensure_abs_axis_released(
+        device_runtime,
+        axis_code,
+        evdev_mod=evdev_mod,
+        uinput_writer=uinput_writer,
+        uinput_dev=uinput_dev,
+        bucket=bucket,
+    )
 
 
 def ensure_key_released(

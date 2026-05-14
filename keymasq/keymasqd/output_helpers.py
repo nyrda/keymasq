@@ -5,6 +5,7 @@ from typing import Protocol, cast
 import evdev
 
 from keymasq.common.devices import resolve_evdev_event_type
+from keymasq.common.gamepad_axes import gamepad_axis_range, normalize_gamepad_axis_target
 
 
 class _WritableUInput(Protocol):
@@ -66,15 +67,29 @@ def parse_mouse_output_target(target: str | None) -> tuple[int | None, int | Non
 
 
 def get_trigger_axis(target: str | None) -> tuple[bool, int | None]:
-    if not target:
-        return (False, None)
+    axis_code = resolve_gamepad_axis_code(target, legacy_gamepad_target=True)
+    return (axis_code is not None, axis_code)
 
-    target_lower = target.lower()
-    if target_lower in ("btn_tl2", "btn_lt"):
-        return (True, evdev.ecodes.ABS_Z)
-    if target_lower in ("btn_tr2", "btn_rt"):
-        return (True, evdev.ecodes.ABS_RZ)
-    return (False, None)
+
+def resolve_gamepad_axis_code(
+    target: str | None,
+    *,
+    legacy_gamepad_target: bool = False,
+) -> int | None:
+    if not target:
+        return None
+
+    target_lower = target.strip().lower()
+    if legacy_gamepad_target:
+        if target_lower in ("btn_tl2", "btn_lt"):
+            target_lower = "abs_z"
+        elif target_lower in ("btn_tr2", "btn_rt"):
+            target_lower = "abs_rz"
+
+    axis_range = gamepad_axis_range(normalize_gamepad_axis_target(target_lower))
+    if axis_range is None:
+        return None
+    return _ecode_value(axis_range.evdev_name)
 
 
 def emit_mouse_move(

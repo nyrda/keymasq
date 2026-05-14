@@ -598,6 +598,74 @@ def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     assert tap_results[0].tap_hold_ms == 70
 
 
+def test_key_selector_dialog_gamepad_axis_mapping_uses_raw_and_percent_values():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog.stack.set_visible_child_name("gamepad")
+    dialog.gamepad_axis_dropdown.set_selected(dialog.gamepad_axis_targets.index("abs_x"))
+    dialog.gamepad_axis_percent.set_value(-100)
+    assert int(dialog.gamepad_axis_value.get_value()) == -32768
+    dialog.gamepad_axis_value.set_value(16384)
+    assert round(dialog.gamepad_axis_percent.get_value()) == 50
+    dialog.gamepad_axis_percent.set_value(-100)
+    dialog._on_gamepad_axis_apply_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.GAMEPAD_AXIS
+    assert results[0].target == "abs_x"
+    assert results[0].axis_value == -32768
+
+
+def test_key_selector_dialog_gamepad_trigger_presets_use_trigger_axes():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
+        buttons: list[Gtk.Button] = []
+        if isinstance(widget, Gtk.Button):
+            buttons.append(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    def click_gamepad_button(label: str) -> MappingAction:
+        dialog = KeySelectorDialog(Gtk.Box(), "Back")
+        results: list[MappingAction] = []
+        dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+        gamepad_tab = dialog.stack.get_child_by_name("gamepad")
+        buttons_by_label = {
+            button.get_label(): button
+            for button in collect_buttons(gamepad_tab)
+            if button.get_label()
+        }
+
+        buttons_by_label[label].emit("clicked")
+
+        assert len(results) == 1
+        return results[0]
+
+    left_trigger = click_gamepad_button("LT")
+    right_trigger = click_gamepad_button("RT")
+
+    assert left_trigger.action_type == ActionType.GAMEPAD_AXIS
+    assert left_trigger.target == "abs_z"
+    assert left_trigger.axis_value == 255
+    assert right_trigger.action_type == ActionType.GAMEPAD_AXIS
+    assert right_trigger.target == "abs_rz"
+    assert right_trigger.axis_value == 255
+
+
 def test_key_selector_dialog_gamepad_output_selector_lives_in_title(monkeypatch):
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

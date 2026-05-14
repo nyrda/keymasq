@@ -6,6 +6,7 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
 from keymasq.keymasqd.output_helpers import (
     get_trigger_axis,
+    resolve_gamepad_axis_code,
     resolve_output_code,
 )
 from keymasq.keymasqd.runtime.action_runner import (
@@ -16,22 +17,22 @@ from keymasq.keymasqd.runtime.action_runner import (
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     bucket_for_uinput,
     passthrough,
-    track_abs_state,
     track_superkey_output,
+    write_abs_axis,
     write_key,
 )
 from keymasq.keymasqd.runtime.grabbed_device_repeat import (
     emit_move_action,
+    rapidfire_abs_axis,
     rapidfire_key,
     rapidfire_move,
     rapidfire_relative,
-    rapidfire_trigger,
     start_rapidfire_task,
     stop_rapidfire_async,
+    tap_abs_axis,
     tap_key,
     tap_move,
     tap_relative,
-    tap_trigger,
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
@@ -58,7 +59,6 @@ async def execute_action(
     deps: ActionExecutionDeps,
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
 ) -> None:
-    asyncio_mod = deps.asyncio_mod
     evdev_mod = deps.evdev_mod
     uinput_writer = deps.uinput_writer
     fire_and_observe_fn = deps.fire_and_observe_fn
@@ -91,6 +91,16 @@ async def execute_action(
             shared_output_tracker=shared_output_tracker,
         )
 
+    elif action.action_type == ActionType.GAMEPAD_AXIS:
+        await _execute_gamepad_axis_action(
+            device_runtime,
+            action,
+            event,
+            event_name,
+            deps=deps,
+            shared_output_tracker=shared_output_tracker,
+        )
+
     elif action.action_type == ActionType.GAMEPAD:
         if action.target:
             target = device_runtime.resolve_gamepad_output(
@@ -105,81 +115,20 @@ async def execute_action(
             if is_trigger:
                 if axis_code is None:
                     return
-                if action.rapidfire_enabled:
-                    if event.value == 1:
-                        start_rapidfire_task(
-                            device_runtime,
-                            event_name,
-                            "trigger",
-                            lambda: asyncio_mod.create_task(
-                                rapidfire_trigger(
-                                    device_runtime,
-                                    axis_code,
-                                    action.rapidfire_hold_ms,
-                                    action.rapidfire_wait_ms,
-                                    event_name,
-                                    target_uinput,
-                                    asyncio_mod=deps.asyncio_mod,
-                                    evdev_mod=deps.evdev_mod,
-                                    uinput_writer=deps.uinput_writer,
-                                    bucket=target_bucket,
-                                )
-                            ),
-                            axis_code=axis_code,
-                            code=None,
-                            uinput=target_uinput,
-                            bucket=target_bucket,
-                        )
-                    elif event.value == 0:
-                        await stop_rapidfire_async(
-                            device_runtime,
-                            event_name,
-                            asyncio_mod=asyncio_mod,
-                        )
-                elif action.tap_enabled:
-                    if event.value == 1 and not device_runtime.state.tap_active.get(
-                        event_name, False
-                    ):
-                        device_runtime.state.tap_active[event_name] = True
-                        fire_and_observe_fn(
-                            tap_trigger(
-                                device_runtime,
-                                axis_code,
-                                action.tap_hold_ms,
-                                event_name,
-                                target_uinput,
-                                asyncio_mod=deps.asyncio_mod,
-                                evdev_mod=deps.evdev_mod,
-                                uinput_writer=deps.uinput_writer,
-                                bucket=target_bucket,
-                            ),
-                            f"tap action {event_name}",
-                        )
-                else:
-                    gamepad_uinput = uinput_writer(target_uinput)
-                    if gamepad_uinput is None:
-                        return
-                    should_emit = True
-                    if shared_output_tracker is not None:
-                        should_emit = shared_output_tracker(
-                            target_bucket,
-                            axis_code,
-                            int(event.value),
-                        )
-                    if not should_emit:
-                        return
-                    gamepad_uinput.write(
-                        evdev_mod.ecodes.EV_ABS,
-                        axis_code,
-                        255 if event.value else 0,
-                    )
-                    gamepad_uinput.syn()
-                    track_abs_state(
-                        device_runtime,
-                        axis_code,
-                        255 if event.value else 0,
-                        bucket=target_bucket,
-                    )
+                await _execute_abs_axis_output(
+                    device_runtime,
+                    action,
+                    event,
+                    event_name,
+                    deps=deps,
+                    axis_code=axis_code,
+                    active_value=255,
+                    release_value=0,
+                    target_uinput=target_uinput,
+                    target_bucket=target_bucket,
+                    rapidfire_kind="trigger",
+                    tap_label=f"tap action {event_name}",
+                )
             else:
                 await _execute_key_action(
                     device_runtime,
@@ -472,6 +421,134 @@ async def _execute_overload_superkey(
                 deps=deps,
                 shared_output_tracker=overload_output_tracker,
             )
+
+
+async def _execute_gamepad_axis_action(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    deps: ActionExecutionDeps,
+    shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+) -> None:
+    del shared_output_tracker
+    if not action.target:
+        return
+    target = device_runtime.resolve_gamepad_output(
+        action.output_id,
+        f"{event_name} -> {action.target}",
+    )
+    if target is None:
+        return
+    axis_code = resolve_gamepad_axis_code(action.target)
+    if axis_code is None:
+        return
+    await _execute_abs_axis_output(
+        device_runtime,
+        action,
+        event,
+        event_name,
+        deps=deps,
+        axis_code=axis_code,
+        active_value=int(action.axis_value),
+        release_value=0,
+        target_uinput=getattr(target, "uinput", None),
+        target_bucket=str(getattr(target, "bucket", "gamepad")),
+        rapidfire_kind="axis",
+        tap_label=f"tap axis action {event_name}",
+    )
+
+
+async def _execute_abs_axis_output(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    deps: ActionExecutionDeps,
+    axis_code: int,
+    active_value: int,
+    release_value: int,
+    target_uinput: object | None,
+    target_bucket: str,
+    rapidfire_kind: str,
+    tap_label: str,
+    shared_output_tracker: Callable[[str, int, int], bool] | None = None,
+) -> None:
+    if action.rapidfire_enabled:
+        if event.value == 1:
+            start_rapidfire_task(
+                device_runtime,
+                event_name,
+                rapidfire_kind,
+                lambda: deps.asyncio_mod.create_task(
+                    rapidfire_abs_axis(
+                        device_runtime,
+                        axis_code,
+                        active_value,
+                        release_value,
+                        action.rapidfire_hold_ms,
+                        action.rapidfire_wait_ms,
+                        event_name,
+                        target_uinput,
+                        asyncio_mod=deps.asyncio_mod,
+                        evdev_mod=deps.evdev_mod,
+                        uinput_writer=deps.uinput_writer,
+                        bucket=target_bucket,
+                    )
+                ),
+                code=None,
+                uinput=target_uinput,
+                axis_code=axis_code,
+                bucket=target_bucket,
+                axis_release_value=release_value,
+            )
+        elif event.value == 0:
+            await stop_rapidfire_async(
+                device_runtime,
+                event_name,
+                asyncio_mod=deps.asyncio_mod,
+            )
+        return
+
+    if action.tap_enabled:
+        if event.value == 1 and not device_runtime.state.tap_active.get(event_name, False):
+            device_runtime.state.tap_active[event_name] = True
+            deps.fire_and_observe_fn(
+                tap_abs_axis(
+                    device_runtime,
+                    axis_code,
+                    active_value,
+                    release_value,
+                    action.tap_hold_ms,
+                    event_name,
+                    target_uinput,
+                    asyncio_mod=deps.asyncio_mod,
+                    evdev_mod=deps.evdev_mod,
+                    uinput_writer=deps.uinput_writer,
+                    bucket=target_bucket,
+                ),
+                tap_label,
+            )
+        return
+
+    output_value = active_value if int(event.value) else release_value
+    should_emit = True
+    if shared_output_tracker is not None:
+        should_emit = shared_output_tracker(target_bucket, int(axis_code), int(output_value))
+    if not should_emit:
+        return
+    write_abs_axis(
+        device_runtime,
+        target_uinput,
+        axis_code,
+        output_value,
+        evdev_mod=deps.evdev_mod,
+        uinput_writer=deps.uinput_writer,
+        bucket=target_bucket,
+    )
+
 
 async def _execute_key_action(
     device_runtime: GrabbedDeviceRuntime,

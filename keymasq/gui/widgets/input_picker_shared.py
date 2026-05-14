@@ -9,6 +9,8 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.gamepad_axes import gamepad_axis_default_value
+
 
 def _get_gamepad_svg_path() -> str:
     return os.path.join(os.path.dirname(__file__), "..", "assets", "gamepad.svg")
@@ -332,6 +334,14 @@ def build_mouse_tab(owner) -> Gtk.Box:
 
 
 def build_gamepad_tab(owner) -> Gtk.Box:
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    box.set_margin_top(12)
+    box.set_margin_bottom(12)
+    box.set_margin_start(12)
+    box.set_margin_end(12)
+    box.set_halign(Gtk.Align.CENTER)
+    box.set_valign(Gtk.Align.CENTER)
+
     outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
     outer.set_margin_top(12)
     outer.set_margin_bottom(12)
@@ -344,21 +354,50 @@ def build_gamepad_tab(owner) -> Gtk.Box:
     outer.append(_build_gamepad_center_col(owner))
     outer.append(_build_gamepad_right_col(owner))
 
-    return outer
+    box.append(outer)
+    if hasattr(owner, "_build_gamepad_axis_controls"):
+        box.append(owner._build_gamepad_axis_controls())
+
+    return box
 
 
 def _build_gamepad_left_col(owner) -> Gtk.Box:
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     box.set_valign(Gtk.Align.CENTER)
 
-    for label, evdev_id in [("LT", "btn_tl2"), ("LB", "btn_tl")]:
+    for label, evdev_id in [("LT", "abs_z"), ("LB", "btn_tl")]:
         btn = owner._create_key_button(label, evdev_id, width=2)
-        btn.connect("clicked", owner._on_gamepad_clicked, evdev_id)
+        if label == "LT" and hasattr(owner, "_on_gamepad_axis_clicked"):
+            btn.connect(
+                "clicked",
+                owner._on_gamepad_axis_clicked,
+                evdev_id,
+                gamepad_axis_default_value(evdev_id),
+            )
+        else:
+            btn.connect("clicked", owner._on_gamepad_clicked, evdev_id)
         box.append(btn)
 
-    ls_btn = owner._create_key_button("LS", "btn_thumbl", width=2)
+    lstick = Gtk.Grid()
+    lstick.set_column_spacing(4)
+    lstick.set_row_spacing(4)
+    lstick.set_halign(Gtk.Align.CENTER)
+
+    for gc, gr, label, target, value in [
+        (1, 0, "LY-", "abs_y", -32768),
+        (0, 1, "LX-", "abs_x", -32768),
+        (2, 1, "LX+", "abs_x", 32767),
+        (1, 2, "LY+", "abs_y", 32767),
+    ]:
+        btn = owner._create_key_button(label, target)
+        btn.connect("clicked", owner._on_gamepad_axis_clicked, target, value)
+        lstick.attach(btn, gc, gr, 1, 1)
+
+    ls_btn = owner._create_key_button("LS", "btn_thumbl")
     ls_btn.connect("clicked", owner._on_gamepad_clicked, "btn_thumbl")
-    box.append(ls_btn)
+    lstick.attach(ls_btn, 1, 1, 1, 1)
+
+    box.append(lstick)
 
     dpad = Gtk.Grid()
     dpad.set_column_spacing(4)
@@ -417,9 +456,17 @@ def _build_gamepad_right_col(owner) -> Gtk.Box:
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     box.set_valign(Gtk.Align.CENTER)
 
-    for label, evdev_id in [("RT", "btn_tr2"), ("RB", "btn_tr")]:
+    for label, evdev_id in [("RT", "abs_rz"), ("RB", "btn_tr")]:
         btn = owner._create_key_button(label, evdev_id, width=2)
-        btn.connect("clicked", owner._on_gamepad_clicked, evdev_id)
+        if label == "RT" and hasattr(owner, "_on_gamepad_axis_clicked"):
+            btn.connect(
+                "clicked",
+                owner._on_gamepad_axis_clicked,
+                evdev_id,
+                gamepad_axis_default_value(evdev_id),
+            )
+        else:
+            btn.connect("clicked", owner._on_gamepad_clicked, evdev_id)
         box.append(btn)
 
     face = Gtk.Grid()
@@ -439,8 +486,25 @@ def _build_gamepad_right_col(owner) -> Gtk.Box:
 
     box.append(face)
 
-    rs_btn = owner._create_key_button("RS", "btn_thumbr", width=2)
+    rstick = Gtk.Grid()
+    rstick.set_column_spacing(4)
+    rstick.set_row_spacing(4)
+    rstick.set_halign(Gtk.Align.CENTER)
+
+    for gc, gr, label, target, value in [
+        (1, 0, "RY-", "abs_ry", -32768),
+        (0, 1, "RX-", "abs_rx", -32768),
+        (2, 1, "RX+", "abs_rx", 32767),
+        (1, 2, "RY+", "abs_ry", 32767),
+    ]:
+        btn = owner._create_key_button(label, target)
+        btn.connect("clicked", owner._on_gamepad_axis_clicked, target, value)
+        rstick.attach(btn, gc, gr, 1, 1)
+
+    rs_btn = owner._create_key_button("RS", "btn_thumbr")
     rs_btn.connect("clicked", owner._on_gamepad_clicked, "btn_thumbr")
-    box.append(rs_btn)
+    rstick.attach(rs_btn, 1, 1, 1, 1)
+
+    box.append(rstick)
 
     return box

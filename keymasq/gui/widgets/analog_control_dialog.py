@@ -11,10 +11,17 @@ from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAc
 from keymasq.common.models import (
     AnalogActionThreshold,
     AnalogControlConfig,
+    AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
     MappingAction,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
+from keymasq.gui.widgets.key_selector_dialog import (  # pyright: ignore[reportPrivateUsage]
+    _gamepad_output_choice_matches,
+    _gamepad_output_choices_for,
+    _gamepad_output_unavailable_message,
+    _virtual_gamepad_count,
+)
 from keymasq.gui.widgets.superkey_dialog import ActionListDialog
 from keymasq.gui.widgets.threshold_range_bar import ThresholdRangeBar
 from keymasq.session.analog_controls import (
@@ -23,12 +30,15 @@ from keymasq.session.analog_controls import (
     analog_control_mouse_wheel_template,
     analog_control_wasd_template,
 )
+from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileManager
 
 log = logging.getLogger("keymasq.gui.widgets.analog_control_dialog")
 
-_MODE_ITEMS = ("mouse", "digital", "both")
-_MODE_LABELS = ("Mouse Movement", "Digital Actions", "Mouse + Digital")
+_STICK_MODE_ITEMS = ("mouse", "digital", "gamepad", "both")
+_STICK_MODE_LABELS = ("Mouse Movement", "Digital Actions", "Gamepad Output", "Mouse + Digital")
+_TRIGGER_MODE_ITEMS = ("digital", "gamepad")
+_TRIGGER_MODE_LABELS = ("Digital Actions", "Gamepad Output")
 _INPUT_TYPE_ITEMS = ("stick", "trigger")
 _INPUT_TYPE_LABELS = ("Stick", "Trigger")
 _CONTROL_GROUPS = (("trigger", "Triggers"), ("stick", "Sticks"))
@@ -79,6 +89,14 @@ def _group_analog_control_names(
     return grouped
 
 
+def _mode_items_for_input_type(input_type: str) -> tuple[str, ...]:
+    return _TRIGGER_MODE_ITEMS if input_type == "trigger" else _STICK_MODE_ITEMS
+
+
+def _mode_labels_for_input_type(input_type: str) -> tuple[str, ...]:
+    return _TRIGGER_MODE_LABELS if input_type == "trigger" else _STICK_MODE_LABELS
+
+
 class AnalogControlDialog(Adw.Dialog):
     __gsignals__ = {
         "analog-control-saved": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
@@ -96,6 +114,12 @@ class AnalogControlDialog(Adw.Dialog):
         self._modified = False
         self._editing_new_control = False
         self._syncing_threshold = False
+        self._selected_gamepad_output_id: str | None = None
+        self._gamepad_output_ids: list[str | None] = []
+        self._gamepad_output_dropdown: Gtk.DropDown | None = None
+        self._gamepad_output_warning_label: Gtk.Label | None = None
+        self._refreshing_gamepad_output_choices = False
+        self._mode_items: tuple[str, ...] = _STICK_MODE_ITEMS
         self.new_control_row: Gtk.ListBoxRow | None = None
 
         self._build_ui()
@@ -150,7 +174,7 @@ class AnalogControlDialog(Adw.Dialog):
         self._attach_labeled(fields_grid, "Name:", 0, self._build_name_entry())
         self._attach_labeled(fields_grid, "Description:", 1, self._build_description_entry())
 
-        self.mode_dropdown = Gtk.DropDown.new_from_strings(list(_MODE_LABELS))
+        self.mode_dropdown = Gtk.DropDown.new_from_strings(list(_STICK_MODE_LABELS))
         self.mode_dropdown.connect("notify::selected", self._on_mode_changed)
         self._attach_labeled(fields_grid, "Mode:", 2, self.mode_dropdown)
 
@@ -162,9 +186,11 @@ class AnalogControlDialog(Adw.Dialog):
         self.editor_box.append(Gtk.Separator())
 
         self.mouse_group = self._build_mouse_group()
+        self.gamepad_output_group = self._build_gamepad_output_group()
         self.digital_group = self._build_digital_group()
         self.template_group = self._build_template_group()
         self.editor_box.append(self.mouse_group)
+        self.editor_box.append(self.gamepad_output_group)
         self.editor_box.append(self.digital_group)
         self.editor_box.append(self.template_group)
 
@@ -252,6 +278,53 @@ class AnalogControlDialog(Adw.Dialog):
         self.invert_y_row.connect("notify::active", self._on_modified)
         group.add(self.invert_x_row)
         group.add(self.invert_y_row)
+        return group
+
+    def _build_gamepad_output_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(
+            title="Gamepad Output Settings",
+            description="Route the stick or trigger to a gamepad output device.",
+        )
+
+        self.gamepad_output_target_row = Adw.ActionRow(title="Output")
+        dropdown = Gtk.DropDown()
+        if dropdown is None:
+            raise RuntimeError("failed to create gamepad output dropdown")
+        dropdown.set_valign(Gtk.Align.CENTER)
+        dropdown.connect(
+            "notify::selected",
+            self._on_gamepad_output_selected,
+        )
+        self._gamepad_output_dropdown = dropdown
+        self.gamepad_output_target_row.add_suffix(dropdown)
+        self.gamepad_output_target_row.set_activatable_widget(dropdown)
+        group.add(self.gamepad_output_target_row)
+
+        self.gamepad_output_deadzone_row = self._spin_row(
+            "Output Deadzone",
+            15,
+            0,
+            95,
+            1,
+            0,
+        )
+        self.gamepad_output_deadzone_row.set_subtitle(
+            "Percent below which output is sent as centered or released"
+        )
+        group.add(self.gamepad_output_deadzone_row)
+
+        warning_row = Adw.ActionRow()
+        warning = Gtk.Label(xalign=0, wrap=True)
+        warning.add_css_class("warning")
+        warning.add_css_class("caption")
+        warning_row.set_child(warning)
+        warning_row.set_visible(False)
+        self._gamepad_output_warning_label = warning
+        self._gamepad_output_warning_row = warning_row
+        group.add(warning_row)
+
+        self._refresh_gamepad_output_choices()
+        self._update_gamepad_output_visibility()
         return group
 
     def _build_digital_group(self) -> Adw.PreferencesGroup:
@@ -350,12 +423,20 @@ class AnalogControlDialog(Adw.Dialog):
         return row
 
     def _current_mode(self) -> str:
-        if self._current_input_type() == "trigger":
-            return "digital"
+        items = self._mode_items
         selected = int(self.mode_dropdown.get_selected())
-        if selected < 0 or selected >= len(_MODE_ITEMS):
-            return "mouse"
-        return _MODE_ITEMS[selected]
+        if selected < 0 or selected >= len(items):
+            return items[0]
+        return items[selected]
+
+    def _set_mode_options(self, input_type: str, selected_mode: str | None = None) -> None:
+        items = _mode_items_for_input_type(input_type)
+        labels = _mode_labels_for_input_type(input_type)
+        mode = selected_mode or items[0]
+        selected = items.index(mode) if mode in items else 0
+        self._mode_items = items
+        self.mode_dropdown.set_model(Gtk.StringList.new(list(labels)))
+        self.mode_dropdown.set_selected(selected)
 
     def _current_input_type(self) -> str:
         selected = int(self.input_type_dropdown.get_selected())
@@ -372,11 +453,75 @@ class AnalogControlDialog(Adw.Dialog):
         input_type = self._current_input_type()
         mode = self._current_mode()
         is_trigger = input_type == "trigger"
-        digital_visible = is_trigger or mode in {"digital", "both"}
-        self.mode_dropdown.set_sensitive(not is_trigger)
+        digital_visible = mode in {"digital", "both"}
         self.mouse_group.set_visible(not is_trigger and mode in {"mouse", "both"})
+        self.gamepad_output_group.set_visible(mode == "gamepad")
         self.digital_group.set_visible(digital_visible)
         self.template_group.set_visible(digital_visible and not is_trigger)
+        self._update_gamepad_output_visibility()
+
+    def _update_gamepad_output_visibility(self) -> None:
+        if not hasattr(self, "gamepad_output_group"):
+            return
+        self._update_gamepad_output_warning()
+
+    def _refresh_gamepad_output_choices(self) -> None:
+        dropdown = self._gamepad_output_dropdown
+        if dropdown is None:
+            return
+        selected_id = self._selected_gamepad_output_id
+        choices = self._gamepad_output_choices()
+        self._gamepad_output_ids = [output_id for output_id, _label in choices]
+        selected = 0
+        for index, output_id in enumerate(self._gamepad_output_ids):
+            if _gamepad_output_choice_matches(output_id, selected_id):
+                selected = index
+                break
+        self._refreshing_gamepad_output_choices = True
+        try:
+            dropdown.set_model(Gtk.StringList.new([label for _output_id, label in choices]))
+            dropdown.set_selected(selected)
+        finally:
+            self._refreshing_gamepad_output_choices = False
+        self._selected_gamepad_output_id = self._gamepad_output_ids[selected]
+        self._update_gamepad_output_warning()
+
+    def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
+        count = _virtual_gamepad_count()
+        try:
+            hardware_configs = list(HardwareManager().list_hardware())
+        except Exception:
+            hardware_configs = []
+        return _gamepad_output_choices_for(
+            self._selected_gamepad_output_id,
+            count,
+            hardware_configs,
+        )
+
+    def _on_gamepad_output_selected(self, dropdown: Gtk.DropDown, _param) -> None:
+        if self._refreshing_gamepad_output_choices:
+            return
+        selected = int(dropdown.get_selected())
+        if 0 <= selected < len(self._gamepad_output_ids):
+            self._selected_gamepad_output_id = self._gamepad_output_ids[selected]
+        self._update_gamepad_output_warning()
+        self._on_modified()
+
+    def _update_gamepad_output_warning(self) -> None:
+        label = self._gamepad_output_warning_label
+        row = getattr(self, "_gamepad_output_warning_row", None)
+        if label is None or row is None:
+            return
+        if self._current_mode() != "gamepad":
+            label.set_label("")
+            row.set_visible(False)
+            return
+        message = _gamepad_output_unavailable_message(
+            self._selected_gamepad_output_id,
+            _virtual_gamepad_count(),
+        )
+        label.set_label(message or "")
+        row.set_visible(bool(message))
 
     def _load_controls(self) -> None:
         while row := self.list_box.get_row_at_index(0):
@@ -440,7 +585,7 @@ class AnalogControlDialog(Adw.Dialog):
         self.name_entry.set_text(config.name)
         self.description_entry.set_text(config.description or "")
         self.input_type_dropdown.set_selected(self._input_type_index(config))
-        self.mode_dropdown.set_selected(self._mode_index(config))
+        self._set_mode_options(config.input_type, self._mode_value(config))
         self.speed_row.set_value(config.mouse_motion.speed)
         self.deadzone_row.set_value(config.mouse_motion.deadzone)
         self.curve_row.set_selected(
@@ -448,19 +593,27 @@ class AnalogControlDialog(Adw.Dialog):
         )
         self.invert_x_row.set_active(config.mouse_motion.invert_x)
         self.invert_y_row.set_active(config.mouse_motion.invert_y)
+        self._selected_gamepad_output_id = config.gamepad_output.output_id
+        self._refresh_gamepad_output_choices()
+        self.gamepad_output_deadzone_row.set_value(
+            round(config.gamepad_output.deadzone * 100.0)
+        )
+        self._update_gamepad_output_visibility()
         self._refresh_thresholds()
         self._update_mode_visibility()
 
-    def _mode_index(self, config: AnalogControlConfig) -> int:
+    def _mode_value(self, config: AnalogControlConfig) -> str:
+        if config.gamepad_output.enabled:
+            return "gamepad"
         if config.input_type == "trigger":
-            return _MODE_ITEMS.index("digital")
+            return "digital"
         has_mouse = bool(config.mouse_motion.enabled)
         has_digital = bool(config.thresholds)
         if has_mouse and has_digital:
-            return _MODE_ITEMS.index("both")
+            return "both"
         if has_digital:
-            return _MODE_ITEMS.index("digital")
-        return _MODE_ITEMS.index("mouse")
+            return "digital"
+        return "mouse"
 
     def _input_type_index(self, config: AnalogControlConfig) -> int:
         if config.input_type == "trigger":
@@ -696,7 +849,7 @@ class AnalogControlDialog(Adw.Dialog):
             )
         )
         if not self._is_trigger_control() and self._current_mode() == "mouse":
-            self.mode_dropdown.set_selected(_MODE_ITEMS.index("both"))
+            self.mode_dropdown.set_selected(_STICK_MODE_ITEMS.index("both"))
         self._refresh_thresholds()
         self._on_modified()
 
@@ -857,15 +1010,18 @@ class AnalogControlDialog(Adw.Dialog):
             return
         self._thresholds.extend(self._copy_threshold(threshold) for threshold in thresholds)
         if self._current_mode() == "mouse":
-            self.mode_dropdown.set_selected(_MODE_ITEMS.index("both"))
+            self.mode_dropdown.set_selected(_STICK_MODE_ITEMS.index("both"))
         self._refresh_thresholds()
         self._on_modified()
 
     def _on_input_type_changed(self, _dropdown, _param) -> None:
         if not hasattr(self, "digital_group"):
             return
-        if self._is_trigger_control():
-            self.mode_dropdown.set_selected(_MODE_ITEMS.index("digital"))
+        mode = self._current_mode()
+        input_type = self._current_input_type()
+        if input_type == "trigger" and mode not in _TRIGGER_MODE_ITEMS:
+            mode = "digital"
+        self._set_mode_options(input_type, mode)
         self._sync_thresholds_for_input_type()
         self._refresh_thresholds(self._expanded_threshold_indices())
         self._update_mode_visibility()
@@ -922,9 +1078,14 @@ class AnalogControlDialog(Adw.Dialog):
                 invert_x=self.invert_x_row.get_active(),
                 invert_y=self.invert_y_row.get_active(),
             ),
+            gamepad_output=AnalogGamepadOutputConfig(
+                enabled=mode == "gamepad",
+                output_id=self._selected_gamepad_output_id,
+                deadzone=self.gamepad_output_deadzone_row.get_value() / 100.0,
+            ),
             thresholds=(
                 list(self._thresholds)
-                if input_type == "trigger" or mode in {"digital", "both"}
+                if mode in {"digital", "both"}
                 else []
             ),
         )

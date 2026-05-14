@@ -639,6 +639,11 @@ def serialize_analog_control(
             "invert_y": bool(config.mouse_motion.invert_y),
             "tick_ms": int(config.mouse_motion.tick_ms),
         },
+        "gamepad_output": {
+            "enabled": bool(config.gamepad_output.enabled),
+            "output_id": config.gamepad_output.output_id,
+            "deadzone": float(config.gamepad_output.deadzone),
+        },
         "thresholds": [
             serialize_analog_threshold(manager, threshold, hardware_id)
             for threshold in config.thresholds
@@ -680,6 +685,11 @@ def serialize_analog_control_signature(
             "invert_x": bool(config.mouse_motion.invert_x),
             "invert_y": bool(config.mouse_motion.invert_y),
             "tick_ms": int(config.mouse_motion.tick_ms),
+        },
+        "gamepad_output": {
+            "enabled": bool(config.gamepad_output.enabled),
+            "output_id": config.gamepad_output.output_id,
+            "deadzone": float(config.gamepad_output.deadzone),
         },
         "thresholds": [
             serialize_analog_threshold_signature(manager, threshold, hardware_id)

@@ -183,6 +183,10 @@ def normalize_macro_loop_stop_behavior(value: object) -> str:
 def normalize_gamepad_output_id(action_type: ActionType, output_id: object) -> str | None:
     if action_type not in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS):
         return None
+    return normalize_output_id(output_id)
+
+
+def normalize_output_id(output_id: object) -> str | None:
     if output_id is None:
         return None
     normalized = str(output_id).strip()
@@ -343,6 +347,17 @@ class AnalogMouseMotionConfig:
 
 
 @dataclass
+class AnalogGamepadOutputConfig:
+    enabled: bool = False
+    output_id: str | None = None
+    deadzone: float = 0.15
+
+    def __post_init__(self) -> None:
+        self.output_id = normalize_output_id(self.output_id)
+        self.deadzone = max(0.0, min(0.95, float(self.deadzone)))
+
+
+@dataclass
 class AnalogActionThreshold:
     axis: str
     trigger_min: float
@@ -365,6 +380,9 @@ class AnalogControlConfig:
     description: str | None = None
     input_type: str = "stick"
     mouse_motion: AnalogMouseMotionConfig = field(default_factory=AnalogMouseMotionConfig)
+    gamepad_output: AnalogGamepadOutputConfig = field(
+        default_factory=AnalogGamepadOutputConfig
+    )
     thresholds: list[AnalogActionThreshold] = field(default_factory=list)
 
     def __post_init__(self) -> None:

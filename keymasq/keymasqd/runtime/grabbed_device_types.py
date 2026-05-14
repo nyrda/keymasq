@@ -180,6 +180,12 @@ class RapidfireOutputState:
 
 
 @dataclass
+class AnalogGamepadOutputState:
+    output_id: str | None
+    axes: tuple[int, ...]
+
+
+@dataclass
 class GrabbedDeviceState:
     rapidfire_active: dict[str, bool] = field(default_factory=dict)
     rapidfire_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
@@ -219,6 +225,7 @@ class GrabbedDeviceState:
     analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
     analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
+    analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
 
 
 class GrabbedDeviceRuntime(Protocol):

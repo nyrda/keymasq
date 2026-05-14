@@ -505,6 +505,12 @@ class TestGrabbedDeviceHelpers:
             255,
             bucket="gamepad:virtual-gamepad-2",
         )
+        gdo.track_superkey_abs_output(
+            device,
+            "gamepad",
+            evdev.ecodes.ABS_RZ,
+            255,
+        )
         gdo.track_superkey_output(device, "gamepad", evdev.ecodes.BTN_SOUTH, 1)
         device.state.rapidfire_tasks["btn_side"] = task  # type: ignore[assignment]
         device.state.rapidfire_outputs["btn_side"] = gdt.RapidfireOutputState(kind="key")
@@ -526,11 +532,9 @@ class TestGrabbedDeviceHelpers:
         assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)]
         assert mouse.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)]
         assert (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_EAST, 0) in gamepad.writes
-        assert gamepad.writes[-2:] == [
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0),
-        ]
+        assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0) in gamepad.writes
         assert second_gamepad.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0)]
+        assert device.state.superkey_abs_refcounts["gamepad"] == {}
         assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == set()
         canceled.assert_called_once()
         assert device.state.rapidfire_tasks == {}
@@ -550,7 +554,7 @@ class TestGrabbedDeviceHelpers:
 
         with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
             gdo.ensure_key_released(device, evdev.ecodes.KEY_A, device.keyboard_uinput)
-            gdo.ensure_trigger_released(
+            gdo.ensure_abs_axis_released(
                 device,
                 evdev.ecodes.ABS_Z,
                 evdev_mod=evdev,
@@ -558,7 +562,7 @@ class TestGrabbedDeviceHelpers:
             )
 
         assert "Failed to release output key" in caplog.text
-        assert "Failed to release gamepad trigger axis" in caplog.text
+        assert "Failed to release gamepad ABS axis" in caplog.text
     def test_release_all_keys_keeps_tracking_after_failed_release(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -714,7 +718,11 @@ class TestGrabbedDeviceHelpers:
 
         gdg.reconcile_startup_held_action(
             device,
-            dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt")
+            dm.MappingAction(
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_z",
+                axis_value=255,
+            )
             ,
         )
         gdg.reconcile_startup_held_action(
@@ -748,7 +756,7 @@ class TestGrabbedDeviceHelpers:
             device.keyboard_uinput,  # type: ignore[arg-type]
         )
         device.state.tap_active["trigger"] = True
-        await _runtime_tap_grabbed_trigger(device, evdev.ecodes.ABS_Z, 25, "trigger")
+        await _runtime_tap_grabbed_axis(device, evdev.ecodes.ABS_Z, 25, "trigger")
         move_action = dm.MappingAction(
             action_type=ActionType.MOUSE_MOVE_REL,
             move_x=4,
@@ -858,15 +866,23 @@ class TestGrabbedDeviceHelpers:
         )
         await _runtime_execute_grabbed_action(
             device,
-            dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt"),
+            dm.MappingAction(
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_z",
+                axis_value=255,
+            ),
             press,
-            "trigger_btn",
+            "axis_btn",
         )
         await _runtime_execute_grabbed_action(
             device,
-            dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_lt"),
+            dm.MappingAction(
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_z",
+                axis_value=255,
+            ),
             release,
-            "trigger_btn",
+            "axis_btn",
         )
         await _runtime_execute_grabbed_action(
             device,
@@ -979,7 +995,7 @@ class TestGrabbedDeviceHelpers:
         assert macro_player.await_args_list[1].kwargs["trigger_value"] == 0
 
     @pytest.mark.asyncio
-    async def test_routed_gamepad_trigger_release_all_keys_zeros_target_output(
+    async def test_routed_gamepad_axis_release_all_keys_zeros_target_output(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -998,12 +1014,13 @@ class TestGrabbedDeviceHelpers:
         await _runtime_execute_grabbed_action(
             device,
             dm.MappingAction(
-                action_type=ActionType.GAMEPAD,
-                target="btn_lt",
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_z",
+                axis_value=255,
                 output_id="virtual-gamepad-2",
             ),
             press,
-            "trigger_btn",
+            "axis_btn",
         )
 
         assert second_gamepad.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255)]
@@ -1019,6 +1036,57 @@ class TestGrabbedDeviceHelpers:
 
         assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0) in second_gamepad.writes
         assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == set()
+
+    @pytest.mark.asyncio
+    async def test_gamepad_axis_action_writes_configured_value_and_release(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        gamepad = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
+        release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0)
+        action = dm.MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="abs_x",
+            axis_value=-32768,
+        )
+
+        await _runtime_execute_grabbed_action(device, action, press, "axis_btn")
+        await _runtime_execute_grabbed_action(device, action, release, "axis_btn")
+
+        assert gamepad.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_gamepad_axis_tap_uses_configured_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        ) -> None:
+        gamepad = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(
+                action_type=ActionType.GAMEPAD_AXIS,
+                target="abs_rz",
+                axis_value=123,
+                tap_enabled=True,
+                tap_hold_ms=1,
+            ),
+            press,
+            "axis_tap",
+        )
+        await asyncio.sleep(0.01)
+
+        assert gamepad.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 123),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0),
+        ]
 
     def test_combo_restore_routes_gamepad_output_id_and_tracks_bucket(
         self,

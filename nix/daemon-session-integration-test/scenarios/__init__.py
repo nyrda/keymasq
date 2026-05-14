@@ -7,6 +7,7 @@ from .combo_prefix_overlap import run as combo_prefix_overlap
 from .combo_superkey import run as combo_superkey
 from .combo_superkey_recall_restore import run as combo_superkey_recall_restore
 from .emergency_reset import run as emergency_reset
+from .gamepad_axis_output import run as gamepad_axis_output
 from .gamepad_output import run as gamepad_output
 from .held_output_profile_change import run as held_output_profile_change
 from .hotplug_replug import run as hotplug_replug
@@ -48,6 +49,7 @@ SCENARIOS = [
     ScenarioCase("held output profile change", held_output_profile_change),
     ScenarioCase("mouse output", mouse_output),
     ScenarioCase("gamepad output", gamepad_output),
+    ScenarioCase("gamepad axis output", gamepad_axis_output),
     ScenarioCase("emergency reset", emergency_reset),
     ScenarioCase("recording and capture", recording_capture),
     ScenarioCase("restart recovery", restart_recovery),

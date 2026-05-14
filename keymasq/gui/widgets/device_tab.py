@@ -710,7 +710,7 @@ class DeviceTab(ProfileManagedTab):
         if self.is_gamepad_hardware():
             buttons_by_id = {b.id: b for b in self.device.buttons}
             for title, button_ids, max_cols in [
-                ("Shoulders", ["btn_tl2", "btn_tl", "btn_tr2", "btn_tr"], 4),
+                ("Shoulders", ["btn_tl", "btn_tr"], 2),
                 ("Menu Buttons", ["btn_select", "btn_mode", "btn_start"], 3),
                 ("Face Buttons", ["btn_north", "btn_west", "btn_east", "btn_south"], 4),
                 ("Stick Clicks", ["btn_thumbl", "btn_thumbr"], 2),

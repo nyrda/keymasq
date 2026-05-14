@@ -165,7 +165,12 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type in (ActionType.KEYBOARD, ActionType.MOUSE, ActionType.GAMEPAD):
+    if action.action_type in (
+        ActionType.KEYBOARD,
+        ActionType.MOUSE,
+        ActionType.GAMEPAD,
+        ActionType.GAMEPAD_AXIS,
+    ):
         target = action.target or "?"
         mods: list[str] = []
         if action.rapidfire_enabled:
@@ -179,7 +184,9 @@ def _log_mapped_action(
             event_name,
             event.code,
             action.action_type.value,
-            target,
+            f"{target}={int(action.axis_value)}"
+            if action.action_type == ActionType.GAMEPAD_AXIS
+            else target,
             mod_str,
             event.value,
         )

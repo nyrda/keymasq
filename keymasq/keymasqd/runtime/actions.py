@@ -2,6 +2,7 @@ import logging
 from collections.abc import Callable
 from typing import cast
 
+from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -58,6 +59,9 @@ def parse_action(
         )
 
     target = action_data.get("target")
+    axis_value = 0
+    if action_type == ActionType.GAMEPAD_AXIS:
+        axis_value = int_value(action_data.get("value"), gamepad_axis_max_value(target))
     cmd = action_data.get("cmd")
     macro_name = action_data.get("macro_name")
     profile_name = action_data.get("profile_name")
@@ -110,6 +114,7 @@ def parse_action(
         compositor_args=optional_str(compositor_args),
         move_x=int_value(action_data.get("x"), 0),
         move_y=int_value(action_data.get("y"), 0),
+        axis_value=axis_value,
         move_speed=float_value(action_data.get("speed"), 1.0),
         move_jitter=float_value(action_data.get("jitter"), 0.3),
         rapidfire_enabled=rapidfire_enabled,
@@ -382,9 +387,14 @@ def parse_superkey_action(
             action_type.value,
         )
 
+    target = action.get("target")
+    axis_value = 0
+    if action_type == ActionType.GAMEPAD_AXIS:
+        axis_value = int_value(action.get("value"), gamepad_axis_max_value(target))
+
     return SuperkeyActionData(
         action_type=action_type.value,
-        target=optional_str(action.get("target")),
+        target=optional_str(target),
         output_id=optional_str(action.get("output_id")),
         cmd=optional_str(action.get("cmd")),
         exec_ref=int_or_none(action.get("exec_ref")),
@@ -409,6 +419,7 @@ def parse_superkey_action(
         compositor_args=optional_str(action.get("args")),
         move_x=int_value(action.get("x"), 0),
         move_y=int_value(action.get("y"), 0),
+        axis_value=axis_value,
         rapidfire_enabled=rapidfire_enabled,
         rapidfire_hold_ms=rapidfire_hold_ms,
         rapidfire_wait_ms=rapidfire_wait_ms,

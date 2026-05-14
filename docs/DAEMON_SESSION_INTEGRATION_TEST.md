@@ -23,7 +23,7 @@ coverage. It verifies that the core runtime classes still work together:
 - combo trigger-key recall and restore timing with a combo-bound superkey
 - profile toggle, priority override, passthrough override, and held-output profile change
 - mouse button, relative movement, wheel, and mouse combo output
-- gamepad button and analog trigger output
+- gamepad button and analog axis output
 - emergency reset
 - capture, combo capture, recording save, and playback
 - session restart, daemon restart, and secondary device hotplug/replug

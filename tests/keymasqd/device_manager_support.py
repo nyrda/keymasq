@@ -88,7 +88,6 @@ def _combo_runtime_deps(
         evdev_mod=dm.runtime_adapters.COMBO_EVDEV_RUNTIME,
         uinput_writer=dm.runtime_adapters.identity_uinput_writer,
         emit_mouse_move_fn=dm.runtime_adapters.combo_emit_mouse_move,
-        get_trigger_axis_fn=dm.get_trigger_axis,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )
@@ -260,15 +259,17 @@ async def _runtime_tap_grabbed_key(
     )
 
 
-async def _runtime_tap_grabbed_trigger(
+async def _runtime_tap_grabbed_axis(
     device: GrabbedDevice,
     axis_code: int,
     hold_ms: int,
     event_name: str,
 ) -> None:
-    await gdr.tap_trigger(
+    await gdr.tap_abs_axis(
         device,
         axis_code,
+        255,
+        0,
         hold_ms,
         event_name,
         device.gamepad_uinput,
@@ -455,7 +456,7 @@ __all__ = [
     '_runtime_find_grabbed_action_for_event',
     '_runtime_write_grabbed_key',
     '_runtime_tap_grabbed_key',
-    '_runtime_tap_grabbed_trigger',
+    '_runtime_tap_grabbed_axis',
     '_runtime_tap_grabbed_move',
     '_runtime_topology_watch_loop',
     '_runtime_schedule_topology_reconcile',

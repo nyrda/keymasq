@@ -141,6 +141,66 @@ class TestProfileTOML:
         assert 'output_id = "virtual-gamepad-2"' in content
         assert 'output_id = "virtual-gamepad-3"' not in content
 
+    def test_profile_gamepad_axis_roundtrip(self, temp_config_dir):
+        original = ProfileConfig(
+            name="Axis Gamepad",
+            device_layers={
+                "1234:5678": DeviceProfileLayer(
+                    hardware_id="1234:5678",
+                    mappings={
+                        "btn_back": MappingAction(
+                            action_type=ActionType.GAMEPAD_AXIS,
+                            target="abs_x",
+                            axis_value=-32768,
+                            output_id="virtual-gamepad-2",
+                            rapidfire_enabled=True,
+                            rapidfire_hold_ms=40,
+                            rapidfire_wait_ms=25,
+                            tap_enabled=True,
+                            tap_hold_ms=15,
+                        ),
+                    },
+                )
+            },
+        )
+
+        manager = ProfileManager()
+        manager.save_profile(original)
+        content = manager.get_profile(original.name).path.read_text(encoding="utf-8")
+
+        loaded = manager.get_profile(original.name).config
+        action = loaded.device_layers["1234:5678"].mappings["btn_back"]
+        assert action.action_type == ActionType.GAMEPAD_AXIS
+        assert action.target == "abs_x"
+        assert action.axis_value == -32768
+        assert action.output_id == "virtual-gamepad-2"
+        assert action.rapidfire_enabled is True
+        assert action.tap_enabled is True
+        assert 'action = "gamepad_axis"' in content
+        assert 'value = -32768' in content
+
+    def test_profile_gamepad_axis_missing_value_defaults_to_max(self, temp_config_dir):
+        profile_path = temp_config_dir / "profiles" / "axis.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Axis Default"
+enabled = true
+
+[devices."1234:5678".mapping.btn_side]
+action = "gamepad_axis"
+target = "abs_z"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+
+        action = manager.get_profile("Axis Default").config.device_layers[
+            "1234:5678"
+        ].mappings["btn_side"]
+        assert action.axis_value == 255
+
     def test_profile_file_is_human_readable(self, temp_config_dir, sample_profile_config):
         manager = ProfileManager()
         manager.save_profile(sample_profile_config)

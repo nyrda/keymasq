@@ -70,6 +70,11 @@ def _describe_pattern_superkey_action(
         label = f"{type_label('Mouse')}{target_separator}{action.target or ''}"
     elif action.action_type == ActionType.GAMEPAD:
         label = f"{type_label('Gamepad')}{target_separator}{action.target or ''}"
+    elif action.action_type == ActionType.GAMEPAD_AXIS:
+        label = (
+            f"{type_label('Gamepad Axis')}{target_separator}"
+            f"{action.target or ''}={int(action.axis_value)}"
+        )
     elif action.action_type == ActionType.MOUSE_MOVE_REL:
         label = (
             f"{type_label('Mouse Move (rel)')}{target_separator}{action.move_x}, {action.move_y}"

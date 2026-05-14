@@ -248,7 +248,7 @@ class TestCombos:
         ]
 
     @pytest.mark.asyncio
-    async def test_runtime_combo_tap_trigger_releases_when_runtime_clears(self, monkeypatch):
+    async def test_runtime_combo_tap_axis_releases_when_runtime_clears(self, monkeypatch):
         manager = DeviceManager()
         manager.output_state.gamepad_uinput = _FakeUInput()
 
@@ -269,8 +269,9 @@ class TestCombos:
                         }
                     ],
                     "action": {
-                        "action": "gamepad",
-                        "target": "btn_lt",
+                        "action": "gamepad_axis",
+                        "target": "abs_z",
+                        "value": 255,
                         "tap_enabled": True,
                         "tap_hold_ms": 1000,
                     },

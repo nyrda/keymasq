@@ -29,6 +29,52 @@ class TestMappingAction:
         assert action.rapidfire_hold_ms == 0
         assert action.rapidfire_wait_ms == 1
 
+    def test_gamepad_axis_normalizes_output_and_clamps_value(self):
+        action = MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="x",
+            output_id="virtual-gamepad-2",
+            axis_value=-40000,
+            rapidfire_enabled=True,
+        )
+
+        assert action.target == "abs_x"
+        assert action.output_id == "virtual-gamepad-2"
+        assert action.axis_value == -32768
+        assert action.rapidfire_enabled is True
+
+    def test_gamepad_axis_invalid_target_neutralizes_value(self):
+        mapping_action = MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="btn_lt",
+            axis_value=255,
+        )
+        superkey_action = SuperkeyAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="btn_rt",
+            axis_value=255,
+        )
+
+        assert mapping_action.target is None
+        assert mapping_action.axis_value == 0
+        assert superkey_action.target is None
+        assert superkey_action.axis_value == 0
+
+    def test_gamepad_axis_superkey_conversion_preserves_value(self):
+        action = MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="abs_rx",
+            axis_value=12345,
+            output_id="virtual-gamepad-2",
+        )
+
+        superkey_action = mapping_action_to_superkey_action(action)
+        roundtrip = superkey_action_to_mapping_action(superkey_action)
+
+        assert superkey_action.axis_value == 12345
+        assert roundtrip.axis_value == 12345
+        assert roundtrip.output_id == "virtual-gamepad-2"
+
 
 class TestProfileState:
     def test_disabled_state(self):

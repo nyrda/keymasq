@@ -1,6 +1,6 @@
 # Gamepad Output Support
 
-Keymasq can remap mouse buttons, keyboard keys, or any input to virtual gamepad buttons. This is useful for games that expect controller input or for using mouse buttons as gamepad controls.
+Keymasq can remap mouse buttons, keyboard keys, or any input to virtual gamepad buttons and analog axes. This is useful for games that expect controller input or for using mouse buttons as gamepad controls.
 
 ## How It Works
 
@@ -26,6 +26,35 @@ drops the output with no fallback.
 
 The virtual gamepad appears as an Xbox 360 controller. Button codes follow the Linux evdev naming convention.
 
+## Analog Axis Output
+
+Use `action = "gamepad_axis"` to set a gamepad axis to a specific raw evdev
+value while the source input is held. Releasing the source input returns the
+axis to neutral `0`.
+
+| Target | Control | Range |
+|--------|---------|-------|
+| `abs_x` | Left stick X | `-32768..32767` |
+| `abs_y` | Left stick Y | `-32768..32767` |
+| `abs_rx` | Right stick X | `-32768..32767` |
+| `abs_ry` | Right stick Y | `-32768..32767` |
+| `abs_z` | Left trigger | `0..255` |
+| `abs_rz` | Right trigger | `0..255` |
+
+Example:
+
+```toml
+[devices."046d:c548".mapping.btn_back]
+action = "gamepad_axis"
+target = "abs_x"
+value = -32768
+output_id = "virtual-gamepad-2"
+```
+
+Triggers are analog axis outputs. Use `abs_z` for LT and `abs_rz` for RT.
+`gamepad` actions are button-only and do not translate trigger button aliases
+to axes.
+
 ### Face Buttons
 | Code | Xbox | Position | evdev Code |
 |------|------|----------|------------|
@@ -41,16 +70,12 @@ The virtual gamepad appears as an Xbox 360 controller. Button codes follow the L
 |------|------|------------|
 | `btn_tl` | LB (Left Bumper) | 310 |
 | `btn_tr` | RB (Right Bumper) | 311 |
-| `btn_tl2` | LT (Left Trigger, digital) | 312 |
-| `btn_tr2` | RT (Right Trigger, digital) | 313 |
 
-### Shoulder Buttons (Bumpers & Triggers)
+### Shoulder Buttons
 | Code | Xbox | PlayStation | Description |
 |------|------|-------------|-------------|
 | `btn_tl` | LB | L1 | Left bumper |
 | `btn_tr` | RB | R1 | Right bumper |
-| `btn_tl2` | LT | L2 | Left trigger (digital) |
-| `btn_tr2` | RT | R2 | Right trigger (digital) |
 
 ### Thumb Buttons (Stick Clicks)
 | Code | Xbox | PlayStation | Description |
@@ -204,7 +229,7 @@ The full list of available codes (case-insensitive):
 
 ```
 btn_south (btn_a), btn_east (btn_b), btn_north (btn_x), btn_west (btn_y),
-btn_tl, btn_tr, btn_tl2, btn_tr2,
+btn_tl, btn_tr,
 btn_select, btn_start, btn_mode,
 btn_thumbl, btn_thumbr,
 btn_dpad_up, btn_dpad_down, btn_dpad_left, btn_dpad_right

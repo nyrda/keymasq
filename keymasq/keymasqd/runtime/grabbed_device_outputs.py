@@ -67,6 +67,24 @@ def track_abs_state(
         held.discard(int(axis_code))
 
 
+def write_abs_axis(
+    device_runtime: GrabbedDeviceRuntime,
+    uinput_dev: object | None,
+    axis_code: int,
+    value: int,
+    *,
+    evdev_mod: EvdevModule,
+    uinput_writer: UInputWriter,
+    bucket: str | None = None,
+) -> None:
+    writer = uinput_writer(uinput_dev)
+    if writer is None:
+        return
+    writer.write(evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
+    writer.syn()
+    track_abs_state(device_runtime, int(axis_code), int(value), bucket=bucket)
+
+
 def write_key(
     device_runtime: GrabbedDeviceRuntime,
     uinput_dev: object | None,
@@ -113,6 +131,35 @@ def track_superkey_output(
     return True
 
 
+def track_superkey_abs_output(
+    device_runtime: GrabbedDeviceRuntime,
+    bucket: str,
+    axis_code: int,
+    value: int,
+    *,
+    release_value: int = 0,
+) -> bool:
+    if bucket not in device_runtime.state.superkey_abs_refcounts:
+        device_runtime.state.superkey_abs_refcounts[bucket] = {}
+    held = device_runtime.state.held_output_abs.setdefault(bucket, set())
+
+    refcounts = device_runtime.state.superkey_abs_refcounts[bucket]
+    current = refcounts.get(int(axis_code), 0)
+
+    if int(value) != int(release_value):
+        refcounts[int(axis_code)] = current + 1
+        held.add(int(axis_code))
+        return current == 0
+
+    if current <= 1:
+        refcounts.pop(int(axis_code), None)
+        held.discard(int(axis_code))
+        return current == 1
+
+    refcounts[int(axis_code)] = current - 1
+    return False
+
+
 def passthrough(
     device_runtime: GrabbedDeviceRuntime,
     event: InputEventLike,
@@ -145,7 +192,7 @@ def passthrough(
     writer.syn()
 
 
-def ensure_trigger_released(
+def ensure_abs_axis_released(
     device_runtime: GrabbedDeviceRuntime,
     axis_code: int,
     *,
@@ -153,16 +200,21 @@ def ensure_trigger_released(
     uinput_writer: UInputWriter,
     uinput_dev: object | None = None,
     bucket: str | None = None,
+    release_value: int = 0,
 ) -> None:
     try:
-        gamepad_uinput = uinput_writer(uinput_dev or device_runtime.gamepad_uinput)
-        if gamepad_uinput is not None:
-            gamepad_uinput.write(evdev_mod.ecodes.EV_ABS, axis_code, 0)
-            gamepad_uinput.syn()
-            track_abs_state(device_runtime, axis_code, 0, bucket=bucket)
+        write_abs_axis(
+            device_runtime,
+            uinput_dev or device_runtime.gamepad_uinput,
+            axis_code,
+            release_value,
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
+            bucket=bucket,
+        )
     except Exception as exc:
         log.debug(
-            "Failed to release gamepad trigger axis %s on %s: %s",
+            "Failed to release gamepad ABS axis %s on %s: %s",
             axis_code,
             device_runtime.path,
             exc,
@@ -223,7 +275,7 @@ def release_all_keys(
         "gamepad": device_runtime.gamepad_uinput,
     }
     for state in device_runtime.state.rapidfire_outputs.values():
-        if state.kind == "trigger" and state.bucket:
+        if state.kind == "axis" and state.bucket:
             devices.setdefault(state.bucket, state.uinput)
     for bucket in set(device_runtime.state.held_output_keys) | set(
         device_runtime.state.held_output_abs
@@ -241,6 +293,8 @@ def release_all_keys(
             device_runtime.state.held_output_abs.get(bucket, set()).clear()
             if bucket in device_runtime.state.superkey_output_refcounts:
                 device_runtime.state.superkey_output_refcounts[bucket].clear()
+            if bucket in device_runtime.state.superkey_abs_refcounts:
+                device_runtime.state.superkey_abs_refcounts[bucket].clear()
             continue
         held = sorted(device_runtime.state.held_output_keys.get(bucket, set()))
         if not held:
@@ -262,6 +316,8 @@ def release_all_keys(
             device_runtime.state.held_output_keys[bucket].clear()
             if bucket in device_runtime.state.superkey_output_refcounts:
                 device_runtime.state.superkey_output_refcounts[bucket].clear()
+            if bucket in device_runtime.state.superkey_abs_refcounts:
+                device_runtime.state.superkey_abs_refcounts[bucket].clear()
 
     for bucket, held_abs in list(device_runtime.state.held_output_abs.items()):
         if not bucket.startswith("gamepad") and not held_abs:
@@ -278,7 +334,7 @@ def release_all_keys(
             writer.syn()
         except Exception as exc:
             log.debug(
-                "Failed to release gamepad trigger axes on %s bucket=%s: %s",
+                "Failed to release gamepad ABS axes on %s bucket=%s: %s",
                 device_runtime.path,
                 bucket,
                 exc,
@@ -286,6 +342,8 @@ def release_all_keys(
             )
         else:
             held_abs.clear()
+            if bucket in device_runtime.state.superkey_abs_refcounts:
+                device_runtime.state.superkey_abs_refcounts[bucket].clear()
 
     for task in list(device_runtime.state.rapidfire_tasks.values()):
         if not task.done():

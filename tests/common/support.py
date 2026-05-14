@@ -14,8 +14,11 @@ from keymasq.common.models import (
     MappingAction,
     ProfileConfig,
     ProfileState,
+    SuperkeyAction,
     WindowRule,
     is_protected_button,
+    mapping_action_to_superkey_action,
+    superkey_action_to_mapping_action,
 )
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileManager
@@ -33,8 +36,11 @@ __all__ = [
     'MappingAction',
     'ProfileConfig',
     'ProfileState',
+    'SuperkeyAction',
     'WindowRule',
     'is_protected_button',
+    'mapping_action_to_superkey_action',
+    'superkey_action_to_mapping_action',
     'HardwareManager',
     'ProfileManager',
 ]

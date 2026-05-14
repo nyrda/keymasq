@@ -173,6 +173,7 @@ class RapidfireOutputState:
     code: int | None = None
     uinput: object | None = None
     axis_code: int | None = None
+    axis_release_value: int = 0
     bucket: str | None = None
 
 
@@ -203,6 +204,11 @@ class GrabbedDeviceState:
         default_factory=lambda: {
             "keyboard": {},
             "mouse": {},
+            "gamepad": {},
+        }
+    )
+    superkey_abs_refcounts: dict[str, dict[int, int]] = field(
+        default_factory=lambda: {
             "gamepad": {},
         }
     )

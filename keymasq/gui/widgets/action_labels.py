@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from keymasq.common.gamepad_axes import gamepad_axis_range
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.gui.widgets.compositor_actions import describe_compositor_action
 
@@ -37,6 +38,11 @@ def describe_mapping_action_compact(
     elif action.action_type == ActionType.GAMEPAD:
         suffix = f" @{action.output_id}" if action.output_id else ""
         parts.append(f"🎮 {action.target or '?'}{suffix}")
+    elif action.action_type == ActionType.GAMEPAD_AXIS:
+        suffix = f" @{action.output_id}" if action.output_id else ""
+        axis = gamepad_axis_range(action.target)
+        label = axis.label if axis is not None else action.target or "?"
+        parts.append(f"🎮 {label} {int(action.axis_value)}{suffix}")
     elif action.action_type == ActionType.EXEC:
         cmd = action.cmd or "exec"
         parts.append(f"▶ {cmd}")
@@ -75,6 +81,7 @@ def describe_mapping_action_compact(
         ActionType.MOUSE_MOVE_REL,
         ActionType.MOUSE_MOVE_ABS,
         ActionType.GAMEPAD,
+        ActionType.GAMEPAD_AXIS,
     }:
         if action.rapidfire_enabled:
             parts.append("⚡")
@@ -109,6 +116,11 @@ def describe_mapping_action_verbose(
     if action.action_type == ActionType.GAMEPAD:
         suffix = f" @ {_gamepad_output_label(action.output_id)}" if action.output_id else ""
         return f"Gamepad → {_resolved_label(action.target, gamepad_label)}{suffix}"
+    if action.action_type == ActionType.GAMEPAD_AXIS:
+        suffix = f" @ {_gamepad_output_label(action.output_id)}" if action.output_id else ""
+        axis = gamepad_axis_range(action.target)
+        label = axis.label if axis is not None else action.target or "?"
+        return f"Gamepad Axis → {label} = {int(action.axis_value)}{suffix}"
     if action.action_type == ActionType.MACRO:
         return f"Macro → {action.macro_name or '?'}"
     if action.action_type == ActionType.EXEC:

@@ -549,6 +549,137 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
+
+    @pytest.mark.asyncio
+    async def test_overload_superkey_refcounts_shared_axis_outputs_across_two_inputs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
+
+        shared_config = SuperkeyConfig(
+            name="overload_shared_axis",
+            mode=SuperkeyMode.OVERLOAD,
+            overload_actions=[
+                dm.MappingAction(
+                    action_type=ActionType.GAMEPAD_AXIS,
+                    target="abs_x",
+                    axis_value=-32768,
+                ),
+            ],
+        )
+        mapping_state = {
+            "btn_side": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=shared_config,
+            ),
+            "btn_extra": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=shared_config,
+            ),
+        }
+
+        gamepad_uinput = _FakeUInput()
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={"btn_side": "btn_side", "btn_extra": "btn_extra"},
+            mapping_getter=lambda: mapping_state,
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.MOUSE,
+            gamepad_uinput=gamepad_uinput,  # type: ignore[arg-type]
+        )
+        device._running = True
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
+        )
+
+        assert gamepad_uinput.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
+        ]
+        assert device.state.held_output_abs["gamepad"] == {evdev.ecodes.ABS_X}
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=0),
+        )
+
+        assert gamepad_uinput.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
+        ]
+        assert device.state.held_output_abs["gamepad"] == set()
+
+    @pytest.mark.asyncio
+    async def test_pattern_superkey_gamepad_axis_tracks_held_axis_for_cleanup(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
+
+        config = SuperkeyConfig(
+            name="axis_hold",
+            mode=SuperkeyMode.PATTERN,
+            hold_threshold_ms=1,
+            hold_actions=[
+                SuperkeyActionData(
+                    action_type="gamepad_axis",
+                    target="abs_z",
+                    axis_value=255,
+                ),
+            ],
+        )
+        mapping_state = {
+            "btn_side": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=config,
+            ),
+        }
+
+        gamepad_uinput = _FakeUInput()
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={"btn_side": "btn_side"},
+            mapping_getter=lambda: mapping_state,
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.MOUSE,
+            gamepad_uinput=gamepad_uinput,  # type: ignore[arg-type]
+        )
+        device._running = True
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
+        )
+        await asyncio.sleep(0.01)
+
+        assert gamepad_uinput.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255)]
+        assert device.state.held_output_abs["gamepad"] == {evdev.ecodes.ABS_Z}
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
+        )
+
+        assert gamepad_uinput.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
+        ]
+        assert device.state.held_output_abs["gamepad"] == set()
+
     @pytest.mark.asyncio
     async def test_reset_mapping_runtime_state_seeds_startup_held_action_and_releases_output(
         self,

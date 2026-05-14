@@ -41,7 +41,7 @@ from keymasq.keymasqd.combo_engine import (
     RuntimeComboBinding,
     RuntimeComboStep,
 )
-from keymasq.keymasqd.output_helpers import emit_mouse_move, get_trigger_axis, resolve_output_code
+from keymasq.keymasqd.output_helpers import emit_mouse_move, resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import actions as runtime_actions
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
@@ -195,7 +195,6 @@ def _combo_runtime_deps(
         evdev_mod=runtime_adapters.COMBO_EVDEV_RUNTIME,
         uinput_writer=runtime_adapters.identity_uinput_writer,
         emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
-        get_trigger_axis_fn=get_trigger_axis,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )

@@ -16,13 +16,13 @@ def test_resolve_output_code_handles_known_tuple_and_unknown_targets(monkeypatch
     assert output_helpers.resolve_output_code("missing_code") is None
 
 
-def test_get_trigger_axis_maps_aliases() -> None:
-    assert output_helpers.get_trigger_axis(None) == (False, None)
-    assert output_helpers.get_trigger_axis("btn_tl2") == (True, evdev.ecodes.ABS_Z)
-    assert output_helpers.get_trigger_axis("btn_lt") == (True, evdev.ecodes.ABS_Z)
-    assert output_helpers.get_trigger_axis("btn_tr2") == (True, evdev.ecodes.ABS_RZ)
-    assert output_helpers.get_trigger_axis("btn_rt") == (True, evdev.ecodes.ABS_RZ)
-    assert output_helpers.get_trigger_axis("key_a") == (False, None)
+def test_resolve_gamepad_axis_code_requires_axis_targets() -> None:
+    assert output_helpers.resolve_gamepad_axis_code(None) is None
+    assert output_helpers.resolve_gamepad_axis_code("abs_z") == evdev.ecodes.ABS_Z
+    assert output_helpers.resolve_gamepad_axis_code("abs_rz") == evdev.ecodes.ABS_RZ
+    assert output_helpers.resolve_gamepad_axis_code("btn_tl2") is None
+    assert output_helpers.resolve_gamepad_axis_code("btn_lt") is None
+    assert output_helpers.resolve_gamepad_axis_code("key_a") is None
 
 
 def test_emit_mouse_move_supports_absolute_mode_and_swallows_errors() -> None:

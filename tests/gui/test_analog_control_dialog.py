@@ -103,3 +103,21 @@ def test_analog_selector_filters_controls_by_source_input_type(temp_config_dir) 
     )
 
     assert [config.name for config in dialog._analog_control_list] == ["Trigger Control"]
+
+
+def test_analog_control_dialog_groups_saved_controls_by_input_type() -> None:
+    from keymasq.common.models import AnalogControlConfig
+    from keymasq.gui.widgets.analog_control_dialog import _group_analog_control_names
+
+    configs = {
+        "Stick Control": AnalogControlConfig(name="Stick Control"),
+        "Trigger Control": AnalogControlConfig(name="Trigger Control", input_type="trigger"),
+    }
+
+    assert _group_analog_control_names(
+        ["Stick Control", "Trigger Control"],
+        configs,
+    ) == [
+        ("Triggers", ["Trigger Control"]),
+        ("Sticks", ["Stick Control"]),
+    ]

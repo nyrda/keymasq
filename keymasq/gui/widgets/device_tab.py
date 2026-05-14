@@ -107,6 +107,26 @@ def _ordered_analog_inputs(
     )
 
 
+def _grouped_analog_inputs(
+    analog_inputs: list[AnalogInputDefinition],
+) -> list[tuple[str, list[AnalogInputDefinition]]]:
+    ordered = _ordered_analog_inputs(analog_inputs)
+    groups: list[tuple[str, list[AnalogInputDefinition]]] = []
+    for analog_type, title in (("trigger", "Triggers"), ("stick", "Sticks")):
+        matching = [analog for analog in ordered if str(analog.type).lower() == analog_type]
+        if matching:
+            groups.append((title, matching))
+
+    other = [
+        analog
+        for analog in ordered
+        if str(analog.type).lower() not in {"trigger", "stick"}
+    ]
+    if other:
+        groups.append(("Other", other))
+    return groups
+
+
 def _display_action_summary(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
@@ -1014,14 +1034,22 @@ class DeviceTab(ProfileManagedTab):
         label.set_halign(Gtk.Align.START)
         parent.append(label)
 
-        grid = Gtk.Grid()
-        grid.set_column_spacing(12)
-        grid.set_row_spacing(12)
-        for index, analog in enumerate(_ordered_analog_inputs(self.device.analog_inputs)):
-            widget = self._create_analog_widget(analog)
-            grid.attach(widget, index % 2, index // 2, 1, 1)
-            self._button_widgets[analog.id] = widget
-        parent.append(grid)
+        for title, analogs in _grouped_analog_inputs(self.device.analog_inputs):
+            group_label = Gtk.Label(label=title)
+            group_label.add_css_class("caption")
+            group_label.add_css_class("dim-label")
+            group_label.set_halign(Gtk.Align.START)
+            group_label.set_margin_top(2)
+            parent.append(group_label)
+
+            grid = Gtk.Grid()
+            grid.set_column_spacing(12)
+            grid.set_row_spacing(12)
+            for index, analog in enumerate(analogs):
+                widget = self._create_analog_widget(analog)
+                grid.attach(widget, index % 2, index // 2, 1, 1)
+                self._button_widgets[analog.id] = widget
+            parent.append(grid)
 
     def _create_analog_widget(self, analog: AnalogInputDefinition) -> Gtk.Button:
         btn = Gtk.Button()

@@ -31,6 +31,7 @@ _MODE_ITEMS = ("mouse", "digital", "both")
 _MODE_LABELS = ("Mouse Movement", "Digital Actions", "Mouse + Digital")
 _INPUT_TYPE_ITEMS = ("stick", "trigger")
 _INPUT_TYPE_LABELS = ("Stick", "Trigger")
+_CONTROL_GROUPS = (("trigger", "Triggers"), ("stick", "Sticks"))
 _AXIS_ITEMS = ("x", "y")
 
 
@@ -54,6 +55,28 @@ def _to_percent(value: float) -> float:
 
 def _from_percent(value: float) -> float:
     return round(max(-100.0, min(100.0, float(value))) / 100.0, 2)
+
+
+def _group_analog_control_names(
+    names: list[str],
+    configs: dict[str, AnalogControlConfig],
+) -> list[tuple[str, list[str]]]:
+    grouped: list[tuple[str, list[str]]] = []
+    used: set[str] = set()
+    for input_type, title in _CONTROL_GROUPS:
+        group_names = [
+            name
+            for name in names
+            if (config := configs.get(name)) is not None and config.input_type == input_type
+        ]
+        if group_names:
+            grouped.append((title, group_names))
+            used.update(group_names)
+
+    other_names = [name for name in names if name not in used]
+    if other_names:
+        grouped.append(("Other", other_names))
+    return grouped
 
 
 class AnalogControlDialog(Adw.Dialog):
@@ -301,6 +324,20 @@ class AnalogControlDialog(Adw.Dialog):
         row.set_child(label)
         return row
 
+    def _build_control_group_row(self, title: str) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row.set_selectable(False)
+        row.set_activatable(False)
+        label = Gtk.Label(label=title, xalign=0)
+        label.add_css_class("caption")
+        label.add_css_class("dim-label")
+        label.set_margin_start(6)
+        label.set_margin_end(6)
+        label.set_margin_top(10)
+        label.set_margin_bottom(2)
+        row.set_child(label)
+        return row
+
     def _build_saved_control_row(self, name: str) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row._analog_control_name = name
@@ -346,14 +383,21 @@ class AnalogControlDialog(Adw.Dialog):
             self.list_box.remove(row)
 
         names = self.manager.list_analog_controls()
-        for name in names:
-            self.list_box.append(self._build_saved_control_row(name))
+        configs = self.manager.get_all_analog_controls()
+        first_saved_row: Gtk.ListBoxRow | None = None
+        for title, group_names in _group_analog_control_names(names, configs):
+            self.list_box.append(self._build_control_group_row(title))
+            for name in group_names:
+                row = self._build_saved_control_row(name)
+                self.list_box.append(row)
+                if first_saved_row is None:
+                    first_saved_row = row
 
         self.new_control_row = self._build_new_control_row()
         self.list_box.append(self.new_control_row)
 
-        if names:
-            self.list_box.select_row(self.list_box.get_row_at_index(0))
+        if first_saved_row is not None:
+            self.list_box.select_row(first_saved_row)
         else:
             self.list_box.select_row(self.new_control_row)
 

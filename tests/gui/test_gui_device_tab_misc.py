@@ -513,6 +513,33 @@ def test_key_selector_dialog_passthrough_clears_current_profile_mapping():
     assert results == [None]
 
 
+def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough():
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def collect_buttons(widget):
+        buttons = []
+        child = widget.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Button):
+                buttons.append(child)
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Left Stick", source_type="analog")
+
+    assert dialog.stack.get_visible_child_name() == "analog_control"
+
+    special_tab = dialog._build_special_tab()
+    button_labels = {button.get_label() for button in collect_buttons(special_tab)}
+
+    assert "Clear Mapping" in button_labels
+    assert "Suppress" in button_labels
+    assert "Passthrough" not in button_labels
+
+
 def test_key_selector_dialog_uses_dedicated_superkey_tab(temp_config_dir, monkeypatch):
     from gi.repository import Gtk
 
@@ -1522,7 +1549,7 @@ def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.
 
 def test_analog_controls_layout_orders_triggers_then_sticks() -> None:
     from keymasq.common.models import AnalogInputDefinition
-    from keymasq.gui.widgets.device_tab import _ordered_analog_inputs
+    from keymasq.gui.widgets.device_tab import _grouped_analog_inputs, _ordered_analog_inputs
 
     analogs = [
         AnalogInputDefinition(id="left_stick", label="Left Stick", type="stick"),
@@ -1536,4 +1563,11 @@ def test_analog_controls_layout_orders_triggers_then_sticks() -> None:
         "right_trigger",
         "left_stick",
         "right_stick",
+    ]
+    assert [
+        (title, [analog.id for analog in grouped_analogs])
+        for title, grouped_analogs in _grouped_analog_inputs(analogs)
+    ] == [
+        ("Triggers", ["left_trigger", "right_trigger"]),
+        ("Sticks", ["left_stick", "right_stick"]),
     ]

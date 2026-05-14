@@ -681,14 +681,15 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
         self.stack = Gtk.Stack()
         self.stack.set_vexpand(True)
-        self.stack.add_titled(self._build_special_tab(), "special", "Special")
         if self._source_type == "analog":
             self.stack.add_titled(
                 self._build_analog_control_tab(),
                 "analog_control",
                 "Analog Controls",
             )
+            self.stack.add_titled(self._build_special_tab(), "special", "Special")
         else:
+            self.stack.add_titled(self._build_special_tab(), "special", "Special")
             self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
             self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
             self.stack.add_titled(self._build_media_tab(), "media", "Media")
@@ -817,13 +818,6 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
                 "Do not store a mapping here, so lower-priority profiles can still apply"
             )
             box.append(clear_btn)
-            special_buttons_added = True
-
-        if self._source_type == "analog" and self._allow_passthrough:
-            passthrough_btn = self._create_key_button("Passthrough", "passthrough", large=True)
-            passthrough_btn.connect("clicked", self._on_special_clicked, "explicit_passthrough")
-            passthrough_btn.set_tooltip_text("Store an explicit passthrough mapping here")
-            box.append(passthrough_btn)
             special_buttons_added = True
 
         if self._allow_suppress:

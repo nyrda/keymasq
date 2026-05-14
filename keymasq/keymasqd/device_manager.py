@@ -300,14 +300,6 @@ class GamepadOutputTarget:
 
 
 @dataclass
-class CursorPositionRuntimeState:
-    session_backend_enabled: bool = False
-    request_seq: int = 0
-    pending: dict[str, asyncio.Future[JsonObject]] = field(default_factory=dict)
-    timeout_s: float = 0.5
-
-
-@dataclass
 class MacroRuntimeState:
     tasks: dict[int, asyncio.Task[None]] = field(default_factory=dict)
     instance_meta: dict[int, dict[str, object]] = field(default_factory=dict)
@@ -430,7 +422,6 @@ class DeviceManager:
         self.broadcast_callback = broadcast_callback
 
         self.output_state = OutputRuntimeState()
-        self.cursor_position_state = CursorPositionRuntimeState()
         self.recording_manager: RecordingManager | None = None
         self.macro_store: Any | None = None
         self.macro_exec_timeout_max_ms = 30000
@@ -1261,83 +1252,7 @@ class DeviceManager:
             iter_events=iter_stored_events,
         )
 
-    def set_cursor_position_backend(self, enabled: bool) -> JsonObject:
-        self.cursor_position_state.session_backend_enabled = bool(enabled)
-        if not enabled:
-            for request_id, future in list(self.cursor_position_state.pending.items()):
-                if not future.done():
-                    future.set_result(
-                        {
-                            "status": "error",
-                            "message": "session cursor backend disabled",
-                            "request_id": request_id,
-                        }
-                    )
-            self.cursor_position_state.pending.clear()
-            self.cursor_position_state.request_seq = 0
-        return {"status": "ok", "enabled": bool(enabled)}
-
     async def set_cursor_position(self, x: int, y: int) -> JsonObject:
-        if self.cursor_position_state.session_backend_enabled and self.broadcast_callback:
-            result = await self._set_cursor_position_via_session(int(x), int(y))
-            if result.get("status") == "ok":
-                return result
-
-        return self._set_cursor_position_local(int(x), int(y))
-
-    async def _set_cursor_position_via_session(self, x: int, y: int) -> JsonObject:
-        callback = self.broadcast_callback
-        if callback is None:
-            return {"status": "error", "message": "session cursor backend unavailable"}
-
-        self.cursor_position_state.request_seq += 1
-        request_id = str(self.cursor_position_state.request_seq)
-        future: asyncio.Future[JsonObject] = asyncio.get_running_loop().create_future()
-        self.cursor_position_state.pending[request_id] = future
-        try:
-            await callback(
-                CommandType.SET_CURSOR_POSITION,
-                {"request_id": request_id, "x": int(x), "y": int(y)},
-            )
-            result = await asyncio.wait_for(
-                future,
-                timeout=max(0.05, float(self.cursor_position_state.timeout_s)),
-            )
-        except Exception as exc:
-            return {"status": "error", "message": str(exc)}
-        finally:
-            self.cursor_position_state.pending.pop(request_id, None)
-
-        if result.get("status") == "ok":
-            return {"status": "ok", "backend": "session", "x": int(x), "y": int(y)}
-        return {
-            "status": "error",
-            "message": str(result.get("message") or "session cursor backend failed"),
-        }
-
-    def complete_cursor_position_request(
-        self,
-        request_id: str,
-        *,
-        ok: bool,
-        message: str = "",
-    ) -> JsonObject:
-        future = self.cursor_position_state.pending.pop(str(request_id), None)
-        if future is not None and not future.done():
-            future.set_result(
-                {
-                    "status": "ok" if ok else "error",
-                    "message": str(message or ("ok" if ok else "")),
-                }
-            )
-            if not self.cursor_position_state.pending:
-                self.cursor_position_state.request_seq = 0
-            return {"status": "ok", "completed": True}
-        if not self.cursor_position_state.pending:
-            self.cursor_position_state.request_seq = 0
-        return {"status": "ok", "completed": False}
-
-    def _set_cursor_position_local(self, x: int, y: int) -> JsonObject:
         if self.output_state.mouse_uinput is None:
             return {"status": "error", "message": "No mouse uinput device available"}
 

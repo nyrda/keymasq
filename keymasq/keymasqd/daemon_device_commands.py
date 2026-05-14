@@ -7,7 +7,6 @@ from keymasq.keymasqd.daemon_helpers import (
     JsonObject,
     float_like,
     int_dict,
-    int_like,
     json_object,
     json_object_list,
     str_dict,
@@ -35,13 +34,7 @@ class _DeviceCommandManager(Protocol):
 
     async def set_combos(self, combos: Sequence[object]) -> JsonObject: ...
 
-    def set_cursor_position_backend(self, enabled: bool) -> JsonObject: ...
-
     async def set_cursor_position(self, x: int, y: int) -> JsonObject: ...
-
-    def complete_cursor_position_request(
-        self, request_id: str, *, ok: bool, message: str = ""
-    ) -> JsonObject: ...
 
     async def list_devices(self) -> JsonObject: ...
 
@@ -108,24 +101,6 @@ async def handle_device_command(
             json_object_list(data.get("combos", [])),
         )
         return await daemon.device_manager.set_combos(combos)
-
-    if command_type == CommandType.SET_CURSOR_POSITION:
-        return await daemon.device_manager.set_cursor_position(
-            int_like(data.get("x"), 0),
-            int_like(data.get("y"), 0),
-        )
-
-    if command_type == CommandType.SET_CURSOR_POSITION_BACKEND:
-        return daemon.device_manager.set_cursor_position_backend(
-            bool(data.get("enabled", False)),
-        )
-
-    if command_type == CommandType.SET_CURSOR_POSITION_RESULT:
-        return daemon.device_manager.complete_cursor_position_request(
-            str_value(data.get("request_id")),
-            ok=bool(data.get("ok", False)),
-            message=str_value(data.get("message")),
-        )
 
     if command_type == CommandType.LIST_DEVICES:
         return await daemon.device_manager.list_devices()

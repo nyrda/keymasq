@@ -93,10 +93,6 @@ class HyprlandListener(WindowListener):
     def supports_compositor_dispatch(self) -> bool:
         return True
 
-    @property
-    def supports_native_cursor_position_set(self) -> bool:
-        return True
-
     async def start(self) -> None:
         event_socket, cmd_socket = await self.__class__._resolve_socket_paths()
         if not event_socket or not cmd_socket:
@@ -225,6 +221,16 @@ class HyprlandListener(WindowListener):
         dispatcher_args = " ".join(str(args or "").strip().splitlines())
         if not dispatcher_name:
             return False, "missing dispatcher"
+        if dispatcher_name == "set_cursor_position":
+            parts = dispatcher_args.split()
+            if len(parts) != 2:
+                return False, "set_cursor_position expects X Y"
+            try:
+                x = int(float(parts[0]))
+                y = int(float(parts[1]))
+            except ValueError:
+                return False, "set_cursor_position expects numeric X Y"
+            return await self.set_cursor_position(x, y)
 
         command = f"dispatch {dispatcher_name}"
         command = f"{command} {dispatcher_args}" if dispatcher_args else f"{command} _"

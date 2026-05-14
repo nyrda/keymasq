@@ -4,7 +4,6 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, cast
 
-from keymasq.common.ipc import Command, CommandType
 from keymasq.session.compositor import (
     detect_compositor,
     get_compositor_capabilities,
@@ -390,30 +389,6 @@ async def stop_window_listener(manager: "SessionManager") -> None:
     except Exception as e:
         log.debug("Error stopping window listener: %s", e)
     manager.compositor_state.window_listener = None
-    await sync_cursor_position_backend(manager)
-
-
-async def sync_cursor_position_backend(manager: "SessionManager") -> None:
-    if not manager.connected:
-        return
-
-    listener = manager.compositor_state.window_listener
-    enabled = bool(
-        listener is not None and getattr(listener, "supports_native_cursor_position_set", False)
-    )
-    try:
-        await manager.client.send_command(
-            Command(
-                command=CommandType.SET_CURSOR_POSITION_BACKEND,
-                data={
-                    "enabled": enabled,
-                    "listener": getattr(listener, "name", "") if listener is not None else "",
-                },
-            ),
-            timeout=1.0,
-        )
-    except Exception as exc:
-        log.debug("Failed to sync cursor position backend: %s", exc)
 
 
 def listener_retry_ready(manager: "SessionManager", compositor_id: str) -> bool:
@@ -479,7 +454,6 @@ async def start_window_listener(manager: "SessionManager") -> None:
         await manager.compositor_state.window_listener.start()
         log.info("Started %s window listener", manager.compositor_state.window_listener.name)
         manager.compositor_state.last_listener_start_error = ""
-        await sync_cursor_position_backend(manager)
     except NotImplementedError as e:
         manager.compositor_state.last_listener_start_error = str(e)
         manager.compositor_state.window_listener = None

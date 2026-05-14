@@ -6,6 +6,7 @@ from keymasq.common.models import MappingAction
 
 from .compositors import COMPOSITOR_ACTION_DEFINITIONS
 from .core import (
+    PositionCaptureCallback,
     build_compositor_action_pages_for_definitions,
     compositor_action_tab_name_for_definitions,
     describe_compositor_action_for_definitions,
@@ -17,6 +18,7 @@ def build_compositor_action_pages(
     on_selected: Callable[[MappingAction], None],
     status: Mapping[str, object] | None = None,
     submit_label: str | None = None,
+    capture_position: PositionCaptureCallback | None = None,
 ):
     return build_compositor_action_pages_for_definitions(
         COMPOSITOR_ACTION_DEFINITIONS,
@@ -24,6 +26,7 @@ def build_compositor_action_pages(
         on_selected,
         status,
         submit_label,
+        capture_position,
     )
 
 

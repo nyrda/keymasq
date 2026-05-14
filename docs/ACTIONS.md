@@ -132,9 +132,12 @@ Capture opens a crosshair overlay — click anywhere to set the coordinates.
 On other platforms, Capture gives you 2 seconds to move your cursor to the
 desired position, then reads the coordinates automatically.
 
-Absolute mouse moves use a session-native cursor setter when the active
-listener provides one, including Hyprland and X11. Other sessions fall back to
-keymasqd's virtual mouse output.
+Absolute mouse moves are emitted by `keymasqd` through Keymasq's virtual mouse
+device. This makes them normal input events, which is useful for games or other
+windows that lock the pointer and ignore compositor cursor warps.
+
+For desktop automation on GNOME or Hyprland you can use the compositor action
+**Set Cursor** preset as well.
 
 ![Mouse tab — buttons and Move Cursor with Relative/Absolute mode](assets/screenshots/key_selector_mouse.png)
 

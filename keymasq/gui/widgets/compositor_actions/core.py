@@ -11,6 +11,8 @@ from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.models import ActionType, MappingAction
 
+type PositionCaptureCallback = Callable[[Gtk.Button, Gtk.Label, Callable[[int, int], None]], None]
+
 
 @dataclass(frozen=True)
 class CompositorActionPreset:
@@ -18,6 +20,7 @@ class CompositorActionPreset:
     dispatcher: str
     args: str
     hint: str
+    captures_position: bool = False
 
 
 @dataclass(frozen=True)
@@ -51,12 +54,15 @@ class _CompositorDispatchPage(Gtk.Box):
         current_action: MappingAction | None,
         on_selected: Callable[[MappingAction], None],
         submit_label: str | None = None,
+        capture_position: PositionCaptureCallback | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._definition = definition
         self._on_selected = on_selected
         self._submit_label = submit_label
+        self._capture_position = capture_position
         self._dispatcher, self._args = definition.extract_fields(current_action)
+        self._selecting_initial_preset = False
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -130,6 +136,21 @@ class _CompositorDispatchPage(Gtk.Box):
         args_row.append(self._args_entry)
         self.append(args_row)
 
+        capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        capture_row.set_halign(Gtk.Align.START)
+        capture_label = Gtk.Label(label="")
+        capture_label.set_size_request(90, -1)
+        capture_row.append(capture_label)
+        self._capture_btn = Gtk.Button(label="Capture")
+        self._capture_btn.connect("clicked", self._on_capture_clicked)
+        capture_row.append(self._capture_btn)
+        self._capture_status = Gtk.Label(label="")
+        self._capture_status.add_css_class("dim-label")
+        self._capture_status.set_halign(Gtk.Align.START)
+        capture_row.append(self._capture_status)
+        self._capture_row = capture_row
+        self.append(capture_row)
+
         self._hint_label = Gtk.Label(label="")
         self._hint_label.add_css_class("dim-label")
         self._hint_label.set_wrap(True)
@@ -146,6 +167,7 @@ class _CompositorDispatchPage(Gtk.Box):
 
         self._select_initial_preset()
         self._update_hint()
+        self._update_capture_visibility()
         self._update_map_button()
 
     def _selected_preset(self) -> CompositorActionPreset | None:
@@ -169,17 +191,26 @@ class _CompositorDispatchPage(Gtk.Box):
         selected = 0 if not self._definition.allow_custom else 0
         found = False
         for raw_index, preset in enumerate(self._definition.presets):
-            if preset.dispatcher == self._dispatcher and preset.args == self._args:
-                selected = raw_index if not self._definition.allow_custom else raw_index + 1
-                found = True
-                break
-        self._preset_dropdown.set_selected(selected)
+            if preset.dispatcher != self._dispatcher:
+                continue
+            if preset.args != self._args and not preset.captures_position:
+                continue
+            selected = raw_index if not self._definition.allow_custom else raw_index + 1
+            found = True
+            break
+        self._selecting_initial_preset = True
+        try:
+            self._preset_dropdown.set_selected(selected)
+        finally:
+            self._selecting_initial_preset = False
         if not found and not self._definition.allow_custom and self._definition.presets:
             self._apply_selected_preset()
 
     def _on_preset_changed(self, _dropdown, _pspec) -> None:
-        self._apply_selected_preset()
+        if not self._selecting_initial_preset:
+            self._apply_selected_preset()
         self._update_hint()
+        self._update_capture_visibility()
         self._update_map_button()
 
     def _on_fields_changed(self, _entry: Gtk.Entry) -> None:
@@ -201,8 +232,32 @@ class _CompositorDispatchPage(Gtk.Box):
             f"Dispatch '{dispatcher}{suffix}' through {self._definition.title}."
         )
 
+    def _update_capture_visibility(self) -> None:
+        preset = self._selected_preset()
+        visible = bool(
+            preset is not None
+            and preset.captures_position
+            and self._capture_position is not None
+        )
+        self._capture_row.set_visible(visible)
+        if not visible:
+            self._capture_status.set_text("")
+
     def _update_map_button(self) -> None:
         self._map_btn.set_sensitive(bool(self._dispatcher_entry.get_text().strip()))
+
+    def _on_capture_clicked(self, _btn: Gtk.Button) -> None:
+        if self._capture_position is None:
+            return
+        self._capture_btn.set_sensitive(False)
+        self._capture_status.set_text("Capturing...")
+
+        def on_point(x: int, y: int) -> None:
+            self._args_entry.set_text(f"{int(x)} {int(y)}")
+            self._capture_btn.set_sensitive(True)
+            self._capture_status.set_text(f"Captured: {int(x)}, {int(y)}")
+
+        self._capture_position(self._capture_btn, self._capture_status, on_point)
 
     def _on_map_clicked(self, _btn: Gtk.Button) -> None:
         dispatcher = self._dispatcher_entry.get_text().strip()
@@ -218,6 +273,7 @@ def build_compositor_action_pages_for_definitions(
     on_selected: Callable[[MappingAction], None],
     status: Mapping[str, object] | None = None,
     submit_label: str | None = None,
+    capture_position: PositionCaptureCallback | None = None,
 ) -> list[CompositorActionPage]:
     resolved_status = dict(status or {})
     pages: list[CompositorActionPage] = []
@@ -233,6 +289,7 @@ def build_compositor_action_pages_for_definitions(
                     current_action,
                     on_selected,
                     submit_label,
+                    capture_position,
                 ),
             )
         )

@@ -101,9 +101,9 @@ class Application(Adw.Application):
         diagnostics_action.connect("activate", self._on_diagnostics)
         self.add_action(diagnostics_action)
 
-        virtual_gamepads_action = Gio.SimpleAction.new("virtual-gamepads", None)
-        virtual_gamepads_action.connect("activate", self._on_virtual_gamepads)
-        self.add_action(virtual_gamepads_action)
+        settings_action = Gio.SimpleAction.new("settings", None)
+        settings_action.connect("activate", self._on_settings)
+        self.add_action(settings_action)
 
         feedback_action = Gio.SimpleAction.new("feedback", None)
         feedback_action.connect("activate", self._on_feedback)
@@ -169,12 +169,12 @@ class Application(Adw.Application):
         dialog = DiagnosticsDialog(self.window)
         dialog.present(self.window)
 
-    def _on_virtual_gamepads(self, action, param) -> None:
+    def _on_settings(self, action, param) -> None:
         if not self.window:
             return
-        from keymasq.gui.widgets.virtual_gamepads_dialog import VirtualGamepadsDialog
+        from keymasq.gui.widgets.settings_dialog import SettingsDialog
 
-        dialog = VirtualGamepadsDialog(self.window)
+        dialog = SettingsDialog(self.window)
         dialog.present(self.window)
 
     def _on_feedback(self, action, param) -> None:

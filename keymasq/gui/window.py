@@ -700,15 +700,15 @@ class MainWindow(Adw.ApplicationWindow):
         )
         menu_box.append(diagnostics_btn)
 
-        virtual_gamepads_btn = Gtk.Button(label="Virtual Gamepads")
-        self._configure_menu_button(virtual_gamepads_btn)
-        virtual_gamepads_btn.connect(
+        settings_btn = Gtk.Button(label="Settings")
+        self._configure_menu_button(settings_btn)
+        settings_btn.connect(
             "clicked",
             self._on_menu_action_clicked,
-            "virtual-gamepads",
+            "settings",
             menu_popover,
         )
-        menu_box.append(virtual_gamepads_btn)
+        menu_box.append(settings_btn)
 
         menu_box.append(self._create_menu_separator())
 

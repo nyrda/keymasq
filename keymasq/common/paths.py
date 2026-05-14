@@ -8,7 +8,7 @@ __all__ = [
     "HARDWARE_DIR",
     "PROFILES_DIR",
     "SUPERKEYS_DIR",
-    "VIRTUAL_DEVICES_PATH",
+    "SETTINGS_PATH",
     "STATE_DIR",
     "SECURITY_POLICY_PATH",
     "RECORDING_UNLOCK_RUNTIME_DIR",
@@ -47,7 +47,7 @@ CONFIG_DIR = XDG_CONFIG_HOME / "keymasq"
 HARDWARE_DIR = CONFIG_DIR / "hardware"
 PROFILES_DIR = CONFIG_DIR / "profiles"
 SUPERKEYS_DIR = CONFIG_DIR / "superkeys"
-VIRTUAL_DEVICES_PATH = CONFIG_DIR / "virtual_devices.toml"
+SETTINGS_PATH = CONFIG_DIR / "settings.toml"
 
 _build_helper_path = "/usr/bin/keymasq-record"
 _build_slurp_path = "/usr/bin/slurp"

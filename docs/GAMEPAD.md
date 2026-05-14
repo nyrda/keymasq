@@ -7,8 +7,8 @@ Keymasq can remap mouse buttons, keyboard keys, or any input to virtual gamepad 
 When you map a button to a gamepad action, Keymasq creates a virtual gamepad device using Linux uinput. Games see this as a standard gamepad and can receive input from it.
 
 Keymasq creates one virtual Xbox 360 gamepad by default. You can configure
-0-4 virtual gamepads from the GUI hamburger menu under **Virtual Gamepads**.
-The setting is stored in `~/.config/keymasq/virtual_devices.toml`:
+0-4 virtual gamepads from the GUI hamburger menu under **Settings**. The
+setting is stored in `~/.config/keymasq/settings.toml`:
 
 ```toml
 [gamepads]

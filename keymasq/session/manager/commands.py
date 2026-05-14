@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING, cast
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import normalize_macro_loop_stop_behavior
 from keymasq.common.security import PeerCredentials, command_allowed
+from keymasq.common.settings import GlobalSettings
 from keymasq.common.virtual_devices import MAX_VIRTUAL_GAMEPADS, MIN_VIRTUAL_GAMEPADS
-from keymasq.session.virtual_devices import save_virtual_gamepad_count
+from keymasq.session.settings import save_global_settings, save_virtual_gamepad_count
 
 from . import compositor as runtime_compositor
 from . import profiles as runtime_profiles
@@ -80,6 +81,10 @@ async def handle_session_request(
         return result
 
     result = await _handle_virtual_gamepad_commands(manager, command, request)
+    if result is not None:
+        return result
+
+    result = await _handle_settings_commands(manager, command, request)
     if result is not None:
         return result
 
@@ -165,6 +170,70 @@ async def _handle_virtual_gamepad_commands(
         "count": int(manager.virtual_gamepad_count),
         "min_count": MIN_VIRTUAL_GAMEPADS,
         "max_count": MAX_VIRTUAL_GAMEPADS,
+    }
+
+
+async def _handle_settings_commands(
+    manager: "SessionManager",
+    command: str,
+    request: JsonObject,
+) -> JsonObject | None:
+    if command == "get_settings":
+        return _settings_payload(manager)
+    if command != "set_settings":
+        return None
+
+    requested_count = int_value(request.get("virtual_gamepad_count"), manager.virtual_gamepad_count)
+    saved = save_global_settings(
+        GlobalSettings(
+            virtual_gamepad_count=requested_count,
+        )
+    )
+    manager.virtual_gamepad_count = saved.virtual_gamepad_count
+    gamepad_error = ""
+
+    if manager.connected:
+        response = await manager.client.send_command(
+            Command(
+                command=CommandType.SET_VIRTUAL_GAMEPADS,
+                data={"count": int(manager.virtual_gamepad_count)},
+            )
+        )
+        if response.status != "ok":
+            gamepad_error = response.error or "daemon rejected virtual gamepad count"
+        elif isinstance(response.data, dict):
+            data = cast(JsonObject, response.data)
+            manager.virtual_gamepad_count = int_value(
+                data.get("count"),
+                manager.virtual_gamepad_count,
+            )
+            saved = save_global_settings(
+                GlobalSettings(
+                    virtual_gamepad_count=manager.virtual_gamepad_count,
+                )
+            )
+            manager.virtual_gamepad_count = saved.virtual_gamepad_count
+
+    manager.broadcast_to_session_clients(
+        {
+            "event": "settings_changed",
+            "virtual_gamepad_count": int(manager.virtual_gamepad_count),
+        }
+    )
+    if gamepad_error:
+        payload = _settings_payload(manager)
+        payload["status"] = "error"
+        payload["message"] = gamepad_error
+        return payload
+    return _settings_payload(manager)
+
+
+def _settings_payload(manager: "SessionManager") -> JsonObject:
+    return {
+        "status": "ok",
+        "virtual_gamepad_count": int(manager.virtual_gamepad_count),
+        "min_virtual_gamepad_count": MIN_VIRTUAL_GAMEPADS,
+        "max_virtual_gamepad_count": MAX_VIRTUAL_GAMEPADS,
     }
 
 

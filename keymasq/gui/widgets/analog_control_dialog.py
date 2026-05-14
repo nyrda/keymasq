@@ -16,6 +16,7 @@ from keymasq.common.models import (
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.gui.widgets.superkey_dialog import ActionListDialog
+from keymasq.gui.widgets.threshold_range_bar import ThresholdRangeBar
 from keymasq.session.analog_controls import (
     AnalogControlManager,
     analog_control_arrow_template,
@@ -29,6 +30,28 @@ log = logging.getLogger("keymasq.gui.widgets.analog_control_dialog")
 _MODE_ITEMS = ("mouse", "digital", "both")
 _MODE_LABELS = ("Mouse Movement", "Digital Actions", "Mouse + Digital")
 _AXIS_ITEMS = ("x", "y")
+
+
+def _compute_hysteresis(threshold: AnalogActionThreshold) -> float:
+    margin_low = threshold.trigger_min - threshold.release_min
+    margin_high = threshold.release_max - threshold.trigger_max
+    if margin_low < 0.001 and margin_high >= 0.001:
+        return round(margin_high, 2)
+    if margin_high < 0.001 and margin_low >= 0.001:
+        return round(margin_low, 2)
+    return round(min(margin_low, margin_high), 2)
+
+
+def _clamp_threshold_value(value: float) -> float:
+    return max(-1.0, min(1.0, float(value)))
+
+
+def _to_percent(value: float) -> float:
+    return round(_clamp_threshold_value(value) * 100.0, 0)
+
+
+def _from_percent(value: float) -> float:
+    return round(max(-100.0, min(100.0, float(value))) / 100.0, 2)
 
 
 class AnalogControlDialog(Adw.Dialog):
@@ -46,6 +69,8 @@ class AnalogControlDialog(Adw.Dialog):
         self._current_name: str | None = None
         self._thresholds: list[AnalogActionThreshold] = []
         self._modified = False
+        self._editing_new_control = False
+        self._syncing_threshold = False
         self.new_control_row: Gtk.ListBoxRow | None = None
 
         self._build_ui()
@@ -320,6 +345,7 @@ class AnalogControlDialog(Adw.Dialog):
         if row is None:
             self._current_config = None
             self._current_name = None
+            self._editing_new_control = False
             self.editor_box.set_sensitive(False)
             self.delete_btn.set_sensitive(False)
             self._modified = False
@@ -327,15 +353,20 @@ class AnalogControlDialog(Adw.Dialog):
             return
 
         if getattr(row, "_is_new_analog_control", False):
+            if self._editing_new_control and self.editor_box.get_sensitive():
+                return
             self._begin_new_control()
             return
 
         name = getattr(row, "_analog_control_name", None)
         if not isinstance(name, str):
             return
+        if name == self._current_name and self.editor_box.get_sensitive():
+            return
         config = self.manager.get_analog_control(name)
         if config is None:
             return
+        self._editing_new_control = False
         self._load_config(config)
         self.delete_btn.set_sensitive(True)
         self._modified = False
@@ -368,15 +399,24 @@ class AnalogControlDialog(Adw.Dialog):
             return _MODE_ITEMS.index("digital")
         return _MODE_ITEMS.index("mouse")
 
-    def _refresh_thresholds(self) -> None:
+    def _refresh_thresholds(self, expanded_indices: set[int] | None = None) -> None:
         for row in getattr(self, "_threshold_rows", []):
             self.digital_group.remove(row)
         self._threshold_rows = []
 
         for index, threshold in enumerate(self._thresholds):
             row = self._build_threshold_row(index, threshold)
+            if expanded_indices and index in expanded_indices:
+                row.set_expanded(True)
             self.digital_group.add(row)
             self._threshold_rows.append(row)
+
+    def _expanded_threshold_indices(self) -> set[int]:
+        expanded: set[int] = set()
+        for index, row in enumerate(getattr(self, "_threshold_rows", [])):
+            if row.get_expanded():
+                expanded.add(index)
+        return expanded
 
     def _build_threshold_row(
         self,
@@ -399,6 +439,18 @@ class AnalogControlDialog(Adw.Dialog):
         remove_btn.connect("clicked", self._on_remove_threshold_clicked, index)
         row.add_suffix(remove_btn)
 
+        bar_row = Adw.ActionRow()
+        range_bar = ThresholdRangeBar()
+        range_bar.set_ranges(
+            threshold.trigger_min,
+            threshold.trigger_max,
+            threshold.release_min,
+            threshold.release_max,
+        )
+        bar_row.set_child(range_bar)
+        row._range_bar = range_bar
+        row.add_row(bar_row)
+
         axis_row = Adw.ActionRow(title="Axis")
         axis_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         axis_buttons.add_css_class("linked")
@@ -415,19 +467,58 @@ class AnalogControlDialog(Adw.Dialog):
         axis_row.add_suffix(axis_buttons)
         row.add_row(axis_row)
 
-        for title, attr in (
-            ("Activation Min", "trigger_min"),
-            ("Activation Max", "trigger_max"),
-            ("Release Min", "release_min"),
-            ("Release Max", "release_max"),
-        ):
-            row.add_row(
-                self._threshold_spin_row(
-                    title,
-                    float(getattr(threshold, attr)),
-                    self._make_threshold_value_callback(index, attr),
-                )
-            )
+        trigger_min_spin = self._percent_spin_row(
+            "Activation Min",
+            threshold.trigger_min,
+            self._on_primary_threshold_changed,
+            index,
+            row,
+        )
+        trigger_max_spin = self._percent_spin_row(
+            "Activation Max",
+            threshold.trigger_max,
+            self._on_primary_threshold_changed,
+            index,
+            row,
+        )
+        hysteresis_spin = self._percent_spin_row(
+            "Hysteresis",
+            _compute_hysteresis(threshold),
+            self._on_primary_threshold_changed,
+            index,
+            row,
+            lower=0.0,
+            upper=100.0,
+            step=1.0,
+        )
+        row._spin_trigger_min = trigger_min_spin
+        row._spin_trigger_max = trigger_max_spin
+        row._spin_hysteresis = hysteresis_spin
+        row.add_row(trigger_min_spin)
+        row.add_row(trigger_max_spin)
+        row.add_row(hysteresis_spin)
+
+        advanced_row = Adw.ExpanderRow(title="Advanced")
+        advanced_row.set_subtitle("Release range")
+        release_min_spin = self._percent_spin_row(
+            "Release Min",
+            threshold.release_min,
+            self._on_advanced_threshold_changed,
+            index,
+            row,
+        )
+        release_max_spin = self._percent_spin_row(
+            "Release Max",
+            threshold.release_max,
+            self._on_advanced_threshold_changed,
+            index,
+            row,
+        )
+        row._spin_release_min = release_min_spin
+        row._spin_release_max = release_max_spin
+        advanced_row.add_row(release_min_spin)
+        advanced_row.add_row(release_max_spin)
+        row.add_row(advanced_row)
 
         if threshold.actions:
             for action_index, action in enumerate(threshold.actions, start=1):
@@ -437,46 +528,46 @@ class AnalogControlDialog(Adw.Dialog):
                 row.add_row(child)
         return row
 
-    def _threshold_spin_row(
+    def _percent_spin_row(
         self,
         title: str,
         value: float,
-        callback: Callable[[Adw.SpinRow, object], None],
+        callback: Callable[[Adw.SpinRow, object, int, Adw.ExpanderRow], None],
+        index: int,
+        row: Adw.ExpanderRow,
+        *,
+        lower: float = -100.0,
+        upper: float = 100.0,
+        step: float = 5.0,
     ) -> Adw.SpinRow:
         spin = Adw.SpinRow(
-            title=title,
+            title=f"{title} (%)",
             adjustment=Gtk.Adjustment(
-                value=value,
-                lower=-1.0,
-                upper=1.0,
-                step_increment=0.05,
+                value=_to_percent(value),
+                lower=lower,
+                upper=upper,
+                step_increment=step,
             ),
-            digits=2,
+            digits=0,
         )
-        spin.connect("notify::value", callback)
+        spin.connect("notify::value", callback, index, row)
         return spin
-
-    def _make_threshold_value_callback(
-        self,
-        index: int,
-        attr: str,
-    ) -> Callable[[Adw.SpinRow, object], None]:
-        def _callback(spin: Adw.SpinRow, _param: object) -> None:
-            self._on_threshold_value_changed(spin, index, attr)
-
-        return _callback
 
     def _threshold_subtitle(self, threshold: AnalogActionThreshold) -> str:
         count = len(threshold.actions)
         noun = "action" if count == 1 else "actions"
+        hysteresis = _compute_hysteresis(threshold)
         return (
-            f"activate {threshold.trigger_min:.2f}..{threshold.trigger_max:.2f} · "
-            f"release {threshold.release_min:.2f}..{threshold.release_max:.2f} · "
+            f"activate {_to_percent(threshold.trigger_min):.0f}%.."
+            f"{_to_percent(threshold.trigger_max):.0f}% · "
+            f"hysteresis {_to_percent(hysteresis):.0f}% · "
             f"{count} {noun}"
         )
 
     def _begin_new_control(self) -> None:
         self._load_config(AnalogControlConfig(name="New Analog Control"))
+        self._current_name = None
+        self._editing_new_control = True
         self.delete_btn.set_sensitive(False)
         self._modified = True
         self._update_buttons()
@@ -534,10 +625,12 @@ class AnalogControlDialog(Adw.Dialog):
     ) -> None:
         if not 0 <= index < len(self._thresholds):
             return
+        expanded = self._expanded_threshold_indices()
+        expanded.add(index)
         self._thresholds[index].actions = [
             action for action in actions if isinstance(action, MappingAction)
         ]
-        self._refresh_thresholds()
+        self._refresh_thresholds(expanded)
         self._on_modified()
 
     def _on_threshold_axis_toggled(
@@ -556,11 +649,94 @@ class AnalogControlDialog(Adw.Dialog):
         row.set_subtitle(self._threshold_subtitle(self._thresholds[index]))
         self._on_modified()
 
-    def _on_threshold_value_changed(self, spin: Adw.SpinRow, index: int, attr: str) -> None:
+    def _on_primary_threshold_changed(
+        self,
+        _spin: Adw.SpinRow,
+        _param: object,
+        index: int,
+        row: Adw.ExpanderRow,
+    ) -> None:
+        if self._syncing_threshold:
+            return
         if not 0 <= index < len(self._thresholds):
             return
-        setattr(self._thresholds[index], attr, spin.get_value())
+        threshold = self._thresholds[index]
+        trigger_min = _from_percent(row._spin_trigger_min.get_value())
+        trigger_max = _from_percent(row._spin_trigger_max.get_value())
+        if trigger_min > trigger_max:
+            trigger_min, trigger_max = trigger_max, trigger_min
+            self._set_spin_value(row._spin_trigger_min, trigger_min)
+            self._set_spin_value(row._spin_trigger_max, trigger_max)
+
+        hysteresis = max(0.0, min(1.0, _from_percent(row._spin_hysteresis.get_value())))
+        release_min = max(-1.0, trigger_min - hysteresis)
+        release_max = min(1.0, trigger_max + hysteresis)
+        threshold.trigger_min = trigger_min
+        threshold.trigger_max = trigger_max
+        threshold.release_min = release_min
+        threshold.release_max = release_max
+
+        self._syncing_threshold = True
+        try:
+            row._spin_release_min.set_value(_to_percent(release_min))
+            row._spin_release_max.set_value(_to_percent(release_max))
+        finally:
+            self._syncing_threshold = False
+        self._update_threshold_row_visuals(row, index)
         self._on_modified()
+
+    def _on_advanced_threshold_changed(
+        self,
+        _spin: Adw.SpinRow,
+        _param: object,
+        index: int,
+        row: Adw.ExpanderRow,
+    ) -> None:
+        if self._syncing_threshold:
+            return
+        if not 0 <= index < len(self._thresholds):
+            return
+        threshold = self._thresholds[index]
+        release_min = min(
+            threshold.trigger_min,
+            _from_percent(row._spin_release_min.get_value()),
+        )
+        release_max = max(
+            threshold.trigger_max,
+            _from_percent(row._spin_release_max.get_value()),
+        )
+        threshold.release_min = release_min
+        threshold.release_max = release_max
+        hysteresis = _compute_hysteresis(threshold)
+
+        self._syncing_threshold = True
+        try:
+            row._spin_release_min.set_value(_to_percent(release_min))
+            row._spin_release_max.set_value(_to_percent(release_max))
+            row._spin_hysteresis.set_value(_to_percent(hysteresis))
+        finally:
+            self._syncing_threshold = False
+        self._update_threshold_row_visuals(row, index)
+        self._on_modified()
+
+    def _set_spin_value(self, spin: Adw.SpinRow, value: float) -> None:
+        self._syncing_threshold = True
+        try:
+            spin.set_value(_to_percent(value))
+        finally:
+            self._syncing_threshold = False
+
+    def _update_threshold_row_visuals(self, row: Adw.ExpanderRow, index: int) -> None:
+        if not 0 <= index < len(self._thresholds):
+            return
+        threshold = self._thresholds[index]
+        row._range_bar.set_ranges(
+            threshold.trigger_min,
+            threshold.trigger_max,
+            threshold.release_min,
+            threshold.release_max,
+        )
+        row.set_subtitle(self._threshold_subtitle(threshold))
 
     def _on_template_wasd(self, *_args) -> None:
         self._apply_template(analog_control_wasd_template())
@@ -595,7 +771,9 @@ class AnalogControlDialog(Adw.Dialog):
         self.revert_btn.set_sensitive(self._modified)
 
     def _on_revert_clicked(self, _button) -> None:
-        if self._current_config is not None:
+        if self._editing_new_control:
+            self._begin_new_control()
+        elif self._current_config is not None:
             self._load_config(self._current_config)
         self._modified = False
         self._update_buttons()
@@ -635,6 +813,7 @@ class AnalogControlDialog(Adw.Dialog):
 
         self._current_name = name
         self._current_config = config
+        self._editing_new_control = False
         self._modified = False
         self._update_buttons()
         self._load_controls()
@@ -672,6 +851,7 @@ class AnalogControlDialog(Adw.Dialog):
             self.emit("analog-control-deleted", name)
         self._current_name = None
         self._current_config = None
+        self._editing_new_control = False
         self._thresholds = []
         self.editor_box.set_sensitive(False)
         self.delete_btn.set_sensitive(False)

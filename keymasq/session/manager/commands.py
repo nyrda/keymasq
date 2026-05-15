@@ -214,18 +214,18 @@ async def _handle_settings_commands(
             )
             manager.virtual_gamepad_count = saved.virtual_gamepad_count
 
+    payload = _settings_payload(manager)
+    if gamepad_error:
+        payload["status"] = "error"
+        payload["message"] = gamepad_error
+        return payload
     manager.broadcast_to_session_clients(
         {
             "event": "settings_changed",
             "virtual_gamepad_count": int(manager.virtual_gamepad_count),
         }
     )
-    if gamepad_error:
-        payload = _settings_payload(manager)
-        payload["status"] = "error"
-        payload["message"] = gamepad_error
-        return payload
-    return _settings_payload(manager)
+    return payload
 
 
 def _settings_payload(manager: "SessionManager") -> JsonObject:

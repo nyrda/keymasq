@@ -18,6 +18,13 @@ from keymasq.gui.session_client import session_request_async
 from keymasq.session.settings import load_global_settings, save_global_settings
 
 
+def _count_value(value: object, default: int) -> int:
+    try:
+        return int(value if isinstance(value, (int, float, str)) else default)
+    except (TypeError, ValueError):
+        return default
+
+
 class SettingsDialog(Adw.Dialog):
     def __init__(self, parent: Gtk.Window | None = None) -> None:
         super().__init__(title="Settings", content_width=460, content_height=240)
@@ -89,7 +96,7 @@ class SettingsDialog(Adw.Dialog):
                     "virtual_gamepad_count",
                     self._settings.virtual_gamepad_count,
                 )
-                count = raw_count if isinstance(raw_count, (int, float, str)) else 1
+                count = _count_value(raw_count, self._settings.virtual_gamepad_count)
                 self._gamepad_count = clamp_virtual_gamepad_count(count)
             except (TypeError, ValueError):
                 self._gamepad_count = self._settings.virtual_gamepad_count

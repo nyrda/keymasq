@@ -690,13 +690,13 @@ class AnalogControlDialog(Adw.Dialog):
         digital_visible = mode in {"digital", "both"}
         self.mouse_group.set_visible(not is_axis and mode in {"mouse", "both"})
         self.gamepad_output_group.set_visible(mode == "gamepad")
-        show_stick_output_tuning = mode == "gamepad" and not is_axis
         show_axis_output_tuning = mode == "gamepad" and is_axis
+        show_output_tuning = mode == "gamepad"
         self.gamepad_output_rest_row.set_visible(show_axis_output_tuning)
         self.gamepad_output_direction_row.set_visible(show_axis_output_tuning)
-        self.gamepad_output_sensitivity_row.set_visible(show_stick_output_tuning)
-        self.gamepad_output_response_curve_row.set_visible(show_stick_output_tuning)
-        self.gamepad_output_curve_row.set_visible(show_stick_output_tuning)
+        self.gamepad_output_sensitivity_row.set_visible(show_output_tuning)
+        self.gamepad_output_response_curve_row.set_visible(show_output_tuning)
+        self.gamepad_output_curve_row.set_visible(show_output_tuning)
         self.digital_group.set_visible(digital_visible)
         self.template_group.set_visible(digital_visible and not is_axis)
         self._update_gamepad_output_visibility()

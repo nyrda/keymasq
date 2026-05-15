@@ -654,7 +654,12 @@ def _emit_trigger_gamepad_output(
     axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
     if _gamepad_output_direction(config) == "both":
         value = float(axis_values.get("x_signed", 0.0))
-        value = _apply_axis_output_deadzone(value, float(config.gamepad_output.deadzone))
+        value = _apply_signed_axis_output_curve(
+            value,
+            deadzone=float(config.gamepad_output.deadzone),
+            sensitivity=float(config.gamepad_output.sensitivity),
+            response_curve=float(config.gamepad_output.response_curve),
+        )
         raw_value = denormalize_axis_value(
             value,
             DEFAULT_TRIGGER_MIN,
@@ -667,7 +672,12 @@ def _emit_trigger_gamepad_output(
         )
     else:
         value = float(axis_values.get("x", 0.0))
-        value = _apply_trigger_deadzone(value, float(config.gamepad_output.deadzone))
+        value = _apply_control_axis_output_curve(
+            value,
+            deadzone=float(config.gamepad_output.deadzone),
+            sensitivity=float(config.gamepad_output.sensitivity),
+            response_curve=float(config.gamepad_output.response_curve),
+        )
         raw_value = denormalize_control_axis_value(
             value,
             DEFAULT_TRIGGER_MIN,
@@ -760,7 +770,12 @@ def _emit_analog_axis_output(
     reset_value = output_rest if output_rest is not None else (minimum if minimum >= 0 else 0)
     if _gamepad_output_direction(config) == "both":
         value = float(axis_values.get("x_signed", 0.0))
-        value = _apply_axis_output_deadzone(value, float(config.gamepad_output.deadzone))
+        value = _apply_signed_axis_output_curve(
+            value,
+            deadzone=float(config.gamepad_output.deadzone),
+            sensitivity=float(config.gamepad_output.sensitivity),
+            response_curve=float(config.gamepad_output.response_curve),
+        )
         raw_value = denormalize_axis_value(
             value,
             minimum,
@@ -769,7 +784,12 @@ def _emit_analog_axis_output(
         )
     else:
         value = float(axis_values.get("x", 0.0))
-        value = _apply_trigger_deadzone(value, float(config.gamepad_output.deadzone))
+        value = _apply_control_axis_output_curve(
+            value,
+            deadzone=float(config.gamepad_output.deadzone),
+            sensitivity=float(config.gamepad_output.sensitivity),
+            response_curve=float(config.gamepad_output.response_curve),
+        )
         raw_value = denormalize_control_axis_value(
             value,
             minimum,
@@ -1170,21 +1190,35 @@ def _apply_stick_output_curve(
     return direction_x * scaled, direction_y * scaled
 
 
-def _apply_trigger_deadzone(value: float, deadzone: float) -> float:
-    deadzone = max(0.0, min(0.95, deadzone))
-    value = max(0.0, min(1.0, value))
-    if value <= deadzone:
-        return 0.0
-    return (value - deadzone) / max(0.001, 1.0 - deadzone)
+def _apply_control_axis_output_curve(
+    value: float,
+    *,
+    deadzone: float,
+    sensitivity: float,
+    response_curve: float,
+) -> float:
+    return analog_gamepad_output_distance(
+        max(0.0, min(1.0, value)),
+        deadzone=deadzone,
+        sensitivity=sensitivity,
+        response_curve=response_curve,
+    )
 
 
-def _apply_axis_output_deadzone(value: float, deadzone: float) -> float:
-    deadzone = max(0.0, min(0.95, deadzone))
+def _apply_signed_axis_output_curve(
+    value: float,
+    *,
+    deadzone: float,
+    sensitivity: float,
+    response_curve: float,
+) -> float:
     value = max(-1.0, min(1.0, value))
-    magnitude = abs(value)
-    if magnitude <= deadzone:
-        return 0.0
-    scaled = (magnitude - deadzone) / max(0.001, 1.0 - deadzone)
+    scaled = _apply_control_axis_output_curve(
+        abs(value),
+        deadzone=deadzone,
+        sensitivity=sensitivity,
+        response_curve=response_curve,
+    )
     return math.copysign(scaled, value)
 
 

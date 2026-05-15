@@ -40,8 +40,8 @@ enabled = true
 output_id = "virtual-gamepad-2" # optional; omitted means default gamepad output
 deadzone = 0.0
 target = "same" # same, left, right
-sensitivity = 1.0 # stick output only; 0.1..2.0
-response_curve = 1.0 # stick output only; 0.25..4.0
+sensitivity = 1.0 # analog output only; 0.1..2.0
+response_curve = 1.0 # analog output only; 0.25..4.0
 
 [[thresholds]]
 axis = "x"
@@ -85,7 +85,8 @@ one-sided input from rest to that endpoint; `both` treats the input as signed an
 maps it across the output minimum/rest/maximum range. These fields belong to
 output behavior, not to learned input hardware calibration.
 
-Stick gamepad output then applies a radial response curve:
+Analog output then applies sensitivity and response curve. Stick output applies
+it radially:
 
 ```text
 distance = sqrt(x*x + y*y)
@@ -96,7 +97,7 @@ output_distance = clamp((normalized ** response_curve) * sensitivity, 0, 1)
 `sensitivity = 1.0` and `response_curve = 1.0` are linear. Higher sensitivity
 reaches full output sooner. A response curve below `1.0` is faster near center;
 above `1.0` is slower near center. The same curve is mirrored for negative stick
-directions.
+directions and for 1D axis output when `output_direction = "both"`.
 
 ```toml
 name = "Left Trigger Action"

@@ -345,6 +345,42 @@ async def test_trigger_gamepad_output_routes_axis_with_deadzone() -> None:
 
 
 @pytest.mark.asyncio
+async def test_trigger_gamepad_output_applies_sensitivity_and_response_curve() -> None:
+    keyboard = FakeUInput()
+    gamepad = FakeUInput()
+    mapping = {
+        "left_trigger": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Curve Trigger",
+                input_type="axis",
+                gamepad_output=AnalogGamepadOutputConfig(
+                    enabled=True,
+                    deadzone=0.0,
+                    sensitivity=2.0,
+                    response_curve=2.0,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.analog_axis_bindings = {
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z): ("left_trigger", "x")
+    }
+    runtime.analog_axis_ranges = {("left_trigger", "x"): (0, 255)}
+    runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
+        uinput=gamepad,
+        bucket="gamepad",
+    )
+    event = FakeEvent(64)
+    event.code = evdev.ecodes.ABS_Z
+
+    assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
+
+    assert gamepad.events[-1] == (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 32)
+
+
+@pytest.mark.asyncio
 async def test_trigger_gamepad_output_can_route_to_opposite_trigger() -> None:
     keyboard = FakeUInput()
     gamepad = FakeUInput()
@@ -445,6 +481,8 @@ async def test_axis_gamepad_output_both_directions_routes_signed_range() -> None
                     output_rest=0,
                     output_direction="both",
                     deadzone=0.0,
+                    sensitivity=2.0,
+                    response_curve=2.0,
                 ),
             ),
         )
@@ -475,6 +513,8 @@ async def test_axis_gamepad_output_both_directions_routes_signed_range() -> None
     )
     negative_event = FakeEvent(-32768)
     negative_event.code = evdev.ecodes.ABS_X
+    middle_event = FakeEvent(-16384)
+    middle_event.code = evdev.ecodes.ABS_X
     positive_event = FakeEvent(32767)
     positive_event.code = evdev.ecodes.ABS_X
 
@@ -487,14 +527,22 @@ async def test_axis_gamepad_output_both_directions_routes_signed_range() -> None
     )
     assert await process_analog_event(
         runtime,
+        middle_event,
+        "abs_x",
+        mapping,
+        deps=_deps(),
+    )
+    assert await process_analog_event(
+        runtime,
         positive_event,
         "abs_x",
         mapping,
         deps=_deps(),
     )
 
-    assert gamepad.events[-2:] == [
+    assert gamepad.events[-3:] == [
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -1000),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -500),
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 1000),
     ]
 

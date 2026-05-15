@@ -37,6 +37,30 @@ def test_new_analog_control_output_deadzone_defaults_to_zero(temp_config_dir) ->
     assert dialog.gamepad_output_deadzone_row.get_value() == 0
 
 
+def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.name_entry.set_text("Axis Output")
+    dialog.input_type_dropdown.set_selected(1)
+    dialog.mode_dropdown.set_selected(1)
+    dialog.gamepad_output_sensitivity_row.set_value(1.5)
+    dialog.gamepad_output_response_curve_row.set_value(0.75)
+
+    assert dialog.gamepad_output_sensitivity_row.get_visible() is True
+    assert dialog.gamepad_output_response_curve_row.get_visible() is True
+    assert dialog.gamepad_output_curve_row.get_visible() is True
+    assert dialog._save_current_control() is True
+
+    saved = dialog.manager.get_analog_control("Axis Output")
+    assert saved is not None
+    assert saved.gamepad_output.sensitivity == 1.5
+    assert saved.gamepad_output.response_curve == 0.75
+
+
 def test_saved_analog_control_keeps_action_edits_when_current_row_reselected(
     temp_config_dir,
 ) -> None:

@@ -95,6 +95,7 @@ class AnalogControlManager:
                 enabled=bool(gamepad_data.get("enabled", False)),
                 output_id=_toml_str(gamepad_data, "output_id"),
                 deadzone=_float_value(gamepad_data.get("deadzone"), 0.15),
+                target=_toml_str(gamepad_data, "target", "same") or "same",
             ),
             thresholds=thresholds,
         )
@@ -258,6 +259,7 @@ class AnalogControlManager:
             "gamepad_output": {
                 "enabled": bool(config.gamepad_output.enabled),
                 "deadzone": float(config.gamepad_output.deadzone),
+                "target": config.gamepad_output.target,
             },
         }
         if config.gamepad_output.output_id:

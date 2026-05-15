@@ -430,7 +430,7 @@ def _emit_stick_gamepad_output(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    axis_names = STICK_OUTPUT_AXES.get(source_id)
+    axis_names = STICK_OUTPUT_AXES.get(_gamepad_output_stick_id(source_id, config))
     if axis_names is None:
         return
     axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
@@ -456,7 +456,7 @@ def _emit_trigger_gamepad_output(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    axis_name = TRIGGER_OUTPUT_AXES.get(source_id)
+    axis_name = TRIGGER_OUTPUT_AXES.get(_gamepad_output_trigger_id(source_id, config))
     if axis_name is None:
         return
     value = float(device_runtime.state.analog_axis_values.get(source_id, {}).get("x", 0.0))
@@ -478,12 +478,12 @@ def _reset_gamepad_output(
     deps: ActionExecutionDeps,
 ) -> None:
     if config.input_type == "trigger":
-        axis_name = TRIGGER_OUTPUT_AXES.get(source_id)
+        axis_name = TRIGGER_OUTPUT_AXES.get(_gamepad_output_trigger_id(source_id, config))
         if axis_name is None:
             return
         axes = ((getattr(deps.evdev_mod.ecodes, axis_name), 0),)
     else:
-        axis_names = STICK_OUTPUT_AXES.get(source_id)
+        axis_names = STICK_OUTPUT_AXES.get(_gamepad_output_stick_id(source_id, config))
         if axis_names is None:
             return
         axes = (
@@ -555,6 +555,22 @@ def _write_recorded_gamepad_reset(
         writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), 0)
         track_abs_state(device_runtime, int(axis_code), 0, bucket=target_bucket)
     writer.syn()
+
+
+def _gamepad_output_stick_id(source_id: str, config: AnalogControlConfig) -> str:
+    if config.gamepad_output.target == "left":
+        return "left_stick"
+    if config.gamepad_output.target == "right":
+        return "right_stick"
+    return source_id
+
+
+def _gamepad_output_trigger_id(source_id: str, config: AnalogControlConfig) -> str:
+    if config.gamepad_output.target == "left":
+        return "left_trigger"
+    if config.gamepad_output.target == "right":
+        return "right_trigger"
+    return source_id
 
 
 def _apply_stick_deadzone(x: float, y: float, deadzone: float) -> tuple[float, float]:

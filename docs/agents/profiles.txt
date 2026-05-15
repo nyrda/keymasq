@@ -209,6 +209,7 @@ tick_ms = 8
 enabled = false
 output_id = "virtual-gamepad-2"
 deadzone = 0.15
+target = "same"
 
 [[thresholds]]
 axis = "x"

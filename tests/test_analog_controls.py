@@ -136,6 +136,7 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
                 enabled=True,
                 output_id="virtual-gamepad-2",
                 deadzone=0.2,
+                target="right",
             ),
         )
     )
@@ -145,6 +146,7 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
     assert loaded.gamepad_output.enabled is True
     assert loaded.gamepad_output.output_id == "virtual-gamepad-2"
     assert loaded.gamepad_output.deadzone == 0.2
+    assert loaded.gamepad_output.target == "right"
 
 
 def test_trigger_analog_control_rejects_mouse_motion_and_y_axis() -> None:

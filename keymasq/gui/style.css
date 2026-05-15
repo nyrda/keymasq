@@ -196,6 +196,12 @@ button.button-card-mapped-inactive label {
   color: @error_color;
 }
 
+button.analog-output-target-button {
+  min-height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 button.key-button {
   padding: 2px 0;
   min-width: 0;

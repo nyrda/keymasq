@@ -39,6 +39,7 @@ tick_ms = 8
 enabled = true
 output_id = "virtual-gamepad-2" # optional; omitted means default gamepad output
 deadzone = 0.15
+target = "same" # same, left, right
 
 [[thresholds]]
 axis = "x"
@@ -57,11 +58,14 @@ activates when the current axis value enters the trigger range and releases when
 it leaves the release range. The trigger range must be inside the release range
 so hysteresis is explicit.
 
-`gamepad_output` routes the analog source to the matching gamepad axis on the
-selected output. `left_stick` writes `ABS_X`/`ABS_Y`, `right_stick` writes
-`ABS_RX`/`ABS_RY`, `left_trigger` writes `ABS_Z`, and `right_trigger` writes
-`ABS_RZ`. The deadzone is applied before output, so values below it are sent as
-centered sticks or released triggers.
+`gamepad_output` routes the analog source to a gamepad axis on the selected
+output. `target = "same"` preserves the source side, so `left_stick` writes
+`ABS_X`/`ABS_Y`, `right_stick` writes `ABS_RX`/`ABS_RY`, `left_trigger` writes
+`ABS_Z`, and `right_trigger` writes `ABS_RZ`. `target = "left"` or
+`target = "right"` forces the output side, allowing right trigger to become
+left trigger, left stick to become right stick, and so on. The deadzone is
+applied before output, so values below it are sent as centered sticks or
+released triggers.
 
 ```toml
 name = "Left Trigger Action"

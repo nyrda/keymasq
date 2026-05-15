@@ -61,6 +61,13 @@ GNOME_DISPATCH_PRESETS = (
         args="toggle",
         hint="Toggle maximize on the focused GNOME window.",
     ),
+    CompositorActionPreset(
+        label="Set Cursor",
+        dispatcher="set_cursor_position",
+        args="0 0",
+        hint="Move the GNOME pointer to an absolute screen coordinate.",
+        captures_position=True,
+    ),
 )
 
 

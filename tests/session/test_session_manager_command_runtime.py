@@ -1,5 +1,6 @@
 # ruff: noqa: F403, F405, I001
 from tests.session.command_support import *
+from keymasq.common import paths
 from keymasq.common.ipc import CommandType
 import keymasq.session.manager.commands as session_commands_module
 
@@ -25,6 +26,32 @@ async def test_handle_session_request_get_compositor_reports_kde_dispatch_availa
     assert result["listener_active"] is True
     assert result["listener_name"] == "kde"
     assert result["compositor_dispatch_available"] is True
+
+
+@pytest.mark.asyncio
+async def test_handle_session_request_set_settings_does_not_broadcast_on_daemon_error(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "keymasq")
+    manager = SessionManager()
+    manager.connected = True
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="daemon rejected count")
+    )
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "set_settings", "virtual_gamepad_count": 2},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "error"
+    assert result["message"] == "daemon rejected count"
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

@@ -72,7 +72,7 @@ Primary docs:
   profiles/<profile_name>.toml
   superkeys/<superkey_name>.toml
   recording_settings.toml
-  virtual_devices.toml
+  settings.toml
 ```
 
 Macros are daemon-owned:
@@ -81,7 +81,7 @@ Macros are daemon-owned:
 /var/lib/keymasq/macros/*.kmacro.xz
 ```
 
-Virtual gamepad count lives in `~/.config/keymasq/virtual_devices.toml`:
+Global settings live in `~/.config/keymasq/settings.toml`:
 
 ```toml
 [gamepads]

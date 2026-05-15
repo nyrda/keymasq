@@ -18,6 +18,7 @@ def test_config_dir_defaults_to_home_config(monkeypatch: pytest.MonkeyPatch) -> 
         assert reloaded.HARDWARE_DIR == reloaded.CONFIG_DIR / "hardware"
         assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
         assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
+        assert reloaded.SETTINGS_PATH == reloaded.CONFIG_DIR / "settings.toml"
     finally:
         importlib.reload(paths)
 
@@ -36,6 +37,7 @@ def test_config_dir_honors_xdg_config_home(
         assert reloaded.HARDWARE_DIR == reloaded.CONFIG_DIR / "hardware"
         assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
         assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
+        assert reloaded.SETTINGS_PATH == reloaded.CONFIG_DIR / "settings.toml"
     finally:
         importlib.reload(paths)
 

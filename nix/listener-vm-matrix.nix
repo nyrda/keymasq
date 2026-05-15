@@ -694,13 +694,11 @@ EOF
 
             with subtest("cursor position"):
                 uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic", "niri")
-                native_cursor_set = "${expectedCompositor}" in ("gnome", "hyprland", "x11")
+                explicit_cursor_dispatch = "${expectedCompositor}" in ("gnome", "hyprland")
                 native_target_x = 160
                 native_target_y = 120
-                if uses_slurp or native_cursor_set:
+                if uses_slurp:
                     # Slurp-based compositors need keymasqd uinput devices and a __slurp_trigger macro.
-                    # Native cursor-set listeners use the same grabbed-keyboard setup so macro playback
-                    # has output devices.
                     # Create a hardware config for the QEMU AT keyboard so keymasqd grabs it.
                     import base64
                     hw_toml = (
@@ -808,35 +806,23 @@ EOF
                 assert cx < 4096, f"cursor x={cx} is implausibly large"
                 assert cy < 4096, f"cursor y={cy} is implausibly large"
 
-                if native_cursor_set:
-                    macro_name = "${expectedCompositor}-cursor-set"
-                    create_macro = session_query_json(
-                        "create_macro",
+                if explicit_cursor_dispatch:
+                    dispatch = session_query_json(
+                        "dispatch_compositor",
                         {
-                            "macro": {
-                                "name": macro_name,
-                                "events": [],
-                                "move_to_start": True,
-                                "start_x": native_target_x,
-                                "start_y": native_target_y,
-                            }
+                            "compositor": "${expectedCompositor}",
+                            "dispatcher": "set_cursor_position",
+                            "args": f"{native_target_x} {native_target_y}",
                         },
                     )
-                    machine.log(f"create_macro: {create_macro}")
-                    assert create_macro.get("status") == "ok", create_macro
-
-                    play_macro = session_query_json(
-                        "play_macro",
-                        {"name": macro_name},
-                    )
-                    machine.log(f"play_macro: {play_macro}")
-                    assert play_macro.get("status") == "ok", play_macro
+                    machine.log(f"dispatch set_cursor_position: {dispatch}")
+                    assert dispatch.get("status") == "ok", dispatch
 
                     moved = None
                     deadline = time.time() + 10
                     while time.time() < deadline:
                         moved = session_query("get_cursor_position")
-                        machine.log(f"get_cursor_position after native set: {moved}")
+                        machine.log(f"get_cursor_position after compositor set: {moved}")
                         if (
                             moved.get("status") == "ok"
                             and moved.get("x") == native_target_x

@@ -115,6 +115,13 @@ HYPRLAND_DISPATCH_PRESETS = (
         args="d",
         hint="Move the active window down.",
     ),
+    CompositorActionPreset(
+        label="Set Cursor",
+        dispatcher="set_cursor_position",
+        args="0 0",
+        hint="Move the compositor cursor to an absolute screen coordinate.",
+        captures_position=True,
+    ),
 )
 
 

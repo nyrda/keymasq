@@ -35,8 +35,8 @@ from keymasq.session.client import KeymasqdClient
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileManager
+from keymasq.session.settings import load_global_settings
 from keymasq.session.superkeys import SuperkeyManager
-from keymasq.session.virtual_devices import load_virtual_gamepad_count
 
 from . import commands as session_commands
 from . import compositor as runtime_compositor
@@ -77,7 +77,8 @@ class SessionManager:
             auto_create_default_if_empty=True,
         )
         self.hardware = HardwareManager()
-        self.virtual_gamepad_count = load_virtual_gamepad_count()
+        settings = load_global_settings()
+        self.virtual_gamepad_count = settings.virtual_gamepad_count
         self.action_handler: ActionHandler | None = None
         self.running = False
         self._shutdown_event = asyncio.Event()
@@ -177,15 +178,6 @@ class SessionManager:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await profile_apply_task
             self.profile_state.apply_task = None
-
-        for task in list(self.compositor_state.cursor_position_tasks):
-            task.cancel()
-        if self.compositor_state.cursor_position_tasks:
-            await asyncio.gather(
-                *self.compositor_state.cursor_position_tasks,
-                return_exceptions=True,
-            )
-            self.compositor_state.cursor_position_tasks.clear()
 
         topology_task = self.profile_state.topology_refresh_task
         if topology_task:
@@ -516,7 +508,8 @@ class SessionManager:
         self.superkeys.reload()
         self.profiles.reload()
         self.hardware.reload()
-        self.virtual_gamepad_count = load_virtual_gamepad_count()
+        settings = load_global_settings()
+        self.virtual_gamepad_count = settings.virtual_gamepad_count
 
     async def _sync_virtual_gamepads_to_daemon(self) -> None:
         if not self.connected:
@@ -548,7 +541,6 @@ class SessionManager:
                 retry_delay = 1.0
                 log.info("Connected to keymasqd")
                 self._broadcast_keymasqd_status(True)
-                await runtime_compositor.sync_cursor_position_backend(self)
                 await self._sync_virtual_gamepads_to_daemon()
 
                 try:

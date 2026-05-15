@@ -9,9 +9,10 @@ Wayland support matters for desktop-aware features:
 - switching profiles based on the focused app or window title
 - reading the active window for the GUI and CLI
 - reading the current pointer position for macro recording and point capture
-- moving the pointer to an exact screen position for absolute mouse actions
+- moving the pointer to a screen position through absolute mouse actions
 - sending compositor actions such as workspace, focus, tiling, or close-window
   commands
+- asking supported desktops to set the compositor cursor position explicitly
 
 Wayland desktops expose these features differently. Some provide public
 protocols, some provide compositor-specific IPC, and GNOME needs a Shell
@@ -20,15 +21,15 @@ wlroots-based compositors.
 
 ## Support Matrix
 
-| Desktop or compositor | Window profiles | Pointer position | Exact pointer move | Compositor actions | Notes |
+| Desktop or compositor | Window profiles | Pointer position | Absolute mouse action | Compositor actions | Notes |
 | --- | --- | --- | --- | --- | --- |
-| **GNOME Wayland** | Yes | Native | Native | [Limited allowlist](#gnome-wayland) | Requires GNOME 46 or newer and the Keymasq GNOME Shell extension. See [GNOME.md](GNOME.md). |
-| **KDE Plasma Wayland** | Yes | Native | Fallback | [Limited presets](#kde-plasma-wayland) | Uses a temporary KWin script over session D-Bus. |
-| **Hyprland** | Yes | Native | Native | Yes | Uses Hyprland sockets. Also supports Hyprland window tags. |
-| **Niri** | Yes | [Slurp-assisted](#slurp-assisted-pointer-capture) | Fallback | Yes | Uses Niri's event and command socket, with `niri msg action` fallback for custom actions. |
-| **COSMIC Wayland** | Yes | [Slurp-assisted](#slurp-assisted-pointer-capture) | Fallback | No | Uses COSMIC Wayland protocols for active-window tracking. |
-| **Sway and generic wlroots** | Yes | [Slurp-assisted](#slurp-assisted-pointer-capture) | Fallback | No | Works on wlroots-based compositors such as Sway, Wayfire, river, and labwc. |
-| **X11** | Yes | Native | Native | No | Not Wayland, but useful as a comparison point. |
+| **GNOME Wayland** | Yes | Native | Virtual mouse | [Limited allowlist](#gnome-wayland) | Requires GNOME 46 or newer and the Keymasq GNOME Shell extension. Includes a **Set Cursor** compositor action. |
+| **KDE Plasma Wayland** | Yes | Native | Virtual mouse | [Limited presets](#kde-plasma-wayland) | Uses a temporary KWin script over session D-Bus. |
+| **Hyprland** | Yes | Native | Virtual mouse | Yes | Uses Hyprland sockets. Includes a **Set Cursor** compositor action and Hyprland window tags. |
+| **Niri** | Yes | [Slurp-assisted](#slurp-assisted-pointer-capture) | Virtual mouse | Yes | Uses Niri's event and command socket, with `niri msg action` fallback for custom actions. |
+| **COSMIC Wayland** | Yes | [Slurp-assisted](#slurp-assisted-pointer-capture) | Virtual mouse | No | Uses COSMIC Wayland protocols for active-window tracking. |
+| **Sway and generic wlroots** | Yes | [Slurp-assisted](#slurp-assisted-pointer-capture) | Virtual mouse | No | Works on wlroots-based compositors such as Sway, Wayfire, river, and labwc. |
+| **X11** | Yes | Native | Virtual mouse | No | Not Wayland, but useful as a comparison point. |
 
 ### What the columns mean
 
@@ -40,9 +41,9 @@ is used by recording, point capture, and macros that need a known starting
 position. Some compositors use a slurp-assisted path for this; see
 [Slurp-Assisted Pointer Capture](#slurp-assisted-pointer-capture).
 
-**Exact pointer move** means Keymasq can move the pointer to a requested screen
-coordinate. Native support is the most reliable path. Fallback support can work,
-but it is less exact; see [Pointer Movement Fallback](#pointer-movement-fallback).
+**Absolute mouse action** means Keymasq can move the pointer toward a requested
+screen coordinate by sending normal motion through its virtual mouse device. See
+[Absolute Pointer Movement](#absolute-pointer-movement).
 
 **Compositor actions** means Keymasq can ask the desktop to perform actions such
 as changing workspace, closing the focused window, toggling fullscreen, moving
@@ -68,24 +69,23 @@ wlroots Wayland. It is different from exact pointer movement: `slurp` helps
 Keymasq read where the pointer is, but it does not provide a native compositor
 API for moving the pointer.
 
-## Pointer Movement Fallback
+## Absolute Pointer Movement
 
-Native pointer movement asks the desktop itself to put the pointer at a screen
-coordinate. Keymasq currently has native pointer movement on GNOME, Hyprland,
-and X11.
+Absolute mouse actions use Keymasq's virtual mouse device. This does not truly
+teleport the pointer. It sends normal relative mouse motion through `keymasqd`:
+four movement events in two batches. First it sends a very large negative X
+movement and a very large negative Y movement to push the pointer toward the
+top-left corner. Then it sends a positive X movement and a positive Y movement
+toward the target coordinate.
 
-On other Wayland sessions, Keymasq falls back to its virtual mouse device. This
-fallback does not truly teleport the pointer. It sends normal relative mouse
-motion through `keymasqd`: four movement events in two batches. First it sends a
-very large negative X movement and a very large negative Y movement to push the
-pointer toward the top-left corner. Then it sends a positive X movement and a
-positive Y movement toward the target coordinate.
+Because this is interpreted as ordinary mouse motion, the compositor can distort
+it through pointer acceleration, sensitivity, scaling, output layout, or other
+pointer settings. It works reliably on many setups and can work better in
+pointer-locked games that ignore compositor cursor warps.
 
-Because the fallback is interpreted as ordinary mouse motion, the compositor can
-distort it through pointer acceleration, sensitivity, scaling, output layout, or
-other pointer settings. It works reliably on most setups, but you should test it
-on your desktop before relying on exact absolute pointer placement. Native
-compositor cursor positioning is still the most accurate path where available.
+For desktop UI automation on GNOME or Hyprland, use the compositor action
+**Set Cursor** preset. That path asks the desktop itself to set the cursor
+position and is independent from absolute mouse actions.
 
 ## Desktop Details
 
@@ -99,8 +99,8 @@ allowlist of compositor actions.
 
 If the extension is missing, disabled, globally blocked, or running an old bridge
 version, normal input remapping can still work, but GNOME window profiles,
-GNOME compositor actions, and native pointer movement are unavailable until the
-bridge reconnects.
+GNOME compositor actions, and the **Set Cursor** compositor action are
+unavailable until the bridge reconnects.
 
 See [GNOME.md](GNOME.md) for setup and troubleshooting.
 
@@ -111,8 +111,8 @@ JavaScript bridge. That bridge reports the active window back to
 `keymasq-session` and runs a limited set of supported KWin actions.
 
 KDE supports active-window tracking, window-aware profiles, pointer-position
-reads, and selected compositor actions. Exact pointer movement uses Keymasq's
-virtual-mouse fallback instead of a native KWin pointer-position API.
+reads, and selected compositor actions. Absolute mouse actions use Keymasq's
+virtual mouse device.
 
 Supported compositor actions include switching virtual desktops, closing the
 focused window, toggling fullscreen, moving focus, moving the focused window,
@@ -122,8 +122,8 @@ quick-tiling, toggling all-desktops, and toggling show-desktop.
 
 Keymasq uses Hyprland's event socket for active-window updates and the command
 socket for queries, pointer movement, and compositor dispatch. This gives
-Keymasq active-window profiles, pointer-position reads, native pointer movement,
-Hyprland dispatchers, and Hyprland window tags.
+Keymasq active-window profiles, pointer-position reads, Hyprland dispatchers,
+the **Set Cursor** compositor action, and Hyprland window tags.
 
 Custom compositor actions use Hyprland dispatcher names and arguments. For
 example, the GUI presets are built on the same dispatcher mechanism as
@@ -139,8 +139,7 @@ Common Niri compositor actions use a direct socket path. Custom actions can fall
 back to `niri msg action` syntax.
 
 Pointer-position reads use the [slurp-assisted capture path](#slurp-assisted-pointer-capture).
-Exact pointer movement uses Keymasq's virtual-mouse fallback rather than a native
-Niri pointer position API.
+Absolute mouse actions use Keymasq's virtual mouse device.
 
 ### COSMIC Wayland
 
@@ -149,7 +148,7 @@ Keymasq uses `ext_foreign_toplevel_list_v1` together with
 window-aware profiles and active-window queries.
 
 Pointer-position reads use the [slurp-assisted capture path](#slurp-assisted-pointer-capture).
-Exact pointer movement uses Keymasq's virtual-mouse fallback. Keymasq does not
+Absolute mouse actions use Keymasq's virtual mouse device. Keymasq does not
 currently expose COSMIC compositor actions.
 
 ### Sway and Generic wlroots Wayland
@@ -163,7 +162,7 @@ wlroots-based compositors that expose the required protocol. Sway is the primary
 tested compositor for this path.
 
 Pointer-position reads use the [slurp-assisted capture path](#slurp-assisted-pointer-capture).
-Exact pointer movement uses Keymasq's virtual-mouse fallback. Generic wlroots
+Absolute mouse actions use Keymasq's virtual mouse device. Generic wlroots
 support does not include compositor actions because there is no shared
 compositor-dispatch API.
 
@@ -187,8 +186,8 @@ Common things to check:
   current GNOME Shell session. See [GNOME.md](GNOME.md).
 - For slurp-assisted pointer capture, make sure `slurp` is installed and can run
   in the current Wayland session.
-- If exact pointer movement is unreliable on KDE, Niri, COSMIC, or generic
-  wlroots Wayland, remember that those paths use relative mouse-motion fallback
-  and can be affected by scaling, acceleration, and sensitivity settings.
+- If absolute mouse movement is unreliable, remember that it uses normal virtual
+  mouse motion and can be affected by scaling, acceleration, and sensitivity
+  settings.
 - If your supported desktop is not working as described, please open an issue
   with the desktop/compositor name, version, and `keymasq-session` logs.

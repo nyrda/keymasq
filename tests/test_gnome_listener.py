@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -553,7 +554,6 @@ async def test_gnome_set_cursor_position_sends_bridge_request_and_resolves_resul
 
     asyncio.create_task(_respond())
 
-    assert listener.supports_native_cursor_position_set is True
     assert await listener.set_cursor_position(123, 456) == (True, "ok")
     assert listener._writer.payloads == [
         {
@@ -563,6 +563,16 @@ async def test_gnome_set_cursor_position_sends_bridge_request_and_resolves_resul
             "y": 456,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_gnome_dispatch_set_cursor_position_uses_special_dispatcher() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener.set_cursor_position = AsyncMock(return_value=(True, "ok"))  # type: ignore[method-assign]
+
+    assert await listener.dispatch("set_cursor_position", "123 456") == (True, "ok")
+
+    listener.set_cursor_position.assert_awaited_once_with(123, 456)
 
 
 @pytest.mark.asyncio

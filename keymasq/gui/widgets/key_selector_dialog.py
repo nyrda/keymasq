@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import evdev
 import gi
@@ -597,6 +597,9 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._capture_timeout_id: int = 0
         self._capture_pending: bool = False
         self._capture_request_id: int = 0
+        self._capture_apply: Callable[[int, int], None] | None = None
+        self._capture_status_label: Gtk.Label | None = None
+        self._capture_button: Gtk.Button | None = None
         self._slurp_capture = get_slurp_capture()
         self._slurp_capture.set_compositor(detect_compositor_sync())
         self._slurp_available = self._slurp_capture.available
@@ -657,6 +660,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self._current_action,
             self._on_compositor_action_selected,
             self._compositor_action_status,
+            capture_position=self._capture_compositor_position,
         )
         self._compositor_action_page_ids = {page.page_id for page in self._compositor_action_pages}
 
@@ -1498,14 +1502,47 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self._cancel_capture_position("")
 
     def _on_capture_position_clicked(self, btn: Gtk.Button) -> None:
+        self._begin_position_capture(
+            self.mouse_move_capture_btn,
+            self.mouse_move_capture_status,
+            self._apply_mouse_move_capture_position,
+        )
+
+    def _apply_mouse_move_capture_position(self, x: int, y: int) -> None:
+        self.mouse_move_x_spin.set_value(int(x))
+        self.mouse_move_y_spin.set_value(int(y))
+
+    def _capture_compositor_position(
+        self,
+        button: Gtk.Button,
+        status_label: Gtk.Label,
+        callback: Callable[[int, int], None],
+    ) -> None:
+        self._begin_position_capture(
+            button,
+            status_label,
+            callback,
+        )
+
+    def _begin_position_capture(
+        self,
+        button: Gtk.Button | None,
+        status_label: Gtk.Label | None,
+        apply_position: Callable[[int, int], None],
+    ) -> None:
         self._cancel_capture_position("")
         self._capture_request_id += 1
         request_id = self._capture_request_id
+        self._capture_button = button
+        self._capture_status_label = status_label
+        self._capture_apply = apply_position
 
         if self._slurp_available:
             self._capture_pending = True
-            self.mouse_move_capture_btn.set_sensitive(False)
-            self.mouse_move_capture_status.set_text("Click to capture position...")
+            if button is not None:
+                button.set_sensitive(False)
+            if status_label is not None:
+                status_label.set_text("Click to capture position...")
             self._slurp_capture.capture_point(
                 lambda result, expected_id=request_id: self._on_slurp_capture_result(
                     expected_id, result
@@ -1514,10 +1551,12 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         else:
             self._capture_delay_seconds = float(self.mouse_move_capture_delay_spin.get_value())
             self._capture_pending = True
-            self.mouse_move_capture_btn.set_sensitive(False)
-            self.mouse_move_capture_status.set_text(
-                f"Move cursor now... capturing in {self._capture_delay_seconds:.1f}s"
-            )
+            if button is not None:
+                button.set_sensitive(False)
+            if status_label is not None:
+                status_label.set_text(
+                    f"Move cursor now... capturing in {self._capture_delay_seconds:.1f}s"
+                )
             self._capture_timeout_id = GLib.timeout_add(
                 int(self._capture_delay_seconds * 1000),
                 lambda expected_id=request_id: self._capture_position_after_delay(expected_id),
@@ -1527,21 +1566,25 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         if request_id != self._capture_request_id:
             return
         self._capture_pending = False
-        self.mouse_move_capture_btn.set_sensitive(True)
+        if self._capture_button is not None:
+            self._capture_button.set_sensitive(True)
 
         if result is None:
-            self.mouse_move_capture_status.set_text("Capture cancelled or failed")
+            if self._capture_status_label is not None:
+                self._capture_status_label.set_text("Capture cancelled or failed")
             return
 
-        self.mouse_move_x_spin.set_value(result.x)
-        self.mouse_move_y_spin.set_value(result.y)
-        self.mouse_move_capture_status.set_text(f"Captured: {result.x}, {result.y}")
+        if self._capture_apply is not None:
+            self._capture_apply(int(result.x), int(result.y))
+        if self._capture_status_label is not None:
+            self._capture_status_label.set_text(f"Captured: {result.x}, {result.y}")
 
     def _capture_position_after_delay(self, request_id: int) -> bool:
         self._capture_timeout_id = 0
         if request_id != self._capture_request_id or not self._capture_pending:
             return False
-        self.mouse_move_capture_status.set_text("Reading cursor position...")
+        if self._capture_status_label is not None:
+            self._capture_status_label.set_text("Reading cursor position...")
         session_request_async(
             {"command": "get_cursor_position"},
             lambda response, expected_id=request_id: self._on_capture_position_response(
@@ -1555,7 +1598,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         if request_id != self._capture_request_id:
             return False
         self._capture_pending = False
-        self.mouse_move_capture_btn.set_sensitive(True)
+        if self._capture_button is not None:
+            self._capture_button.set_sensitive(True)
 
         if not response or response.get("status") != "ok":
             message = (
@@ -1563,12 +1607,16 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             )
             if "Unknown command: get_cursor_position" in message:
                 message = "Please restart Keymasq Session, then try again"
-            self.mouse_move_capture_status.set_text(message)
+            if self._capture_status_label is not None:
+                self._capture_status_label.set_text(message)
             return False
 
-        self.mouse_move_x_spin.set_value(int(response.get("x", 0)))
-        self.mouse_move_y_spin.set_value(int(response.get("y", 0)))
-        self.mouse_move_capture_status.set_text("Captured")
+        x = int(response.get("x", 0))
+        y = int(response.get("y", 0))
+        if self._capture_apply is not None:
+            self._capture_apply(x, y)
+        if self._capture_status_label is not None:
+            self._capture_status_label.set_text("Captured")
         return False
 
     def _cancel_capture_position(self, status_text: str) -> None:
@@ -1577,10 +1625,13 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             GLib.source_remove(self._capture_timeout_id)
             self._capture_timeout_id = 0
         self._capture_pending = False
-        if hasattr(self, "mouse_move_capture_btn"):
-            self.mouse_move_capture_btn.set_sensitive(True)
-        if hasattr(self, "mouse_move_capture_status"):
-            self.mouse_move_capture_status.set_text(status_text)
+        if self._capture_button is not None:
+            self._capture_button.set_sensitive(True)
+        if self._capture_status_label is not None:
+            self._capture_status_label.set_text(status_text)
+        self._capture_apply = None
+        self._capture_button = None
+        self._capture_status_label = None
 
     def close(self) -> None:
         self._cancel_capture_position("")

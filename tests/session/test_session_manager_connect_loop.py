@@ -62,14 +62,8 @@ async def test_connect_loop_requests_session_restart_after_established_disconnec
     manager.restart_on_daemon_disconnect = True
     manager.client = FakeClient()  # type: ignore[assignment]
     manager._broadcast_keymasqd_status = Mock()  # type: ignore[method-assign]
-    sync_cursor = AsyncMock()
     activate_initial_profiles = AsyncMock()
     refresh_devices = AsyncMock()
-    monkeypatch.setattr(
-        session_core_module.runtime_compositor,
-        "sync_cursor_position_backend",
-        sync_cursor,
-    )
     monkeypatch.setattr(
         session_core_module.runtime_profiles,
         "activate_initial_profiles",
@@ -89,6 +83,5 @@ async def test_connect_loop_requests_session_restart_after_established_disconnec
     manager._broadcast_keymasqd_status.assert_has_calls(  # type: ignore[attr-defined]
         [call(True), call(False)]
     )
-    sync_cursor.assert_awaited_once_with(manager)
     activate_initial_profiles.assert_awaited_once_with(manager)
     refresh_devices.assert_awaited_once_with(manager)

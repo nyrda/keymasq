@@ -87,9 +87,7 @@ GNOME does not expose window information the same way other Wayland compositors
 do. The extension runs inside GNOME Shell and forwards the focused window name
 and pointer position to Keymasq so that window-aware profiles and pointer
 features work. It also accepts an allowlisted pointer-position request from
-`keymasq-session`, letting absolute mouse moves and macro playback ask GNOME
-Shell to position the cursor through Mutter instead of relying on uinput
-relative-motion fallback.
+`keymasq-session`, which powers the GNOME **Set Cursor** compositor action.
 
 The same bridge also handles GNOME compositor actions. These are allowlisted
 bridge RPCs, not arbitrary shell commands. Keymasq currently supports:

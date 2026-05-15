@@ -1093,6 +1093,94 @@ def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
     assert page._args_entry.get_editable() is False
 
 
+def test_key_selector_dialog_compositor_set_cursor_reuses_position_capture(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    class _Result:
+        def __init__(self, x: int, y: int) -> None:
+            self.x = x
+            self.y = y
+
+    class _SlurpCapture:
+        available = True
+
+        def set_compositor(self, compositor: str) -> None:
+            assert compositor == "gnome"
+
+        def capture_point(self, callback) -> None:
+            callback(_Result(640, 480))
+
+    monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
+    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "gnome")
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="gnome",
+            compositor_dispatcher="set_cursor_position",
+            compositor_args="0 0",
+        ),
+        compositor_action_status={
+            "listener_name": "gnome",
+            "compositor_dispatch_available": True,
+        },
+    )
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    page = dialog.stack.get_child_by_name("gnome")
+    assert page is not None
+    assert page._capture_row.get_visible() is True
+
+    page._on_capture_clicked(page._capture_btn)
+
+    assert page._args_entry.get_text() == "640 480"
+    assert page._capture_status.get_text() == "Captured: 640, 480"
+
+    page._on_map_clicked(page._map_btn)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.COMPOSITOR_DISPATCH
+    assert results[0].compositor_id == "gnome"
+    assert results[0].compositor_dispatcher == "set_cursor_position"
+    assert results[0].compositor_args == "640 480"
+
+
+def test_key_selector_dialog_reopens_set_cursor_with_captured_coordinates():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="hyprland",
+            compositor_dispatcher="set_cursor_position",
+            compositor_args="640 480",
+        ),
+        compositor_action_status={
+            "listener_name": "hyprland",
+            "compositor_dispatch_available": True,
+        },
+    )
+
+    page = dialog.stack.get_child_by_name("hyprland")
+    assert page is not None
+    assert page._preset_dropdown.get_selected() != 0
+    assert page._dispatcher_entry.get_text() == "set_cursor_position"
+    assert page._args_entry.get_text() == "640 480"
+    assert page._capture_row.get_visible() is True
+
+
 def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
     from gi.repository import Gtk
 

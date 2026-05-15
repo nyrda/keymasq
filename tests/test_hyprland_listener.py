@@ -21,6 +21,16 @@ async def test_hyprland_set_cursor_position_uses_movecursor_dispatcher() -> None
     listener.dispatch.assert_awaited_once_with("movecursor", "123 456")
 
 
+@pytest.mark.asyncio
+async def test_hyprland_dispatch_set_cursor_position_uses_special_dispatcher() -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener.set_cursor_position = AsyncMock(return_value=(True, "ok"))  # type: ignore[method-assign]
+
+    assert await listener.dispatch("set_cursor_position", "123 456") == (True, "ok")
+
+    listener.set_cursor_position.assert_awaited_once_with(123, 456)
+
+
 class _FakeWriter:
     def __init__(self) -> None:
         self.closed = False

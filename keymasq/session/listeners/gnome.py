@@ -78,10 +78,6 @@ class GnomeListener(WindowListener):
         return True
 
     @property
-    def supports_native_cursor_position_set(self) -> bool:
-        return True
-
-    @property
     def compositor_dispatch_available(self) -> bool:
         return bool(
             self.running
@@ -798,6 +794,16 @@ class GnomeListener(WindowListener):
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
         dispatcher_name = " ".join(str(dispatcher or "").strip().split())
         dispatcher_args = " ".join(str(args or "").strip().split())
+        if dispatcher_name == "set_cursor_position":
+            parts = dispatcher_args.split()
+            if len(parts) != 2:
+                return False, "set_cursor_position expects X Y"
+            try:
+                x = int(float(parts[0]))
+                y = int(float(parts[1]))
+            except ValueError:
+                return False, "set_cursor_position expects numeric X Y"
+            return await self.set_cursor_position(x, y)
         ok, message = self._validate_dispatch(dispatcher_name, dispatcher_args)
         if not ok:
             return False, message

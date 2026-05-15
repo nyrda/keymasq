@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 import keymasq.session.manager.compositor as session_compositor_module
-from keymasq.common.ipc import CommandType
 from keymasq.session.manager import SessionManager
 
 
@@ -96,23 +95,6 @@ async def test_run_compositor_setup_action_delegates_to_gnome_and_refreshes(
     assert result["message"] == "enabled"
     assert result["compositor"] == {"compositor_id": "gnome", "supported": True}
     refresh.assert_awaited_once_with(manager)
-
-
-@pytest.mark.asyncio
-async def test_sync_cursor_position_backend_reports_native_listener_support() -> None:
-    manager = SessionManager()
-    manager.connected = True
-    manager.client.send_command = AsyncMock()
-    manager.compositor_state.window_listener = SimpleNamespace(
-        name="hyprland",
-        supports_native_cursor_position_set=True,
-    )
-
-    await session_compositor_module.sync_cursor_position_backend(manager)
-
-    sent = manager.client.send_command.await_args.args[0]
-    assert sent.command == CommandType.SET_CURSOR_POSITION_BACKEND
-    assert sent.data == {"enabled": True, "listener": "hyprland"}
 
 
 @pytest.mark.asyncio

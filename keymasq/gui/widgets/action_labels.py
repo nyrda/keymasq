@@ -53,7 +53,7 @@ def describe_mapping_action_compact(
     elif action.action_type == ActionType.SUPERKEY:
         parts.append(f"🌟S: {action.superkey_name or '?'}")
     elif action.action_type == ActionType.ANALOG_CONTROL:
-        parts.append(f"Analog: {action.analog_control_name or '?'}")
+        parts.append(f"🕹️ {action.analog_control_name or '?'}")
     elif action.action_type == ActionType.MACRO:
         parts.append(f"🎬 {action.macro_name or '?'}")
     elif action.action_type == ActionType.START_MACRO_RECORDING:

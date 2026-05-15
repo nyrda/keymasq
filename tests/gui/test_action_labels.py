@@ -54,7 +54,7 @@ def test_action_labels_describe_all_mapping_action_types() -> None:
         "▶ notify-send hi",
         "🪟 workspace 2",
         "🌟S: Nav",
-        "Analog: FPS Mouse",
+        "🕹️ FPS Mouse",
         "🎬 paste",
         "⏺ toggle recording",
         "⏹ stop recording",

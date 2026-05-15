@@ -175,7 +175,12 @@ class _DaemonMacroStore(Protocol):
 
 
 class _DaemonCaptureManager(Protocol):
-    def begin(self, hardware_id: str, evdev_paths: list[str] | None = None) -> JsonObject: ...
+    def begin(
+        self,
+        hardware_id: str,
+        evdev_paths: list[str] | None = None,
+        mode: str = "button",
+    ) -> JsonObject: ...
 
     def read(self, token: str) -> JsonObject: ...
 

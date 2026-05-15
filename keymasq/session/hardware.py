@@ -102,6 +102,11 @@ class HardwareManager:
                     role=str(axis.get("role", "")),
                     evdev=str(axis.get("evdev", "")),
                     evdev_code=axis.get("evdev_code"),
+                    minimum=axis.get("minimum") if isinstance(axis.get("minimum"), int) else None,
+                    maximum=axis.get("maximum") if isinstance(axis.get("maximum"), int) else None,
+                    center=axis.get("center") if isinstance(axis.get("center"), int) else None,
+                    rest=axis.get("rest") if isinstance(axis.get("rest"), int) else None,
+                    invert=bool(axis.get("invert", False)),
                 )
                 for axis in cast(list[dict[str, Any]], analog.get("axes", []))
                 if axis.get("role") and axis.get("evdev")
@@ -181,6 +186,16 @@ class HardwareManager:
                 }
                 if axis.evdev_code is not None:
                     axis_data["evdev_code"] = axis.evdev_code
+                if axis.minimum is not None:
+                    axis_data["minimum"] = axis.minimum
+                if axis.maximum is not None:
+                    axis_data["maximum"] = axis.maximum
+                if axis.center is not None:
+                    axis_data["center"] = axis.center
+                if axis.rest is not None:
+                    axis_data["rest"] = axis.rest
+                if axis.invert:
+                    axis_data["invert"] = True
                 axes_data.append(axis_data)
             analog_data["axes"] = axes_data
             analogs_data.append(analog_data)

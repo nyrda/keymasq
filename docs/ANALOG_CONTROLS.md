@@ -38,7 +38,7 @@ tick_ms = 8
 [gamepad_output]
 enabled = true
 output_id = "virtual-gamepad-2" # optional; omitted means default gamepad output
-deadzone = 0.15
+deadzone = 0.0
 target = "same" # same, left, right
 sensitivity = 1.0 # stick output only; 0.1..2.0
 response_curve = 1.0 # stick output only; 0.25..4.0
@@ -54,8 +54,8 @@ actions = [
 ]
 ```
 
-Stick thresholds use normalized values from `-1.0` to `1.0`. Trigger thresholds
-use normalized values from `0.0` to `1.0` and always use axis `x`. A threshold
+Stick thresholds use normalized values from `-1.0` to `1.0`. Generic axis
+thresholds use normalized values from `0.0` to `1.0` and always use axis `x`. A threshold
 activates when the current axis value enters the trigger range and releases when
 it leaves the release range. The trigger range must be inside the release range
 so hysteresis is explicit.
@@ -68,6 +68,22 @@ output. `target = "same"` preserves the source side, so `left_stick` writes
 left trigger, left stick to become right stick, and so on. The deadzone is
 applied before output, so values below it are sent as centered sticks or
 released triggers.
+
+For learned physical output hardware, `target = "analog"` plus
+`target_analog_id` routes to a learned analog output on the selected hardware.
+The output must have the same shape as the input control: generic axes route to
+learned generic axes, and sticks route to learned sticks. Runtime normalizes the
+source value first, applies output deadzone/sensitivity/curve, then converts the
+result into the learned output min/max/rest or center range before writing the
+target `EV_ABS` code. Virtual Xbox gamepads keep the fixed semantic left/right
+stick and trigger targets.
+
+For 1D axis output, the analog control owns the output start point and
+direction. `output_rest` is the raw value written when the output is released,
+and `output_direction` is `min`, `max`, or `both`. `min` and `max` map a
+one-sided input from rest to that endpoint; `both` treats the input as signed and
+maps it across the output minimum/rest/maximum range. These fields belong to
+output behavior, not to learned input hardware calibration.
 
 Stick gamepad output then applies a radial response curve:
 
@@ -84,7 +100,7 @@ directions.
 
 ```toml
 name = "Left Trigger Action"
-input_type = "trigger"
+input_type = "axis"
 
 [[thresholds]]
 axis = "x"
@@ -99,6 +115,11 @@ actions = [
 
 Overlapping thresholds are valid. They are evaluated independently; Keymasq
 does not prioritize or merge overlapping ranges.
+
+Hardware analog inputs are editable. Use **Learn Analog** from the device tab to
+record a generic axis or stick from raw `EV_ABS` events, review the detected
+evdev code and min/max/rest or center values, then save those values into the
+hardware file.
 
 ## Templates
 

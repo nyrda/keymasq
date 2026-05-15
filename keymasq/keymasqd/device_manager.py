@@ -297,6 +297,7 @@ class GamepadOutputTarget:
     uinput: object
     bucket: str
     is_virtual: bool
+    analog_inputs: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -540,6 +541,7 @@ class DeviceManager:
                         uinput=uinput,
                         bucket=f"gamepad:{resolved_id}",
                         is_virtual=False,
+                        analog_inputs=dict(getattr(device, "analog_inputs", {}) or {}),
                     )
         reason = "target hardware has no grabbed gamepad passthrough output"
         self._warn_gamepad_output_unavailable(resolved_id, reason, context, explicit)

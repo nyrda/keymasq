@@ -221,6 +221,11 @@ class AnalogAxisDefinition:
     role: str
     evdev: str
     evdev_code: int | None = None
+    minimum: int | None = None
+    maximum: int | None = None
+    center: int | None = None
+    rest: int | None = None
+    invert: bool = False
 
 
 @dataclass
@@ -322,7 +327,8 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
 )
 
 ANALOG_MOUSE_CURVES = frozenset({"linear", "soft", "fast"})
-ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right"})
+ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog"})
+ANALOG_GAMEPAD_OUTPUT_DIRECTIONS = frozenset({"min", "max", "both"})
 MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 0.1
 MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 2.0
 MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE = 0.25
@@ -379,8 +385,12 @@ class AnalogMouseMotionConfig:
 class AnalogGamepadOutputConfig:
     enabled: bool = False
     output_id: str | None = None
-    deadzone: float = 0.15
+    deadzone: float = 0.0
     target: str = "same"
+    target_analog_id: str | None = None
+    output_rest: int | None = None
+    output_direction: str = ""
+    output_invert: bool = False
     sensitivity: float = 1.0
     response_curve: float = 1.0
 
@@ -390,6 +400,16 @@ class AnalogGamepadOutputConfig:
         self.target = str(self.target or "same").lower()
         if self.target not in ANALOG_GAMEPAD_OUTPUT_TARGETS:
             self.target = "same"
+        self.target_analog_id = normalize_output_id(self.target_analog_id)
+        if self.target != "analog":
+            self.target_analog_id = None
+        if self.output_rest is not None:
+            self.output_rest = int(self.output_rest)
+        self.output_invert = bool(self.output_invert)
+        self.output_direction = str(self.output_direction or "").lower()
+        if self.output_direction not in ANALOG_GAMEPAD_OUTPUT_DIRECTIONS:
+            self.output_direction = "min" if self.output_invert else "max"
+        self.output_invert = self.output_direction == "min"
         self.sensitivity = max(
             MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
             min(MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY, float(self.sensitivity)),
@@ -436,23 +456,23 @@ class AnalogControlConfig:
 def validate_analog_control_config(config: AnalogControlConfig) -> None:
     if not str(config.name or "").strip():
         raise ValueError("analog control name is required")
-    if config.input_type not in {"stick", "trigger"}:
-        raise ValueError("analog control input_type must be 'stick' or 'trigger'")
-    if config.input_type == "trigger" and config.mouse_motion.enabled:
-        raise ValueError("trigger analog controls only support digital action ranges")
+    if config.input_type not in {"stick", "axis"}:
+        raise ValueError("analog control input_type must be 'stick' or 'axis'")
+    if config.input_type == "axis" and config.mouse_motion.enabled:
+        raise ValueError("axis analog controls only support digital action ranges")
     for index, threshold in enumerate(config.thresholds, start=1):
         allowed_axes = {"x", "y"} if config.input_type == "stick" else {"x"}
         if threshold.axis not in allowed_axes:
-            if config.input_type == "trigger":
-                raise ValueError(f"threshold {index} axis must be 'x' for trigger controls")
+            if config.input_type == "axis":
+                raise ValueError(f"threshold {index} axis must be 'x' for axis controls")
             raise ValueError(f"threshold {index} axis must be 'x' or 'y'")
-        if config.input_type == "trigger" and min(
+        if config.input_type == "axis" and min(
             threshold.trigger_min,
             threshold.trigger_max,
             threshold.release_min,
             threshold.release_max,
         ) < 0.0:
-            raise ValueError(f"threshold {index} trigger range values must be between 0 and 1")
+            raise ValueError(f"threshold {index} axis range values must be between 0 and 1")
         if threshold.trigger_min > threshold.trigger_max:
             raise ValueError(f"threshold {index} activation range is invalid")
         if threshold.release_min > threshold.release_max:

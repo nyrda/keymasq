@@ -208,7 +208,7 @@ tick_ms = 8
 [gamepad_output]
 enabled = false
 output_id = "virtual-gamepad-2"
-deadzone = 0.15
+deadzone = 0.0
 target = "same"
 sensitivity = 1.0
 response_curve = 1.0
@@ -224,7 +224,7 @@ actions = [
 ]
 ```
 
-Trigger Analog Controls use `input_type = "trigger"`, one threshold axis
+Axis Analog Controls use `input_type = "axis"`, one threshold axis
 (`axis = "x"`), and normalized ranges from `0.0` to `1.0`.
 
 Bind a saved macro:

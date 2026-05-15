@@ -3,7 +3,9 @@ import logging
 import math
 import time
 from dataclasses import dataclass
+from typing import cast
 
+from keymasq.common.devices import resolve_evdev_code
 from keymasq.common.models import (
     ActionType,
     AnalogActionThreshold,
@@ -42,12 +44,19 @@ class _SyntheticInputEvent:
     value: int
 
 
-def normalize_axis_value(raw_value: int, minimum: int, maximum: int) -> float:
+def normalize_axis_value(
+    raw_value: int,
+    minimum: int,
+    maximum: int,
+    *,
+    center: int | None = None,
+    invert: bool = False,
+) -> float:
     if minimum >= maximum:
         minimum = DEFAULT_STICK_MIN
         maximum = DEFAULT_STICK_MAX
 
-    midpoint = (float(minimum) + float(maximum)) / 2.0
+    midpoint = float(center) if center is not None else (float(minimum) + float(maximum)) / 2.0
     raw = float(raw_value)
     if raw < midpoint:
         span = max(1.0, midpoint - float(minimum))
@@ -55,16 +64,70 @@ def normalize_axis_value(raw_value: int, minimum: int, maximum: int) -> float:
     else:
         span = max(1.0, float(maximum) - midpoint)
         normalized = (raw - midpoint) / span
+    if invert:
+        normalized = -normalized
     return max(-1.0, min(1.0, normalized))
 
 
-def normalize_trigger_value(raw_value: int, minimum: int, maximum: int) -> float:
+def normalize_control_axis_value(
+    raw_value: int,
+    minimum: int,
+    maximum: int,
+    *,
+    rest: int | None = None,
+) -> float:
     if minimum >= maximum:
         minimum = DEFAULT_TRIGGER_MIN
         maximum = DEFAULT_TRIGGER_MAX
-    span = max(1.0, float(maximum) - float(minimum))
-    normalized = (float(raw_value) - float(minimum)) / span
+    if rest is None:
+        rest = minimum if minimum >= 0 else 0
+    positive_span = float(maximum) - float(rest)
+    negative_span = float(minimum) - float(rest)
+    active_span = positive_span if abs(positive_span) >= abs(negative_span) else negative_span
+    if abs(active_span) < 1.0:
+        active_span = float(maximum) - float(minimum)
+    if abs(active_span) < 1.0:
+        return 0.0
+    normalized = (float(raw_value) - float(rest)) / active_span
     return max(0.0, min(1.0, normalized))
+
+
+def denormalize_axis_value(
+    value: float,
+    minimum: int,
+    maximum: int,
+    *,
+    center: int | None = None,
+    invert: bool = False,
+) -> int:
+    if minimum >= maximum:
+        minimum = DEFAULT_STICK_MIN
+        maximum = DEFAULT_STICK_MAX
+    normalized = max(-1.0, min(1.0, float(value)))
+    if invert:
+        normalized = -normalized
+    midpoint = int(center) if center is not None else int(round((minimum + maximum) / 2.0))
+    if normalized >= 0.0:
+        return min(maximum, int(round(midpoint + normalized * (maximum - midpoint))))
+    return max(minimum, int(round(midpoint + normalized * (midpoint - minimum))))
+
+
+def denormalize_control_axis_value(
+    value: float,
+    minimum: int,
+    maximum: int,
+    *,
+    rest: int | None = None,
+    invert: bool = False,
+) -> int:
+    if minimum >= maximum:
+        minimum = DEFAULT_TRIGGER_MIN
+        maximum = DEFAULT_TRIGGER_MAX
+    if rest is None:
+        rest = minimum if minimum >= 0 else 0
+    normalized = max(0.0, min(1.0, float(value)))
+    endpoint = minimum if invert else maximum
+    return max(minimum, min(maximum, int(round(float(rest) + normalized * (endpoint - rest)))))
 
 
 async def process_analog_event(
@@ -94,17 +157,39 @@ async def process_analog_event(
 
     fallback_range = (
         (DEFAULT_TRIGGER_MIN, DEFAULT_TRIGGER_MAX)
-        if config.input_type == "trigger"
+        if config.input_type == "axis"
         else (DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
     )
     minimum, maximum = device_runtime.analog_axis_ranges.get((analog_id, axis_role), fallback_range)
-    normalized = (
-        normalize_trigger_value(int(event.value), minimum, maximum)
-        if config.input_type == "trigger"
-        else normalize_axis_value(int(event.value), minimum, maximum)
-    )
+    calibration = device_runtime.analog_axis_calibrations.get((analog_id, axis_role), {})
+    rest_value = calibration.get("rest")
+    center_value = calibration.get("center")
+    if config.input_type == "axis":
+        rest = rest_value if isinstance(rest_value, int) else (minimum if minimum >= 0 else 0)
+        normalized = normalize_control_axis_value(
+            int(event.value),
+            minimum,
+            maximum,
+            rest=rest,
+        )
+        signed_normalized = normalize_axis_value(
+            int(event.value),
+            minimum,
+            maximum,
+            center=rest,
+        )
+    else:
+        normalized = normalize_axis_value(
+            int(event.value),
+            minimum,
+            maximum,
+            center=center_value if isinstance(center_value, int) else None,
+            invert=bool(calibration.get("invert", False)),
+        )
+        signed_normalized = normalized
     axis_values = device_runtime.state.analog_axis_values.setdefault(analog_id, {})
     axis_values[axis_role] = normalized
+    axis_values[f"{axis_role}_signed"] = signed_normalized
 
     await _evaluate_thresholds(
         device_runtime,
@@ -237,6 +322,18 @@ async def _activate_threshold_actions(
             synthetic,
             _child_event_name(source_id, index, action_index),
             deps=deps,
+            shared_output_tracker=lambda bucket, code, value: _track_threshold_output(
+                device_runtime,
+                bucket,
+                code,
+                value,
+            ),
+            shared_abs_output_tracker=lambda bucket, axis_code, value: _track_threshold_abs_output(
+                device_runtime,
+                bucket,
+                axis_code,
+                value,
+            ),
         )
     device_runtime.state.analog_active_threshold_actions[threshold_key] = tuple(
         executable_actions
@@ -273,7 +370,63 @@ async def _release_threshold_actions(
             synthetic,
             _child_event_name(source_id, index, action_index),
             deps=deps,
+            shared_output_tracker=lambda bucket, code, value: _track_threshold_output(
+                device_runtime,
+                bucket,
+                code,
+                value,
+            ),
+            shared_abs_output_tracker=lambda bucket, axis_code, value: _track_threshold_abs_output(
+                device_runtime,
+                bucket,
+                axis_code,
+                value,
+            ),
         )
+
+
+def _track_threshold_output(
+    device_runtime: GrabbedDeviceRuntime,
+    bucket: str,
+    code: int,
+    value: int,
+) -> bool:
+    refcounts = device_runtime.state.analog_threshold_output_refcounts.setdefault(bucket, {})
+    held = device_runtime.state.held_output_keys.setdefault(bucket, set())
+    current = refcounts.get(int(code), 0)
+    if int(value) == 1:
+        refcounts[int(code)] = current + 1
+        held.add(int(code))
+        return current == 0
+    if int(value) == 0:
+        if current <= 1:
+            refcounts.pop(int(code), None)
+            held.discard(int(code))
+            return current == 1
+        refcounts[int(code)] = current - 1
+        return False
+    return True
+
+
+def _track_threshold_abs_output(
+    device_runtime: GrabbedDeviceRuntime,
+    bucket: str,
+    axis_code: int,
+    value: int,
+) -> bool:
+    refcounts = device_runtime.state.analog_threshold_abs_refcounts.setdefault(bucket, {})
+    held = device_runtime.state.held_output_abs.setdefault(bucket, set())
+    current = refcounts.get(int(axis_code), 0)
+    if int(value) != 0:
+        refcounts[int(axis_code)] = current + 1
+        held.add(int(axis_code))
+        return current == 0
+    if current <= 1:
+        refcounts.pop(int(axis_code), None)
+        held.discard(int(axis_code))
+        return current == 1
+    refcounts[int(axis_code)] = current - 1
+    return False
 
 
 def _ensure_mouse_task(
@@ -437,10 +590,17 @@ def _emit_gamepad_output(
 ) -> None:
     if not config.gamepad_output.enabled:
         return
-    if config.input_type == "trigger":
+    if config.input_type == "axis":
         _emit_trigger_gamepad_output(device_runtime, source_id, config, deps=deps)
         return
     _emit_stick_gamepad_output(device_runtime, source_id, config, deps=deps)
+
+
+def _gamepad_output_direction(config: AnalogControlConfig) -> str:
+    direction = str(config.gamepad_output.output_direction or "").lower()
+    if direction in {"min", "max", "both"}:
+        return direction
+    return "min" if config.gamepad_output.output_invert else "max"
 
 
 def _emit_stick_gamepad_output(
@@ -450,8 +610,11 @@ def _emit_stick_gamepad_output(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    axis_names = STICK_OUTPUT_AXES.get(_gamepad_output_stick_id(source_id, config))
-    if axis_names is None:
+    if config.gamepad_output.target == "analog":
+        _emit_analog_stick_output(device_runtime, source_id, config, deps=deps)
+        return
+    axis_codes = _stick_output_axis_codes(device_runtime, source_id, config, deps=deps)
+    if axis_codes is None:
         return
     axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
     x = float(axis_values.get("x", 0.0))
@@ -468,8 +631,8 @@ def _emit_stick_gamepad_output(
         source_id,
         config,
         (
-            (getattr(deps.evdev_mod.ecodes, axis_names[0]), _stick_value_to_raw(x)),
-            (getattr(deps.evdev_mod.ecodes, axis_names[1]), _stick_value_to_raw(y)),
+            (axis_codes[0], _stick_value_to_raw(x)),
+            (axis_codes[1], _stick_value_to_raw(y)),
         ),
         deps=deps,
     )
@@ -482,16 +645,41 @@ def _emit_trigger_gamepad_output(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    axis_name = TRIGGER_OUTPUT_AXES.get(_gamepad_output_trigger_id(source_id, config))
-    if axis_name is None:
+    if config.gamepad_output.target == "analog":
+        _emit_analog_axis_output(device_runtime, source_id, config, deps=deps)
         return
-    value = float(device_runtime.state.analog_axis_values.get(source_id, {}).get("x", 0.0))
-    value = _apply_trigger_deadzone(value, float(config.gamepad_output.deadzone))
+    axis_code = _trigger_output_axis_code(device_runtime, source_id, config, deps=deps)
+    if axis_code is None:
+        return
+    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    if _gamepad_output_direction(config) == "both":
+        value = float(axis_values.get("x_signed", 0.0))
+        value = _apply_axis_output_deadzone(value, float(config.gamepad_output.deadzone))
+        raw_value = denormalize_axis_value(
+            value,
+            DEFAULT_TRIGGER_MIN,
+            DEFAULT_TRIGGER_MAX,
+            center=(
+                config.gamepad_output.output_rest
+                if config.gamepad_output.output_rest is not None
+                else DEFAULT_TRIGGER_MIN
+            ),
+        )
+    else:
+        value = float(axis_values.get("x", 0.0))
+        value = _apply_trigger_deadzone(value, float(config.gamepad_output.deadzone))
+        raw_value = denormalize_control_axis_value(
+            value,
+            DEFAULT_TRIGGER_MIN,
+            DEFAULT_TRIGGER_MAX,
+            rest=config.gamepad_output.output_rest,
+            invert=_gamepad_output_direction(config) == "min",
+        )
     _write_gamepad_axes(
         device_runtime,
         source_id,
         config,
-        ((getattr(deps.evdev_mod.ecodes, axis_name), _trigger_value_to_raw(value)),),
+        ((axis_code, raw_value),),
         deps=deps,
     )
 
@@ -503,20 +691,170 @@ def _reset_gamepad_output(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    if config.input_type == "trigger":
-        axis_name = TRIGGER_OUTPUT_AXES.get(_gamepad_output_trigger_id(source_id, config))
-        if axis_name is None:
+    if config.gamepad_output.target == "analog":
+        _reset_analog_gamepad_output(device_runtime, source_id, config, deps=deps)
+        return
+    if config.input_type == "axis":
+        axis_code = _trigger_output_axis_code(device_runtime, source_id, config, deps=deps)
+        if axis_code is None:
             return
-        axes = ((getattr(deps.evdev_mod.ecodes, axis_name), 0),)
+        axes = ((axis_code, config.gamepad_output.output_rest or 0),)
     else:
-        axis_names = STICK_OUTPUT_AXES.get(_gamepad_output_stick_id(source_id, config))
-        if axis_names is None:
+        axis_codes = _stick_output_axis_codes(device_runtime, source_id, config, deps=deps)
+        if axis_codes is None:
             return
         axes = (
-            (getattr(deps.evdev_mod.ecodes, axis_names[0]), 0),
-            (getattr(deps.evdev_mod.ecodes, axis_names[1]), 0),
+            (axis_codes[0], 0),
+            (axis_codes[1], 0),
         )
     _write_gamepad_axes(device_runtime, source_id, config, axes, deps=deps)
+
+
+def _emit_analog_axis_output(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> None:
+    target = _resolve_gamepad_output_target(device_runtime, source_id, config)
+    if target is None:
+        return
+    analog = _target_analog_input(target, config, expected_type="axis")
+    axis = _target_axis(analog, "x") if analog is not None else None
+    if axis is None:
+        return
+    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    axis_code = _axis_code(axis)
+    if axis_code is None:
+        return
+    minimum, maximum = _axis_min_max(axis, DEFAULT_TRIGGER_MIN, DEFAULT_TRIGGER_MAX)
+    output_rest = (
+        config.gamepad_output.output_rest
+        if config.gamepad_output.output_rest is not None
+        else _axis_int(axis, "rest")
+    )
+    if _gamepad_output_direction(config) == "both":
+        value = float(axis_values.get("x_signed", 0.0))
+        value = _apply_axis_output_deadzone(value, float(config.gamepad_output.deadzone))
+        raw_value = denormalize_axis_value(
+            value,
+            minimum,
+            maximum,
+            center=output_rest if output_rest is not None else (minimum if minimum >= 0 else 0),
+        )
+    else:
+        value = float(axis_values.get("x", 0.0))
+        value = _apply_trigger_deadzone(value, float(config.gamepad_output.deadzone))
+        raw_value = denormalize_control_axis_value(
+            value,
+            minimum,
+            maximum,
+            rest=output_rest,
+            invert=_gamepad_output_direction(config) == "min",
+        )
+    _write_gamepad_axes(
+        device_runtime,
+        source_id,
+        config,
+        ((axis_code, raw_value),),
+        deps=deps,
+        target=target,
+    )
+
+
+def _emit_analog_stick_output(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> None:
+    target = _resolve_gamepad_output_target(device_runtime, source_id, config)
+    if target is None:
+        return
+    analog = _target_analog_input(target, config, expected_type="stick")
+    if analog is None:
+        return
+    axes: list[tuple[int, int]] = []
+    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    x = float(axis_values.get("x", 0.0))
+    y = float(axis_values.get("y", 0.0))
+    x, y = _apply_stick_output_curve(
+        x,
+        y,
+        deadzone=float(config.gamepad_output.deadzone),
+        sensitivity=float(config.gamepad_output.sensitivity),
+        response_curve=float(config.gamepad_output.response_curve),
+    )
+    for role, normalized in (("x", x), ("y", y)):
+        axis = _target_axis(analog, role)
+        if axis is None:
+            return
+        axis_code = _axis_code(axis)
+        if axis_code is None:
+            return
+        minimum, maximum = _axis_min_max(axis, DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
+        axes.append(
+            (
+                axis_code,
+                denormalize_axis_value(
+                    normalized,
+                    minimum,
+                    maximum,
+                    center=_axis_int(axis, "center"),
+                    invert=bool(axis.get("invert", False)),
+                ),
+            )
+        )
+    _write_gamepad_axes(
+        device_runtime,
+        source_id,
+        config,
+        tuple(axes),
+        deps=deps,
+        target=target,
+    )
+
+
+def _reset_analog_gamepad_output(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> None:
+    target = _resolve_gamepad_output_target(device_runtime, source_id, config)
+    if target is None:
+        return
+    analog = _target_analog_input(target, config, expected_type=config.input_type)
+    if analog is None:
+        return
+    axes: list[tuple[int, int]] = []
+    for axis in _target_axes(analog):
+        axis_code = _axis_code(axis)
+        if axis_code is None:
+            continue
+        if config.input_type == "axis":
+            axes.append(
+                (
+                    axis_code,
+                    config.gamepad_output.output_rest
+                    if config.gamepad_output.output_rest is not None
+                    else _axis_int(axis, "rest")
+                    or DEFAULT_TRIGGER_MIN,
+                )
+            )
+        else:
+            axes.append((axis_code, _axis_int(axis, "center") or 0))
+    _write_gamepad_axes(
+        device_runtime,
+        source_id,
+        config,
+        tuple(axes),
+        deps=deps,
+        target=target,
+    )
 
 
 def _write_gamepad_axes(
@@ -526,13 +864,11 @@ def _write_gamepad_axes(
     axes: tuple[tuple[int, int], ...],
     *,
     deps: ActionExecutionDeps,
+    target: object | None = None,
 ) -> None:
     if not axes:
         return
-    target = device_runtime.resolve_gamepad_output(
-        config.gamepad_output.output_id,
-        f"{source_id} analog output",
-    )
+    target = target or _resolve_gamepad_output_target(device_runtime, source_id, config)
     if target is None:
         return
     target_uinput = getattr(target, "uinput", None)
@@ -548,6 +884,86 @@ def _write_gamepad_axes(
         output_id=config.gamepad_output.output_id,
         axes=tuple(int(axis_code) for axis_code, _value in axes),
     )
+
+
+def _resolve_gamepad_output_target(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+) -> object | None:
+    return device_runtime.resolve_gamepad_output(
+        config.gamepad_output.output_id,
+        f"{source_id} analog output",
+    )
+
+
+def _target_analog_input(
+    target: object,
+    config: AnalogControlConfig,
+    *,
+    expected_type: str,
+) -> dict[str, object] | None:
+    target_analog_id = config.gamepad_output.target_analog_id
+    if not target_analog_id:
+        return None
+    analog_inputs = getattr(target, "analog_inputs", None)
+    if not isinstance(analog_inputs, dict):
+        return None
+    typed_analog_inputs = cast(dict[str, object], analog_inputs)
+    raw_analog = typed_analog_inputs.get(target_analog_id)
+    if not isinstance(raw_analog, dict):
+        return None
+    analog = cast(dict[str, object], raw_analog)
+    if str(analog.get("type", "") or "") != expected_type:
+        return None
+    return analog
+
+
+def _target_axes(analog: dict[str, object]) -> list[dict[str, object]]:
+    raw_axes = analog.get("axes")
+    if not isinstance(raw_axes, list):
+        return []
+    axes = cast(list[object], raw_axes)
+    return [cast(dict[str, object], axis) for axis in axes if isinstance(axis, dict)]
+
+
+def _target_axis(analog: dict[str, object], role: str) -> dict[str, object] | None:
+    for axis in _target_axes(analog):
+        if str(axis.get("role", "") or "") == role:
+            return axis
+    return None
+
+
+def _axis_int(axis: dict[str, object], key: str) -> int | None:
+    value = axis.get(key)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            return None
+    return None
+
+
+def _axis_code(axis: dict[str, object]) -> int | None:
+    code = _axis_int(axis, "evdev_code")
+    if code is not None:
+        return code
+    evdev_name = str(axis.get("evdev", "") or "")
+    return resolve_evdev_code(evdev_name)
+
+
+def _axis_min_max(
+    axis: dict[str, object],
+    fallback_minimum: int,
+    fallback_maximum: int,
+) -> tuple[int, int]:
+    minimum = _axis_int(axis, "minimum")
+    maximum = _axis_int(axis, "maximum")
+    if minimum is None or maximum is None or minimum >= maximum:
+        return fallback_minimum, fallback_maximum
+    return minimum, maximum
 
 
 def _reset_recorded_gamepad_outputs(
@@ -591,12 +1007,92 @@ def _gamepad_output_stick_id(source_id: str, config: AnalogControlConfig) -> str
     return source_id
 
 
+def _stick_output_axis_codes(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> tuple[int, int] | None:
+    if config.gamepad_output.target == "same":
+        axis_codes = device_runtime.analog_axis_output_codes
+        x_code = axis_codes.get((source_id, "x"))
+        y_code = axis_codes.get((source_id, "y"))
+        if x_code is not None and y_code is not None:
+            return int(x_code), int(y_code)
+
+    axis_names = STICK_OUTPUT_AXES.get(_gamepad_output_stick_id(source_id, config))
+    if axis_names is None:
+        return None
+    return (
+        int(getattr(deps.evdev_mod.ecodes, axis_names[0])),
+        int(getattr(deps.evdev_mod.ecodes, axis_names[1])),
+    )
+
+
 def _gamepad_output_trigger_id(source_id: str, config: AnalogControlConfig) -> str:
     if config.gamepad_output.target == "left":
         return "left_trigger"
     if config.gamepad_output.target == "right":
         return "right_trigger"
     return source_id
+
+
+def _trigger_output_axis_code(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> int | None:
+    if config.gamepad_output.target == "same":
+        trigger_id = _same_trigger_output_id(device_runtime, source_id, deps=deps)
+        if trigger_id is not None:
+            return int(getattr(deps.evdev_mod.ecodes, TRIGGER_OUTPUT_AXES[trigger_id]))
+
+    axis_name = TRIGGER_OUTPUT_AXES.get(_gamepad_output_trigger_id(source_id, config))
+    if axis_name is None:
+        return None
+    return int(getattr(deps.evdev_mod.ecodes, axis_name))
+
+
+def _same_trigger_output_id(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    *,
+    deps: ActionExecutionDeps,
+) -> str | None:
+    if source_id in TRIGGER_OUTPUT_AXES:
+        return source_id
+
+    axis_code = device_runtime.analog_axis_output_codes.get((source_id, "x"))
+    if axis_code == int(deps.evdev_mod.ecodes.ABS_Z):
+        return "left_trigger"
+    if axis_code == int(deps.evdev_mod.ecodes.ABS_RZ):
+        return "right_trigger"
+
+    input_data = device_runtime.analog_inputs.get(source_id)
+    label = ""
+    if isinstance(input_data, dict):
+        input_metadata = cast(dict[str, object], input_data)
+        label_value = input_metadata.get("label")
+        label = str(label_value or "")
+    text = f"{source_id} {label}".lower().replace("-", "_").replace(" ", "_")
+    if (
+        "left_trigger" in text
+        or text.endswith("_lt")
+        or "_lt_" in text
+        or "l2" in text
+    ):
+        return "left_trigger"
+    if (
+        "right_trigger" in text
+        or text.endswith("_rt")
+        or "_rt_" in text
+        or "r2" in text
+    ):
+        return "right_trigger"
+    return None
 
 
 def _apply_stick_output_curve(
@@ -629,14 +1125,18 @@ def _apply_trigger_deadzone(value: float, deadzone: float) -> float:
     return (value - deadzone) / max(0.001, 1.0 - deadzone)
 
 
+def _apply_axis_output_deadzone(value: float, deadzone: float) -> float:
+    deadzone = max(0.0, min(0.95, deadzone))
+    value = max(-1.0, min(1.0, value))
+    magnitude = abs(value)
+    if magnitude <= deadzone:
+        return 0.0
+    scaled = (magnitude - deadzone) / max(0.001, 1.0 - deadzone)
+    return math.copysign(scaled, value)
+
+
 def _stick_value_to_raw(value: float) -> int:
     value = max(-1.0, min(1.0, value))
     if value >= 0.0:
         return min(DEFAULT_STICK_MAX, int(round(value * DEFAULT_STICK_MAX)))
     return max(DEFAULT_STICK_MIN, int(round(value * abs(DEFAULT_STICK_MIN))))
-
-
-def _trigger_value_to_raw(value: float) -> int:
-    value = max(0.0, min(1.0, value))
-    raw = int(round(value * DEFAULT_TRIGGER_MAX))
-    return max(DEFAULT_TRIGGER_MIN, min(DEFAULT_TRIGGER_MAX, raw))

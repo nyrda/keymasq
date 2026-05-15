@@ -1681,12 +1681,12 @@ class HardwareSetupDialog(Adw.Window):
             ),
             "left_trigger": (
                 "Left Trigger",
-                "trigger",
+                "axis",
                 ((evdev.ecodes.ABS_Z, "x"),),
             ),
             "right_trigger": (
                 "Right Trigger",
-                "trigger",
+                "axis",
                 ((evdev.ecodes.ABS_RZ, "x"),),
             ),
         }

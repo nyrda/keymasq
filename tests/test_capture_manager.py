@@ -24,6 +24,10 @@ class _FakeDevice:
         self.grabbed = False
         self.closed = False
         self.fd = hash(path) & 0xFFFF
+        self._absinfo = {
+            evdev.ecodes.ABS_X: evdev.AbsInfo(0, -32768, 32767, 0, 0, 0),
+            evdev.ecodes.ABS_Y: evdev.AbsInfo(0, -32768, 32767, 0, 0, 0),
+        }
 
     def grab(self) -> None:
         self.grabbed = True
@@ -45,6 +49,9 @@ class _FakeDevice:
         if not self._events:
             return None
         return self._events.pop(0)
+
+    def absinfo(self, axis: int):
+        return self._absinfo[axis]
 
 
 def test_capture_manager_begin_read_end(monkeypatch) -> None:
@@ -100,6 +107,32 @@ def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:
 
     captured = cast(dict[str, object], manager.read(token)["captured"])
     assert captured["evdev"] == "key_a"
+
+
+def test_capture_manager_analog_mode_reads_abs_events(monkeypatch) -> None:
+    abs_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 12000)
+    key_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    fake = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [key_event, abs_event])
+
+    monkeypatch.setattr(evdev, "InputDevice", lambda path: fake)
+
+    manager = CaptureManager()
+    begin = manager.begin("1234:5678", ["/dev/input/event2"], mode="analog")
+    token = str(begin["token"])
+
+    assert manager.read(token)["captured"] is None
+    captured = cast(dict[str, object], manager.read(token)["captured"])
+    assert captured["evdev"] == "abs_x"
+    assert captured["code"] == evdev.ecodes.ABS_X
+    assert captured["value"] == 12000
+    assert captured["absinfo"] == {
+        "value": 0,
+        "minimum": -32768,
+        "maximum": 32767,
+        "fuzz": 0,
+        "flat": 0,
+        "resolution": 0,
+    }
 
 
 def test_capture_manager_begin_numbered_hardware_id_falls_back_to_model_id(monkeypatch) -> None:

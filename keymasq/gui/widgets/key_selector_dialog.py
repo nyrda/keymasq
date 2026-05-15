@@ -2095,8 +2095,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             row = Gtk.ListBoxRow()
             row.set_selectable(False)
             label = "No analog controls saved yet"
-            if self._analog_input_type == "trigger":
-                label = "No trigger controls saved yet"
+            if self._analog_input_type == "axis":
+                label = "No axis controls saved yet"
             elif self._analog_input_type == "stick":
                 label = "No stick controls saved yet"
             lbl = Gtk.Label(label=label)
@@ -2140,7 +2140,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self._selected_analog_control = None
 
     def _describe_analog_control_row(self, config: AnalogControlConfig) -> str:
-        parts: list[str] = ["Trigger" if config.input_type == "trigger" else "Stick"]
+        parts: list[str] = ["Axis" if config.input_type == "axis" else "Stick"]
         if config.mouse_motion.enabled:
             parts.append("Mouse")
         if config.gamepad_output.enabled:

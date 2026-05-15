@@ -95,8 +95,16 @@ class AnalogControlManager:
             gamepad_output=AnalogGamepadOutputConfig(
                 enabled=bool(gamepad_data.get("enabled", False)),
                 output_id=_toml_str(gamepad_data, "output_id"),
-                deadzone=_float_value(gamepad_data.get("deadzone"), 0.15),
+                deadzone=_float_value(gamepad_data.get("deadzone"), 0.0),
                 target=_toml_str(gamepad_data, "target", "same") or "same",
+                target_analog_id=_toml_str(gamepad_data, "target_analog_id"),
+                output_rest=(
+                    _int_value(gamepad_data.get("output_rest"), 0)
+                    if gamepad_data.get("output_rest") is not None
+                    else None
+                ),
+                output_direction=_toml_str(gamepad_data, "output_direction", "") or "",
+                output_invert=bool(gamepad_data.get("output_invert", False)),
                 sensitivity=_float_value(gamepad_data.get("sensitivity"), 1.0),
                 response_curve=_float_value(gamepad_data.get("response_curve"), 1.0),
             ),
@@ -277,6 +285,18 @@ class AnalogControlManager:
         if config.gamepad_output.output_id:
             gamepad_output = cast(dict[str, object], data["gamepad_output"])
             gamepad_output["output_id"] = config.gamepad_output.output_id
+        if config.gamepad_output.target_analog_id:
+            gamepad_output = cast(dict[str, object], data["gamepad_output"])
+            gamepad_output["target_analog_id"] = config.gamepad_output.target_analog_id
+        if config.gamepad_output.output_rest is not None:
+            gamepad_output = cast(dict[str, object], data["gamepad_output"])
+            gamepad_output["output_rest"] = int(config.gamepad_output.output_rest)
+        if config.gamepad_output.output_direction != "max":
+            gamepad_output = cast(dict[str, object], data["gamepad_output"])
+            gamepad_output["output_direction"] = config.gamepad_output.output_direction
+        if config.gamepad_output.output_invert:
+            gamepad_output = cast(dict[str, object], data["gamepad_output"])
+            gamepad_output["output_invert"] = True
         if config.description:
             data["description"] = config.description
         if config.thresholds:

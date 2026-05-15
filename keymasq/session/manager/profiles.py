@@ -750,6 +750,23 @@ def build_grab_device_payload(
                             if axis.evdev_code is not None
                             else {}
                         ),
+                        **(
+                            {"minimum": int(axis.minimum)}
+                            if axis.minimum is not None
+                            else {}
+                        ),
+                        **(
+                            {"maximum": int(axis.maximum)}
+                            if axis.maximum is not None
+                            else {}
+                        ),
+                        **(
+                            {"center": int(axis.center)}
+                            if axis.center is not None
+                            else {}
+                        ),
+                        **({"rest": int(axis.rest)} if axis.rest is not None else {}),
+                        **({"invert": True} if axis.invert else {}),
                     }
                     for axis in analog.axes
                 ],

@@ -158,7 +158,7 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
             AnalogInputDefinition(
                 id="left_trigger",
                 label="Left Trigger",
-                type="trigger",
+                type="axis",
                 source="joystick",
                 axes=[
                     AnalogAxisDefinition(role="x", evdev="abs_z", evdev_code=2),
@@ -178,7 +178,7 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
     assert 'source = "evdev"' in text
     assert 'id = "left_stick"' in text
     assert 'id = "left_trigger"' in text
-    assert 'type = "trigger"' in text
+    assert 'type = "axis"' in text
     assert 'evdev = "abs_x"' in text
     assert 'evdev = "abs_z"' in text
     assert 'zone = "main"' in text

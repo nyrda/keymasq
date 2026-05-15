@@ -12,7 +12,7 @@ from keymasq.common.models import analog_gamepad_output_distance
 class AnalogCurveGraph(Gtk.DrawingArea):
     def __init__(self) -> None:
         super().__init__()
-        self._deadzone = 0.15
+        self._deadzone = 0.0
         self._sensitivity = 1.0
         self._response_curve = 1.0
         self.set_content_width(260)

@@ -227,6 +227,10 @@ class GrabbedDeviceState:
         str,
         tuple[tuple[int, MappingAction], ...],
     ] = field(default_factory=dict)
+    analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(
+        default_factory=dict
+    )
+    analog_threshold_abs_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
     analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
@@ -306,10 +310,19 @@ class GrabbedDeviceRuntime(Protocol):
     def event_code_to_button(self) -> dict[tuple[int, int], str]: ...
 
     @property
+    def analog_inputs(self) -> dict[str, object]: ...
+
+    @property
     def analog_axis_bindings(self) -> dict[tuple[int, int], tuple[str, str]]: ...
 
     @property
+    def analog_axis_output_codes(self) -> dict[tuple[str, str], int]: ...
+
+    @property
     def analog_axis_ranges(self) -> dict[tuple[str, str], tuple[int, int]]: ...
+
+    @property
+    def analog_axis_calibrations(self) -> dict[tuple[str, str], dict[str, object]]: ...
 
     @property
     def state(self) -> GrabbedDeviceState: ...

@@ -182,8 +182,12 @@ def parse_analog_control_config(
     gamepad_output = AnalogGamepadOutputConfig(
         enabled=bool((gamepad_config or {}).get("enabled", False)),
         output_id=optional_str((gamepad_config or {}).get("output_id")),
-        deadzone=float_value((gamepad_config or {}).get("deadzone"), 0.15),
+        deadzone=float_value((gamepad_config or {}).get("deadzone"), 0.0),
         target=str_value((gamepad_config or {}).get("target"), "same") or "same",
+        target_analog_id=optional_str((gamepad_config or {}).get("target_analog_id")),
+        output_rest=int_or_none((gamepad_config or {}).get("output_rest")),
+        output_direction=str_value((gamepad_config or {}).get("output_direction"), ""),
+        output_invert=bool((gamepad_config or {}).get("output_invert", False)),
         sensitivity=float_value((gamepad_config or {}).get("sensitivity"), 1.0),
         response_curve=float_value((gamepad_config or {}).get("response_curve"), 1.0),
     )

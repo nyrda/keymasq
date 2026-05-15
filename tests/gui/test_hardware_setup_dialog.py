@@ -639,10 +639,10 @@ class TestHardwareSetupDialog:
         saved = hardware_manager.saved[0]
         analogs = {analog.id: analog for analog in saved.analog_inputs}
         assert set(analogs) == {"left_stick", "right_stick", "left_trigger", "right_trigger"}
-        assert analogs["left_trigger"].type == "trigger"
+        assert analogs["left_trigger"].type == "axis"
         assert analogs["left_trigger"].axes[0].role == "x"
         assert analogs["left_trigger"].axes[0].evdev_code == evdev.ecodes.ABS_Z
-        assert analogs["right_trigger"].type == "trigger"
+        assert analogs["right_trigger"].type == "axis"
         assert analogs["right_trigger"].axes[0].evdev_code == evdev.ecodes.ABS_RZ
 
     def test_save_mouse_keyboard_config_builds_standard_template(self, monkeypatch):

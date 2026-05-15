@@ -89,6 +89,58 @@ class TestGrabbedDeviceHelpers:
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("left_stick", "x")
         }
 
+    def test_refresh_analog_axis_ranges_does_not_infer_stick_center(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = _make_grabbed_device(
+            monkeypatch,
+            analog_inputs={
+                "left_stick": {
+                    "type": "stick",
+                    "source": "kbd",
+                    "axes": [{"role": "x", "evdev": "abs_x", "evdev_code": evdev.ecodes.ABS_X}],
+                },
+            },
+        )
+        device.device = SimpleNamespace(
+            absinfo=lambda _code: SimpleNamespace(min=0, max=65535, value=12345)
+        )
+
+        device._refresh_analog_axis_ranges()
+
+        assert device.analog_axis_ranges[("left_stick", "x")] == (0, 65535)
+        assert device.analog_axis_calibrations[("left_stick", "x")] == {
+            "minimum": 0,
+            "maximum": 65535,
+        }
+
+    def test_refresh_analog_axis_ranges_infers_axis_rest(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = _make_grabbed_device(
+            monkeypatch,
+            analog_inputs={
+                "left_trigger": {
+                    "type": "axis",
+                    "source": "kbd",
+                    "axes": [{"role": "x", "evdev": "abs_z", "evdev_code": evdev.ecodes.ABS_Z}],
+                },
+            },
+        )
+        device.device = SimpleNamespace(
+            absinfo=lambda _code: SimpleNamespace(min=0, max=1023, value=127)
+        )
+
+        device._refresh_analog_axis_ranges()
+
+        assert device.analog_axis_calibrations[("left_trigger", "x")] == {
+            "minimum": 0,
+            "maximum": 1023,
+            "rest": 127,
+        }
+
     def test_find_grabbed_action_for_event_ignores_cross_type_code_collision(
         self,
         monkeypatch,

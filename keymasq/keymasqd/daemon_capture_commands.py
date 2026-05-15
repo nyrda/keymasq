@@ -47,7 +47,12 @@ class _CaptureCommandRecordingManager(Protocol):
 
 
 class _CaptureCommandCaptureManager(Protocol):
-    def begin(self, hardware_id: str, evdev_paths: list[str] | None = None) -> JsonObject: ...
+    def begin(
+        self,
+        hardware_id: str,
+        evdev_paths: list[str] | None = None,
+        mode: str = "button",
+    ) -> JsonObject: ...
 
     def read(self, token: str) -> JsonObject: ...
 
@@ -95,9 +100,23 @@ async def handle_capture_command(
     if command_type == CommandType.CAPTURE_BEGIN:
         hardware_id = str(data.get("hardware_id", ""))
         evdev_paths = str_list(data.get("evdev_paths", []))
+        mode = str(data.get("mode", "button") or "button")
         if evdev_paths:
-            return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id, evdev_paths)
-        return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id)
+            if mode == "button":
+                return await asyncio.to_thread(
+                    daemon.capture_manager.begin,
+                    hardware_id,
+                    evdev_paths,
+                )
+            return await asyncio.to_thread(
+                daemon.capture_manager.begin,
+                hardware_id,
+                evdev_paths,
+                mode,
+            )
+        if mode == "button":
+            return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id)
+        return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id, None, mode)
 
     if command_type == CommandType.CAPTURE_READ:
         token = str(data.get("token", ""))

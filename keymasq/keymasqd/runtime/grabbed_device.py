@@ -206,7 +206,10 @@ class GrabbedDevice:
         self.update_button_map(button_map, button_codes, button_values)
         self.analog_inputs: dict[str, object] = {}
         self.analog_axis_bindings: dict[tuple[int, int], tuple[str, str]] = {}
+        self.analog_axis_output_codes: dict[tuple[str, str], int] = {}
         self.analog_axis_ranges: dict[tuple[str, str], tuple[int, int]] = {}
+        self.analog_axis_calibrations: dict[tuple[str, str], dict[str, object]] = {}
+        self.analog_input_types: dict[str, str] = {}
         self.update_analog_inputs(analog_inputs or {})
         self.mapping_getter = mapping_getter
         self.event_callback = event_callback
@@ -258,7 +261,10 @@ class GrabbedDevice:
     def update_analog_inputs(self, analog_inputs: dict[str, object]) -> None:
         self.analog_inputs = dict(analog_inputs)
         self.analog_axis_bindings = {}
+        self.analog_axis_output_codes = {}
         self.analog_axis_ranges = {}
+        self.analog_axis_calibrations = {}
+        self.analog_input_types = {}
         for analog_id, raw_input in self.analog_inputs.items():
             if not isinstance(raw_input, dict):
                 continue
@@ -266,6 +272,9 @@ class GrabbedDevice:
             source = str(input_data.get("source", "") or "").strip().lower()
             if source and source != self.interface_id:
                 continue
+            self.analog_input_types[str(analog_id)] = str(
+                input_data.get("type", "stick") or "stick"
+            ).lower()
             raw_axes = input_data.get("axes")
             if not isinstance(raw_axes, list):
                 continue
@@ -283,6 +292,10 @@ class GrabbedDevice:
                     str(analog_id),
                     role,
                 )
+                self.analog_axis_output_codes[(str(analog_id), role)] = int(code)
+                calibration = _axis_calibration(axis_data)
+                if calibration:
+                    self.analog_axis_calibrations[(str(analog_id), role)] = calibration
         self._refresh_analog_axis_ranges()
 
     async def reset_mapping_runtime_state(self) -> None:
@@ -585,8 +598,23 @@ class GrabbedDevice:
                 continue
             minimum = getattr(info, "min", None)
             maximum = getattr(info, "max", None)
-            if isinstance(minimum, int) and isinstance(maximum, int):
-                self.analog_axis_ranges[(analog_id, role)] = (minimum, maximum)
+            key = (analog_id, role)
+            calibration = self.analog_axis_calibrations.setdefault(key, {})
+            if "minimum" not in calibration and isinstance(minimum, int):
+                calibration["minimum"] = minimum
+            if "maximum" not in calibration and isinstance(maximum, int):
+                calibration["maximum"] = maximum
+            current = getattr(info, "value", None)
+            if (
+                self.analog_input_types.get(analog_id) == "axis"
+                and "rest" not in calibration
+                and isinstance(current, int)
+            ):
+                calibration["rest"] = current
+            minimum_value = calibration.get("minimum", minimum)
+            maximum_value = calibration.get("maximum", maximum)
+            if isinstance(minimum_value, int) and isinstance(maximum_value, int):
+                self.analog_axis_ranges[key] = (minimum_value, maximum_value)
 
 
 def _axis_code(axis: dict[str, object]) -> int | None:
@@ -599,3 +627,19 @@ def _axis_code(axis: dict[str, object]) -> int | None:
         except ValueError:
             return None
     return resolve_evdev_code(str(axis.get("evdev", "") or ""))
+
+
+def _axis_calibration(axis: dict[str, object]) -> dict[str, object]:
+    calibration: dict[str, object] = {}
+    for field in ("minimum", "maximum", "center", "rest"):
+        value = axis.get(field)
+        if isinstance(value, int):
+            calibration[field] = value
+        elif isinstance(value, str):
+            try:
+                calibration[field] = int(value, 0)
+            except ValueError:
+                pass
+    if bool(axis.get("invert", False)):
+        calibration["invert"] = True
+    return calibration

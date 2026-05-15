@@ -15,6 +15,10 @@ from keymasq.session.analog_controls import (
 )
 
 
+def test_gamepad_output_deadzone_defaults_to_zero() -> None:
+    assert AnalogGamepadOutputConfig().deadzone == 0.0
+
+
 def test_analog_control_manager_round_trip_rename_delete(temp_config_dir) -> None:
     manager = AnalogControlManager()
     config = AnalogControlConfig(
@@ -128,7 +132,7 @@ def test_trigger_analog_control_uses_single_positive_axis(temp_config_dir) -> No
     manager = AnalogControlManager()
     config = AnalogControlConfig(
         name="Trigger Pull",
-        input_type="trigger",
+        input_type="axis",
         thresholds=[
             AnalogActionThreshold(
                 axis="x",
@@ -145,7 +149,7 @@ def test_trigger_analog_control_uses_single_positive_axis(temp_config_dir) -> No
 
     loaded = AnalogControlManager().get_analog_control("Trigger Pull")
     assert loaded is not None
-    assert loaded.input_type == "trigger"
+    assert loaded.input_type == "axis"
     assert loaded.thresholds[0].trigger_min == 0.5
 
 
@@ -173,6 +177,33 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
     assert loaded.gamepad_output.target == "right"
     assert loaded.gamepad_output.sensitivity == 1.5
     assert loaded.gamepad_output.response_curve == 0.75
+
+
+def test_analog_control_gamepad_output_learned_target_round_trips(temp_config_dir) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Route Pedal",
+            input_type="axis",
+            gamepad_output=AnalogGamepadOutputConfig(
+                enabled=True,
+                output_id="1234:5678",
+                target="analog",
+                target_analog_id="brake",
+                output_rest=100,
+                output_direction="min",
+            ),
+        )
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Route Pedal")
+    assert loaded is not None
+    assert loaded.gamepad_output.output_id == "1234:5678"
+    assert loaded.gamepad_output.target == "analog"
+    assert loaded.gamepad_output.target_analog_id == "brake"
+    assert loaded.gamepad_output.output_rest == 100
+    assert loaded.gamepad_output.output_direction == "min"
+    assert loaded.gamepad_output.output_invert is True
 
 
 def test_analog_control_gamepad_axis_threshold_action_round_trips(temp_config_dir) -> None:
@@ -214,14 +245,14 @@ def test_trigger_analog_control_rejects_mouse_motion_and_y_axis() -> None:
     with pytest.raises(ValueError, match="only support digital"):
         AnalogControlConfig(
             name="Bad Trigger",
-            input_type="trigger",
+            input_type="axis",
             mouse_motion=AnalogMouseMotionConfig(enabled=True),
         )
 
     with pytest.raises(ValueError, match="axis must be 'x'"):
         AnalogControlConfig(
             name="Bad Trigger",
-            input_type="trigger",
+            input_type="axis",
             thresholds=[
                 AnalogActionThreshold(
                     axis="y",

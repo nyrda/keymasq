@@ -66,6 +66,29 @@ class TestGrabbedDeviceHelpers:
             {"key_7"},
             {(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_7)},
         )
+
+    def test_analog_axis_bindings_filter_by_interface_source(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = _make_grabbed_device(
+            monkeypatch,
+            analog_inputs={
+                "left_stick": {
+                    "source": "kbd",
+                    "axes": [{"role": "x", "evdev": "abs_x", "evdev_code": evdev.ecodes.ABS_X}],
+                },
+                "right_stick": {
+                    "source": "mouse",
+                    "axes": [{"role": "x", "evdev": "abs_x", "evdev_code": evdev.ecodes.ABS_X}],
+                },
+            },
+        )
+
+        assert device.analog_axis_bindings == {
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("left_stick", "x")
+        }
+
     def test_find_grabbed_action_for_event_ignores_cross_type_code_collision(
         self,
         monkeypatch,

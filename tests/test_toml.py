@@ -114,6 +114,31 @@ class TestProfileTOML:
         assert layer.mappings["left_stick"].action_type == ActionType.ANALOG_CONTROL
         assert layer.mappings["left_stick"].analog_control_name == "FPS Mouse"
 
+    def test_rename_analog_control_references(self, temp_config_dir):
+        manager = ProfileManager()
+        manager.save_profile(
+            ProfileConfig(
+                name="Analog Profile",
+                device_layers={
+                    "1234:5678": DeviceProfileLayer(
+                        hardware_id="1234:5678",
+                        mappings={
+                            "left_stick": MappingAction(
+                                action_type=ActionType.ANALOG_CONTROL,
+                                analog_control_name="Old Control",
+                            )
+                        },
+                    )
+                },
+            )
+        )
+
+        assert manager.rename_analog_control_references("Old Control", "New Control") == 1
+
+        reloaded = ProfileManager()
+        layer = reloaded.list_profiles()[0].config.device_layers["1234:5678"]
+        assert layer.mappings["left_stick"].analog_control_name == "New Control"
+
     def test_profile_gamepad_output_id_roundtrip(self, temp_config_dir):
         original = ProfileConfig(
             name="Routed Gamepad",

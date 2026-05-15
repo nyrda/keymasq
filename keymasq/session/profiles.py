@@ -1015,6 +1015,32 @@ class ProfileManager:
             )
         return count
 
+    def rename_analog_control_references(self, old_name: str, new_name: str) -> int:
+        if old_name == new_name:
+            return 0
+        count = 0
+        for info in self.list_profiles():
+            modified = False
+            for layer in info.config.device_layers.values():
+                for action in layer.mappings.values():
+                    if (
+                        action.action_type == ActionType.ANALOG_CONTROL
+                        and action.analog_control_name == old_name
+                    ):
+                        action.analog_control_name = new_name
+                        modified = True
+                        count += 1
+            if modified:
+                self.save_profile(info.config)
+        if count > 0:
+            log.info(
+                "Renamed analog control references '%s' -> '%s' in %d mappings",
+                old_name,
+                new_name,
+                count,
+            )
+        return count
+
     def replace_superkey_with_suppress(self, superkey_name: str) -> int:
         count = 0
         for info in self.list_profiles():

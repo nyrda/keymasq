@@ -127,18 +127,23 @@ async def reset_analog_controls(
     for source_id, active in list(device_runtime.state.analog_active_thresholds.items()):
         action = mapping.get(source_id)
         config = action.analog_control_config if action else None
-        if action is None or config is None:
-            continue
         for threshold_key in list(active):
             index = _threshold_index(threshold_key)
-            if index is None or index >= len(config.thresholds):
+            actions = device_runtime.state.analog_active_threshold_actions.get(threshold_key)
+            threshold = (
+                config.thresholds[index]
+                if config is not None and index is not None and index < len(config.thresholds)
+                else None
+            )
+            if index is None or (threshold is None and actions is None):
                 continue
             await _release_threshold_actions(
                 device_runtime,
                 source_id,
                 index,
-                config.thresholds[index],
+                threshold,
                 deps=deps,
+                actions=actions,
             )
 
     for source_id, action in mapping.items():
@@ -161,6 +166,7 @@ async def reset_analog_controls(
 
     device_runtime.state.analog_axis_values.clear()
     device_runtime.state.analog_active_thresholds.clear()
+    device_runtime.state.analog_active_threshold_actions.clear()
     device_runtime.state.analog_mouse_tasks.clear()
     device_runtime.state.analog_mouse_accumulators.clear()
     device_runtime.state.analog_gamepad_outputs.clear()
@@ -201,6 +207,7 @@ async def _evaluate_thresholds(
                 event_type=int(event.type),
                 event_code=int(event.code),
             )
+            device_runtime.state.analog_active_threshold_actions.pop(key, None)
 
 
 async def _activate_threshold_actions(
@@ -213,6 +220,8 @@ async def _activate_threshold_actions(
     deps: ActionExecutionDeps,
 ) -> None:
     synthetic = _SyntheticInputEvent(int(event.type), int(event.code), 1)
+    threshold_key = _threshold_key(source_id, index)
+    executable_actions: list[tuple[int, MappingAction]] = []
     for action_index, action in enumerate(threshold.actions):
         if action.action_type in {
             ActionType.PASSTHROUGH,
@@ -220,6 +229,7 @@ async def _activate_threshold_actions(
             ActionType.ANALOG_CONTROL,
         }:
             continue
+        executable_actions.append((action_index, action))
         await runtime_actions.execute_action(
             device_runtime,
             action,
@@ -227,20 +237,29 @@ async def _activate_threshold_actions(
             _child_event_name(source_id, index, action_index),
             deps=deps,
         )
+    device_runtime.state.analog_active_threshold_actions[threshold_key] = tuple(
+        executable_actions
+    )
 
 
 async def _release_threshold_actions(
     device_runtime: GrabbedDeviceRuntime,
     source_id: str,
     index: int,
-    threshold: AnalogActionThreshold,
+    threshold: AnalogActionThreshold | None,
     *,
     deps: ActionExecutionDeps,
     event_type: int = 0,
     event_code: int = 0,
+    actions: tuple[tuple[int, MappingAction], ...] | None = None,
 ) -> None:
     synthetic = _SyntheticInputEvent(event_type, event_code, 0)
-    for action_index, action in enumerate(threshold.actions):
+    action_entries = (
+        actions
+        if actions is not None
+        else tuple(enumerate(threshold.actions)) if threshold is not None else ()
+    )
+    for action_index, action in action_entries:
         if action.action_type in {
             ActionType.PASSTHROUGH,
             ActionType.SUPPRESS,

@@ -378,3 +378,37 @@ async def test_reset_analog_controls_centers_previous_gamepad_output_after_mappi
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 0),
     ]
+
+
+@pytest.mark.asyncio
+async def test_reset_analog_controls_releases_threshold_after_mapping_removed() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Test",
+                thresholds=[
+                    AnalogActionThreshold(
+                        axis="x",
+                        trigger_min=0.65,
+                        trigger_max=1.0,
+                        release_min=0.55,
+                        release_max=1.0,
+                        actions=[
+                            MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
+                        ],
+                    )
+                ],
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+
+    mapping.clear()
+    await reset_analog_controls(runtime, deps=_deps())
+
+    assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)

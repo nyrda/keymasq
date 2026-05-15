@@ -149,6 +149,41 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
     assert loaded.gamepad_output.target == "right"
 
 
+def test_analog_control_gamepad_axis_threshold_action_round_trips(temp_config_dir) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Axis Threshold",
+            thresholds=[
+                AnalogActionThreshold(
+                    axis="x",
+                    trigger_min=0.65,
+                    trigger_max=1.0,
+                    release_min=0.55,
+                    release_max=1.0,
+                    actions=[
+                        MappingAction(
+                            action_type=ActionType.GAMEPAD_AXIS,
+                            target="abs_rx",
+                            output_id="virtual-gamepad-2",
+                            axis_value=12345,
+                        )
+                    ],
+                )
+            ],
+        )
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Axis Threshold")
+
+    assert loaded is not None
+    action = loaded.thresholds[0].actions[0]
+    assert action.action_type == ActionType.GAMEPAD_AXIS
+    assert action.target == "abs_rx"
+    assert action.output_id == "virtual-gamepad-2"
+    assert action.axis_value == 12345
+
+
 def test_trigger_analog_control_rejects_mouse_motion_and_y_axis() -> None:
     with pytest.raises(ValueError, match="only support digital"):
         AnalogControlConfig(

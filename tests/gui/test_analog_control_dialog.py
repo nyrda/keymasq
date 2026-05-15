@@ -116,6 +116,52 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     assert reloaded._gamepad_output_dropdown.get_selected() == 1
 
 
+def test_gamepad_mode_save_preserves_existing_combined_settings(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import (
+        ActionType,
+        AnalogActionThreshold,
+        AnalogControlConfig,
+        AnalogGamepadOutputConfig,
+        AnalogMouseMotionConfig,
+        MappingAction,
+    )
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Combined",
+            mouse_motion=AnalogMouseMotionConfig(enabled=True),
+            gamepad_output=AnalogGamepadOutputConfig(enabled=True),
+            thresholds=[
+                AnalogActionThreshold(
+                    axis="x",
+                    trigger_min=0.65,
+                    trigger_max=1.0,
+                    release_min=0.55,
+                    release_max=1.0,
+                    actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_e")],
+                )
+            ],
+        )
+    )
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    assert dialog._current_mode() == "gamepad"
+    dialog.description_entry.set_text("Edited")
+
+    assert dialog._save_current_control() is True
+    saved = dialog.manager.get_analog_control("Combined")
+    assert saved is not None
+    assert saved.mouse_motion.enabled is True
+    assert saved.gamepad_output.enabled is True
+    assert saved.thresholds[0].actions[0].target == "key_e"
+
+
 def test_analog_selector_filters_controls_by_source_input_type(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

@@ -223,6 +223,10 @@ class GrabbedDeviceState:
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
     analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
     analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
+    analog_active_threshold_actions: dict[
+        str,
+        tuple[tuple[int, MappingAction], ...],
+    ] = field(default_factory=dict)
     analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)

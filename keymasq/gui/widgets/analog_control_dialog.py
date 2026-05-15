@@ -1135,12 +1135,26 @@ class AnalogControlDialog(Adw.Dialog):
         input_type = self._current_input_type()
         self._sync_thresholds_for_input_type()
         old_name = self._current_name
+        preserve_hidden_mouse = (
+            input_type == "stick"
+            and mode == "gamepad"
+            and self._current_config is not None
+            and self._current_config.mouse_motion.enabled
+        )
+        preserve_hidden_thresholds = (
+            mode == "gamepad"
+            and self._current_config is not None
+            and bool(self._current_config.thresholds)
+        )
         config = AnalogControlConfig(
             name=name,
             description=self.description_entry.get_text().strip() or None,
             input_type=input_type,
             mouse_motion=AnalogMouseMotionConfig(
-                enabled=input_type == "stick" and mode in {"mouse", "both"},
+                enabled=(
+                    input_type == "stick"
+                    and (mode in {"mouse", "both"} or preserve_hidden_mouse)
+                ),
                 speed=self.speed_row.get_value(),
                 deadzone=self.deadzone_row.get_value(),
                 curve=["soft", "linear", "fast"][int(self.curve_row.get_selected())],
@@ -1155,12 +1169,18 @@ class AnalogControlDialog(Adw.Dialog):
             ),
             thresholds=(
                 list(self._thresholds)
-                if mode in {"digital", "both"}
+                if mode in {"digital", "both"} or preserve_hidden_thresholds
                 else []
             ),
         )
         try:
             self.manager.save_analog_control(config, replacing_name=old_name)
+            if (
+                old_name
+                and old_name != name
+                and self.profile_manager is not None
+            ):
+                self.profile_manager.rename_analog_control_references(old_name, name)
         except ValueError as exc:
             self._show_save_error(str(exc))
             return False

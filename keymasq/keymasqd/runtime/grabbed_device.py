@@ -263,6 +263,9 @@ class GrabbedDevice:
             if not isinstance(raw_input, dict):
                 continue
             input_data = cast(dict[str, object], raw_input)
+            source = str(input_data.get("source", "") or "").strip().lower()
+            if source and source != self.interface_id:
+                continue
             raw_axes = input_data.get("axes")
             if not isinstance(raw_axes, list):
                 continue

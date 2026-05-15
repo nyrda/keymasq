@@ -125,10 +125,18 @@ extract_pytest_final_summary() {
 
 run_pytest_host() {
   local pytest_args="tests -q -ra --tb=short"
+  local pytest_workers="${KEYMASQ_PYTEST_WORKERS:-}"
   local command=""
   local raw_log="$tmp_dir/pytest-host.raw.log"
   local clean_log="$tmp_dir/pytest-host.clean.log"
   local summary_log="$tmp_dir/pytest-host.summary.log"
+
+  if [[ -z "$pytest_workers" ]]; then
+    pytest_workers="$(nproc 2>/dev/null || echo 1)"
+    if (( pytest_workers > 7 )); then
+      pytest_workers=7
+    fi
+  fi
 
   if [[ -n "$PYTEST_MARK_EXPR" ]]; then
     pytest_args="$pytest_args -m $PYTEST_MARK_EXPR"
@@ -136,6 +144,10 @@ run_pytest_host() {
 
   if [[ "$CATEGORY" == "keymasqd" || "$CATEGORY" == "session" ]]; then
     pytest_args="$pytest_args --ignore=tests/gui"
+  fi
+
+  if [[ "$pytest_workers" != "0" && "$pytest_workers" != "1" ]]; then
+    pytest_args="$pytest_args -n $pytest_workers"
   fi
 
   if [[ "$CATEGORY" == "gui" || "$CATEGORY" == "full" ]]; then

@@ -182,7 +182,7 @@ class RapidfireOutputState:
 @dataclass
 class AnalogGamepadOutputState:
     output_id: str | None
-    axes: tuple[int, ...]
+    reset_axes: tuple[tuple[int, int], ...]
 
 
 @dataclass

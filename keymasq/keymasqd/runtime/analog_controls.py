@@ -680,6 +680,14 @@ def _emit_trigger_gamepad_output(
         source_id,
         config,
         ((axis_code, raw_value),),
+        reset_axes=(
+            (
+                axis_code,
+                config.gamepad_output.output_rest
+                if config.gamepad_output.output_rest is not None
+                else DEFAULT_TRIGGER_MIN,
+            ),
+        ),
         deps=deps,
     )
 
@@ -698,7 +706,14 @@ def _reset_gamepad_output(
         axis_code = _trigger_output_axis_code(device_runtime, source_id, config, deps=deps)
         if axis_code is None:
             return
-        axes = ((axis_code, config.gamepad_output.output_rest or 0),)
+        axes = (
+            (
+                axis_code,
+                config.gamepad_output.output_rest
+                if config.gamepad_output.output_rest is not None
+                else 0,
+            ),
+        )
     else:
         axis_codes = _stick_output_axis_codes(device_runtime, source_id, config, deps=deps)
         if axis_codes is None:
@@ -707,7 +722,15 @@ def _reset_gamepad_output(
             (axis_codes[0], 0),
             (axis_codes[1], 0),
         )
-    _write_gamepad_axes(device_runtime, source_id, config, axes, deps=deps)
+    _write_gamepad_axes(
+        device_runtime,
+        source_id,
+        config,
+        axes,
+        reset_axes=axes,
+        releasing=True,
+        deps=deps,
+    )
 
 
 def _emit_analog_axis_output(
@@ -734,6 +757,7 @@ def _emit_analog_axis_output(
         if config.gamepad_output.output_rest is not None
         else _axis_int(axis, "rest")
     )
+    reset_value = output_rest if output_rest is not None else (minimum if minimum >= 0 else 0)
     if _gamepad_output_direction(config) == "both":
         value = float(axis_values.get("x_signed", 0.0))
         value = _apply_axis_output_deadzone(value, float(config.gamepad_output.deadzone))
@@ -741,7 +765,7 @@ def _emit_analog_axis_output(
             value,
             minimum,
             maximum,
-            center=output_rest if output_rest is not None else (minimum if minimum >= 0 else 0),
+            center=reset_value,
         )
     else:
         value = float(axis_values.get("x", 0.0))
@@ -758,6 +782,7 @@ def _emit_analog_axis_output(
         source_id,
         config,
         ((axis_code, raw_value),),
+        reset_axes=((axis_code, reset_value),),
         deps=deps,
         target=target,
     )
@@ -777,6 +802,7 @@ def _emit_analog_stick_output(
     if analog is None:
         return
     axes: list[tuple[int, int]] = []
+    reset_axes: list[tuple[int, int]] = []
     axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
     x = float(axis_values.get("x", 0.0))
     y = float(axis_values.get("y", 0.0))
@@ -795,6 +821,7 @@ def _emit_analog_stick_output(
         if axis_code is None:
             return
         minimum, maximum = _axis_min_max(axis, DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
+        reset_value = _axis_int(axis, "center") or 0
         axes.append(
             (
                 axis_code,
@@ -807,11 +834,13 @@ def _emit_analog_stick_output(
                 ),
             )
         )
+        reset_axes.append((axis_code, reset_value))
     _write_gamepad_axes(
         device_runtime,
         source_id,
         config,
         tuple(axes),
+        reset_axes=tuple(reset_axes),
         deps=deps,
         target=target,
     )
@@ -852,6 +881,8 @@ def _reset_analog_gamepad_output(
         source_id,
         config,
         tuple(axes),
+        reset_axes=tuple(axes),
+        releasing=True,
         deps=deps,
         target=target,
     )
@@ -863,6 +894,8 @@ def _write_gamepad_axes(
     config: AnalogControlConfig,
     axes: tuple[tuple[int, int], ...],
     *,
+    reset_axes: tuple[tuple[int, int], ...] | None = None,
+    releasing: bool = False,
     deps: ActionExecutionDeps,
     target: object | None = None,
 ) -> None:
@@ -878,11 +911,18 @@ def _write_gamepad_axes(
         return
     for axis_code, value in axes:
         writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
-        track_abs_state(device_runtime, int(axis_code), int(value), bucket=target_bucket)
+        if releasing:
+            _clear_tracked_abs_state(device_runtime, target_bucket, int(axis_code))
+        else:
+            track_abs_state(device_runtime, int(axis_code), int(value), bucket=target_bucket)
     writer.syn()
     device_runtime.state.analog_gamepad_outputs[source_id] = AnalogGamepadOutputState(
         output_id=config.gamepad_output.output_id,
-        axes=tuple(int(axis_code) for axis_code, _value in axes),
+        reset_axes=(
+            tuple((int(axis_code), int(value)) for axis_code, value in reset_axes)
+            if reset_axes is not None
+            else tuple((int(axis_code), 0) for axis_code, _value in axes)
+        ),
     )
 
 
@@ -993,10 +1033,20 @@ def _write_recorded_gamepad_reset(
     writer = deps.uinput_writer(target_uinput)
     if writer is None:
         return
-    for axis_code in output.axes:
-        writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), 0)
-        track_abs_state(device_runtime, int(axis_code), 0, bucket=target_bucket)
+    for axis_code, value in output.reset_axes:
+        writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
+        _clear_tracked_abs_state(device_runtime, target_bucket, int(axis_code))
     writer.syn()
+
+
+def _clear_tracked_abs_state(
+    device_runtime: GrabbedDeviceRuntime,
+    bucket: str,
+    axis_code: int,
+) -> None:
+    held = device_runtime.state.held_output_abs.get(bucket)
+    if held is not None:
+        held.discard(int(axis_code))
 
 
 def _gamepad_output_stick_id(source_id: str, config: AnalogControlConfig) -> str:
@@ -1049,6 +1099,9 @@ def _trigger_output_axis_code(
         trigger_id = _same_trigger_output_id(device_runtime, source_id, deps=deps)
         if trigger_id is not None:
             return int(getattr(deps.evdev_mod.ecodes, TRIGGER_OUTPUT_AXES[trigger_id]))
+        axis_code = device_runtime.analog_axis_output_codes.get((source_id, "x"))
+        if axis_code is not None:
+            return int(axis_code)
 
     axis_name = TRIGGER_OUTPUT_AXES.get(_gamepad_output_trigger_id(source_id, config))
     if axis_name is None:

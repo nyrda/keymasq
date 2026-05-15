@@ -2144,7 +2144,7 @@ class DeviceTab(ProfileManagedTab):
             ("Max", int(candidate["maximum"])),
             (
                 "Center" if analog_type == "stick" else "Rest",
-                0,
+                int(candidate.get("rest", 0)),
             ),
         ]
         spins: list[Gtk.SpinButton] = []
@@ -2747,7 +2747,11 @@ class DeviceTab(ProfileManagedTab):
         if not source or not stable_path:
             return
         for dev in self.device.evdev_devices:
-            if dev.id == source or dev.path == stable_path:
+            if dev.id == source:
+                return
+            if dev.path == stable_path:
+                if not dev.id:
+                    dev.id = source
                 return
         self.device.evdev_devices.append(
             EvdevDevice(path=stable_path, device_type=DeviceType.GAMEPAD, id=source)

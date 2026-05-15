@@ -110,8 +110,95 @@ def test_device_tab_learn_analog_axis_saves_highest_movement(monkeypatch, temp_c
     assert analog.axes[0].evdev == "abs_x"
     assert analog.axes[0].minimum == -32000
     assert analog.axes[0].maximum == 100
-    assert analog.axes[0].rest == 0
+    assert analog.axes[0].rest == 100
     assert analog.axes[0].invert is False
+
+
+def test_device_tab_learn_analog_assigns_source_to_existing_interface(
+    monkeypatch,
+    temp_config_dir,
+):
+    from gi.repository import Adw, Gtk
+
+    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    import keymasq.gui.widgets.device_tab as device_tab_module
+    from keymasq.gui.widgets.device_tab import DeviceTab
+
+    class _HardwareManager:
+        def __init__(self) -> None:
+            self.saved: list[HardwareConfig] = []
+
+        def save_hardware(self, device: HardwareConfig) -> None:
+            self.saved.append(device)
+
+    monkeypatch.setattr(
+        device_tab_module,
+        "session_request_async",
+        lambda _payload, callback: callback({"status": "ok"}),
+    )
+
+    device = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Pad",
+        evdev_devices=[
+            EvdevDevice(
+                path="/dev/input/event0",
+                device_type=DeviceType.GAMEPAD,
+                id=None,
+            )
+        ],
+        buttons=[],
+    )
+    hardware_manager = _HardwareManager()
+    tab = DeviceTab(
+        device=device,
+        profile_manager=None,
+        hardware_manager=hardware_manager,
+        demo_mode=True,
+    )
+    monkeypatch.setattr(tab, "_reload_ui", lambda: None)
+    tab._analog_learn_context = {"candidates": {}}
+    tab._record_analog_candidate(
+        {
+            "evdev": "abs_z",
+            "code": 2,
+            "value": 100,
+            "source": "joystick",
+            "stable_path": "/dev/input/event0",
+        }
+    )
+    tab._record_analog_candidate(
+        {
+            "evdev": "abs_z",
+            "code": 2,
+            "value": 255,
+            "source": "joystick",
+            "stable_path": "/dev/input/event0",
+        }
+    )
+
+    type_dropdown = Gtk.DropDown.new_from_strings(["Generic Axis", "Stick"])
+    review_list = Gtk.ListBox()
+    status = Gtk.Label()
+    save_btn = Gtk.Button()
+    tab._populate_learned_analog_review(type_dropdown, review_list, status, save_btn)
+
+    id_entry = Gtk.Entry()
+    id_entry.set_text("left_trigger")
+    label_entry = Gtk.Entry()
+    label_entry.set_text("Left Trigger")
+    tab._on_save_learned_analog_clicked(
+        Gtk.Button(),
+        Adw.Dialog(),
+        type_dropdown,
+        id_entry,
+        label_entry,
+        review_list,
+        status,
+    )
+
+    assert hardware_manager.saved[-1].evdev_devices[0].id == "joystick"
 
 
 def test_device_tab_learn_analog_stick_allows_role_swap(monkeypatch, temp_config_dir):

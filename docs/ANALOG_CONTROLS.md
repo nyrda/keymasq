@@ -40,6 +40,8 @@ enabled = true
 output_id = "virtual-gamepad-2" # optional; omitted means default gamepad output
 deadzone = 0.15
 target = "same" # same, left, right
+sensitivity = 1.0 # stick output only; 0.1..2.0
+response_curve = 1.0 # stick output only; 0.25..4.0
 
 [[thresholds]]
 axis = "x"
@@ -66,6 +68,19 @@ output. `target = "same"` preserves the source side, so `left_stick` writes
 left trigger, left stick to become right stick, and so on. The deadzone is
 applied before output, so values below it are sent as centered sticks or
 released triggers.
+
+Stick gamepad output then applies a radial response curve:
+
+```text
+distance = sqrt(x*x + y*y)
+normalized = (distance - deadzone) / (1 - deadzone)
+output_distance = clamp((normalized ** response_curve) * sensitivity, 0, 1)
+```
+
+`sensitivity = 1.0` and `response_curve = 1.0` are linear. Higher sensitivity
+reaches full output sooner. A response curve below `1.0` is faster near center;
+above `1.0` is slower near center. The same curve is mirrored for negative stick
+directions.
 
 ```toml
 name = "Left Trigger Action"

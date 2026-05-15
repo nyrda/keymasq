@@ -137,6 +137,8 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
                 output_id="virtual-gamepad-2",
                 deadzone=0.2,
                 target="right",
+                sensitivity=1.5,
+                response_curve=0.75,
             ),
         )
     )
@@ -147,6 +149,8 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
     assert loaded.gamepad_output.output_id == "virtual-gamepad-2"
     assert loaded.gamepad_output.deadzone == 0.2
     assert loaded.gamepad_output.target == "right"
+    assert loaded.gamepad_output.sensitivity == 1.5
+    assert loaded.gamepad_output.response_curve == 0.75
 
 
 def test_analog_control_gamepad_axis_threshold_action_round_trips(temp_config_dir) -> None:

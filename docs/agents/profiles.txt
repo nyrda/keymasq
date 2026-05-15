@@ -210,6 +210,8 @@ enabled = false
 output_id = "virtual-gamepad-2"
 deadzone = 0.15
 target = "same"
+sensitivity = 1.0
+response_curve = 1.0
 
 [[thresholds]]
 axis = "x"

@@ -184,6 +184,8 @@ def parse_analog_control_config(
         output_id=optional_str((gamepad_config or {}).get("output_id")),
         deadzone=float_value((gamepad_config or {}).get("deadzone"), 0.15),
         target=str_value((gamepad_config or {}).get("target"), "same") or "same",
+        sensitivity=float_value((gamepad_config or {}).get("sensitivity"), 1.0),
+        response_curve=float_value((gamepad_config or {}).get("response_curve"), 1.0),
     )
 
     thresholds: list[AnalogActionThreshold] = []

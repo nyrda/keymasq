@@ -16,6 +16,7 @@ from keymasq.common.models import (
     MappingAction,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
+from keymasq.gui.widgets.analog_curve_graph import AnalogCurveGraph
 from keymasq.gui.widgets.key_selector_dialog import (  # pyright: ignore[reportPrivateUsage]
     _gamepad_output_choice_matches,
     _gamepad_output_choices_for,
@@ -344,7 +345,50 @@ class AnalogControlDialog(Adw.Dialog):
         self.gamepad_output_deadzone_row.set_subtitle(
             "Percent below which output is sent as centered or released"
         )
+        self.gamepad_output_deadzone_row.connect(
+            "notify::value",
+            self._on_gamepad_output_curve_changed,
+        )
         group.add(self.gamepad_output_deadzone_row)
+
+        self.gamepad_output_sensitivity_row = self._spin_row(
+            "Sensitivity",
+            1.0,
+            0.1,
+            2.0,
+            0.05,
+            2,
+        )
+        self.gamepad_output_sensitivity_row.set_subtitle(
+            "How quickly stick output reaches full range"
+        )
+        self.gamepad_output_sensitivity_row.connect(
+            "notify::value",
+            self._on_gamepad_output_curve_changed,
+        )
+        group.add(self.gamepad_output_sensitivity_row)
+
+        self.gamepad_output_response_curve_row = self._spin_row(
+            "Response Curve",
+            1.0,
+            0.25,
+            4.0,
+            0.05,
+            2,
+        )
+        self.gamepad_output_response_curve_row.set_subtitle(
+            "Below 1 is faster near center, above 1 is slower near center"
+        )
+        self.gamepad_output_response_curve_row.connect(
+            "notify::value",
+            self._on_gamepad_output_curve_changed,
+        )
+        group.add(self.gamepad_output_response_curve_row)
+
+        self.gamepad_output_curve_row = Adw.ActionRow(title="Response Preview")
+        self.gamepad_output_curve_graph = AnalogCurveGraph()
+        self.gamepad_output_curve_row.set_child(self.gamepad_output_curve_graph)
+        group.add(self.gamepad_output_curve_row)
 
         warning_row = Adw.ActionRow()
         warning = Gtk.Label(xalign=0, wrap=True)
@@ -357,6 +401,7 @@ class AnalogControlDialog(Adw.Dialog):
         group.add(warning_row)
 
         self._set_gamepad_output_target_options("stick", "same")
+        self._update_gamepad_output_curve_graph()
         self._refresh_gamepad_output_choices()
         self._update_gamepad_output_visibility()
         return group
@@ -523,6 +568,10 @@ class AnalogControlDialog(Adw.Dialog):
         digital_visible = mode in {"digital", "both"}
         self.mouse_group.set_visible(not is_trigger and mode in {"mouse", "both"})
         self.gamepad_output_group.set_visible(mode == "gamepad")
+        show_stick_output_tuning = mode == "gamepad" and not is_trigger
+        self.gamepad_output_sensitivity_row.set_visible(show_stick_output_tuning)
+        self.gamepad_output_response_curve_row.set_visible(show_stick_output_tuning)
+        self.gamepad_output_curve_row.set_visible(show_stick_output_tuning)
         self.digital_group.set_visible(digital_visible)
         self.template_group.set_visible(digital_visible and not is_trigger)
         self._update_gamepad_output_visibility()
@@ -589,6 +638,18 @@ class AnalogControlDialog(Adw.Dialog):
         )
         label.set_label(message or "")
         row.set_visible(bool(message))
+
+    def _on_gamepad_output_curve_changed(self, *_args) -> None:
+        self._update_gamepad_output_curve_graph()
+
+    def _update_gamepad_output_curve_graph(self) -> None:
+        if not hasattr(self, "gamepad_output_curve_graph"):
+            return
+        self.gamepad_output_curve_graph.set_curve(
+            deadzone=self.gamepad_output_deadzone_row.get_value() / 100.0,
+            sensitivity=self.gamepad_output_sensitivity_row.get_value(),
+            response_curve=self.gamepad_output_response_curve_row.get_value(),
+        )
 
     def _load_controls(self) -> None:
         while row := self.list_box.get_row_at_index(0):
@@ -666,6 +727,9 @@ class AnalogControlDialog(Adw.Dialog):
         self.gamepad_output_deadzone_row.set_value(
             round(config.gamepad_output.deadzone * 100.0)
         )
+        self.gamepad_output_sensitivity_row.set_value(config.gamepad_output.sensitivity)
+        self.gamepad_output_response_curve_row.set_value(config.gamepad_output.response_curve)
+        self._update_gamepad_output_curve_graph()
         self._update_gamepad_output_visibility()
         self._refresh_thresholds()
         self._update_mode_visibility()
@@ -1166,6 +1230,8 @@ class AnalogControlDialog(Adw.Dialog):
                 output_id=self._selected_gamepad_output_id,
                 deadzone=self.gamepad_output_deadzone_row.get_value() / 100.0,
                 target=self._current_gamepad_output_target(),
+                sensitivity=self.gamepad_output_sensitivity_row.get_value(),
+                response_curve=self.gamepad_output_response_curve_row.get_value(),
             ),
             thresholds=(
                 list(self._thresholds)

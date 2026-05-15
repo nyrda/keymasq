@@ -644,6 +644,8 @@ def serialize_analog_control(
             "output_id": config.gamepad_output.output_id,
             "deadzone": float(config.gamepad_output.deadzone),
             "target": config.gamepad_output.target,
+            "sensitivity": float(config.gamepad_output.sensitivity),
+            "response_curve": float(config.gamepad_output.response_curve),
         },
         "thresholds": [
             serialize_analog_threshold(manager, threshold, hardware_id)
@@ -692,6 +694,8 @@ def serialize_analog_control_signature(
             "output_id": config.gamepad_output.output_id,
             "deadzone": float(config.gamepad_output.deadzone),
             "target": config.gamepad_output.target,
+            "sensitivity": float(config.gamepad_output.sensitivity),
+            "response_curve": float(config.gamepad_output.response_curve),
         },
         "thresholds": [
             serialize_analog_threshold_signature(manager, threshold, hardware_id)

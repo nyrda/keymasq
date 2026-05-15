@@ -97,6 +97,8 @@ class AnalogControlManager:
                 output_id=_toml_str(gamepad_data, "output_id"),
                 deadzone=_float_value(gamepad_data.get("deadzone"), 0.15),
                 target=_toml_str(gamepad_data, "target", "same") or "same",
+                sensitivity=_float_value(gamepad_data.get("sensitivity"), 1.0),
+                response_curve=_float_value(gamepad_data.get("response_curve"), 1.0),
             ),
             thresholds=thresholds,
         )
@@ -268,6 +270,8 @@ class AnalogControlManager:
                 "enabled": bool(config.gamepad_output.enabled),
                 "deadzone": float(config.gamepad_output.deadzone),
                 "target": config.gamepad_output.target,
+                "sensitivity": float(config.gamepad_output.sensitivity),
+                "response_curve": float(config.gamepad_output.response_curve),
             },
         }
         if config.gamepad_output.output_id:

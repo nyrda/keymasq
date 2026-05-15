@@ -9,6 +9,7 @@ from keymasq.common.models import (
     AnalogActionThreshold,
     AnalogControlConfig,
     MappingAction,
+    analog_gamepad_output_distance,
 )
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime.grabbed_device_outputs import track_abs_state
@@ -455,7 +456,13 @@ def _emit_stick_gamepad_output(
     axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
     x = float(axis_values.get("x", 0.0))
     y = float(axis_values.get("y", 0.0))
-    x, y = _apply_stick_deadzone(x, y, float(config.gamepad_output.deadzone))
+    x, y = _apply_stick_output_curve(
+        x,
+        y,
+        deadzone=float(config.gamepad_output.deadzone),
+        sensitivity=float(config.gamepad_output.sensitivity),
+        response_curve=float(config.gamepad_output.response_curve),
+    )
     _write_gamepad_axes(
         device_runtime,
         source_id,
@@ -592,12 +599,23 @@ def _gamepad_output_trigger_id(source_id: str, config: AnalogControlConfig) -> s
     return source_id
 
 
-def _apply_stick_deadzone(x: float, y: float, deadzone: float) -> tuple[float, float]:
-    deadzone = max(0.0, min(0.95, deadzone))
+def _apply_stick_output_curve(
+    x: float,
+    y: float,
+    *,
+    deadzone: float,
+    sensitivity: float,
+    response_curve: float,
+) -> tuple[float, float]:
     magnitude = math.sqrt(x * x + y * y)
-    if magnitude <= deadzone:
+    scaled = analog_gamepad_output_distance(
+        magnitude,
+        deadzone=deadzone,
+        sensitivity=sensitivity,
+        response_curve=response_curve,
+    )
+    if scaled <= 0.0 or magnitude <= 0.0:
         return 0.0, 0.0
-    scaled = (magnitude - deadzone) / max(0.001, 1.0 - deadzone)
     direction_x = x / magnitude
     direction_y = y / magnitude
     return direction_x * scaled, direction_y * scaled

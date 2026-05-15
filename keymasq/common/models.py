@@ -322,10 +322,37 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
 
 ANALOG_MOUSE_CURVES = frozenset({"linear", "soft", "fast"})
 ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right"})
+MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 0.1
+MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 2.0
+MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE = 0.25
+MAX_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE = 4.0
 
 
 def clamp_analog_value(value: object) -> float:
     return max(-1.0, min(1.0, float(cast(int | float | str | bytes, value))))
+
+
+def analog_gamepad_output_distance(
+    value: float,
+    *,
+    deadzone: float,
+    sensitivity: float,
+    response_curve: float,
+) -> float:
+    value = max(0.0, min(1.0, float(value)))
+    deadzone = max(0.0, min(0.95, float(deadzone)))
+    sensitivity = max(
+        MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
+        min(MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY, float(sensitivity)),
+    )
+    response_curve = max(
+        MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE,
+        min(MAX_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE, float(response_curve)),
+    )
+    if value <= deadzone:
+        return 0.0
+    normalized = (value - deadzone) / max(0.001, 1.0 - deadzone)
+    return max(0.0, min(1.0, (normalized**response_curve) * sensitivity))
 
 
 @dataclass
@@ -353,6 +380,8 @@ class AnalogGamepadOutputConfig:
     output_id: str | None = None
     deadzone: float = 0.15
     target: str = "same"
+    sensitivity: float = 1.0
+    response_curve: float = 1.0
 
     def __post_init__(self) -> None:
         self.output_id = normalize_output_id(self.output_id)
@@ -360,6 +389,14 @@ class AnalogGamepadOutputConfig:
         self.target = str(self.target or "same").lower()
         if self.target not in ANALOG_GAMEPAD_OUTPUT_TARGETS:
             self.target = "same"
+        self.sensitivity = max(
+            MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
+            min(MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY, float(self.sensitivity)),
+        )
+        self.response_curve = max(
+            MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE,
+            min(MAX_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE, float(self.response_curve)),
+        )
 
 
 @dataclass

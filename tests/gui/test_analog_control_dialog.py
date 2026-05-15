@@ -101,12 +101,18 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     dialog._gamepad_output_target_buttons["right"].set_active(True)
     assert dialog._gamepad_output_dropdown is not None
     dialog._gamepad_output_dropdown.set_selected(1)
+    dialog.gamepad_output_deadzone_row.set_value(20)
+    dialog.gamepad_output_sensitivity_row.set_value(1.5)
+    dialog.gamepad_output_response_curve_row.set_value(0.75)
 
     assert dialog._save_current_control() is True
     saved = dialog.manager.get_analog_control("Route Stick")
     assert saved is not None
     assert saved.gamepad_output.output_id == "virtual-gamepad-2"
     assert saved.gamepad_output.target == "right"
+    assert saved.gamepad_output.deadzone == 0.2
+    assert saved.gamepad_output.sensitivity == 1.5
+    assert saved.gamepad_output.response_curve == 0.75
 
     reloaded = analog_dialog.AnalogControlDialog(parent)
     assert reloaded._current_name == "Route Stick"
@@ -114,6 +120,9 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     assert reloaded._gamepad_output_target_buttons["right"].get_active() is True
     assert reloaded._gamepad_output_dropdown is not None
     assert reloaded._gamepad_output_dropdown.get_selected() == 1
+    assert reloaded.gamepad_output_deadzone_row.get_value() == 20
+    assert reloaded.gamepad_output_sensitivity_row.get_value() == 1.5
+    assert reloaded.gamepad_output_response_curve_row.get_value() == 0.75
 
 
 def test_gamepad_mode_save_preserves_existing_combined_settings(temp_config_dir) -> None:

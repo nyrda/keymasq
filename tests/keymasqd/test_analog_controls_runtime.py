@@ -227,6 +227,37 @@ async def test_stick_gamepad_output_routes_axes_with_deadzone() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stick_gamepad_output_applies_sensitivity_and_response_curve() -> None:
+    keyboard = FakeUInput()
+    gamepad = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Curve Stick",
+                gamepad_output=AnalogGamepadOutputConfig(
+                    enabled=True,
+                    deadzone=0.0,
+                    sensitivity=2.0,
+                    response_curve=2.0,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
+        uinput=gamepad,
+        bucket="gamepad",
+    )
+
+    assert await process_analog_event(runtime, FakeEvent(16384), "abs_x", mapping, deps=_deps())
+
+    event_type, code, value = gamepad.events[-2]
+    assert (event_type, code) == (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X)
+    assert value == pytest.approx(16384, abs=4)
+
+
+@pytest.mark.asyncio
 async def test_trigger_gamepad_output_routes_axis_with_deadzone() -> None:
     keyboard = FakeUInput()
     gamepad = FakeUInput()

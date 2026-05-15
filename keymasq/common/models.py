@@ -317,6 +317,7 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
         ActionType.PASSTHROUGH,
         ActionType.SUPPRESS,
         ActionType.ANALOG_CONTROL,
+        ActionType.SUPERKEY,
     }
 )
 

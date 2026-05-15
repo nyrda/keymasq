@@ -102,6 +102,28 @@ def test_analog_control_validation_allows_overlapping_thresholds() -> None:
     assert len(config.thresholds) == 2
 
 
+def test_analog_control_validation_rejects_superkey_threshold_actions() -> None:
+    with pytest.raises(ValueError, match="invalid analog threshold action type: superkey"):
+        AnalogControlConfig(
+            name="Bad Child",
+            thresholds=[
+                AnalogActionThreshold(
+                    axis="x",
+                    trigger_min=0.65,
+                    trigger_max=1.0,
+                    release_min=0.55,
+                    release_max=1.0,
+                    actions=[
+                        MappingAction(
+                            action_type=ActionType.SUPERKEY,
+                            superkey_name="Layer",
+                        )
+                    ],
+                )
+            ],
+        )
+
+
 def test_trigger_analog_control_uses_single_positive_axis(temp_config_dir) -> None:
     manager = AnalogControlManager()
     config = AnalogControlConfig(

@@ -321,6 +321,7 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
 )
 
 ANALOG_MOUSE_CURVES = frozenset({"linear", "soft", "fast"})
+ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right"})
 
 
 def clamp_analog_value(value: object) -> float:
@@ -351,10 +352,14 @@ class AnalogGamepadOutputConfig:
     enabled: bool = False
     output_id: str | None = None
     deadzone: float = 0.15
+    target: str = "same"
 
     def __post_init__(self) -> None:
         self.output_id = normalize_output_id(self.output_id)
         self.deadzone = max(0.0, min(0.95, float(self.deadzone)))
+        self.target = str(self.target or "same").lower()
+        if self.target not in ANALOG_GAMEPAD_OUTPUT_TARGETS:
+            self.target = "same"
 
 
 @dataclass

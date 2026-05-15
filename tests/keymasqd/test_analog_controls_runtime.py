@@ -262,6 +262,68 @@ async def test_trigger_gamepad_output_routes_axis_with_deadzone() -> None:
 
 
 @pytest.mark.asyncio
+async def test_trigger_gamepad_output_can_route_to_opposite_trigger() -> None:
+    keyboard = FakeUInput()
+    gamepad = FakeUInput()
+    mapping = {
+        "right_trigger": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Swap Trigger",
+                input_type="trigger",
+                gamepad_output=AnalogGamepadOutputConfig(enabled=True, target="left"),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.analog_axis_bindings = {
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ): ("right_trigger", "x")
+    }
+    runtime.analog_axis_ranges = {("right_trigger", "x"): (0, 255)}
+    runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
+        uinput=gamepad,
+        bucket="gamepad",
+    )
+    event = FakeEvent(255)
+    event.code = evdev.ecodes.ABS_RZ
+
+    assert await process_analog_event(runtime, event, "abs_rz", mapping, deps=_deps())
+
+    assert gamepad.events[-1] == (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255)
+
+
+@pytest.mark.asyncio
+async def test_stick_gamepad_output_can_route_to_opposite_stick() -> None:
+    keyboard = FakeUInput()
+    gamepad = FakeUInput()
+    mapping = {
+        "right_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Swap Stick",
+                gamepad_output=AnalogGamepadOutputConfig(enabled=True, target="left"),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.analog_axis_bindings = {
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX): ("right_stick", "x")
+    }
+    runtime.analog_axis_ranges = {("right_stick", "x"): (-32768, 32767)}
+    runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
+        uinput=gamepad,
+        bucket="gamepad",
+    )
+    event = FakeEvent(32767)
+    event.code = evdev.ecodes.ABS_RX
+
+    assert await process_analog_event(runtime, event, "abs_rx", mapping, deps=_deps())
+
+    assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 32767) in gamepad.events
+    assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 0) in gamepad.events
+
+
+@pytest.mark.asyncio
 async def test_reset_analog_controls_centers_gamepad_output() -> None:
     keyboard = FakeUInput()
     gamepad = FakeUInput()

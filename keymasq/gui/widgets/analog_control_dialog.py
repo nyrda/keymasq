@@ -41,6 +41,9 @@ _TRIGGER_MODE_ITEMS = ("digital", "gamepad")
 _TRIGGER_MODE_LABELS = ("Digital Actions", "Gamepad Output")
 _INPUT_TYPE_ITEMS = ("stick", "trigger")
 _INPUT_TYPE_LABELS = ("Stick", "Trigger")
+_GAMEPAD_OUTPUT_TARGET_ITEMS = ("same", "left", "right")
+_STICK_OUTPUT_TARGET_LABELS = ("Same Stick", "Left Stick", "Right Stick")
+_TRIGGER_OUTPUT_TARGET_LABELS = ("Same Trigger", "Left Trigger", "Right Trigger")
 _CONTROL_GROUPS = (("trigger", "Triggers"), ("stick", "Sticks"))
 _AXIS_ITEMS = ("x", "y")
 
@@ -97,6 +100,14 @@ def _mode_labels_for_input_type(input_type: str) -> tuple[str, ...]:
     return _TRIGGER_MODE_LABELS if input_type == "trigger" else _STICK_MODE_LABELS
 
 
+def _gamepad_output_target_labels_for_input_type(input_type: str) -> tuple[str, ...]:
+    return (
+        _TRIGGER_OUTPUT_TARGET_LABELS
+        if input_type == "trigger"
+        else _STICK_OUTPUT_TARGET_LABELS
+    )
+
+
 class AnalogControlDialog(Adw.Dialog):
     __gsignals__ = {
         "analog-control-saved": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
@@ -120,6 +131,8 @@ class AnalogControlDialog(Adw.Dialog):
         self._gamepad_output_warning_label: Gtk.Label | None = None
         self._refreshing_gamepad_output_choices = False
         self._mode_items: tuple[str, ...] = _STICK_MODE_ITEMS
+        self._gamepad_output_target_items: tuple[str, ...] = _GAMEPAD_OUTPUT_TARGET_ITEMS
+        self._gamepad_output_target_buttons: dict[str, Gtk.ToggleButton] = {}
         self.new_control_row: Gtk.ListBoxRow | None = None
 
         self._build_ui()
@@ -286,6 +299,26 @@ class AnalogControlDialog(Adw.Dialog):
             description="Route the stick or trigger to a gamepad output device.",
         )
 
+        self.gamepad_output_target_side_row = Adw.ActionRow(title="Output Control")
+        target_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        target_buttons.add_css_class("linked")
+        target_buttons.set_valign(Gtk.Align.CENTER)
+        target_group: Gtk.ToggleButton | None = None
+        for target in _GAMEPAD_OUTPUT_TARGET_ITEMS:
+            button = Gtk.ToggleButton()
+            button.add_css_class("analog-output-target-button")
+            button.set_valign(Gtk.Align.CENTER)
+            button.set_size_request(-1, 34)
+            if target_group is None:
+                target_group = button
+            else:
+                button.set_group(target_group)
+            button.connect("toggled", self._on_gamepad_output_target_toggled, target)
+            self._gamepad_output_target_buttons[target] = button
+            target_buttons.append(button)
+        self.gamepad_output_target_side_row.add_suffix(target_buttons)
+        group.add(self.gamepad_output_target_side_row)
+
         self.gamepad_output_target_row = Adw.ActionRow(title="Output")
         dropdown = Gtk.DropDown()
         if dropdown is None:
@@ -323,6 +356,7 @@ class AnalogControlDialog(Adw.Dialog):
         self._gamepad_output_warning_row = warning_row
         group.add(warning_row)
 
+        self._set_gamepad_output_target_options("stick", "same")
         self._refresh_gamepad_output_choices()
         self._update_gamepad_output_visibility()
         return group
@@ -437,6 +471,39 @@ class AnalogControlDialog(Adw.Dialog):
         self._mode_items = items
         self.mode_dropdown.set_model(Gtk.StringList.new(list(labels)))
         self.mode_dropdown.set_selected(selected)
+
+    def _set_gamepad_output_target_options(
+        self,
+        input_type: str,
+        selected_target: str | None = None,
+    ) -> None:
+        labels = _gamepad_output_target_labels_for_input_type(input_type)
+        target = selected_target or "same"
+        self._gamepad_output_target_items = _GAMEPAD_OUTPUT_TARGET_ITEMS
+        for item, label in zip(_GAMEPAD_OUTPUT_TARGET_ITEMS, labels, strict=True):
+            button = self._gamepad_output_target_buttons.get(item)
+            if button is not None:
+                button.set_label(label)
+        selected_target = target if target in _GAMEPAD_OUTPUT_TARGET_ITEMS else "same"
+        button = self._gamepad_output_target_buttons.get(selected_target)
+        if button is not None:
+            button.set_active(True)
+
+    def _current_gamepad_output_target(self) -> str:
+        for target in self._gamepad_output_target_items:
+            button = self._gamepad_output_target_buttons.get(target)
+            if button is not None and button.get_active():
+                return target
+        return "same"
+
+    def _on_gamepad_output_target_toggled(
+        self,
+        button: Gtk.ToggleButton,
+        target: str,
+    ) -> None:
+        if not button.get_active():
+            return
+        self._on_modified()
 
     def _current_input_type(self) -> str:
         selected = int(self.input_type_dropdown.get_selected())
@@ -586,6 +653,7 @@ class AnalogControlDialog(Adw.Dialog):
         self.description_entry.set_text(config.description or "")
         self.input_type_dropdown.set_selected(self._input_type_index(config))
         self._set_mode_options(config.input_type, self._mode_value(config))
+        self._set_gamepad_output_target_options(config.input_type, config.gamepad_output.target)
         self.speed_row.set_value(config.mouse_motion.speed)
         self.deadzone_row.set_value(config.mouse_motion.deadzone)
         self.curve_row.set_selected(
@@ -1022,6 +1090,7 @@ class AnalogControlDialog(Adw.Dialog):
         if input_type == "trigger" and mode not in _TRIGGER_MODE_ITEMS:
             mode = "digital"
         self._set_mode_options(input_type, mode)
+        self._set_gamepad_output_target_options(input_type, self._current_gamepad_output_target())
         self._sync_thresholds_for_input_type()
         self._refresh_thresholds(self._expanded_threshold_indices())
         self._update_mode_visibility()
@@ -1082,6 +1151,7 @@ class AnalogControlDialog(Adw.Dialog):
                 enabled=mode == "gamepad",
                 output_id=self._selected_gamepad_output_id,
                 deadzone=self.gamepad_output_deadzone_row.get_value() / 100.0,
+                target=self._current_gamepad_output_target(),
             ),
             thresholds=(
                 list(self._thresholds)

@@ -177,6 +177,7 @@ Analog Controls map an analog source, such as `left_stick`, `right_stick`,
 - turn stick axis ranges into normal digital actions
 - turn trigger pull ranges into normal digital actions
 - route sticks or triggers to a selected gamepad output with an analog deadzone
+  and optional left/right output side
 
 Create configs from **Analog Controls** in the app menu, then map an analog card
 in a gamepad device tab to the saved config. Profile TOML uses:

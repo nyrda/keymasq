@@ -98,6 +98,7 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     dialog = analog_dialog.AnalogControlDialog(parent)
     dialog.name_entry.set_text("Route Stick")
     dialog.mode_dropdown.set_selected(2)
+    dialog._gamepad_output_target_buttons["right"].set_active(True)
     assert dialog._gamepad_output_dropdown is not None
     dialog._gamepad_output_dropdown.set_selected(1)
 
@@ -105,10 +106,12 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     saved = dialog.manager.get_analog_control("Route Stick")
     assert saved is not None
     assert saved.gamepad_output.output_id == "virtual-gamepad-2"
+    assert saved.gamepad_output.target == "right"
 
     reloaded = analog_dialog.AnalogControlDialog(parent)
     assert reloaded._current_name == "Route Stick"
     assert reloaded._selected_gamepad_output_id == "virtual-gamepad-2"
+    assert reloaded._gamepad_output_target_buttons["right"].get_active() is True
     assert reloaded._gamepad_output_dropdown is not None
     assert reloaded._gamepad_output_dropdown.get_selected() == 1
 

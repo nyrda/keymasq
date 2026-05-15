@@ -308,6 +308,7 @@
                 pytest
                 pytest-asyncio
                 pytest-cov
+                pytest-xdist
               ] ++ extraPackages
             );
         in

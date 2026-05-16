@@ -174,7 +174,7 @@ class AnalogControlDialog(Adw.Dialog):
 
         label = Gtk.Label(label="Analog Controls")
         label.add_css_class("title-4")
-        label.set_halign(Gtk.Align.START)
+        label.set_halign(Gtk.Align.CENTER)
         box.append(label)
 
         scrolled = Gtk.ScrolledWindow()
@@ -187,7 +187,7 @@ class AnalogControlDialog(Adw.Dialog):
         scrolled.set_child(self.list_box)
         box.append(scrolled)
 
-        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        footer = Gtk.CenterBox()
 
         self.analog_controls_docs_btn = Gtk.Button(label="?")
         self.analog_controls_docs_btn.add_css_class("flat")
@@ -199,7 +199,12 @@ class AnalogControlDialog(Adw.Dialog):
             "clicked",
             self._on_analog_controls_docs_clicked,
         )
-        footer.append(self.analog_controls_docs_btn)
+        footer.set_start_widget(self.analog_controls_docs_btn)
+
+        add_button = Gtk.Button(icon_name="list-add-symbolic")
+        add_button.set_tooltip_text("Add a new Analog Control")
+        add_button.connect("clicked", self._on_add_clicked)
+        footer.set_center_widget(add_button)
 
         box.append(footer)
         return box

@@ -464,6 +464,7 @@ class SuperkeyDialog(Adw.Dialog):
 
         label = Gtk.Label(label="Super Keys")
         label.add_css_class("title-4")
+        label.set_halign(Gtk.Align.CENTER)
         box.append(label)
 
         scrolled = Gtk.ScrolledWindow()
@@ -477,14 +478,19 @@ class SuperkeyDialog(Adw.Dialog):
 
         box.append(scrolled)
 
-        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        footer = Gtk.CenterBox()
 
         self.superkeys_docs_btn = Gtk.Button(label="?")
         self.superkeys_docs_btn.add_css_class("flat")
         self.superkeys_docs_btn.add_css_class("actions-docs-button")
         self.superkeys_docs_btn.set_tooltip_text("Open Super Keys documentation")
         self.superkeys_docs_btn.connect("clicked", self._on_superkeys_docs_clicked)
-        footer.append(self.superkeys_docs_btn)
+        footer.set_start_widget(self.superkeys_docs_btn)
+
+        add_button = Gtk.Button(icon_name="list-add-symbolic")
+        add_button.set_tooltip_text("Add a new Super Key")
+        add_button.connect("clicked", self._on_new_clicked)
+        footer.set_center_widget(add_button)
 
         box.append(footer)
         return box

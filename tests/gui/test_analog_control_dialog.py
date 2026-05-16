@@ -140,6 +140,58 @@ def test_analog_control_dialog_unsaved_close_save_response_saves_and_closes(
     assert dialog.get_can_close() is True
 
 
+def test_analog_control_dialog_unsaved_selection_warns_and_can_discard(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(AnalogControlConfig(name="Alpha"))
+    manager.save_analog_control(AnalogControlConfig(name="Beta"))
+
+    alerts: list[tuple[object, object]] = []
+    monkeypatch.setattr(
+        analog_dialog.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append((alert, parent)),
+    )
+
+    dialog = analog_dialog.AnalogControlDialog(Gtk.Window())
+
+    def row_for(name: str):
+        idx = 0
+        while row := dialog.list_box.get_row_at_index(idx):
+            if getattr(row, "_analog_control_name", None) == name:
+                return row
+            idx += 1
+        raise AssertionError(f"missing row {name}")
+
+    alpha_row = row_for("Alpha")
+    beta_row = row_for("Beta")
+    assert dialog.list_box.get_selected_row() is alpha_row
+
+    dialog.description_entry.set_text("dirty")
+    dialog.list_box.select_row(beta_row)
+
+    assert len(alerts) == 1
+    assert alerts[0][1] is dialog
+    assert dialog.list_box.get_selected_row() is alpha_row
+    assert dialog._current_name == "Alpha"
+    assert dialog.description_entry.get_text() == "dirty"
+
+    dialog._on_unsaved_selection_response(alerts[0][0], "discard")
+
+    assert dialog.list_box.get_selected_row() is beta_row
+    assert dialog._current_name == "Beta"
+    assert dialog._modified is False
+
+
 def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

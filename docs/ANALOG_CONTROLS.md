@@ -28,9 +28,15 @@ input_type = "stick"
 
 [mouse_motion]
 enabled = true
+mode = "velocity" # velocity or area; area is stick-only
 speed = 900.0
 speed_x = 900.0 # stick mouse movement only; defaults to speed
 speed_y = 900.0 # stick mouse movement only; defaults to speed
+area_radius_x = 400.0 # stick mouse area only
+area_radius_y = 400.0 # stick mouse area only
+area_start_enabled = false
+area_start_x = 0
+area_start_y = 0
 deadzone = 0.15
 sensitivity = 1.0
 response_curve = 1.0
@@ -109,6 +115,22 @@ movement then multiplies the shaped value by speed. Stick mouse movement can use
 separate `speed_x` and `speed_y`; if omitted, both default to `speed`. 1D axis
 mouse movement uses `direction = "horizontal"` or `direction = "vertical"` to
 map negative and positive source values to both mouse directions.
+
+`mode = "area"` changes stick mouse movement from velocity control to position
+control inside a configured 2D area. Runtime shapes each stick axis independently
+and maps the result to:
+
+```text
+target_x = stick_x * area_radius_x
+target_y = stick_y * area_radius_y
+```
+
+Each new stick event emits only the relative delta from the previous target
+position. Returning the stick to rest therefore emits the opposite movement and
+brings the pointer back to the area's origin, subject to the compositor and
+screen edges accepting the relative movement. If `area_start_enabled = true`,
+the daemon moves the cursor to `area_start_x`/`area_start_y` when the stick first
+leaves rest, then applies area-relative movement from there.
 
 ```toml
 name = "Left Trigger Action"

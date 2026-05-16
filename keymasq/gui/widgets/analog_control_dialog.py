@@ -23,7 +23,9 @@ from keymasq.common.models import (
     AnalogMouseMotionConfig,
     MappingAction,
 )
+from keymasq.common.slurp import get_slurp_capture
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
+from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.gui.widgets.analog_curve_graph import AnalogCurveGraph
 from keymasq.gui.widgets.key_selector_dialog import (  # pyright: ignore[reportPrivateUsage]
@@ -40,13 +42,20 @@ from keymasq.session.analog_controls import (
     analog_control_mouse_wheel_template,
     analog_control_wasd_template,
 )
+from keymasq.session.compositor import detect_compositor_sync
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileManager
 
 log = logging.getLogger("keymasq.gui.widgets.analog_control_dialog")
 
-_STICK_MODE_ITEMS = ("mouse", "digital", "gamepad", "both")
-_STICK_MODE_LABELS = ("Mouse Movement", "Digital Actions", "Analog Output", "Mouse + Digital")
+_STICK_MODE_ITEMS = ("mouse", "mouse_area", "digital", "gamepad", "both")
+_STICK_MODE_LABELS = (
+    "Mouse Movement",
+    "Mouse Area",
+    "Digital Actions",
+    "Analog Output",
+    "Mouse + Digital",
+)
 _AXIS_MODE_ITEMS = ("digital", "gamepad", "mouse", "both")
 _AXIS_MODE_LABELS = ("Digital Actions", "Analog Output", "Mouse Movement", "Mouse + Digital")
 _INPUT_TYPE_ITEMS = ("stick", "axis")
@@ -161,8 +170,13 @@ class AnalogControlDialog(Adw.Dialog):
         self._editing_new_control = False
         self._syncing_threshold = False
         self._syncing_mouse_speed = False
+        self._syncing_area_radius = False
+        self._syncing_start_entry = False
+        self._syncing_invert_axes = False
         self._last_speed_x = 900.0
         self._last_speed_y = 900.0
+        self._last_area_radius_x = 400.0
+        self._last_area_radius_y = 400.0
         self._split_mouse_speed_desync_axis: str | None = None
         self._split_mouse_speed_desync_clear_id = 0
         self._split_mouse_speed_modifier_active = False
@@ -176,6 +190,16 @@ class AnalogControlDialog(Adw.Dialog):
         self._gamepad_output_target_buttons: dict[str, Gtk.ToggleButton] = {}
         self._gamepad_output_target_box: Gtk.Box | None = None
         self._hardware_output_configs: dict[str, object] = {}
+        self._capture_delay_seconds: float = 2.0
+        self._capture_timeout_id: int = 0
+        self._capture_pending: bool = False
+        self._capture_request_id: int = 0
+        self._capture_apply: Callable[[int, int], None] | None = None
+        self._capture_status_label: Gtk.Label | None = None
+        self._capture_button: Gtk.Button | None = None
+        self._slurp_capture = get_slurp_capture()
+        self._slurp_capture.set_compositor(detect_compositor_sync())
+        self._slurp_available = self._slurp_capture.available
         self.new_control_row: Gtk.ListBoxRow | None = None
 
         self._build_ui()
@@ -397,6 +421,42 @@ class AnalogControlDialog(Adw.Dialog):
             split_speed_axis="y",
         )
         group.add(self.speed_y_row)
+        self.area_radius_x_row = self._spin_row(
+            "Horizontal Radius",
+            400,
+            0,
+            10000,
+            10,
+            0,
+            page_step=100,
+        )
+        self.area_radius_x_row.set_subtitle("Horizontal radius from the start point")
+        self.area_radius_x_row.connect("notify::value", self._on_area_radius_changed, "x")
+        self._add_split_mouse_speed_desync_controller(self.area_radius_x_row, "x")
+        self._add_spin_secondary_step_controller(
+            self.area_radius_x_row,
+            page_step=100,
+            split_speed_axis="x",
+        )
+        group.add(self.area_radius_x_row)
+        self.area_radius_y_row = self._spin_row(
+            "Vertical Radius",
+            400,
+            0,
+            10000,
+            10,
+            0,
+            page_step=100,
+        )
+        self.area_radius_y_row.set_subtitle("Vertical radius from the start point")
+        self.area_radius_y_row.connect("notify::value", self._on_area_radius_changed, "y")
+        self._add_split_mouse_speed_desync_controller(self.area_radius_y_row, "y")
+        self._add_spin_secondary_step_controller(
+            self.area_radius_y_row,
+            page_step=100,
+            split_speed_axis="y",
+        )
+        group.add(self.area_radius_y_row)
         self.deadzone_row = self._spin_row(
             "Deadzone",
             0.15,
@@ -478,12 +538,71 @@ class AnalogControlDialog(Adw.Dialog):
         self.mouse_direction_row.add_suffix(direction_buttons)
         group.add(self.mouse_direction_row)
 
-        self.invert_x_row = Adw.SwitchRow(title="Invert X")
-        self.invert_x_row.connect("notify::active", self._on_modified)
-        self.invert_y_row = Adw.SwitchRow(title="Invert Y")
-        self.invert_y_row.connect("notify::active", self._on_modified)
-        group.add(self.invert_x_row)
-        group.add(self.invert_y_row)
+        self.invert_axes_row = Adw.ActionRow(title="Invert Axes")
+        invert_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        invert_buttons.add_css_class("linked")
+        invert_buttons.set_valign(Gtk.Align.CENTER)
+        self.invert_x_btn = Gtk.ToggleButton(label="X")
+        self.invert_x_btn.connect("toggled", self._on_invert_axis_toggled, "x")
+        invert_buttons.append(self.invert_x_btn)
+        self.invert_y_btn = Gtk.ToggleButton(label="Y")
+        self.invert_y_btn.connect("toggled", self._on_invert_axis_toggled, "y")
+        invert_buttons.append(self.invert_y_btn)
+        self.invert_axes_row.add_suffix(invert_buttons)
+        group.add(self.invert_axes_row)
+
+        self.area_start_enabled_row = Adw.SwitchRow(title="Anchor to a Start Position")
+        self.area_start_enabled_row.connect(
+            "notify::active",
+            self._on_area_start_enabled_changed,
+        )
+        group.add(self.area_start_enabled_row)
+        self.area_start_position_row = Adw.ActionRow(title="Start Position")
+        start_position_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        start_position_box.set_valign(Gtk.Align.CENTER)
+        start_position_box.append(Gtk.Label(label="X"))
+        self.area_start_x_entry = self._compact_int_entry(0)
+        start_position_box.append(self.area_start_x_entry)
+        start_position_box.append(Gtk.Label(label="Y"))
+        self.area_start_y_entry = self._compact_int_entry(0)
+        start_position_box.append(self.area_start_y_entry)
+        self.area_start_position_row.add_suffix(start_position_box)
+        group.add(self.area_start_position_row)
+        self.area_start_capture_row = Adw.ActionRow()
+        capture_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        capture_box.set_halign(Gtk.Align.END)
+        capture_box.set_valign(Gtk.Align.CENTER)
+        if not self._slurp_available:
+            capture_box.append(Gtk.Label(label="in"))
+        self.area_start_capture_delay_spin = Gtk.SpinButton()
+        self.area_start_capture_delay_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._capture_delay_seconds,
+                lower=0.2,
+                upper=15.0,
+                step_increment=0.2,
+            )
+        )
+        self.area_start_capture_delay_spin.set_digits(1)
+        self.area_start_capture_delay_spin.set_width_chars(4)
+        self.area_start_capture_delay_spin.set_visible(not self._slurp_available)
+        if not self._slurp_available:
+            capture_box.append(self.area_start_capture_delay_spin)
+        if not self._slurp_available:
+            capture_box.append(Gtk.Label(label="s"))
+        self.area_start_capture_status = Gtk.Label(label="")
+        self.area_start_capture_status.set_xalign(1.0)
+        self.area_start_capture_status.set_halign(Gtk.Align.END)
+        self.area_start_capture_status.add_css_class("dim-label")
+        self.area_start_capture_status.add_css_class("capture-status-label")
+        capture_box.append(self.area_start_capture_status)
+        self.area_start_capture_btn = Gtk.Button(
+            label="Capture" if self._slurp_available else "Capture Position"
+        )
+        self.area_start_capture_btn.connect("clicked", self._on_area_capture_position_clicked)
+        capture_box.append(self.area_start_capture_btn)
+        self.area_start_capture_row.add_suffix(capture_box)
+        group.add(self.area_start_capture_row)
         self._update_mouse_curve_graph()
         return group
 
@@ -704,6 +823,78 @@ class AnalogControlDialog(Adw.Dialog):
         row.connect("notify::value", self._on_modified)
         return row
 
+    def _compact_int_entry(self, value: int) -> Gtk.Entry:
+        entry = Gtk.Entry()
+        entry.set_text(str(int(value)))
+        entry.set_width_chars(6)
+        entry.set_max_width_chars(6)
+        entry.set_alignment(0.5)
+        entry.set_input_purpose(Gtk.InputPurpose.NUMBER)
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_int_entry_key_pressed, entry)
+        entry.add_controller(key_controller)
+        entry.connect("changed", self._on_int_entry_changed)
+        return entry
+
+    def _on_int_entry_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+        entry: Gtk.Entry,
+    ) -> bool:
+        if state & (
+            Gdk.ModifierType.CONTROL_MASK
+            | Gdk.ModifierType.ALT_MASK
+            | Gdk.ModifierType.META_MASK
+        ):
+            return False
+        codepoint = Gdk.keyval_to_unicode(keyval)
+        if codepoint == 0:
+            return False
+        char = chr(codepoint)
+        if char.isdigit():
+            return False
+        if char == "-":
+            return entry.get_position() != 0 or entry.get_text().startswith("-")
+        return char.isprintable()
+
+    def _on_int_entry_changed(self, entry: Gtk.Entry) -> None:
+        if self._syncing_start_entry:
+            return
+        text = entry.get_text()
+        sanitized = self._sanitize_int_entry_text(text)
+        if sanitized != text:
+            GLib.idle_add(self._apply_sanitized_int_entry_text, entry)
+        self._on_modified()
+
+    def _apply_sanitized_int_entry_text(self, entry: Gtk.Entry) -> bool:
+        sanitized = self._sanitize_int_entry_text(entry.get_text())
+        if sanitized != entry.get_text():
+            self._syncing_start_entry = True
+            try:
+                entry.set_text(sanitized)
+                entry.set_position(len(sanitized))
+            finally:
+                self._syncing_start_entry = False
+        return False
+
+    def _sanitize_int_entry_text(self, text: str) -> str:
+        stripped = str(text)
+        prefix = "-" if stripped.startswith("-") else ""
+        digits = "".join(ch for ch in stripped[len(prefix) :] if ch.isdigit())
+        return f"{prefix}{digits}"
+
+    def _entry_int_value(self, entry: Gtk.Entry) -> int:
+        try:
+            return int(entry.get_text().strip())
+        except ValueError:
+            return 0
+
+    def _set_entry_int(self, entry: Gtk.Entry, value: int) -> None:
+        entry.set_text(str(int(value)))
+
     def _build_new_control_row(self) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row._is_new_analog_control = True
@@ -883,6 +1074,10 @@ class AnalogControlDialog(Adw.Dialog):
         self._last_speed_x = self.speed_x_row.get_value()
         self._last_speed_y = self.speed_y_row.get_value()
 
+    def _remember_area_radii(self) -> None:
+        self._last_area_radius_x = self.area_radius_x_row.get_value()
+        self._last_area_radius_y = self.area_radius_y_row.get_value()
+
     def _add_split_mouse_speed_desync_controller(
         self,
         row: Adw.SpinRow,
@@ -1029,6 +1224,43 @@ class AnalogControlDialog(Adw.Dialog):
             self._clear_split_mouse_speed_desync(axis)
         self._remember_split_mouse_speeds()
 
+    def _on_area_radius_changed(
+        self,
+        _row: Adw.SpinRow,
+        _param: object,
+        axis: str,
+    ) -> None:
+        if self._syncing_area_radius:
+            return
+
+        was_synced = abs(self._last_area_radius_x - self._last_area_radius_y) < 0.000001
+        if was_synced and not self._split_mouse_speed_desync_requested(axis):
+            self._syncing_area_radius = True
+            try:
+                if axis == "x":
+                    self.area_radius_y_row.set_value(self.area_radius_x_row.get_value())
+                else:
+                    self.area_radius_x_row.set_value(self.area_radius_y_row.get_value())
+            finally:
+                self._syncing_area_radius = False
+        if self._split_mouse_speed_desync_axis == axis:
+            if self._split_mouse_speed_desync_clear_id:
+                GLib.source_remove(self._split_mouse_speed_desync_clear_id)
+            self._clear_split_mouse_speed_desync(axis)
+        self._remember_area_radii()
+
+    def _on_invert_axis_toggled(self, button: Gtk.ToggleButton, axis: str) -> None:
+        if self._syncing_invert_axes:
+            return
+        other = self.invert_y_btn if axis == "x" else self.invert_x_btn
+        if not self._split_mouse_speed_desync_requested(axis):
+            self._syncing_invert_axes = True
+            try:
+                other.set_active(button.get_active())
+            finally:
+                self._syncing_invert_axes = False
+        self._on_modified()
+
     def _on_gamepad_output_target_toggled(
         self,
         button: Gtk.ToggleButton,
@@ -1038,6 +1270,22 @@ class AnalogControlDialog(Adw.Dialog):
         _ = target, analog_id
         if not button.get_active():
             return
+        self._on_modified()
+
+    def _on_area_start_enabled_changed(self, *_args) -> None:
+        self._update_mode_visibility()
+        self._on_modified()
+
+    def _on_area_capture_position_clicked(self, _button: Gtk.Button) -> None:
+        self._begin_position_capture(
+            self.area_start_capture_btn,
+            self.area_start_capture_status,
+            self._apply_area_start_capture_position,
+        )
+
+    def _apply_area_start_capture_position(self, x: int, y: int) -> None:
+        self._set_entry_int(self.area_start_x_entry, int(x))
+        self._set_entry_int(self.area_start_y_entry, int(y))
         self._on_modified()
 
     def _current_input_type(self) -> str:
@@ -1056,14 +1304,23 @@ class AnalogControlDialog(Adw.Dialog):
         mode = self._current_mode()
         is_axis = input_type == "axis"
         digital_visible = mode in {"digital", "both"}
-        mouse_visible = mode in {"mouse", "both"}
+        mouse_visible = mode in {"mouse", "mouse_area", "both"}
+        mouse_area_visible = mode == "mouse_area" and not is_axis
+        mouse_velocity_visible = mouse_visible and not mouse_area_visible
         self.mouse_group.set_visible(mouse_visible)
-        self.speed_row.set_visible(mouse_visible and is_axis)
-        self.speed_x_row.set_visible(mouse_visible and not is_axis)
-        self.speed_y_row.set_visible(mouse_visible and not is_axis)
-        self.mouse_direction_row.set_visible(mouse_visible and is_axis)
-        self.invert_x_row.set_visible(mouse_visible and not is_axis)
-        self.invert_y_row.set_visible(mouse_visible and not is_axis)
+        self.speed_row.set_visible(mouse_velocity_visible and is_axis)
+        self.speed_x_row.set_visible(mouse_velocity_visible and not is_axis)
+        self.speed_y_row.set_visible(mouse_velocity_visible and not is_axis)
+        self.area_radius_x_row.set_visible(mouse_area_visible)
+        self.area_radius_y_row.set_visible(mouse_area_visible)
+        self.mouse_direction_row.set_visible(mouse_velocity_visible and is_axis)
+        self.invert_axes_row.set_visible(mouse_visible and not is_axis)
+        self.area_start_enabled_row.set_visible(mouse_area_visible)
+        show_area_start = mouse_area_visible and self.area_start_enabled_row.get_active()
+        self.area_start_position_row.set_visible(show_area_start)
+        self.area_start_capture_row.set_visible(show_area_start)
+        if not show_area_start:
+            self._cancel_capture_position("")
         self.gamepad_output_group.set_visible(mode == "gamepad")
         show_axis_output_tuning = mode == "gamepad" and is_axis
         show_output_tuning = mode == "gamepad"
@@ -1323,17 +1580,27 @@ class AnalogControlDialog(Adw.Dialog):
                 if config.mouse_motion.speed_y is not None
                 else config.mouse_motion.speed
             )
+            self.area_radius_x_row.set_value(config.mouse_motion.area_radius_x)
+            self.area_radius_y_row.set_value(config.mouse_motion.area_radius_y)
         finally:
             self._syncing_mouse_speed = False
         self._remember_split_mouse_speeds()
+        self._remember_area_radii()
         self.deadzone_row.set_value(config.mouse_motion.deadzone)
         self.mouse_sensitivity_row.set_value(config.mouse_motion.sensitivity)
         self.mouse_response_curve_row.set_value(config.mouse_motion.response_curve)
         direction_button = self._mouse_direction_buttons.get(config.mouse_motion.direction)
         if direction_button is not None:
             direction_button.set_active(True)
-        self.invert_x_row.set_active(config.mouse_motion.invert_x)
-        self.invert_y_row.set_active(config.mouse_motion.invert_y)
+        self._syncing_invert_axes = True
+        try:
+            self.invert_x_btn.set_active(config.mouse_motion.invert_x)
+            self.invert_y_btn.set_active(config.mouse_motion.invert_y)
+        finally:
+            self._syncing_invert_axes = False
+        self.area_start_enabled_row.set_active(config.mouse_motion.area_start_enabled)
+        self._set_entry_int(self.area_start_x_entry, config.mouse_motion.area_start_x)
+        self._set_entry_int(self.area_start_y_entry, config.mouse_motion.area_start_y)
         self._selected_gamepad_output_id = config.gamepad_output.output_id
         self._refresh_gamepad_output_choices()
         self._set_gamepad_output_target_options(
@@ -1364,6 +1631,8 @@ class AnalogControlDialog(Adw.Dialog):
             return "gamepad"
         has_mouse = bool(config.mouse_motion.enabled)
         has_digital = bool(config.thresholds)
+        if has_mouse and config.mouse_motion.mode == "area":
+            return "mouse_area"
         if has_mouse and has_digital:
             return "both"
         if has_digital:
@@ -1826,6 +2095,7 @@ class AnalogControlDialog(Adw.Dialog):
 
     def _request_close(self) -> None:
         if not self._modified:
+            self._cancel_capture_position("")
             self.force_close()
             return
         self._show_unsaved_close_warning()
@@ -1853,9 +2123,11 @@ class AnalogControlDialog(Adw.Dialog):
         if response == "discard":
             self._modified = False
             self._update_buttons()
+            self._cancel_capture_position("")
             self.force_close()
             return
         if response == "save" and self._save_current_control():
+            self._cancel_capture_position("")
             self.force_close()
 
     def _show_unsaved_selection_warning(self) -> None:
@@ -1896,6 +2168,130 @@ class AnalogControlDialog(Adw.Dialog):
         except Exception as exc:
             log.warning("Could not open Analog Controls documentation %s: %s", url, exc)
 
+    def _set_capture_status(
+        self,
+        status_label: Gtk.Label | None,
+        text: str,
+        *,
+        error: bool = False,
+    ) -> None:
+        if status_label is None:
+            return
+        status_label.set_text(text)
+        if error:
+            status_label.add_css_class("capture-error-label")
+        else:
+            status_label.remove_css_class("capture-error-label")
+
+    def _begin_position_capture(
+        self,
+        button: Gtk.Button | None,
+        status_label: Gtk.Label | None,
+        apply_position: Callable[[int, int], None],
+    ) -> None:
+        self._cancel_capture_position("")
+        self._capture_request_id += 1
+        request_id = self._capture_request_id
+        self._capture_button = button
+        self._capture_status_label = status_label
+        self._capture_apply = apply_position
+
+        if self._slurp_available:
+            self._capture_pending = True
+            if button is not None:
+                button.set_sensitive(False)
+            self._set_capture_status(status_label, "Click to capture position...")
+            self._slurp_capture.capture_point(
+                lambda result, expected_id=request_id: self._on_slurp_capture_result(
+                    expected_id,
+                    result,
+                )
+            )
+            return
+
+        self._capture_delay_seconds = float(self.area_start_capture_delay_spin.get_value())
+        self._capture_pending = True
+        if button is not None:
+            button.set_sensitive(False)
+        self._set_capture_status(
+            status_label,
+            f"Move cursor now... capturing in {self._capture_delay_seconds:.1f}s",
+        )
+        self._capture_timeout_id = GLib.timeout_add(
+            int(self._capture_delay_seconds * 1000),
+            lambda expected_id=request_id: self._capture_position_after_delay(expected_id),
+        )
+
+    def _on_slurp_capture_result(self, request_id: int, result) -> None:
+        if request_id != self._capture_request_id:
+            return
+        self._capture_pending = False
+        if self._capture_button is not None:
+            self._capture_button.set_sensitive(True)
+
+        if result is None:
+            self._set_capture_status(
+                self._capture_status_label,
+                "Capture cancelled or failed",
+                error=True,
+            )
+            return
+
+        if self._capture_apply is not None:
+            self._capture_apply(int(result.x), int(result.y))
+        self._set_capture_status(self._capture_status_label, "")
+
+    def _capture_position_after_delay(self, request_id: int) -> bool:
+        self._capture_timeout_id = 0
+        if request_id != self._capture_request_id or not self._capture_pending:
+            return False
+        self._set_capture_status(self._capture_status_label, "Reading cursor position...")
+        session_request_async(
+            {"command": "get_cursor_position"},
+            lambda response, expected_id=request_id: self._on_capture_position_response(
+                expected_id,
+                response,
+            ),
+            timeout=5.0,
+        )
+        return False
+
+    def _on_capture_position_response(self, request_id: int, response: dict | None) -> bool:
+        if request_id != self._capture_request_id:
+            return False
+        self._capture_pending = False
+        if self._capture_button is not None:
+            self._capture_button.set_sensitive(True)
+
+        if not response or response.get("status") != "ok":
+            message = (
+                (response or {}).get("message") or (response or {}).get("error") or "Capture failed"
+            )
+            if "Unknown command: get_cursor_position" in message:
+                message = "Please restart Keymasq Session, then try again"
+            self._set_capture_status(self._capture_status_label, str(message), error=True)
+            return False
+
+        x = int(response.get("x", 0))
+        y = int(response.get("y", 0))
+        if self._capture_apply is not None:
+            self._capture_apply(x, y)
+        self._set_capture_status(self._capture_status_label, "")
+        return False
+
+    def _cancel_capture_position(self, status_text: str) -> None:
+        self._capture_request_id += 1
+        if self._capture_timeout_id:
+            GLib.source_remove(self._capture_timeout_id)
+            self._capture_timeout_id = 0
+        self._capture_pending = False
+        if self._capture_button is not None:
+            self._capture_button.set_sensitive(True)
+        self._set_capture_status(self._capture_status_label, status_text)
+        self._capture_apply = None
+        self._capture_button = None
+        self._capture_status_label = None
+
     def _save_current_control(self) -> bool:
         name = self.name_entry.get_text().strip()
         if not name:
@@ -1910,16 +2306,22 @@ class AnalogControlDialog(Adw.Dialog):
             description=self.description_entry.get_text().strip() or None,
             input_type=input_type,
             mouse_motion=AnalogMouseMotionConfig(
-                enabled=mode in {"mouse", "both"},
+                enabled=mode in {"mouse", "mouse_area", "both"},
+                mode="area" if mode == "mouse_area" else "velocity",
                 speed=self.speed_row.get_value(),
                 speed_x=self.speed_x_row.get_value(),
                 speed_y=self.speed_y_row.get_value(),
+                area_radius_x=self.area_radius_x_row.get_value(),
+                area_radius_y=self.area_radius_y_row.get_value(),
+                area_start_enabled=self.area_start_enabled_row.get_active(),
+                area_start_x=self._entry_int_value(self.area_start_x_entry),
+                area_start_y=self._entry_int_value(self.area_start_y_entry),
                 deadzone=self.deadzone_row.get_value(),
                 sensitivity=self.mouse_sensitivity_row.get_value(),
                 response_curve=self.mouse_response_curve_row.get_value(),
                 direction=self._current_mouse_direction(),
-                invert_x=self.invert_x_row.get_active(),
-                invert_y=self.invert_y_row.get_active(),
+                invert_x=self.invert_x_btn.get_active(),
+                invert_y=self.invert_y_btn.get_active(),
                 tick_ms=(
                     self._current_config.mouse_motion.tick_ms
                     if self._current_config is not None

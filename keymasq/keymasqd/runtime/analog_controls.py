@@ -200,6 +200,8 @@ async def process_analog_event(
         deps=deps,
     )
     _emit_gamepad_output(device_runtime, analog_id, config, deps=deps)
+    if await _emit_mouse_area_motion(device_runtime, analog_id, config, deps=deps):
+        return True
     _ensure_mouse_task(device_runtime, analog_id, deps=deps)
     return True
 
@@ -256,6 +258,8 @@ async def reset_analog_controls(
     device_runtime.state.analog_active_threshold_actions.clear()
     device_runtime.state.analog_mouse_tasks.clear()
     device_runtime.state.analog_mouse_accumulators.clear()
+    device_runtime.state.analog_mouse_area_offsets.clear()
+    device_runtime.state.analog_mouse_area_active.clear()
     device_runtime.state.analog_gamepad_outputs.clear()
 
 
@@ -440,6 +444,8 @@ def _ensure_mouse_task(
     config = action.analog_control_config if action else None
     if config is None or not config.mouse_motion.enabled:
         return
+    if config.mouse_motion.mode == "area":
+        return
 
     task = device_runtime.state.analog_mouse_tasks.get(source_id)
     if task is not None and not task.done():
@@ -548,6 +554,91 @@ def _motion_delta(
     return (
         direction_x * scaled * max(0.0, speed_x) * dt,
         direction_y * scaled * max(0.0, speed_y) * dt,
+    )
+
+
+async def _emit_mouse_area_motion(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> bool:
+    if (
+        not config.mouse_motion.enabled
+        or config.mouse_motion.mode != "area"
+        or config.input_type != "stick"
+    ):
+        return False
+
+    target_x, target_y = _mouse_area_offset(
+        device_runtime,
+        source_id,
+        config,
+    )
+    active_sources = device_runtime.state.analog_mouse_area_active
+    was_active = source_id in active_sources
+    is_active = target_x != 0.0 or target_y != 0.0
+    if (
+        is_active
+        and not was_active
+        and config.mouse_motion.area_start_enabled
+        and device_runtime.cursor_position_setter is not None
+    ):
+        await device_runtime.cursor_position_setter(
+            int(config.mouse_motion.area_start_x),
+            int(config.mouse_motion.area_start_y),
+        )
+        device_runtime.state.analog_mouse_area_offsets[source_id] = (0.0, 0.0)
+        device_runtime.state.analog_mouse_accumulators[source_id] = (0.0, 0.0)
+
+    old_x, old_y = device_runtime.state.analog_mouse_area_offsets.get(
+        source_id,
+        (0.0, 0.0),
+    )
+    device_runtime.state.analog_mouse_area_offsets[source_id] = (target_x, target_y)
+    if is_active:
+        active_sources.add(source_id)
+    else:
+        active_sources.discard(source_id)
+
+    await _emit_mouse_delta(
+        device_runtime,
+        source_id,
+        target_x - old_x,
+        target_y - old_y,
+        deps=deps,
+    )
+    return True
+
+
+def _mouse_area_offset(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+) -> tuple[float, float]:
+    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    x = float(axis_values.get("x", 0.0))
+    y = float(axis_values.get("y", 0.0))
+    if config.mouse_motion.invert_x:
+        x = -x
+    if config.mouse_motion.invert_y:
+        y = -y
+    x = _apply_signed_axis_output_curve(
+        x,
+        deadzone=float(config.mouse_motion.deadzone),
+        sensitivity=float(config.mouse_motion.sensitivity),
+        response_curve=float(config.mouse_motion.response_curve),
+    )
+    y = _apply_signed_axis_output_curve(
+        y,
+        deadzone=float(config.mouse_motion.deadzone),
+        sensitivity=float(config.mouse_motion.sensitivity),
+        response_curve=float(config.mouse_motion.response_curve),
+    )
+    return (
+        x * max(0.0, float(config.mouse_motion.area_radius_x)),
+        y * max(0.0, float(config.mouse_motion.area_radius_y)),
     )
 
 

@@ -218,6 +218,33 @@ def test_analog_control_mouse_zero_split_speed_round_trips(temp_config_dir) -> N
     assert loaded.mouse_motion.speed_y == 700
 
 
+def test_analog_control_mouse_area_round_trips(temp_config_dir) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Mouse Area",
+            mouse_motion=AnalogMouseMotionConfig(
+                enabled=True,
+                mode="area",
+                area_radius_x=640,
+                area_radius_y=360,
+                area_start_enabled=True,
+                area_start_x=100,
+                area_start_y=200,
+            ),
+        )
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Mouse Area")
+    assert loaded is not None
+    assert loaded.mouse_motion.mode == "area"
+    assert loaded.mouse_motion.area_radius_x == 640
+    assert loaded.mouse_motion.area_radius_y == 360
+    assert loaded.mouse_motion.area_start_enabled is True
+    assert loaded.mouse_motion.area_start_x == 100
+    assert loaded.mouse_motion.area_start_y == 200
+
+
 def test_analog_control_gamepad_output_learned_target_round_trips(temp_config_dir) -> None:
     manager = AnalogControlManager()
     manager.save_analog_control(
@@ -315,6 +342,13 @@ def test_axis_analog_control_accepts_mouse_motion_but_rejects_y_axis() -> None:
                     release_max=1.0,
                 )
             ],
+        )
+
+    with pytest.raises(ValueError, match="area mode requires a stick"):
+        AnalogControlConfig(
+            name="Bad Area",
+            input_type="axis",
+            mouse_motion=AnalogMouseMotionConfig(enabled=True, mode="area"),
         )
 
 

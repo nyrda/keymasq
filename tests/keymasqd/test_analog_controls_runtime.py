@@ -261,6 +261,89 @@ def test_stick_mouse_motion_preserves_zero_split_speed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stick_mouse_area_emits_relative_delta_from_previous_area_position() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Area Mouse",
+                mouse_motion=AnalogMouseMotionConfig(
+                    enabled=True,
+                    mode="area",
+                    area_radius_x=1000,
+                    area_radius_y=500,
+                    deadzone=0.0,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.analog_axis_bindings = {
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("left_stick", "x"),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y): ("left_stick", "y"),
+    }
+    runtime.analog_axis_ranges = {
+        ("left_stick", "x"): (-32768, 32767),
+        ("left_stick", "y"): (-32768, 32767),
+    }
+    runtime.analog_axis_calibrations = {
+        ("left_stick", "x"): {"center": 0},
+        ("left_stick", "y"): {"center": 0},
+    }
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    y_event = FakeEvent(32767)
+    y_event.code = evdev.ecodes.ABS_Y
+    assert await process_analog_event(runtime, y_event, "abs_y", mapping, deps=_deps())
+    assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
+
+    assert runtime.mouse_uinput.events == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 1000),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 500),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, -1000),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stick_mouse_area_can_jump_to_start_on_activation() -> None:
+    keyboard = FakeUInput()
+    starts: list[tuple[int, int]] = []
+
+    async def set_cursor_position(x: int, y: int) -> dict[str, object]:
+        starts.append((x, y))
+        return {"status": "ok"}
+
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Area Mouse",
+                mouse_motion=AnalogMouseMotionConfig(
+                    enabled=True,
+                    mode="area",
+                    area_radius_x=100,
+                    area_radius_y=100,
+                    area_start_enabled=True,
+                    area_start_x=300,
+                    area_start_y=400,
+                    deadzone=0.0,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.cursor_position_setter = set_cursor_position
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+
+    assert starts == [(300, 400)]
+    assert runtime.mouse_uinput.events == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)
+    ]
+
+
+@pytest.mark.asyncio
 async def test_overlapping_thresholds_activate_independently() -> None:
     keyboard = FakeUInput()
     mapping = {

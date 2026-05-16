@@ -85,6 +85,7 @@ class AnalogControlManager:
             input_type=_toml_str(data, "input_type", "stick") or "stick",
             mouse_motion=AnalogMouseMotionConfig(
                 enabled=bool(mouse_data.get("enabled", False)),
+                mode=_toml_str(mouse_data, "mode", "velocity") or "velocity",
                 speed=_float_value(mouse_data.get("speed"), 900.0),
                 speed_x=(
                     _float_value(mouse_data.get("speed_x"), 900.0)
@@ -96,6 +97,11 @@ class AnalogControlManager:
                     if "speed_y" in mouse_data
                     else None
                 ),
+                area_radius_x=_float_value(mouse_data.get("area_radius_x"), 400.0),
+                area_radius_y=_float_value(mouse_data.get("area_radius_y"), 400.0),
+                area_start_enabled=bool(mouse_data.get("area_start_enabled", False)),
+                area_start_x=_int_value(mouse_data.get("area_start_x"), 0),
+                area_start_y=_int_value(mouse_data.get("area_start_y"), 0),
                 deadzone=_float_value(mouse_data.get("deadzone"), 0.15),
                 sensitivity=_float_value(mouse_data.get("sensitivity"), 1.0),
                 response_curve=_float_value(mouse_data.get("response_curve"), 1.0),
@@ -279,6 +285,7 @@ class AnalogControlManager:
             "input_type": config.input_type,
             "mouse_motion": {
                 "enabled": bool(config.mouse_motion.enabled),
+                "mode": config.mouse_motion.mode,
                 "speed": float(config.mouse_motion.speed),
                 "speed_x": float(
                     config.mouse_motion.speed_x
@@ -290,6 +297,11 @@ class AnalogControlManager:
                     if config.mouse_motion.speed_y is not None
                     else config.mouse_motion.speed
                 ),
+                "area_radius_x": float(config.mouse_motion.area_radius_x),
+                "area_radius_y": float(config.mouse_motion.area_radius_y),
+                "area_start_enabled": bool(config.mouse_motion.area_start_enabled),
+                "area_start_x": int(config.mouse_motion.area_start_x),
+                "area_start_y": int(config.mouse_motion.area_start_y),
                 "deadzone": float(config.mouse_motion.deadzone),
                 "sensitivity": float(config.mouse_motion.sensitivity),
                 "response_curve": float(config.mouse_motion.response_curve),

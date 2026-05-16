@@ -632,6 +632,7 @@ def serialize_analog_control(
         "input_type": config.input_type,
         "mouse_motion": {
             "enabled": bool(config.mouse_motion.enabled),
+            "mode": config.mouse_motion.mode,
             "speed": float(config.mouse_motion.speed),
             "speed_x": float(
                 config.mouse_motion.speed_x
@@ -643,6 +644,11 @@ def serialize_analog_control(
                 if config.mouse_motion.speed_y is not None
                 else config.mouse_motion.speed
             ),
+            "area_radius_x": float(config.mouse_motion.area_radius_x),
+            "area_radius_y": float(config.mouse_motion.area_radius_y),
+            "area_start_enabled": bool(config.mouse_motion.area_start_enabled),
+            "area_start_x": int(config.mouse_motion.area_start_x),
+            "area_start_y": int(config.mouse_motion.area_start_y),
             "deadzone": float(config.mouse_motion.deadzone),
             "sensitivity": float(config.mouse_motion.sensitivity),
             "response_curve": float(config.mouse_motion.response_curve),
@@ -698,6 +704,7 @@ def serialize_analog_control_signature(
         "input_type": config.input_type,
         "mouse_motion": {
             "enabled": bool(config.mouse_motion.enabled),
+            "mode": config.mouse_motion.mode,
             "speed": float(config.mouse_motion.speed),
             "speed_x": float(
                 config.mouse_motion.speed_x
@@ -709,6 +716,11 @@ def serialize_analog_control_signature(
                 if config.mouse_motion.speed_y is not None
                 else config.mouse_motion.speed
             ),
+            "area_radius_x": float(config.mouse_motion.area_radius_x),
+            "area_radius_y": float(config.mouse_motion.area_radius_y),
+            "area_start_enabled": bool(config.mouse_motion.area_start_enabled),
+            "area_start_x": int(config.mouse_motion.area_start_x),
+            "area_start_y": int(config.mouse_motion.area_start_y),
             "deadzone": float(config.mouse_motion.deadzone),
             "sensitivity": float(config.mouse_motion.sensitivity),
             "response_curve": float(config.mouse_motion.response_curve),

@@ -168,6 +168,7 @@ def parse_analog_control_config(
     mouse_config_data = mouse_config or {}
     mouse = AnalogMouseMotionConfig(
         enabled=bool(mouse_config_data.get("enabled", False)),
+        mode=str_value(mouse_config_data.get("mode"), "velocity") or "velocity",
         speed=float_value(mouse_config_data.get("speed"), 900.0),
         speed_x=(
             float_value(mouse_config_data.get("speed_x"), 900.0)
@@ -179,6 +180,11 @@ def parse_analog_control_config(
             if "speed_y" in mouse_config_data
             else None
         ),
+        area_radius_x=float_value(mouse_config_data.get("area_radius_x"), 400.0),
+        area_radius_y=float_value(mouse_config_data.get("area_radius_y"), 400.0),
+        area_start_enabled=bool(mouse_config_data.get("area_start_enabled", False)),
+        area_start_x=int_value(mouse_config_data.get("area_start_x"), 0),
+        area_start_y=int_value(mouse_config_data.get("area_start_y"), 0),
         deadzone=float_value(mouse_config_data.get("deadzone"), 0.15),
         sensitivity=float_value(mouse_config_data.get("sensitivity"), 1.0),
         response_curve=float_value(mouse_config_data.get("response_curve"), 1.0),

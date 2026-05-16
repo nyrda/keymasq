@@ -12,7 +12,7 @@ def test_new_analog_control_keeps_draft_when_add_row_reselected(temp_config_dir)
     parent = Gtk.Window()
     dialog = AnalogControlDialog(parent)
 
-    dialog.mode_dropdown.set_selected(1)
+    dialog.mode_dropdown.set_selected(2)
     dialog._on_template_wasd()
     assert len(dialog._thresholds) == 4
 
@@ -238,8 +238,7 @@ def test_axis_mouse_movement_exposes_direction_and_curve_controls(temp_config_di
     assert dialog.speed_x_row.get_visible() is False
     assert dialog.speed_y_row.get_visible() is False
     assert dialog.mouse_direction_row.get_visible() is True
-    assert dialog.invert_x_row.get_visible() is False
-    assert dialog.invert_y_row.get_visible() is False
+    assert dialog.invert_axes_row.get_visible() is False
     assert dialog._save_current_control() is True
 
     saved = dialog.manager.get_analog_control("Axis Mouse")
@@ -268,6 +267,7 @@ def test_stick_mouse_movement_exposes_split_speed_controls(temp_config_dir) -> N
     assert dialog.speed_y_row.get_visible() is True
     assert dialog.speed_y_row.get_value() == 700
     assert dialog.mouse_direction_row.get_visible() is False
+    assert dialog.invert_axes_row.get_visible() is True
     assert dialog._save_current_control() is True
 
     saved = dialog.manager.get_analog_control("Stick Mouse")
@@ -275,6 +275,179 @@ def test_stick_mouse_movement_exposes_split_speed_controls(temp_config_dir) -> N
     assert saved.mouse_motion.enabled is True
     assert saved.mouse_motion.speed_x == 700
     assert saved.mouse_motion.speed_y == 700
+
+
+def test_stick_mouse_invert_axes_use_compact_toggle_row(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.name_entry.set_text("Invert Stick")
+    dialog.invert_x_btn.set_active(True)
+    dialog.invert_y_btn.set_active(True)
+
+    assert dialog.invert_axes_row.get_title() == "Invert Axes"
+    assert dialog._save_current_control() is True
+
+    saved = dialog.manager.get_analog_control("Invert Stick")
+    assert saved is not None
+    assert saved.mouse_motion.invert_x is True
+    assert saved.mouse_motion.invert_y is True
+
+
+def test_stick_mouse_invert_axes_sync_unless_desynced(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    dialog.invert_x_btn.set_active(True)
+    assert dialog.invert_y_btn.get_active() is True
+
+    dialog._request_split_mouse_speed_desync("y")
+    dialog.invert_y_btn.set_active(False)
+    assert dialog.invert_x_btn.get_active() is True
+    assert dialog.invert_y_btn.get_active() is False
+
+    dialog.invert_x_btn.set_active(False)
+    assert dialog.invert_y_btn.get_active() is False
+
+
+def test_stick_mouse_area_exposes_radius_and_start_capture(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import analog_control_dialog as dialog_module
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    class _Result:
+        def __init__(self, x: int, y: int) -> None:
+            self.x = x
+            self.y = y
+
+    class _SlurpCapture:
+        available = True
+
+        def set_compositor(self, compositor: str) -> None:
+            self.compositor = compositor
+
+        def capture_point(self, callback) -> None:
+            callback(_Result(640, 480))
+
+    monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
+    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.name_entry.set_text("Stick Area")
+    dialog.mode_dropdown.set_selected(1)
+    dialog._on_mode_changed(dialog.mode_dropdown, None)
+    dialog.area_radius_x_row.set_value(640)
+    dialog.area_start_enabled_row.set_active(True)
+    dialog._on_area_capture_position_clicked(dialog.area_start_capture_btn)
+
+    assert dialog.speed_x_row.get_visible() is False
+    assert dialog.area_radius_x_row.get_visible() is True
+    assert dialog.area_start_x_entry.get_text() == "640"
+    assert dialog.area_start_y_entry.get_text() == "480"
+    assert dialog.area_start_capture_status.get_text() == ""
+    assert dialog._save_current_control() is True
+
+    saved = dialog.manager.get_analog_control("Stick Area")
+    assert saved is not None
+    assert saved.mouse_motion.enabled is True
+    assert saved.mouse_motion.mode == "area"
+    assert saved.mouse_motion.area_radius_x == 640
+    assert saved.mouse_motion.area_radius_y == 640
+    assert saved.mouse_motion.area_start_enabled is True
+    assert saved.mouse_motion.area_start_x == 640
+    assert saved.mouse_motion.area_start_y == 480
+
+
+def test_mouse_area_start_entries_are_centered_and_numeric(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gdk, GLib, Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    assert dialog.area_start_x_entry.get_alignment() == 0.5
+    assert dialog._on_int_entry_key_pressed(
+        Gtk.EventControllerKey(),
+        Gdk.KEY_a,
+        0,
+        Gdk.ModifierType(0),
+        dialog.area_start_x_entry,
+    )
+    dialog.area_start_x_entry.set_text("12a")
+    while GLib.MainContext.default().pending():
+        GLib.MainContext.default().iteration(False)
+    assert dialog.area_start_x_entry.get_text() == "12"
+
+    dialog.area_start_x_entry.set_text("-12")
+    assert dialog.area_start_x_entry.get_text() == "-12"
+
+
+def test_mouse_area_radius_rows_sync_and_can_desync(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.mode_dropdown.set_selected(1)
+    dialog._on_mode_changed(dialog.mode_dropdown, None)
+
+    dialog.area_radius_x_row.set_value(700)
+    assert dialog.area_radius_y_row.get_value() == 700
+
+    dialog._request_split_mouse_speed_desync("y")
+    dialog.area_radius_y_row.set_value(300)
+
+    assert dialog.area_radius_x_row.get_value() == 700
+    assert dialog.area_radius_y_row.get_value() == 300
+
+
+def test_mouse_area_capture_failure_uses_error_status(temp_config_dir, monkeypatch) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import analog_control_dialog as dialog_module
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    class _SlurpCapture:
+        available = True
+
+        def set_compositor(self, compositor: str) -> None:
+            self.compositor = compositor
+
+        def capture_point(self, callback) -> None:
+            callback(None)
+
+    monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
+    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.mode_dropdown.set_selected(1)
+    dialog._on_mode_changed(dialog.mode_dropdown, None)
+    dialog.area_start_enabled_row.set_active(True)
+    dialog._on_area_capture_position_clicked(dialog.area_start_capture_btn)
+
+    assert dialog.area_start_capture_row.get_title() == ""
+    assert dialog.area_start_capture_status.get_xalign() == 1.0
+    assert dialog.area_start_capture_status.get_text() == "Capture cancelled or failed"
+    assert dialog.area_start_capture_status.get_next_sibling() is dialog.area_start_capture_btn
+    assert any(
+        css_class == "capture-error-label"
+        for css_class in dialog.area_start_capture_status.get_css_classes()
+    )
 
 
 def test_mouse_speed_spin_rows_use_500_page_steps(temp_config_dir) -> None:
@@ -322,6 +495,10 @@ def test_mouse_speed_secondary_steps_apply_500_and_keep_sync(temp_config_dir) ->
     dialog._apply_spin_secondary_step(dialog.speed_y_row, -1, 500)
     assert dialog.speed_x_row.get_value() == 900
     assert dialog.speed_y_row.get_value() == 900
+
+    dialog._apply_spin_secondary_step(dialog.area_radius_x_row, 1, 100)
+    assert dialog.area_radius_x_row.get_value() == 500
+    assert dialog.area_radius_y_row.get_value() == 500
 
 
 def test_mouse_movement_tuning_secondary_steps_apply_requested_values(
@@ -512,7 +689,7 @@ def test_saved_analog_control_keeps_action_edits_when_current_row_reselected(
     dialog = AnalogControlDialog(parent)
 
     dialog.name_entry.set_text("Saved Control")
-    dialog.mode_dropdown.set_selected(1)
+    dialog.mode_dropdown.set_selected(2)
     dialog._apply_template(analog_control_wasd_template())
     assert dialog._save_current_control() is True
 
@@ -570,7 +747,7 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     parent = Gtk.Window()
     dialog = analog_dialog.AnalogControlDialog(parent)
     dialog.name_entry.set_text("Route Stick")
-    dialog.mode_dropdown.set_selected(2)
+    dialog.mode_dropdown.set_selected(3)
     dialog._gamepad_output_target_buttons["right"].set_active(True)
     assert dialog._gamepad_output_dropdown is not None
     dialog._gamepad_output_dropdown.set_selected(2)

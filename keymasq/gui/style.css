@@ -253,6 +253,10 @@ button.actions-docs-button {
   font-weight: 700;
 }
 
+.capture-error-label {
+  color: alpha(@error_color, 0.75);
+}
+
 /* Learn-keys placeholder tile: dashed border, dim, accent on hover */
 .button-card-learn {
   border: 1.5px dashed alpha(@borders, 0.5);

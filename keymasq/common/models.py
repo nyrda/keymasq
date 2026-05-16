@@ -329,6 +329,7 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
 ANALOG_MOUSE_DIRECTIONS = frozenset(
     {"left", "right", "up", "down", "horizontal", "vertical"}
 )
+ANALOG_MOUSE_MODES = frozenset({"velocity", "area"})
 SAME_DEVICE_OUTPUT_ID = "same-device"
 ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog"})
 ANALOG_GAMEPAD_OUTPUT_DIRECTIONS = frozenset({"min", "max", "both"})
@@ -368,9 +369,15 @@ def analog_gamepad_output_distance(
 @dataclass
 class AnalogMouseMotionConfig:
     enabled: bool = False
+    mode: str = "velocity"
     speed: float = 900.0
     speed_x: float | None = None
     speed_y: float | None = None
+    area_radius_x: float = 400.0
+    area_radius_y: float = 400.0
+    area_start_enabled: bool = False
+    area_start_x: int = 0
+    area_start_y: int = 0
     deadzone: float = 0.15
     sensitivity: float = 1.0
     response_curve: float = 1.0
@@ -380,9 +387,17 @@ class AnalogMouseMotionConfig:
     tick_ms: int = 8
 
     def __post_init__(self) -> None:
+        self.mode = str(self.mode or "velocity").lower()
+        if self.mode not in ANALOG_MOUSE_MODES:
+            self.mode = "velocity"
         self.speed = max(0.0, float(self.speed))
         self.speed_x = self.speed if self.speed_x is None else max(0.0, float(self.speed_x))
         self.speed_y = self.speed if self.speed_y is None else max(0.0, float(self.speed_y))
+        self.area_radius_x = max(0.0, float(self.area_radius_x))
+        self.area_radius_y = max(0.0, float(self.area_radius_y))
+        self.area_start_enabled = bool(self.area_start_enabled)
+        self.area_start_x = int(self.area_start_x)
+        self.area_start_y = int(self.area_start_y)
         self.deadzone = max(0.0, min(0.95, float(self.deadzone)))
         self.sensitivity = max(
             MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
@@ -475,6 +490,8 @@ def validate_analog_control_config(config: AnalogControlConfig) -> None:
         raise ValueError("analog control name is required")
     if config.input_type not in {"stick", "axis"}:
         raise ValueError("analog control input_type must be 'stick' or 'axis'")
+    if config.input_type == "axis" and config.mouse_motion.mode == "area":
+        raise ValueError("analog mouse area mode requires a stick control")
     for index, threshold in enumerate(config.thresholds, start=1):
         allowed_axes = {"x", "y"} if config.input_type == "stick" else {"x"}
         if threshold.axis not in allowed_axes:

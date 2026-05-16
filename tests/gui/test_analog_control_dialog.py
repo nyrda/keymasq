@@ -65,6 +65,81 @@ def test_analog_control_dialog_docs_button_links_to_analog_controls_docs(
     )
 
 
+def test_analog_control_dialog_unsaved_close_warns_and_can_discard(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gdk, Gtk
+
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+
+    dialog = analog_dialog.AnalogControlDialog(Gtk.Window())
+    closed: list[bool] = []
+    alerts: list[tuple[object, object]] = []
+    monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+    monkeypatch.setattr(
+        analog_dialog.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append((alert, parent)),
+    )
+
+    assert dialog.new_control_row is not None
+    assert dialog.list_box.get_selected_row() is dialog.new_control_row
+    assert dialog.get_can_close() is False
+
+    dialog.close_btn.emit("clicked")
+    assert closed == []
+    assert len(alerts) == 1
+    assert alerts[0][1] is dialog
+
+    dialog._on_unsaved_close_response(alerts[0][0], "cancel")
+    assert closed == []
+
+    assert dialog._on_key_pressed(None, Gdk.KEY_Escape, 0, 0) is True
+    assert closed == []
+    assert len(alerts) == 2
+
+    dialog._on_unsaved_close_response(alerts[1][0], "discard")
+    assert closed == [True]
+    assert dialog.get_can_close() is True
+
+
+def test_analog_control_dialog_unsaved_close_save_response_saves_and_closes(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+
+    dialog = analog_dialog.AnalogControlDialog(Gtk.Window())
+    closed: list[bool] = []
+    alerts: list[tuple[object, object]] = []
+    saved: list[str] = []
+    monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+    monkeypatch.setattr(
+        analog_dialog.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append((alert, parent)),
+    )
+    dialog.connect("analog-control-saved", lambda _dialog, name: saved.append(name))
+
+    dialog.name_entry.set_text("close_saved")
+    dialog._request_close()
+
+    assert closed == []
+    assert len(alerts) == 1
+
+    dialog._on_unsaved_close_response(alerts[0][0], "save")
+
+    assert closed == [True]
+    assert saved == ["close_saved"]
+    assert dialog.manager.get_analog_control("close_saved") is not None
+    assert dialog.get_can_close() is True
+
+
 def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
@@ -134,12 +209,12 @@ def test_stick_mouse_movement_exposes_split_speed_controls(temp_config_dir) -> N
     dialog = AnalogControlDialog(Gtk.Window())
     dialog.name_entry.set_text("Stick Mouse")
     dialog.speed_x_row.set_value(700)
-    dialog.speed_y_row.set_value(1100)
 
     assert dialog.mouse_group.get_visible() is True
     assert dialog.speed_row.get_visible() is False
     assert dialog.speed_x_row.get_visible() is True
     assert dialog.speed_y_row.get_visible() is True
+    assert dialog.speed_y_row.get_value() == 700
     assert dialog.mouse_direction_row.get_visible() is False
     assert dialog._save_current_control() is True
 
@@ -147,7 +222,208 @@ def test_stick_mouse_movement_exposes_split_speed_controls(temp_config_dir) -> N
     assert saved is not None
     assert saved.mouse_motion.enabled is True
     assert saved.mouse_motion.speed_x == 700
-    assert saved.mouse_motion.speed_y == 1100
+    assert saved.mouse_motion.speed_y == 700
+
+
+def test_mouse_speed_spin_rows_use_500_page_steps(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    for row in (dialog.speed_row, dialog.speed_x_row, dialog.speed_y_row):
+        adjustment = row.get_adjustment()
+        assert adjustment.get_step_increment() == 25
+        assert adjustment.get_page_increment() == 500
+
+
+def test_mouse_movement_tuning_spin_rows_use_expected_page_steps(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    assert dialog.deadzone_row.get_adjustment().get_page_increment() == pytest.approx(0.05)
+    assert dialog.mouse_sensitivity_row.get_adjustment().get_page_increment() == 0.25
+    assert dialog.mouse_response_curve_row.get_adjustment().get_page_increment() == 0.25
+
+
+def test_mouse_speed_secondary_steps_apply_500_and_keep_sync(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    dialog._apply_spin_secondary_step(dialog.speed_row, 1, 500)
+    assert dialog.speed_row.get_value() == 1400
+
+    dialog._apply_spin_secondary_step(dialog.speed_x_row, 1, 500)
+    assert dialog.speed_x_row.get_value() == 1400
+    assert dialog.speed_y_row.get_value() == 1400
+
+    dialog._apply_spin_secondary_step(dialog.speed_y_row, -1, 500)
+    assert dialog.speed_x_row.get_value() == 900
+    assert dialog.speed_y_row.get_value() == 900
+
+
+def test_mouse_movement_tuning_secondary_steps_apply_requested_values(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    dialog.deadzone_row.set_value(0.15)
+    dialog._apply_spin_secondary_step(dialog.deadzone_row, 1, 0.05)
+    assert dialog.deadzone_row.get_value() == pytest.approx(0.20)
+
+    dialog._apply_spin_secondary_step(dialog.deadzone_row, -1, 0.05)
+    assert dialog.deadzone_row.get_value() == pytest.approx(0.15)
+
+    dialog._apply_spin_secondary_step(dialog.mouse_sensitivity_row, 1, 0.25)
+    assert dialog.mouse_sensitivity_row.get_value() == 1.25
+
+    dialog._apply_spin_secondary_step(dialog.mouse_response_curve_row, -1, 0.25)
+    assert dialog.mouse_response_curve_row.get_value() == 0.75
+
+
+def test_analog_output_spin_rows_use_expected_page_steps(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    assert dialog.gamepad_output_deadzone_row.get_adjustment().get_page_increment() == 5
+    assert (
+        dialog.gamepad_output_sensitivity_row.get_adjustment().get_page_increment()
+        == 0.25
+    )
+    assert (
+        dialog.gamepad_output_response_curve_row.get_adjustment().get_page_increment()
+        == 0.25
+    )
+
+
+def test_analog_output_rest_secondary_click_resets_to_zero(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.gamepad_output_rest_row.set_value(100)
+
+    dialog._apply_spin_secondary_step(
+        dialog.gamepad_output_rest_row,
+        1,
+        None,
+        reset_value=0,
+    )
+
+    assert dialog.gamepad_output_rest_row.get_value() == 0
+
+
+def test_analog_output_secondary_steps_apply_requested_values(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    dialog.gamepad_output_deadzone_row.set_value(10)
+    dialog._apply_spin_secondary_step(dialog.gamepad_output_deadzone_row, 1, 5)
+    assert dialog.gamepad_output_deadzone_row.get_value() == 15
+
+    dialog._apply_spin_secondary_step(dialog.gamepad_output_deadzone_row, -1, 5)
+    assert dialog.gamepad_output_deadzone_row.get_value() == 10
+
+    dialog._apply_spin_secondary_step(dialog.gamepad_output_sensitivity_row, 1, 0.25)
+    assert dialog.gamepad_output_sensitivity_row.get_value() == 1.25
+
+    dialog._apply_spin_secondary_step(
+        dialog.gamepad_output_response_curve_row,
+        -1,
+        0.25,
+    )
+    assert dialog.gamepad_output_response_curve_row.get_value() == 0.75
+
+
+def test_stick_mouse_movement_keeps_different_split_speeds_independent(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig, AnalogMouseMotionConfig
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Split Mouse",
+            mouse_motion=AnalogMouseMotionConfig(
+                enabled=True,
+                speed_x=700,
+                speed_y=1100,
+            ),
+        )
+    )
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    assert dialog.speed_x_row.get_value() == 700
+    assert dialog.speed_y_row.get_value() == 1100
+
+    dialog.speed_x_row.set_value(800)
+
+    assert dialog.speed_x_row.get_value() == 800
+    assert dialog.speed_y_row.get_value() == 1100
+
+
+def test_stick_mouse_movement_modifier_desyncs_equal_split_speeds(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    assert dialog.speed_x_row.get_value() == dialog.speed_y_row.get_value()
+
+    dialog._request_split_mouse_speed_desync("x")
+    dialog.speed_x_row.set_value(700)
+
+    assert dialog.speed_x_row.get_value() == 700
+    assert dialog.speed_y_row.get_value() == 900
+
+
+def test_stick_mouse_movement_held_modifier_desyncs_equal_split_speeds(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gdk, Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    assert dialog._on_key_pressed(None, Gdk.KEY_Control_L, 0, 0) is False
+    dialog.speed_y_row.set_value(700)
+    dialog._on_key_released(None, Gdk.KEY_Control_L, 0, 0)
+
+    assert dialog.speed_x_row.get_value() == 900
+    assert dialog.speed_y_row.get_value() == 700
 
 
 def test_axis_control_can_select_mouse_mode(temp_config_dir) -> None:

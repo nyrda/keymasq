@@ -6,7 +6,13 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
+    Adw,  # pyright: ignore[reportAttributeAccessIssue]
+    Gdk,  # pyright: ignore[reportAttributeAccessIssue]
+    GLib,  # pyright: ignore[reportAttributeAccessIssue]
+    GObject,  # pyright: ignore[reportAttributeAccessIssue]
+    Gtk,  # pyright: ignore[reportAttributeAccessIssue]
+)
 
 from keymasq import __version__
 from keymasq.common.models import (
@@ -50,6 +56,13 @@ _STICK_OUTPUT_TARGET_LABELS = ("Same Stick", "Left Stick", "Right Stick")
 _AXIS_OUTPUT_TARGET_LABELS = ("Same Axis", "Left Trigger", "Right Trigger")
 _CONTROL_GROUPS = (("axis", "1D Axes / Triggers"), ("stick", "Sticks"))
 _AXIS_ITEMS = ("x", "y")
+_SPLIT_SPEED_DESYNC_MODIFIERS = Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK
+_SPLIT_SPEED_DESYNC_KEYS = {
+    Gdk.KEY_Shift_L,
+    Gdk.KEY_Shift_R,
+    Gdk.KEY_Control_L,
+    Gdk.KEY_Control_R,
+}
 
 
 def _docs_version() -> str:
@@ -140,8 +153,15 @@ class AnalogControlDialog(Adw.Dialog):
         self._current_name: str | None = None
         self._thresholds: list[AnalogActionThreshold] = []
         self._modified = False
+        self._close_warning_dialog: Adw.AlertDialog | None = None
         self._editing_new_control = False
         self._syncing_threshold = False
+        self._syncing_mouse_speed = False
+        self._last_speed_x = 900.0
+        self._last_speed_y = 900.0
+        self._split_mouse_speed_desync_axis: str | None = None
+        self._split_mouse_speed_desync_clear_id = 0
+        self._split_mouse_speed_modifier_active = False
         self._selected_gamepad_output_id: str | None = SAME_DEVICE_OUTPUT_ID
         self._gamepad_output_ids: list[str | None] = []
         self._gamepad_output_dropdown: Gtk.DropDown | None = None
@@ -156,6 +176,29 @@ class AnalogControlDialog(Adw.Dialog):
 
         self._build_ui()
         self._load_controls()
+        self._setup_shortcuts()
+
+    def _setup_shortcuts(self) -> None:
+        key_controller = Gtk.EventControllerKey()
+        key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        key_controller.connect("key-pressed", self._on_key_pressed)
+        key_controller.connect("key-released", self._on_key_released)
+        self.add_controller(key_controller)
+
+    def _on_key_pressed(self, _controller, keyval, _keycode, _state) -> bool:
+        if keyval in _SPLIT_SPEED_DESYNC_KEYS:
+            self._split_mouse_speed_modifier_active = True
+        if keyval == Gdk.KEY_Escape:
+            self._request_close()
+            return True
+        return False
+
+    def _on_key_released(self, _controller, keyval, _keycode, _state) -> None:
+        if keyval in _SPLIT_SPEED_DESYNC_KEYS:
+            self._split_mouse_speed_modifier_active = False
+
+    def do_close_attempt(self) -> None:
+        self._request_close()
 
     def _build_ui(self) -> None:
         main = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -277,9 +320,9 @@ class AnalogControlDialog(Adw.Dialog):
         self.revert_btn.connect("clicked", self._on_revert_clicked)
         footer.append(self.revert_btn)
 
-        close_btn = Gtk.Button(label="Close")
-        close_btn.connect("clicked", self._on_close_clicked)
-        footer.append(close_btn)
+        self.close_btn = Gtk.Button(label="Close")
+        self.close_btn.connect("clicked", self._on_close_clicked)
+        footer.append(self.close_btn)
 
         self.right_box.append(footer)
         self._update_mode_visibility()
@@ -313,13 +356,53 @@ class AnalogControlDialog(Adw.Dialog):
     def _build_mouse_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title="Mouse Movement")
 
-        self.speed_row = self._spin_row("Speed", 900, 0, 5000, 25, 0)
+        self.speed_row = self._spin_row("Speed", 900, 0, 5000, 25, 0, page_step=500)
+        self._add_spin_secondary_step_controller(self.speed_row, page_step=500)
         group.add(self.speed_row)
-        self.speed_x_row = self._spin_row("Horizontal Speed", 900, 0, 5000, 25, 0)
+        self.speed_x_row = self._spin_row(
+            "Horizontal Speed",
+            900,
+            0,
+            5000,
+            25,
+            0,
+            page_step=500,
+        )
+        self.speed_x_row.connect("notify::value", self._on_split_mouse_speed_changed, "x")
+        self._add_split_mouse_speed_desync_controller(self.speed_x_row, "x")
+        self._add_spin_secondary_step_controller(
+            self.speed_x_row,
+            page_step=500,
+            split_speed_axis="x",
+        )
         group.add(self.speed_x_row)
-        self.speed_y_row = self._spin_row("Vertical Speed", 900, 0, 5000, 25, 0)
+        self.speed_y_row = self._spin_row(
+            "Vertical Speed",
+            900,
+            0,
+            5000,
+            25,
+            0,
+            page_step=500,
+        )
+        self.speed_y_row.connect("notify::value", self._on_split_mouse_speed_changed, "y")
+        self._add_split_mouse_speed_desync_controller(self.speed_y_row, "y")
+        self._add_spin_secondary_step_controller(
+            self.speed_y_row,
+            page_step=500,
+            split_speed_axis="y",
+        )
         group.add(self.speed_y_row)
-        self.deadzone_row = self._spin_row("Deadzone", 0.15, 0, 0.95, 0.01, 2)
+        self.deadzone_row = self._spin_row(
+            "Deadzone",
+            0.15,
+            0,
+            0.95,
+            0.01,
+            2,
+            page_step=0.05,
+        )
+        self._add_spin_secondary_step_controller(self.deadzone_row, page_step=0.05)
         self.deadzone_row.connect("notify::value", self._on_mouse_curve_changed)
         group.add(self.deadzone_row)
 
@@ -330,6 +413,11 @@ class AnalogControlDialog(Adw.Dialog):
             2.0,
             0.05,
             2,
+            page_step=0.25,
+        )
+        self._add_spin_secondary_step_controller(
+            self.mouse_sensitivity_row,
+            page_step=0.25,
         )
         self.mouse_sensitivity_row.set_subtitle("How quickly movement reaches full speed")
         self.mouse_sensitivity_row.connect("notify::value", self._on_mouse_curve_changed)
@@ -342,6 +430,11 @@ class AnalogControlDialog(Adw.Dialog):
             4.0,
             0.05,
             2,
+            page_step=0.25,
+        )
+        self._add_spin_secondary_step_controller(
+            self.mouse_response_curve_row,
+            page_step=0.25,
         )
         self.mouse_response_curve_row.set_subtitle(
             "Below 1 is faster near center, above 1 is slower near center"
@@ -425,6 +518,11 @@ class AnalogControlDialog(Adw.Dialog):
             95,
             1,
             0,
+            page_step=5,
+        )
+        self._add_spin_secondary_step_controller(
+            self.gamepad_output_deadzone_row,
+            page_step=5,
         )
         self.gamepad_output_deadzone_row.set_subtitle(
             "Percent below which output is sent as centered or released"
@@ -442,6 +540,10 @@ class AnalogControlDialog(Adw.Dialog):
             2147483647,
             1,
             0,
+        )
+        self._add_spin_secondary_step_controller(
+            self.gamepad_output_rest_row,
+            reset_value=0,
         )
         self.gamepad_output_rest_row.set_subtitle(
             "Raw value written when the output axis is released"
@@ -478,6 +580,11 @@ class AnalogControlDialog(Adw.Dialog):
             2.0,
             0.05,
             2,
+            page_step=0.25,
+        )
+        self._add_spin_secondary_step_controller(
+            self.gamepad_output_sensitivity_row,
+            page_step=0.25,
         )
         self.gamepad_output_sensitivity_row.set_subtitle(
             "How quickly stick output reaches full range"
@@ -495,6 +602,11 @@ class AnalogControlDialog(Adw.Dialog):
             4.0,
             0.05,
             2,
+            page_step=0.25,
+        )
+        self._add_spin_secondary_step_controller(
+            self.gamepad_output_response_curve_row,
+            page_step=0.25,
         )
         self.gamepad_output_response_curve_row.set_subtitle(
             "Below 1 is faster near center, above 1 is slower near center"
@@ -572,6 +684,7 @@ class AnalogControlDialog(Adw.Dialog):
         upper: float,
         step: float,
         digits: int,
+        page_step: float | None = None,
     ) -> Adw.SpinRow:
         row = Adw.SpinRow(
             title=title,
@@ -580,6 +693,7 @@ class AnalogControlDialog(Adw.Dialog):
                 lower=lower,
                 upper=upper,
                 step_increment=step,
+                page_increment=page_step if page_step is not None else step,
             ),
             digits=digits,
         )
@@ -760,6 +874,156 @@ class AnalogControlDialog(Adw.Dialog):
             if button.get_active():
                 return direction
         return "right"
+
+    def _remember_split_mouse_speeds(self) -> None:
+        self._last_speed_x = self.speed_x_row.get_value()
+        self._last_speed_y = self.speed_y_row.get_value()
+
+    def _add_split_mouse_speed_desync_controller(
+        self,
+        row: Adw.SpinRow,
+        axis: str,
+    ) -> None:
+        click = Gtk.GestureClick()
+        click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        click.connect("pressed", self._on_split_mouse_speed_click, axis)
+        click.connect("released", self._on_split_mouse_speed_click, axis)
+        row.add_controller(click)
+
+    def _on_split_mouse_speed_click(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+        axis: str,
+    ) -> None:
+        try:
+            state = gesture.get_current_event_state()
+        except Exception:
+            state = Gdk.ModifierType(0)
+        if state & _SPLIT_SPEED_DESYNC_MODIFIERS:
+            self._request_split_mouse_speed_desync(axis)
+
+    def _request_split_mouse_speed_desync(self, axis: str) -> None:
+        self._split_mouse_speed_desync_axis = axis
+        if self._split_mouse_speed_desync_clear_id:
+            GLib.source_remove(self._split_mouse_speed_desync_clear_id)
+        self._split_mouse_speed_desync_clear_id = GLib.idle_add(
+            self._clear_split_mouse_speed_desync,
+            axis,
+        )
+
+    def _clear_split_mouse_speed_desync(self, axis: str | None = None) -> bool:
+        if axis is None or self._split_mouse_speed_desync_axis == axis:
+            self._split_mouse_speed_desync_axis = None
+        self._split_mouse_speed_desync_clear_id = 0
+        return False
+
+    def _split_mouse_speed_desync_requested(self, axis: str) -> bool:
+        return (
+            self._split_mouse_speed_modifier_active
+            or self._split_mouse_speed_desync_axis == axis
+        )
+
+    def _add_spin_secondary_step_controller(
+        self,
+        row: Adw.SpinRow,
+        page_step: float | None = None,
+        reset_value: float | None = None,
+        split_speed_axis: str | None = None,
+    ) -> None:
+        click = Gtk.GestureClick()
+        click.set_button(3)
+        click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        click.connect(
+            "pressed",
+            self._on_spin_secondary_step_pressed,
+            row,
+            page_step,
+            reset_value,
+            split_speed_axis,
+        )
+        row.add_controller(click)
+
+    def _on_spin_secondary_step_pressed(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        x: float,
+        _y: float,
+        row: Adw.SpinRow,
+        page_step: float | None,
+        reset_value: float | None,
+        split_speed_axis: str | None,
+    ) -> None:
+        direction = self._spin_secondary_step_direction(row, x)
+        if direction is None:
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        try:
+            state = gesture.get_current_event_state()
+        except Exception:
+            state = Gdk.ModifierType(0)
+        if split_speed_axis and state & _SPLIT_SPEED_DESYNC_MODIFIERS:
+            self._request_split_mouse_speed_desync(split_speed_axis)
+        self._apply_spin_secondary_step(row, direction, page_step, reset_value)
+
+    def _spin_secondary_step_direction(self, row: Adw.SpinRow, x: float) -> int | None:
+        width = row.get_width()
+        if width <= 0:
+            return None
+        button_area_width = min(96.0, max(64.0, width * 0.35))
+        button_area_start = width - button_area_width
+        if x < button_area_start:
+            return None
+        return 1 if x >= width - (button_area_width / 2.0) else -1
+
+    def _apply_spin_secondary_step(
+        self,
+        row: Adw.SpinRow,
+        direction: int,
+        page_step: float | None,
+        reset_value: float | None = None,
+    ) -> None:
+        if reset_value is not None:
+            row.set_value(reset_value)
+            return
+        if page_step is None:
+            return
+        adjustment = row.get_adjustment()
+        next_value = row.get_value() + (page_step if direction > 0 else -page_step)
+        row.set_value(
+            min(
+                adjustment.get_upper(),
+                max(adjustment.get_lower(), next_value),
+            )
+        )
+
+    def _on_split_mouse_speed_changed(
+        self,
+        _row: Adw.SpinRow,
+        _param: object,
+        axis: str,
+    ) -> None:
+        if self._syncing_mouse_speed:
+            return
+
+        was_synced = abs(self._last_speed_x - self._last_speed_y) < 0.000001
+        if was_synced and not self._split_mouse_speed_desync_requested(axis):
+            self._syncing_mouse_speed = True
+            try:
+                if axis == "x":
+                    self.speed_y_row.set_value(self.speed_x_row.get_value())
+                else:
+                    self.speed_x_row.set_value(self.speed_y_row.get_value())
+            finally:
+                self._syncing_mouse_speed = False
+        if self._split_mouse_speed_desync_axis == axis:
+            if self._split_mouse_speed_desync_clear_id:
+                GLib.source_remove(self._split_mouse_speed_desync_clear_id)
+            self._clear_split_mouse_speed_desync(axis)
+        self._remember_split_mouse_speeds()
 
     def _on_gamepad_output_target_toggled(
         self,
@@ -979,17 +1243,22 @@ class AnalogControlDialog(Adw.Dialog):
         self.description_entry.set_text(config.description or "")
         self.input_type_dropdown.set_selected(self._input_type_index(config))
         self._set_mode_options(config.input_type, self._mode_value(config))
-        self.speed_row.set_value(config.mouse_motion.speed)
-        self.speed_x_row.set_value(
-            config.mouse_motion.speed_x
-            if config.mouse_motion.speed_x is not None
-            else config.mouse_motion.speed
-        )
-        self.speed_y_row.set_value(
-            config.mouse_motion.speed_y
-            if config.mouse_motion.speed_y is not None
-            else config.mouse_motion.speed
-        )
+        self._syncing_mouse_speed = True
+        try:
+            self.speed_row.set_value(config.mouse_motion.speed)
+            self.speed_x_row.set_value(
+                config.mouse_motion.speed_x
+                if config.mouse_motion.speed_x is not None
+                else config.mouse_motion.speed
+            )
+            self.speed_y_row.set_value(
+                config.mouse_motion.speed_y
+                if config.mouse_motion.speed_y is not None
+                else config.mouse_motion.speed
+            )
+        finally:
+            self._syncing_mouse_speed = False
+        self._remember_split_mouse_speeds()
         self.deadzone_row.set_value(config.mouse_motion.deadzone)
         self.mouse_sensitivity_row.set_value(config.mouse_motion.sensitivity)
         self.mouse_response_curve_row.set_value(config.mouse_motion.response_curve)
@@ -1471,6 +1740,7 @@ class AnalogControlDialog(Adw.Dialog):
             return
         self.save_btn.set_sensitive(self._modified)
         self.revert_btn.set_sensitive(self._modified)
+        self.set_can_close(not self._modified)
 
     def _on_revert_clicked(self, _button) -> None:
         if self._editing_new_control:
@@ -1484,7 +1754,41 @@ class AnalogControlDialog(Adw.Dialog):
         self._save_current_control()
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
-        self.close()
+        self._request_close()
+
+    def _request_close(self) -> None:
+        if not self._modified:
+            self.force_close()
+            return
+        self._show_unsaved_close_warning()
+
+    def _show_unsaved_close_warning(self) -> None:
+        if self._close_warning_dialog is not None:
+            return
+
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Unsaved Analog Control Changes")
+        dialog.set_body("Save your changes before closing, or discard them?")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("discard", "Discard")
+        dialog.add_response("save", "Save")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_unsaved_close_response)
+        self._close_warning_dialog = dialog
+        dialog.present(self)
+
+    def _on_unsaved_close_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
+        self._close_warning_dialog = None
+        if response == "discard":
+            self._modified = False
+            self._update_buttons()
+            self.force_close()
+            return
+        if response == "save" and self._save_current_control():
+            self.force_close()
 
     def _on_analog_controls_docs_clicked(self, _button: Gtk.Button) -> None:
         url = _analog_controls_docs_url()

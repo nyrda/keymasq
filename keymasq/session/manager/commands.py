@@ -627,9 +627,12 @@ async def _handle_capture_commands(
     request: JsonObject,
 ) -> JsonObject | None:
     if command == "list_devices_for_recording":
+        device_types = ["keyboard", "gamepad", "mouse"]
+        if bool(request.get("include_other", False)):
+            device_types = ["keyboard", "gamepad", "mouse", "touchpad", "pointstick", "other"]
         devices = await runtime_recording.get_devices_for_recording(
             manager,
-            ["keyboard", "gamepad", "mouse"],
+            device_types,
             include_grabbed=True,
         )
         manager.recording_state.devices_cache = devices

@@ -2,6 +2,349 @@
 from tests.gui.support import *
 
 class TestHardwareSetupDialog:
+    def test_hardware_setup_uses_inline_adw_dialog(self, monkeypatch):
+        gi.require_version("Adw", "1")
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Adw, Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+
+        assert isinstance(dialog, Adw.Dialog)
+        assert not isinstance(dialog, Gtk.Window)
+
+    def test_hardware_setup_escape_closes_dialog(self, monkeypatch):
+        gi.require_version("Gdk", "4.0")
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gdk, Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        closed: list[bool] = []
+        dialog.close = lambda: closed.append(True)  # type: ignore[method-assign]
+
+        handled = dialog._on_key_pressed(
+            Gtk.EventControllerKey.new(),
+            Gdk.KEY_Escape,
+            0,
+            Gdk.ModifierType(0),
+        )
+
+        assert handled is True
+        assert closed == [True]
+
+    def test_hardware_setup_close_stops_active_capture(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        stopped: list[bool] = []
+        dialog._capturing = True
+        dialog._stop_capture = lambda: stopped.append(True)  # type: ignore[method-assign]
+
+        dialog._on_closed()
+
+        assert stopped == [True]
+
+    def test_uinput_identity_groups_same_model_over_unstable_event_path(self):
+        from keymasq.gui.wizards.hardware_setup import _logical_hardware_identity_key
+
+        first_key = _logical_hardware_identity_key(
+            model_id="1234:1001",
+            device_types=["gamepad"],
+            stable_path="/dev/input/event30",
+            phys="py-evdev-uinput",
+        )
+        second_key = _logical_hardware_identity_key(
+            model_id="1234:1001",
+            device_types=["keyboard"],
+            stable_path="/dev/input/event7",
+            phys="py-evdev-uinput",
+        )
+        other_model_key = _logical_hardware_identity_key(
+            model_id="046d:c24f",
+            device_types=["gamepad"],
+            stable_path="/dev/input/event29",
+            phys="py-evdev-uinput",
+        )
+
+        assert first_key == second_key
+        assert first_key == "uinput-model:1234:1001"
+        assert other_model_key == "uinput-model:046d:c24f"
+
+    def test_raw_evdev_mode_requests_other_devices_and_disables_grouping(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        requests: list[dict] = []
+
+        def fake_session_request(payload, timeout=3.0):
+            requests.append(dict(payload))
+            return {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event20",
+                        "stable_path": "/dev/input/event20",
+                        "name": "Virtgaming Generic Joystick",
+                        "phys": "py-evdev-uinput",
+                        "vendor_id": "1234",
+                        "product_id": "1002",
+                        "device_type": "other",
+                        "device_types": ["other"],
+                    },
+                    {
+                        "path": "/dev/input/event21",
+                        "stable_path": "/dev/input/event21",
+                        "name": "Virtgaming Generic Joystick Keyboard",
+                        "phys": "py-evdev-uinput",
+                        "vendor_id": "1234",
+                        "product_id": "1002",
+                        "device_type": "keyboard",
+                        "device_types": ["keyboard"],
+                    },
+                ],
+            }
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(hardware_setup_mod, "session_request", fake_session_request)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        dialog._show_raw_evdev_devices = True
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+
+        assert requests == [
+            {"command": "list_devices_for_recording", "include_other": True}
+        ]
+        assert set(detected_devices) == {"1234:1002", "1234:1002@2"}
+        assert detected_devices["1234:1002"]["paths"] == ["/dev/input/event20"]
+        assert detected_devices["1234:1002@2"]["paths"] == ["/dev/input/event21"]
+
+    def test_raw_evdev_toggle_is_disabled_during_detection(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        original_detect = HardwareSetupDialog._detect_devices
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", original_detect)
+
+        scheduled: list[tuple[object, object, object]] = []
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "run_gui_task",
+            lambda worker, callback, on_done=None: scheduled.append(
+                (worker, callback, on_done)
+            ),
+        )
+
+        assert dialog.raw_evdev_check.get_sensitive() is True
+
+        dialog._detect_devices()
+
+        assert dialog.raw_evdev_check.get_sensitive() is False
+        assert len(scheduled) == 1
+
+        dialog._on_detected_devices_done()
+
+        assert dialog.raw_evdev_check.get_sensitive() is True
+
+    def test_raw_evdev_mode_keeps_configured_event_nodes(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event20",
+                        "stable_path": "/dev/input/event20",
+                        "name": "Virtgaming Generic Joystick",
+                        "phys": "py-evdev-uinput",
+                        "vendor_id": "1234",
+                        "product_id": "1002",
+                        "device_type": "other",
+                        "device_types": ["other"],
+                    },
+                    {
+                        "path": "/dev/input/event21",
+                        "stable_path": "/dev/input/event21",
+                        "name": "Virtgaming Generic Joystick Keyboard",
+                        "phys": "py-evdev-uinput",
+                        "vendor_id": "1234",
+                        "product_id": "1002",
+                        "device_type": "keyboard",
+                        "device_types": ["keyboard"],
+                    },
+                ],
+            },
+        )
+
+        configured = HardwareConfig(
+            vendor_id="1234",
+            product_id="1002",
+            name="Virtgaming Generic Joystick",
+            evdev_devices=[
+                EvdevDevice(path="/dev/input/event20", device_type=DeviceType.OTHER)
+            ],
+            buttons=[],
+        )
+        hardware_manager = SimpleNamespace(list_hardware=lambda: [configured])
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog._show_raw_evdev_devices = True
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+        assert set(detected_devices) == {"1234:1002@2", "1234:1002@3"}
+        assert detected_devices["1234:1002@2"]["paths"] == ["/dev/input/event20"]
+        assert detected_devices["1234:1002@3"]["paths"] == ["/dev/input/event21"]
+
+    def test_raw_unknown_device_uses_custom_empty_profile_mode(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved = []
+
+            def save_hardware(self, config) -> None:
+                self.saved.append(config)
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        hardware_manager = _HardwareManager()
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog._show_raw_evdev_devices = True
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "1002",
+            "name": "Raw Device",
+            "interfaces": [
+                {
+                    "device_type": DeviceType.OTHER,
+                    "device_types": ["other"],
+                }
+            ],
+        }
+        dialog.discovered_interfaces = {
+            "event20": {
+                "id": "event20",
+                "stable_path": "/dev/input/event20",
+                "path": "/dev/input/event20",
+                "name": "Raw Device",
+                "device_type": DeviceType.OTHER,
+                "device_types": ["other"],
+            }
+        }
+        emitted = []
+        dialog.emit = lambda signal, config: emitted.append((signal, config))
+        dialog.close = lambda: None
+
+        dialog._refresh_configure_modes()
+        dialog._save_custom_config()
+
+        assert dialog._configure_mode_values == ["custom"]
+        assert dialog._configure_mode == "custom"
+        assert dialog.describe_subtitle.get_label() == "Create an empty profile for this raw device"
+        saved = hardware_manager.saved[0]
+        assert saved.evdev_devices[0].device_type == DeviceType.OTHER
+        assert saved.buttons == []
+        assert emitted == [("device-created", saved)]
+
+    def test_raw_evdev_rows_hide_interface_expander(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+
+        dialog._show_raw_evdev_devices = False
+        assert dialog._should_show_interface_expander([{}, {}]) is True
+
+        dialog._show_raw_evdev_devices = True
+        assert dialog._should_show_interface_expander([{}]) is False
+        assert dialog._should_show_interface_expander([{}, {}]) is False
+
+    def test_selecting_row_without_expander_still_enables_next(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog.detected_devices = {
+            "1234:1002": {
+                "vendor_id": "1234",
+                "product_id": "1002",
+                "hardware_id": "1234:1002",
+                "interfaces": [],
+            }
+        }
+        dialog._discover_interfaces = lambda: None  # type: ignore[method-assign]
+        dialog._refresh_configure_modes = lambda: None  # type: ignore[method-assign]
+        row = Gtk.ListBoxRow()
+        row.hardware_id = "1234:1002"
+
+        dialog._on_device_selected(dialog.device_list, row)
+
+        assert dialog.selected_device is dialog.detected_devices["1234:1002"]
+        assert dialog.next_btn.get_sensitive() is True
+
+    def test_hardware_setup_close_without_active_capture_does_not_stop_capture(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        stopped: list[bool] = []
+        dialog._capture_hardware_id = "1234:1002"
+        dialog._stop_capture = lambda: stopped.append(True)  # type: ignore[method-assign]
+
+        dialog._on_closed()
+
+        assert stopped == []
+
     def test_refresh_configure_modes_offers_gamepad_first(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
@@ -92,7 +435,9 @@ class TestHardwareSetupDialog:
             == "045e:02a1@2"
         )
 
-    def test_detect_devices_via_session_skips_virtual_uinput_devices(self, monkeypatch):
+    def test_detect_devices_via_session_skips_keymasq_virtual_uinput_devices(
+        self, monkeypatch
+    ):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
@@ -112,6 +457,27 @@ class TestHardwareSetupDialog:
                 "device_types": ["gamepad"],
             },
             {
+                "path": "/dev/input/event23",
+                "name": "Xbox 360 Controller",
+                "phys": "py-evdev-uinput",
+                "vendor_id": "045e",
+                "product_id": "028e",
+                "device_type": "gamepad",
+                "device_types": ["gamepad"],
+                "recording_kind": "keymasq_output",
+            },
+            {
+                "path": "/dev/input/event24",
+                "name": "Logitech G920 Driving Force Racing Wheel for Xbox One",
+                "phys": "py-evdev-uinput",
+                "vendor_id": "046d",
+                "product_id": "c262",
+                "device_type": "gamepad",
+                "device_types": ["gamepad"],
+                "recording_kind": "keymasq_passthrough",
+                "source_hardware_id": "046d:c262",
+            },
+            {
                 "path": "/dev/input/event10",
                 "name": "Real USB Mouse",
                 "phys": "usb-0000:00:14.0-1/input0",
@@ -119,6 +485,15 @@ class TestHardwareSetupDialog:
                 "product_id": "5678",
                 "device_type": "mouse",
                 "device_types": ["mouse"],
+            },
+            {
+                "path": "/dev/input/event28",
+                "name": "Logitech G920 Driving Force Racing Wheel for Xbox One",
+                "phys": "py-evdev-uinput",
+                "vendor_id": "046d",
+                "product_id": "c262",
+                "device_type": "gamepad",
+                "device_types": ["gamepad"],
             },
             {
                 "path": "/dev/input/event11",
@@ -165,8 +540,56 @@ class TestHardwareSetupDialog:
                         "device_types": ["mouse"],
                     }
                 ],
-            }
+            },
+            "046d:c262": {
+                "name": "Logitech G920 Driving Force Racing Wheel for Xbox One",
+                "display_name": "Logitech G920 Driving Force Racing Wheel for Xbox One",
+                "hardware_id": "046d:c262",
+                "model_id": "046d:c262",
+                "vendor_id": "046d",
+                "product_id": "c262",
+                "paths": ["/dev/input/event28"],
+                "interfaces": [
+                    {
+                        "path": "/dev/input/event28",
+                        "stable_path": "/dev/input/event28",
+                        "name": "Logitech G920 Driving Force Racing Wheel for Xbox One",
+                        "phys": "py-evdev-uinput",
+                        "device_type": DeviceType.GAMEPAD,
+                        "device_types": ["gamepad"],
+                    }
+                ],
+            },
         }
+
+    def test_local_detection_only_skips_uinput_devices_outside_raw_mode(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        device = SimpleNamespace(
+            name="Logitech G920 Driving Force Racing Wheel for Xbox One",
+            phys="py-evdev-uinput",
+        )
+
+        dialog._show_raw_evdev_devices = False
+        assert dialog._should_skip_detected_device(device) is True
+
+        dialog._show_raw_evdev_devices = True
+        assert dialog._should_skip_detected_device(device) is False
+        assert (
+            dialog._should_skip_detected_device_info(
+                {
+                    "name": "Logitech G920 Driving Force Racing Wheel for Xbox One",
+                    "phys": "py-evdev-uinput",
+                }
+            )
+            is False
+        )
 
     def test_detect_devices_via_session_skips_touchpads_but_keeps_other_interfaces(
         self, monkeypatch
@@ -349,6 +772,57 @@ class TestHardwareSetupDialog:
             device["interfaces"][0]["device_type"]
             for device in detected_devices.values()
         } == {DeviceType.GAMEPAD}
+
+    def test_detect_devices_via_session_keeps_uinput_gamepads_with_shared_phys_separate(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event29",
+                        "stable_path": "/dev/input/event29",
+                        "name": "Logitech G29 Driving Force Racing Wheel",
+                        "phys": "py-evdev-uinput",
+                        "vendor_id": "046d",
+                        "product_id": "c24f",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                    {
+                        "path": "/dev/input/event30",
+                        "stable_path": "/dev/input/event30",
+                        "name": "Virtgaming Xbox-Style Gamepad",
+                        "phys": "py-evdev-uinput",
+                        "vendor_id": "1234",
+                        "product_id": "1001",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                ],
+            },
+        )
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+
+        assert set(detected_devices) == {"046d:c24f", "1234:1001"}
+        assert detected_devices["046d:c24f"]["name"] == "Logitech G29 Driving Force Racing Wheel"
+        assert detected_devices["046d:c24f"]["paths"] == ["/dev/input/event29"]
+        assert detected_devices["1234:1001"]["name"] == "Virtgaming Xbox-Style Gamepad"
+        assert detected_devices["1234:1001"]["paths"] == ["/dev/input/event30"]
 
     def test_detect_devices_via_session_numbers_next_duplicate_gamepad_slot(
         self, monkeypatch

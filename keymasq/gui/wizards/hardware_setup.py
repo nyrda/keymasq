@@ -9,7 +9,13 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GLib, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import (
+    Adw,  # pyright: ignore[reportAttributeAccessIssue]
+    Gdk,  # pyright: ignore[reportAttributeAccessIssue]
+    GLib,  # pyright: ignore[reportAttributeAccessIssue]
+    GObject,  # pyright: ignore[reportAttributeAccessIssue]
+    Gtk,  # pyright: ignore[reportAttributeAccessIssue]
+)
 
 from keymasq.common.devices import (
     INPUT_CLASS_ORDER,
@@ -77,24 +83,26 @@ def _logical_hardware_identity_key(
     if _looks_like_by_id_path(stable_path):
         return f"by-id:{_by_id_device_stem(stable_path)}"
     phys_base = _strip_input_suffix(phys)
+    if phys_base == "py-evdev-uinput":
+        return f"uinput-model:{model_id}"
     if phys_base and not _is_usb_phys(phys_base):
         return f"phys:{phys_base}"
     return f"model:{model_id}"
 
 
-class HardwareSetupDialog(Adw.Window):
+class HardwareSetupDialog(Adw.Dialog):
     __gsignals__ = {
         "device-created": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
     }
 
-    def __init__(self, parent, hardware_manager: HardwareManager) -> None:
+    def __init__(self, parent: Gtk.Window, hardware_manager: HardwareManager) -> None:
         super().__init__(
             title="Add New Device",
-            transient_for=parent,
-            modal=True,
-            default_width=500,
-            default_height=450,
+            content_width=500,
+            content_height=450,
         )
+        if hasattr(self, "set_modal"):
+            self.set_modal(True)
 
         self.hardware_manager = hardware_manager
         self.detected_devices: dict[str, DetectedDevice] = {}
@@ -110,9 +118,33 @@ class HardwareSetupDialog(Adw.Window):
         self._capture_remaining_ids: list[str] = []
         self._capture_hardware_id: str | None = None
         self._detect_devices_inflight = False
+        self._show_raw_evdev_devices = False
 
+        self._setup_escape_close()
         self._setup_ui()
         self._detect_devices()
+        self.connect("closed", self._on_closed)
+
+    def _setup_escape_close(self) -> None:
+        controller = Gtk.EventControllerKey.new()
+        controller.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(controller)
+
+    def _on_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+    ) -> bool:
+        if keyval != Gdk.KEY_Escape:
+            return False
+        self.close()
+        return True
+
+    def _on_closed(self, *_args: object) -> None:
+        if self._capturing:
+            self._stop_capture()
 
     def _setup_ui(self) -> None:
         self.stack = Adw.ViewStack()
@@ -140,7 +172,7 @@ class HardwareSetupDialog(Adw.Window):
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(header)
         toolbar.set_content(self.stack)
-        self.set_content(toolbar)
+        self.set_child(toolbar)
 
     def _setup_page_select(self) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -156,6 +188,13 @@ class HardwareSetupDialog(Adw.Window):
         subtitle = Gtk.Label(label="Choose the device you want to configure")
         subtitle.add_css_class("dim-label")
         box.append(subtitle)
+
+        self.raw_evdev_check = Gtk.CheckButton(label="Show raw evdev devices")
+        self.raw_evdev_check.set_tooltip_text(
+            "Show each event node separately, including unknown device types."
+        )
+        self.raw_evdev_check.connect("toggled", self._on_raw_evdev_toggled)
+        box.append(self.raw_evdev_check)
 
         self.device_list = Gtk.ListBox()
         self.device_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
@@ -240,6 +279,17 @@ class HardwareSetupDialog(Adw.Window):
         self.gamepad_mode_info.set_halign(Gtk.Align.START)
         box.append(self.gamepad_mode_info)
 
+        self.custom_mode_info = Gtk.Label(
+            label=(
+                "Custom profile saves the selected raw evdev interface without preset "
+                "buttons. Add controls later with Learn Buttons."
+            )
+        )
+        self.custom_mode_info.add_css_class("dim-label")
+        self.custom_mode_info.set_wrap(True)
+        self.custom_mode_info.set_halign(Gtk.Align.START)
+        box.append(self.custom_mode_info)
+
         self.stack.add_titled(box, "describe", "Describe Device")
 
     def _setup_page_capture(self) -> None:
@@ -297,6 +347,7 @@ class HardwareSetupDialog(Adw.Window):
             self.device_list.remove(row)
 
         self.next_btn.set_sensitive(False)
+        self.raw_evdev_check.set_sensitive(False)
         loading_row = Gtk.ListBoxRow()
         loading_row.set_selectable(False)
         loading_label = Gtk.Label(label="Loading devices...")
@@ -322,6 +373,7 @@ class HardwareSetupDialog(Adw.Window):
 
     def _on_detected_devices_done(self) -> None:
         self._detect_devices_inflight = False
+        self.raw_evdev_check.set_sensitive(True)
 
     def _on_detected_devices_ready(
         self,
@@ -367,25 +419,29 @@ class HardwareSetupDialog(Adw.Window):
             vidpid.set_halign(Gtk.Align.START)
             row_box.append(vidpid)
 
-            expander = Gtk.Expander(label="Evdev devices")
-            expander.set_expanded(False)
+            expander: Gtk.Expander | None = None
+            if self._should_show_interface_expander(interfaces):
+                interface_expander = Gtk.Expander(label="Evdev devices")
+                interface_expander.set_expanded(False)
 
-            iface_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            iface_box.set_margin_top(4)
-            iface_box.set_margin_start(12)
+                iface_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                iface_box.set_margin_top(4)
+                iface_box.set_margin_start(12)
 
-            for iface in interfaces:
-                iface_name = Gtk.Label(label=f"- {iface['name']}")
-                iface_name.add_css_class("caption")
-                iface_name.set_halign(Gtk.Align.START)
-                iface_box.append(iface_name)
+                for iface in interfaces:
+                    iface_name = Gtk.Label(label=f"- {iface['name']}")
+                    iface_name.add_css_class("caption")
+                    iface_name.set_halign(Gtk.Align.START)
+                    iface_box.append(iface_name)
 
-            expander.set_child(iface_box)
-            row_box.append(expander)
+                interface_expander.set_child(iface_box)
+                row_box.append(interface_expander)
+                expander = interface_expander
 
             row.set_child(row_box)
             row.hardware_id = hardware_id
-            row._expander = expander
+            if expander is not None:
+                row._expander = expander
             self.device_list.append(row)
 
         if not detected_devices:
@@ -422,6 +478,33 @@ class HardwareSetupDialog(Adw.Window):
     def _on_refresh_clicked(self, _button: Gtk.Button) -> None:
         self._detect_devices()
 
+    def _on_raw_evdev_toggled(self, check: Gtk.CheckButton) -> None:
+        self._show_raw_evdev_devices = check.get_active()
+        self.selected_device = None
+        self.next_btn.set_sensitive(False)
+        self._detect_devices()
+
+    def _should_show_interface_expander(self, interfaces: list[dict]) -> bool:
+        return not self._show_raw_evdev_devices and len(interfaces) > 1
+
+    def _detected_identity_key(
+        self,
+        *,
+        model_id: str,
+        device_types: list[str],
+        stable_path: str,
+        phys: str = "",
+        path: str = "",
+    ) -> str:
+        if self._show_raw_evdev_devices:
+            return f"raw:{stable_path or path}"
+        return _logical_hardware_identity_key(
+            model_id=model_id,
+            device_types=device_types,
+            stable_path=stable_path,
+            phys=phys,
+        )
+
     def _detect_devices_locally(
         self,
         lsusb_map: dict[str, dict[str, str]],
@@ -452,14 +535,16 @@ class HardwareSetupDialog(Adw.Window):
                     continue
                 stable_path = resolve_stable_path(path)
                 phys = str(getattr(device, "phys", "") or "")
-                identity_key = _logical_hardware_identity_key(
+                identity_key = self._detected_identity_key(
                     model_id=vid_pid,
                     device_types=device_types,
                     stable_path=stable_path,
                     phys=phys,
+                    path=path,
                 )
-                if identity_key in configured_identity_keys or (
-                    not has_config_inventory and self._hardware_config_exists(vid_pid)
+                if not self._show_raw_evdev_devices and (
+                    identity_key in configured_identity_keys
+                    or (not has_config_inventory and self._hardware_config_exists(vid_pid))
                 ):
                     continue
                 hardware_id = pending_identity_hardware_ids.get(identity_key)
@@ -513,7 +598,13 @@ class HardwareSetupDialog(Adw.Window):
                 pass
 
     def _detect_devices_via_session(self, detected_devices: dict[str, dict]) -> bool:
-        result = session_request({"command": "list_devices_for_recording"}, timeout=3.0) or {}
+        result = session_request(
+            {
+                "command": "list_devices_for_recording",
+                "include_other": self._show_raw_evdev_devices,
+            },
+            timeout=3.0,
+        ) or {}
         if result.get("status") != "ok":
             return False
 
@@ -555,14 +646,16 @@ class HardwareSetupDialog(Adw.Window):
                 continue
             stable_path = str(dev.get("stable_path", "") or path)
             phys = str(dev.get("phys", "") or "")
-            identity_key = _logical_hardware_identity_key(
+            identity_key = self._detected_identity_key(
                 model_id=vid_pid,
                 device_types=device_types,
                 stable_path=stable_path,
                 phys=phys,
+                path=path,
             )
-            if identity_key in configured_identity_keys or (
-                not has_config_inventory and self._hardware_config_exists(vid_pid)
+            if not self._show_raw_evdev_devices and (
+                identity_key in configured_identity_keys
+                or (not has_config_inventory and self._hardware_config_exists(vid_pid))
             ):
                 continue
             hardware_id = pending_identity_hardware_ids.get(identity_key)
@@ -610,26 +703,30 @@ class HardwareSetupDialog(Adw.Window):
         return bool(detected_devices)
 
     def _should_skip_detected_device(self, device: evdev.InputDevice) -> bool:
-        return self._should_skip_detected_device_info(
-            {
-                "name": device.name,
-                "phys": getattr(device, "phys", None),
-            }
-        )
+        device_info = {
+            "name": device.name,
+            "phys": getattr(device, "phys", None),
+        }
+        if self._should_skip_detected_device_info(device_info):
+            return True
+
+        phys = str(getattr(device, "phys", "") or "").strip().lower()
+        return phys == "py-evdev-uinput" and not self._show_raw_evdev_devices
 
     def _should_skip_detected_device_info(self, device_info: dict[str, Any]) -> bool:
         name = str(device_info.get("name", "") or "").strip().lower()
-        phys = str(device_info.get("phys", "") or "").strip().lower()
+        recording_kind = str(device_info.get("recording_kind", "") or "").strip().lower()
 
         if "keymasq" in name:
             return True
-
-        if phys == "py-evdev-uinput":
+        if recording_kind in {"keymasq_output", "keymasq_passthrough"}:
             return True
 
         return False
 
     def _should_include_detected_interface(self, device_types: list[str]) -> bool:
+        if self._show_raw_evdev_devices:
+            return True
         return "touchpad" not in normalize_input_classes(device_types)
 
     def _hardware_config_exists(self, hardware_id: str) -> bool:
@@ -688,6 +785,7 @@ class HardwareSetupDialog(Adw.Window):
                     continue
                 device_type = getattr(getattr(device, "device_type", None), "value", None)
                 device_types = [str(device_type or "other")]
+                keys.update(self._configured_raw_identity_keys(path))
                 keys.add(
                     _logical_hardware_identity_key(
                         model_id=model_id,
@@ -697,6 +795,22 @@ class HardwareSetupDialog(Adw.Window):
                     )
                 )
         return keys
+
+    def _configured_raw_identity_keys(self, path: str) -> set[str]:
+        candidates = {str(path or "")}
+        try:
+            stable_path = self._configured_device_stable_path(path)
+        except Exception:
+            stable_path = ""
+        if stable_path:
+            candidates.add(stable_path)
+        try:
+            real_path = os.path.realpath(path)
+        except Exception:
+            real_path = ""
+        if real_path:
+            candidates.add(real_path)
+        return {f"raw:{candidate}" for candidate in candidates if candidate}
 
     def _configured_device_stable_path(self, path: str) -> str:
         path = str(path or "")
@@ -759,7 +873,8 @@ class HardwareSetupDialog(Adw.Window):
     def _on_device_selected(self, list_box, row) -> None:
         if row:
             self.selected_device = self.detected_devices[row.hardware_id]
-            row._expander.set_expanded(True)
+            if hasattr(row, "_expander"):
+                row._expander.set_expanded(True)
 
             idx = 0
             while True:
@@ -815,7 +930,10 @@ class HardwareSetupDialog(Adw.Window):
             self.mode_combo_model.append("Keyboard")
             self._configure_mode_values.append("keyboard")
 
-        if not self._configure_mode_values:
+        if not self._configure_mode_values and self._show_raw_evdev_devices:
+            self.mode_combo_model.append("Custom")
+            self._configure_mode_values = ["custom"]
+        elif not self._configure_mode_values:
             self.mode_combo_model.append("Mouse")
             self._configure_mode_values = ["mouse"]
 
@@ -835,6 +953,8 @@ class HardwareSetupDialog(Adw.Window):
             return "mouse"
         if "keyboard" in self._configure_mode_values:
             return "keyboard"
+        if "custom" in self._configure_mode_values:
+            return "custom"
         return self._configure_mode_values[0]
 
     def _on_mode_changed(self, combo, param) -> None:
@@ -849,12 +969,16 @@ class HardwareSetupDialog(Adw.Window):
         is_mouse = self._configure_mode == "mouse"
         is_mouse_keyboard = self._configure_mode == "mouse_keyboard"
         is_gamepad = self._configure_mode == "gamepad"
+        is_custom = self._configure_mode == "custom"
         self.keyboard_mode_info.set_visible(is_keyboard)
         self.mouse_mode_info.set_visible(is_mouse)
         self.mouse_keyboard_mode_info.set_visible(is_mouse_keyboard)
         self.gamepad_mode_info.set_visible(is_gamepad)
+        self.custom_mode_info.set_visible(is_custom)
         if is_gamepad:
             self.describe_subtitle.set_label("Review the detected controller controls")
+        elif is_custom:
+            self.describe_subtitle.set_label("Create an empty profile for this raw device")
         elif is_mouse_keyboard:
             self.describe_subtitle.set_label("Create a standard keyboard and mouse profile")
         elif is_keyboard:
@@ -1083,6 +1207,9 @@ class HardwareSetupDialog(Adw.Window):
                 return
             if self._configure_mode == "mouse_keyboard":
                 self._save_mouse_keyboard_config()
+                return
+            if self._configure_mode == "custom":
+                self._save_custom_config()
                 return
             self._save_mouse_config()
 
@@ -1359,6 +1486,25 @@ class HardwareSetupDialog(Adw.Window):
 
         self.hardware_manager.save_hardware(config)
 
+        self.emit("device-created", config)
+        self.close()
+
+    def _save_custom_config(self) -> None:
+        selected_device = self.selected_device
+        if selected_device is None:
+            return
+
+        interfaces = list(self.discovered_interfaces.values())
+        config = HardwareConfig(
+            vendor_id=selected_device["vendor_id"],
+            product_id=selected_device["product_id"],
+            name=selected_device["name"],
+            evdev_devices=self._build_evdev_devices(interfaces),
+            buttons=[],
+            id=self._selected_config_id(selected_device),
+        )
+
+        self.hardware_manager.save_hardware(config)
         self.emit("device-created", config)
         self.close()
 

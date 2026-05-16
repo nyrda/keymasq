@@ -140,6 +140,10 @@ When you add a gamepad in the hardware setup flow, Keymasq now detects its repor
 digital gamepad buttons from evdev capabilities and creates the hardware profile
 automatically. Standard buttons such as face buttons, shoulders, start/select/guide,
 stick clicks, and digital D-pad buttons are added when the controller reports them.
+Third-party uinput controllers and wheels can be added when they report gamepad
+capabilities; Keymasq's own virtual output devices stay hidden from the picker.
+Devices with controller-style axes but non-standard joystick buttons are treated
+as gamepads, and their buttons can be added later with the learn flow.
 
 Analog axes still passthrough normally, but they are not editable remap sources yet.
 If your controller has unusual extra digital buttons, you can add them later from the

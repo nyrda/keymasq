@@ -19,6 +19,16 @@ action = "analog_control"
 analog_control_name = "FPS Mouse"
 ```
 
+One source can fan out to multiple saved configs. Each config receives the same
+normalized input and handles its own mouse movement, gamepad output, and digital
+thresholds independently:
+
+```toml
+[devices."045e:028e".mapping.right_stick]
+action = "analog_control"
+analog_control_names = ["FPS Mouse", "WASD"]
+```
+
 ## Config Shape
 
 ```toml

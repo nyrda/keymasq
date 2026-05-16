@@ -190,6 +190,14 @@ action = "analog_control"
 analog_control_name = "FPS Mouse"
 ```
 
+An analog source can also run multiple saved configs at the same time:
+
+```toml
+[devices."045e:028e".mapping.left_stick]
+action = "analog_control"
+analog_control_names = ["FPS Mouse", "WASD"]
+```
+
 Overlapping action ranges are allowed and evaluated independently. Mouse wheel
 and WASD-style behavior are templates over normal threshold actions, not
 separate runtime modes.

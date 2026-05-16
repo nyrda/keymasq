@@ -114,6 +114,35 @@ class TestProfileTOML:
         assert layer.mappings["left_stick"].action_type == ActionType.ANALOG_CONTROL
         assert layer.mappings["left_stick"].analog_control_name == "FPS Mouse"
 
+    def test_profile_analog_control_names_roundtrip(self, temp_config_dir):
+        original = ProfileConfig(
+            name="Analog Fanout",
+            device_layers={
+                "1234:5678": DeviceProfileLayer(
+                    hardware_id="1234:5678",
+                    mappings={
+                        "left_stick": MappingAction(
+                            action_type=ActionType.ANALOG_CONTROL,
+                            analog_control_names=["FPS Mouse", "WASD"],
+                        ),
+                    },
+                )
+            },
+        )
+
+        manager = ProfileManager()
+        manager.save_profile(original)
+        content = manager.get_profile(original.name).path.read_text(encoding="utf-8")
+
+        loaded = manager.get_profile(original.name).config
+        action = loaded.device_layers["1234:5678"].mappings["left_stick"]
+
+        assert action.analog_control_names == ["FPS Mouse", "WASD"]
+        assert action.analog_control_name == "FPS Mouse"
+        assert "analog_control_names = [" in content
+        assert '"FPS Mouse"' in content
+        assert '"WASD"' in content
+
     def test_rename_analog_control_references(self, temp_config_dir):
         manager = ProfileManager()
         manager.save_profile(
@@ -138,6 +167,36 @@ class TestProfileTOML:
         reloaded = ProfileManager()
         layer = reloaded.list_profiles()[0].config.device_layers["1234:5678"]
         assert layer.mappings["left_stick"].analog_control_name == "New Control"
+
+    def test_update_multi_analog_control_references(self, temp_config_dir):
+        manager = ProfileManager()
+        manager.save_profile(
+            ProfileConfig(
+                name="Analog Profile",
+                device_layers={
+                    "1234:5678": DeviceProfileLayer(
+                        hardware_id="1234:5678",
+                        mappings={
+                            "left_stick": MappingAction(
+                                action_type=ActionType.ANALOG_CONTROL,
+                                analog_control_names=["Old Control", "Mouse"],
+                            )
+                        },
+                    )
+                },
+            )
+        )
+
+        assert manager.rename_analog_control_references("Old Control", "New Control") == 1
+        assert manager.replace_analog_control_with_suppress("Mouse") == 1
+
+        reloaded = ProfileManager()
+        action = reloaded.list_profiles()[0].config.device_layers["1234:5678"].mappings[
+            "left_stick"
+        ]
+        assert action.action_type == ActionType.ANALOG_CONTROL
+        assert action.analog_control_names == ["New Control"]
+        assert action.analog_control_name == "New Control"
 
     def test_profile_gamepad_output_id_roundtrip(self, temp_config_dir):
         original = ProfileConfig(

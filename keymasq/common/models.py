@@ -268,7 +268,9 @@ class MappingAction:
     superkey_name: str | None = None
     superkey_config: "SuperkeyConfig | None" = None
     analog_control_name: str | None = None
+    analog_control_names: list[str] = field(default_factory=list)
     analog_control_config: "AnalogControlConfig | None" = None
+    analog_control_configs: list["AnalogControlConfig"] = field(default_factory=list)
     macro_name: str | None = None
     macro_events: list[dict[str, object]] | None = None
     macro_replay_mouse_movement: bool = True
@@ -300,6 +302,18 @@ class MappingAction:
 
     def __post_init__(self) -> None:
         self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
+        if self.analog_control_name and not self.analog_control_names:
+            self.analog_control_names = [self.analog_control_name]
+        else:
+            self.analog_control_names = [
+                str(name).strip() for name in self.analog_control_names if str(name).strip()
+            ]
+            if self.analog_control_names:
+                self.analog_control_name = self.analog_control_names[0]
+        if self.analog_control_config and not self.analog_control_configs:
+            self.analog_control_configs = [self.analog_control_config]
+        elif self.analog_control_configs:
+            self.analog_control_config = self.analog_control_configs[0]
         if self.action_type == ActionType.GAMEPAD_AXIS:
             self.target = normalize_gamepad_axis_target(self.target)
             self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)

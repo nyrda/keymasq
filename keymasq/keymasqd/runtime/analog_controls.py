@@ -131,6 +131,55 @@ def denormalize_control_axis_value(
     return max(minimum, min(maximum, int(round(float(rest) + normalized * (endpoint - rest)))))
 
 
+def _action_analog_control_configs(action: MappingAction | None) -> list[AnalogControlConfig]:
+    if action is None or action.action_type != ActionType.ANALOG_CONTROL:
+        return []
+    if action.analog_control_configs:
+        return list(action.analog_control_configs)
+    if action.analog_control_config is not None:
+        return [action.analog_control_config]
+    return []
+
+
+def _control_state_key(source_id: str, index: int, total: int) -> str:
+    return source_id if total == 1 else f"{source_id}#analog_control#{index}"
+
+
+def _record_axis_value(
+    device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
+    analog_id: str,
+    axis_role: str,
+    raw_value: int,
+    config: AnalogControlConfig,
+) -> None:
+    fallback_range = (
+        (DEFAULT_TRIGGER_MIN, DEFAULT_TRIGGER_MAX)
+        if config.input_type == "axis"
+        else (DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
+    )
+    minimum, maximum = device_runtime.analog_axis_ranges.get((analog_id, axis_role), fallback_range)
+    calibration = device_runtime.analog_axis_calibrations.get((analog_id, axis_role), {})
+    rest_value = calibration.get("rest")
+    center_value = calibration.get("center")
+    if config.input_type == "axis":
+        rest = rest_value if isinstance(rest_value, int) else (minimum if minimum >= 0 else 0)
+        normalized = normalize_control_axis_value(raw_value, minimum, maximum, rest=rest)
+        signed_normalized = normalize_axis_value(raw_value, minimum, maximum, center=rest)
+    else:
+        normalized = normalize_axis_value(
+            raw_value,
+            minimum,
+            maximum,
+            center=center_value if isinstance(center_value, int) else None,
+            invert=bool(calibration.get("invert", False)),
+        )
+        signed_normalized = normalized
+    axis_values = device_runtime.state.analog_axis_values.setdefault(state_key, {})
+    axis_values[axis_role] = normalized
+    axis_values[f"{axis_role}_signed"] = signed_normalized
+
+
 async def process_analog_event(
     device_runtime: GrabbedDeviceRuntime,
     event: InputEventLike,
@@ -152,57 +201,35 @@ async def process_analog_event(
     if action.action_type != ActionType.ANALOG_CONTROL:
         return True
 
-    config = action.analog_control_config
-    if config is None:
+    configs = _action_analog_control_configs(action)
+    if not configs:
         return True
 
-    fallback_range = (
-        (DEFAULT_TRIGGER_MIN, DEFAULT_TRIGGER_MAX)
-        if config.input_type == "axis"
-        else (DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
-    )
-    minimum, maximum = device_runtime.analog_axis_ranges.get((analog_id, axis_role), fallback_range)
-    calibration = device_runtime.analog_axis_calibrations.get((analog_id, axis_role), {})
-    rest_value = calibration.get("rest")
-    center_value = calibration.get("center")
-    if config.input_type == "axis":
-        rest = rest_value if isinstance(rest_value, int) else (minimum if minimum >= 0 else 0)
-        normalized = normalize_control_axis_value(
+    for index, config in enumerate(configs):
+        state_key = _control_state_key(analog_id, index, len(configs))
+        _record_axis_value(
+            device_runtime,
+            state_key,
+            analog_id,
+            axis_role,
             int(event.value),
-            minimum,
-            maximum,
-            rest=rest,
+            config,
         )
-        signed_normalized = normalize_axis_value(
-            int(event.value),
-            minimum,
-            maximum,
-            center=rest,
+        await _evaluate_thresholds(
+            device_runtime,
+            state_key,
+            config,
+            event,
+            deps=deps,
         )
-    else:
-        normalized = normalize_axis_value(
-            int(event.value),
-            minimum,
-            maximum,
-            center=center_value if isinstance(center_value, int) else None,
-            invert=bool(calibration.get("invert", False)),
-        )
-        signed_normalized = normalized
-    axis_values = device_runtime.state.analog_axis_values.setdefault(analog_id, {})
-    axis_values[axis_role] = normalized
-    axis_values[f"{axis_role}_signed"] = signed_normalized
-
-    await _evaluate_thresholds(
-        device_runtime,
-        analog_id,
-        config,
-        event,
-        deps=deps,
-    )
-    _emit_gamepad_output(device_runtime, analog_id, config, deps=deps)
-    if await _emit_mouse_area_motion(device_runtime, analog_id, config, deps=deps):
-        return True
-    _ensure_mouse_task(device_runtime, analog_id, deps=deps)
+        _emit_gamepad_output(device_runtime, state_key, analog_id, config, deps=deps)
+        if not await _emit_mouse_area_motion(
+            device_runtime,
+            state_key,
+            config,
+            deps=deps,
+        ):
+            _ensure_mouse_task(device_runtime, state_key, config, deps=deps)
     return True
 
 
@@ -212,10 +239,19 @@ async def reset_analog_controls(
     deps: ActionExecutionDeps,
 ) -> None:
     mapping = device_runtime.mapping_getter()
+    state_configs: dict[str, tuple[str, AnalogControlConfig]] = {}
+    for source_id, action in mapping.items():
+        configs = _action_analog_control_configs(action)
+        for index, config in enumerate(configs):
+            state_configs[_control_state_key(source_id, index, len(configs))] = (
+                source_id,
+                config,
+            )
+
     _reset_recorded_gamepad_outputs(device_runtime, deps=deps)
-    for source_id, active in list(device_runtime.state.analog_active_thresholds.items()):
-        action = mapping.get(source_id)
-        config = action.analog_control_config if action else None
+    for state_key, active in list(device_runtime.state.analog_active_thresholds.items()):
+        state_config = state_configs.get(state_key)
+        config = state_config[1] if state_config is not None else None
         for threshold_key in list(active):
             index = _threshold_index(threshold_key)
             actions = device_runtime.state.analog_active_threshold_actions.get(threshold_key)
@@ -228,21 +264,16 @@ async def reset_analog_controls(
                 continue
             await _release_threshold_actions(
                 device_runtime,
-                source_id,
+                state_key,
                 index,
                 threshold,
                 deps=deps,
                 actions=actions,
             )
 
-    for source_id, action in mapping.items():
-        config = action.analog_control_config
-        if (
-            action.action_type == ActionType.ANALOG_CONTROL
-            and config is not None
-            and config.gamepad_output.enabled
-        ):
-            _reset_gamepad_output(device_runtime, source_id, config, deps=deps)
+    for state_key, (source_id, config) in state_configs.items():
+        if config.gamepad_output.enabled:
+            _reset_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
 
     for task in list(device_runtime.state.analog_mouse_tasks.values()):
         if not task.done():
@@ -436,43 +467,36 @@ def _track_threshold_abs_output(
 
 def _ensure_mouse_task(
     device_runtime: GrabbedDeviceRuntime,
-    source_id: str,
+    state_key: str,
+    config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    action = device_runtime.mapping_getter().get(source_id)
-    config = action.analog_control_config if action else None
-    if config is None or not config.mouse_motion.enabled:
+    if not config.mouse_motion.enabled:
         return
     if config.mouse_motion.mode == "area":
         return
 
-    task = device_runtime.state.analog_mouse_tasks.get(source_id)
+    task = device_runtime.state.analog_mouse_tasks.get(state_key)
     if task is not None and not task.done():
         return
 
-    device_runtime.state.analog_mouse_tasks[source_id] = deps.asyncio_mod.create_task(
-        _mouse_motion_loop(device_runtime, source_id, deps=deps)
+    device_runtime.state.analog_mouse_tasks[state_key] = deps.asyncio_mod.create_task(
+        _mouse_motion_loop(device_runtime, state_key, config, deps=deps)
     )
 
 
 async def _mouse_motion_loop(
     device_runtime: GrabbedDeviceRuntime,
-    source_id: str,
+    state_key: str,
+    config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
 ) -> None:
     previous = time.monotonic()
     try:
         while True:
-            action = device_runtime.mapping_getter().get(source_id)
-            config = action.analog_control_config if action else None
-            if (
-                action is None
-                or action.action_type != ActionType.ANALOG_CONTROL
-                or config is None
-                or not config.mouse_motion.enabled
-            ):
+            if not config.mouse_motion.enabled:
                 return
 
             tick_s = max(0.001, float(config.mouse_motion.tick_ms) / 1000.0)
@@ -481,7 +505,7 @@ async def _mouse_motion_loop(
             dt = max(0.0, now - previous)
             previous = now
 
-            axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+            axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
             if config.input_type == "axis":
                 dx, dy = _axis_motion_delta(
                     float(axis_values.get("x", 0.0)),
@@ -519,14 +543,14 @@ async def _mouse_motion_loop(
                     response_curve=float(config.mouse_motion.response_curve),
                     dt=dt,
                 )
-            await _emit_mouse_delta(device_runtime, source_id, dx, dy, deps=deps)
+            await _emit_mouse_delta(device_runtime, state_key, dx, dy, deps=deps)
     except asyncio.CancelledError:
         raise
     finally:
-        task = device_runtime.state.analog_mouse_tasks.get(source_id)
+        task = device_runtime.state.analog_mouse_tasks.get(state_key)
         if task is asyncio.current_task():
-            device_runtime.state.analog_mouse_tasks.pop(source_id, None)
-        device_runtime.state.analog_mouse_accumulators.pop(source_id, None)
+            device_runtime.state.analog_mouse_tasks.pop(state_key, None)
+        device_runtime.state.analog_mouse_accumulators.pop(state_key, None)
 
 
 def _motion_delta(
@@ -559,7 +583,7 @@ def _motion_delta(
 
 async def _emit_mouse_area_motion(
     device_runtime: GrabbedDeviceRuntime,
-    source_id: str,
+    state_key: str,
     config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
@@ -573,11 +597,11 @@ async def _emit_mouse_area_motion(
 
     target_x, target_y = _mouse_area_offset(
         device_runtime,
-        source_id,
+        state_key,
         config,
     )
     active_sources = device_runtime.state.analog_mouse_area_active
-    was_active = source_id in active_sources
+    was_active = state_key in active_sources
     is_active = target_x != 0.0 or target_y != 0.0
     if (
         is_active
@@ -589,22 +613,22 @@ async def _emit_mouse_area_motion(
             int(config.mouse_motion.area_start_x),
             int(config.mouse_motion.area_start_y),
         )
-        device_runtime.state.analog_mouse_area_offsets[source_id] = (0.0, 0.0)
-        device_runtime.state.analog_mouse_accumulators[source_id] = (0.0, 0.0)
+        device_runtime.state.analog_mouse_area_offsets[state_key] = (0.0, 0.0)
+        device_runtime.state.analog_mouse_accumulators[state_key] = (0.0, 0.0)
 
     old_x, old_y = device_runtime.state.analog_mouse_area_offsets.get(
-        source_id,
+        state_key,
         (0.0, 0.0),
     )
-    device_runtime.state.analog_mouse_area_offsets[source_id] = (target_x, target_y)
+    device_runtime.state.analog_mouse_area_offsets[state_key] = (target_x, target_y)
     if is_active:
-        active_sources.add(source_id)
+        active_sources.add(state_key)
     else:
-        active_sources.discard(source_id)
+        active_sources.discard(state_key)
 
     await _emit_mouse_delta(
         device_runtime,
-        source_id,
+        state_key,
         target_x - old_x,
         target_y - old_y,
         deps=deps,
@@ -614,10 +638,10 @@ async def _emit_mouse_area_motion(
 
 def _mouse_area_offset(
     device_runtime: GrabbedDeviceRuntime,
-    source_id: str,
+    state_key: str,
     config: AnalogControlConfig,
 ) -> tuple[float, float]:
-    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
     x = float(axis_values.get("x", 0.0))
     y = float(axis_values.get("y", 0.0))
     if config.mouse_motion.invert_x:
@@ -738,6 +762,7 @@ def _whole_step(value: float) -> int:
 
 def _emit_gamepad_output(
     device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
     source_id: str,
     config: AnalogControlConfig,
     *,
@@ -746,9 +771,9 @@ def _emit_gamepad_output(
     if not config.gamepad_output.enabled:
         return
     if config.input_type == "axis":
-        _emit_trigger_gamepad_output(device_runtime, source_id, config, deps=deps)
+        _emit_trigger_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
         return
-    _emit_stick_gamepad_output(device_runtime, source_id, config, deps=deps)
+    _emit_stick_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
 
 
 def _gamepad_output_direction(config: AnalogControlConfig) -> str:
@@ -760,18 +785,19 @@ def _gamepad_output_direction(config: AnalogControlConfig) -> str:
 
 def _emit_stick_gamepad_output(
     device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
     source_id: str,
     config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
 ) -> None:
     if config.gamepad_output.target == "analog":
-        _emit_analog_stick_output(device_runtime, source_id, config, deps=deps)
+        _emit_analog_stick_output(device_runtime, state_key, source_id, config, deps=deps)
         return
     axis_codes = _stick_output_axis_codes(device_runtime, source_id, config, deps=deps)
     if axis_codes is None:
         return
-    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
     x = float(axis_values.get("x", 0.0))
     y = float(axis_values.get("y", 0.0))
     x, y = _apply_stick_output_curve(
@@ -783,6 +809,7 @@ def _emit_stick_gamepad_output(
     )
     _write_gamepad_axes(
         device_runtime,
+        state_key,
         source_id,
         config,
         (
@@ -795,18 +822,19 @@ def _emit_stick_gamepad_output(
 
 def _emit_trigger_gamepad_output(
     device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
     source_id: str,
     config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
 ) -> None:
     if config.gamepad_output.target == "analog":
-        _emit_analog_axis_output(device_runtime, source_id, config, deps=deps)
+        _emit_analog_axis_output(device_runtime, state_key, source_id, config, deps=deps)
         return
     axis_code = _trigger_output_axis_code(device_runtime, source_id, config, deps=deps)
     if axis_code is None:
         return
-    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
     if _gamepad_output_direction(config) == "both":
         value = float(axis_values.get("x_signed", 0.0))
         value = _apply_signed_axis_output_curve(
@@ -842,6 +870,7 @@ def _emit_trigger_gamepad_output(
         )
     _write_gamepad_axes(
         device_runtime,
+        state_key,
         source_id,
         config,
         ((axis_code, raw_value),),
@@ -859,13 +888,14 @@ def _emit_trigger_gamepad_output(
 
 def _reset_gamepad_output(
     device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
     source_id: str,
     config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
 ) -> None:
     if config.gamepad_output.target == "analog":
-        _reset_analog_gamepad_output(device_runtime, source_id, config, deps=deps)
+        _reset_analog_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
         return
     if config.input_type == "axis":
         axis_code = _trigger_output_axis_code(device_runtime, source_id, config, deps=deps)
@@ -889,6 +919,7 @@ def _reset_gamepad_output(
         )
     _write_gamepad_axes(
         device_runtime,
+        state_key,
         source_id,
         config,
         axes,
@@ -900,6 +931,7 @@ def _reset_gamepad_output(
 
 def _emit_analog_axis_output(
     device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
     source_id: str,
     config: AnalogControlConfig,
     *,
@@ -912,7 +944,7 @@ def _emit_analog_axis_output(
     axis = _target_axis(analog, "x") if analog is not None else None
     if axis is None:
         return
-    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
     axis_code = _axis_code(axis)
     if axis_code is None:
         return
@@ -954,6 +986,7 @@ def _emit_analog_axis_output(
         )
     _write_gamepad_axes(
         device_runtime,
+        state_key,
         source_id,
         config,
         ((axis_code, raw_value),),
@@ -965,6 +998,7 @@ def _emit_analog_axis_output(
 
 def _emit_analog_stick_output(
     device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
     source_id: str,
     config: AnalogControlConfig,
     *,
@@ -978,7 +1012,7 @@ def _emit_analog_stick_output(
         return
     axes: list[tuple[int, int]] = []
     reset_axes: list[tuple[int, int]] = []
-    axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
+    axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
     x = float(axis_values.get("x", 0.0))
     y = float(axis_values.get("y", 0.0))
     x, y = _apply_stick_output_curve(
@@ -1012,6 +1046,7 @@ def _emit_analog_stick_output(
         reset_axes.append((axis_code, reset_value))
     _write_gamepad_axes(
         device_runtime,
+        state_key,
         source_id,
         config,
         tuple(axes),
@@ -1023,6 +1058,7 @@ def _emit_analog_stick_output(
 
 def _reset_analog_gamepad_output(
     device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
     source_id: str,
     config: AnalogControlConfig,
     *,
@@ -1054,6 +1090,7 @@ def _reset_analog_gamepad_output(
             axes.append((axis_code, _stick_axis_center(axis, minimum, maximum)))
     _write_gamepad_axes(
         device_runtime,
+        state_key,
         source_id,
         config,
         tuple(axes),
@@ -1066,6 +1103,7 @@ def _reset_analog_gamepad_output(
 
 def _write_gamepad_axes(
     device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
     source_id: str,
     config: AnalogControlConfig,
     axes: tuple[tuple[int, int], ...],
@@ -1101,7 +1139,7 @@ def _write_gamepad_axes(
         else:
             track_abs_state(device_runtime, axis_code, value, bucket=target_bucket)
     writer.syn()
-    device_runtime.state.analog_gamepad_outputs[source_id] = AnalogGamepadOutputState(
+    device_runtime.state.analog_gamepad_outputs[state_key] = AnalogGamepadOutputState(
         output_id=_resolved_gamepad_output_id(device_runtime, config),
         reset_axes=(
             tuple((int(axis_code), int(value)) for axis_code, value in reset_axes)

@@ -130,6 +130,57 @@ async def test_threshold_enter_and_release_emit_child_actions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_multiple_analog_controls_on_one_source_fan_out_independently() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_configs=[
+                AnalogControlConfig(
+                    name="A",
+                    thresholds=[
+                        AnalogActionThreshold(
+                            axis="x",
+                            trigger_min=0.65,
+                            trigger_max=1.0,
+                            release_min=0.55,
+                            release_max=1.0,
+                            actions=[
+                                MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
+                            ],
+                        )
+                    ],
+                ),
+                AnalogControlConfig(
+                    name="B",
+                    thresholds=[
+                        AnalogActionThreshold(
+                            axis="x",
+                            trigger_min=0.65,
+                            trigger_max=1.0,
+                            release_min=0.55,
+                            release_max=1.0,
+                            actions=[
+                                MappingAction(action_type=ActionType.KEYBOARD, target="key_b")
+                            ],
+                        )
+                    ],
+                ),
+            ],
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1) in keyboard.events
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1) in keyboard.events
+
+    assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0) in keyboard.events
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0) in keyboard.events
+
+
+@pytest.mark.asyncio
 async def test_trigger_threshold_uses_positive_normalized_range() -> None:
     keyboard = FakeUInput()
     mapping = {

@@ -210,13 +210,18 @@ def action_signature_payload(
         return data
 
     if action_type == "analog_control":
-        config = _resolved_analog_control_config(manager, action)
-        if config is not None:
+        configs = _resolved_analog_control_configs(manager, action)
+        if len(configs) == 1:
             data["analog_control"] = serialize_analog_control_signature(
                 manager,
-                config,
+                configs[0],
                 hardware_id,
             )
+        elif configs:
+            data["analog_controls"] = [
+                serialize_analog_control_signature(manager, config, hardware_id)
+                for config in configs
+            ]
         return data
 
     return data
@@ -336,14 +341,18 @@ def profile_to_mapping(
                         hardware_id,
                     )
         elif action.action_type.value == "analog_control":
-            if action.analog_control_name:
-                analog_config = _resolved_analog_control_config(manager, action)
-                if analog_config:
-                    action_data["analog_control"] = serialize_analog_control(
-                        manager,
-                        analog_config,
-                        hardware_id,
-                    )
+            analog_configs = _resolved_analog_control_configs(manager, action)
+            if len(analog_configs) == 1:
+                action_data["analog_control"] = serialize_analog_control(
+                    manager,
+                    analog_configs[0],
+                    hardware_id,
+                )
+            elif analog_configs:
+                action_data["analog_controls"] = [
+                    serialize_analog_control(manager, config, hardware_id)
+                    for config in analog_configs
+                ]
 
         mapping[button_id] = action_data
 
@@ -503,18 +512,25 @@ def combo_action_to_payload(
     return None
 
 
-def _resolved_analog_control_config(
+def _resolved_analog_control_configs(
     manager: "SessionManager",
     action: MappingAction,
-) -> AnalogControlConfig | None:
-    if not action.analog_control_name:
-        return None
+) -> list[AnalogControlConfig]:
+    names = action.analog_control_names
+    if not names and action.analog_control_name:
+        names = [action.analog_control_name]
+    if not names:
+        return []
     analog_controls = getattr(manager, "analog_controls", None)
     get_analog_control = getattr(analog_controls, "get_analog_control", None)
     if not callable(get_analog_control):
-        return None
-    config = get_analog_control(action.analog_control_name)
-    return config if isinstance(config, AnalogControlConfig) else None
+        return []
+    configs: list[AnalogControlConfig] = []
+    for name in names:
+        config = get_analog_control(name)
+        if isinstance(config, AnalogControlConfig):
+            configs.append(config)
+    return configs
 
 
 def _resolved_combo_superkey_config(

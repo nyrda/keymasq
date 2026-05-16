@@ -307,28 +307,38 @@ class ProfileManager:
             return MappingAction(action_type=ActionType.SUPPRESS)
 
         if action_type == ActionType.ANALOG_CONTROL:
-            analog_control_name_raw = action_data.get("analog_control_name")
-            analog_control_name = (
-                str(analog_control_name_raw) if analog_control_name_raw is not None else None
-            )
-            if analog_control_name:
+            raw_names = action_data.get("analog_control_names")
+            if isinstance(raw_names, list):
+                raw_analog_control_names = cast(list[object], raw_names)
+            else:
+                raw_name: object = action_data.get("analog_control_name")
+                raw_analog_control_names = [raw_name] if raw_name is not None else []
+            analog_control_names: list[str] = []
+            for raw_name in raw_analog_control_names:
+                name = str(raw_name).strip()
+                if name:
+                    analog_control_names.append(name)
+            if analog_control_names:
                 if (
                     self._analog_control_manager
-                    and not self._analog_control_manager.get_analog_control(
-                        analog_control_name
+                    and any(
+                        self._analog_control_manager.get_analog_control(name) is None
+                        for name in analog_control_names
                     )
                 ):
-                    log.warning(
-                        "Unknown analog control '%s', replacing with suppress",
-                        analog_control_name,
+                    missing = next(
+                        name
+                        for name in analog_control_names
+                        if self._analog_control_manager.get_analog_control(name) is None
                     )
+                    log.warning("Unknown analog control '%s', replacing with suppress", missing)
                     return MappingAction(action_type=ActionType.SUPPRESS)
                 return MappingAction(
                     action_type=ActionType.ANALOG_CONTROL,
-                    analog_control_name=analog_control_name,
+                    analog_control_names=analog_control_names,
                 )
             log.warning(
-                "Analog control action missing analog_control_name, replacing with suppress"
+                "Analog control action missing analog_control_names, replacing with suppress"
             )
             return MappingAction(action_type=ActionType.SUPPRESS)
 
@@ -443,8 +453,11 @@ class ProfileManager:
             action_data["cmd"] = action.cmd
         if action.superkey_name:
             action_data["superkey_name"] = action.superkey_name
-        if action.action_type == ActionType.ANALOG_CONTROL and action.analog_control_name:
-            action_data["analog_control_name"] = action.analog_control_name
+        if action.action_type == ActionType.ANALOG_CONTROL and action.analog_control_names:
+            if len(action.analog_control_names) == 1:
+                action_data["analog_control_name"] = action.analog_control_names[0]
+            else:
+                action_data["analog_control_names"] = action.analog_control_names
         if action.action_type == ActionType.MACRO:
             action_data["target"] = action.macro_name or ""
             action_data["replay_mouse_movement"] = action.macro_replay_mouse_movement
@@ -986,7 +999,7 @@ class ProfileManager:
                 for action in layer.mappings.values():
                     if (
                         action.action_type == ActionType.ANALOG_CONTROL
-                        and action.analog_control_name == analog_control_name
+                        and analog_control_name in action.analog_control_names
                     ):
                         result.append((hardware_id, info.config.name))
                         break
@@ -1000,9 +1013,21 @@ class ProfileManager:
                 for button_id, action in list(layer.mappings.items()):
                     if (
                         action.action_type == ActionType.ANALOG_CONTROL
-                        and action.analog_control_name == analog_control_name
+                        and analog_control_name in action.analog_control_names
                     ):
-                        layer.mappings[button_id] = MappingAction(action_type=ActionType.SUPPRESS)
+                        names = [
+                            name
+                            for name in action.analog_control_names
+                            if name != analog_control_name
+                        ]
+                        layer.mappings[button_id] = (
+                            MappingAction(
+                                action_type=ActionType.ANALOG_CONTROL,
+                                analog_control_names=names,
+                            )
+                            if names
+                            else MappingAction(action_type=ActionType.SUPPRESS)
+                        )
                         modified = True
                         count += 1
             if modified:
@@ -1025,9 +1050,13 @@ class ProfileManager:
                 for action in layer.mappings.values():
                     if (
                         action.action_type == ActionType.ANALOG_CONTROL
-                        and action.analog_control_name == old_name
+                        and old_name in action.analog_control_names
                     ):
-                        action.analog_control_name = new_name
+                        action.analog_control_names = [
+                            new_name if name == old_name else name
+                            for name in action.analog_control_names
+                        ]
+                        action.analog_control_name = action.analog_control_names[0]
                         modified = True
                         count += 1
             if modified:

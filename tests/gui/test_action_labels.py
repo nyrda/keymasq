@@ -113,3 +113,21 @@ def test_action_labels_include_state_flags_and_fallbacks() -> None:
     assert describe_mapping_action_verbose(
         MappingAction(action_type=ActionType.EXEC)
     ) == "Exec → ?"
+    assert (
+        describe_mapping_action_compact(
+            MappingAction(
+                action_type=ActionType.ANALOG_CONTROL,
+                analog_control_names=["Mouse", "WASD"],
+            )
+        )
+        == "🕹️ 2 controls"
+    )
+    assert (
+        describe_mapping_action_verbose(
+            MappingAction(
+                action_type=ActionType.ANALOG_CONTROL,
+                analog_control_names=["Mouse", "WASD"],
+            )
+        )
+        == "Analog Control -> 2 controls"
+    )

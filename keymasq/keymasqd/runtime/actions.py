@@ -62,6 +62,7 @@ def parse_action(
             parse_superkey_action=parse_superkey_action,
         )
     analog_control_config = None
+    analog_control_configs: list[AnalogControlConfig] = []
     if action_type == ActionType.ANALOG_CONTROL and "analog_control" in action_data:
         analog_control_config = parse_analog_control_config(
             manager,
@@ -73,6 +74,25 @@ def parse_action(
             int_or_none=int_or_none,
             float_value=float_value,
         )
+        analog_control_configs = [analog_control_config]
+    elif action_type == ActionType.ANALOG_CONTROL and isinstance(
+        action_data.get("analog_controls"),
+        list,
+    ):
+        for raw_config in cast(list[object], action_data["analog_controls"]):
+            analog_control_configs.append(
+                parse_analog_control_config(
+                    manager,
+                    raw_config,
+                    json_object=getattr(manager, "_json_object", None),
+                    str_value=str_value,
+                    optional_str=optional_str,
+                    int_value=int_value,
+                    int_or_none=int_or_none,
+                    float_value=float_value,
+                )
+            )
+        analog_control_config = analog_control_configs[0] if analog_control_configs else None
 
     target = action_data.get("target")
     axis_value = 0
@@ -111,7 +131,9 @@ def parse_action(
         exec_ref=int_or_none(action_data.get("exec_ref")),
         superkey_config=cast(CommonSuperkeyConfig | None, superkey_config),
         analog_control_name=optional_str(action_data.get("analog_control_name")),
+        analog_control_names=cast(list[str], action_data.get("analog_control_names") or []),
         analog_control_config=analog_control_config,
+        analog_control_configs=analog_control_configs,
         macro_name=optional_str(macro_name),
         macro_events=cast(list[JsonObject] | None, action_data.get("macro_events")),
         macro_replay_mouse_movement=bool(action_data.get("macro_replay_mouse_movement", True)),

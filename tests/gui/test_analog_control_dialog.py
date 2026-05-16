@@ -914,6 +914,74 @@ def test_analog_selector_filters_controls_by_source_input_type(temp_config_dir) 
     assert [config.name for config in dialog._analog_control_list] == ["Axis Control"]
 
 
+def test_analog_selector_emits_selected_control_names(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(AnalogControlConfig(name="Mouse"))
+    manager.save_analog_control(AnalogControlConfig(name="WASD"))
+
+    results: list[MappingAction] = []
+    dialog = KeySelectorDialog(
+        Gtk.Window(),
+        "Left Stick",
+        current_action=MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_names=["Mouse", "WASD"],
+        ),
+        source_type="analog",
+        analog_input_type="stick",
+    )
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    assert dialog._selected_analog_controls == ["Mouse", "WASD"]
+
+    dialog._on_analog_control_map_clicked(dialog.map_btn)
+
+    assert results[0].action_type == ActionType.ANALOG_CONTROL
+    assert results[0].analog_control_names == ["Mouse", "WASD"]
+
+
+def test_analog_selector_clicking_selected_control_deselects_it(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import GLib, Gtk
+
+    from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    AnalogControlManager().save_analog_control(AnalogControlConfig(name="Mouse"))
+
+    dialog = KeySelectorDialog(
+        Gtk.Window(),
+        "Left Stick",
+        current_action=MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_names=["Mouse"],
+        ),
+        source_type="analog",
+        analog_input_type="stick",
+    )
+    row = dialog._analog_control_listbox.get_row_at_index(0)
+
+    assert row is not None
+    assert row.is_selected()
+    assert dialog.map_btn.get_sensitive() is True
+
+    dialog._on_analog_control_row_pressed(Gtk.GestureClick(), 1, 0.0, 0.0, row)
+    while GLib.main_context_default().iteration(False):
+        pass
+
+    assert not row.is_selected()
+    assert dialog._selected_analog_controls == []
+    assert dialog.map_btn.get_sensitive() is False
+
+
 def test_analog_selector_docs_button_links_to_analog_controls_docs(
     temp_config_dir,
     monkeypatch,

@@ -165,14 +165,27 @@ def parse_analog_control_config(
     mouse_config = json_object(mouse_data) if json_object is not None else None
     if mouse_config is None and isinstance(mouse_data, dict):
         mouse_config = cast(JsonObject, mouse_data)
+    mouse_config_data = mouse_config or {}
     mouse = AnalogMouseMotionConfig(
-        enabled=bool((mouse_config or {}).get("enabled", False)),
-        speed=float_value((mouse_config or {}).get("speed"), 900.0),
-        deadzone=float_value((mouse_config or {}).get("deadzone"), 0.15),
-        curve=str_value((mouse_config or {}).get("curve"), "soft") or "soft",
-        invert_x=bool((mouse_config or {}).get("invert_x", False)),
-        invert_y=bool((mouse_config or {}).get("invert_y", False)),
-        tick_ms=int_value((mouse_config or {}).get("tick_ms"), 8),
+        enabled=bool(mouse_config_data.get("enabled", False)),
+        speed=float_value(mouse_config_data.get("speed"), 900.0),
+        speed_x=(
+            float_value(mouse_config_data.get("speed_x"), 900.0)
+            if "speed_x" in mouse_config_data
+            else None
+        ),
+        speed_y=(
+            float_value(mouse_config_data.get("speed_y"), 900.0)
+            if "speed_y" in mouse_config_data
+            else None
+        ),
+        deadzone=float_value(mouse_config_data.get("deadzone"), 0.15),
+        sensitivity=float_value(mouse_config_data.get("sensitivity"), 1.0),
+        response_curve=float_value(mouse_config_data.get("response_curve"), 1.0),
+        direction=str_value(mouse_config_data.get("direction"), "right") or "right",
+        invert_x=bool(mouse_config_data.get("invert_x", False)),
+        invert_y=bool(mouse_config_data.get("invert_y", False)),
+        tick_ms=int_value(mouse_config_data.get("tick_ms"), 8),
     )
 
     gamepad_data = config.get("gamepad_output")

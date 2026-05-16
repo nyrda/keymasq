@@ -86,8 +86,20 @@ class AnalogControlManager:
             mouse_motion=AnalogMouseMotionConfig(
                 enabled=bool(mouse_data.get("enabled", False)),
                 speed=_float_value(mouse_data.get("speed"), 900.0),
+                speed_x=(
+                    _float_value(mouse_data.get("speed_x"), 900.0)
+                    if "speed_x" in mouse_data
+                    else None
+                ),
+                speed_y=(
+                    _float_value(mouse_data.get("speed_y"), 900.0)
+                    if "speed_y" in mouse_data
+                    else None
+                ),
                 deadzone=_float_value(mouse_data.get("deadzone"), 0.15),
-                curve=str(mouse_data.get("curve", "soft") or "soft"),
+                sensitivity=_float_value(mouse_data.get("sensitivity"), 1.0),
+                response_curve=_float_value(mouse_data.get("response_curve"), 1.0),
+                direction=_toml_str(mouse_data, "direction", "right") or "right",
                 invert_x=bool(mouse_data.get("invert_x", False)),
                 invert_y=bool(mouse_data.get("invert_y", False)),
                 tick_ms=_int_value(mouse_data.get("tick_ms"), 8),
@@ -268,8 +280,20 @@ class AnalogControlManager:
             "mouse_motion": {
                 "enabled": bool(config.mouse_motion.enabled),
                 "speed": float(config.mouse_motion.speed),
+                "speed_x": float(
+                    config.mouse_motion.speed_x
+                    if config.mouse_motion.speed_x is not None
+                    else config.mouse_motion.speed
+                ),
+                "speed_y": float(
+                    config.mouse_motion.speed_y
+                    if config.mouse_motion.speed_y is not None
+                    else config.mouse_motion.speed
+                ),
                 "deadzone": float(config.mouse_motion.deadzone),
-                "curve": config.mouse_motion.curve,
+                "sensitivity": float(config.mouse_motion.sensitivity),
+                "response_curve": float(config.mouse_motion.response_curve),
+                "direction": config.mouse_motion.direction,
                 "invert_x": bool(config.mouse_motion.invert_x),
                 "invert_y": bool(config.mouse_motion.invert_y),
                 "tick_ms": int(config.mouse_motion.tick_ms),

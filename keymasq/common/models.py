@@ -326,7 +326,9 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
     }
 )
 
-ANALOG_MOUSE_CURVES = frozenset({"linear", "soft", "fast"})
+ANALOG_MOUSE_DIRECTIONS = frozenset(
+    {"left", "right", "up", "down", "horizontal", "vertical"}
+)
 ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog"})
 ANALOG_GAMEPAD_OUTPUT_DIRECTIONS = frozenset({"min", "max", "both"})
 MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 0.1
@@ -366,18 +368,32 @@ def analog_gamepad_output_distance(
 class AnalogMouseMotionConfig:
     enabled: bool = False
     speed: float = 900.0
+    speed_x: float | None = None
+    speed_y: float | None = None
     deadzone: float = 0.15
-    curve: str = "soft"
+    sensitivity: float = 1.0
+    response_curve: float = 1.0
+    direction: str = "right"
     invert_x: bool = False
     invert_y: bool = False
     tick_ms: int = 8
 
     def __post_init__(self) -> None:
         self.speed = max(0.0, float(self.speed))
+        self.speed_x = self.speed if self.speed_x is None else max(0.0, float(self.speed_x))
+        self.speed_y = self.speed if self.speed_y is None else max(0.0, float(self.speed_y))
         self.deadzone = max(0.0, min(0.95, float(self.deadzone)))
-        self.curve = str(self.curve or "soft").lower()
-        if self.curve not in ANALOG_MOUSE_CURVES:
-            self.curve = "soft"
+        self.sensitivity = max(
+            MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
+            min(MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY, float(self.sensitivity)),
+        )
+        self.response_curve = max(
+            MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE,
+            min(MAX_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE, float(self.response_curve)),
+        )
+        self.direction = str(self.direction or "right").lower()
+        if self.direction not in ANALOG_MOUSE_DIRECTIONS:
+            self.direction = "right"
         self.tick_ms = max(1, int(self.tick_ms))
 
 
@@ -458,8 +474,6 @@ def validate_analog_control_config(config: AnalogControlConfig) -> None:
         raise ValueError("analog control name is required")
     if config.input_type not in {"stick", "axis"}:
         raise ValueError("analog control input_type must be 'stick' or 'axis'")
-    if config.input_type == "axis" and config.mouse_motion.enabled:
-        raise ValueError("axis analog controls only support digital action ranges")
     for index, threshold in enumerate(config.thresholds, start=1):
         allowed_axes = {"x", "y"} if config.input_type == "stick" else {"x"}
         if threshold.axis not in allowed_axes:

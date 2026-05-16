@@ -179,6 +179,27 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
     assert loaded.gamepad_output.response_curve == 0.75
 
 
+def test_analog_control_mouse_zero_split_speed_round_trips(temp_config_dir) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Zero Horizontal Mouse",
+            mouse_motion=AnalogMouseMotionConfig(
+                enabled=True,
+                speed=900,
+                speed_x=0,
+                speed_y=700,
+            ),
+        )
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Zero Horizontal Mouse")
+    assert loaded is not None
+    assert loaded.mouse_motion.speed == 900
+    assert loaded.mouse_motion.speed_x == 0
+    assert loaded.mouse_motion.speed_y == 700
+
+
 def test_analog_control_gamepad_output_learned_target_round_trips(temp_config_dir) -> None:
     manager = AnalogControlManager()
     manager.save_analog_control(
@@ -241,13 +262,27 @@ def test_analog_control_gamepad_axis_threshold_action_round_trips(temp_config_di
     assert action.axis_value == 12345
 
 
-def test_trigger_analog_control_rejects_mouse_motion_and_y_axis() -> None:
-    with pytest.raises(ValueError, match="only support digital"):
-        AnalogControlConfig(
-            name="Bad Trigger",
-            input_type="axis",
-            mouse_motion=AnalogMouseMotionConfig(enabled=True),
-        )
+def test_axis_analog_control_accepts_mouse_motion_but_rejects_y_axis() -> None:
+    config = AnalogControlConfig(
+        name="Axis Mouse",
+        input_type="axis",
+        mouse_motion=AnalogMouseMotionConfig(
+            enabled=True,
+            speed=900,
+            speed_x=700,
+            speed_y=1100,
+            sensitivity=1.5,
+            response_curve=0.75,
+            direction="vertical",
+        ),
+    )
+
+    assert config.mouse_motion.enabled is True
+    assert config.mouse_motion.speed_x == 700
+    assert config.mouse_motion.speed_y == 1100
+    assert config.mouse_motion.sensitivity == 1.5
+    assert config.mouse_motion.response_curve == 0.75
+    assert config.mouse_motion.direction == "vertical"
 
     with pytest.raises(ValueError, match="axis must be 'x'"):
         AnalogControlConfig(

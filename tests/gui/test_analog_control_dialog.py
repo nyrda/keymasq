@@ -89,6 +89,85 @@ def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
     assert saved.gamepad_output.response_curve == 0.75
 
 
+def test_axis_mouse_movement_exposes_direction_and_curve_controls(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.name_entry.set_text("Axis Mouse")
+    dialog.input_type_dropdown.set_selected(1)
+    dialog.mode_dropdown.set_selected(2)
+    dialog.speed_row.set_value(1200)
+    dialog.mouse_sensitivity_row.set_value(1.5)
+    dialog.mouse_response_curve_row.set_value(0.75)
+    dialog._mouse_direction_buttons["vertical"].set_active(True)
+
+    assert dialog.mouse_group.get_visible() is True
+    assert dialog.speed_row.get_visible() is True
+    assert dialog.speed_x_row.get_visible() is False
+    assert dialog.speed_y_row.get_visible() is False
+    assert dialog.mouse_direction_row.get_visible() is True
+    assert dialog.invert_x_row.get_visible() is False
+    assert dialog.invert_y_row.get_visible() is False
+    assert dialog._save_current_control() is True
+
+    saved = dialog.manager.get_analog_control("Axis Mouse")
+    assert saved is not None
+    assert saved.input_type == "axis"
+    assert saved.mouse_motion.enabled is True
+    assert saved.mouse_motion.speed == 1200
+    assert saved.mouse_motion.sensitivity == 1.5
+    assert saved.mouse_motion.response_curve == 0.75
+    assert saved.mouse_motion.direction == "vertical"
+
+
+def test_stick_mouse_movement_exposes_split_speed_controls(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.name_entry.set_text("Stick Mouse")
+    dialog.speed_x_row.set_value(700)
+    dialog.speed_y_row.set_value(1100)
+
+    assert dialog.mouse_group.get_visible() is True
+    assert dialog.speed_row.get_visible() is False
+    assert dialog.speed_x_row.get_visible() is True
+    assert dialog.speed_y_row.get_visible() is True
+    assert dialog.mouse_direction_row.get_visible() is False
+    assert dialog._save_current_control() is True
+
+    saved = dialog.manager.get_analog_control("Stick Mouse")
+    assert saved is not None
+    assert saved.mouse_motion.enabled is True
+    assert saved.mouse_motion.speed_x == 700
+    assert saved.mouse_motion.speed_y == 1100
+
+
+def test_axis_control_can_select_mouse_mode(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.name_entry.set_text("Axis Mouse")
+    dialog.input_type_dropdown.set_selected(1)
+    dialog.mode_dropdown.set_selected(2)
+
+    assert dialog._current_mode() == "mouse"
+    assert dialog._save_current_control() is True
+
+    saved = dialog.manager.get_analog_control("Axis Mouse")
+    assert saved is not None
+    assert saved.input_type == "axis"
+    assert saved.mouse_motion.enabled is True
+
+
 def test_saved_analog_control_keeps_action_edits_when_current_row_reselected(
     temp_config_dir,
 ) -> None:
@@ -130,6 +209,7 @@ def test_trigger_analog_control_saves_digital_only_positive_ranges(temp_config_d
 
     dialog.name_entry.set_text("Axis Control")
     dialog.input_type_dropdown.set_selected(1)
+    dialog.mode_dropdown.set_selected(0)
     dialog._on_add_range_clicked()
 
     assert dialog.mouse_group.get_visible() is False
@@ -259,7 +339,7 @@ def test_analog_output_controls_use_learned_hardware_targets(temp_config_dir, mo
     assert saved.gamepad_output.output_invert is False
 
 
-def test_gamepad_mode_save_preserves_existing_combined_settings(temp_config_dir) -> None:
+def test_gamepad_mode_save_drops_hidden_combined_settings(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
@@ -300,10 +380,9 @@ def test_gamepad_mode_save_preserves_existing_combined_settings(temp_config_dir)
     assert dialog._save_current_control() is True
     saved = dialog.manager.get_analog_control("Combined")
     assert saved is not None
-    assert saved.mouse_motion.enabled is True
-    assert saved.mouse_motion.tick_ms == 12
+    assert saved.mouse_motion.enabled is False
     assert saved.gamepad_output.enabled is True
-    assert saved.thresholds[0].actions[0].target == "key_e"
+    assert saved.thresholds == []
 
 
 def test_analog_selector_filters_controls_by_source_input_type(temp_config_dir) -> None:

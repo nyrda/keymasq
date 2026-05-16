@@ -199,8 +199,12 @@ input_type = "stick"
 [mouse_motion]
 enabled = true
 speed = 900.0
+speed_x = 900.0
+speed_y = 900.0
 deadzone = 0.15
-curve = "soft"
+sensitivity = 1.0
+response_curve = 1.0
+direction = "right"
 invert_x = false
 invert_y = false
 tick_ms = 8

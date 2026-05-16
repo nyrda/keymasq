@@ -2,8 +2,8 @@
 
 Analog Controls are reusable configs for analog source inputs exposed by a
 hardware template. Stick controls can drive mouse movement, digital actions,
-or another gamepad stick output. Trigger controls can drive digital action
-ranges or another gamepad trigger output.
+or another gamepad stick output. 1D axes and triggers can drive one-direction
+mouse movement, digital action ranges, or another analog axis output.
 
 Configs live in:
 
@@ -29,8 +29,12 @@ input_type = "stick"
 [mouse_motion]
 enabled = true
 speed = 900.0
+speed_x = 900.0 # stick mouse movement only; defaults to speed
+speed_y = 900.0 # stick mouse movement only; defaults to speed
 deadzone = 0.15
-curve = "soft" # soft, linear, fast
+sensitivity = 1.0
+response_curve = 1.0
+direction = "right" # 1D axis only: left, right, horizontal, up, down, vertical
 invert_x = false
 invert_y = false
 tick_ms = 8
@@ -85,8 +89,8 @@ one-sided input from rest to that endpoint; `both` treats the input as signed an
 maps it across the output minimum/rest/maximum range. These fields belong to
 output behavior, not to learned input hardware calibration.
 
-Analog output then applies sensitivity and response curve. Stick output applies
-it radially:
+Mouse movement and analog output apply the same sensitivity and response curve
+to normalized analog input. Stick output applies it radially:
 
 ```text
 distance = sqrt(x*x + y*y)
@@ -97,7 +101,11 @@ output_distance = clamp((normalized ** response_curve) * sensitivity, 0, 1)
 `sensitivity = 1.0` and `response_curve = 1.0` are linear. Higher sensitivity
 reaches full output sooner. A response curve below `1.0` is faster near center;
 above `1.0` is slower near center. The same curve is mirrored for negative stick
-directions and for 1D axis output when `output_direction = "both"`.
+directions and for 1D axis analog output when `output_direction = "both"`. Mouse
+movement then multiplies the shaped value by speed. Stick mouse movement can use
+separate `speed_x` and `speed_y`; if omitted, both default to `speed`. 1D axis
+mouse movement uses `direction = "horizontal"` or `direction = "vertical"` to
+map negative and positive source values to both mouse directions.
 
 ```toml
 name = "Left Trigger Action"

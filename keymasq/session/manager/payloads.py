@@ -633,8 +633,20 @@ def serialize_analog_control(
         "mouse_motion": {
             "enabled": bool(config.mouse_motion.enabled),
             "speed": float(config.mouse_motion.speed),
+            "speed_x": float(
+                config.mouse_motion.speed_x
+                if config.mouse_motion.speed_x is not None
+                else config.mouse_motion.speed
+            ),
+            "speed_y": float(
+                config.mouse_motion.speed_y
+                if config.mouse_motion.speed_y is not None
+                else config.mouse_motion.speed
+            ),
             "deadzone": float(config.mouse_motion.deadzone),
-            "curve": config.mouse_motion.curve,
+            "sensitivity": float(config.mouse_motion.sensitivity),
+            "response_curve": float(config.mouse_motion.response_curve),
+            "direction": config.mouse_motion.direction,
             "invert_x": bool(config.mouse_motion.invert_x),
             "invert_y": bool(config.mouse_motion.invert_y),
             "tick_ms": int(config.mouse_motion.tick_ms),
@@ -687,8 +699,20 @@ def serialize_analog_control_signature(
         "mouse_motion": {
             "enabled": bool(config.mouse_motion.enabled),
             "speed": float(config.mouse_motion.speed),
+            "speed_x": float(
+                config.mouse_motion.speed_x
+                if config.mouse_motion.speed_x is not None
+                else config.mouse_motion.speed
+            ),
+            "speed_y": float(
+                config.mouse_motion.speed_y
+                if config.mouse_motion.speed_y is not None
+                else config.mouse_motion.speed
+            ),
             "deadzone": float(config.mouse_motion.deadzone),
-            "curve": config.mouse_motion.curve,
+            "sensitivity": float(config.mouse_motion.sensitivity),
+            "response_curve": float(config.mouse_motion.response_curve),
+            "direction": config.mouse_motion.direction,
             "invert_x": bool(config.mouse_motion.invert_x),
             "invert_y": bool(config.mouse_motion.invert_y),
             "tick_ms": int(config.mouse_motion.tick_ms),

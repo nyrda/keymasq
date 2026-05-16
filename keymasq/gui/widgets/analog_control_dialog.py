@@ -40,8 +40,8 @@ log = logging.getLogger("keymasq.gui.widgets.analog_control_dialog")
 
 _STICK_MODE_ITEMS = ("mouse", "digital", "gamepad", "both")
 _STICK_MODE_LABELS = ("Mouse Movement", "Digital Actions", "Analog Output", "Mouse + Digital")
-_AXIS_MODE_ITEMS = ("digital", "gamepad")
-_AXIS_MODE_LABELS = ("Digital Actions", "Analog Output")
+_AXIS_MODE_ITEMS = ("digital", "gamepad", "mouse", "both")
+_AXIS_MODE_LABELS = ("Digital Actions", "Analog Output", "Mouse Movement", "Mouse + Digital")
 _INPUT_TYPE_ITEMS = ("stick", "axis")
 _INPUT_TYPE_LABELS = ("Stick", "1D Axis / Trigger")
 _GAMEPAD_OUTPUT_TARGET_ITEMS = ("same", "left", "right")
@@ -309,14 +309,71 @@ class AnalogControlDialog(Adw.Dialog):
 
         self.speed_row = self._spin_row("Speed", 900, 0, 5000, 25, 0)
         group.add(self.speed_row)
+        self.speed_x_row = self._spin_row("Horizontal Speed", 900, 0, 5000, 25, 0)
+        group.add(self.speed_x_row)
+        self.speed_y_row = self._spin_row("Vertical Speed", 900, 0, 5000, 25, 0)
+        group.add(self.speed_y_row)
         self.deadzone_row = self._spin_row("Deadzone", 0.15, 0, 0.95, 0.01, 2)
+        self.deadzone_row.connect("notify::value", self._on_mouse_curve_changed)
         group.add(self.deadzone_row)
 
-        self.curve_row = Adw.ComboRow(title="Curve")
-        self.curve_model = Gtk.StringList.new(["Soft", "Linear", "Fast"])
-        self.curve_row.set_model(self.curve_model)
-        self.curve_row.connect("notify::selected", self._on_modified)
-        group.add(self.curve_row)
+        self.mouse_sensitivity_row = self._spin_row(
+            "Sensitivity",
+            1.0,
+            0.1,
+            2.0,
+            0.05,
+            2,
+        )
+        self.mouse_sensitivity_row.set_subtitle("How quickly movement reaches full speed")
+        self.mouse_sensitivity_row.connect("notify::value", self._on_mouse_curve_changed)
+        group.add(self.mouse_sensitivity_row)
+
+        self.mouse_response_curve_row = self._spin_row(
+            "Response Curve",
+            1.0,
+            0.25,
+            4.0,
+            0.05,
+            2,
+        )
+        self.mouse_response_curve_row.set_subtitle(
+            "Below 1 is faster near center, above 1 is slower near center"
+        )
+        self.mouse_response_curve_row.connect("notify::value", self._on_mouse_curve_changed)
+        group.add(self.mouse_response_curve_row)
+
+        self.mouse_curve_row = Adw.ActionRow(title="Response Preview")
+        self.mouse_curve_graph = AnalogCurveGraph()
+        self.mouse_curve_row.set_child(self.mouse_curve_graph)
+        group.add(self.mouse_curve_row)
+
+        self.mouse_direction_row = Adw.ActionRow(title="Direction")
+        direction_buttons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        direction_buttons.set_valign(Gtk.Align.CENTER)
+        self._mouse_direction_buttons: dict[str, Gtk.ToggleButton] = {}
+        direction_group: Gtk.ToggleButton | None = None
+        for row_items in (
+            (("left", "Left"), ("right", "Right"), ("horizontal", "Left/Right")),
+            (("up", "Up"), ("down", "Down"), ("vertical", "Up/Down")),
+        ):
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+            row_box.add_css_class("linked")
+            row_box.set_homogeneous(True)
+            for direction, label in row_items:
+                button = Gtk.ToggleButton(label=label)
+                if direction_group is None:
+                    direction_group = button
+                else:
+                    button.set_group(direction_group)
+                if direction == "right":
+                    button.set_active(True)
+                button.connect("toggled", self._on_modified)
+                self._mouse_direction_buttons[direction] = button
+                row_box.append(button)
+            direction_buttons.append(row_box)
+        self.mouse_direction_row.add_suffix(direction_buttons)
+        group.add(self.mouse_direction_row)
 
         self.invert_x_row = Adw.SwitchRow(title="Invert X")
         self.invert_x_row.connect("notify::active", self._on_modified)
@@ -324,6 +381,7 @@ class AnalogControlDialog(Adw.Dialog):
         self.invert_y_row.connect("notify::active", self._on_modified)
         group.add(self.invert_x_row)
         group.add(self.invert_y_row)
+        self._update_mouse_curve_graph()
         return group
 
     def _build_gamepad_output_group(self) -> Adw.PreferencesGroup:
@@ -691,6 +749,12 @@ class AnalogControlDialog(Adw.Dialog):
             return "min"
         return "max"
 
+    def _current_mouse_direction(self) -> str:
+        for direction, button in self._mouse_direction_buttons.items():
+            if button.get_active():
+                return direction
+        return "right"
+
     def _on_gamepad_output_target_toggled(
         self,
         button: Gtk.ToggleButton,
@@ -718,7 +782,14 @@ class AnalogControlDialog(Adw.Dialog):
         mode = self._current_mode()
         is_axis = input_type == "axis"
         digital_visible = mode in {"digital", "both"}
-        self.mouse_group.set_visible(not is_axis and mode in {"mouse", "both"})
+        mouse_visible = mode in {"mouse", "both"}
+        self.mouse_group.set_visible(mouse_visible)
+        self.speed_row.set_visible(mouse_visible and is_axis)
+        self.speed_x_row.set_visible(mouse_visible and not is_axis)
+        self.speed_y_row.set_visible(mouse_visible and not is_axis)
+        self.mouse_direction_row.set_visible(mouse_visible and is_axis)
+        self.invert_x_row.set_visible(mouse_visible and not is_axis)
+        self.invert_y_row.set_visible(mouse_visible and not is_axis)
         self.gamepad_output_group.set_visible(mode == "gamepad")
         show_axis_output_tuning = mode == "gamepad" and is_axis
         show_output_tuning = mode == "gamepad"
@@ -813,6 +884,18 @@ class AnalogControlDialog(Adw.Dialog):
     def _on_gamepad_output_curve_changed(self, *_args) -> None:
         self._update_gamepad_output_curve_graph()
 
+    def _on_mouse_curve_changed(self, *_args) -> None:
+        self._update_mouse_curve_graph()
+
+    def _update_mouse_curve_graph(self) -> None:
+        if not hasattr(self, "mouse_curve_graph"):
+            return
+        self.mouse_curve_graph.set_curve(
+            deadzone=self.deadzone_row.get_value(),
+            sensitivity=self.mouse_sensitivity_row.get_value(),
+            response_curve=self.mouse_response_curve_row.get_value(),
+        )
+
     def _update_gamepad_output_curve_graph(self) -> None:
         if not hasattr(self, "gamepad_output_curve_graph"):
             return
@@ -886,10 +969,22 @@ class AnalogControlDialog(Adw.Dialog):
         self.input_type_dropdown.set_selected(self._input_type_index(config))
         self._set_mode_options(config.input_type, self._mode_value(config))
         self.speed_row.set_value(config.mouse_motion.speed)
-        self.deadzone_row.set_value(config.mouse_motion.deadzone)
-        self.curve_row.set_selected(
-            {"soft": 0, "linear": 1, "fast": 2}.get(config.mouse_motion.curve, 0)
+        self.speed_x_row.set_value(
+            config.mouse_motion.speed_x
+            if config.mouse_motion.speed_x is not None
+            else config.mouse_motion.speed
         )
+        self.speed_y_row.set_value(
+            config.mouse_motion.speed_y
+            if config.mouse_motion.speed_y is not None
+            else config.mouse_motion.speed
+        )
+        self.deadzone_row.set_value(config.mouse_motion.deadzone)
+        self.mouse_sensitivity_row.set_value(config.mouse_motion.sensitivity)
+        self.mouse_response_curve_row.set_value(config.mouse_motion.response_curve)
+        direction_button = self._mouse_direction_buttons.get(config.mouse_motion.direction)
+        if direction_button is not None:
+            direction_button.set_active(True)
         self.invert_x_row.set_active(config.mouse_motion.invert_x)
         self.invert_y_row.set_active(config.mouse_motion.invert_y)
         self._selected_gamepad_output_id = config.gamepad_output.output_id
@@ -911,6 +1006,7 @@ class AnalogControlDialog(Adw.Dialog):
             self.gamepad_output_direction_max_btn.set_active(True)
         self.gamepad_output_sensitivity_row.set_value(config.gamepad_output.sensitivity)
         self.gamepad_output_response_curve_row.set_value(config.gamepad_output.response_curve)
+        self._update_mouse_curve_graph()
         self._update_gamepad_output_curve_graph()
         self._update_gamepad_output_visibility()
         self._refresh_thresholds()
@@ -919,8 +1015,6 @@ class AnalogControlDialog(Adw.Dialog):
     def _mode_value(self, config: AnalogControlConfig) -> str:
         if config.gamepad_output.enabled:
             return "gamepad"
-        if config.input_type == "axis":
-            return "digital"
         has_mouse = bool(config.mouse_motion.enabled)
         has_digital = bool(config.thresholds)
         if has_mouse and has_digital:
@@ -1393,29 +1487,19 @@ class AnalogControlDialog(Adw.Dialog):
         input_type = self._current_input_type()
         self._sync_thresholds_for_input_type()
         old_name = self._current_name
-        preserve_hidden_mouse = (
-            input_type == "stick"
-            and mode == "gamepad"
-            and self._current_config is not None
-            and self._current_config.mouse_motion.enabled
-        )
-        preserve_hidden_thresholds = (
-            mode == "gamepad"
-            and self._current_config is not None
-            and bool(self._current_config.thresholds)
-        )
         config = AnalogControlConfig(
             name=name,
             description=self.description_entry.get_text().strip() or None,
             input_type=input_type,
             mouse_motion=AnalogMouseMotionConfig(
-                enabled=(
-                    input_type == "stick"
-                    and (mode in {"mouse", "both"} or preserve_hidden_mouse)
-                ),
+                enabled=mode in {"mouse", "both"},
                 speed=self.speed_row.get_value(),
+                speed_x=self.speed_x_row.get_value(),
+                speed_y=self.speed_y_row.get_value(),
                 deadzone=self.deadzone_row.get_value(),
-                curve=["soft", "linear", "fast"][int(self.curve_row.get_selected())],
+                sensitivity=self.mouse_sensitivity_row.get_value(),
+                response_curve=self.mouse_response_curve_row.get_value(),
+                direction=self._current_mouse_direction(),
                 invert_x=self.invert_x_row.get_active(),
                 invert_y=self.invert_y_row.get_active(),
                 tick_ms=(
@@ -1449,7 +1533,7 @@ class AnalogControlDialog(Adw.Dialog):
             ),
             thresholds=(
                 list(self._thresholds)
-                if mode in {"digital", "both"} or preserve_hidden_thresholds
+                if mode in {"digital", "both"}
                 else []
             ),
         )

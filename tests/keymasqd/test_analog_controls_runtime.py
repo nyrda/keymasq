@@ -9,9 +9,12 @@ from keymasq.common.models import (
     AnalogActionThreshold,
     AnalogControlConfig,
     AnalogGamepadOutputConfig,
+    AnalogMouseMotionConfig,
     MappingAction,
 )
 from keymasq.keymasqd.runtime.analog_controls import (
+    _axis_motion_delta,
+    _motion_delta,
     normalize_axis_value,
     normalize_control_axis_value,
     process_analog_event,
@@ -162,6 +165,98 @@ async def test_trigger_threshold_uses_positive_normalized_range() -> None:
     event.code = evdev.ecodes.ABS_Z
     assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
     assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
+
+
+@pytest.mark.asyncio
+async def test_axis_mouse_motion_uses_direction_and_response_curve() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_trigger": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Axis Mouse",
+                input_type="axis",
+                mouse_motion=AnalogMouseMotionConfig(
+                    enabled=True,
+                    speed=10000,
+                    deadzone=0.0,
+                    sensitivity=2.0,
+                    response_curve=2.0,
+                    direction="up",
+                    tick_ms=1,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.analog_axis_bindings = {
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z): ("left_trigger", "x")
+    }
+    runtime.analog_axis_ranges = {("left_trigger", "x"): (0, 255)}
+    event = FakeEvent(64)
+    event.code = evdev.ecodes.ABS_Z
+
+    assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
+    await asyncio.sleep(0.01)
+    await reset_analog_controls(runtime, deps=_deps())
+
+    mouse_events = runtime.mouse_uinput.events
+    assert any(
+        event_type == evdev.ecodes.EV_REL
+        and code == evdev.ecodes.REL_Y
+        and value < 0
+        for event_type, code, value in mouse_events
+    )
+    assert not any(code == evdev.ecodes.REL_X for _event_type, code, _value in mouse_events)
+
+
+def test_axis_mouse_motion_supports_bidirectional_signed_output() -> None:
+    assert _axis_motion_delta(
+        -0.5,
+        signed_value=-0.5,
+        direction="horizontal",
+        speed=100,
+        deadzone=0.0,
+        sensitivity=1.0,
+        response_curve=1.0,
+        dt=1.0,
+    ) == pytest.approx((-50.0, 0.0))
+    assert _axis_motion_delta(
+        0.5,
+        signed_value=0.5,
+        direction="vertical",
+        speed=100,
+        deadzone=0.0,
+        sensitivity=1.0,
+        response_curve=1.0,
+        dt=1.0,
+    ) == pytest.approx((0.0, 50.0))
+
+
+def test_stick_mouse_motion_applies_split_horizontal_vertical_speed() -> None:
+    assert _motion_delta(
+        1.0,
+        1.0,
+        speed_x=100,
+        speed_y=50,
+        deadzone=0.0,
+        sensitivity=1.0,
+        response_curve=1.0,
+        dt=1.0,
+    ) == pytest.approx((70.7107, 35.3553), abs=0.001)
+
+
+def test_stick_mouse_motion_preserves_zero_split_speed() -> None:
+    assert _motion_delta(
+        1.0,
+        1.0,
+        speed_x=0,
+        speed_y=50,
+        deadzone=0.0,
+        sensitivity=1.0,
+        response_curve=1.0,
+        dt=1.0,
+    ) == pytest.approx((0.0, 35.3553), abs=0.001)
 
 
 @pytest.mark.asyncio

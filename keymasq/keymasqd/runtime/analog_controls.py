@@ -437,7 +437,7 @@ def _ensure_mouse_task(
 ) -> None:
     action = device_runtime.mapping_getter().get(source_id)
     config = action.analog_control_config if action else None
-    if config is None or config.input_type != "stick" or not config.mouse_motion.enabled:
+    if config is None or not config.mouse_motion.enabled:
         return
 
     task = device_runtime.state.analog_mouse_tasks.get(source_id)
@@ -464,7 +464,6 @@ async def _mouse_motion_loop(
                 action is None
                 or action.action_type != ActionType.ANALOG_CONTROL
                 or config is None
-                or config.input_type != "stick"
                 or not config.mouse_motion.enabled
             ):
                 return
@@ -476,21 +475,43 @@ async def _mouse_motion_loop(
             previous = now
 
             axis_values = device_runtime.state.analog_axis_values.get(source_id, {})
-            x = float(axis_values.get("x", 0.0))
-            y = float(axis_values.get("y", 0.0))
-            if config.mouse_motion.invert_x:
-                x = -x
-            if config.mouse_motion.invert_y:
-                y = -y
+            if config.input_type == "axis":
+                dx, dy = _axis_motion_delta(
+                    float(axis_values.get("x", 0.0)),
+                    signed_value=float(axis_values.get("x_signed", 0.0)),
+                    direction=config.mouse_motion.direction,
+                    speed=float(config.mouse_motion.speed),
+                    deadzone=float(config.mouse_motion.deadzone),
+                    sensitivity=float(config.mouse_motion.sensitivity),
+                    response_curve=float(config.mouse_motion.response_curve),
+                    dt=dt,
+                )
+            else:
+                x = float(axis_values.get("x", 0.0))
+                y = float(axis_values.get("y", 0.0))
+                if config.mouse_motion.invert_x:
+                    x = -x
+                if config.mouse_motion.invert_y:
+                    y = -y
 
-            dx, dy = _motion_delta(
-                x,
-                y,
-                speed=float(config.mouse_motion.speed),
-                deadzone=float(config.mouse_motion.deadzone),
-                curve=config.mouse_motion.curve,
-                dt=dt,
-            )
+                dx, dy = _motion_delta(
+                    x,
+                    y,
+                    speed_x=float(
+                        config.mouse_motion.speed_x
+                        if config.mouse_motion.speed_x is not None
+                        else config.mouse_motion.speed
+                    ),
+                    speed_y=float(
+                        config.mouse_motion.speed_y
+                        if config.mouse_motion.speed_y is not None
+                        else config.mouse_motion.speed
+                    ),
+                    deadzone=float(config.mouse_motion.deadzone),
+                    sensitivity=float(config.mouse_motion.sensitivity),
+                    response_curve=float(config.mouse_motion.response_curve),
+                    dt=dt,
+                )
             await _emit_mouse_delta(device_runtime, source_id, dx, dy, deps=deps)
     except asyncio.CancelledError:
         raise
@@ -505,25 +526,67 @@ def _motion_delta(
     x: float,
     y: float,
     *,
-    speed: float,
+    speed_x: float,
+    speed_y: float,
     deadzone: float,
-    curve: str,
+    sensitivity: float,
+    response_curve: float,
     dt: float,
 ) -> tuple[float, float]:
     magnitude = math.sqrt(x * x + y * y)
-    if magnitude <= deadzone:
+    scaled = analog_gamepad_output_distance(
+        magnitude,
+        deadzone=deadzone,
+        sensitivity=sensitivity,
+        response_curve=response_curve,
+    )
+    if scaled <= 0.0 or magnitude <= 0.0:
         return 0.0, 0.0
-    scaled = max(0.0, min(1.0, (magnitude - deadzone) / max(0.001, 1.0 - deadzone)))
-    if curve == "linear":
-        curved = scaled
-    elif curve == "fast":
-        curved = scaled**0.65
-    else:
-        curved = scaled**1.8
     direction_x = x / magnitude
     direction_y = y / magnitude
-    distance = curved * max(0.0, speed) * dt
-    return direction_x * distance, direction_y * distance
+    return (
+        direction_x * scaled * max(0.0, speed_x) * dt,
+        direction_y * scaled * max(0.0, speed_y) * dt,
+    )
+
+
+def _axis_motion_delta(
+    value: float,
+    *,
+    signed_value: float,
+    direction: str,
+    speed: float,
+    deadzone: float,
+    sensitivity: float,
+    response_curve: float,
+    dt: float,
+) -> tuple[float, float]:
+    if direction in {"horizontal", "vertical"}:
+        scaled = _apply_signed_axis_output_curve(
+            signed_value,
+            deadzone=deadzone,
+            sensitivity=sensitivity,
+            response_curve=response_curve,
+        )
+    else:
+        scaled = _apply_control_axis_output_curve(
+            value,
+            deadzone=deadzone,
+            sensitivity=sensitivity,
+            response_curve=response_curve,
+        )
+    distance = scaled * max(0.0, speed) * dt
+    if direction == "horizontal":
+        return distance, 0.0
+    if direction == "vertical":
+        return 0.0, distance
+    if direction == "left":
+        return -distance, 0.0
+    if direction == "up":
+        return 0.0, -distance
+    if direction == "down":
+        return 0.0, distance
+    return distance, 0.0
 
 
 async def _emit_mouse_delta(

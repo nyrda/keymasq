@@ -173,12 +173,13 @@ actions are button-only.
 Analog Controls map an analog source, such as `left_stick`, `right_stick`,
 `left_trigger`, or `right_trigger`, to a saved analog config. A config can:
 
-- turn stick position into continuous relative mouse movement
+- turn stick position or a 1D axis into continuous relative mouse movement
 - turn stick axis ranges into normal digital actions
 - turn trigger pull ranges into normal digital actions
 - route sticks or triggers to a selected gamepad output with an analog deadzone
   and optional left/right output side
-- tune stick-to-stick gamepad output with sensitivity and a radial response curve
+- tune analog output and mouse movement with sensitivity and response curve
+- split stick mouse movement into separate horizontal and vertical speeds
 
 Create configs from **Analog Controls** in the app menu, then map an analog card
 in a gamepad device tab to the saved config. Profile TOML uses:

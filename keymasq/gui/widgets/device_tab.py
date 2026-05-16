@@ -2021,6 +2021,9 @@ class DeviceTab(ProfileManagedTab):
                 "rest": value,
                 "minimum": int(cast(dict, absinfo).get("minimum", value)),
                 "maximum": int(cast(dict, absinfo).get("maximum", value)),
+                "has_absinfo_range": (
+                    "minimum" in cast(dict, absinfo) and "maximum" in cast(dict, absinfo)
+                ),
                 "observed_minimum": value,
                 "observed_maximum": value,
                 "count": 0,
@@ -2142,12 +2145,24 @@ class DeviceTab(ProfileManagedTab):
             role_dropdown.set_selected(1 if role == "y" else 0)
             grid.attach(role_dropdown, 0, 1, 1, 1)
             column_offset = 1
+        minimum = int(candidate["minimum"])
+        maximum = int(candidate["maximum"])
+        rest = int(candidate.get("rest", round((minimum + maximum) / 2)))
+        center_or_rest = 0
+        if analog_type == "stick":
+            center_or_rest = rest
+            if (
+                bool(candidate.get("has_absinfo_range", False))
+                and minimum >= 0
+                and rest in {minimum, maximum}
+            ):
+                center_or_rest = int(round((minimum + maximum) / 2))
         fields = [
-            ("Min", int(candidate["minimum"])),
-            ("Max", int(candidate["maximum"])),
+            ("Min", minimum),
+            ("Max", maximum),
             (
                 "Center" if analog_type == "stick" else "Rest",
-                0,
+                center_or_rest,
             ),
         ]
         spins: list[Gtk.SpinButton] = []

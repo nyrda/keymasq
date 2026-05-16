@@ -304,6 +304,65 @@ def test_device_tab_learn_analog_stick_allows_role_swap(monkeypatch, temp_config
     ]
 
 
+def test_device_tab_learn_analog_stick_defaults_unsigned_center_to_midpoint(
+    temp_config_dir,
+):
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.gui.widgets.device_tab import DeviceTab
+
+    device = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Pad",
+        evdev_devices=[
+            EvdevDevice(
+                path="/dev/input/event0",
+                device_type=DeviceType.GAMEPAD,
+                id="joystick",
+            )
+        ],
+        buttons=[],
+    )
+    tab = DeviceTab(
+        device=device,
+        profile_manager=None,
+        hardware_manager=None,
+        demo_mode=True,
+    )
+    tab._analog_learn_context = {"candidates": {}}
+    for evdev_name, code, value in (
+        ("abs_x", 0, 0),
+        ("abs_x", 0, 255),
+        ("abs_y", 1, 0),
+        ("abs_y", 1, 255),
+    ):
+        tab._record_analog_candidate(
+            {
+                "evdev": evdev_name,
+                "code": code,
+                "value": value,
+                "source": "joystick",
+                "stable_path": "/dev/input/event0",
+                "absinfo": {"minimum": 0, "maximum": 255},
+            }
+        )
+
+    type_dropdown = Gtk.DropDown.new_from_strings(["Generic Axis", "Stick"])
+    type_dropdown.set_selected(1)
+    review_list = Gtk.ListBox()
+    status = Gtk.Label()
+    save_btn = Gtk.Button()
+    tab._populate_learned_analog_review(type_dropdown, review_list, status, save_btn)
+
+    assert review_list.get_row_at_index(0)._analog_rest_spin.get_value() == 128
+    assert review_list.get_row_at_index(1)._analog_rest_spin.get_value() == 128
+
+
 def test_device_tab_learn_analog_stick_guesses_hat_axis_roles(temp_config_dir):
     from gi.repository import Gtk
 

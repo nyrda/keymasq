@@ -1041,6 +1041,61 @@ async def test_reset_analog_controls_uses_custom_target_rest_after_mapping_chang
 
 
 @pytest.mark.asyncio
+async def test_reset_analog_controls_uses_target_stick_midpoint_without_center() -> None:
+    keyboard = FakeUInput()
+    gamepad = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Route Stick",
+                gamepad_output=AnalogGamepadOutputConfig(
+                    enabled=True,
+                    target="analog",
+                    target_analog_id="wheel_stick",
+                    deadzone=0.0,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
+        uinput=gamepad,
+        bucket="gamepad",
+        analog_inputs={
+            "wheel_stick": {
+                "type": "stick",
+                "axes": [
+                    {
+                        "role": "x",
+                        "evdev": "abs_x",
+                        "evdev_code": evdev.ecodes.ABS_X,
+                        "minimum": 0,
+                        "maximum": 255,
+                    },
+                    {
+                        "role": "y",
+                        "evdev": "abs_y",
+                        "evdev_code": evdev.ecodes.ABS_Y,
+                        "minimum": 100,
+                        "maximum": 1100,
+                    },
+                ],
+            }
+        },
+    )
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    mapping.clear()
+    await reset_analog_controls(runtime, deps=_deps())
+
+    assert gamepad.events[-2:] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 128),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 600),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_release_all_keys_does_not_zero_custom_analog_reset_value() -> None:
     keyboard = FakeUInput()
     gamepad = FakeUInput()
@@ -1101,6 +1156,67 @@ async def test_release_all_keys_does_not_zero_custom_analog_reset_value() -> Non
     assert gamepad.events[-2:] == [
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 100),
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 600),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_release_all_keys_does_not_zero_neutral_custom_analog_axis() -> None:
+    keyboard = FakeUInput()
+    gamepad = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Route Stick",
+                gamepad_output=AnalogGamepadOutputConfig(
+                    enabled=True,
+                    target="analog",
+                    target_analog_id="wheel_stick",
+                    deadzone=0.0,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
+        uinput=gamepad,
+        bucket="gamepad",
+        analog_inputs={
+            "wheel_stick": {
+                "type": "stick",
+                "axes": [
+                    {
+                        "role": "x",
+                        "evdev": "abs_x",
+                        "evdev_code": evdev.ecodes.ABS_X,
+                        "minimum": -1000,
+                        "maximum": 1000,
+                        "center": 100,
+                    },
+                    {
+                        "role": "y",
+                        "evdev": "abs_y",
+                        "evdev_code": evdev.ecodes.ABS_Y,
+                        "minimum": 100,
+                        "maximum": 1100,
+                        "center": 600,
+                    },
+                ],
+            }
+        },
+    )
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    event_count_after_output = len(gamepad.events)
+
+    release_all_keys(
+        runtime,
+        evdev_mod=evdev,
+        uinput_writer=identity_uinput_writer,
+    )
+
+    assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 0) not in gamepad.events[
+        event_count_after_output:
     ]
 
 

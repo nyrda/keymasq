@@ -904,7 +904,7 @@ def _emit_analog_stick_output(
         if axis_code is None:
             return
         minimum, maximum = _axis_min_max(axis, DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
-        reset_value = _axis_int(axis, "center") or 0
+        reset_value = _stick_axis_center(axis, minimum, maximum)
         axes.append(
             (
                 axis_code,
@@ -912,7 +912,7 @@ def _emit_analog_stick_output(
                     normalized,
                     minimum,
                     maximum,
-                    center=_axis_int(axis, "center"),
+                    center=reset_value,
                     invert=bool(axis.get("invert", False)),
                 ),
             )
@@ -958,7 +958,8 @@ def _reset_analog_gamepad_output(
                 )
             )
         else:
-            axes.append((axis_code, _axis_int(axis, "center") or 0))
+            minimum, maximum = _axis_min_max(axis, DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
+            axes.append((axis_code, _stick_axis_center(axis, minimum, maximum)))
     _write_gamepad_axes(
         device_runtime,
         source_id,
@@ -992,12 +993,21 @@ def _write_gamepad_axes(
     writer = deps.uinput_writer(target_uinput)
     if writer is None:
         return
+    reset_values = (
+        {int(axis_code): int(value) for axis_code, value in reset_axes}
+        if reset_axes is not None
+        else {}
+    )
     for axis_code, value in axes:
-        writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
+        axis_code = int(axis_code)
+        value = int(value)
+        writer.write(deps.evdev_mod.ecodes.EV_ABS, axis_code, value)
         if releasing:
-            _clear_tracked_abs_state(device_runtime, target_bucket, int(axis_code))
+            _clear_tracked_abs_state(device_runtime, target_bucket, axis_code)
+        elif value == reset_values.get(axis_code, 0):
+            _clear_tracked_abs_state(device_runtime, target_bucket, axis_code)
         else:
-            track_abs_state(device_runtime, int(axis_code), int(value), bucket=target_bucket)
+            track_abs_state(device_runtime, axis_code, value, bucket=target_bucket)
     writer.syn()
     device_runtime.state.analog_gamepad_outputs[source_id] = AnalogGamepadOutputState(
         output_id=config.gamepad_output.output_id,
@@ -1087,6 +1097,13 @@ def _axis_min_max(
     if minimum is None or maximum is None or minimum >= maximum:
         return fallback_minimum, fallback_maximum
     return minimum, maximum
+
+
+def _stick_axis_center(axis: dict[str, object], minimum: int, maximum: int) -> int:
+    center = _axis_int(axis, "center")
+    if center is not None:
+        return center
+    return int(round((minimum + maximum) / 2.0))
 
 
 def _reset_recorded_gamepad_outputs(

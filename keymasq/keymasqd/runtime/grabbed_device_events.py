@@ -283,6 +283,14 @@ async def cleanup_runtime_failure(
                 exc,
             )
     try:
+        await device_runtime.reset_analog_controls()
+    except Exception as exc:
+        log.warning(
+            "Failed to reset analog controls after event error on %s: %s",
+            device_runtime.path,
+            exc,
+        )
+    try:
         await device_runtime.reset_superkeys()
     except Exception as exc:
         log.warning(

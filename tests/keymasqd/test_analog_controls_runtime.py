@@ -181,6 +181,43 @@ async def test_multiple_analog_controls_on_one_source_fan_out_independently() ->
 
 
 @pytest.mark.asyncio
+async def test_obsolete_mouse_plus_digital_runs_only_digital_actions() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Old Combined",
+                mouse_motion=AnalogMouseMotionConfig(
+                    enabled=True,
+                    speed=10000,
+                    deadzone=0.0,
+                    tick_ms=1,
+                ),
+                thresholds=[
+                    AnalogActionThreshold(
+                        axis="x",
+                        trigger_min=0.65,
+                        trigger_max=1.0,
+                        release_min=0.55,
+                        release_max=1.0,
+                        actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_a")],
+                    )
+                ],
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    await asyncio.sleep(0.01)
+
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1) in keyboard.events
+    assert runtime.state.analog_mouse_tasks == {}
+    assert runtime.mouse_uinput.events == []
+
+
+@pytest.mark.asyncio
 async def test_trigger_threshold_uses_positive_normalized_range() -> None:
     keyboard = FakeUInput()
     mapping = {

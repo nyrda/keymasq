@@ -892,6 +892,69 @@ def test_gamepad_mode_save_drops_hidden_combined_settings(temp_config_dir) -> No
     assert saved.thresholds == []
 
 
+def test_analog_control_dialog_does_not_offer_mouse_plus_digital_mode(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    def mode_labels() -> list[str]:
+        model = dialog.mode_dropdown.get_model()
+        assert isinstance(model, Gtk.StringList)
+        return [
+            model.get_string(index) or ""
+            for index in range(model.get_n_items())
+        ]
+
+    assert "Mouse + Digital" not in mode_labels()
+
+    dialog.input_type_dropdown.set_selected(1)
+
+    assert "Mouse + Digital" not in mode_labels()
+
+
+def test_analog_control_dialog_loads_old_mouse_plus_digital_as_digital(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import (
+        ActionType,
+        AnalogActionThreshold,
+        AnalogControlConfig,
+        AnalogMouseMotionConfig,
+        MappingAction,
+    )
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    AnalogControlManager().save_analog_control(
+        AnalogControlConfig(
+            name="Old Combined",
+            mouse_motion=AnalogMouseMotionConfig(enabled=True),
+            thresholds=[
+                AnalogActionThreshold(
+                    axis="x",
+                    trigger_min=0.65,
+                    trigger_max=1.0,
+                    release_min=0.55,
+                    release_max=1.0,
+                    actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_e")],
+                )
+            ],
+        )
+    )
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    assert dialog._current_mode() == "digital"
+
+
 def test_analog_selector_filters_controls_by_source_input_type(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

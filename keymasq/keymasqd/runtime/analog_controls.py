@@ -12,6 +12,7 @@ from keymasq.common.models import (
     AnalogActionThreshold,
     AnalogControlConfig,
     MappingAction,
+    analog_control_primary_mode,
     analog_gamepad_output_distance,
 )
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
@@ -207,6 +208,7 @@ async def process_analog_event(
 
     for index, config in enumerate(configs):
         state_key = _control_state_key(analog_id, index, len(configs))
+        mode = analog_control_primary_mode(config)
         _record_axis_value(
             device_runtime,
             state_key,
@@ -215,21 +217,24 @@ async def process_analog_event(
             int(event.value),
             config,
         )
-        await _evaluate_thresholds(
-            device_runtime,
-            state_key,
-            config,
-            event,
-            deps=deps,
-        )
-        _emit_gamepad_output(device_runtime, state_key, analog_id, config, deps=deps)
-        if not await _emit_mouse_area_motion(
-            device_runtime,
-            state_key,
-            config,
-            deps=deps,
-        ):
-            _ensure_mouse_task(device_runtime, state_key, config, deps=deps)
+        if mode == "digital":
+            await _evaluate_thresholds(
+                device_runtime,
+                state_key,
+                config,
+                event,
+                deps=deps,
+            )
+        elif mode == "gamepad":
+            _emit_gamepad_output(device_runtime, state_key, analog_id, config, deps=deps)
+        elif mode == "mouse":
+            if not await _emit_mouse_area_motion(
+                device_runtime,
+                state_key,
+                config,
+                deps=deps,
+            ):
+                _ensure_mouse_task(device_runtime, state_key, config, deps=deps)
     return True
 
 
@@ -272,7 +277,7 @@ async def reset_analog_controls(
             )
 
     for state_key, (source_id, config) in state_configs.items():
-        if config.gamepad_output.enabled:
+        if analog_control_primary_mode(config) == "gamepad":
             _reset_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
 
     for task in list(device_runtime.state.analog_mouse_tasks.values()):

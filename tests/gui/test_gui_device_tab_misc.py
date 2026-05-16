@@ -1029,9 +1029,27 @@ def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough
             child = child.get_next_sibling()
         return buttons
 
+    def collect_labels(widget):
+        labels = []
+        child = widget.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Label):
+                labels.append(child)
+            labels.extend(collect_labels(child))
+            child = child.get_next_sibling()
+        return labels
+
     dialog = KeySelectorDialog(Gtk.Box(), "Left Stick", source_type="analog")
 
     assert dialog.stack.get_visible_child_name() == "analog_control"
+    analog_tab = dialog.stack.get_child_by_name("analog_control")
+    assert analog_tab is not None
+    hint = next(
+        label
+        for label in collect_labels(analog_tab)
+        if label.get_text() == "Select one or multiple analog controls"
+    )
+    assert "dim-label" in hint.get_css_classes()
 
     special_tab = dialog._build_special_tab()
     button_labels = {button.get_label() for button in collect_buttons(special_tab)}

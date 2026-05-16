@@ -48,16 +48,15 @@ from keymasq.session.profiles import ProfileManager
 
 log = logging.getLogger("keymasq.gui.widgets.analog_control_dialog")
 
-_STICK_MODE_ITEMS = ("mouse", "mouse_area", "digital", "gamepad", "both")
+_STICK_MODE_ITEMS = ("mouse", "mouse_area", "digital", "gamepad")
 _STICK_MODE_LABELS = (
     "Mouse Movement",
     "Mouse Area",
     "Digital Actions",
     "Analog Output",
-    "Mouse + Digital",
 )
-_AXIS_MODE_ITEMS = ("digital", "gamepad", "mouse", "both")
-_AXIS_MODE_LABELS = ("Digital Actions", "Analog Output", "Mouse Movement", "Mouse + Digital")
+_AXIS_MODE_ITEMS = ("digital", "gamepad", "mouse")
+_AXIS_MODE_LABELS = ("Digital Actions", "Analog Output", "Mouse Movement")
 _INPUT_TYPE_ITEMS = ("stick", "axis")
 _INPUT_TYPE_LABELS = ("Stick", "1D Axis / Trigger")
 _GAMEPAD_OUTPUT_TARGET_ITEMS = ("same", "left", "right")
@@ -1303,8 +1302,8 @@ class AnalogControlDialog(Adw.Dialog):
         input_type = self._current_input_type()
         mode = self._current_mode()
         is_axis = input_type == "axis"
-        digital_visible = mode in {"digital", "both"}
-        mouse_visible = mode in {"mouse", "mouse_area", "both"}
+        digital_visible = mode == "digital"
+        mouse_visible = mode in {"mouse", "mouse_area"}
         mouse_area_visible = mode == "mouse_area" and not is_axis
         mouse_velocity_visible = mouse_visible and not mouse_area_visible
         self.mouse_group.set_visible(mouse_visible)
@@ -1633,8 +1632,6 @@ class AnalogControlDialog(Adw.Dialog):
         has_digital = bool(config.thresholds)
         if has_mouse and config.mouse_motion.mode == "area":
             return "mouse_area"
-        if has_mouse and has_digital:
-            return "both"
         if has_digital:
             return "digital"
         return "mouse"
@@ -1878,8 +1875,8 @@ class AnalogControlDialog(Adw.Dialog):
                 actions=[],
             )
         )
-        if not self._is_axis_control() and self._current_mode() == "mouse":
-            self.mode_dropdown.set_selected(_STICK_MODE_ITEMS.index("both"))
+        if self._current_mode() == "mouse":
+            self.mode_dropdown.set_selected(self._mode_items.index("digital"))
         self._refresh_thresholds()
         self._on_modified()
 
@@ -2040,7 +2037,7 @@ class AnalogControlDialog(Adw.Dialog):
             return
         self._thresholds.extend(self._copy_threshold(threshold) for threshold in thresholds)
         if self._current_mode() == "mouse":
-            self.mode_dropdown.set_selected(_STICK_MODE_ITEMS.index("both"))
+            self.mode_dropdown.set_selected(self._mode_items.index("digital"))
         self._refresh_thresholds()
         self._on_modified()
 
@@ -2306,7 +2303,7 @@ class AnalogControlDialog(Adw.Dialog):
             description=self.description_entry.get_text().strip() or None,
             input_type=input_type,
             mouse_motion=AnalogMouseMotionConfig(
-                enabled=mode in {"mouse", "mouse_area", "both"},
+                enabled=mode in {"mouse", "mouse_area"},
                 mode="area" if mode == "mouse_area" else "velocity",
                 speed=self.speed_row.get_value(),
                 speed_x=self.speed_x_row.get_value(),
@@ -2353,7 +2350,7 @@ class AnalogControlDialog(Adw.Dialog):
             ),
             thresholds=(
                 list(self._thresholds)
-                if mode in {"digital", "both"}
+                if mode == "digital"
                 else []
             ),
         )

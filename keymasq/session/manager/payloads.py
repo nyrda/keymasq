@@ -10,6 +10,7 @@ from keymasq.common.models import (
     SuperkeyConfig,
     SuperkeyMode,
     combo_effective_superkey_config,
+    normalize_analog_control_features,
     superkey_action_to_mapping_action,
 )
 from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
@@ -643,6 +644,7 @@ def serialize_analog_control(
     config: AnalogControlConfig,
     hardware_id: str,
 ) -> JsonObject:
+    config = normalize_analog_control_features(config)
     return {
         "name": config.name,
         "input_type": config.input_type,
@@ -715,6 +717,7 @@ def serialize_analog_control_signature(
     config: AnalogControlConfig,
     hardware_id: str,
 ) -> JsonObject:
+    config = normalize_analog_control_features(config)
     return {
         "name": config.name,
         "input_type": config.input_type,

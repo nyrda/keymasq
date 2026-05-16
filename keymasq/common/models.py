@@ -499,6 +499,30 @@ class AnalogControlConfig:
         validate_analog_control_config(self)
 
 
+def analog_control_primary_mode(config: AnalogControlConfig) -> str:
+    if config.gamepad_output.enabled:
+        return "gamepad"
+    if config.thresholds:
+        return "digital"
+    if config.mouse_motion.enabled:
+        return "mouse"
+    return "none"
+
+
+def normalize_analog_control_features(config: AnalogControlConfig) -> AnalogControlConfig:
+    mode = analog_control_primary_mode(config)
+    if mode == "gamepad":
+        if config.mouse_motion.enabled or config.thresholds:
+            return replace(
+                config,
+                mouse_motion=replace(config.mouse_motion, enabled=False),
+                thresholds=[],
+            )
+    elif mode == "digital" and config.mouse_motion.enabled:
+        return replace(config, mouse_motion=replace(config.mouse_motion, enabled=False))
+    return config
+
+
 def validate_analog_control_config(config: AnalogControlConfig) -> None:
     if not str(config.name or "").strip():
         raise ValueError("analog control name is required")

@@ -65,6 +65,34 @@ def test_analog_control_save_replacing_name_removes_old_config(temp_config_dir) 
     ]
 
 
+def test_analog_control_manager_normalizes_obsolete_mouse_plus_digital(
+    temp_config_dir,
+) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Old Combined",
+            mouse_motion=AnalogMouseMotionConfig(enabled=True),
+            thresholds=[
+                AnalogActionThreshold(
+                    axis="x",
+                    trigger_min=0.65,
+                    trigger_max=1.0,
+                    release_min=0.55,
+                    release_max=1.0,
+                    actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_e")],
+                )
+            ],
+        )
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Old Combined")
+
+    assert loaded is not None
+    assert loaded.mouse_motion.enabled is False
+    assert len(loaded.thresholds) == 1
+
+
 def test_analog_control_validation_rejects_invalid_ranges() -> None:
     with pytest.raises(ValueError, match="activation range"):
         AnalogControlConfig(

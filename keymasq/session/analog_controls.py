@@ -14,6 +14,7 @@ from keymasq.common.models import (
     AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
     MappingAction,
+    normalize_analog_control_features,
     normalize_macro_loop_stop_behavior,
     parse_rapidfire_fields,
     validate_analog_control_config,
@@ -128,6 +129,7 @@ class AnalogControlManager:
             ),
             thresholds=thresholds,
         )
+        config = normalize_analog_control_features(config)
         validate_analog_control_config(config)
         return config
 
@@ -276,6 +278,7 @@ class AnalogControlManager:
         replacing_name: str | None = None,
     ) -> None:
         paths.ensure_config_dirs()
+        config = normalize_analog_control_features(config)
         validate_analog_control_config(config)
         path = self._path_for_name(config.name)
         self._ensure_storage_path_available(config.name, path, replacing_name=replacing_name)

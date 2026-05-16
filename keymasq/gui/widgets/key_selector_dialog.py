@@ -908,6 +908,12 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         refresh_btn.add_css_class("flat")
         refresh_btn.connect("clicked", self._on_analog_control_refresh)
         toolbar_row.append(refresh_btn)
+
+        selection_hint = Gtk.Label(label="Select one or multiple analog controls")
+        selection_hint.add_css_class("dim-label")
+        selection_hint.add_css_class("caption")
+        selection_hint.set_halign(Gtk.Align.START)
+        toolbar_row.append(selection_hint)
         outer.append(toolbar_row)
 
         scrolled = Gtk.ScrolledWindow()

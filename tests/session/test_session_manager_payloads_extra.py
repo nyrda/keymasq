@@ -200,6 +200,57 @@ def test_profile_to_mapping_serializes_multiple_analog_controls() -> None:
     assert [control["name"] for control in controls] == ["Mouse", "WASD"]
 
 
+def test_profile_to_mapping_normalizes_obsolete_mouse_plus_digital() -> None:
+    from keymasq.common.models import (
+        ActionType,
+        AnalogActionThreshold,
+        AnalogControlConfig,
+        AnalogMouseMotionConfig,
+        MappingAction,
+    )
+    from keymasq.session.manager import payloads
+    from keymasq.session.profiles import ResolvedDeviceProfile
+
+    manager = _manager_with_superkeys(
+        analog_controls=[
+            AnalogControlConfig(
+                name="Old Combined",
+                mouse_motion=AnalogMouseMotionConfig(enabled=True),
+                thresholds=[
+                    AnalogActionThreshold(
+                        axis="x",
+                        trigger_min=0.65,
+                        trigger_max=1.0,
+                        release_min=0.55,
+                        release_max=1.0,
+                        actions=[
+                            MappingAction(action_type=ActionType.KEYBOARD, target="key_e")
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
+    resolved = ResolvedDeviceProfile(
+        hardware_id="pad",
+        mappings={
+            "left_stick": MappingAction(
+                action_type=ActionType.ANALOG_CONTROL,
+                analog_control_name="Old Combined",
+            )
+        },
+    )
+
+    mapping = payloads.profile_to_mapping(manager, resolved, "pad")
+    action = cast(dict[str, object], mapping["left_stick"])
+    control = cast(dict[str, object], action["analog_control"])
+    mouse_motion = cast(dict[str, object], control["mouse_motion"])
+    thresholds = cast(list[dict[str, object]], control["thresholds"])
+
+    assert mouse_motion["enabled"] is False
+    assert len(thresholds) == 1
+
+
 def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
     from keymasq.common.models import (
         ActionType,

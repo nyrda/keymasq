@@ -11,6 +11,7 @@ from keymasq.common.models import (
     AnalogMouseMotionConfig,
     MappingAction,
     SuperkeyMode,
+    normalize_analog_control_features,
     normalize_macro_loop_stop_behavior,
     parse_rapidfire_fields,
 )
@@ -274,13 +275,15 @@ def parse_analog_control_config(
                 )
             )
 
-    return AnalogControlConfig(
-        name=str_value(config.get("name"), ""),
-        description=optional_str(config.get("description")),
-        input_type=str_value(config.get("input_type"), "stick") or "stick",
-        mouse_motion=mouse,
-        gamepad_output=gamepad_output,
-        thresholds=thresholds,
+    return normalize_analog_control_features(
+        AnalogControlConfig(
+            name=str_value(config.get("name"), ""),
+            description=optional_str(config.get("description")),
+            input_type=str_value(config.get("input_type"), "stick") or "stick",
+            mouse_motion=mouse,
+            gamepad_output=gamepad_output,
+            thresholds=thresholds,
+        )
     )
 
 

@@ -56,6 +56,31 @@ DetectedInterface = dict[str, Any]
 DetectedButton = dict[str, Any]
 
 
+def _make_capture_status_row(status_label: Gtk.Label) -> tuple[Gtk.Box, Gtk.Widget]:
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    row.set_halign(Gtk.Align.START)
+    row.set_margin_top(12)
+    dot = Gtk.Box()
+    dot.add_css_class("capture-recording-dot")
+    dot.set_size_request(10, 10)
+    dot.set_valign(Gtk.Align.CENTER)
+    dot.set_visible(False)
+    row.append(dot)
+    row.append(status_label)
+    return row, dot
+
+
+def _set_capture_status(
+    status_label: Gtk.Label,
+    dot: Gtk.Widget,
+    text: object,
+    *,
+    recording: bool = False,
+) -> None:
+    status_label.set_label(str(text))
+    dot.set_visible(recording)
+
+
 def _strip_input_suffix(phys: str) -> str:
     return re.sub(r"/input\d+$", "", str(phys or "").strip())
 
@@ -315,8 +340,10 @@ class HardwareSetupDialog(Adw.Dialog):
         box.append(self.capture_instruction)
 
         self.capture_status = Gtk.Label()
-        self.capture_status.set_margin_top(12)
-        box.append(self.capture_status)
+        capture_status_row, self.capture_status_dot = _make_capture_status_row(
+            self.capture_status
+        )
+        box.append(capture_status_row)
 
         self.capture_progress = Gtk.ProgressBar()
         self.capture_progress.set_margin_top(12)
@@ -1243,7 +1270,14 @@ class HardwareSetupDialog(Adw.Dialog):
         else:
             self.capture_instruction.set_label("Press this button on your device")
 
-        self.capture_status.set_label("Click 'Start Capture' then perform the action")
+        _set_capture_status(
+            self.capture_status,
+            self.capture_status_dot,
+            "Recording button presses..."
+            if self._capturing
+            else "Click 'Start Capture' then perform the action",
+            recording=self._capturing,
+        )
 
         progress = (
             self.current_button_index / len(self.button_definitions)
@@ -1287,7 +1321,12 @@ class HardwareSetupDialog(Adw.Dialog):
         self._capturing = True
         self.capture_btn.set_label("Listening...")
         self.capture_btn.set_sensitive(False)
-        self.capture_status.set_label("Waiting for input...")
+        _set_capture_status(
+            self.capture_status,
+            self.capture_status_dot,
+            "Recording button presses...",
+            recording=True,
+        )
         self._capture_remaining_ids = [
             btn["id"] for btn in self.button_definitions[self.current_button_index :]
         ]
@@ -1309,7 +1348,9 @@ class HardwareSetupDialog(Adw.Dialog):
             return False
 
         if not result or result.get("status") != "ok":
-            self.capture_status.set_label(
+            _set_capture_status(
+                self.capture_status,
+                self.capture_status_dot,
                 (result or {}).get("message", "Capture failed: session unavailable")
             )
             self._stop_capture()
@@ -1317,7 +1358,9 @@ class HardwareSetupDialog(Adw.Dialog):
 
         warnings = result.get("warnings") or []
         if warnings:
-            self.capture_status.set_label(
+            _set_capture_status(
+                self.capture_status,
+                self.capture_status_dot,
                 f"Capture warnings: {', '.join(str(w) for w in warnings)}"
             )
 
@@ -1350,7 +1393,11 @@ class HardwareSetupDialog(Adw.Dialog):
             return False
 
         if result.get("status") != "ok":
-            self.capture_status.set_label(result.get("message", "Capture failed"))
+            _set_capture_status(
+                self.capture_status,
+                self.capture_status_dot,
+                result.get("message", "Capture failed"),
+            )
             self._stop_capture()
             return False
 
@@ -1378,7 +1425,12 @@ class HardwareSetupDialog(Adw.Dialog):
         self._add_captured_button(btn_def, evdev_display)
         self.current_button_index += 1
         remaining = max(0, len(self.button_definitions) - self.current_button_index)
-        self.capture_status.set_label(f"Captured {evdev_display} ({remaining} remaining)")
+        _set_capture_status(
+            self.capture_status,
+            self.capture_status_dot,
+            f"Recording button presses... Captured {evdev_display} ({remaining} remaining)",
+            recording=True,
+        )
 
         if remaining == 0:
             self._finish_capture()
@@ -1407,6 +1459,7 @@ class HardwareSetupDialog(Adw.Dialog):
 
         self.capture_btn.set_label("Start Capture")
         self.capture_btn.set_sensitive(True)
+        self.capture_status_dot.set_visible(False)
 
     def _on_skip(self, button: Gtk.Button) -> None:
         self._stop_capture()
@@ -1426,7 +1479,11 @@ class HardwareSetupDialog(Adw.Dialog):
         self._stop_capture()
         self.capture_title.set_label("Setup Complete!")
         self.capture_instruction.set_label("All buttons captured")
-        self.capture_status.set_label("Click Save to finish")
+        _set_capture_status(
+            self.capture_status,
+            self.capture_status_dot,
+            "Click Save to finish",
+        )
         self.capture_progress.set_fraction(1.0)
         self.capture_btn.set_label("Save")
         self.capture_btn.set_sensitive(True)

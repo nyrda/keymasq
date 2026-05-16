@@ -1,6 +1,7 @@
 import pytest
 
 from keymasq.common.models import (
+    SAME_DEVICE_OUTPUT_ID,
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
@@ -177,6 +178,23 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
     assert loaded.gamepad_output.target == "right"
     assert loaded.gamepad_output.sensitivity == 1.5
     assert loaded.gamepad_output.response_curve == 0.75
+
+
+def test_analog_control_same_device_output_round_trips(temp_config_dir) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Route Same Device",
+            gamepad_output=AnalogGamepadOutputConfig(
+                enabled=True,
+                output_id=SAME_DEVICE_OUTPUT_ID,
+            ),
+        )
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Route Same Device")
+    assert loaded is not None
+    assert loaded.gamepad_output.output_id == SAME_DEVICE_OUTPUT_ID
 
 
 def test_analog_control_mouse_zero_split_speed_round_trips(temp_config_dir) -> None:

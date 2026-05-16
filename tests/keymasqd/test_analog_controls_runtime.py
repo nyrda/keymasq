@@ -5,6 +5,7 @@ import evdev
 import pytest
 
 from keymasq.common.models import (
+    SAME_DEVICE_OUTPUT_ID,
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
@@ -977,6 +978,40 @@ async def test_reset_analog_controls_centers_previous_gamepad_output_after_mappi
     mapping.clear()
     await reset_analog_controls(runtime, deps=_deps())
 
+    assert gamepad.events[-2:] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_same_device_gamepad_output_resolves_to_source_hardware() -> None:
+    keyboard = FakeUInput()
+    gamepad = FakeUInput()
+    resolved: list[str | None] = []
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Route Stick",
+                gamepad_output=AnalogGamepadOutputConfig(
+                    enabled=True,
+                    output_id=SAME_DEVICE_OUTPUT_ID,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.resolve_gamepad_output = lambda output_id, _context: (  # noqa: E731
+        resolved.append(output_id)
+        or SimpleNamespace(uinput=gamepad, bucket=f"gamepad:{output_id or 'default'}")
+    )
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    mapping.clear()
+    await reset_analog_controls(runtime, deps=_deps())
+
+    assert resolved == ["1234:5678", "1234:5678"]
     assert gamepad.events[-2:] == [
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 0),

@@ -41,7 +41,7 @@ tick_ms = 8
 
 [gamepad_output]
 enabled = true
-output_id = "virtual-gamepad-2" # optional; omitted means default gamepad output
+output_id = "same-device" # same-device, explicit hardware id, or virtual-gamepad-N
 deadzone = 0.0
 target = "same" # same, left, right
 sensitivity = 1.0 # analog output only; 0.1..2.0
@@ -65,9 +65,12 @@ it leaves the release range. The trigger range must be inside the release range
 so hysteresis is explicit.
 
 `gamepad_output` routes the analog source to a gamepad axis on the selected
-output. `target = "same"` preserves the source side, so `left_stick` writes
-`ABS_X`/`ABS_Y`, `right_stick` writes `ABS_RX`/`ABS_RY`, `left_trigger` writes
-`ABS_Z`, and `right_trigger` writes `ABS_RZ`. `target = "left"` or
+output. `output_id = "same-device"` routes to the same physical hardware that
+provided the source input. Omitting `output_id` keeps the default virtual
+gamepad output. `target = "same"` preserves the source side, so `left_stick`
+writes `ABS_X`/`ABS_Y`, `right_stick` writes `ABS_RX`/`ABS_RY`,
+`left_trigger` writes `ABS_Z`, and `right_trigger` writes `ABS_RZ`.
+`target = "left"` or
 `target = "right"` forces the output side, allowing right trigger to become
 left trigger, left stick to become right stick, and so on. The deadzone is
 applied before output, so values below it are sent as centered sticks or

@@ -58,6 +58,34 @@ _ANALOG_LAYOUT_ORDER = {
 }
 
 
+def _make_capture_status_row(status_label: Gtk.Label) -> Gtk.Box:
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    row.set_halign(Gtk.Align.START)
+    row.set_margin_top(4)
+    dot = Gtk.Box()
+    dot.add_css_class("capture-recording-dot")
+    dot.set_size_request(10, 10)
+    dot.set_valign(Gtk.Align.CENTER)
+    dot.set_visible(False)
+    status_label._capture_recording_dot = dot
+    row.append(dot)
+    row.append(status_label)
+    return row
+
+
+def _set_capture_status(
+    status_label: Gtk.Label,
+    text: object,
+    *,
+    recording: bool = False,
+) -> None:
+    status_label.set_text(str(text))
+    dot = getattr(status_label, "_capture_recording_dot", None)
+    if dot is None:
+        return
+    cast(Gtk.Widget, dot).set_visible(recording)
+
+
 def _char_middle_shorten_text(text: str, max_chars: int) -> str:
     if max_chars <= 0:
         return ""
@@ -1673,7 +1701,7 @@ class DeviceTab(ProfileManagedTab):
         status = Gtk.Label(label="")
         status.add_css_class("dim-label")
         status.set_halign(Gtk.Align.START)
-        box.append(status)
+        box.append(_make_capture_status_row(status))
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row.set_halign(Gtk.Align.END)
@@ -1704,7 +1732,7 @@ class DeviceTab(ProfileManagedTab):
                 return
             count = int(spin.get_value())
             self._add_keys_pending_ids = [f"key_added_{i + 1}" for i in range(count)]
-            status.set_text(self._capture_waiting_label())
+            _set_capture_status(status, self._capture_waiting_label(), recording=True)
             start_btn.set_sensitive(False)
             self._start_add_keys_capture(
                 status,
@@ -1794,7 +1822,7 @@ class DeviceTab(ProfileManagedTab):
         status.add_css_class("dim-label")
         status.set_halign(Gtk.Align.START)
         status.set_wrap(True)
-        box.append(status)
+        box.append(_make_capture_status_row(status))
 
         review_list = Gtk.ListBox()
         review_list.add_css_class("boxed-list")
@@ -1908,7 +1936,7 @@ class DeviceTab(ProfileManagedTab):
         review_list.set_visible(False)
         save_btn.set_sensitive(False)
         save_btn.set_visible(False)
-        status.set_text("Listening for analog movement...")
+        _set_capture_status(status, "Recording analog movement...", recording=True)
         start_btn.set_label("Review Capture")
         start_btn.set_sensitive(False)
 
@@ -1937,7 +1965,7 @@ class DeviceTab(ProfileManagedTab):
         privilege_status: Gtk.Label,
     ) -> bool:
         if not result or result.get("status") != "ok":
-            status.set_text((result or {}).get("message", "Capture failed"))
+            _set_capture_status(status, (result or {}).get("message", "Capture failed"))
             self._stop_analog_learn_capture()
             start_btn.set_label("Start Capture")
             self._update_learn_analog_capture_controls(
@@ -1974,7 +2002,10 @@ class DeviceTab(ProfileManagedTab):
         if result.get("status") != "ok":
             status = self._analog_learn_context.get("status")
             if isinstance(status, Gtk.Label):
-                cast(Gtk.Label, status).set_text(result.get("message", "Capture failed"))
+                _set_capture_status(
+                    cast(Gtk.Label, status),
+                    result.get("message", "Capture failed"),
+                )
             self._stop_analog_learn_capture()
             start_btn = self._analog_learn_context.get("start_btn")
             unlock_btn = self._analog_learn_context.get("unlock_btn")
@@ -2021,9 +2052,6 @@ class DeviceTab(ProfileManagedTab):
                 "rest": value,
                 "minimum": int(cast(dict, absinfo).get("minimum", value)),
                 "maximum": int(cast(dict, absinfo).get("maximum", value)),
-                "has_absinfo_range": (
-                    "minimum" in cast(dict, absinfo) and "maximum" in cast(dict, absinfo)
-                ),
                 "observed_minimum": value,
                 "observed_maximum": value,
                 "count": 0,
@@ -2037,7 +2065,11 @@ class DeviceTab(ProfileManagedTab):
 
         status = self._analog_learn_context.get("status")
         if isinstance(status, Gtk.Label):
-            cast(Gtk.Label, status).set_text(f"Captured movement on {len(candidates)} analog axes")
+            _set_capture_status(
+                cast(Gtk.Label, status),
+                f"Recording analog movement... Captured {len(candidates)} axes",
+                recording=True,
+            )
 
     def _populate_learned_analog_review(
         self,
@@ -2056,19 +2088,19 @@ class DeviceTab(ProfileManagedTab):
         analog_type = "stick" if type_dropdown.get_selected() == 1 else "axis"
         needed = 2 if analog_type == "stick" else 1
         if len(ranked) < needed:
-            status.set_text("Not enough analog movement captured.")
+            _set_capture_status(status, "Not enough analog movement captured.")
             save_btn.set_sensitive(False)
             return
         if analog_type == "axis" and len(ranked) > 1:
             top = self._analog_candidate_score(ranked[0])
             second = self._analog_candidate_score(ranked[1])
             if top <= 0 or top == second:
-                status.set_text("Could not choose one axis unambiguously. Try again.")
+                _set_capture_status(status, "Could not choose one axis unambiguously. Try again.")
                 save_btn.set_sensitive(False)
                 return
         selected = ranked[:needed]
         if any(self._analog_candidate_score(candidate) <= 0 for candidate in selected):
-            status.set_text("Captured axes did not move far enough.")
+            _set_capture_status(status, "Captured axes did not move far enough.")
             save_btn.set_sensitive(False)
             return
 
@@ -2077,7 +2109,7 @@ class DeviceTab(ProfileManagedTab):
             review_list.append(self._build_analog_review_row(role, candidate, analog_type))
         review_list.set_visible(True)
         save_btn.set_sensitive(True)
-        status.set_text("Review the learned values, edit if needed, then save.")
+        _set_capture_status(status, "Review the learned values, edit if needed, then save.")
 
     def _learned_analog_review_roles(
         self,
@@ -2147,16 +2179,7 @@ class DeviceTab(ProfileManagedTab):
             column_offset = 1
         minimum = int(candidate["minimum"])
         maximum = int(candidate["maximum"])
-        rest = int(candidate.get("rest", round((minimum + maximum) / 2)))
         center_or_rest = 0
-        if analog_type == "stick":
-            center_or_rest = rest
-            if (
-                bool(candidate.get("has_absinfo_range", False))
-                and minimum >= 0
-                and rest in {minimum, maximum}
-            ):
-                center_or_rest = int(round((minimum + maximum) / 2))
         fields = [
             ("Min", minimum),
             ("Max", maximum),
@@ -2216,7 +2239,7 @@ class DeviceTab(ProfileManagedTab):
         analog_type = "stick" if type_dropdown.get_selected() == 1 else "axis"
         analog_id = self._normalize_new_analog_id(id_entry.get_text(), analog_type)
         if self._input_id_exists(analog_id):
-            status.set_text(f"Input id '{analog_id}' already exists.")
+            _set_capture_status(status, f"Input id '{analog_id}' already exists.")
             return
         label = label_entry.get_text().strip() or analog_id.replace("_", " ").title()
         axes: list[AnalogAxisDefinition] = []
@@ -2227,7 +2250,7 @@ class DeviceTab(ProfileManagedTab):
             code = int(row._analog_code)
             row_source = str(row._analog_source or "")
             if self._analog_axis_already_exists(row_source, code):
-                status.set_text(f"Axis {row._analog_evdev} already exists.")
+                _set_capture_status(status, f"Axis {row._analog_evdev} already exists.")
                 return
             if source is None and row_source:
                 source = row_source
@@ -2255,10 +2278,10 @@ class DeviceTab(ProfileManagedTab):
             )
             index += 1
         if not axes:
-            status.set_text("No learned analog axes to save.")
+            _set_capture_status(status, "No learned analog axes to save.")
             return
         if analog_type == "stick" and sorted(axis.role for axis in axes) != ["x", "y"]:
-            status.set_text("Stick needs exactly one X axis and one Y axis.")
+            _set_capture_status(status, "Stick needs exactly one X axis and one Y axis.")
             return
 
         self.device.analog_inputs.append(
@@ -2368,7 +2391,7 @@ class DeviceTab(ProfileManagedTab):
                 )
             )
             return
-        status_label.set_text("Unlock is only available from the main window.")
+        _set_capture_status(status_label, "Unlock is only available from the main window.")
 
     def _on_learn_analog_unlock_success(
         self,
@@ -2377,7 +2400,7 @@ class DeviceTab(ProfileManagedTab):
         privilege_status: Gtk.Label,
         status_label: Gtk.Label,
     ) -> None:
-        status_label.set_text("")
+        _set_capture_status(status_label, "")
         self._update_learn_analog_capture_controls(start_btn, unlock_btn, privilege_status)
 
     def _start_add_keys_capture(
@@ -2421,7 +2444,7 @@ class DeviceTab(ProfileManagedTab):
         privilege_status: Gtk.Label | None = None,
     ) -> bool:
         if not result or result.get("status") != "ok":
-            status_label.set_text((result or {}).get("message", "Capture failed"))
+            _set_capture_status(status_label, (result or {}).get("message", "Capture failed"))
             self._stop_add_keys_capture()
             self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
             return False
@@ -2490,7 +2513,7 @@ class DeviceTab(ProfileManagedTab):
             return False
 
         if result.get("status") != "ok":
-            status_label.set_text(result.get("message", "Capture failed"))
+            _set_capture_status(status_label, result.get("message", "Capture failed"))
             self._stop_add_keys_capture()
             self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
             return False
@@ -2503,11 +2526,19 @@ class DeviceTab(ProfileManagedTab):
         captured_code = captured.get("code")
         captured_value = captured.get("value")
         if not self._is_supported_added_input(evdev_name):
-            status_label.set_text(f"Unsupported input '{evdev_name}', press another input")
+            _set_capture_status(
+                status_label,
+                f"Unsupported input '{evdev_name}', press another input",
+                recording=True,
+            )
             return False
 
         if self._button_already_exists(evdev_name, captured_code, captured_value):
-            status_label.set_text(f"{evdev_name} already exists, press another input")
+            _set_capture_status(
+                status_label,
+                f"{evdev_name} already exists, press another input",
+                recording=True,
+            )
             if evdev_name == "key_esc":
                 self._cancel_add_inputs(parent_dialog)
             return False
@@ -2544,7 +2575,11 @@ class DeviceTab(ProfileManagedTab):
         if self._add_keys_pending_ids:
             self._add_keys_pending_ids.pop(0)
         remaining = len(self._add_keys_pending_ids)
-        status_label.set_text(f"Captured {captured_display} ({remaining} remaining)")
+        _set_capture_status(
+            status_label,
+            f"Captured {captured_display} ({remaining} remaining)",
+            recording=True,
+        )
 
         if remaining == 0:
             self._finish_add_keys(parent_dialog)
@@ -2648,7 +2683,7 @@ class DeviceTab(ProfileManagedTab):
                 )
             )
             return
-        status_label.set_text("Unlock is only available from the main window.")
+        _set_capture_status(status_label, "Unlock is only available from the main window.")
 
     def _on_add_inputs_unlock_success(
         self,
@@ -2657,7 +2692,7 @@ class DeviceTab(ProfileManagedTab):
         privilege_status: Gtk.Label,
         status_label: Gtk.Label,
     ) -> None:
-        status_label.set_text("")
+        _set_capture_status(status_label, "")
         self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
 
     def _stop_add_keys_capture(self) -> None:
@@ -2904,8 +2939,10 @@ class DeviceTab(ProfileManagedTab):
 
     def _capture_waiting_label(self) -> str:
         if self.is_gamepad_hardware():
-            return "Waiting for button presses..."
-        return "Waiting for inputs..."
+            return "Recording button presses..."
+        if self.is_keyboard_hardware():
+            return "Recording keys..."
+        return "Recording inputs..."
 
     def _added_input_button_type(self, evdev_name: str, source: str | None) -> str:
         if evdev_name.startswith("key_"):

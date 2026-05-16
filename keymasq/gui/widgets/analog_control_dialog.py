@@ -10,6 +10,7 @@ from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAc
 
 from keymasq import __version__
 from keymasq.common.models import (
+    SAME_DEVICE_OUTPUT_ID,
     AnalogActionThreshold,
     AnalogControlConfig,
     AnalogGamepadOutputConfig,
@@ -141,7 +142,7 @@ class AnalogControlDialog(Adw.Dialog):
         self._modified = False
         self._editing_new_control = False
         self._syncing_threshold = False
-        self._selected_gamepad_output_id: str | None = None
+        self._selected_gamepad_output_id: str | None = SAME_DEVICE_OUTPUT_ID
         self._gamepad_output_ids: list[str | None] = []
         self._gamepad_output_dropdown: Gtk.DropDown | None = None
         self._gamepad_output_warning_label: Gtk.Label | None = None
@@ -843,8 +844,13 @@ class AnalogControlDialog(Adw.Dialog):
             str(getattr(config, "hardware_id", "") or ""): config
             for config in hardware_configs
         }
-        return _gamepad_output_choices_for(
-            self._selected_gamepad_output_id,
+        helper_selected_id = (
+            None
+            if self._selected_gamepad_output_id == SAME_DEVICE_OUTPUT_ID
+            else self._selected_gamepad_output_id
+        )
+        return [(SAME_DEVICE_OUTPUT_ID, "Default (same device)")] + _gamepad_output_choices_for(
+            helper_selected_id,
             count,
             hardware_configs,
         )
@@ -1226,7 +1232,12 @@ class AnalogControlDialog(Adw.Dialog):
                 threshold.release_max = max(threshold.release_max, threshold.trigger_max)
 
     def _begin_new_control(self) -> None:
-        self._load_config(AnalogControlConfig(name="New Analog Control"))
+        self._load_config(
+            AnalogControlConfig(
+                name="New Analog Control",
+                gamepad_output=AnalogGamepadOutputConfig(output_id=SAME_DEVICE_OUTPUT_ID),
+            )
+        )
         self._current_name = None
         self._editing_new_control = True
         self.delete_btn.set_sensitive(False)

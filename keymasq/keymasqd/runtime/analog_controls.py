@@ -7,6 +7,7 @@ from typing import cast
 
 from keymasq.common.devices import resolve_evdev_code
 from keymasq.common.models import (
+    SAME_DEVICE_OUTPUT_ID,
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
@@ -1010,7 +1011,7 @@ def _write_gamepad_axes(
             track_abs_state(device_runtime, axis_code, value, bucket=target_bucket)
     writer.syn()
     device_runtime.state.analog_gamepad_outputs[source_id] = AnalogGamepadOutputState(
-        output_id=config.gamepad_output.output_id,
+        output_id=_resolved_gamepad_output_id(device_runtime, config),
         reset_axes=(
             tuple((int(axis_code), int(value)) for axis_code, value in reset_axes)
             if reset_axes is not None
@@ -1025,9 +1026,18 @@ def _resolve_gamepad_output_target(
     config: AnalogControlConfig,
 ) -> object | None:
     return device_runtime.resolve_gamepad_output(
-        config.gamepad_output.output_id,
+        _resolved_gamepad_output_id(device_runtime, config),
         f"{source_id} analog output",
     )
+
+
+def _resolved_gamepad_output_id(
+    device_runtime: GrabbedDeviceRuntime,
+    config: AnalogControlConfig,
+) -> str | None:
+    if config.gamepad_output.output_id == SAME_DEVICE_OUTPUT_ID:
+        return device_runtime.hardware_id
+    return config.gamepad_output.output_id
 
 
 def _target_analog_input(

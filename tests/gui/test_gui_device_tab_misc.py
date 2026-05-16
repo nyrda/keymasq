@@ -304,7 +304,7 @@ def test_device_tab_learn_analog_stick_allows_role_swap(monkeypatch, temp_config
     ]
 
 
-def test_device_tab_learn_analog_stick_defaults_unsigned_center_to_midpoint(
+def test_device_tab_learn_analog_stick_defaults_center_to_zero(
     temp_config_dir,
 ):
     import gi
@@ -359,8 +359,32 @@ def test_device_tab_learn_analog_stick_defaults_unsigned_center_to_midpoint(
     save_btn = Gtk.Button()
     tab._populate_learned_analog_review(type_dropdown, review_list, status, save_btn)
 
-    assert review_list.get_row_at_index(0)._analog_rest_spin.get_value() == 128
-    assert review_list.get_row_at_index(1)._analog_rest_spin.get_value() == 128
+    assert review_list.get_row_at_index(0)._analog_rest_spin.get_value() == 0
+    assert review_list.get_row_at_index(1)._analog_rest_spin.get_value() == 0
+
+
+def test_capture_status_row_shows_recording_dot(temp_config_dir):
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.device_tab import (
+        _make_capture_status_row,
+        _set_capture_status,
+    )
+
+    status = Gtk.Label()
+    row = _make_capture_status_row(status)
+    dot = row.get_first_child()
+
+    assert dot is not None
+    assert dot.get_visible() is False
+
+    _set_capture_status(status, "Recording button presses...", recording=True)
+
+    assert status.get_text() == "Recording button presses..."
+    assert dot.get_visible() is True
 
 
 def test_device_tab_learn_analog_stick_guesses_hat_axis_roles(temp_config_dir):

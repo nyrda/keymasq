@@ -69,6 +69,7 @@ def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
+    from keymasq.common.models import SAME_DEVICE_OUTPUT_ID
     from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
 
     dialog = AnalogControlDialog(Gtk.Window())
@@ -85,6 +86,7 @@ def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
 
     saved = dialog.manager.get_analog_control("Axis Output")
     assert saved is not None
+    assert saved.gamepad_output.output_id == SAME_DEVICE_OUTPUT_ID
     assert saved.gamepad_output.sensitivity == 1.5
     assert saved.gamepad_output.response_curve == 0.75
 
@@ -243,7 +245,7 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     dialog.mode_dropdown.set_selected(2)
     dialog._gamepad_output_target_buttons["right"].set_active(True)
     assert dialog._gamepad_output_dropdown is not None
-    dialog._gamepad_output_dropdown.set_selected(1)
+    dialog._gamepad_output_dropdown.set_selected(2)
     dialog.gamepad_output_deadzone_row.set_value(20)
     dialog.gamepad_output_sensitivity_row.set_value(1.5)
     dialog.gamepad_output_response_curve_row.set_value(0.75)
@@ -262,7 +264,7 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     assert reloaded._selected_gamepad_output_id == "virtual-gamepad-2"
     assert reloaded._gamepad_output_target_buttons["right"].get_active() is True
     assert reloaded._gamepad_output_dropdown is not None
-    assert reloaded._gamepad_output_dropdown.get_selected() == 1
+    assert reloaded._gamepad_output_dropdown.get_selected() == 2
     assert reloaded.gamepad_output_deadzone_row.get_value() == 20
     assert reloaded.gamepad_output_sensitivity_row.get_value() == 1.5
     assert reloaded.gamepad_output_response_curve_row.get_value() == 0.75
@@ -321,7 +323,7 @@ def test_analog_output_controls_use_learned_hardware_targets(temp_config_dir, mo
     dialog.input_type_dropdown.set_selected(1)
     dialog.mode_dropdown.set_selected(1)
     assert dialog._gamepad_output_dropdown is not None
-    dialog._gamepad_output_dropdown.set_selected(1)
+    dialog._gamepad_output_dropdown.set_selected(2)
 
     assert "analog:brake" in dialog._gamepad_output_target_buttons
     dialog._gamepad_output_target_buttons["analog:brake"].set_active(True)

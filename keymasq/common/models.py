@@ -329,6 +329,7 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
 ANALOG_MOUSE_DIRECTIONS = frozenset(
     {"left", "right", "up", "down", "horizontal", "vertical"}
 )
+SAME_DEVICE_OUTPUT_ID = "same-device"
 ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog"})
 ANALOG_GAMEPAD_OUTPUT_DIRECTIONS = frozenset({"min", "max", "both"})
 MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 0.1

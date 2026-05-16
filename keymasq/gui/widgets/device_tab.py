@@ -1798,6 +1798,7 @@ class DeviceTab(ProfileManagedTab):
 
         review_list = Gtk.ListBox()
         review_list.add_css_class("boxed-list")
+        review_list.set_selection_mode(Gtk.SelectionMode.NONE)
         review_list.set_visible(False)
         box.append(review_list)
 
@@ -2110,6 +2111,8 @@ class DeviceTab(ProfileManagedTab):
         analog_type: str,
     ) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
+        row.set_selectable(False)
+        row.set_activatable(False)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.set_margin_top(8)
         box.set_margin_bottom(8)
@@ -2144,7 +2147,7 @@ class DeviceTab(ProfileManagedTab):
             ("Max", int(candidate["maximum"])),
             (
                 "Center" if analog_type == "stick" else "Rest",
-                int(candidate.get("rest", 0)),
+                0,
             ),
         ]
         spins: list[Gtk.SpinButton] = []

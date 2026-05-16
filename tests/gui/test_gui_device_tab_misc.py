@@ -110,7 +110,7 @@ def test_device_tab_learn_analog_axis_saves_highest_movement(monkeypatch, temp_c
     assert analog.axes[0].evdev == "abs_x"
     assert analog.axes[0].minimum == -32000
     assert analog.axes[0].maximum == 100
-    assert analog.axes[0].rest == 100
+    assert analog.axes[0].rest == 0
     assert analog.axes[0].invert is False
 
 
@@ -270,10 +270,14 @@ def test_device_tab_learn_analog_stick_allows_role_swap(monkeypatch, temp_config
     second_row = review_list.get_row_at_index(1)
     assert first_row is not None
     assert second_row is not None
+    assert first_row.get_selectable() is False
+    assert first_row.get_activatable() is False
     assert first_row._analog_evdev == "abs_ry"
     assert first_row._analog_role_dropdown.get_selected() == 1
+    assert first_row._analog_rest_spin.get_value() == 0
     assert second_row._analog_evdev == "abs_rx"
     assert second_row._analog_role_dropdown.get_selected() == 0
+    assert second_row._analog_rest_spin.get_value() == 0
     first_row._analog_role_dropdown.set_selected(0)
     second_row._analog_role_dropdown.set_selected(1)
 

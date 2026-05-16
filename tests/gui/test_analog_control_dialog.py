@@ -37,6 +37,34 @@ def test_new_analog_control_output_deadzone_defaults_to_zero(temp_config_dir) ->
     assert dialog.gamepad_output_deadzone_row.get_value() == 0
 
 
+def test_analog_control_dialog_docs_button_links_to_analog_controls_docs(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+
+    monkeypatch.setattr(analog_dialog, "__version__", "1.2.3")
+
+    dialog = analog_dialog.AnalogControlDialog(Gtk.Window())
+
+    assert dialog.analog_controls_docs_btn.get_label() == "?"
+    assert (
+        dialog.analog_controls_docs_btn.get_tooltip_text()
+        == "Open Analog Controls documentation"
+    )
+    assert analog_dialog._analog_controls_docs_url() == (
+        "https://keymasq.tools/docs/v1.2.3/ANALOG_CONTROLS/"
+    )
+
+    monkeypatch.setattr(analog_dialog, "__version__", "1.2.3.dev1")
+    assert analog_dialog._analog_controls_docs_url() == (
+        "https://keymasq.tools/docs/master/ANALOG_CONTROLS/"
+    )
+
+
 def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
@@ -298,6 +326,32 @@ def test_analog_selector_filters_controls_by_source_input_type(temp_config_dir) 
     )
 
     assert [config.name for config in dialog._analog_control_list] == ["Axis Control"]
+
+
+def test_analog_selector_docs_button_links_to_analog_controls_docs(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "__version__", "1.2.3")
+
+    dialog = KeySelectorDialog(Gtk.Window(), "Left Stick", source_type="analog")
+
+    assert dialog.stack.get_visible_child_name() == "analog_control"
+    assert dialog.actions_docs_btn.get_visible() is True
+    assert (
+        dialog.actions_docs_btn.get_tooltip_text()
+        == "Open Analog Controls documentation"
+    )
+    assert dialog._active_actions_docs_link() == ("analog-controls", "Analog Controls")
+    assert dialog_module._actions_docs_url("analog-controls") == (
+        "https://keymasq.tools/docs/v1.2.3/ANALOG_CONTROLS/"
+    )
 
 
 def test_analog_control_dialog_groups_saved_controls_by_input_type() -> None:

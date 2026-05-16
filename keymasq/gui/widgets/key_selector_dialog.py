@@ -360,6 +360,7 @@ MEDIA_KEY_TARGETS = {
 }
 
 ACTION_DOC_LINKS = {
+    "analog_control": ("analog-controls", "Analog Controls"),
     "special": ("special", "Special"),
     "keyboard": ("keyboard", "Keyboard"),
     "navigation": ("navigation", "Navigation"),
@@ -392,6 +393,8 @@ def _docs_version() -> str:
 
 
 def _actions_docs_url(anchor: str) -> str:
+    if anchor == "analog-controls":
+        return f"https://keymasq.tools/docs/{_docs_version()}/ANALOG_CONTROLS/"
     return f"https://keymasq.tools/docs/{_docs_version()}/ACTIONS/#{anchor}"
 
 

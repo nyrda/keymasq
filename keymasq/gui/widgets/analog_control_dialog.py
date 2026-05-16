@@ -8,6 +8,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq import __version__
 from keymasq.common.models import (
     AnalogActionThreshold,
     AnalogControlConfig,
@@ -48,6 +49,19 @@ _STICK_OUTPUT_TARGET_LABELS = ("Same Stick", "Left Stick", "Right Stick")
 _AXIS_OUTPUT_TARGET_LABELS = ("Same Axis", "Left Trigger", "Right Trigger")
 _CONTROL_GROUPS = (("axis", "1D Axes / Triggers"), ("stick", "Sticks"))
 _AXIS_ITEMS = ("x", "y")
+
+
+def _docs_version() -> str:
+    version = __version__.strip()
+    if not version:
+        return "master"
+    if "dev" in version:
+        return "master"
+    return f"v{version.removeprefix('v')}"
+
+
+def _analog_controls_docs_url() -> str:
+    return f"https://keymasq.tools/docs/{_docs_version()}/ANALOG_CONTROLS/"
 
 
 def _compute_hysteresis(threshold: AnalogActionThreshold) -> float:
@@ -171,6 +185,22 @@ class AnalogControlDialog(Adw.Dialog):
         self.list_box.connect("row-selected", self._on_control_selected)
         scrolled.set_child(self.list_box)
         box.append(scrolled)
+
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        self.analog_controls_docs_btn = Gtk.Button(label="?")
+        self.analog_controls_docs_btn.add_css_class("flat")
+        self.analog_controls_docs_btn.add_css_class("actions-docs-button")
+        self.analog_controls_docs_btn.set_tooltip_text(
+            "Open Analog Controls documentation"
+        )
+        self.analog_controls_docs_btn.connect(
+            "clicked",
+            self._on_analog_controls_docs_clicked,
+        )
+        footer.append(self.analog_controls_docs_btn)
+
+        box.append(footer)
         return box
 
     def _build_right_panel(self) -> Gtk.Widget:
@@ -1345,6 +1375,14 @@ class AnalogControlDialog(Adw.Dialog):
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
         self.close()
+
+    def _on_analog_controls_docs_clicked(self, _button: Gtk.Button) -> None:
+        url = _analog_controls_docs_url()
+        try:
+            launcher = Gtk.UriLauncher.new(url)
+            launcher.launch(None, None, None)
+        except Exception as exc:
+            log.warning("Could not open Analog Controls documentation %s: %s", url, exc)
 
     def _save_current_control(self) -> bool:
         name = self.name_entry.get_text().strip()

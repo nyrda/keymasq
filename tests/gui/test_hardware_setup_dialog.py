@@ -169,7 +169,7 @@ class TestHardwareSetupDialog:
 
         assert dialog.raw_evdev_check.get_sensitive() is True
 
-    def test_raw_evdev_mode_keeps_configured_event_nodes(self, monkeypatch):
+    def test_raw_evdev_mode_skips_configured_event_nodes(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
@@ -223,9 +223,8 @@ class TestHardwareSetupDialog:
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True
-        assert set(detected_devices) == {"1234:1002@2", "1234:1002@3"}
-        assert detected_devices["1234:1002@2"]["paths"] == ["/dev/input/event20"]
-        assert detected_devices["1234:1002@3"]["paths"] == ["/dev/input/event21"]
+        assert set(detected_devices) == {"1234:1002@2"}
+        assert detected_devices["1234:1002@2"]["paths"] == ["/dev/input/event21"]
 
     def test_raw_unknown_device_uses_custom_empty_profile_mode(self, monkeypatch):
         gi.require_version("Gtk", "4.0")

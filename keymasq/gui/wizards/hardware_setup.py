@@ -542,9 +542,8 @@ class HardwareSetupDialog(Adw.Dialog):
                     phys=phys,
                     path=path,
                 )
-                if not self._show_raw_evdev_devices and (
-                    identity_key in configured_identity_keys
-                    or (not has_config_inventory and self._hardware_config_exists(vid_pid))
+                if identity_key in configured_identity_keys or (
+                    not has_config_inventory and self._hardware_config_exists(vid_pid)
                 ):
                     continue
                 hardware_id = pending_identity_hardware_ids.get(identity_key)
@@ -653,9 +652,8 @@ class HardwareSetupDialog(Adw.Dialog):
                 phys=phys,
                 path=path,
             )
-            if not self._show_raw_evdev_devices and (
-                identity_key in configured_identity_keys
-                or (not has_config_inventory and self._hardware_config_exists(vid_pid))
+            if identity_key in configured_identity_keys or (
+                not has_config_inventory and self._hardware_config_exists(vid_pid)
             ):
                 continue
             hardware_id = pending_identity_hardware_ids.get(identity_key)

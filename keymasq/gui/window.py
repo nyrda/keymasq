@@ -1108,7 +1108,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         dialog = HardwareSetupDialog(self, self.hardware_manager)
         dialog.connect("device-created", self._on_device_created)
-        dialog.present()
+        dialog.present(self)
 
     def _on_add_device_clicked(self, _button: Gtk.Button) -> None:
         self._on_add_device(_button)

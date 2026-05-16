@@ -34,6 +34,10 @@ _GAMEPAD_ABS_CODES = frozenset(
         evdev.ecodes.ABS_BRAKE,
     }
 )
+_GAMEPAD_CONTROLLER_ONLY_ABS_CODES = _GAMEPAD_ABS_CODES - {
+    evdev.ecodes.ABS_X,
+    evdev.ecodes.ABS_Y,
+}
 _GAMEPAD_BUTTON_CODES = frozenset(
     {
         evdev.ecodes.BTN_SOUTH,
@@ -358,8 +362,11 @@ def detect_input_classes_from_capabilities(
     )
 
     has_gamepad_axes = bool(abs_codes & _GAMEPAD_ABS_CODES)
-    has_gamepad_buttons = bool(key_codes & _GAMEPAD_BUTTON_CODES)
-    if has_gamepad_axes and has_gamepad_buttons:
+    has_controller_buttons = bool(key_codes & _GAMEPAD_BUTTON_CODES) or any(
+        evdev.ecodes.BTN_JOYSTICK <= code < evdev.ecodes.BTN_DIGI for code in key_codes
+    )
+    is_plain_absolute_touch = evdev.ecodes.BTN_TOUCH in key_codes and not has_controller_buttons
+    if has_gamepad_axes and not is_touchpad and not is_plain_absolute_touch:
         classes.append("gamepad")
 
     if is_touchpad:

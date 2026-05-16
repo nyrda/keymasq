@@ -191,6 +191,64 @@ def test_detect_input_classes_reports_touchpad_without_mouse() -> None:
     assert primary_input_class(classes) == DeviceType.OTHER
 
 
+def test_detect_input_classes_reports_generic_joystick_axes_as_gamepad() -> None:
+    caps = {
+        evdev.ecodes.EV_KEY: [
+            evdev.ecodes.BTN_TRIGGER,
+            evdev.ecodes.BTN_THUMB,
+            evdev.ecodes.BTN_TOP,
+            evdev.ecodes.BTN_BASE,
+        ],
+        evdev.ecodes.EV_ABS: [
+            evdev.ecodes.ABS_X,
+            evdev.ecodes.ABS_Y,
+            evdev.ecodes.ABS_RZ,
+            evdev.ecodes.ABS_THROTTLE,
+            evdev.ecodes.ABS_HAT0X,
+            evdev.ecodes.ABS_HAT0Y,
+        ],
+    }
+
+    classes = detect_input_classes_from_capabilities(caps)
+
+    assert classes == ["gamepad"]
+    assert primary_input_class(classes) == DeviceType.GAMEPAD
+
+
+def test_detect_input_classes_reports_abs_xy_joystick_as_gamepad() -> None:
+    caps = {
+        evdev.ecodes.EV_KEY: [
+            evdev.ecodes.BTN_TRIGGER,
+        ],
+        evdev.ecodes.EV_ABS: [
+            evdev.ecodes.ABS_X,
+            evdev.ecodes.ABS_Y,
+        ],
+    }
+
+    classes = detect_input_classes_from_capabilities(caps)
+
+    assert classes == ["gamepad"]
+    assert primary_input_class(classes) == DeviceType.GAMEPAD
+
+
+def test_detect_input_classes_does_not_treat_plain_absolute_pointer_as_gamepad() -> None:
+    caps = {
+        evdev.ecodes.EV_KEY: [
+            evdev.ecodes.BTN_TOUCH,
+        ],
+        evdev.ecodes.EV_ABS: [
+            evdev.ecodes.ABS_X,
+            evdev.ecodes.ABS_Y,
+        ],
+    }
+
+    classes = detect_input_classes_from_capabilities(caps)
+
+    assert classes == ["other"]
+    assert primary_input_class(classes) == DeviceType.OTHER
+
+
 def test_classify_event_device_type_uses_event_shape_for_combo_devices() -> None:
     device_types = ["mouse", "keyboard", "pointstick"]
 

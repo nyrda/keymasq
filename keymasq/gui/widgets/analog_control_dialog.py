@@ -1579,10 +1579,13 @@ class AnalogControlDialog(Adw.Dialog):
                 if config.mouse_motion.speed_y is not None
                 else config.mouse_motion.speed
             )
+            self._syncing_area_radius = True
             self.area_radius_x_row.set_value(config.mouse_motion.area_radius_x)
             self.area_radius_y_row.set_value(config.mouse_motion.area_radius_y)
+            self._syncing_area_radius = False
         finally:
             self._syncing_mouse_speed = False
+            self._syncing_area_radius = False
         self._remember_split_mouse_speeds()
         self._remember_area_radii()
         self.deadzone_row.set_value(config.mouse_motion.deadzone)
@@ -2400,10 +2403,11 @@ class AnalogControlDialog(Adw.Dialog):
         if not self._current_name:
             return
         name = self._current_name
+        if not self.manager.delete_analog_control(name):
+            return
         if self.profile_manager is not None:
             self.profile_manager.replace_analog_control_with_suppress(name)
-        if self.manager.delete_analog_control(name):
-            self.emit("analog-control-deleted", name)
+        self.emit("analog-control-deleted", name)
         self._current_name = None
         self._current_config = None
         self._editing_new_control = False

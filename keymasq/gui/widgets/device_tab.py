@@ -888,7 +888,10 @@ class DeviceTab(ProfileManagedTab):
     def _supports_analog_learning(self) -> bool:
         if self.device.analog_inputs:
             return True
-        return any(device.device_type == DeviceType.GAMEPAD for device in self.device.evdev_devices)
+        return any(
+            device.device_type not in {DeviceType.MOUSE, DeviceType.KEYBOARD}
+            for device in self.device.evdev_devices
+        )
 
     def is_keyboard_hardware(self) -> bool:
         key_count = sum(1 for b in self.device.buttons if b.id.startswith("key_"))

@@ -192,6 +192,67 @@ def test_analog_control_dialog_unsaved_selection_warns_and_can_discard(
     assert dialog._modified is False
 
 
+def test_analog_control_dialog_failed_delete_keeps_state(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    AnalogControlManager().save_analog_control(AnalogControlConfig(name="Alpha"))
+    dialog = AnalogControlDialog(Gtk.Window())
+    emitted: list[str] = []
+    replaced: list[str] = []
+    dialog.connect("analog-control-deleted", lambda _dialog, name: emitted.append(name))
+    dialog.manager.delete_analog_control = lambda _name: False  # type: ignore[method-assign]
+    dialog.profile_manager = type(
+        "ProfileManager",
+        (),
+        {"replace_analog_control_with_suppress": lambda _self, name: replaced.append(name)},
+    )()
+
+    dialog._on_delete_clicked(dialog.delete_btn)
+
+    assert dialog._current_name == "Alpha"
+    assert dialog._current_config is not None
+    assert dialog.editor_box.get_sensitive() is True
+    assert dialog.delete_btn.get_sensitive() is True
+    assert emitted == []
+    assert replaced == []
+
+
+def test_analog_control_dialog_successful_delete_replaces_profile_references(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    AnalogControlManager().save_analog_control(AnalogControlConfig(name="Alpha"))
+    dialog = AnalogControlDialog(Gtk.Window())
+    emitted: list[str] = []
+    replaced: list[str] = []
+    dialog.connect("analog-control-deleted", lambda _dialog, name: emitted.append(name))
+    dialog.profile_manager = type(
+        "ProfileManager",
+        (),
+        {"replace_analog_control_with_suppress": lambda _self, name: replaced.append(name)},
+    )()
+
+    dialog._on_delete_clicked(dialog.delete_btn)
+
+    assert dialog.manager.get_analog_control("Alpha") is None
+    assert dialog._current_name != "Alpha"
+    assert emitted == ["Alpha"]
+    assert replaced == ["Alpha"]
+
+
 def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
@@ -413,6 +474,32 @@ def test_mouse_area_radius_rows_sync_and_can_desync(temp_config_dir) -> None:
 
     assert dialog.area_radius_x_row.get_value() == 700
     assert dialog.area_radius_y_row.get_value() == 300
+
+
+def test_loading_mouse_area_preserves_different_radii(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig, AnalogMouseMotionConfig
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    AnalogControlManager().save_analog_control(
+        AnalogControlConfig(
+            name="Area",
+            mouse_motion=AnalogMouseMotionConfig(
+                enabled=True,
+                mode="area",
+                area_radius_x=400,
+                area_radius_y=500,
+            ),
+        )
+    )
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    assert dialog.area_radius_x_row.get_value() == 400
+    assert dialog.area_radius_y_row.get_value() == 500
 
 
 def test_mouse_area_capture_failure_uses_error_status(temp_config_dir, monkeypatch) -> None:
@@ -1008,6 +1095,33 @@ def test_analog_selector_emits_selected_control_names(temp_config_dir) -> None:
 
     assert results[0].action_type == ActionType.ANALOG_CONTROL
     assert results[0].analog_control_names == ["Mouse", "WASD"]
+
+
+def test_analog_selector_falls_back_to_singular_control_name(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    AnalogControlManager().save_analog_control(AnalogControlConfig(name="Mouse"))
+    action = MappingAction(
+        action_type=ActionType.ANALOG_CONTROL,
+        analog_control_name="Mouse",
+    )
+    action.analog_control_names = []
+
+    dialog = KeySelectorDialog(
+        Gtk.Window(),
+        "Left Stick",
+        current_action=action,
+        source_type="analog",
+        analog_input_type="stick",
+    )
+
+    assert dialog._selected_analog_control == "Mouse"
+    assert dialog._selected_analog_controls == ["Mouse"]
 
 
 def test_analog_selector_clicking_selected_control_deselects_it(temp_config_dir) -> None:

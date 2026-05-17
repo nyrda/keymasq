@@ -89,6 +89,30 @@ class TestGrabbedDeviceHelpers:
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("left_stick", "x")
         }
 
+    def test_analog_input_bindings_filter_by_source_for_grab_eligibility(self) -> None:
+        analog_inputs = {
+            "left_stick": {
+                "source": "kbd",
+                "axes": [{"role": "x", "evdev": "abs_x", "evdev_code": evdev.ecodes.ABS_X}],
+            },
+            "right_stick": {
+                "source": "mouse",
+                "axes": [{"role": "x", "evdev": "abs_y", "evdev_code": evdev.ecodes.ABS_Y}],
+            },
+            "pedal": {
+                "axes": [{"role": "x", "evdev": "abs_z", "evdev_code": evdev.ecodes.ABS_Z}],
+            },
+        }
+
+        assert ldm.analog_input_bindings(analog_inputs, source="kbd") == {
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z),
+        }
+        assert ldm.analog_input_bindings(analog_inputs, source="mouse") == {
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z),
+        }
+
     def test_refresh_analog_axis_ranges_does_not_infer_stick_center(
         self,
         monkeypatch: pytest.MonkeyPatch,

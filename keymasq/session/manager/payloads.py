@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import TYPE_CHECKING, Literal, cast
 
 from keymasq.common.models import (
@@ -20,6 +21,9 @@ from .state import ExecBinding
 
 if TYPE_CHECKING:
     from .core import SessionManager
+
+
+log = logging.getLogger(__name__)
 
 
 def clear_exec_refs(manager: "SessionManager", hardware_id: str) -> None:
@@ -247,6 +251,7 @@ def combo_action_signature_payload(
     if data.get("action") == "superkey":
         return None
     if data.get("action") == "analog_control":
+        log.warning("Ignoring unsupported combo action: analog_control")
         return None
     if data.get("action") == "exec" and not str(data.get("cmd", "") or ""):
         return None
@@ -508,6 +513,7 @@ def combo_action_to_payload(
         return action_data
 
     if action_type == "analog_control":
+        log.warning("Ignoring unsupported combo action: analog_control")
         return None
 
     return None
@@ -517,16 +523,21 @@ def _resolved_analog_control_configs(
     manager: "SessionManager",
     action: MappingAction,
 ) -> list[AnalogControlConfig]:
+    configs: list[AnalogControlConfig] = []
+    if action.analog_control_configs:
+        configs.extend(action.analog_control_configs)
+    elif action.analog_control_config is not None:
+        configs.append(action.analog_control_config)
+
     names = action.analog_control_names
     if not names and action.analog_control_name:
         names = [action.analog_control_name]
     if not names:
-        return []
+        return configs
     analog_controls = getattr(manager, "analog_controls", None)
     get_analog_control = getattr(analog_controls, "get_analog_control", None)
     if not callable(get_analog_control):
-        return []
-    configs: list[AnalogControlConfig] = []
+        return configs
     for name in names:
         config = get_analog_control(name)
         if isinstance(config, AnalogControlConfig):

@@ -204,7 +204,6 @@ speed_y = 900.0
 deadzone = 0.15
 sensitivity = 1.0
 response_curve = 1.0
-direction = "right"
 invert_x = false
 invert_y = false
 tick_ms = 8

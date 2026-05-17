@@ -635,8 +635,14 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             elif current_action.action_type == ActionType.SUPERKEY:
                 self._selected_superkey = current_action.superkey_name
             elif current_action.action_type == ActionType.ANALOG_CONTROL:
-                self._selected_analog_control = current_action.analog_control_name
                 self._selected_analog_controls = list(current_action.analog_control_names)
+                if not self._selected_analog_controls and current_action.analog_control_name:
+                    self._selected_analog_controls = [current_action.analog_control_name]
+                self._selected_analog_control = (
+                    self._selected_analog_controls[0]
+                    if self._selected_analog_controls
+                    else None
+                )
             elif current_action.action_type == ActionType.EXEC:
                 self._exec_cmd = current_action.cmd or ""
             elif current_action.action_type in (

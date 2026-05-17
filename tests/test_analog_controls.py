@@ -300,6 +300,32 @@ def test_analog_control_gamepad_output_learned_target_round_trips(temp_config_di
     assert loaded.gamepad_output.output_invert is True
 
 
+def test_analog_control_gamepad_output_max_direction_round_trips(
+    temp_config_dir,
+) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Route Pedal Max",
+            input_type="axis",
+            gamepad_output=AnalogGamepadOutputConfig(
+                enabled=True,
+                output_direction="max",
+            ),
+        )
+    )
+
+    content = (
+        temp_config_dir / "analog_controls" / "route_pedal_max.toml"
+    ).read_text(encoding="utf-8")
+    loaded = AnalogControlManager().get_analog_control("Route Pedal Max")
+
+    assert 'output_direction = "max"' not in content
+    assert loaded is not None
+    assert loaded.gamepad_output.output_direction == "max"
+    assert loaded.gamepad_output.output_invert is False
+
+
 def test_analog_control_gamepad_axis_threshold_action_round_trips(temp_config_dir) -> None:
     manager = AnalogControlManager()
     manager.save_analog_control(

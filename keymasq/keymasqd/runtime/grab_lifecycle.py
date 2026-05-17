@@ -101,13 +101,13 @@ async def grab_device_unlocked(
     resolved_button_values = {
         button_id: int(value) for button_id, value in (button_values or {}).items()
     }
-    mapped_bindings = {
+    button_mapped_bindings = {
         (int(event_type), int(code))
         for button_id, code in resolved_button_codes.items()
         if (event_type := resolve_evdev_event_type(button_map.get(button_id))) is not None
     }
     analog_bindings = analog_input_bindings(analog_inputs or {})
-    mapped_bindings |= analog_bindings
+    mapped_bindings = button_mapped_bindings | analog_bindings
     if update_desired:
         manager.grab_state.desired_paths[hardware_id] = set(requested_paths)
         manager.grab_state.desired_grabs[hardware_id] = desired_grab_config_cls(
@@ -197,10 +197,15 @@ async def grab_device_unlocked(
             raw_device = manager._device_input(path)
             available_count += 1
             caps = raw_device.capabilities()
+            interface_id = str(get_interface_id_fn(path) or "").lower()
+            interface_mapped_bindings = button_mapped_bindings | analog_input_bindings(
+                analog_inputs or {},
+                source=interface_id,
+            )
             has_mapped_buttons = device_has_mapped_buttons(
                 caps,
                 mapped_evdev_names,
-                mapped_bindings,
+                interface_mapped_bindings,
                 evdev_mod=evdev,
             )
 
@@ -403,12 +408,20 @@ def device_has_mapped_buttons(
     return False
 
 
-def analog_input_bindings(analog_inputs: dict[str, object]) -> set[tuple[int, int]]:
+def analog_input_bindings(
+    analog_inputs: dict[str, object],
+    *,
+    source: str | None = None,
+) -> set[tuple[int, int]]:
     bindings: set[tuple[int, int]] = set()
+    normalized_source = str(source or "").strip().lower()
     for raw_input in analog_inputs.values():
         if not isinstance(raw_input, dict):
             continue
         input_data = cast(dict[str, object], raw_input)
+        input_source = str(input_data.get("source", "") or "").strip().lower()
+        if normalized_source and input_source and input_source != normalized_source:
+            continue
         raw_axes = input_data.get("axes")
         if not isinstance(raw_axes, list):
             continue

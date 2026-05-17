@@ -204,7 +204,7 @@ async def process_analog_event(
 
     configs = _action_analog_control_configs(action)
     if not configs:
-        return True
+        return False
 
     for index, config in enumerate(configs):
         state_key = _control_state_key(analog_id, index, len(configs))

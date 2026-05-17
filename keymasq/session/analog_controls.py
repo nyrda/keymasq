@@ -122,7 +122,7 @@ class AnalogControlManager:
                     if gamepad_data.get("output_rest") is not None
                     else None
                 ),
-                output_direction=_toml_str(gamepad_data, "output_direction", "") or "",
+                output_direction=_toml_str(gamepad_data, "output_direction", "max") or "max",
                 output_invert=bool(gamepad_data.get("output_invert", False)),
                 sensitivity=_float_value(gamepad_data.get("sensitivity"), 1.0),
                 response_curve=_float_value(gamepad_data.get("response_curve"), 1.0),

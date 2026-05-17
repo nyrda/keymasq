@@ -252,6 +252,8 @@ def parse_analog_control_config(
                         child = cast(JsonObject, raw_action)
                     if child is None:
                         continue
+                    if _is_nested_analog_control_action(child):
+                        continue
                     parsed = parse_action(
                         manager,
                         child,
@@ -284,6 +286,13 @@ def parse_analog_control_config(
             gamepad_output=gamepad_output,
             thresholds=thresholds,
         )
+    )
+
+
+def _is_nested_analog_control_action(action_data: JsonObject) -> bool:
+    return (
+        action_data.get("action") == ActionType.ANALOG_CONTROL.value
+        or action_data.get("action_type") == ActionType.ANALOG_CONTROL.value
     )
 
 

@@ -124,7 +124,9 @@ directions and for 1D axis analog output when `output_direction = "both"`. Mouse
 movement then multiplies the shaped value by speed. Stick mouse movement can use
 separate `speed_x` and `speed_y`; if omitted, both default to `speed`. 1D axis
 mouse movement uses `direction = "horizontal"` or `direction = "vertical"` to
-map negative and positive source values to both mouse directions.
+map negative and positive source values to both mouse directions. Use `left`,
+`right`, `up`, or `down` when the 1D axis should move the mouse in only that
+direction.
 
 `mode = "area"` changes stick mouse movement from velocity control to position
 control inside a configured 2D area. Runtime shapes each stick axis independently

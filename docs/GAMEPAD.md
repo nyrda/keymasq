@@ -1,6 +1,8 @@
-# Gamepad Output Support
+# Game Controller Support
 
-Keymasq can remap mouse buttons, keyboard keys, or any input to virtual gamepad buttons and analog axes. This is useful for games that expect controller input or for using mouse buttons as gamepad controls.
+Keymasq can remap keyboard, mouse, game controller, and other analog inputs to
+virtual gamepad buttons and analog axes. It can also remap physical controller
+buttons, sticks, triggers, wheels, or any analog axes.
 
 ## How It Works
 
@@ -161,18 +163,22 @@ Gamepad buttons support the same rapidfire and tap options as keyboard/mouse map
 
 ### Adding a Physical Gamepad
 
-When you add a gamepad in the hardware setup flow, Keymasq now detects its reported
-digital gamepad buttons from evdev capabilities and creates the hardware profile
-automatically. Standard buttons such as face buttons, shoulders, start/select/guide,
-stick clicks, and digital D-pad buttons are added when the controller reports them.
-Third-party uinput controllers and wheels can be added when they report gamepad
-capabilities; Keymasq's own virtual output devices stay hidden from the picker.
-Devices with controller-style axes but non-standard joystick buttons are treated
-as gamepads, and their buttons can be added later with the learn flow.
+When you add a game controller in the hardware setup flow, Keymasq detects its
+reported buttons and analog axes from evdev capabilities and creates the
+hardware profile automatically. Standard buttons such as face buttons,
+shoulders, start/select/guide, stick clicks, and digital D-pad buttons are added
+when the controller reports them. Third-party uinput controllers and wheels can
+be added when they report gamepad capabilities; Keymasq's own virtual output
+devices stay hidden from the picker.
 
-Analog axes still passthrough normally, but they are not editable remap sources yet.
-If your controller has unusual extra digital buttons, you can add them later from the
-device tab using the same listen/capture flow used for keyboards and mice.
+Analog axes are editable remap sources. Use **Learn Analog** from the device tab
+to add sticks, triggers, wheels, or unusual analog axes, then attach a saved
+analog control config to that source. See [Analog Controls](ANALOG_CONTROLS.md)
+for the reusable analog config format and behavior.
+
+If your controller has unusual extra digital buttons, you can add them later
+from the device tab using the same listen/capture flow used for keyboards and
+mice.
 
 When Keymasq grabs a physical gamepad, it creates a passthrough uinput clone for
 unmapped controller events. That clone reuses the source controller name and input
@@ -243,9 +249,6 @@ For Xbox-style naming, use: `btn_a`, `btn_b`, `btn_x`, `btn_y`
 
 ## Limitations
 
-- **Analog axes**: physical gamepad axes pass through, but they are not
-  editable remap sources
-- **Triggers**: virtual gamepad output is digital only (on/off, not
-  pressure-sensitive)
-- **Sticks**: no analog stick emulation for virtual output
-- **Gamepad-to-gamepad**: remapping one gamepad to another is not supported
+- **Touchpads**: controller touchpads are not supported for remapping yet
+- **Dedicated drivers**: vendor-specific features may still need their native
+  driver or Steam Input support

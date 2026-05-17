@@ -33,7 +33,7 @@ multi-step automation.
 - [Superkeys](SUPERKEYS.md) — one key fires multiple actions, or different actions for tap vs hold vs double-tap.
 - [Combos](COMBOS.md) — trigger actions or superkeys from any input combination, even across devices.
 - [Macros](MACROS.md) — record, edit, and play back input sequences.
-- [Gamepad](GAMEPAD.md) — controller remapping, including analog triggers.
+- [Gamepad](GAMEPAD.md) — controller remapping, analog controls, and virtual gamepads.
 
 ## Desktop support
 

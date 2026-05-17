@@ -431,6 +431,91 @@ def test_stick_mouse_area_exposes_radius_and_start_capture(
     assert saved.mouse_motion.area_start_y == 480
 
 
+def test_mouse_area_capture_is_cancelled_when_selection_changes(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig, AnalogMouseMotionConfig
+    from keymasq.gui.widgets import analog_control_dialog as dialog_module
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    class _Result:
+        def __init__(self, x: int, y: int) -> None:
+            self.x = x
+            self.y = y
+
+    callbacks = []
+
+    class _SlurpCapture:
+        available = True
+
+        def set_compositor(self, compositor: str) -> None:
+            self.compositor = compositor
+
+        def capture_point(self, callback) -> None:
+            callbacks.append(callback)
+
+    monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
+    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Alpha",
+            mouse_motion=AnalogMouseMotionConfig(
+                enabled=True,
+                mode="area",
+                area_start_enabled=True,
+            ),
+        )
+    )
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Beta",
+            mouse_motion=AnalogMouseMotionConfig(
+                enabled=True,
+                mode="area",
+                area_start_enabled=True,
+                area_start_x=10,
+                area_start_y=20,
+            ),
+        )
+    )
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    def row_for(name: str):
+        idx = 0
+        while row := dialog.list_box.get_row_at_index(idx):
+            if getattr(row, "_analog_control_name", None) == name:
+                return row
+            idx += 1
+        raise AssertionError(f"missing row {name}")
+
+    beta_row = row_for("Beta")
+
+    dialog._on_area_capture_position_clicked(dialog.area_start_capture_btn)
+    request_id = dialog._capture_request_id
+    assert callbacks
+    assert dialog._capture_pending is True
+
+    dialog.list_box.select_row(beta_row)
+
+    assert dialog._current_name == "Beta"
+    assert dialog._capture_pending is False
+    assert dialog._capture_apply is None
+    assert dialog._capture_request_id != request_id
+
+    callbacks[0](_Result(640, 480))
+
+    assert dialog.area_start_x_entry.get_text() == "10"
+    assert dialog.area_start_y_entry.get_text() == "20"
+
+
 def test_mouse_area_start_entries_are_centered_and_numeric(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gdk, GLib, Gtk

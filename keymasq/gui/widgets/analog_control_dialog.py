@@ -1467,6 +1467,10 @@ class AnalogControlDialog(Adw.Dialog):
         if self._suppress_selection_guard:
             return
 
+        selection_key = self._selection_key_for_row(row)
+        if selection_key != self._active_selection_key:
+            self._cancel_active_position_capture()
+
         if row is None:
             self._current_config = None
             self._current_name = None
@@ -1478,7 +1482,6 @@ class AnalogControlDialog(Adw.Dialog):
             self._update_buttons()
             return
 
-        selection_key = self._selection_key_for_row(row)
         if (
             self._modified
             and selection_key is not None
@@ -2284,6 +2287,10 @@ class AnalogControlDialog(Adw.Dialog):
         self._capture_apply = None
         self._capture_button = None
         self._capture_status_label = None
+
+    def _cancel_active_position_capture(self) -> None:
+        if self._capture_pending or self._capture_timeout_id or self._capture_apply is not None:
+            self._cancel_capture_position("")
 
     def _save_current_control(self) -> bool:
         name = self.name_entry.get_text().strip()

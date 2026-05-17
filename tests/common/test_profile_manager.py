@@ -264,6 +264,75 @@ class TestProfileManager:
         assert first.path.name == "Work_Mode.toml"
         assert second.path.name == "Work_Mode_2.toml"
 
+    def test_save_existing_loaded_profile_updates_original_path(self, temp_config_dir):
+        profiles_dir = temp_config_dir / "profiles"
+        fixture_path = profiles_dir / "analog-gamepad.toml"
+        fixture_path.write_text(
+            """
+[profile]
+name = "Integration Analog Gamepad"
+enabled = true
+is_permanent = true
+priority = 0
+notify_on_activation = true
+created_at = "2026-05-18T12:00:00"
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        profile = manager.get_profile("Integration Analog Gamepad")
+
+        assert profile is not None
+        assert profile.path == fixture_path
+
+        manager.set_profile_enabled("Integration Analog Gamepad", False)
+
+        assert 'enabled = false' in fixture_path.read_text(encoding="utf-8")
+        assert not (profiles_dir / "Integration_Analog_Gamepad.toml").exists()
+
+    def test_duplicate_profile_names_prefer_canonical_path(
+        self,
+        temp_config_dir,
+        caplog,
+    ):
+        profiles_dir = temp_config_dir / "profiles"
+        canonical_path = profiles_dir / "Integration_Analog_Gamepad.toml"
+        duplicate_path = profiles_dir / "analog-gamepad.toml"
+        canonical_path.write_text(
+            """
+[profile]
+name = "Integration Analog Gamepad"
+enabled = false
+is_permanent = true
+priority = 0
+notify_on_activation = true
+created_at = "2026-05-18T12:00:00"
+""".lstrip(),
+            encoding="utf-8",
+        )
+        duplicate_path.write_text(
+            """
+[profile]
+name = "Integration Analog Gamepad"
+enabled = true
+is_permanent = true
+priority = 0
+notify_on_activation = true
+created_at = "2026-05-18T12:00:00"
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        profile = manager.get_profile("Integration Analog Gamepad")
+
+        assert profile is not None
+        assert profile.path == canonical_path
+        assert profile.config.enabled is False
+        assert len(manager.list_profiles()) == 1
+        assert "Ignoring duplicate profile name 'Integration Analog Gamepad'" in caplog.text
+
     def test_rename_profile_reuses_existing_sanitized_path(self, temp_config_dir):
         manager = ProfileManager()
         profile = ProfileConfig(name="Work/Mode", enabled=True, device_layers={})

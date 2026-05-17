@@ -133,9 +133,41 @@ class ProfileManager:
         for profile_file in sorted(paths.PROFILES_DIR.glob("*.toml")):
             try:
                 config = self._load_profile(profile_file)
-                self._profiles[config.name] = ProfileInfo(path=profile_file, config=config)
+                self._add_loaded_profile(ProfileInfo(path=profile_file, config=config))
             except Exception as e:
                 log.error("Failed to load %s: %s", profile_file, e)
+
+    def _add_loaded_profile(self, profile: ProfileInfo) -> None:
+        existing = self._profiles.get(profile.config.name)
+        if existing is None:
+            self._profiles[profile.config.name] = profile
+            return
+
+        selected = self._select_duplicate_profile(existing, profile)
+        ignored = profile if selected is existing else existing
+        self._profiles[profile.config.name] = selected
+        log.warning(
+            "Ignoring duplicate profile name '%s' from %s; using %s",
+            profile.config.name,
+            ignored.path,
+            selected.path,
+        )
+
+    def _select_duplicate_profile(
+        self,
+        first: ProfileInfo,
+        second: ProfileInfo,
+    ) -> ProfileInfo:
+        first_is_canonical = self._is_canonical_profile_storage_path(first.config.name, first.path)
+        second_is_canonical = self._is_canonical_profile_storage_path(
+            second.config.name,
+            second.path,
+        )
+        if first_is_canonical and not second_is_canonical:
+            return first
+        if second_is_canonical and not first_is_canonical:
+            return second
+        return first
 
     def reload(self) -> None:
         self._load_all()
@@ -597,13 +629,19 @@ class ProfileManager:
         safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "_", profile_name).strip("._")
         return safe_name or "profile"
 
+    def _canonical_profile_storage_path(self, profile_name: str) -> Path:
+        return paths.PROFILES_DIR / f"{self._sanitize_profile_storage_stem(profile_name)}.toml"
+
+    def _is_canonical_profile_storage_path(self, profile_name: str, path: Path) -> bool:
+        return path == self._canonical_profile_storage_path(profile_name)
+
     def _profile_path_for_name(
         self,
         profile_name: str,
         current_path: Path | None = None,
     ) -> Path:
         base_stem = self._sanitize_profile_storage_stem(profile_name)
-        candidate = paths.PROFILES_DIR / f"{base_stem}.toml"
+        candidate = self._canonical_profile_storage_path(profile_name)
         suffix = 2
 
         occupied_paths = {
@@ -810,10 +848,13 @@ class ProfileManager:
             if current_path is None:
                 if existing_profile.config is not config:
                     raise ValueError(f"Profile '{profile_name}' already exists")
-                current_path = existing_profile.path
+                path = existing_profile.path
             elif existing_profile.path != current_path:
                 raise ValueError(f"Profile '{profile_name}' already exists")
-        path = self._profile_path_for_name(profile_name, current_path=current_path)
+            else:
+                path = self._profile_path_for_name(profile_name, current_path=current_path)
+        else:
+            path = self._profile_path_for_name(profile_name, current_path=current_path)
 
         self._write_profile_file(config, path, validate_window_rules=False)
 

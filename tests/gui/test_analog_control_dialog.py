@@ -811,6 +811,8 @@ def test_trigger_analog_control_saves_digital_only_positive_ranges(temp_config_d
     assert dialog.template_group.get_visible() is False
     assert dialog._thresholds[0].axis == "x"
     assert dialog._thresholds[0].trigger_min >= 0.0
+    row = dialog._threshold_rows[0]
+    assert row._spin_trigger_min.get_adjustment().get_lower() == -100.0
     assert dialog._save_current_control() is True
 
     saved = dialog.manager.get_analog_control("Axis Control")

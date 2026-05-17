@@ -383,6 +383,21 @@ def test_axis_analog_control_accepts_mouse_motion_but_rejects_y_axis() -> None:
     assert config.mouse_motion.response_curve == 0.75
     assert config.mouse_motion.direction == "vertical"
 
+    signed = AnalogControlConfig(
+        name="Signed Axis",
+        input_type="axis",
+        thresholds=[
+            AnalogActionThreshold(
+                axis="x",
+                trigger_min=-1.0,
+                trigger_max=-0.5,
+                release_min=-1.0,
+                release_max=-0.45,
+            )
+        ],
+    )
+    assert signed.thresholds[0].trigger_min == -1.0
+
     with pytest.raises(ValueError, match="axis must be 'x'"):
         AnalogControlConfig(
             name="Bad Trigger",

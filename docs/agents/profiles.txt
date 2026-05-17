@@ -228,7 +228,7 @@ actions = [
 ```
 
 Axis Analog Controls use `input_type = "axis"`, one threshold axis
-(`axis = "x"`), and normalized ranges from `0.0` to `1.0`.
+(`axis = "x"`), and signed threshold ranges from `-1.0` to `1.0`.
 
 Bind a saved macro:
 

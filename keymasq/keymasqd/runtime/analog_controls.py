@@ -310,7 +310,8 @@ async def _evaluate_thresholds(
     source_active = device_runtime.state.analog_active_thresholds.setdefault(source_id, set())
     axis_values = device_runtime.state.analog_axis_values.setdefault(source_id, {})
     for index, threshold in enumerate(config.thresholds):
-        value = float(axis_values.get(threshold.axis, 0.0))
+        value_key = f"{threshold.axis}_signed" if config.input_type == "axis" else threshold.axis
+        value = float(axis_values.get(value_key, 0.0))
         key = _threshold_key(source_id, index)
         is_active = key in source_active
         if not is_active and _inside(value, threshold.trigger_min, threshold.trigger_max):

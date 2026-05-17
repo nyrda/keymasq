@@ -174,8 +174,7 @@ Analog Controls map an analog source, such as `left_stick`, `right_stick`,
 `left_trigger`, or `right_trigger`, to a saved analog config. A config can:
 
 - turn stick position or a 1D axis into continuous relative mouse movement
-- turn stick axis ranges into normal digital actions
-- turn trigger pull ranges into normal digital actions
+- turn stick or 1D axis ranges into normal digital actions
 - route sticks or triggers to a selected gamepad output with an analog deadzone
   and optional left/right output side
 - tune analog output and mouse movement with sensitivity and response curve

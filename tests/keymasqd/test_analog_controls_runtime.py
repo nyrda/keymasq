@@ -257,6 +257,43 @@ async def test_trigger_threshold_uses_positive_normalized_range() -> None:
 
 
 @pytest.mark.asyncio
+async def test_axis_threshold_can_use_negative_signed_range() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Signed Axis",
+                input_type="axis",
+                thresholds=[
+                    AnalogActionThreshold(
+                        axis="x",
+                        trigger_min=-1.0,
+                        trigger_max=-0.5,
+                        release_min=-1.0,
+                        release_max=-0.45,
+                        actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_a")],
+                    )
+                ],
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+
+    assert await process_analog_event(
+        runtime,
+        FakeEvent(-25000),
+        "abs_x",
+        mapping,
+        deps=_deps(),
+    )
+    assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+
+    assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
+    assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
+
+
+@pytest.mark.asyncio
 async def test_axis_mouse_motion_uses_direction_and_response_curve() -> None:
     keyboard = FakeUInput()
     mapping = {

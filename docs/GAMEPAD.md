@@ -92,7 +92,7 @@ analog_control_names = ["FPS Mouse", "WASD"]
 | Type | Axes | Normalized Range | Use Cases |
 |------|------|-----------------|-----------|
 | **Stick** | X + Y | `-1.0` to `1.0` per axis | Thumbsticks, flight sticks, analog D-pads |
-| **Axis** | X only | `0.0` to `1.0` | Triggers, sliders, pedals, throttles |
+| **Axis** | X only | `-1.0` to `1.0` for signed ranges | Triggers, sliders, pedals, throttles |
 
 ### Modes
 
@@ -153,9 +153,9 @@ Each threshold defines:
   the action doesn't flicker at the boundary)
 - **Actions** — one or more actions to fire (keyboard, mouse, gamepad, etc.)
 
-Stick thresholds use values from `-1.0` to `1.0`. Axis thresholds use
-`0.0` to `1.0`. Multiple thresholds can overlap — they are evaluated
-independently.
+Stick and 1D axis thresholds use values from `-1.0` to `1.0`. Positive ranges
+cover one direction; negative ranges cover the opposite direction. Multiple
+thresholds can overlap — they are evaluated independently.
 
 **Templates** (stick only):
 - **WASD** — maps stick to W/A/S/D keys
@@ -239,11 +239,11 @@ rapidfire_enabled = true
 rapidfire_hold_ms = 30
 rapidfire_wait_ms = 20
 
-# Axis remap (key to trigger)
+# Button to trigger axis
 [devices."046d:c548".mapping.btn_back]
 action = "gamepad_axis"
-target = "abs_x"
-value = -32768
+target = "abs_z"
+value = 255
 
 # Analog control (stick to mouse)
 [devices."045e:028e".mapping.right_stick]

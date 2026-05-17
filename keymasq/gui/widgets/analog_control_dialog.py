@@ -1690,8 +1690,6 @@ class AnalogControlDialog(Adw.Dialog):
 
         bar_row = Adw.ActionRow()
         range_bar = ThresholdRangeBar()
-        if is_axis:
-            range_bar.set_domain(0.0, 1.0)
         range_bar.set_ranges(
             threshold.trigger_min,
             threshold.trigger_max,
@@ -1719,14 +1717,12 @@ class AnalogControlDialog(Adw.Dialog):
             axis_row.add_suffix(axis_buttons)
             row.add_row(axis_row)
 
-        value_lower = 0.0 if is_axis else -100.0
         trigger_min_spin = self._percent_spin_row(
             "Activation Min",
             threshold.trigger_min,
             self._on_primary_threshold_changed,
             index,
             row,
-            lower=value_lower,
         )
         trigger_max_spin = self._percent_spin_row(
             "Activation Max",
@@ -1734,7 +1730,6 @@ class AnalogControlDialog(Adw.Dialog):
             self._on_primary_threshold_changed,
             index,
             row,
-            lower=value_lower,
         )
         hysteresis_spin = self._percent_spin_row(
             "Hysteresis",
@@ -1761,7 +1756,6 @@ class AnalogControlDialog(Adw.Dialog):
             self._on_advanced_threshold_changed,
             index,
             row,
-            lower=value_lower,
         )
         release_max_spin = self._percent_spin_row(
             "Release Max",
@@ -1769,7 +1763,6 @@ class AnalogControlDialog(Adw.Dialog):
             self._on_advanced_threshold_changed,
             index,
             row,
-            lower=value_lower,
         )
         row._spin_release_min = release_min_spin
         row._spin_release_max = release_max_spin
@@ -1822,7 +1815,7 @@ class AnalogControlDialog(Adw.Dialog):
         )
 
     def _threshold_domain(self) -> tuple[float, float]:
-        return (0.0, 1.0) if self._is_axis_control() else (-1.0, 1.0)
+        return (-1.0, 1.0)
 
     def _sync_thresholds_for_input_type(self) -> None:
         minimum, maximum = self._threshold_domain()

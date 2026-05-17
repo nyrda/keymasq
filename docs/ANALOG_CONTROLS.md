@@ -130,8 +130,9 @@ A threshold activates when the axis value enters the trigger range and
 releases when it leaves the release range. The trigger range must be inside
 the release range for explicit hysteresis.
 
-Stick thresholds use `-1.0` to `1.0`. Axis thresholds use `0.0` to `1.0`.
-Overlapping thresholds are valid and evaluated independently.
+Stick and 1D axis thresholds use `-1.0` to `1.0`. Positive ranges cover one
+direction; negative ranges cover the opposite direction. Overlapping thresholds
+are valid and evaluated independently.
 
 ## Input Shaping
 

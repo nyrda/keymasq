@@ -536,13 +536,6 @@ def validate_analog_control_config(config: AnalogControlConfig) -> None:
             if config.input_type == "axis":
                 raise ValueError(f"threshold {index} axis must be 'x' for axis controls")
             raise ValueError(f"threshold {index} axis must be 'x' or 'y'")
-        if config.input_type == "axis" and min(
-            threshold.trigger_min,
-            threshold.trigger_max,
-            threshold.release_min,
-            threshold.release_max,
-        ) < 0.0:
-            raise ValueError(f"threshold {index} axis range values must be between 0 and 1")
         if threshold.trigger_min > threshold.trigger_max:
             raise ValueError(f"threshold {index} activation range is invalid")
         if threshold.release_min > threshold.release_max:

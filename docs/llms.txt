@@ -1,7 +1,8 @@
 # Keymasq agent guide
 
-Keymasq is a Linux input remapper with per-app profiles, macros, combos,
-superkeys, rapidfire, and virtual keyboard/mouse/gamepad output.
+Keymasq is a Linux keyboard, mouse, and game controller remapper with per-app
+profiles, macros, combos, superkeys, analog controls, rapidfire, and virtual
+keyboard/mouse/gamepad output.
 
 Use this file as the entry point for web agents. For any task that edits or
 generates Keymasq config, fetch the focused reference below instead of guessing
@@ -40,6 +41,7 @@ Primary docs:
 - Combos: https://keymasq.tools/docs/latest/COMBOS/
 - Superkeys: https://keymasq.tools/docs/latest/SUPERKEYS/
 - Gamepad: https://keymasq.tools/docs/latest/GAMEPAD/
+- Analog Controls: https://keymasq.tools/docs/latest/ANALOG_CONTROLS/
 - Examples: https://keymasq.tools/docs/latest/EXAMPLES/
 - Wayland: https://keymasq.tools/docs/latest/WAYLAND/
 - GNOME: https://keymasq.tools/docs/latest/GNOME/
@@ -71,6 +73,7 @@ Primary docs:
   hardware/<hardware_id>.toml
   profiles/<profile_name>.toml
   superkeys/<superkey_name>.toml
+  analog_controls/<control_name>.toml
   recording_settings.toml
   settings.toml
 ```

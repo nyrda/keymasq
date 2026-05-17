@@ -302,8 +302,9 @@ class HardwareSetupDialog(Adw.Dialog):
 
         self.gamepad_mode_info = Gtk.Label(
             label=(
-                "Gamepad profile uses detected capabilities and saves the standard digital "
-                "buttons it reports. Analog axes still passthrough and are not remappable yet."
+                "Gamepad template includes detected digital buttons and standard stick "
+                "inputs. Use Learn Analog from the device tab to add triggers or other "
+                "analog axes."
             )
         )
         self.gamepad_mode_info.add_css_class("dim-label")

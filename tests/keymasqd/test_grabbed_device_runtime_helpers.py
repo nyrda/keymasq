@@ -78,6 +78,17 @@ class TestGrabbedDeviceHelpers:
             evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 10),
             deps=deps,
         )
+        syn_mt_report = getattr(evdev.ecodes, "SYN_MT_REPORT", None)
+        if syn_mt_report is None:
+            pytest.skip("evdev does not expose SYN_MT_REPORT")
+        await gde.process_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, int(syn_mt_report), 0),
+            deps=deps,
+        )
+        assert gdo.passthrough_frame_open(passthrough)
+        assert passthrough.syn_count == 0
+
         await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 20),
@@ -86,6 +97,7 @@ class TestGrabbedDeviceHelpers:
 
         assert passthrough.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 10),
+            (evdev.ecodes.EV_SYN, int(syn_mt_report), 0),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 20),
         ]
         assert passthrough.syn_count == 0
@@ -101,9 +113,43 @@ class TestGrabbedDeviceHelpers:
         assert not gdo.passthrough_frame_open(passthrough)
         assert [label for label, _duration_us in diagnostics] == [
             "passthrough_other",
+            "syn",
             "passthrough_other",
             "passthrough_syn",
         ]
+
+    @pytest.mark.asyncio
+    async def test_passthrough_syn_mt_report_opens_frame_for_empty_contact_update(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        syn_mt_report = getattr(evdev.ecodes, "SYN_MT_REPORT", None)
+        if syn_mt_report is None:
+            pytest.skip("evdev does not expose SYN_MT_REPORT")
+
+        passthrough = _CountingUInput()
+        device = _make_grabbed_device(monkeypatch)
+        device.uinput = passthrough  # type: ignore[assignment]
+        deps = gde.build_event_processing_deps(log=logging.getLogger("test"))
+
+        await gde.process_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, int(syn_mt_report), 0),
+            deps=deps,
+        )
+
+        assert passthrough.writes == [(evdev.ecodes.EV_SYN, int(syn_mt_report), 0)]
+        assert passthrough.syn_count == 0
+        assert gdo.passthrough_frame_open(passthrough)
+
+        await gde.process_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0),
+            deps=deps,
+        )
+
+        assert passthrough.syn_count == 1
+        assert not gdo.passthrough_frame_open(passthrough)
 
     @pytest.mark.asyncio
     async def test_generated_gamepad_output_defers_syn_inside_passthrough_frame(

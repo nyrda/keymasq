@@ -410,7 +410,10 @@ async def process_event(
 
     if event.type == evdev_mod.ecodes.EV_SYN:
         diag_label = "syn"
-        if int(event.code) == int(getattr(evdev_mod.ecodes, "SYN_REPORT", 0)):
+        event_code = int(event.code)
+        syn_report = int(getattr(evdev_mod.ecodes, "SYN_REPORT", 0))
+        syn_mt_report = int(getattr(evdev_mod.ecodes, "SYN_MT_REPORT", 0))
+        if event_code == syn_report:
             passthrough_frame_open = runtime_outputs.passthrough_frame_open(
                 device_runtime.uinput
             )
@@ -420,6 +423,11 @@ async def process_event(
             )
             if passthrough_frame_open:
                 diag_label = "passthrough_syn"
+        elif event_code == syn_mt_report:
+            writer = identity_uinput_writer(device_runtime.uinput)
+            if writer is not None:
+                writer.write(evdev_mod.ecodes.EV_SYN, event_code, int(event.value))
+                runtime_outputs.mark_passthrough_frame_open(device_runtime.uinput)
         else:
             runtime_outputs.mark_passthrough_frame_closed(device_runtime.uinput)
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)

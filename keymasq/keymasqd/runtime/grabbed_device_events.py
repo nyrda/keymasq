@@ -409,6 +409,13 @@ async def process_event(
         return
 
     if event.type == evdev_mod.ecodes.EV_SYN:
+        if int(event.code) == int(getattr(evdev_mod.ecodes, "SYN_REPORT", 0)):
+            runtime_outputs.flush_passthrough_frame(
+                device_runtime.uinput,
+                uinput_writer=identity_uinput_writer,
+            )
+        else:
+            runtime_outputs.mark_passthrough_frame_closed(device_runtime.uinput)
         _record_diagnostics(device_runtime, "syn", started_ns, time_mod=time_mod)
         return
 
@@ -438,6 +445,7 @@ async def process_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         _record_diagnostics(device_runtime, "passthrough_other", started_ns, time_mod=time_mod)
         return
@@ -451,6 +459,7 @@ async def process_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         if int(event.value) == 0:
             device_runtime.state.combo_passthrough_held.discard(event_name)
@@ -517,6 +526,7 @@ async def process_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_fast"
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
@@ -572,6 +582,7 @@ async def process_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_mapped"
 
@@ -717,6 +728,7 @@ async def _process_wheel_pulse_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         return "wheel_passthrough"
     if action.action_type == ActionType.SUPPRESS:

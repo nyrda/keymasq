@@ -4,7 +4,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import evdev
 
@@ -33,6 +33,14 @@ from keymasq.keymasqd.runtime.mouse_actions import (
 )
 
 log = logging.getLogger("keymasqd.superkey")
+
+
+def _syn_if_passthrough_frame_closed(uinput: object) -> None:
+    from keymasq.keymasqd.runtime.grabbed_device_outputs import (
+        syn_if_passthrough_frame_closed,
+    )
+
+    syn_if_passthrough_frame_closed(uinput, cast(Any, uinput))
 
 
 class SuperkeyState(Enum):
@@ -453,7 +461,7 @@ class SuperkeyMachine:
                 )
             if should_emit:
                 uinput.write(evdev.ecodes.EV_ABS, axis_code, int(action.axis_value))
-                uinput.syn()
+                _syn_if_passthrough_frame_closed(uinput)
             return
 
         if action.action_type in ("keyboard", "mouse", "gamepad"):
@@ -482,7 +490,7 @@ class SuperkeyMachine:
                 should_emit = self.key_event_tracker(bucket, int(code), 1)
             if should_emit:
                 uinput.write(evdev.ecodes.EV_KEY, code, 1)
-                uinput.syn()
+                _syn_if_passthrough_frame_closed(uinput)
 
     async def _execute_action_up(self, action: SuperkeyActionData) -> None:
         if action.action_type in (
@@ -518,7 +526,7 @@ class SuperkeyMachine:
                 should_emit = self.axis_event_tracker(bucket, int(axis_code), 0)
             if should_emit:
                 uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
-                uinput.syn()
+                _syn_if_passthrough_frame_closed(uinput)
             return
 
         if action.action_type in ("keyboard", "mouse", "gamepad"):
@@ -541,7 +549,7 @@ class SuperkeyMachine:
                 should_emit = self.key_event_tracker(bucket, int(code), 0)
             if should_emit:
                 uinput.write(evdev.ecodes.EV_KEY, code, 0)
-                uinput.syn()
+                _syn_if_passthrough_frame_closed(uinput)
 
     def _get_uinput(self, action_type: str) -> _WritableUInput | None:
         if action_type == "keyboard":

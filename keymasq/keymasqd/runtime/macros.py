@@ -11,6 +11,7 @@ from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
     normalize_macro_loop_stop_behavior,
 )
+from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
 
 type JsonObject = dict[str, object]
 type IntValueFn = Callable[[object, int], int]
@@ -424,7 +425,7 @@ async def play_macro_task(
                                 evdev_mod.ecodes.REL_Y,
                                 y,
                             )
-                            output.syn()
+                            syn_if_passthrough_frame_closed(uinput, output)
                     continue
                 if action_type:
                     timeline_offset_s += await run_macro_control_action(
@@ -488,7 +489,7 @@ async def play_macro_task(
                 if output is None:
                     continue
                 output.write(event_type, event_code, event_value)
-                output.syn()
+                syn_if_passthrough_frame_closed(uinput, output)
                 if event_type == evdev_mod.ecodes.EV_KEY:
                     if event_value == 1:
                         track_macro_key_press(manager, instance_id, output_class, event_code)
@@ -736,7 +737,7 @@ def release_macro_held_for_instance(
         if not uinput:
             continue
         try:
-            uinput.syn()
+            syn_if_passthrough_frame_closed(uinput, uinput)
         except Exception:
             pass
 

@@ -38,6 +38,7 @@ from keymasq.keymasqd.runtime.action_runner import (
     dispatch_action_trigger,
     is_hold_macro_action,
 )
+from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
 from keymasq.keymasqd.runtime.mouse_actions import (
     rapidfire_relative_pulses,
     resolve_mouse_output_target,
@@ -1778,7 +1779,7 @@ def write_combo_key(
     if writer is None:
         return
     writer.write(deps.evdev_mod.ecodes.EV_KEY, int(code), int(value))
-    writer.syn()
+    syn_if_passthrough_frame_closed(uinput_dev, writer)
 
 
 def write_combo_relative(
@@ -1808,7 +1809,7 @@ def write_combo_axis(
     if writer is None:
         return
     writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
-    writer.syn()
+    syn_if_passthrough_frame_closed(uinput_dev, writer)
 
 
 def emit_combo_mouse_move(

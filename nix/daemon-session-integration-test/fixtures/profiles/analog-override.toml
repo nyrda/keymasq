@@ -1,0 +1,13 @@
+[profile]
+name = "Integration Analog Override"
+enabled = false
+is_permanent = true
+priority = 250
+notify_on_activation = false
+created_at = "2026-05-12T00:01:05"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$HARDWARE_ID".mapping.left_stick]
+action = "suppress"

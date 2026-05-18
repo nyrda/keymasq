@@ -1,5 +1,16 @@
 from support import ScenarioCase
 
+from .analog_mouse_area import run as analog_mouse_area
+from .analog_mouse_velocity import run as analog_mouse_velocity
+from .analog_multi_control import run as analog_multi_control
+from .analog_priority_override import run as analog_priority_override
+from .analog_profile_reset import run as analog_profile_reset
+from .analog_restart_recovery import run as analog_restart_recovery
+from .analog_signed_axis_mouse import run as analog_signed_axis_mouse
+from .analog_signed_axis_threshold import run as analog_signed_axis_threshold
+from .analog_stick_gamepad import run as analog_stick_gamepad
+from .analog_threshold_hysteresis import run as analog_threshold_hysteresis
+from .analog_trigger_deadzone import run as analog_trigger_deadzone
 from .cancel_macro_playback import run as cancel_macro_playback
 from .combo_chord import run as combo_chord
 from .combo_negative_timeout import run as combo_negative_timeout
@@ -50,6 +61,17 @@ SCENARIOS = [
     ScenarioCase("mouse output", mouse_output),
     ScenarioCase("gamepad output", gamepad_output),
     ScenarioCase("gamepad axis output", gamepad_axis_output),
+    ScenarioCase("analog stick to gamepad stick", analog_stick_gamepad),
+    ScenarioCase("analog trigger deadzone", analog_trigger_deadzone),
+    ScenarioCase("analog threshold hysteresis", analog_threshold_hysteresis),
+    ScenarioCase("analog signed axis threshold ranges", analog_signed_axis_threshold),
+    ScenarioCase("analog state reset on profile change", analog_profile_reset),
+    ScenarioCase("multiple analog controls on one source", analog_multi_control),
+    ScenarioCase("analog stick to mouse area", analog_mouse_area),
+    ScenarioCase("analog stick to mouse velocity", analog_mouse_velocity),
+    ScenarioCase("analog signed axis mouse horizontal", analog_signed_axis_mouse),
+    ScenarioCase("analog priority override", analog_priority_override),
+    ScenarioCase("analog restart recovery", analog_restart_recovery),
     ScenarioCase("emergency reset", emergency_reset),
     ScenarioCase("recording and capture", recording_capture),
     ScenarioCase("restart recovery", restart_recovery),

@@ -1,0 +1,14 @@
+[profile]
+name = "Integration Analog Signed Axis Mouse"
+enabled = false
+is_permanent = true
+priority = 150
+notify_on_activation = false
+created_at = "2026-05-12T00:01:07"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$HARDWARE_ID".mapping.signed_axis]
+action = "analog_control"
+analog_control_name = "Integration Analog Signed Axis Mouse"

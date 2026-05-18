@@ -1,0 +1,22 @@
+name = "Integration Analog Signed Axis Threshold"
+input_type = "axis"
+
+[[thresholds]]
+axis = "x"
+trigger_min = 0.60
+trigger_max = 1.0
+release_min = 0.45
+release_max = 1.0
+actions = [
+  { action = "keyboard", target = "key_d" },
+]
+
+[[thresholds]]
+axis = "x"
+trigger_min = -1.0
+trigger_max = -0.60
+release_min = -1.0
+release_max = -0.45
+actions = [
+  { action = "keyboard", target = "key_a" },
+]

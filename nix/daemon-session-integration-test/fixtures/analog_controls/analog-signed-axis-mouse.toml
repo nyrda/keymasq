@@ -1,0 +1,12 @@
+name = "Integration Analog Signed Axis Mouse"
+input_type = "axis"
+
+[mouse_motion]
+enabled = true
+mode = "velocity"
+speed = 600.0
+direction = "horizontal"
+deadzone = 0.10
+sensitivity = 1.0
+response_curve = 1.0
+tick_ms = 8

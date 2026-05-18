@@ -1,0 +1,12 @@
+name = "Integration Analog Threshold"
+input_type = "stick"
+
+[[thresholds]]
+axis = "x"
+trigger_min = 0.60
+trigger_max = 1.0
+release_min = 0.45
+release_max = 1.0
+actions = [
+  { action = "keyboard", target = "key_d" },
+]

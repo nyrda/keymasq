@@ -35,6 +35,50 @@ class TestDeviceTabWidget:
         assert h_policy == Gtk.PolicyType.AUTOMATIC
         assert v_policy == Gtk.PolicyType.AUTOMATIC
 
+    def test_analog_learning_is_available_for_unknown_raw_devices(self):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Raw Device",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event9",
+                    device_type=DeviceType.OTHER,
+                    id="raw",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_0", label="Button 0", evdev="btn_0")],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=False)
+
+        assert tab._supports_analog_learning() is True
+
+    def test_analog_learning_stays_hidden_for_plain_keyboard_devices(self):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Keyboard",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event3",
+                    device_type=DeviceType.KEYBOARD,
+                    id="keys",
+                )
+            ],
+            buttons=[ButtonDefinition(id="key_a", label="A", evdev="key_a")],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=False)
+
+        assert tab._supports_analog_learning() is False
+
     def test_numbered_hardware_id_header_keeps_path_in_tooltip(self):
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
         from keymasq.gui.widgets.device_tab import DeviceTab

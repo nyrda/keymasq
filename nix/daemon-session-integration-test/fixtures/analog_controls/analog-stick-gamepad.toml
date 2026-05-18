@@ -1,0 +1,9 @@
+name = "Integration Analog Stick Gamepad"
+input_type = "stick"
+
+[gamepad_output]
+enabled = true
+target = "same"
+deadzone = 0.0
+sensitivity = 1.0
+response_curve = 1.0

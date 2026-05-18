@@ -52,6 +52,9 @@ def describe_mapping_action_compact(
         parts.append(f"🪟 {dispatcher}{f' {args}' if args else ''}")
     elif action.action_type == ActionType.SUPERKEY:
         parts.append(f"🌟S: {action.superkey_name or '?'}")
+    elif action.action_type == ActionType.ANALOG_CONTROL:
+        label = _analog_control_action_label(action)
+        parts.append(f"🕹️ {label}")
     elif action.action_type == ActionType.MACRO:
         parts.append(f"🎬 {action.macro_name or '?'}")
     elif action.action_type == ActionType.START_MACRO_RECORDING:
@@ -105,6 +108,8 @@ def describe_mapping_action_verbose(
         return "Suppress"
     if action.action_type == ActionType.SUPERKEY:
         return f"Super Key → {action.superkey_name or '?'}"
+    if action.action_type == ActionType.ANALOG_CONTROL:
+        return f"Analog Control -> {_analog_control_action_label(action)}"
     if action.action_type == ActionType.KEYBOARD:
         return f"Keyboard → {_resolved_label(action.target, keyboard_label)}"
     if action.action_type == ActionType.MOUSE:
@@ -162,3 +167,14 @@ def _gamepad_output_label(output_id: str | None) -> str:
             return output_id
         return f"Virtual Gamepad {index}"
     return output_id
+
+
+def _analog_control_action_label(action: MappingAction) -> str:
+    names = action.analog_control_names or (
+        [action.analog_control_name] if action.analog_control_name else []
+    )
+    if not names:
+        return "?"
+    if len(names) == 1:
+        return names[0]
+    return f"{len(names)} controls"

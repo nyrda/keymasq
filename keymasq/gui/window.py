@@ -690,6 +690,16 @@ class MainWindow(Adw.ApplicationWindow):
         macros_btn.connect("clicked", self._on_menu_action_clicked, "macros", menu_popover)
         menu_box.append(macros_btn)
 
+        analog_controls_btn = Gtk.Button(label="Analog Controls")
+        self._configure_menu_button(analog_controls_btn)
+        analog_controls_btn.connect(
+            "clicked",
+            self._on_menu_action_clicked,
+            "analog-controls",
+            menu_popover,
+        )
+        menu_box.append(analog_controls_btn)
+
         diagnostics_btn = Gtk.Button(label="Diagnostics")
         self._configure_menu_button(diagnostics_btn)
         diagnostics_btn.connect(
@@ -1098,7 +1108,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         dialog = HardwareSetupDialog(self, self.hardware_manager)
         dialog.connect("device-created", self._on_device_created)
-        dialog.present()
+        dialog.present(self)
 
     def _on_add_device_clicked(self, _button: Gtk.Button) -> None:
         self._on_add_device(_button)

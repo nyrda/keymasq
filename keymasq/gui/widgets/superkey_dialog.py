@@ -423,6 +423,10 @@ class SuperkeyDialog(Adw.Dialog):
         self._current_config: SuperkeyConfig | None = None
         self._modified = False
         self._close_warning_dialog: Adw.AlertDialog | None = None
+        self._selection_warning_dialog: Adw.AlertDialog | None = None
+        self._active_selection_key: tuple[str, str | None] | None = None
+        self._pending_selection_key: tuple[str, str | None] | None = None
+        self._suppress_selection_guard = False
         self._mode_items = [SuperkeyMode.PATTERN, SuperkeyMode.OVERLOAD]
         self.new_superkey_row: Gtk.ListBoxRow | None = None
 
@@ -464,6 +468,7 @@ class SuperkeyDialog(Adw.Dialog):
 
         label = Gtk.Label(label="Super Keys")
         label.add_css_class("title-4")
+        label.set_halign(Gtk.Align.CENTER)
         box.append(label)
 
         scrolled = Gtk.ScrolledWindow()
@@ -477,14 +482,19 @@ class SuperkeyDialog(Adw.Dialog):
 
         box.append(scrolled)
 
-        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        footer = Gtk.CenterBox()
 
         self.superkeys_docs_btn = Gtk.Button(label="?")
         self.superkeys_docs_btn.add_css_class("flat")
         self.superkeys_docs_btn.add_css_class("actions-docs-button")
         self.superkeys_docs_btn.set_tooltip_text("Open Super Keys documentation")
         self.superkeys_docs_btn.connect("clicked", self._on_superkeys_docs_clicked)
-        footer.append(self.superkeys_docs_btn)
+        footer.set_start_widget(self.superkeys_docs_btn)
+
+        add_button = Gtk.Button(icon_name="list-add-symbolic")
+        add_button.set_tooltip_text("Add a new Super Key")
+        add_button.connect("clicked", self._on_new_clicked)
+        footer.set_center_widget(add_button)
 
         box.append(footer)
         return box
@@ -749,12 +759,28 @@ class SuperkeyDialog(Adw.Dialog):
             self.list_box.select_row(self.new_superkey_row)
 
     def _on_superkey_selected(self, _list_box, row) -> None:
+        if self._suppress_selection_guard:
+            return
+
         if row is None:
             self._current_config = None
             self.editor_box.set_sensitive(False)
             self.delete_btn.set_sensitive(False)
             self._modified = False
+            self._active_selection_key = None
             self._update_buttons()
+            return
+
+        selection_key = self._selection_key_for_row(row)
+        if (
+            self._modified
+            and selection_key is not None
+            and self._active_selection_key is not None
+            and selection_key != self._active_selection_key
+        ):
+            self._pending_selection_key = selection_key
+            self._restore_active_selection()
+            self._show_unsaved_selection_warning()
             return
 
         if getattr(row, "_is_new_superkey", False):
@@ -767,6 +793,7 @@ class SuperkeyDialog(Adw.Dialog):
             self.editor_box.set_sensitive(False)
             self.delete_btn.set_sensitive(False)
             self._modified = False
+            self._active_selection_key = None
             self._update_buttons()
             return
         self._current_config = self.manager.get_superkey(name)
@@ -774,12 +801,60 @@ class SuperkeyDialog(Adw.Dialog):
             self._populate_editor()
             self.editor_box.set_sensitive(True)
             self.delete_btn.set_sensitive(True)
+            self._active_selection_key = ("name", name)
         else:
             self.editor_box.set_sensitive(False)
             self.delete_btn.set_sensitive(False)
+            self._active_selection_key = None
 
         self._modified = False
         self._update_buttons()
+
+    def _selection_key_for_row(
+        self,
+        row: Gtk.ListBoxRow | None,
+    ) -> tuple[str, str | None] | None:
+        if row is None:
+            return None
+        if getattr(row, "_is_new_superkey", False):
+            return ("new", None)
+        name = getattr(row, "_superkey_name", None)
+        if isinstance(name, str):
+            return ("name", name)
+        return None
+
+    def _row_for_selection_key(
+        self,
+        key: tuple[str, str | None] | None,
+    ) -> Gtk.ListBoxRow | None:
+        if key is None:
+            return None
+        kind, name = key
+        if kind == "new":
+            return self.new_superkey_row
+        idx = 0
+        while True:
+            row = self.list_box.get_row_at_index(idx)
+            if row is None:
+                return None
+            if getattr(row, "_superkey_name", None) == name:
+                return row
+            idx += 1
+
+    def _restore_active_selection(self) -> None:
+        row = self._row_for_selection_key(self._active_selection_key)
+        if row is None:
+            return
+        self._suppress_selection_guard = True
+        try:
+            self.list_box.select_row(row)
+        finally:
+            self._suppress_selection_guard = False
+
+    def _select_selection_key(self, key: tuple[str, str | None] | None) -> None:
+        row = self._row_for_selection_key(key)
+        if row is not None:
+            self.list_box.select_row(row)
 
     def _populate_editor(self) -> None:
         if not self._current_config:
@@ -874,6 +949,7 @@ class SuperkeyDialog(Adw.Dialog):
         self._populate_editor()
         self.editor_box.set_sensitive(True)
         self.delete_btn.set_sensitive(False)
+        self._active_selection_key = ("new", None)
         self._modified = True
         self._update_buttons()
         self.name_entry.grab_focus()
@@ -1073,6 +1149,36 @@ class SuperkeyDialog(Adw.Dialog):
             return
         if response == "save" and self._save_current_superkey():
             self.force_close()
+
+    def _show_unsaved_selection_warning(self) -> None:
+        if self._selection_warning_dialog is not None:
+            return
+
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Unsaved Super Key Changes")
+        dialog.set_body("Save your changes before switching, or discard them?")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("discard", "Discard")
+        dialog.add_response("save", "Save")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_unsaved_selection_response)
+        self._selection_warning_dialog = dialog
+        dialog.present(self)
+
+    def _on_unsaved_selection_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
+        pending_key = self._pending_selection_key
+        self._selection_warning_dialog = None
+        self._pending_selection_key = None
+        if response == "discard":
+            self._modified = False
+            self._update_buttons()
+            self._select_selection_key(pending_key)
+            return
+        if response == "save" and self._save_current_superkey():
+            self._select_selection_key(pending_key)
 
     def _on_superkeys_docs_clicked(self, _button: Gtk.Button) -> None:
         url = _superkeys_docs_url()

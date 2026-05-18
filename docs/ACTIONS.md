@@ -168,6 +168,39 @@ trigger axes accept `0..255`. Releasing the source input returns the axis to
 neutral `0`. LT and RT are axis actions (`abs_z` and `abs_rz`); `gamepad`
 actions are button-only.
 
+## Analog Controls
+
+Analog Controls map an analog source, such as `left_stick`, `right_stick`,
+`left_trigger`, or `right_trigger`, to a saved analog config. A config can:
+
+- turn stick position or a 1D axis into continuous relative mouse movement
+- turn stick or 1D axis ranges into normal digital actions
+- route sticks or triggers to a selected gamepad output with an analog deadzone
+  and optional left/right output side
+- tune analog output and mouse movement with sensitivity and response curve
+- split stick mouse movement into separate horizontal and vertical speeds
+
+Create configs from **Analog Controls** in the app menu, then map an analog card
+in a gamepad device tab to the saved config. Profile TOML uses:
+
+```toml
+[devices."045e:028e".mapping.left_stick]
+action = "analog_control"
+analog_control_name = "FPS Mouse"
+```
+
+An analog source can also run multiple saved configs at the same time:
+
+```toml
+[devices."045e:028e".mapping.left_stick]
+action = "analog_control"
+analog_control_names = ["FPS Mouse", "WASD"]
+```
+
+Overlapping action ranges are allowed and evaluated independently. Mouse wheel
+and WASD-style behavior are templates over normal threshold actions, not
+separate runtime modes.
+
 ## Compositor
 
 Send a command to your window compositor. Currently Keymasq supports

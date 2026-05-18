@@ -65,6 +65,17 @@ class ScenarioContext:
 
     def cleanup(self) -> None:
         with contextlib.suppress(Exception):
+            for profile_name in (
+                "Integration Analog Override",
+                "Integration Analog Mouse Velocity",
+                "Integration Analog Mouse Area",
+                "Integration Analog Multi",
+                "Integration Analog Threshold",
+                "Integration Analog Signed Axis Threshold",
+                "Integration Analog Signed Axis Mouse",
+                "Integration Analog Gamepad",
+            ):
+                self.request({"command": "disable_profile", "profile_name": profile_name}, ok=False)
             self.request(
                 {"command": "disable_profile", "profile_name": PASSTHROUGH_PROFILE_NAME},
                 ok=False,
@@ -150,7 +161,15 @@ class ScenarioContext:
             getattr(evdev.ecodes, f"KEY_{letter}") for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         ]
         device = evdev.UInput(
-            events={evdev.ecodes.EV_KEY: source_keys},
+            events={
+                evdev.ecodes.EV_KEY: source_keys,
+                evdev.ecodes.EV_ABS: [
+                    (evdev.ecodes.ABS_X, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
+                    (evdev.ecodes.ABS_Y, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
+                    (evdev.ecodes.ABS_RX, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
+                    (evdev.ecodes.ABS_Z, evdev.AbsInfo(0, 0, 255, 0, 0, 0)),
+                ],
+            },
             name=name,
             vendor=vendor,
             product=product,
@@ -166,7 +185,8 @@ class ScenarioContext:
         hardware_dir = self.config_dir / "hardware"
         profiles_dir = self.config_dir / "profiles"
         superkeys_dir = self.config_dir / "superkeys"
-        for directory in (hardware_dir, profiles_dir, superkeys_dir):
+        analog_controls_dir = self.config_dir / "analog_controls"
+        for directory in (hardware_dir, profiles_dir, superkeys_dir, analog_controls_dir):
             directory.mkdir(parents=True, exist_ok=True)
 
         values = self.fixture_values(primary_source_path, secondary_source_path)
@@ -206,6 +226,35 @@ class ScenarioContext:
             "profiles/passthrough-override.toml",
             values,
         )
+        for fixture_name in (
+            "analog-stick-gamepad.toml",
+            "analog-trigger-deadzone.toml",
+            "analog-threshold.toml",
+            "analog-signed-axis-threshold.toml",
+            "analog-mouse-area.toml",
+            "analog-mouse-velocity.toml",
+            "analog-signed-axis-mouse.toml",
+        ):
+            self.write_fixture(
+                analog_controls_dir / fixture_name,
+                f"analog_controls/{fixture_name}",
+                values,
+            )
+        for fixture_name in (
+            "analog-gamepad.toml",
+            "analog-threshold.toml",
+            "analog-signed-axis-threshold.toml",
+            "analog-multi.toml",
+            "analog-mouse-area.toml",
+            "analog-mouse-velocity.toml",
+            "analog-signed-axis-mouse.toml",
+            "analog-override.toml",
+        ):
+            self.write_fixture(
+                profiles_dir / fixture_name,
+                f"profiles/{fixture_name}",
+                values,
+            )
 
     def write_hardware_configs(
         self,
@@ -440,6 +489,12 @@ type = "key"
         if self.source is None:
             raise AssertionError("source keyboard is not available")
         self.source.write(evdev.ecodes.EV_KEY, code, value)
+        self.source.syn()
+
+    def source_abs(self, code: int, value: int) -> None:
+        if self.source is None:
+            raise AssertionError("source device is not available")
+        self.source.write(evdev.ecodes.EV_ABS, code, value)
         self.source.syn()
 
     def secondary_key(self, code: int, value: int) -> None:

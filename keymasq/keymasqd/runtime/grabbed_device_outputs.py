@@ -293,8 +293,12 @@ def release_all_keys(
             device_runtime.state.held_output_abs.get(bucket, set()).clear()
             if bucket in device_runtime.state.superkey_output_refcounts:
                 device_runtime.state.superkey_output_refcounts[bucket].clear()
+            if bucket in device_runtime.state.analog_threshold_output_refcounts:
+                device_runtime.state.analog_threshold_output_refcounts[bucket].clear()
             if bucket in device_runtime.state.superkey_abs_refcounts:
                 device_runtime.state.superkey_abs_refcounts[bucket].clear()
+            if bucket in device_runtime.state.analog_threshold_abs_refcounts:
+                device_runtime.state.analog_threshold_abs_refcounts[bucket].clear()
             continue
         held = sorted(device_runtime.state.held_output_keys.get(bucket, set()))
         if not held:
@@ -316,8 +320,12 @@ def release_all_keys(
             device_runtime.state.held_output_keys[bucket].clear()
             if bucket in device_runtime.state.superkey_output_refcounts:
                 device_runtime.state.superkey_output_refcounts[bucket].clear()
+            if bucket in device_runtime.state.analog_threshold_output_refcounts:
+                device_runtime.state.analog_threshold_output_refcounts[bucket].clear()
             if bucket in device_runtime.state.superkey_abs_refcounts:
                 device_runtime.state.superkey_abs_refcounts[bucket].clear()
+            if bucket in device_runtime.state.analog_threshold_abs_refcounts:
+                device_runtime.state.analog_threshold_abs_refcounts[bucket].clear()
 
     for bucket, held_abs in list(device_runtime.state.held_output_abs.items()):
         if not bucket.startswith("gamepad") and not held_abs:
@@ -344,6 +352,8 @@ def release_all_keys(
             held_abs.clear()
             if bucket in device_runtime.state.superkey_abs_refcounts:
                 device_runtime.state.superkey_abs_refcounts[bucket].clear()
+            if bucket in device_runtime.state.analog_threshold_abs_refcounts:
+                device_runtime.state.analog_threshold_abs_refcounts[bucket].clear()
 
     for task in list(device_runtime.state.rapidfire_tasks.values()):
         if not task.done():

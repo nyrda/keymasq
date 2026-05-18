@@ -1,0 +1,13 @@
+name = "Integration Analog Mouse Velocity"
+input_type = "stick"
+
+[mouse_motion]
+enabled = true
+mode = "velocity"
+speed_x = 600.0
+speed_y = 300.0
+deadzone = 0.10
+sensitivity = 1.0
+response_curve = 1.0
+invert_y = true
+tick_ms = 8

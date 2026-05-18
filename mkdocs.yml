@@ -97,6 +97,7 @@ nav:
   - User Guide:
       - Profiles: PROFILES.md
       - Actions: ACTIONS.md
+      - Analog Controls: ANALOG_CONTROLS.md
       - Superkeys: SUPERKEYS.md
       - Combos: COMBOS.md
       - Macros: MACROS.md

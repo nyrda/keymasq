@@ -579,6 +579,8 @@ async def capture_begin_for_paths(
     manager: "SessionManager",
     hardware_id: str,
     evdev_paths: list[str],
+    *,
+    mode: str = "button",
 ) -> JsonObject:
     if not evdev_paths:
         evdev_paths = _hardware_evdev_paths(manager, hardware_id)
@@ -594,6 +596,7 @@ async def capture_begin_for_paths(
                 command=CommandType.CAPTURE_BEGIN,
                 data={
                     "hardware_id": hardware_id,
+                    **({"mode": mode} if mode != "button" else {}),
                     **({"evdev_paths": evdev_paths} if evdev_paths else {}),
                 },
             )

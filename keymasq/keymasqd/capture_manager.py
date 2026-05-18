@@ -49,6 +49,8 @@ class _CaptureInputDevice(Protocol):
 
     def capabilities(self) -> Mapping[int, Sequence[object]]: ...
 
+    def absinfo(self, axis: int) -> object: ...
+
 
 def _event_code_name(event_type: int, code: int) -> str:
     bytype = cast(dict[int, dict[int, object]], evdev.ecodes.bytype)
@@ -72,6 +74,7 @@ class CaptureSession:
     notify_loop: asyncio.AbstractEventLoop | None = None
     notify_event: asyncio.Event | None = None
     path_hardware_ids: dict[str, str] = field(default_factory=dict)
+    mode: str = "button"
 
 
 @dataclass(frozen=True)
@@ -84,7 +87,13 @@ class CaptureManager:
         self._sessions: dict[str, CaptureSession] = {}
         self._combo_capture_authorizations: set[str] = set()
 
-    def begin(self, hardware_id: str, evdev_paths: list[str] | None = None) -> JsonObject:
+    def begin(
+        self,
+        hardware_id: str,
+        evdev_paths: list[str] | None = None,
+        mode: str = "button",
+    ) -> JsonObject:
+        mode = _capture_mode(mode)
         matched = (
             self._find_devices_by_paths(evdev_paths)
             if evdev_paths
@@ -116,6 +125,7 @@ class CaptureManager:
             hardware_id=hardware_id,
             devices=grabbed,
             started_at=time.time(),
+            mode=mode,
         )
 
         return {
@@ -138,7 +148,7 @@ class CaptureManager:
             if event is None:
                 continue
 
-            parsed = self._parse_event(device, event)
+            parsed = self._parse_event(device, event, session.mode)
             if parsed is not None:
                 return {"captured": parsed}
 
@@ -450,8 +460,28 @@ class CaptureManager:
         return devices
 
     def _parse_event(
-        self, device: _CaptureInputDevice, event: evdev.InputEvent
+        self,
+        device: _CaptureInputDevice,
+        event: evdev.InputEvent,
+        mode: str = "button",
     ) -> JsonObject | None:
+        if mode == "analog":
+            if event.type != evdev.ecodes.EV_ABS:
+                return None
+            evdev_name = _event_code_name(event.type, int(event.code))
+            payload: JsonObject = {
+                "evdev": evdev_name,
+                "code": int(event.code),
+                "value": int(event.value),
+                "source": self._source_for_path(device.path),
+                "stable_path": resolve_stable_path(device.path),
+                "device_path": device.path,
+            }
+            abs_info = _abs_info_payload(device, int(event.code))
+            if abs_info:
+                payload["absinfo"] = abs_info
+            return payload
+
         if event.type == evdev.ecodes.EV_KEY and event.value == 1:
             evdev_name = _event_code_name(event.type, int(event.code))
             return {
@@ -580,3 +610,26 @@ def _hardware_id_for_device(
         device.path,
         path_hardware_ids,
     ) or f"{device.info.vendor:04x}:{device.info.product:04x}"
+
+
+def _capture_mode(mode: str) -> str:
+    normalized = str(mode or "button").strip().lower()
+    if normalized not in {"button", "analog"}:
+        raise ValueError(f"unsupported capture mode: {mode}")
+    return normalized
+
+
+def _abs_info_payload(device: _CaptureInputDevice, code: int) -> JsonObject:
+    try:
+        info = device.absinfo(code)
+    except Exception:
+        return {}
+    fields = {
+        "value": getattr(info, "value", None),
+        "minimum": getattr(info, "min", None),
+        "maximum": getattr(info, "max", None),
+        "fuzz": getattr(info, "fuzz", None),
+        "flat": getattr(info, "flat", None),
+        "resolution": getattr(info, "resolution", None),
+    }
+    return {key: int(value) for key, value in fields.items() if isinstance(value, int)}

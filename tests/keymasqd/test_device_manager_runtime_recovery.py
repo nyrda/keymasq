@@ -109,6 +109,30 @@ class TestRuntimeFailureCleanup:
         ]
         assert device.state.held_output_keys["keyboard"] == set()
 
+    @pytest.mark.asyncio
+    async def test_event_processing_error_resets_analog_controls(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+        )
+        reset_analog_controls = AsyncMock()
+        monkeypatch.setattr(device, "reset_analog_controls", reset_analog_controls)
+
+        await _runtime_recover_grabbed_event_processing_error(device)
+
+        reset_analog_controls.assert_awaited_once()
+
 class TestDeviceManagerHelpers:
     def test_create_global_uinputs_uses_explicit_test_identities(
         self,

@@ -696,9 +696,12 @@ async def _handle_capture_commands(
     request: JsonObject,
 ) -> JsonObject | None:
     if command == "list_devices_for_recording":
+        device_types = ["keyboard", "gamepad", "mouse"]
+        if bool(request.get("include_other", False)):
+            device_types = ["keyboard", "gamepad", "mouse", "touchpad", "pointstick", "other"]
         devices = await runtime_recording.get_devices_for_recording(
             manager,
-            ["keyboard", "gamepad", "mouse"],
+            device_types,
             include_grabbed=True,
         )
         manager.recording_state.devices_cache = devices
@@ -715,7 +718,13 @@ async def _handle_capture_commands(
             for path in json_list(request.get("evdev_paths"))
             if str_value(path, "")
         ]
-        return await runtime_recording.capture_begin_for_paths(manager, hardware_id, evdev_paths)
+        mode = str_value(request.get("mode"), "button")
+        return await runtime_recording.capture_begin_for_paths(
+            manager,
+            hardware_id,
+            evdev_paths,
+            mode=mode,
+        )
 
     if command == "capture_read":
         hardware_id = str_value(request.get("hardware_id"), "")

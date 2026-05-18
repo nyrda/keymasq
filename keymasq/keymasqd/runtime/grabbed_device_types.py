@@ -61,6 +61,8 @@ class ManagedInputDevice(Protocol):
 
     def active_keys(self) -> Sequence[int]: ...
 
+    def absinfo(self, code: int) -> object: ...
+
     def input_props(self) -> Iterable[int]: ...
 
     def close(self) -> None: ...
@@ -178,6 +180,12 @@ class RapidfireOutputState:
 
 
 @dataclass
+class AnalogGamepadOutputState:
+    output_id: str | None
+    reset_axes: tuple[tuple[int, int], ...]
+
+
+@dataclass
 class GrabbedDeviceState:
     rapidfire_active: dict[str, bool] = field(default_factory=dict)
     rapidfire_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
@@ -213,6 +221,21 @@ class GrabbedDeviceState:
         }
     )
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
+    analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
+    analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
+    analog_active_threshold_actions: dict[
+        str,
+        tuple[tuple[int, MappingAction], ...],
+    ] = field(default_factory=dict)
+    analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(
+        default_factory=dict
+    )
+    analog_threshold_abs_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
+    analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
+    analog_mouse_area_offsets: dict[str, tuple[float, float]] = field(default_factory=dict)
+    analog_mouse_area_active: set[str] = field(default_factory=set)
+    analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
 
 
 class GrabbedDeviceRuntime(Protocol):
@@ -289,12 +312,29 @@ class GrabbedDeviceRuntime(Protocol):
     def event_code_to_button(self) -> dict[tuple[int, int], str]: ...
 
     @property
+    def analog_inputs(self) -> dict[str, object]: ...
+
+    @property
+    def analog_axis_bindings(self) -> dict[tuple[int, int], tuple[str, str]]: ...
+
+    @property
+    def analog_axis_output_codes(self) -> dict[tuple[str, str], int]: ...
+
+    @property
+    def analog_axis_ranges(self) -> dict[tuple[str, str], tuple[int, int]]: ...
+
+    @property
+    def analog_axis_calibrations(self) -> dict[tuple[str, str], dict[str, object]]: ...
+
+    @property
     def state(self) -> GrabbedDeviceState: ...
 
     @property
     def _running(self) -> bool: ...
 
     async def reset_superkeys(self) -> None: ...
+
+    async def reset_analog_controls(self) -> None: ...
 
     def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None: ...
 

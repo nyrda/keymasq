@@ -31,6 +31,7 @@ from keymasq.common.security import (
     uid_allowed,
 )
 from keymasq.session.action_handler import ActionHandler
+from keymasq.session.analog_controls import AnalogControlManager
 from keymasq.session.client import KeymasqdClient
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.hardware import HardwareManager
@@ -72,8 +73,10 @@ class SessionManager:
 
         self.client = KeymasqdClient(_client_event_handler)
         self.superkeys = SuperkeyManager()
+        self.analog_controls = AnalogControlManager()
         self.profiles = ProfileManager(
             superkey_manager=self.superkeys,
+            analog_control_manager=self.analog_controls,
             auto_create_default_if_empty=True,
         )
         self.hardware = HardwareManager()
@@ -486,7 +489,7 @@ class SessionManager:
         self.reload_pending = False
 
         await asyncio.to_thread(self.reload_config_from_disk)
-        log.info("Reloaded all superkeys, profiles and hardware configs")
+        log.info("Reloaded all superkeys, analog controls, profiles and hardware configs")
         await self._sync_virtual_gamepads_to_daemon()
         runtime_profiles.invalidate_runtime_payload_signatures(self)
 
@@ -506,6 +509,7 @@ class SessionManager:
     def reload_config_from_disk(self) -> None:
         self.security_policy = load_security_policy(SECURITY_POLICY_PATH)
         self.superkeys.reload()
+        self.analog_controls.reload()
         self.profiles.reload()
         self.hardware.reload()
         settings = load_global_settings()

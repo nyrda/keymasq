@@ -27,6 +27,7 @@ from keymasq.common.models import (
     MIN_RAPIDFIRE_HOLD_MS,
     MIN_RAPIDFIRE_WAIT_MS,
     ActionType,
+    AnalogControlConfig,
     MappingAction,
     SuperkeyAction,
     SuperkeyConfig,
@@ -55,6 +56,7 @@ from keymasq.gui.widgets.input_picker_shared import (
 from keymasq.gui.widgets.input_picker_shared import (
     build_navigation_tab as build_shared_navigation_tab,
 )
+from keymasq.session.analog_controls import AnalogControlManager
 from keymasq.session.compositor import detect_compositor_sync
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.superkeys import SuperkeyManager
@@ -358,6 +360,7 @@ MEDIA_KEY_TARGETS = {
 }
 
 ACTION_DOC_LINKS = {
+    "analog_control": ("analog-controls", "Analog Controls"),
     "special": ("special", "Special"),
     "keyboard": ("keyboard", "Keyboard"),
     "navigation": ("navigation", "Navigation"),
@@ -390,6 +393,8 @@ def _docs_version() -> str:
 
 
 def _actions_docs_url(anchor: str) -> str:
+    if anchor == "analog-controls":
+        return f"https://keymasq.tools/docs/{_docs_version()}/ANALOG_CONTROLS/"
     return f"https://keymasq.tools/docs/{_docs_version()}/ACTIONS/#{anchor}"
 
 
@@ -547,6 +552,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         allow_rapidfire: bool = True,
         allow_tap: bool = True,
         allow_macro_options: bool = True,
+        source_type: str = "button",
+        analog_input_type: str | None = None,
     ):
         super().__init__(title=f"Map: {button_label}", content_width=570, content_height=580)
         self._parent = parent
@@ -559,6 +566,12 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._allow_rapidfire = allow_rapidfire
         self._allow_tap = allow_tap
         self._allow_macro_options = allow_macro_options
+        self._source_type = str(source_type or "button")
+        self._analog_input_type = (
+            str(analog_input_type or "").lower()
+            if self._source_type == "analog" and analog_input_type
+            else None
+        )
         self._compositor_action_status = self._resolve_compositor_action_status(
             compositor_action_status
         )
@@ -572,6 +585,10 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._superkey_list: list[SuperkeyConfig] = []
         self._superkey_names: list[str] = []
         self._selected_superkey: str | None = None
+        self._analog_control_list: list[AnalogControlConfig] = []
+        self._analog_control_names: list[str] = []
+        self._selected_analog_control: str | None = None
+        self._selected_analog_controls: list[str] = []
         self._macro_replay_movement: bool = True
         self._macro_replay_clicks: bool = True
         self._macro_speed: float = 1.0
@@ -617,6 +634,15 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
                 self._macro_speed = current_action.macro_speed
             elif current_action.action_type == ActionType.SUPERKEY:
                 self._selected_superkey = current_action.superkey_name
+            elif current_action.action_type == ActionType.ANALOG_CONTROL:
+                self._selected_analog_controls = list(current_action.analog_control_names)
+                if not self._selected_analog_controls and current_action.analog_control_name:
+                    self._selected_analog_controls = [current_action.analog_control_name]
+                self._selected_analog_control = (
+                    self._selected_analog_controls[0]
+                    if self._selected_analog_controls
+                    else None
+                )
             elif current_action.action_type == ActionType.EXEC:
                 self._exec_cmd = current_action.cmd or ""
             elif current_action.action_type in (
@@ -666,18 +692,26 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
         self.stack = Gtk.Stack()
         self.stack.set_vexpand(True)
-        self.stack.add_titled(self._build_special_tab(), "special", "Special")
-        self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
-        self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
-        self.stack.add_titled(self._build_media_tab(), "media", "Media")
-        self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
-        for page in self._compositor_action_pages:
-            self.stack.add_titled(page.widget, page.page_id, page.title)
-        self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
-        if self._allow_superkey:
-            self.stack.add_titled(self._build_superkey_tab(), "superkey", "Super Keys")
-        self.stack.add_titled(self._build_macro_tab(), "macro", "Macro")
-        self.stack.add_titled(self._build_profile_tab(), "profile", "Profile")
+        if self._source_type == "analog":
+            self.stack.add_titled(
+                self._build_analog_control_tab(),
+                "analog_control",
+                "Analog Controls",
+            )
+            self.stack.add_titled(self._build_special_tab(), "special", "Special")
+        else:
+            self.stack.add_titled(self._build_special_tab(), "special", "Special")
+            self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
+            self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
+            self.stack.add_titled(self._build_media_tab(), "media", "Media")
+            self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
+            for page in self._compositor_action_pages:
+                self.stack.add_titled(page.widget, page.page_id, page.title)
+            self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
+            if self._allow_superkey:
+                self.stack.add_titled(self._build_superkey_tab(), "superkey", "Super Keys")
+            self.stack.add_titled(self._build_macro_tab(), "macro", "Macro")
+            self.stack.add_titled(self._build_profile_tab(), "profile", "Profile")
 
         self._set_initial_tab()
 
@@ -788,12 +822,13 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         special_buttons_added = False
 
         if self._allow_clear_mapping:
-            passthrough_btn = self._create_key_button("Passthrough", "clear_mapping", large=True)
-            passthrough_btn.connect("clicked", self._on_special_clicked, "clear_mapping")
-            passthrough_btn.set_tooltip_text(
+            clear_label = "Clear Mapping" if self._source_type == "analog" else "Passthrough"
+            clear_btn = self._create_key_button(clear_label, "clear_mapping", large=True)
+            clear_btn.connect("clicked", self._on_special_clicked, "clear_mapping")
+            clear_btn.set_tooltip_text(
                 "Do not store a mapping here, so lower-priority profiles can still apply"
             )
-            box.append(passthrough_btn)
+            box.append(clear_btn)
             special_buttons_added = True
 
         if self._allow_suppress:
@@ -802,6 +837,9 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             suppress_btn.set_tooltip_text("Block the button press entirely — nothing is sent")
             box.append(suppress_btn)
             special_buttons_added = True
+
+        if self._source_type == "analog":
+            return box
 
         exec_label = Gtk.Label(label="Execute Shell Command")
         exec_label.add_css_class("dim-label")
@@ -860,6 +898,48 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         outer.append(scrolled)
 
         self._load_superkey_list()
+        return outer
+
+    def _build_analog_control_tab(self) -> Gtk.Widget:
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        toolbar_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        toolbar_row.set_margin_top(8)
+        toolbar_row.set_margin_bottom(4)
+        toolbar_row.set_margin_start(12)
+        toolbar_row.set_margin_end(12)
+        toolbar_row.set_halign(Gtk.Align.START)
+
+        refresh_btn = Gtk.Button(label="Refresh")
+        refresh_btn.add_css_class("flat")
+        refresh_btn.connect("clicked", self._on_analog_control_refresh)
+        toolbar_row.append(refresh_btn)
+
+        selection_hint = Gtk.Label(label="Select one or multiple analog controls")
+        selection_hint.add_css_class("dim-label")
+        selection_hint.add_css_class("caption")
+        selection_hint.set_halign(Gtk.Align.START)
+        toolbar_row.append(selection_hint)
+        outer.append(toolbar_row)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+
+        self._analog_control_listbox = Gtk.ListBox()
+        self._analog_control_listbox.set_selection_mode(Gtk.SelectionMode.MULTIPLE)
+        self._analog_control_listbox.set_valign(Gtk.Align.START)
+        self._analog_control_listbox.add_css_class("boxed-list")
+        self._analog_control_listbox.set_margin_start(12)
+        self._analog_control_listbox.set_margin_end(12)
+        self._analog_control_listbox.connect(
+            "row-selected",
+            self._on_analog_control_row_selected,
+        )
+        scrolled.set_child(self._analog_control_listbox)
+        outer.append(scrolled)
+
+        self._load_analog_control_list()
         return outer
 
     def _build_keyboard_tab(self) -> Gtk.Widget:
@@ -1302,6 +1382,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         child_name = self.stack.get_visible_child_name()
         is_special = child_name == "special"
         is_superkey = child_name == "superkey"
+        is_analog_control = child_name == "analog_control"
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
         is_exec = child_name == "exec"
@@ -1311,6 +1392,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         options_enabled = (
             not is_special
             and not is_superkey
+            and not is_analog_control
             and not is_macro
             and not is_profile
             and not is_exec
@@ -1320,14 +1402,17 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self.options_box.set_visible(
             has_options
             and not is_superkey
+            and not is_analog_control
             and not is_macro
             and not is_profile
             and not is_exec
             and not is_compositor_action
         )
-        self.map_btn.set_visible(is_superkey or is_macro or is_profile)
+        self.map_btn.set_visible(is_superkey or is_analog_control or is_macro or is_profile)
         if is_superkey:
             self.map_btn.set_sensitive(self._selected_superkey is not None)
+        elif is_analog_control:
+            self.map_btn.set_sensitive(bool(self._selected_analog_controls))
         elif is_macro:
             self.map_btn.set_sensitive(self._selected_macro is not None)
         elif is_profile:
@@ -2003,6 +2088,124 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         if self.stack.get_visible_child_name() == "superkey":
             self.map_btn.set_sensitive(self._selected_superkey is not None)
 
+    def _load_analog_control_list(self) -> None:
+        manager = AnalogControlManager()
+        configs = manager.get_all_analog_controls()
+        self._analog_control_names = manager.list_analog_controls()
+        self._analog_control_list = [
+            config
+            for name in self._analog_control_names
+            if (config := configs.get(name)) is not None
+            and (
+                self._analog_input_type is None
+                or config.input_type == self._analog_input_type
+            )
+        ]
+        self._populate_analog_control_listbox()
+
+    def _populate_analog_control_listbox(self) -> None:
+        selected_names = set(self._selected_analog_controls)
+        while self._analog_control_listbox.get_first_child():
+            self._analog_control_listbox.remove(self._analog_control_listbox.get_first_child())
+
+        if not self._analog_control_list:
+            self._selected_analog_control = None
+            self._selected_analog_controls = []
+            row = Gtk.ListBoxRow()
+            row.set_selectable(False)
+            label = "No analog controls saved yet"
+            if self._analog_input_type == "axis":
+                label = "No axis controls saved yet"
+            elif self._analog_input_type == "stick":
+                label = "No stick controls saved yet"
+            lbl = Gtk.Label(label=label)
+            lbl.add_css_class("dim-label")
+            lbl.set_margin_top(12)
+            lbl.set_margin_bottom(12)
+            row.set_child(lbl)
+            self._analog_control_listbox.append(row)
+            return
+
+        for config in self._analog_control_list:
+            row = Gtk.ListBoxRow()
+            row._analog_control_name = config.name
+            click = Gtk.GestureClick()
+            click.set_button(1)
+            click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            click.connect("pressed", self._on_analog_control_row_pressed, row)
+            row.add_controller(click)
+
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            row_box.set_margin_top(8)
+            row_box.set_margin_bottom(8)
+            row_box.set_margin_start(12)
+            row_box.set_margin_end(12)
+
+            name_label = Gtk.Label(label=config.name)
+            name_label.set_halign(Gtk.Align.START)
+            name_label.set_hexpand(True)
+            row_box.append(name_label)
+
+            info_label = Gtk.Label(label=self._describe_analog_control_row(config))
+            info_label.add_css_class("dim-label")
+            info_label.add_css_class("caption")
+            row_box.append(info_label)
+
+            row.set_child(row_box)
+            self._analog_control_listbox.append(row)
+
+            if config.name in selected_names:
+                self._analog_control_listbox.select_row(row)
+        self._sync_selected_analog_controls()
+
+    def _describe_analog_control_row(self, config: AnalogControlConfig) -> str:
+        parts: list[str] = ["Axis" if config.input_type == "axis" else "Stick"]
+        if config.mouse_motion.enabled:
+            parts.append("Mouse")
+        if config.gamepad_output.enabled:
+            parts.append("Gamepad output")
+        if config.thresholds:
+            count = len(config.thresholds)
+            parts.append(f"{count} range{'s' if count != 1 else ''}")
+        return " · ".join(parts)
+
+    def _on_analog_control_refresh(self, btn) -> None:
+        self._load_analog_control_list()
+
+    def _on_analog_control_row_pressed(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+        row: Gtk.ListBoxRow,
+    ) -> None:
+        if row.is_selected():
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+            self._unselect_analog_control_row(row)
+
+    def _unselect_analog_control_row(self, row: Gtk.ListBoxRow) -> bool:
+        if row.is_selected():
+            self._analog_control_listbox.unselect_row(row)
+            self._sync_selected_analog_controls()
+            if self.stack.get_visible_child_name() == "analog_control":
+                self.map_btn.set_sensitive(bool(self._selected_analog_controls))
+        return False
+
+    def _on_analog_control_row_selected(self, listbox, row) -> None:
+        self._sync_selected_analog_controls()
+        if self.stack.get_visible_child_name() == "analog_control":
+            self.map_btn.set_sensitive(bool(self._selected_analog_controls))
+
+    def _sync_selected_analog_controls(self) -> None:
+        selected: list[str] = []
+        for row in self._analog_control_listbox.get_selected_rows():
+            name = getattr(row, "_analog_control_name", None)
+            if isinstance(name, str):
+                selected.append(name)
+        self._selected_analog_controls = selected
+        self._selected_analog_control = selected[0] if selected else None
+
     def _load_macro_list(self) -> bool:
         session_request_async({"command": "list_macros"}, self._on_macro_list_loaded)
         return False
@@ -2097,6 +2300,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         child_name = self.stack.get_visible_child_name()
         if child_name == "superkey":
             self._on_superkey_map_clicked(btn)
+        elif child_name == "analog_control":
+            self._on_analog_control_map_clicked(btn)
         elif child_name == "macro":
             self._on_macro_map_clicked(btn)
         elif child_name == "profile":
@@ -2109,6 +2314,16 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         action = MappingAction(
             action_type=ActionType.SUPERKEY,
             superkey_name=self._selected_superkey,
+        )
+        self.emit("key-selected", action)
+        self.close()
+
+    def _on_analog_control_map_clicked(self, btn) -> None:
+        if not self._selected_analog_controls:
+            return
+        action = MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_names=list(self._selected_analog_controls),
         )
         self.emit("key-selected", action)
         self.close()
@@ -2158,6 +2373,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             ActionType.PASSTHROUGH: "special",
             ActionType.SUPPRESS: "special",
             ActionType.SUPERKEY: "superkey",
+            ActionType.ANALOG_CONTROL: "analog_control",
             ActionType.START_MACRO_RECORDING: "macro",
             ActionType.STOP_MACRO_RECORDING: "macro",
             ActionType.CANCEL_MACRO_PLAYBACK: "macro",

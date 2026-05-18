@@ -22,6 +22,7 @@ def test_action_labels_describe_all_mapping_action_types() -> None:
             compositor_args="2",
         ),
         MappingAction(action_type=ActionType.SUPERKEY, superkey_name="Nav"),
+        MappingAction(action_type=ActionType.ANALOG_CONTROL, analog_control_name="FPS Mouse"),
         MappingAction(action_type=ActionType.MACRO, macro_name="paste"),
         MappingAction(action_type=ActionType.START_MACRO_RECORDING),
         MappingAction(action_type=ActionType.STOP_MACRO_RECORDING),
@@ -53,6 +54,7 @@ def test_action_labels_describe_all_mapping_action_types() -> None:
         "▶ notify-send hi",
         "🪟 workspace 2",
         "🌟S: Nav",
+        "🕹️ FPS Mouse",
         "🎬 paste",
         "⏺ toggle recording",
         "⏹ stop recording",
@@ -73,6 +75,7 @@ def test_action_labels_describe_all_mapping_action_types() -> None:
         "Exec → notify-send hi",
         "Compositor → workspace 2",
         "Super Key → Nav",
+        "Analog Control -> FPS Mouse",
         "Macro → paste",
         "Toggle Macro Recording",
         "Stop Macro Recording",
@@ -110,3 +113,21 @@ def test_action_labels_include_state_flags_and_fallbacks() -> None:
     assert describe_mapping_action_verbose(
         MappingAction(action_type=ActionType.EXEC)
     ) == "Exec → ?"
+    assert (
+        describe_mapping_action_compact(
+            MappingAction(
+                action_type=ActionType.ANALOG_CONTROL,
+                analog_control_names=["Mouse", "WASD"],
+            )
+        )
+        == "🕹️ 2 controls"
+    )
+    assert (
+        describe_mapping_action_verbose(
+            MappingAction(
+                action_type=ActionType.ANALOG_CONTROL,
+                analog_control_names=["Mouse", "WASD"],
+            )
+        )
+        == "Analog Control -> 2 controls"
+    )

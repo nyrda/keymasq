@@ -22,6 +22,8 @@ from keymasq.common.devices import (
 )
 from keymasq.common.models import (
     ActionType,
+    AnalogAxisDefinition,
+    AnalogInputDefinition,
     ButtonDefinition,
     DeviceType,
     EvdevDevice,
@@ -48,6 +50,40 @@ _POINTER_BUTTON_CARD_WIDTH = 187
 _POINTER_NAME_LABEL_CHARS = 20
 _POINTER_ACTION_SUMMARY_CHARS = 24
 _ACTION_SUMMARY_MARKER = "..."
+_ANALOG_LAYOUT_ORDER = {
+    "left_trigger": 0,
+    "right_trigger": 1,
+    "left_stick": 2,
+    "right_stick": 3,
+}
+
+
+def _make_capture_status_row(status_label: Gtk.Label) -> Gtk.Box:
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    row.set_halign(Gtk.Align.START)
+    row.set_margin_top(4)
+    dot = Gtk.Box()
+    dot.add_css_class("capture-recording-dot")
+    dot.set_size_request(10, 10)
+    dot.set_valign(Gtk.Align.CENTER)
+    dot.set_visible(False)
+    status_label._capture_recording_dot = dot
+    row.append(dot)
+    row.append(status_label)
+    return row
+
+
+def _set_capture_status(
+    status_label: Gtk.Label,
+    text: object,
+    *,
+    recording: bool = False,
+) -> None:
+    status_label.set_text(str(text))
+    dot = getattr(status_label, "_capture_recording_dot", None)
+    if dot is None:
+        return
+    cast(Gtk.Widget, dot).set_visible(recording)
 
 
 def _char_middle_shorten_text(text: str, max_chars: int) -> str:
@@ -87,6 +123,39 @@ def _compact_exec_summary(text: str, max_chars: int) -> str | None:
     return None
 
 
+def _ordered_analog_inputs(
+    analog_inputs: list[AnalogInputDefinition],
+) -> list[AnalogInputDefinition]:
+    return sorted(
+        analog_inputs,
+        key=lambda analog: (
+            _ANALOG_LAYOUT_ORDER.get(analog.id, len(_ANALOG_LAYOUT_ORDER)),
+            analog.label.lower(),
+            analog.id,
+        ),
+    )
+
+
+def _grouped_analog_inputs(
+    analog_inputs: list[AnalogInputDefinition],
+) -> list[tuple[str, list[AnalogInputDefinition]]]:
+    ordered = _ordered_analog_inputs(analog_inputs)
+    groups: list[tuple[str, list[AnalogInputDefinition]]] = []
+    for analog_type, title in (("axis", "1D Axes / Triggers"), ("stick", "Sticks")):
+        matching = [analog for analog in ordered if str(analog.type).lower() == analog_type]
+        if matching:
+            groups.append((title, matching))
+
+    other = [
+        analog
+        for analog in ordered
+        if str(analog.type).lower() not in {"axis", "stick"}
+    ]
+    if other:
+        groups.append(("Other", other))
+    return groups
+
+
 def _display_action_summary(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
@@ -124,6 +193,10 @@ class DeviceTab(ProfileManagedTab):
         self._add_keys_poll_inflight = False
         self._add_keys_capturing = False
         self._add_keys_pending_ids: list[str] = []
+        self._analog_learn_poll_id = None
+        self._analog_learn_poll_inflight = False
+        self._analog_learn_capturing = False
+        self._analog_learn_context: dict[str, object] = {}
         self._capture_active_hardware_id: str | None = None
         self._add_inputs_dialog: Adw.Dialog | None = None
         self._add_inputs_escape_controller: Gtk.EventControllerKey | None = None
@@ -206,7 +279,7 @@ class DeviceTab(ProfileManagedTab):
 
     def _update_header_caption(self) -> None:
         mapped = self._count_mapped_buttons()
-        total = len(self.device.buttons)
+        total = len(self.device.buttons) + len(self.device.analog_inputs)
         base = (
             f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
             f"{total} buttons"
@@ -656,6 +729,7 @@ class DeviceTab(ProfileManagedTab):
                     prepend=True,
                 )
 
+            self._append_analog_controls_section(content)
             self._append_learn_tile(content)
             scrolled.set_child(content)
             self.append(scrolled)
@@ -737,6 +811,7 @@ class DeviceTab(ProfileManagedTab):
                     prepend=True,
                 )
 
+            self._append_analog_controls_section(content)
             self._append_learn_tile(content)
             scrolled.set_child(content)
             self.append(scrolled)
@@ -754,6 +829,7 @@ class DeviceTab(ProfileManagedTab):
         _add_section("Scroll", scroll_buttons, content)
         _add_section("Side Buttons", other_buttons, content)
 
+        self._append_analog_controls_section(content)
         self._append_learn_tile(content)
         scrolled.set_child(content)
         self.append(scrolled)
@@ -789,13 +865,33 @@ class DeviceTab(ProfileManagedTab):
         btn.set_child(inner)
         return btn
 
+    def _create_learn_analog_tile(self) -> Gtk.Button:
+        btn = Gtk.Button()
+        btn.add_css_class("button-card-learn")
+        btn.set_halign(Gtk.Align.START)
+        btn.set_tooltip_text("Capture a generic analog axis or stick for this device")
+        btn.connect("clicked", self._on_learn_analog_clicked)
+        inner = self._make_icon_label_box("list-add-symbolic", "Learn Analog")
+        btn.set_child(inner)
+        return btn
+
     def _append_learn_tile(self, parent: Gtk.Box) -> None:
         if self.demo_mode:
             return
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row.set_margin_top(8)
         row.append(self._create_learn_tile())
+        if self._supports_analog_learning():
+            row.append(self._create_learn_analog_tile())
         parent.append(row)
+
+    def _supports_analog_learning(self) -> bool:
+        if self.device.analog_inputs:
+            return True
+        return any(
+            device.device_type not in {DeviceType.MOUSE, DeviceType.KEYBOARD}
+            for device in self.device.evdev_devices
+        )
 
     def is_keyboard_hardware(self) -> bool:
         key_count = sum(1 for b in self.device.buttons if b.id.startswith("key_"))
@@ -985,6 +1081,104 @@ class DeviceTab(ProfileManagedTab):
 
         return btn
 
+    def _append_analog_controls_section(self, parent: Gtk.Box) -> None:
+        if not self.device.analog_inputs:
+            return
+        label = Gtk.Label(label="Analog Controls")
+        label.add_css_class("button-section-title")
+        label.set_halign(Gtk.Align.START)
+        parent.append(label)
+
+        for title, analogs in _grouped_analog_inputs(self.device.analog_inputs):
+            group_label = Gtk.Label(label=title)
+            group_label.add_css_class("caption")
+            group_label.add_css_class("dim-label")
+            group_label.set_halign(Gtk.Align.START)
+            group_label.set_margin_top(2)
+            parent.append(group_label)
+
+            grid = Gtk.Grid()
+            grid.set_column_spacing(12)
+            grid.set_row_spacing(12)
+            for index, analog in enumerate(analogs):
+                widget = self._create_analog_widget(analog)
+                grid.attach(widget, index % 2, index // 2, 1, 1)
+                self._button_widgets[analog.id] = widget
+            parent.append(grid)
+
+    def _create_analog_widget(self, analog: AnalogInputDefinition) -> Gtk.Button:
+        btn = Gtk.Button()
+        btn.add_css_class("card")
+        btn.add_css_class("button-card-passthrough")
+        btn.set_margin_top(2)
+        btn.set_margin_bottom(2)
+        btn.set_margin_start(2)
+        btn.set_margin_end(2)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_halign(Gtk.Align.FILL)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(6)
+        box.set_margin_bottom(7)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+
+        name_label = Gtk.Label(label=analog.label)
+        name_label.add_css_class("heading")
+        name_label.set_xalign(0.0)
+        name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        name_label.set_width_chars(1)
+        name_label.set_max_width_chars(_POINTER_NAME_LABEL_CHARS)
+        box.append(name_label)
+        name_right_click = Gtk.GestureClick()
+        name_right_click.set_button(3)
+        name_right_click.connect("pressed", self._on_analog_name_right_clicked, analog)
+        name_label.add_controller(name_right_click)
+
+        passthrough_label = "Axis passthrough" if analog.type == "axis" else "Analog passthrough"
+        action_label = Gtk.Label(label=passthrough_label)
+        action_label.add_css_class("caption")
+        action_label.add_css_class("button-card-action-label")
+        action_label.set_halign(Gtk.Align.FILL)
+        action_label.set_xalign(0.0)
+        action_label.set_hexpand(True)
+        action_label.set_single_line_mode(True)
+        action_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        action_label.set_width_chars(1)
+        action_label.set_max_width_chars(_POINTER_ACTION_SUMMARY_CHARS)
+        box.append(action_label)
+
+        btn._action_label = action_label
+        btn._name_label = name_label
+        btn._button_id = analog.id
+        btn._protected = False
+        btn._analog_source = True
+        btn.set_size_request(self._button_card_width(), -1)
+        btn.set_halign(Gtk.Align.START)
+        btn.set_hexpand(False)
+        btn.set_child(box)
+        btn.connect("clicked", self._on_analog_mapping_clicked, analog)
+        return btn
+
+    def _on_analog_mapping_clicked(
+        self,
+        _button_widget: Gtk.Button,
+        analog: AnalogInputDefinition,
+    ) -> None:
+        self._activate_analog_mapping(analog)
+
+    def _on_analog_name_right_clicked(
+        self,
+        click,
+        n_press,
+        x,
+        y,
+        analog: AnalogInputDefinition,
+    ) -> None:
+        if n_press != 1 or self.demo_mode:
+            return
+        self._show_analog_relabel_dialog(analog)
+
     def _on_mapping_button_clicked(
         self,
         _button_widget: Gtk.Button,
@@ -1017,6 +1211,12 @@ class DeviceTab(ProfileManagedTab):
             return
 
         self._show_function_editor(button)
+
+    def _activate_analog_mapping(self, analog: AnalogInputDefinition) -> None:
+        if self._selected_profile is None:
+            self._show_no_profile_dialog()
+            return
+        self._show_analog_editor(analog)
 
     def _on_action_label_right_clicked(
         self, click, n_press, x, y, button: ButtonDefinition
@@ -1120,6 +1320,64 @@ class DeviceTab(ProfileManagedTab):
         dialog.set_child(box)
         dialog.present(self.get_root())
 
+    def _show_analog_relabel_dialog(self, analog: AnalogInputDefinition) -> None:
+        dialog = Adw.Dialog(title="Rename Analog Input", content_width=420, content_height=-1)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(16)
+        box.set_margin_bottom(16)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+
+        label = Gtk.Label(label=f"Rename '{analog.label}'")
+        label.set_halign(Gtk.Align.START)
+        box.append(label)
+
+        entry = Gtk.Entry()
+        entry.set_text(analog.label)
+        box.append(entry)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row.set_halign(Gtk.Align.FILL)
+
+        delete_btn = Gtk.Button(label="Delete")
+        delete_btn.add_css_class("destructive-action")
+        delete_btn.connect("clicked", self._on_delete_analog_clicked, dialog, analog)
+        btn_row.append(delete_btn)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        btn_row.append(spacer)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
+        btn_row.append(cancel_btn)
+
+        save_btn = Gtk.Button(label="Save")
+        save_btn.add_css_class("suggested-action")
+
+        def on_save(_btn) -> None:
+            new_label = entry.get_text().strip()
+            if not new_label:
+                return
+            for item in self.device.analog_inputs:
+                if item.id == analog.id:
+                    item.label = new_label
+                    break
+            assert self.hardware_manager is not None
+            self.hardware_manager.save_hardware(self.device)
+            session_request_async({"command": "reload"}, lambda _result: False)
+            widget = self._button_widgets.get(analog.id)
+            if widget:
+                widget._name_label.set_text(new_label)
+            dialog.close()
+
+        save_btn.connect("clicked", on_save)
+        btn_row.append(save_btn)
+
+        box.append(btn_row)
+        dialog.set_child(box)
+        dialog.present(self.get_root())
+
     def _on_delete_button_clicked(
         self,
         _button: Gtk.Button,
@@ -1139,6 +1397,33 @@ class DeviceTab(ProfileManagedTab):
 
         if self.profile_manager is not None:
             self.profile_manager.remove_device_button_mappings(self.device.hardware_id, button.id)
+
+        assert self.hardware_manager is not None
+        self.hardware_manager.save_hardware(self.device)
+        session_request_async({"command": "reload"}, lambda _result: False)
+        dialog.close()
+        if self.profile_manager is not None:
+            self._reload_ui()
+
+    def _on_delete_analog_clicked(
+        self,
+        _button: Gtk.Button,
+        dialog: Adw.Dialog,
+        analog: AnalogInputDefinition,
+    ) -> None:
+        self._delete_analog(analog, dialog)
+
+    def _delete_analog(self, analog: AnalogInputDefinition, dialog: Adw.Dialog) -> None:
+        original_count = len(self.device.analog_inputs)
+        self.device.analog_inputs = [
+            existing for existing in self.device.analog_inputs if existing.id != analog.id
+        ]
+        if len(self.device.analog_inputs) == original_count:
+            dialog.close()
+            return
+
+        if self.profile_manager is not None:
+            self.profile_manager.remove_device_button_mappings(self.device.hardware_id, analog.id)
 
         assert self.hardware_manager is not None
         self.hardware_manager.save_hardware(self.device)
@@ -1210,6 +1495,37 @@ class DeviceTab(ProfileManagedTab):
             self._update_header_caption()
 
         dialog = KeySelectorDialog(self, button.label, current_action)
+        dialog.connect("key-selected", on_key_selected)
+        dialog.present(self.get_root())
+
+    def _show_analog_editor(self, analog: AnalogInputDefinition) -> None:
+        current_action = None
+        layer = self._selected_layer()
+        if layer:
+            current_action = layer.mappings.get(analog.id)
+
+        def on_key_selected(dialog, action):
+            layer = self._selected_layer(create=True)
+            if layer is None:
+                return
+            if action is None:
+                layer.mappings.pop(analog.id, None)
+            else:
+                layer.mappings[analog.id] = action
+            self._save_profile()
+            self._update_button_display(analog.id)
+            self._update_header_caption()
+
+        dialog = KeySelectorDialog(
+            self,
+            analog.label,
+            current_action,
+            allow_rapidfire=False,
+            allow_tap=False,
+            allow_macro_options=False,
+            source_type="analog",
+            analog_input_type=analog.type,
+        )
         dialog.connect("key-selected", on_key_selected)
         dialog.present(self.get_root())
 
@@ -1289,7 +1605,11 @@ class DeviceTab(ProfileManagedTab):
             (candidate for candidate in self.device.buttons if candidate.id == button_id),
             None,
         )
-        if button is None:
+        analog = next(
+            (candidate for candidate in self.device.analog_inputs if candidate.id == button_id),
+            None,
+        )
+        if button is None and analog is None:
             return
 
         winner_profile_name, winner_mapping = self._get_effective_mapping_for_button(button_id)
@@ -1327,9 +1647,15 @@ class DeviceTab(ProfileManagedTab):
                 else:
                     widget.set_tooltip_text("This binding is not currently active")
         else:
+            if button is not None:
+                passthrough_label = self._describe_passthrough_output(button)
+            elif analog is not None and analog.type == "axis":
+                passthrough_label = "Axis passthrough"
+            else:
+                passthrough_label = "Analog passthrough"
             self._set_action_label_text(
                 action_label,
-                self._describe_passthrough_output(button),
+                passthrough_label,
             )
             action_label.add_css_class("dim-label")
             widget.add_css_class("button-card-passthrough")
@@ -1378,7 +1704,7 @@ class DeviceTab(ProfileManagedTab):
         status = Gtk.Label(label="")
         status.add_css_class("dim-label")
         status.set_halign(Gtk.Align.START)
-        box.append(status)
+        box.append(_make_capture_status_row(status))
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row.set_halign(Gtk.Align.END)
@@ -1409,7 +1735,7 @@ class DeviceTab(ProfileManagedTab):
                 return
             count = int(spin.get_value())
             self._add_keys_pending_ids = [f"key_added_{i + 1}" for i in range(count)]
-            status.set_text(self._capture_waiting_label())
+            _set_capture_status(status, self._capture_waiting_label(), recording=True)
             start_btn.set_sensitive(False)
             self._start_add_keys_capture(
                 status,
@@ -1426,6 +1752,659 @@ class DeviceTab(ProfileManagedTab):
         self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
         dialog.set_child(box)
         dialog.present(self.get_root())
+
+    def _on_learn_analog_clicked(self, _button: Gtk.Button | None) -> None:
+        dialog = Adw.Dialog(title="Learn Analog Input", content_width=520, content_height=-1)
+        dialog.connect("closed", self._on_learn_analog_dialog_closed)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(16)
+        box.set_margin_bottom(16)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+
+        info = Gtk.Label(
+            label=(
+                "Choose Generic Axis or Stick, start capture, then move the physical "
+                "control through its full range."
+            )
+        )
+        info.set_halign(Gtk.Align.START)
+        info.set_wrap(True)
+        box.append(info)
+
+        form_grid = Gtk.Grid()
+        form_grid.set_column_spacing(8)
+        form_grid.set_row_spacing(8)
+        box.append(form_grid)
+
+        type_label = Gtk.Label(label="Type:")
+        type_label.set_halign(Gtk.Align.END)
+        type_label.set_valign(Gtk.Align.CENTER)
+        type_dropdown = Gtk.DropDown.new_from_strings(["Generic Axis", "Stick"])
+        type_dropdown.set_halign(Gtk.Align.START)
+        form_grid.attach(type_label, 0, 0, 1, 1)
+        form_grid.attach(type_dropdown, 1, 0, 1, 1)
+
+        id_entry = Gtk.Entry()
+        id_entry.set_text(self._next_analog_id("axis"))
+        id_entry.set_hexpand(True)
+        label_entry = Gtk.Entry()
+        label_entry.set_text("Generic Axis")
+        label_entry.set_hexpand(True)
+
+        def on_type_changed(_dropdown, _param) -> None:
+            if type_dropdown.get_selected() == 1:
+                id_entry.set_text(self._next_analog_id("stick"))
+                label_entry.set_text("Stick")
+            else:
+                id_entry.set_text(self._next_analog_id("axis"))
+                label_entry.set_text("Generic Axis")
+
+        type_dropdown.connect("notify::selected", on_type_changed)
+
+        id_label = Gtk.Label(label="ID:")
+        id_label.set_halign(Gtk.Align.END)
+        id_label.set_valign(Gtk.Align.CENTER)
+        form_grid.attach(id_label, 0, 1, 1, 1)
+        form_grid.attach(id_entry, 1, 1, 1, 1)
+
+        label_label = Gtk.Label(label="Label:")
+        label_label.set_halign(Gtk.Align.END)
+        label_label.set_valign(Gtk.Align.CENTER)
+        form_grid.attach(label_label, 0, 2, 1, 1)
+        form_grid.attach(label_entry, 1, 2, 1, 1)
+
+        privilege_status = Gtk.Label(label="")
+        privilege_status.add_css_class("dim-label")
+        privilege_status.set_halign(Gtk.Align.START)
+        privilege_status.set_wrap(True)
+        box.append(privilege_status)
+
+        status = Gtk.Label(label="")
+        status.add_css_class("dim-label")
+        status.set_halign(Gtk.Align.START)
+        status.set_wrap(True)
+        box.append(_make_capture_status_row(status))
+
+        review_list = Gtk.ListBox()
+        review_list.add_css_class("boxed-list")
+        review_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        review_list.set_visible(False)
+        box.append(review_list)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row.set_halign(Gtk.Align.END)
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
+        btn_row.append(cancel_btn)
+
+        unlock_btn = Gtk.Button()
+        unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
+        unlock_btn.set_tooltip_text(
+            "Authorize raw original-input capture so Keymasq can detect analog axes before "
+            "remapping."
+        )
+        unlock_btn.connect(
+            "clicked",
+            self._on_learn_analog_unlock_clicked,
+            start_btn := Gtk.Button(label="Start Capture"),
+            privilege_status,
+            status,
+        )
+        btn_row.append(unlock_btn)
+
+        save_btn = Gtk.Button(label="Save")
+        save_btn.add_css_class("suggested-action")
+        save_btn.set_sensitive(False)
+        save_btn.set_visible(False)
+        save_btn.connect(
+            "clicked",
+            self._on_save_learned_analog_clicked,
+            dialog,
+            type_dropdown,
+            id_entry,
+            label_entry,
+            review_list,
+            status,
+        )
+
+        start_btn.connect(
+            "clicked",
+            self._on_start_learn_analog_clicked,
+            dialog,
+            type_dropdown,
+            id_entry,
+            label_entry,
+            review_list,
+            status,
+            save_btn,
+            unlock_btn,
+            privilege_status,
+        )
+        btn_row.append(start_btn)
+        btn_row.append(save_btn)
+        box.append(btn_row)
+
+        self._analog_learn_context = {
+            "dialog": dialog,
+            "type_dropdown": type_dropdown,
+            "id_entry": id_entry,
+            "label_entry": label_entry,
+            "review_list": review_list,
+            "status": status,
+            "start_btn": start_btn,
+            "save_btn": save_btn,
+            "unlock_btn": unlock_btn,
+            "privilege_status": privilege_status,
+            "candidates": {},
+        }
+        self._update_learn_analog_capture_controls(start_btn, unlock_btn, privilege_status)
+        dialog.set_child(box)
+        dialog.present(self.get_root())
+
+    def _on_start_learn_analog_clicked(
+        self,
+        start_btn: Gtk.Button,
+        dialog: Adw.Dialog,
+        type_dropdown: Gtk.DropDown,
+        id_entry: Gtk.Entry,
+        label_entry: Gtk.Entry,
+        review_list: Gtk.ListBox,
+        status: Gtk.Label,
+        save_btn: Gtk.Button,
+        unlock_btn: Gtk.Button,
+        privilege_status: Gtk.Label,
+    ) -> None:
+        if self._analog_learn_capturing:
+            self._stop_analog_learn_capture()
+            self._populate_learned_analog_review(
+                type_dropdown,
+                review_list,
+                status,
+                save_btn,
+            )
+            start_btn.set_label("Start Capture")
+            save_btn.set_visible(save_btn.get_sensitive())
+            self._update_learn_analog_capture_controls(
+                start_btn,
+                unlock_btn,
+                privilege_status,
+            )
+            return
+
+        _ = dialog, id_entry, label_entry
+        self._capture_active_hardware_id = self.device.hardware_id
+        self._analog_learn_context["candidates"] = {}
+        review_list.set_visible(False)
+        save_btn.set_sensitive(False)
+        save_btn.set_visible(False)
+        _set_capture_status(status, "Recording analog movement...", recording=True)
+        start_btn.set_label("Review Capture")
+        start_btn.set_sensitive(False)
+
+        session_request_async(
+            {
+                "command": "begin_capture",
+                "hardware_id": self._capture_active_hardware_id,
+                "evdev_paths": [device.path for device in self.device.evdev_devices],
+                "mode": "analog",
+            },
+            lambda result: self._on_learn_analog_capture_begun(
+                result,
+                status,
+                start_btn,
+                unlock_btn,
+                privilege_status,
+            ),
+        )
+
+    def _on_learn_analog_capture_begun(
+        self,
+        result: JsonDict | None,
+        status: Gtk.Label,
+        start_btn: Gtk.Button,
+        unlock_btn: Gtk.Button,
+        privilege_status: Gtk.Label,
+    ) -> bool:
+        if not result or result.get("status") != "ok":
+            _set_capture_status(status, (result or {}).get("message", "Capture failed"))
+            self._stop_analog_learn_capture()
+            start_btn.set_label("Start Capture")
+            self._update_learn_analog_capture_controls(
+                start_btn,
+                unlock_btn,
+                privilege_status,
+            )
+            return False
+
+        self._analog_learn_capturing = True
+        start_btn.set_sensitive(True)
+        self._analog_learn_poll_id = GLib.timeout_add(16, self._poll_learn_analog_capture)
+        return False
+
+    def _poll_learn_analog_capture(self) -> bool:
+        if not self._analog_learn_capturing:
+            return False
+        if self._analog_learn_poll_inflight:
+            return True
+        self._analog_learn_poll_inflight = True
+        session_request_async(
+            {
+                "command": "capture_read",
+                "hardware_id": self._capture_active_hardware_id,
+            },
+            self._on_learn_analog_capture_read,
+        )
+        return True
+
+    def _on_learn_analog_capture_read(self, result: JsonDict | None) -> bool:
+        self._analog_learn_poll_inflight = False
+        if not self._analog_learn_capturing or not result:
+            return False
+        if result.get("status") != "ok":
+            status = self._analog_learn_context.get("status")
+            if isinstance(status, Gtk.Label):
+                _set_capture_status(
+                    cast(Gtk.Label, status),
+                    result.get("message", "Capture failed"),
+                )
+            self._stop_analog_learn_capture()
+            start_btn = self._analog_learn_context.get("start_btn")
+            unlock_btn = self._analog_learn_context.get("unlock_btn")
+            privilege_status = self._analog_learn_context.get("privilege_status")
+            if (
+                isinstance(start_btn, Gtk.Button)
+                and isinstance(unlock_btn, Gtk.Button)
+                and isinstance(privilege_status, Gtk.Label)
+            ):
+                cast(Gtk.Button, start_btn).set_label("Start Capture")
+                self._update_learn_analog_capture_controls(
+                    cast(Gtk.Button, start_btn),
+                    cast(Gtk.Button, unlock_btn),
+                    cast(Gtk.Label, privilege_status),
+                )
+            return False
+        captured = result.get("captured")
+        if isinstance(captured, dict):
+            self._record_analog_candidate(cast(JsonDict, captured))
+        return True
+
+    def _record_analog_candidate(self, captured: JsonDict) -> None:
+        code_raw = captured.get("code")
+        value_raw = captured.get("value")
+        try:
+            code = int(cast(int, code_raw))
+            value = int(cast(int, value_raw))
+        except Exception:
+            return
+        source = str(captured.get("source", "") or "")
+        key = f"{source}:{code}"
+        candidates = cast(
+            dict[str, JsonDict],
+            self._analog_learn_context.setdefault("candidates", {}),
+        )
+        candidate = candidates.get(key)
+        if candidate is None:
+            absinfo = captured.get("absinfo") if isinstance(captured.get("absinfo"), dict) else {}
+            candidate = {
+                "evdev": str(captured.get("evdev", "") or f"abs_{code}"),
+                "code": code,
+                "source": source,
+                "stable_path": str(captured.get("stable_path", "") or ""),
+                "rest": value,
+                "minimum": int(cast(dict, absinfo).get("minimum", value)),
+                "maximum": int(cast(dict, absinfo).get("maximum", value)),
+                "observed_minimum": value,
+                "observed_maximum": value,
+                "count": 0,
+            }
+            candidates[key] = candidate
+        candidate["observed_minimum"] = min(int(candidate["observed_minimum"]), value)
+        candidate["observed_maximum"] = max(int(candidate["observed_maximum"]), value)
+        candidate["minimum"] = min(int(candidate["minimum"]), value)
+        candidate["maximum"] = max(int(candidate["maximum"]), value)
+        candidate["count"] = int(candidate["count"]) + 1
+
+        status = self._analog_learn_context.get("status")
+        if isinstance(status, Gtk.Label):
+            _set_capture_status(
+                cast(Gtk.Label, status),
+                f"Recording analog movement... Captured {len(candidates)} axes",
+                recording=True,
+            )
+
+    def _populate_learned_analog_review(
+        self,
+        type_dropdown: Gtk.DropDown,
+        review_list: Gtk.ListBox,
+        status: Gtk.Label,
+        save_btn: Gtk.Button,
+    ) -> None:
+        while row := review_list.get_row_at_index(0):
+            review_list.remove(row)
+        candidates = cast(
+            dict[str, JsonDict],
+            self._analog_learn_context.get("candidates", {}),
+        )
+        ranked = sorted(candidates.values(), key=self._analog_candidate_score, reverse=True)
+        analog_type = "stick" if type_dropdown.get_selected() == 1 else "axis"
+        needed = 2 if analog_type == "stick" else 1
+        if len(ranked) < needed:
+            _set_capture_status(status, "Not enough analog movement captured.")
+            save_btn.set_sensitive(False)
+            return
+        if analog_type == "axis" and len(ranked) > 1:
+            top = self._analog_candidate_score(ranked[0])
+            second = self._analog_candidate_score(ranked[1])
+            if top <= 0 or top == second:
+                _set_capture_status(status, "Could not choose one axis unambiguously. Try again.")
+                save_btn.set_sensitive(False)
+                return
+        selected = ranked[:needed]
+        if any(self._analog_candidate_score(candidate) <= 0 for candidate in selected):
+            _set_capture_status(status, "Captured axes did not move far enough.")
+            save_btn.set_sensitive(False)
+            return
+
+        roles = self._learned_analog_review_roles(selected, analog_type)
+        for role, candidate in zip(roles, selected, strict=False):
+            review_list.append(self._build_analog_review_row(role, candidate, analog_type))
+        review_list.set_visible(True)
+        save_btn.set_sensitive(True)
+        _set_capture_status(status, "Review the learned values, edit if needed, then save.")
+
+    def _learned_analog_review_roles(
+        self,
+        selected: list[JsonDict],
+        analog_type: str,
+    ) -> tuple[str, ...]:
+        if analog_type != "stick":
+            return ("x",)
+        inferred = [self._candidate_stick_role(candidate) for candidate in selected]
+        if sorted(role for role in inferred if role is not None) == ["x", "y"]:
+            return tuple(cast(str, role) for role in inferred)
+        return ("x", "y")
+
+    def _candidate_stick_role(self, candidate: JsonDict) -> str | None:
+        evdev_name = str(candidate.get("evdev", "") or "").lower()
+        if evdev_name.endswith("x"):
+            return "x"
+        if evdev_name.endswith("y"):
+            return "y"
+        try:
+            code = int(cast(int, candidate.get("code")))
+        except Exception:
+            return None
+        if code in {0, 3, 16}:
+            return "x"
+        if code in {1, 4, 17}:
+            return "y"
+        return None
+
+    def _build_analog_review_row(
+        self,
+        role: str,
+        candidate: JsonDict,
+        analog_type: str,
+    ) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row.set_selectable(False)
+        row.set_activatable(False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+
+        title = Gtk.Label(
+            label=(
+                f"{candidate.get('evdev')} "
+                f"[{candidate.get('source') or 'default'}]"
+            )
+        )
+        title.set_halign(Gtk.Align.START)
+        box.append(title)
+
+        grid = Gtk.Grid()
+        grid.set_column_spacing(8)
+        grid.set_row_spacing(6)
+        role_dropdown: Gtk.DropDown | None = None
+        column_offset = 0
+        if analog_type == "stick":
+            role_label = Gtk.Label(label="Role")
+            role_label.add_css_class("caption")
+            grid.attach(role_label, 0, 0, 1, 1)
+            role_dropdown = Gtk.DropDown.new_from_strings(["X", "Y"])
+            assert role_dropdown is not None
+            role_dropdown.set_selected(1 if role == "y" else 0)
+            grid.attach(role_dropdown, 0, 1, 1, 1)
+            column_offset = 1
+        minimum = int(candidate["minimum"])
+        maximum = int(candidate["maximum"])
+        center_or_rest = 0
+        fields = [
+            ("Min", minimum),
+            ("Max", maximum),
+            (
+                "Center" if analog_type == "stick" else "Rest",
+                center_or_rest,
+            ),
+        ]
+        spins: list[Gtk.SpinButton] = []
+        for column, (label_text, value) in enumerate(fields):
+            label = Gtk.Label(label=label_text)
+            label.add_css_class("caption")
+            grid.attach(label, column + column_offset, 0, 1, 1)
+            spin = Gtk.SpinButton()
+            spin.set_adjustment(
+                Gtk.Adjustment(
+                    value=value,
+                    lower=-2147483648,
+                    upper=2147483647,
+                    step_increment=1,
+                )
+            )
+            spin.set_digits(0)
+            spin.set_width_chars(8)
+            grid.attach(spin, column + column_offset, 1, 1, 1)
+            spins.append(spin)
+        box.append(grid)
+
+        row._analog_role = role
+        row._analog_role_dropdown = role_dropdown
+        row._analog_evdev = candidate.get("evdev")
+        row._analog_source = candidate.get("source")
+        row._analog_stable_path = candidate.get("stable_path")
+        row._analog_code = int(candidate["code"])
+        row._analog_min_spin = spins[0]
+        row._analog_max_spin = spins[1]
+        row._analog_rest_spin = spins[2]
+        row.set_child(box)
+        return row
+
+    def _analog_candidate_score(self, candidate: JsonDict) -> int:
+        rest = int(candidate.get("rest", 0))
+        observed_minimum = int(candidate.get("observed_minimum", rest))
+        observed_maximum = int(candidate.get("observed_maximum", rest))
+        return max(abs(observed_maximum - rest), abs(observed_minimum - rest))
+
+    def _on_save_learned_analog_clicked(
+        self,
+        _button: Gtk.Button,
+        dialog: Adw.Dialog,
+        type_dropdown: Gtk.DropDown,
+        id_entry: Gtk.Entry,
+        label_entry: Gtk.Entry,
+        review_list: Gtk.ListBox,
+        status: Gtk.Label,
+    ) -> None:
+        analog_type = "stick" if type_dropdown.get_selected() == 1 else "axis"
+        analog_id = self._normalize_new_analog_id(id_entry.get_text(), analog_type)
+        if self._input_id_exists(analog_id):
+            _set_capture_status(status, f"Input id '{analog_id}' already exists.")
+            return
+        label = label_entry.get_text().strip() or analog_id.replace("_", " ").title()
+        axes: list[AnalogAxisDefinition] = []
+        source: str | None = None
+        stable_path: str | None = None
+        index = 0
+        while row := review_list.get_row_at_index(index):
+            code = int(row._analog_code)
+            row_source = str(row._analog_source or "")
+            if self._analog_axis_already_exists(row_source, code):
+                _set_capture_status(status, f"Axis {row._analog_evdev} already exists.")
+                return
+            if source is None and row_source:
+                source = row_source
+            if stable_path is None and row._analog_stable_path:
+                stable_path = str(row._analog_stable_path)
+            rest_value = int(row._analog_rest_spin.get_value())
+            role_dropdown = row._analog_role_dropdown
+            role = (
+                "y"
+                if isinstance(role_dropdown, Gtk.DropDown) and role_dropdown.get_selected() == 1
+                else "x"
+                if isinstance(role_dropdown, Gtk.DropDown)
+                else str(row._analog_role)
+            )
+            axes.append(
+                AnalogAxisDefinition(
+                    role=role,
+                    evdev=str(row._analog_evdev or f"abs_{code}"),
+                    evdev_code=code,
+                    minimum=int(row._analog_min_spin.get_value()),
+                    maximum=int(row._analog_max_spin.get_value()),
+                    center=rest_value if analog_type == "stick" else None,
+                    rest=rest_value if analog_type == "axis" else None,
+                )
+            )
+            index += 1
+        if not axes:
+            _set_capture_status(status, "No learned analog axes to save.")
+            return
+        if analog_type == "stick" and sorted(axis.role for axis in axes) != ["x", "y"]:
+            _set_capture_status(status, "Stick needs exactly one X axis and one Y axis.")
+            return
+
+        self.device.analog_inputs.append(
+            AnalogInputDefinition(
+                id=analog_id,
+                label=label,
+                type=analog_type,
+                source=source,
+                axes=axes,
+            )
+        )
+        self._ensure_analog_evdev_interface(source, stable_path)
+        assert self.hardware_manager is not None
+        self.hardware_manager.save_hardware(self.device)
+        session_request_async({"command": "reload"}, self._ignore_session_response)
+        dialog.close()
+        self._reload_ui()
+
+    def _stop_analog_learn_capture(self) -> None:
+        self._analog_learn_capturing = False
+        self._analog_learn_poll_inflight = False
+        if self._analog_learn_poll_id:
+            GLib.source_remove(self._analog_learn_poll_id)
+            self._analog_learn_poll_id = None
+        if self._capture_active_hardware_id:
+            session_request_async(
+                {
+                    "command": "end_capture",
+                    "hardware_id": self._capture_active_hardware_id,
+                },
+                self._ignore_session_response,
+            )
+            self._capture_active_hardware_id = None
+
+    def _on_learn_analog_dialog_closed(self, _dialog: Adw.Dialog) -> None:
+        self._stop_analog_learn_capture()
+        self._analog_learn_context = {}
+
+    def _update_learn_analog_capture_controls(
+        self,
+        start_btn: Gtk.Button | None,
+        unlock_btn: Gtk.Button | None,
+        privilege_status: Gtk.Label | None,
+    ) -> None:
+        if start_btn is None or unlock_btn is None or privilege_status is None:
+            return
+
+        unlock_required, recording_unlocked, refresh_owner = self._add_inputs_unlock_state()
+        can_capture = not unlock_required or (recording_unlocked and refresh_owner)
+
+        start_btn.set_sensitive(can_capture and not self._analog_learn_capturing)
+        if can_capture:
+            start_btn.add_css_class("suggested-action")
+        else:
+            start_btn.remove_css_class("suggested-action")
+
+        if not unlock_required:
+            unlock_btn.set_visible(False)
+            privilege_status.set_text(
+                "Unlock not required. Analog capture reads raw axis events before remapping."
+            )
+            return
+
+        if can_capture:
+            unlock_btn.set_visible(False)
+            privilege_status.set_text(
+                "Original-input capture is unlocked. Analog capture reads raw axis events before "
+                "remapping."
+            )
+            return
+
+        unlock_btn.set_visible(True)
+        label = "Claim" if recording_unlocked else "Unlock"
+        unlock_btn.set_child(self._make_unlock_button_content(label))
+        if recording_unlocked:
+            unlock_btn.set_tooltip_text(
+                "Claim this GUI as the active owner before capturing analog axes."
+            )
+            privilege_status.set_text(
+                "Unlock active in another session. Claim unlock to learn analog inputs."
+            )
+        else:
+            unlock_btn.set_tooltip_text(
+                "Authorize raw original-input capture so Keymasq can detect analog axes before "
+                "remapping."
+            )
+            privilege_status.set_text(
+                "Original-input capture uses privileged raw events. Unlock to learn analog inputs."
+            )
+
+    def _on_learn_analog_unlock_clicked(
+        self,
+        button: Gtk.Button,
+        start_btn: Gtk.Button,
+        privilege_status: Gtk.Label,
+        status_label: Gtk.Label,
+    ) -> None:
+        root = self.main_window or self.get_root()
+        present_unlock = getattr(root, "present_unlock_dialog", None)
+        if callable(present_unlock):
+            present_unlock(
+                on_success=lambda: self._on_learn_analog_unlock_success(
+                    start_btn,
+                    button,
+                    privilege_status,
+                    status_label,
+                )
+            )
+            return
+        _set_capture_status(status_label, "Unlock is only available from the main window.")
+
+    def _on_learn_analog_unlock_success(
+        self,
+        start_btn: Gtk.Button,
+        unlock_btn: Gtk.Button,
+        privilege_status: Gtk.Label,
+        status_label: Gtk.Label,
+    ) -> None:
+        _set_capture_status(status_label, "")
+        self._update_learn_analog_capture_controls(start_btn, unlock_btn, privilege_status)
 
     def _start_add_keys_capture(
         self,
@@ -1468,7 +2447,7 @@ class DeviceTab(ProfileManagedTab):
         privilege_status: Gtk.Label | None = None,
     ) -> bool:
         if not result or result.get("status") != "ok":
-            status_label.set_text((result or {}).get("message", "Capture failed"))
+            _set_capture_status(status_label, (result or {}).get("message", "Capture failed"))
             self._stop_add_keys_capture()
             self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
             return False
@@ -1537,7 +2516,7 @@ class DeviceTab(ProfileManagedTab):
             return False
 
         if result.get("status") != "ok":
-            status_label.set_text(result.get("message", "Capture failed"))
+            _set_capture_status(status_label, result.get("message", "Capture failed"))
             self._stop_add_keys_capture()
             self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
             return False
@@ -1550,11 +2529,19 @@ class DeviceTab(ProfileManagedTab):
         captured_code = captured.get("code")
         captured_value = captured.get("value")
         if not self._is_supported_added_input(evdev_name):
-            status_label.set_text(f"Unsupported input '{evdev_name}', press another input")
+            _set_capture_status(
+                status_label,
+                f"Unsupported input '{evdev_name}', press another input",
+                recording=True,
+            )
             return False
 
         if self._button_already_exists(evdev_name, captured_code, captured_value):
-            status_label.set_text(f"{evdev_name} already exists, press another input")
+            _set_capture_status(
+                status_label,
+                f"{evdev_name} already exists, press another input",
+                recording=True,
+            )
             if evdev_name == "key_esc":
                 self._cancel_add_inputs(parent_dialog)
             return False
@@ -1591,7 +2578,11 @@ class DeviceTab(ProfileManagedTab):
         if self._add_keys_pending_ids:
             self._add_keys_pending_ids.pop(0)
         remaining = len(self._add_keys_pending_ids)
-        status_label.set_text(f"Captured {captured_display} ({remaining} remaining)")
+        _set_capture_status(
+            status_label,
+            f"Captured {captured_display} ({remaining} remaining)",
+            recording=True,
+        )
 
         if remaining == 0:
             self._finish_add_keys(parent_dialog)
@@ -1695,7 +2686,7 @@ class DeviceTab(ProfileManagedTab):
                 )
             )
             return
-        status_label.set_text("Unlock is only available from the main window.")
+        _set_capture_status(status_label, "Unlock is only available from the main window.")
 
     def _on_add_inputs_unlock_success(
         self,
@@ -1704,7 +2695,7 @@ class DeviceTab(ProfileManagedTab):
         privilege_status: Gtk.Label,
         status_label: Gtk.Label,
     ) -> None:
-        status_label.set_text("")
+        _set_capture_status(status_label, "")
         self._update_add_inputs_capture_controls(start_btn, unlock_btn, privilege_status)
 
     def _stop_add_keys_capture(self) -> None:
@@ -1771,6 +2762,56 @@ class DeviceTab(ProfileManagedTab):
 
     def _ignore_session_response(self, _response: JsonDict | None) -> bool:
         return False
+
+    def _next_analog_id(self, prefix: str) -> str:
+        used = {button.id for button in self.device.buttons}
+        used.update(analog.id for analog in self.device.analog_inputs)
+        index = 1
+        while f"{prefix}_{index}" in used:
+            index += 1
+        return f"{prefix}_{index}"
+
+    def _normalize_new_analog_id(self, value: str, analog_type: str) -> str:
+        normalized = "".join(
+            char.lower() if char.isalnum() else "_" for char in str(value or "")
+        ).strip("_")
+        return normalized or self._next_analog_id("stick" if analog_type == "stick" else "axis")
+
+    def _input_id_exists(self, input_id: str) -> bool:
+        return any(button.id == input_id for button in self.device.buttons) or any(
+            analog.id == input_id for analog in self.device.analog_inputs
+        )
+
+    def _analog_axis_already_exists(self, source: str | None, evdev_code: int) -> bool:
+        normalized_source = str(source or "")
+        for analog in self.device.analog_inputs:
+            if normalized_source and analog.source and analog.source != normalized_source:
+                continue
+            for axis in analog.axes:
+                existing_code = axis.evdev_code
+                if existing_code is None:
+                    existing_code = resolve_evdev_code(axis.evdev)
+                if existing_code == evdev_code:
+                    return True
+        return False
+
+    def _ensure_analog_evdev_interface(
+        self,
+        source: str | None,
+        stable_path: str | None,
+    ) -> None:
+        if not source or not stable_path:
+            return
+        for dev in self.device.evdev_devices:
+            if dev.id == source:
+                return
+            if dev.path == stable_path:
+                if not dev.id:
+                    dev.id = source
+                return
+        self.device.evdev_devices.append(
+            EvdevDevice(path=stable_path, device_type=DeviceType.GAMEPAD, id=source)
+        )
 
     def _label_from_evdev(self, evdev_name: str) -> str:
         gamepad_label = gamepad_button_label(evdev_name)
@@ -1901,8 +2942,10 @@ class DeviceTab(ProfileManagedTab):
 
     def _capture_waiting_label(self) -> str:
         if self.is_gamepad_hardware():
-            return "Waiting for button presses..."
-        return "Waiting for inputs..."
+            return "Recording button presses..."
+        if self.is_keyboard_hardware():
+            return "Recording keys..."
+        return "Recording inputs..."
 
     def _added_input_button_type(self, evdev_name: str, source: str | None) -> str:
         if evdev_name.startswith("key_"):

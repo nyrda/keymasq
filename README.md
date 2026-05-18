@@ -3,17 +3,17 @@
 [![Tests](https://github.com/nyrda/keymasq/actions/workflows/tests.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/tests.yml)
 [![Package](https://github.com/nyrda/keymasq/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/package.yml)
 
-Keyboard and mouse remapper with GUI configuration, per-window profiles, and
-macros.
+Keyboard, mouse, and controller remapper with GUI configuration, per-window
+profiles, and macros.
 
-Keymasq supports keyboard, mouse, and gamepad remapping with layered profiles,
-window-aware activation, macros, tap/hold behaviors, and combos. Use it for workflows
-like a Linux autoclicker, game auto-fire, app-specific shortcuts, and
+Keymasq supports keyboard, mouse, and game controller remapping with layered
+profiles, window-aware activation, macros, tap/hold behaviors, and combos. Use
+it for workflows like a Linux autoclicker, game auto-fire, app-specific shortcuts, and
 multi-step automation.
 
 ## Features
 
-- Remap keyboard, mouse, and gamepad inputs
+- Remap keyboard, mouse, game controller, and other analog inputs
 - Layer per-device mappings in global profiles
 - Auto-activate profiles based on the active window
 - Record, edit, and play macros
@@ -25,8 +25,7 @@ multi-step automation.
 
 - **Keyboards**: fully supported
 - **Mice**: fully supported
-- **Gamepads**: digital buttons work; analog sticks and triggers pass through
-  unchanged
+- **Game controllers**: fully supported
 - **Touchpads and other devices**: not supported
 
 ## Screenshot
@@ -37,6 +36,10 @@ multi-step automation.
 
 **Remap without vendor software**
 - Remap mouse side buttons and thumb buttons without proprietary apps
+
+**Customize controllers**
+- Remap controller buttons, sticks, triggers, wheels, or any analog axes
+- Route analog inputs to mouse movement, keyboard actions, or another gamepad output
 
 **Reclaim underused keys**
 - Turn Caps Lock into Escape, a modifier, or both at the same time with a superkey
@@ -155,6 +158,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 
 - Getting started: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
 - Installation guide: [docs/INSTALL.md](docs/INSTALL.md)
+- Game controller support: [docs/GAMEPAD.md](docs/GAMEPAD.md)
 - Profile system: [docs/PROFILES.md](docs/PROFILES.md)
 - Actions explained: [docs/ACTIONS.md](docs/ACTIONS.md)
 - Superkeys system: [docs/SUPERKEYS.md](docs/SUPERKEYS.md)

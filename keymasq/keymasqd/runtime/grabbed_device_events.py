@@ -19,6 +19,7 @@ from keymasq.common.devices import (
 )
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
+from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
 from keymasq.keymasqd.runtime.grabbed_device_types import (
@@ -282,6 +283,14 @@ async def cleanup_runtime_failure(
                 exc,
             )
     try:
+        await device_runtime.reset_analog_controls()
+    except Exception as exc:
+        log.warning(
+            "Failed to reset analog controls after event error on %s: %s",
+            device_runtime.path,
+            exc,
+        )
+    try:
         await device_runtime.reset_superkeys()
     except Exception as exc:
         log.warning(
@@ -402,6 +411,26 @@ async def process_event(
     if event.type == evdev_mod.ecodes.EV_SYN:
         _record_diagnostics(device_runtime, "syn", started_ns, time_mod=time_mod)
         return
+
+    if event.type == evdev_mod.ecodes.EV_ABS and (
+        int(event.type),
+        int(event.code),
+    ) in device_runtime.analog_axis_bindings:
+        mapping = device_runtime.mapping_getter()
+        if await runtime_analog_controls.process_analog_event(
+            device_runtime,
+            event,
+            event_name,
+            mapping,
+            deps=deps.action_deps,
+        ):
+            _record_diagnostics(
+                device_runtime,
+                "action_analog_control",
+                started_ns,
+                time_mod=time_mod,
+            )
+            return
 
     if event.type not in (evdev_mod.ecodes.EV_KEY, evdev_mod.ecodes.EV_REL):
         runtime_outputs.passthrough(

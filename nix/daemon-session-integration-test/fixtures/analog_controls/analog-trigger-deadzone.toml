@@ -1,0 +1,10 @@
+name = "Integration Analog Trigger Deadzone"
+input_type = "axis"
+
+[gamepad_output]
+enabled = true
+target = "same"
+deadzone = 0.25
+output_direction = "max"
+sensitivity = 1.0
+response_curve = 1.0

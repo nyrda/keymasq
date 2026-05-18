@@ -11,6 +11,7 @@ from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.devices import (
     get_interface_id,
     normalize_evdev_binding_value,
+    resolve_evdev_code,
     resolve_evdev_event_type,
     resolve_stable_path,
 )
@@ -19,6 +20,7 @@ from keymasq.keymasqd.evdev_clock import set_evdev_clock_monotonic
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
+from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import grabbed_device_events as runtime_events
 from keymasq.keymasqd.runtime import grabbed_device_grab as runtime_grab
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
@@ -189,6 +191,7 @@ class GrabbedDevice:
         runtime_cleanup_callback: Callable[[str, str | None], Awaitable[None]] | None = None,
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
+        analog_inputs: dict[str, object] | None = None,
     ) -> None:
         self.path = path
         self.hardware_id = hardware_id
@@ -198,14 +201,21 @@ class GrabbedDevice:
         self.evdev_to_button: dict[str, str] = {}
         self.event_binding_to_button: dict[tuple[int, int, int | None], str] = {}
         self.event_code_to_button: dict[tuple[int, int], str] = {}
+        self.device: _ManagedInputDevice | None = None
+        self.uinput: evdev.UInput | None = None
         self.update_button_map(button_map, button_codes, button_values)
+        self.analog_inputs: dict[str, object] = {}
+        self.analog_axis_bindings: dict[tuple[int, int], tuple[str, str]] = {}
+        self.analog_axis_output_codes: dict[tuple[str, str], int] = {}
+        self.analog_axis_ranges: dict[tuple[str, str], tuple[int, int]] = {}
+        self.analog_axis_calibrations: dict[tuple[str, str], dict[str, object]] = {}
+        self.analog_input_types: dict[str, str] = {}
+        self.update_analog_inputs(analog_inputs or {})
         self.mapping_getter = mapping_getter
         self.event_callback = event_callback
         self.device_type = device_type
         self.device_types = device_types or [device_type.value]
         self.verbosity = verbosity
-        self.device: _ManagedInputDevice | None = None
-        self.uinput: evdev.UInput | None = None
         self.keyboard_uinput = keyboard_uinput
         self.mouse_uinput = mouse_uinput
         self.gamepad_uinput = gamepad_uinput
@@ -248,12 +258,53 @@ class GrabbedDevice:
             if normalized_value is None:
                 self.event_code_to_button[(int(event_type), int(code))] = button_id
 
+    def update_analog_inputs(self, analog_inputs: dict[str, object]) -> None:
+        self.analog_inputs = dict(analog_inputs)
+        self.analog_axis_bindings = {}
+        self.analog_axis_output_codes = {}
+        self.analog_axis_ranges = {}
+        self.analog_axis_calibrations = {}
+        self.analog_input_types = {}
+        for analog_id, raw_input in self.analog_inputs.items():
+            if not isinstance(raw_input, dict):
+                continue
+            input_data = cast(dict[str, object], raw_input)
+            source = str(input_data.get("source", "") or "").strip().lower()
+            if source and source != self.interface_id:
+                continue
+            self.analog_input_types[str(analog_id)] = str(
+                input_data.get("type", "stick") or "stick"
+            ).lower()
+            raw_axes = input_data.get("axes")
+            if not isinstance(raw_axes, list):
+                continue
+            for raw_axis in cast(list[object], raw_axes):
+                if not isinstance(raw_axis, dict):
+                    continue
+                axis_data = cast(dict[str, object], raw_axis)
+                role = str(axis_data.get("role", "") or "").strip().lower()
+                if role not in {"x", "y"}:
+                    continue
+                code = _axis_code(axis_data)
+                if code is None:
+                    continue
+                self.analog_axis_bindings[(int(evdev.ecodes.EV_ABS), int(code))] = (
+                    str(analog_id),
+                    role,
+                )
+                self.analog_axis_output_codes[(str(analog_id), role)] = int(code)
+                calibration = _axis_calibration(axis_data)
+                if calibration:
+                    self.analog_axis_calibrations[(str(analog_id), role)] = calibration
+        self._refresh_analog_axis_ranges()
+
     async def reset_mapping_runtime_state(self) -> None:
         for event_name in self.state.combo_passthrough_held:
             self.state.held_source_keys.add(event_name)
             self.state.held_source_actions.setdefault(event_name, None)
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
+        await self.reset_analog_controls()
         await self.reset_superkeys()
         runtime_grab.seed_startup_held_actions(self)
 
@@ -262,8 +313,15 @@ class GrabbedDevice:
             await machine.stop()
         self.state.superkey_machines.clear()
 
+    async def reset_analog_controls(self) -> None:
+        await runtime_analog_controls.reset_analog_controls(
+            self,
+            deps=runtime_events.build_action_execution_deps(),
+        )
+
     async def grab(self) -> None:
         self.device = _device_input(self.path)
+        self._refresh_analog_axis_ranges()
         caps = self.device.capabilities()
         caps.pop(evdev.ecodes.EV_SYN, None)
         is_gamepad_passthrough = _is_gamepad_passthrough(self.device_type, self.device_types)
@@ -355,13 +413,13 @@ class GrabbedDevice:
 
     async def release(self) -> None:
         self._running = False
+        await self.reset_analog_controls()
+        await self.reset_superkeys()
         runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
         self.state.held_source_keys.clear()
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
-
-        await self.reset_superkeys()
 
         if self.task:
             self.task.cancel()
@@ -529,3 +587,59 @@ class GrabbedDevice:
 
     def combo_held_source_bindings(self) -> set[str]:
         return set(self.state.held_source_keys)
+
+    def _refresh_analog_axis_ranges(self) -> None:
+        if self.device is None:
+            return
+        for (_event_type, code), (analog_id, role) in self.analog_axis_bindings.items():
+            try:
+                info = self.device.absinfo(int(code))
+            except Exception:
+                continue
+            minimum = getattr(info, "min", None)
+            maximum = getattr(info, "max", None)
+            key = (analog_id, role)
+            calibration = self.analog_axis_calibrations.setdefault(key, {})
+            if "minimum" not in calibration and isinstance(minimum, int):
+                calibration["minimum"] = minimum
+            if "maximum" not in calibration and isinstance(maximum, int):
+                calibration["maximum"] = maximum
+            current = getattr(info, "value", None)
+            if (
+                self.analog_input_types.get(analog_id) == "axis"
+                and "rest" not in calibration
+                and isinstance(current, int)
+            ):
+                calibration["rest"] = current
+            minimum_value = calibration.get("minimum", minimum)
+            maximum_value = calibration.get("maximum", maximum)
+            if isinstance(minimum_value, int) and isinstance(maximum_value, int):
+                self.analog_axis_ranges[key] = (minimum_value, maximum_value)
+
+
+def _axis_code(axis: dict[str, object]) -> int | None:
+    evdev_code = axis.get("evdev_code")
+    if isinstance(evdev_code, int):
+        return evdev_code
+    if isinstance(evdev_code, str):
+        try:
+            return int(evdev_code, 0)
+        except ValueError:
+            return None
+    return resolve_evdev_code(str(axis.get("evdev", "") or ""))
+
+
+def _axis_calibration(axis: dict[str, object]) -> dict[str, object]:
+    calibration: dict[str, object] = {}
+    for field in ("minimum", "maximum", "center", "rest"):
+        value = axis.get(field)
+        if isinstance(value, int):
+            calibration[field] = value
+        elif isinstance(value, str):
+            try:
+                calibration[field] = int(value, 0)
+            except ValueError:
+                pass
+    if bool(axis.get("invert", False)):
+        calibration["invert"] = True
+    return calibration

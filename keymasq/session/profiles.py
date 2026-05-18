@@ -104,6 +104,7 @@ class ResolvedProfiles:
 
 
 if TYPE_CHECKING:
+    from keymasq.session.analog_controls import AnalogControlManager
     from keymasq.session.superkeys import SuperkeyManager
 
 
@@ -111,10 +112,12 @@ class ProfileManager:
     def __init__(
         self,
         superkey_manager: "SuperkeyManager | None" = None,
+        analog_control_manager: "AnalogControlManager | None" = None,
         auto_create_default_if_empty: bool = False,
     ) -> None:
         paths.ensure_config_dirs()
         self._superkey_manager = superkey_manager
+        self._analog_control_manager = analog_control_manager
         self._auto_create_default_if_empty = auto_create_default_if_empty
         self._profiles: dict[str, ProfileInfo] = {}
         self._pending_repairs: set[asyncio.Task[None]] = set()
@@ -130,9 +133,41 @@ class ProfileManager:
         for profile_file in sorted(paths.PROFILES_DIR.glob("*.toml")):
             try:
                 config = self._load_profile(profile_file)
-                self._profiles[config.name] = ProfileInfo(path=profile_file, config=config)
+                self._add_loaded_profile(ProfileInfo(path=profile_file, config=config))
             except Exception as e:
                 log.error("Failed to load %s: %s", profile_file, e)
+
+    def _add_loaded_profile(self, profile: ProfileInfo) -> None:
+        existing = self._profiles.get(profile.config.name)
+        if existing is None:
+            self._profiles[profile.config.name] = profile
+            return
+
+        selected = self._select_duplicate_profile(existing, profile)
+        ignored = profile if selected is existing else existing
+        self._profiles[profile.config.name] = selected
+        log.warning(
+            "Ignoring duplicate profile name '%s' from %s; using %s",
+            profile.config.name,
+            ignored.path,
+            selected.path,
+        )
+
+    def _select_duplicate_profile(
+        self,
+        first: ProfileInfo,
+        second: ProfileInfo,
+    ) -> ProfileInfo:
+        first_is_canonical = self._is_canonical_profile_storage_path(first.config.name, first.path)
+        second_is_canonical = self._is_canonical_profile_storage_path(
+            second.config.name,
+            second.path,
+        )
+        if first_is_canonical and not second_is_canonical:
+            return first
+        if second_is_canonical and not first_is_canonical:
+            return second
+        return first
 
     def reload(self) -> None:
         self._load_all()
@@ -303,6 +338,42 @@ class ProfileManager:
             log.warning("Superkey action missing superkey_name, replacing with suppress")
             return MappingAction(action_type=ActionType.SUPPRESS)
 
+        if action_type == ActionType.ANALOG_CONTROL:
+            raw_names = action_data.get("analog_control_names")
+            if isinstance(raw_names, list):
+                raw_analog_control_names = cast(list[object], raw_names)
+            else:
+                raw_name: object = action_data.get("analog_control_name")
+                raw_analog_control_names = [raw_name] if raw_name is not None else []
+            analog_control_names: list[str] = []
+            for raw_name in raw_analog_control_names:
+                name = str(raw_name).strip()
+                if name:
+                    analog_control_names.append(name)
+            if analog_control_names:
+                if (
+                    self._analog_control_manager
+                    and any(
+                        self._analog_control_manager.get_analog_control(name) is None
+                        for name in analog_control_names
+                    )
+                ):
+                    missing = next(
+                        name
+                        for name in analog_control_names
+                        if self._analog_control_manager.get_analog_control(name) is None
+                    )
+                    log.warning("Unknown analog control '%s', replacing with suppress", missing)
+                    return MappingAction(action_type=ActionType.SUPPRESS)
+                return MappingAction(
+                    action_type=ActionType.ANALOG_CONTROL,
+                    analog_control_names=analog_control_names,
+                )
+            log.warning(
+                "Analog control action missing analog_control_names, replacing with suppress"
+            )
+            return MappingAction(action_type=ActionType.SUPPRESS)
+
         if action_type == ActionType.MACRO:
             return MappingAction(
                 action_type=ActionType.MACRO,
@@ -414,6 +485,11 @@ class ProfileManager:
             action_data["cmd"] = action.cmd
         if action.superkey_name:
             action_data["superkey_name"] = action.superkey_name
+        if action.action_type == ActionType.ANALOG_CONTROL and action.analog_control_names:
+            if len(action.analog_control_names) == 1:
+                action_data["analog_control_name"] = action.analog_control_names[0]
+            else:
+                action_data["analog_control_names"] = action.analog_control_names
         if action.action_type == ActionType.MACRO:
             action_data["target"] = action.macro_name or ""
             action_data["replay_mouse_movement"] = action.macro_replay_mouse_movement
@@ -553,13 +629,19 @@ class ProfileManager:
         safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "_", profile_name).strip("._")
         return safe_name or "profile"
 
+    def _canonical_profile_storage_path(self, profile_name: str) -> Path:
+        return paths.PROFILES_DIR / f"{self._sanitize_profile_storage_stem(profile_name)}.toml"
+
+    def _is_canonical_profile_storage_path(self, profile_name: str, path: Path) -> bool:
+        return path == self._canonical_profile_storage_path(profile_name)
+
     def _profile_path_for_name(
         self,
         profile_name: str,
         current_path: Path | None = None,
     ) -> Path:
         base_stem = self._sanitize_profile_storage_stem(profile_name)
-        candidate = paths.PROFILES_DIR / f"{base_stem}.toml"
+        candidate = self._canonical_profile_storage_path(profile_name)
         suffix = 2
 
         occupied_paths = {
@@ -766,10 +848,13 @@ class ProfileManager:
             if current_path is None:
                 if existing_profile.config is not config:
                     raise ValueError(f"Profile '{profile_name}' already exists")
-                current_path = existing_profile.path
+                path = existing_profile.path
             elif existing_profile.path != current_path:
                 raise ValueError(f"Profile '{profile_name}' already exists")
-        path = self._profile_path_for_name(profile_name, current_path=current_path)
+            else:
+                path = self._profile_path_for_name(profile_name, current_path=current_path)
+        else:
+            path = self._profile_path_for_name(profile_name, current_path=current_path)
 
         self._write_profile_file(config, path, validate_window_rules=False)
 
@@ -944,6 +1029,87 @@ class ProfileManager:
                     result.append(("combo", info.config.name))
                     break
         return result
+
+    def find_profiles_using_analog_control(
+        self,
+        analog_control_name: str,
+    ) -> list[tuple[str, str]]:
+        result: list[tuple[str, str]] = []
+        for info in self.list_profiles():
+            for hardware_id, layer in info.config.device_layers.items():
+                for action in layer.mappings.values():
+                    if (
+                        action.action_type == ActionType.ANALOG_CONTROL
+                        and analog_control_name in action.analog_control_names
+                    ):
+                        result.append((hardware_id, info.config.name))
+                        break
+        return result
+
+    def replace_analog_control_with_suppress(self, analog_control_name: str) -> int:
+        count = 0
+        for info in self.list_profiles():
+            modified = False
+            for layer in info.config.device_layers.values():
+                for button_id, action in list(layer.mappings.items()):
+                    if (
+                        action.action_type == ActionType.ANALOG_CONTROL
+                        and analog_control_name in action.analog_control_names
+                    ):
+                        names = [
+                            name
+                            for name in action.analog_control_names
+                            if name != analog_control_name
+                        ]
+                        layer.mappings[button_id] = (
+                            MappingAction(
+                                action_type=ActionType.ANALOG_CONTROL,
+                                analog_control_names=names,
+                            )
+                            if names
+                            else MappingAction(action_type=ActionType.SUPPRESS)
+                        )
+                        modified = True
+                        count += 1
+            if modified:
+                self.save_profile(info.config)
+        if count > 0:
+            log.info(
+                "Replaced analog control '%s' with suppress in %d references",
+                analog_control_name,
+                count,
+            )
+        return count
+
+    def rename_analog_control_references(self, old_name: str, new_name: str) -> int:
+        if old_name == new_name:
+            return 0
+        count = 0
+        for info in self.list_profiles():
+            modified = False
+            for layer in info.config.device_layers.values():
+                for action in layer.mappings.values():
+                    if (
+                        action.action_type == ActionType.ANALOG_CONTROL
+                        and old_name in action.analog_control_names
+                    ):
+                        action.analog_control_names = [
+                            new_name if name == old_name else name
+                            for name in action.analog_control_names
+                        ]
+                        action.analog_control_name = action.analog_control_names[0]
+                        modified = True
+                        count += 1
+            if modified:
+                self.save_profile(info.config)
+        if count > 0:
+            log.info(
+                "Renamed analog control references '%s' -> '%s' in %d mappings",
+                old_name,
+                new_name,
+                count,
+            )
+        return count
 
     def replace_superkey_with_suppress(self, superkey_name: str) -> int:
         count = 0

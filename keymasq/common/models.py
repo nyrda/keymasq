@@ -18,6 +18,7 @@ class ActionType(Enum):
     MOUSE = "mouse"
     GAMEPAD = "gamepad"
     GAMEPAD_AXIS = "gamepad_axis"
+    ANALOG_CONTROL = "analog_control"
     EXEC = "exec"
     COMPOSITOR_DISPATCH = "compositor_dispatch"
     SUPPRESS = "suppress"
@@ -182,6 +183,10 @@ def normalize_macro_loop_stop_behavior(value: object) -> str:
 def normalize_gamepad_output_id(action_type: ActionType, output_id: object) -> str | None:
     if action_type not in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS):
         return None
+    return normalize_output_id(output_id)
+
+
+def normalize_output_id(output_id: object) -> str | None:
     if output_id is None:
         return None
     normalized = str(output_id).strip()
@@ -212,12 +217,34 @@ class ButtonDefinition:
 
 
 @dataclass
+class AnalogAxisDefinition:
+    role: str
+    evdev: str
+    evdev_code: int | None = None
+    minimum: int | None = None
+    maximum: int | None = None
+    center: int | None = None
+    rest: int | None = None
+    invert: bool = False
+
+
+@dataclass
+class AnalogInputDefinition:
+    id: str
+    label: str
+    type: str
+    source: str | None = None
+    axes: list[AnalogAxisDefinition] = field(default_factory=list)
+
+
+@dataclass
 class HardwareConfig:
     vendor_id: str
     product_id: str
     name: str
     evdev_devices: list[EvdevDevice]
     buttons: list[ButtonDefinition]
+    analog_inputs: list[AnalogInputDefinition] = field(default_factory=list)
     image: str | None = None
     id: str | None = None
 
@@ -240,6 +267,10 @@ class MappingAction:
     exec_ref: int | None = None
     superkey_name: str | None = None
     superkey_config: "SuperkeyConfig | None" = None
+    analog_control_name: str | None = None
+    analog_control_names: list[str] = field(default_factory=list)
+    analog_control_config: "AnalogControlConfig | None" = None
+    analog_control_configs: list["AnalogControlConfig"] = field(default_factory=list)
     macro_name: str | None = None
     macro_events: list[dict[str, object]] | None = None
     macro_replay_mouse_movement: bool = True
@@ -271,6 +302,18 @@ class MappingAction:
 
     def __post_init__(self) -> None:
         self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
+        if self.analog_control_name and not self.analog_control_names:
+            self.analog_control_names = [self.analog_control_name]
+        else:
+            self.analog_control_names = [
+                str(name).strip() for name in self.analog_control_names if str(name).strip()
+            ]
+            if self.analog_control_names:
+                self.analog_control_name = self.analog_control_names[0]
+        if self.analog_control_config and not self.analog_control_configs:
+            self.analog_control_configs = [self.analog_control_config]
+        elif self.analog_control_configs:
+            self.analog_control_config = self.analog_control_configs[0]
         if self.action_type == ActionType.GAMEPAD_AXIS:
             self.target = normalize_gamepad_axis_target(self.target)
             self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)
@@ -283,6 +326,232 @@ class MappingAction:
         self.rapidfire_enabled = rapidfire_enabled
         self.rapidfire_hold_ms = rapidfire_hold_ms
         self.rapidfire_wait_ms = rapidfire_wait_ms
+
+
+ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
+    action_type
+    for action_type in ActionType
+    if action_type
+    not in {
+        ActionType.PASSTHROUGH,
+        ActionType.SUPPRESS,
+        ActionType.ANALOG_CONTROL,
+        ActionType.SUPERKEY,
+    }
+)
+
+ANALOG_MOUSE_DIRECTIONS = frozenset(
+    {"left", "right", "up", "down", "horizontal", "vertical"}
+)
+ANALOG_MOUSE_MODES = frozenset({"velocity", "area"})
+SAME_DEVICE_OUTPUT_ID = "same-device"
+ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog"})
+ANALOG_GAMEPAD_OUTPUT_DIRECTIONS = frozenset({"min", "max", "both"})
+MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 0.1
+MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 2.0
+MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE = 0.25
+MAX_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE = 4.0
+
+
+def clamp_analog_value(value: object) -> float:
+    return max(-1.0, min(1.0, float(cast(int | float | str | bytes, value))))
+
+
+def analog_gamepad_output_distance(
+    value: float,
+    *,
+    deadzone: float,
+    sensitivity: float,
+    response_curve: float,
+) -> float:
+    value = max(0.0, min(1.0, float(value)))
+    deadzone = max(0.0, min(0.95, float(deadzone)))
+    sensitivity = max(
+        MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
+        min(MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY, float(sensitivity)),
+    )
+    response_curve = max(
+        MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE,
+        min(MAX_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE, float(response_curve)),
+    )
+    if value <= deadzone:
+        return 0.0
+    normalized = (value - deadzone) / max(0.001, 1.0 - deadzone)
+    return max(0.0, min(1.0, (normalized**response_curve) * sensitivity))
+
+
+@dataclass
+class AnalogMouseMotionConfig:
+    enabled: bool = False
+    mode: str = "velocity"
+    speed: float = 900.0
+    speed_x: float | None = None
+    speed_y: float | None = None
+    area_radius_x: float = 400.0
+    area_radius_y: float = 400.0
+    area_start_enabled: bool = False
+    area_start_x: int = 0
+    area_start_y: int = 0
+    deadzone: float = 0.15
+    sensitivity: float = 1.0
+    response_curve: float = 1.0
+    direction: str = "right"
+    invert_x: bool = False
+    invert_y: bool = False
+    tick_ms: int = 8
+
+    def __post_init__(self) -> None:
+        self.mode = str(self.mode or "velocity").lower()
+        if self.mode not in ANALOG_MOUSE_MODES:
+            self.mode = "velocity"
+        self.speed = max(0.0, float(self.speed))
+        self.speed_x = self.speed if self.speed_x is None else max(0.0, float(self.speed_x))
+        self.speed_y = self.speed if self.speed_y is None else max(0.0, float(self.speed_y))
+        self.area_radius_x = max(0.0, float(self.area_radius_x))
+        self.area_radius_y = max(0.0, float(self.area_radius_y))
+        self.area_start_enabled = bool(self.area_start_enabled)
+        self.area_start_x = int(self.area_start_x)
+        self.area_start_y = int(self.area_start_y)
+        self.deadzone = max(0.0, min(0.95, float(self.deadzone)))
+        self.sensitivity = max(
+            MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
+            min(MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY, float(self.sensitivity)),
+        )
+        self.response_curve = max(
+            MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE,
+            min(MAX_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE, float(self.response_curve)),
+        )
+        self.direction = str(self.direction or "right").lower()
+        if self.direction not in ANALOG_MOUSE_DIRECTIONS:
+            self.direction = "right"
+        self.tick_ms = max(1, int(self.tick_ms))
+
+
+@dataclass
+class AnalogGamepadOutputConfig:
+    enabled: bool = False
+    output_id: str | None = None
+    deadzone: float = 0.0
+    target: str = "same"
+    target_analog_id: str | None = None
+    output_rest: int | None = None
+    output_direction: str = ""
+    output_invert: bool = False
+    sensitivity: float = 1.0
+    response_curve: float = 1.0
+
+    def __post_init__(self) -> None:
+        self.output_id = normalize_output_id(self.output_id)
+        self.deadzone = max(0.0, min(0.95, float(self.deadzone)))
+        self.target = str(self.target or "same").lower()
+        if self.target not in ANALOG_GAMEPAD_OUTPUT_TARGETS:
+            self.target = "same"
+        self.target_analog_id = normalize_output_id(self.target_analog_id)
+        if self.target != "analog":
+            self.target_analog_id = None
+        if self.output_rest is not None:
+            self.output_rest = int(self.output_rest)
+        self.output_invert = bool(self.output_invert)
+        self.output_direction = str(self.output_direction or "").lower()
+        if self.output_direction not in ANALOG_GAMEPAD_OUTPUT_DIRECTIONS:
+            self.output_direction = "min" if self.output_invert else "max"
+        self.output_invert = self.output_direction == "min"
+        self.sensitivity = max(
+            MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
+            min(MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY, float(self.sensitivity)),
+        )
+        self.response_curve = max(
+            MIN_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE,
+            min(MAX_ANALOG_GAMEPAD_OUTPUT_RESPONSE_CURVE, float(self.response_curve)),
+        )
+
+
+@dataclass
+class AnalogActionThreshold:
+    axis: str
+    trigger_min: float
+    trigger_max: float
+    release_min: float
+    release_max: float
+    actions: list[MappingAction] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.axis = str(self.axis or "").lower()
+        self.trigger_min = clamp_analog_value(self.trigger_min)
+        self.trigger_max = clamp_analog_value(self.trigger_max)
+        self.release_min = clamp_analog_value(self.release_min)
+        self.release_max = clamp_analog_value(self.release_max)
+
+
+@dataclass
+class AnalogControlConfig:
+    name: str
+    description: str | None = None
+    input_type: str = "stick"
+    mouse_motion: AnalogMouseMotionConfig = field(default_factory=AnalogMouseMotionConfig)
+    gamepad_output: AnalogGamepadOutputConfig = field(
+        default_factory=AnalogGamepadOutputConfig
+    )
+    thresholds: list[AnalogActionThreshold] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.input_type = str(self.input_type or "stick").lower()
+        validate_analog_control_config(self)
+
+
+def analog_control_primary_mode(config: AnalogControlConfig) -> str:
+    if config.gamepad_output.enabled:
+        return "gamepad"
+    if config.thresholds:
+        return "digital"
+    if config.mouse_motion.enabled:
+        return "mouse"
+    return "none"
+
+
+def normalize_analog_control_features(config: AnalogControlConfig) -> AnalogControlConfig:
+    mode = analog_control_primary_mode(config)
+    if mode == "gamepad":
+        if config.mouse_motion.enabled or config.thresholds:
+            return replace(
+                config,
+                mouse_motion=replace(config.mouse_motion, enabled=False),
+                thresholds=[],
+            )
+    elif mode == "digital" and config.mouse_motion.enabled:
+        return replace(config, mouse_motion=replace(config.mouse_motion, enabled=False))
+    return config
+
+
+def validate_analog_control_config(config: AnalogControlConfig) -> None:
+    if not str(config.name or "").strip():
+        raise ValueError("analog control name is required")
+    if config.input_type not in {"stick", "axis"}:
+        raise ValueError("analog control input_type must be 'stick' or 'axis'")
+    if config.input_type == "axis" and config.mouse_motion.mode == "area":
+        raise ValueError("analog mouse area mode requires a stick control")
+    for index, threshold in enumerate(config.thresholds, start=1):
+        allowed_axes = {"x", "y"} if config.input_type == "stick" else {"x"}
+        if threshold.axis not in allowed_axes:
+            if config.input_type == "axis":
+                raise ValueError(f"threshold {index} axis must be 'x' for axis controls")
+            raise ValueError(f"threshold {index} axis must be 'x' or 'y'")
+        if threshold.trigger_min > threshold.trigger_max:
+            raise ValueError(f"threshold {index} activation range is invalid")
+        if threshold.release_min > threshold.release_max:
+            raise ValueError(f"threshold {index} release range is invalid")
+        if (
+            threshold.trigger_min < threshold.release_min
+            or threshold.trigger_max > threshold.release_max
+        ):
+            raise ValueError(
+                f"threshold {index} activation range must be inside release range"
+            )
+        for action in threshold.actions:
+            if action.action_type not in ANALOG_THRESHOLD_ACTION_TYPES:
+                raise ValueError(
+                    f"invalid analog threshold action type: {action.action_type.value}"
+                )
 
 
 @dataclass

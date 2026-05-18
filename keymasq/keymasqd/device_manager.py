@@ -265,6 +265,7 @@ class DesiredGrabConfig:
     button_map: dict[str, str]
     button_codes: dict[str, int] = field(default_factory=dict)
     button_values: dict[str, int] = field(default_factory=dict)
+    analog_inputs: dict[str, object] = field(default_factory=dict)
     force_grab_unmapped: bool = False
 
 
@@ -296,6 +297,7 @@ class GamepadOutputTarget:
     uinput: object
     bucket: str
     is_virtual: bool
+    analog_inputs: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -539,6 +541,7 @@ class DeviceManager:
                         uinput=uinput,
                         bucket=f"gamepad:{resolved_id}",
                         is_virtual=False,
+                        analog_inputs=dict(getattr(device, "analog_inputs", {}) or {}),
                     )
         reason = "target hardware has no grabbed gamepad passthrough output"
         self._warn_gamepad_output_unavailable(resolved_id, reason, context, explicit)
@@ -590,6 +593,7 @@ class DeviceManager:
         button_map: dict[str, str],
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
+        analog_inputs: dict[str, object] | None = None,
         force_grab_unmapped: bool = False,
     ) -> JsonObject:
         async with self._op_lock:
@@ -600,6 +604,7 @@ class DeviceManager:
                 button_map,
                 button_codes,
                 button_values,
+                analog_inputs,
                 force_grab_unmapped,
                 update_desired=True,
                 desired_grab_config_cls=DesiredGrabConfig,

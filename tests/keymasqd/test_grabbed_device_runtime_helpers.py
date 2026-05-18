@@ -62,7 +62,13 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         passthrough = _CountingUInput()
-        device = _make_grabbed_device(monkeypatch)
+        diagnostics: list[tuple[str, float]] = []
+        device = _make_grabbed_device(
+            monkeypatch,
+            diagnostics_recorder=lambda label, duration_us: diagnostics.append(
+                (label, duration_us)
+            ),
+        )
         device.uinput = passthrough  # type: ignore[assignment]
 
         deps = gde.build_event_processing_deps(log=logging.getLogger("test"))
@@ -93,6 +99,11 @@ class TestGrabbedDeviceHelpers:
 
         assert passthrough.syn_count == 1
         assert not gdo.passthrough_frame_open(passthrough)
+        assert [label for label, _duration_us in diagnostics] == [
+            "passthrough_other",
+            "passthrough_other",
+            "passthrough_syn",
+        ]
 
     @pytest.mark.asyncio
     async def test_generated_gamepad_output_defers_syn_inside_passthrough_frame(

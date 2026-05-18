@@ -137,6 +137,8 @@ Diagnostics measure Keymasq's daemon-side handling time for events that pass
 through grabbed devices. They are not the full time from your finger movement to
 the game or desktop reacting. They do not include USB polling, compositor/game
 processing, rendering, display latency, or the physical switch/button travel.
+For passthrough devices, normal input events and their source `SYN_REPORT`
+frame flush are measured separately so multi-event device frames stay intact.
 
 ### Mainline Diagnostics
 
@@ -148,6 +150,7 @@ input overhead.
 | `passthrough_fast` | An event passed through when the grabbed device has no active mapping work for it. | Moving an unmapped mouse, or clicking an unmapped button on a grabbed device. |
 | `passthrough_mapped` | An event passed through while a mapping profile is loaded, but this specific input has no remap action. | Moving the mouse while only one side button is remapped. |
 | `passthrough_other` | A non-key, non-relative event passed through. | An uncommon device event such as an absolute axis update. |
+| `passthrough_syn` | A pending passthrough frame was flushed at the source device's `SYN_REPORT`. | The frame boundary after grouped touchpad, mouse, or gamepad events. |
 | `wheel_passthrough` | A mouse wheel event passed through by an explicit passthrough mapping. | Scrolling normally when the wheel has a passthrough action. |
 | `action_*` | A configured remap action ran. The suffix names the action type. | Pressing a remapped button, a suppressed key, or a mapped wheel direction. |
 
@@ -180,7 +183,7 @@ These labels are mostly for development and bug reports.
 
 | Label | What it means | Example |
 |---|---|---|
-| `syn` | A Linux synchronization event was received and ignored by the remap logic. | The separator event that follows a group of mouse movement or key events. |
+| `syn` | A Linux synchronization event was received without a pending passthrough frame to flush. | A separator event that did not emit output. |
 | `wheel_high_res_suppressed` | A high-resolution wheel event was suppressed because the matching low-resolution wheel event is being handled. | A mouse wheel that reports both high-res and normal scroll events. |
 | `combo_recalled_repeat_suppressed` | A repeat event was suppressed for a combo trigger key that Keymasq temporarily recalled. | Holding a key involved in combo recall long enough for keyboard repeat to start. |
 | `combo_recalled_release_suppressed` | A release event was suppressed after combo recall cleanup. | Releasing a combo trigger key that Keymasq already restored synthetically. |

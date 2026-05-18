@@ -356,7 +356,13 @@ def _diagnostics_label_enabled(label: str, categories: set[str]) -> bool:
 def _diagnostics_label_is_mainline(label: str) -> bool:
     return (
         label.startswith("action_")
-        or label in {"passthrough_fast", "passthrough_mapped", "passthrough_other"}
+        or label
+        in {
+            "passthrough_fast",
+            "passthrough_mapped",
+            "passthrough_other",
+            "passthrough_syn",
+        }
         or label == "wheel_passthrough"
     )
 

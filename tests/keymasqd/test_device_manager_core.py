@@ -510,12 +510,14 @@ class TestListDevices:
         manager.diagnostics_state.enabled = True
 
         manager._record_diagnostic("passthrough_mapped", 10.0)
+        manager._record_diagnostic("passthrough_syn", 15.0)
         manager._record_diagnostic("action_key", 20.0)
         manager._record_diagnostic("combo_passthrough", 30.0)
         manager._record_diagnostic("syn", 40.0)
 
         assert set(manager.diagnostics_state.samples) == {
             "passthrough_mapped",
+            "passthrough_syn",
             "action_key",
         }
 

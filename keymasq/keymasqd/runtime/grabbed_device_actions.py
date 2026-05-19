@@ -64,7 +64,13 @@ async def execute_action(
     uinput_writer = deps.uinput_writer
     fire_and_observe_fn = deps.fire_and_observe_fn
     if action.action_type == ActionType.PASSTHROUGH:
-        passthrough(device_runtime, event, evdev_mod=evdev_mod, uinput_writer=uinput_writer)
+        passthrough(
+            device_runtime,
+            event,
+            evdev_mod=evdev_mod,
+            uinput_writer=uinput_writer,
+            sync=False,
+        )
 
     elif action.action_type == ActionType.SUPPRESS:
         pass

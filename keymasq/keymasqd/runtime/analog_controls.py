@@ -16,7 +16,10 @@ from keymasq.common.models import (
     analog_gamepad_output_distance,
 )
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
-from keymasq.keymasqd.runtime.grabbed_device_outputs import track_abs_state
+from keymasq.keymasqd.runtime.grabbed_device_outputs import (
+    syn_if_passthrough_frame_closed,
+    track_abs_state,
+)
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
     AnalogGamepadOutputState,
@@ -1144,7 +1147,7 @@ def _write_gamepad_axes(
             _clear_tracked_abs_state(device_runtime, target_bucket, axis_code)
         else:
             track_abs_state(device_runtime, axis_code, value, bucket=target_bucket)
-    writer.syn()
+    syn_if_passthrough_frame_closed(target_uinput, writer)
     device_runtime.state.analog_gamepad_outputs[state_key] = AnalogGamepadOutputState(
         output_id=_resolved_gamepad_output_id(device_runtime, config),
         reset_axes=(
@@ -1281,7 +1284,7 @@ def _write_recorded_gamepad_reset(
     for axis_code, value in output.reset_axes:
         writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
         _clear_tracked_abs_state(device_runtime, target_bucket, int(axis_code))
-    writer.syn()
+    syn_if_passthrough_frame_closed(target_uinput, writer)
 
 
 def _clear_tracked_abs_state(

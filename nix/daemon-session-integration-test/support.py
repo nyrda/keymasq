@@ -608,11 +608,18 @@ type = "key"
     def wait_for_active_profile(self, profile_name: str, *, enabled: bool) -> None:
         deadline = time.monotonic() + 5
         last: dict[str, Any] | None = None
+        matched_at: float | None = None
         while time.monotonic() < deadline:
             last = self.request({"command": "get_active_profiles"}, ok=False)
             active = set(str(name) for name in last.get("active_profiles", []))
             if (profile_name in active) is enabled:
-                return
+                now = time.monotonic()
+                if matched_at is not None and now - matched_at >= 0.15:
+                    return
+                if matched_at is None:
+                    matched_at = now
+            else:
+                matched_at = None
             time.sleep(0.1)
         raise AssertionError(f"profile {profile_name} enabled={enabled} not observed: {last}")
 

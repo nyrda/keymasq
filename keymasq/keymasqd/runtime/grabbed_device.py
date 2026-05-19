@@ -401,6 +401,8 @@ class GrabbedDevice:
                     self.uinput.close()
                 except Exception:
                     pass
+                finally:
+                    runtime_outputs.unregister_passthrough_frame_output(self.uinput)
                 self.uinput = None
             raise
 
@@ -443,6 +445,8 @@ class GrabbedDevice:
                 self.uinput.close()
             except Exception as exc:
                 log.warning("Failed to close passthrough uinput for %s: %s", self.path, exc)
+            finally:
+                runtime_outputs.unregister_passthrough_frame_output(self.uinput)
 
         self.device = None
         self.uinput = None

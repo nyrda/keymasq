@@ -409,7 +409,28 @@ async def process_event(
         return
 
     if event.type == evdev_mod.ecodes.EV_SYN:
-        _record_diagnostics(device_runtime, "syn", started_ns, time_mod=time_mod)
+        diag_label = "syn"
+        event_code = int(event.code)
+        syn_report = int(getattr(evdev_mod.ecodes, "SYN_REPORT", 0))
+        syn_mt_report = int(getattr(evdev_mod.ecodes, "SYN_MT_REPORT", 0))
+        if event_code == syn_report:
+            passthrough_frame_open = runtime_outputs.passthrough_frame_open(
+                device_runtime.uinput
+            )
+            runtime_outputs.flush_passthrough_frame(
+                device_runtime.uinput,
+                uinput_writer=identity_uinput_writer,
+            )
+            if passthrough_frame_open:
+                diag_label = "passthrough_syn"
+        elif event_code == syn_mt_report:
+            writer = identity_uinput_writer(device_runtime.uinput)
+            if writer is not None:
+                writer.write(evdev_mod.ecodes.EV_SYN, event_code, int(event.value))
+                runtime_outputs.mark_passthrough_frame_open(device_runtime.uinput)
+        else:
+            runtime_outputs.mark_passthrough_frame_closed(device_runtime.uinput)
+        _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
         return
 
     if event.type == evdev_mod.ecodes.EV_ABS and (
@@ -438,6 +459,7 @@ async def process_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         _record_diagnostics(device_runtime, "passthrough_other", started_ns, time_mod=time_mod)
         return
@@ -451,6 +473,7 @@ async def process_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         if int(event.value) == 0:
             device_runtime.state.combo_passthrough_held.discard(event_name)
@@ -517,6 +540,7 @@ async def process_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_fast"
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
@@ -572,6 +596,7 @@ async def process_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_mapped"
 
@@ -717,6 +742,7 @@ async def _process_wheel_pulse_event(
             event,
             evdev_mod=evdev_mod,
             uinput_writer=identity_uinput_writer,
+            sync=False,
         )
         return "wheel_passthrough"
     if action.action_type == ActionType.SUPPRESS:

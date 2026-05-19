@@ -879,6 +879,39 @@ async def test_macro_cleanup_releases_unmatched_held_keys() -> None:
     )
 
 
+def test_macro_cleanup_sync_uses_raw_uinput_with_non_identity_writer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    raw_keyboard = MagicMock()
+    writer = MagicMock()
+    manager.output_state.keyboard_uinput = raw_keyboard
+    manager.macro_state.instance_held[1] = {("keyboard", evdev.ecodes.KEY_B)}
+    manager.macro_state.held_refcount[("keyboard", evdev.ecodes.KEY_B)] = 1
+    sync_calls: list[tuple[object, object]] = []
+
+    base_deps = dm._macro_runtime_deps()
+    deps = mdm.MacroRuntimeDeps(
+        asyncio_mod=base_deps.asyncio_mod,
+        evdev_mod=base_deps.evdev_mod,
+        uinput_writer=lambda raw: writer if raw is raw_keyboard else None,
+        log=base_deps.log,
+        int_value_fn=base_deps.int_value_fn,
+        str_value_fn=base_deps.str_value_fn,
+    )
+    monkeypatch.setattr(
+        mdm,
+        "syn_if_passthrough_frame_closed",
+        lambda raw_uinput, output_writer: sync_calls.append((raw_uinput, output_writer)),
+    )
+
+    mdm.release_macro_held_for_instance(manager, 1, deps=deps)
+
+    writer.write.assert_called_once_with(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)
+    assert sync_calls == [(raw_keyboard, writer)]
+    assert manager.macro_state.held_refcount == {}
+
+
 @pytest.mark.asyncio
 async def test_release_all_devices_cleans_up_macro_and_grabbed_state() -> None:
     manager = DeviceManager()

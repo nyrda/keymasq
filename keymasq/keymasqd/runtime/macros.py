@@ -11,6 +11,7 @@ from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
     normalize_macro_loop_stop_behavior,
 )
+from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
 
 type JsonObject = dict[str, object]
 type IntValueFn = Callable[[object, int], int]
@@ -424,7 +425,7 @@ async def play_macro_task(
                                 evdev_mod.ecodes.REL_Y,
                                 y,
                             )
-                            output.syn()
+                            syn_if_passthrough_frame_closed(uinput, output)
                     continue
                 if action_type:
                     timeline_offset_s += await run_macro_control_action(
@@ -488,7 +489,7 @@ async def play_macro_task(
                 if output is None:
                     continue
                 output.write(event_type, event_code, event_value)
-                output.syn()
+                syn_if_passthrough_frame_closed(uinput, output)
                 if event_type == evdev_mod.ecodes.EV_KEY:
                     if event_value == 1:
                         track_macro_key_press(manager, instance_id, output_class, event_code)
@@ -677,14 +678,23 @@ def release_macro_held_for_instance(
         return
 
     uinputs = {
-        "keyboard": deps.uinput_writer(manager.output_state.keyboard_uinput),
-        "mouse": deps.uinput_writer(manager.output_state.mouse_uinput),
-        "gamepad": deps.uinput_writer(manager.output_state.gamepad_uinput),
+        "keyboard": (
+            manager.output_state.keyboard_uinput,
+            deps.uinput_writer(manager.output_state.keyboard_uinput),
+        ),
+        "mouse": (
+            manager.output_state.mouse_uinput,
+            deps.uinput_writer(manager.output_state.mouse_uinput),
+        ),
+        "gamepad": (
+            manager.output_state.gamepad_uinput,
+            deps.uinput_writer(manager.output_state.gamepad_uinput),
+        ),
     }
     for output_id, uinput_dev in getattr(
         manager.output_state, "virtual_gamepad_uinputs", {}
     ).items():
-        uinputs[f"gamepad:{output_id}"] = deps.uinput_writer(uinput_dev)
+        uinputs[f"gamepad:{output_id}"] = (uinput_dev, deps.uinput_writer(uinput_dev))
     for key in [*held, *held_abs]:
         device_class = str(key[0])
         output_id = gamepad_output_class(device_class)
@@ -694,7 +704,11 @@ def release_macro_held_for_instance(
             output_id,
             context="macro cleanup",
         )
-        uinputs[device_class] = deps.uinput_writer(target.uinput) if target is not None else None
+        raw_uinput = target.uinput if target is not None else None
+        uinputs[device_class] = (
+            raw_uinput,
+            deps.uinput_writer(raw_uinput),
+        )
     synced: set[str] = set()
     held_refcount = manager.macro_state.held_refcount
     held_abs_refcount = manager.macro_state.held_abs_refcount
@@ -704,11 +718,14 @@ def release_macro_held_for_instance(
         if count <= 1:
             held_refcount.pop(key, None)
             device_class, code = key
-            uinput = uinputs.get(device_class)
-            if not uinput:
+            uinput_pair = uinputs.get(device_class)
+            if not uinput_pair:
+                continue
+            _raw_uinput, writer = uinput_pair
+            if not writer:
                 continue
             try:
-                uinput.write(deps.evdev_mod.ecodes.EV_KEY, int(code), 0)
+                writer.write(deps.evdev_mod.ecodes.EV_KEY, int(code), 0)
                 synced.add(device_class)
             except Exception:
                 continue
@@ -720,11 +737,14 @@ def release_macro_held_for_instance(
         if count <= 1:
             held_abs_refcount.pop(key, None)
             device_class, code = key
-            uinput = uinputs.get(device_class)
-            if not uinput:
+            uinput_pair = uinputs.get(device_class)
+            if not uinput_pair:
+                continue
+            _raw_uinput, writer = uinput_pair
+            if not writer:
                 continue
             try:
-                uinput.write(deps.evdev_mod.ecodes.EV_ABS, int(code), 0)
+                writer.write(deps.evdev_mod.ecodes.EV_ABS, int(code), 0)
                 synced.add(device_class)
             except Exception:
                 continue
@@ -732,11 +752,14 @@ def release_macro_held_for_instance(
             held_abs_refcount[key] = count - 1
 
     for device_class in synced:
-        uinput = uinputs.get(device_class)
-        if not uinput:
+        uinput_pair = uinputs.get(device_class)
+        if not uinput_pair:
+            continue
+        raw_uinput, writer = uinput_pair
+        if not writer:
             continue
         try:
-            uinput.syn()
+            syn_if_passthrough_frame_closed(raw_uinput, writer)
         except Exception:
             pass
 

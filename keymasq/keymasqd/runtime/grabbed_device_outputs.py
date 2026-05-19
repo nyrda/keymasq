@@ -15,6 +15,64 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
 )
 
 log = logging.getLogger("keymasqd.devices")
+_PASSTHROUGH_FRAME_OUTPUTS: dict[int, object] = {}
+
+
+def _output_id(uinput_dev: object | None) -> int | None:
+    if uinput_dev is None:
+        return None
+    return id(uinput_dev)
+
+
+def mark_passthrough_frame_open(uinput_dev: object | None) -> None:
+    output_id = _output_id(uinput_dev)
+    if output_id is None:
+        return
+    _PASSTHROUGH_FRAME_OUTPUTS[output_id] = uinput_dev
+
+
+def mark_passthrough_frame_closed(uinput_dev: object | None) -> None:
+    output_id = _output_id(uinput_dev)
+    if output_id is None:
+        return
+    if _PASSTHROUGH_FRAME_OUTPUTS.get(output_id) is uinput_dev:
+        _PASSTHROUGH_FRAME_OUTPUTS.pop(output_id, None)
+
+
+def unregister_passthrough_frame_output(uinput_dev: object | None) -> None:
+    mark_passthrough_frame_closed(uinput_dev)
+
+
+def passthrough_frame_open(uinput_dev: object | None) -> bool:
+    output_id = _output_id(uinput_dev)
+    if output_id is None:
+        return False
+    return _PASSTHROUGH_FRAME_OUTPUTS.get(output_id) is uinput_dev
+
+
+def syn_if_passthrough_frame_closed(
+    uinput_dev: object | None,
+    writer: WritableUInput,
+    *,
+    force: bool = False,
+) -> None:
+    if force or not passthrough_frame_open(uinput_dev):
+        writer.syn()
+
+
+def flush_passthrough_frame(
+    uinput_dev: object | None,
+    *,
+    uinput_writer: UInputWriter,
+) -> None:
+    if not passthrough_frame_open(uinput_dev):
+        return
+    writer = uinput_writer(uinput_dev)
+    if writer is None:
+        mark_passthrough_frame_closed(uinput_dev)
+        return
+    writer.syn()
+    mark_passthrough_frame_closed(uinput_dev)
 
 
 def bucket_for_uinput(
@@ -76,12 +134,16 @@ def write_abs_axis(
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
     bucket: str | None = None,
+    defer_syn_to_passthrough_frame: bool = True,
 ) -> None:
     writer = uinput_writer(uinput_dev)
     if writer is None:
         return
     writer.write(evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
-    writer.syn()
+    if defer_syn_to_passthrough_frame:
+        syn_if_passthrough_frame_closed(uinput_dev, writer)
+    else:
+        writer.syn()
     track_abs_state(device_runtime, int(axis_code), int(value), bucket=bucket)
 
 
@@ -94,12 +156,18 @@ def write_key(
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
     bucket: str | None = None,
+    sync: bool = True,
+    defer_syn_to_passthrough_frame: bool = True,
 ) -> None:
     writer = uinput_writer(uinput_dev)
     if writer is None:
         return
     writer.write(evdev_mod.ecodes.EV_KEY, int(code), int(value))
-    writer.syn()
+    if sync:
+        if defer_syn_to_passthrough_frame:
+            syn_if_passthrough_frame_closed(uinput_dev, writer)
+        else:
+            writer.syn()
     track_key_state(device_runtime, uinput_dev, int(code), int(value), bucket=bucket)
 
 
@@ -166,6 +234,7 @@ def passthrough(
     *,
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
+    sync: bool = True,
 ) -> None:
     if (
         device_runtime.suppress_rel_getter
@@ -182,14 +251,21 @@ def passthrough(
             int(event.value),
             evdev_mod=evdev_mod,
             uinput_writer=uinput_writer,
+            sync=sync,
+            defer_syn_to_passthrough_frame=False,
         )
+        if not sync:
+            mark_passthrough_frame_open(device_runtime.uinput)
         return
     uinput = device_runtime.uinput
     writer = uinput_writer(uinput)
     if writer is None:
         return
     writer.write(event.type, event.code, event.value)
-    writer.syn()
+    if sync:
+        writer.syn()
+    else:
+        mark_passthrough_frame_open(uinput)
 
 
 def ensure_abs_axis_released(

@@ -124,7 +124,7 @@ Move the cursor when the key is pressed. Two modes are available:
 | Mode | What it does |
 |---|---|
 | **Relative** | Move the cursor by a pixel offset from its current position (e.g. 100 px right, 50 px down). |
-| **Absolute** | Move the cursor to an exact screen coordinate (e.g. pixel 1920, 1080). |
+| **Absolute** | Move the cursor to a screen position by first sending a large upper-left reset through the virtual mouse, then sending the configured X/Y offset. |
 
 Set the X and Y values with the spin buttons, or use **Capture** to select a
 point on screen. On supported platforms (Wayland compositors with slurp),
@@ -133,11 +133,14 @@ On other platforms, Capture gives you 2 seconds to move your cursor to the
 desired position, then reads the coordinates automatically.
 
 Absolute mouse moves are emitted by `keymasqd` through Keymasq's virtual mouse
-device. This makes them normal input events, which is useful for games or other
-windows that lock the pointer and ignore compositor cursor warps.
+device as relative `REL_X`/`REL_Y` events. This keeps them visible as normal
+input to games or other windows that lock the pointer and ignore compositor
+cursor warps. Because this is not a native compositor cursor warp, the final
+position can still depend on how the desktop processes relative pointer motion.
 
 For desktop automation on GNOME or Hyprland you can use the compositor action
-**Set Cursor** preset as well.
+**Set Cursor** preset when you need the compositor to place the pointer at an
+absolute desktop coordinate.
 
 ![Mouse tab — buttons and Move Cursor with Relative/Absolute mode](assets/screenshots/key_selector_mouse.png)
 

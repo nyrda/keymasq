@@ -4,6 +4,19 @@ from tests.gui.support import *
 gi.require_version("Gtk", "4.0")
 
 
+def test_inspector_label_sort_key_orders_trailing_numbers_numerically() -> None:
+    from keymasq.gui.widgets.device_inspector_window import _label_sort_key
+
+    labels = ["Extra Button 1", "Extra Button 10", "Extra Button 2", "Back"]
+
+    assert sorted(labels, key=_label_sort_key) == [
+        "Back",
+        "Extra Button 1",
+        "Extra Button 2",
+        "Extra Button 10",
+    ]
+
+
 def _device():
     from keymasq.common.models import (
         AnalogAxisDefinition,

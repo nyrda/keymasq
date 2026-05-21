@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -37,6 +38,7 @@ MAPPING_CARD_WIDTH = 122
 MAPPING_NAME_CHARS = 14
 MAPPING_ACTION_CHARS = 15
 MAPPING_GRID_GAP = 6
+TRAILING_NUMBER_RE = re.compile(r"^(?P<prefix>.*?)(?P<number>\d+)\s*$")
 EVENT_FILTERS: tuple[tuple[str, str, bool], ...] = (
     ("button", "Keys", True),
     ("axis", "Axes", False),
@@ -586,7 +588,7 @@ class DeviceInspectorWindow(Adw.Window):
         grid = Gtk.Grid(column_spacing=MAPPING_GRID_GAP, row_spacing=MAPPING_GRID_GAP)
         grid.set_halign(Gtk.Align.START)
         max_cols = 4 if is_keyboard else 3
-        sorted_controls = sorted(controls, key=lambda item: _text(item.get("label")))
+        sorted_controls = sorted(controls, key=lambda item: _label_sort_key(item.get("label")))
         for index, control in enumerate(sorted_controls):
             widget = self._create_control_card(control, is_keyboard=is_keyboard)
             grid.attach(widget, index % max_cols, index // max_cols, 1, 1)
@@ -1096,6 +1098,15 @@ def _event_export_line(event: JsonDict) -> str:
     if source:
         parts.append(f"source={source}")
     return " ".join(parts)
+
+
+def _label_sort_key(label: object) -> tuple[str, int, int, str]:
+    text = _text(label).strip()
+    lowered = text.lower()
+    match = TRAILING_NUMBER_RE.match(lowered)
+    if match:
+        return (match.group("prefix").strip(), 0, int(match.group("number")), lowered)
+    return (lowered, 1, 0, lowered)
 
 
 def _axis_min_max(axis: JsonDict, analog_type: str) -> tuple[int, int]:

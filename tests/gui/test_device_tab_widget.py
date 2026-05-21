@@ -2,6 +2,18 @@
 from tests.gui.support import *
 
 class TestDeviceTabWidget:
+    def test_mapping_label_sort_key_orders_trailing_numbers_numerically(self):
+        from keymasq.gui.widgets.device_tab import _label_sort_key
+
+        labels = ["Extra Button 1", "Extra Button 10", "Extra Button 2", "Back"]
+
+        assert sorted(labels, key=_label_sort_key) == [
+            "Back",
+            "Extra Button 1",
+            "Extra Button 2",
+            "Extra Button 10",
+        ]
+
     def test_device_tab_creation(self):
         from gi.repository import Gtk
 

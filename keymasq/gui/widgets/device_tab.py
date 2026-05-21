@@ -1,3 +1,4 @@
+import re
 import shlex
 from typing import cast
 
@@ -56,6 +57,7 @@ _ANALOG_LAYOUT_ORDER = {
     "left_stick": 2,
     "right_stick": 3,
 }
+_TRAILING_NUMBER_RE = re.compile(r"^(?P<prefix>.*?)(?P<number>\d+)\s*$")
 
 
 def _make_capture_status_row(status_label: Gtk.Label) -> Gtk.Box:
@@ -154,6 +156,15 @@ def _grouped_analog_inputs(
     if other:
         groups.append(("Other", other))
     return groups
+
+
+def _label_sort_key(label: object) -> tuple[str, int, int, str]:
+    text = str(label or "").strip()
+    lowered = text.lower()
+    match = _TRAILING_NUMBER_RE.match(lowered)
+    if match:
+        return (match.group("prefix").strip(), 0, int(match.group("number")), lowered)
+    return (lowered, 1, 0, lowered)
 
 
 def _display_action_summary(text: str, max_chars: int) -> str:
@@ -760,10 +771,10 @@ class DeviceTab(ProfileManagedTab):
         main_ids = {"btn_left", "btn_right", "btn_middle"}
         scroll_keywords = {"scroll", "wheel"}
 
-        main_buttons = []
-        scroll_buttons = []
-        other_buttons = []
-        extra_buttons = []
+        main_buttons: list[ButtonDefinition] = []
+        scroll_buttons: list[ButtonDefinition] = []
+        other_buttons: list[ButtonDefinition] = []
+        extra_buttons: list[ButtonDefinition] = []
 
         for button in self.device.buttons:
             bid = button.id.lower()
@@ -778,7 +789,12 @@ class DeviceTab(ProfileManagedTab):
 
         self.button_grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
-        def _add_section(title: str, buttons: list, parent: Gtk.Box, max_cols: int = 4) -> None:
+        def _add_section(
+            title: str,
+            buttons: list[ButtonDefinition],
+            parent: Gtk.Box,
+            max_cols: int = 4,
+        ) -> None:
             if not buttons:
                 return
             if title:
@@ -821,7 +837,10 @@ class DeviceTab(ProfileManagedTab):
                         section_buttons.append(button)
                 _add_section(title, section_buttons, content, max_cols=max_cols)
 
-            extras = sorted(buttons_by_id.values(), key=lambda button: button.label.lower())
+            extras = sorted(
+                buttons_by_id.values(),
+                key=lambda button: _label_sort_key(button.label),
+            )
             if extras:
                 self._append_other_buttons_section(
                     content,
@@ -841,7 +860,12 @@ class DeviceTab(ProfileManagedTab):
             extra_expander = Gtk.Expander(label=f"Extra Buttons ({len(extra_buttons)})")
             extra_expander.set_expanded(True)
             extra_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            _add_section("", extra_buttons, extra_box, max_cols=3)
+            _add_section(
+                "",
+                sorted(extra_buttons, key=lambda button: _label_sort_key(button.label)),
+                extra_box,
+                max_cols=3,
+            )
             extra_expander.set_child(extra_box)
             content.append(extra_expander)
 
@@ -997,7 +1021,7 @@ class DeviceTab(ProfileManagedTab):
         col = 0
         row = 0
         max_cols = 6
-        for button in sorted(extras, key=lambda b: b.label.lower()):
+        for button in sorted(extras, key=lambda b: _label_sort_key(b.label)):
             widget = self._create_button_widget(button)
             grid.attach(widget, col, row, 1, 1)
             self._button_widgets[button.id] = widget

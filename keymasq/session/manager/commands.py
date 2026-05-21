@@ -125,6 +125,7 @@ async def _handle_profile_commands(
     if command in {"reevaluate_profiles", "reevaluate_hardware"}:
         log.info("Global profile reevaluate requested")
         await asyncio.to_thread(manager.reload_config_from_disk)
+        runtime_profiles.invalidate_runtime_payload_signatures(manager)
         await runtime_profiles.reevaluate_profiles(manager, reason="session command reevaluate")
         return {"status": "ok"}
 

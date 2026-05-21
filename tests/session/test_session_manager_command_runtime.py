@@ -5,6 +5,7 @@ from tests.session.command_support import *
 from keymasq.common import paths
 from keymasq.common.ipc import CommandType
 import keymasq.session.manager.commands as session_commands_module
+import keymasq.session.manager.device_inspector as session_device_inspector_module
 
 
 @pytest.mark.asyncio
@@ -645,6 +646,70 @@ async def test_device_inspector_status_forwards_to_gui_clients() -> None:
     )
     assert "1234:5678" in manager.device_inspector_state.active_hardware_ids
     assert "1234:5678" not in manager.device_inspector_state.suppressed_hardware_ids
+
+
+@pytest.mark.asyncio
+async def test_stop_device_inspector_preserves_error_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    writer = object()
+    manager.device_inspector_state.owners_by_hardware_id[hardware_id] = {id(writer), 2}
+
+    monkeypatch.setattr(
+        session_device_inspector_module,
+        "build_device_inspector_snapshot",
+        lambda _manager, _hardware_id: {
+            "status": "error",
+            "message": "snapshot failed",
+        },
+    )
+
+    result = await session_device_inspector_module.stop_device_inspector(
+        manager,
+        hardware_id,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result == {"status": "error", "message": "snapshot failed"}
+
+
+@pytest.mark.asyncio
+async def test_clear_device_inspectors_for_writer_continues_after_stop_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    writer = object()
+    writer_id = id(writer)
+    stopped: list[str] = []
+    manager.device_inspector_state.owners_by_hardware_id.update(
+        {
+            "bad": {writer_id},
+            "good": {writer_id},
+        }
+    )
+
+    async def stop(
+        _manager: SessionManager,
+        hardware_id: str,
+        *,
+        reason: str,
+    ) -> dict[str, object]:
+        stopped.append(hardware_id)
+        if hardware_id == "bad":
+            raise RuntimeError("stop failed")
+        return {"status": "ok", "reason": reason}
+
+    monkeypatch.setattr(session_device_inspector_module, "_stop_device_inspector_unlocked", stop)
+
+    await session_device_inspector_module.clear_device_inspectors_for_writer(
+        manager,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert stopped == ["bad", "good"]
+    assert manager.device_inspector_state.owners_by_hardware_id["bad"] == set()
 
 
 @pytest.mark.asyncio

@@ -120,7 +120,8 @@ async def stop_device_inspector(
     removed_last_owner = _drop_owner(manager, normalized, _writer_id(writer))
     if not removed_last_owner:
         snapshot = build_device_inspector_snapshot(manager, normalized)
-        snapshot["status"] = "ok"
+        if snapshot.get("status") != "error":
+            snapshot["status"] = "ok"
         return snapshot
 
     return await _stop_device_inspector_unlocked(
@@ -222,11 +223,18 @@ async def clear_device_inspectors_for_writer(
         owners.discard(writer_id)
         if owners:
             continue
-        await _stop_device_inspector_unlocked(
-            manager,
-            hardware_id,
-            reason=f"device inspector owner disconnected {hardware_id}",
-        )
+        try:
+            await _stop_device_inspector_unlocked(
+                manager,
+                hardware_id,
+                reason=f"device inspector owner disconnected {hardware_id}",
+            )
+        except Exception as exc:
+            log.warning(
+                "Failed to stop device inspector for disconnected owner hardware_id=%s: %s",
+                hardware_id,
+                exc,
+            )
 
 
 async def _stop_device_inspector_unlocked(

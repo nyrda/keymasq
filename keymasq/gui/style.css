@@ -292,6 +292,7 @@ button.square-key-button {
   background: alpha(@shade_color, 0.08);
 }
 
+/* stylelint-disable-next-line selector-type-no-unknown */
 .inspector-axis-bar trough {
   min-height: 12px;
 }

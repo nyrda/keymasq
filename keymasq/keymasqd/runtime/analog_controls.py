@@ -149,6 +149,27 @@ def _control_state_key(source_id: str, index: int, total: int) -> str:
     return source_id if total == 1 else f"{source_id}#analog_control#{index}"
 
 
+def analog_state_keys_for_action(source_id: str, action: MappingAction | None) -> set[str]:
+    configs = _action_analog_control_configs(action)
+    return {
+        _control_state_key(source_id, index, len(configs))
+        for index, _config in enumerate(configs)
+    }
+
+
+def preserved_analog_state_keys(
+    old_mapping: dict[str, MappingAction],
+    new_mapping: dict[str, MappingAction],
+) -> set[str]:
+    preserved: set[str] = set()
+    for source_id, old_action in old_mapping.items():
+        new_action = new_mapping.get(source_id)
+        if old_action != new_action:
+            continue
+        preserved.update(analog_state_keys_for_action(source_id, new_action))
+    return preserved
+
+
 def _record_axis_value(
     device_runtime: GrabbedDeviceRuntime,
     state_key: str,
@@ -245,7 +266,9 @@ async def reset_analog_controls(
     device_runtime: GrabbedDeviceRuntime,
     *,
     deps: ActionExecutionDeps,
+    preserve_state_keys: set[str] | None = None,
 ) -> None:
+    preserved = set(preserve_state_keys or ())
     mapping = device_runtime.mapping_getter()
     state_configs: dict[str, tuple[str, AnalogControlConfig]] = {}
     for source_id, action in mapping.items():
@@ -256,8 +279,10 @@ async def reset_analog_controls(
                 config,
             )
 
-    _reset_recorded_gamepad_outputs(device_runtime, deps=deps)
+    _reset_recorded_gamepad_outputs(device_runtime, deps=deps, preserved=preserved)
     for state_key, active in list(device_runtime.state.analog_active_thresholds.items()):
+        if state_key in preserved:
+            continue
         state_config = state_configs.get(state_key)
         config = state_config[1] if state_config is not None else None
         for threshold_key in list(active):
@@ -280,26 +305,44 @@ async def reset_analog_controls(
             )
 
     for state_key, (source_id, config) in state_configs.items():
+        if state_key in preserved:
+            continue
         if analog_control_primary_mode(config) == "gamepad":
             _reset_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
 
-    for task in list(device_runtime.state.analog_mouse_tasks.values()):
+    tasks_to_cancel = [
+        task
+        for state_key, task in list(device_runtime.state.analog_mouse_tasks.items())
+        if state_key not in preserved
+    ]
+    for task in tasks_to_cancel:
         if not task.done():
             task.cancel()
-    if device_runtime.state.analog_mouse_tasks:
+    if tasks_to_cancel:
         await asyncio.gather(
-            *device_runtime.state.analog_mouse_tasks.values(),
+            *tasks_to_cancel,
             return_exceptions=True,
         )
 
-    device_runtime.state.analog_axis_values.clear()
-    device_runtime.state.analog_active_thresholds.clear()
-    device_runtime.state.analog_active_threshold_actions.clear()
-    device_runtime.state.analog_mouse_tasks.clear()
-    device_runtime.state.analog_mouse_accumulators.clear()
-    device_runtime.state.analog_mouse_area_offsets.clear()
-    device_runtime.state.analog_mouse_area_active.clear()
-    device_runtime.state.analog_gamepad_outputs.clear()
+    _discard_unpreserved_keys(device_runtime.state.analog_axis_values, preserved)
+    _discard_unpreserved_keys(device_runtime.state.analog_active_thresholds, preserved)
+    for threshold_key in list(device_runtime.state.analog_active_threshold_actions):
+        if _threshold_source_key(threshold_key) not in preserved:
+            device_runtime.state.analog_active_threshold_actions.pop(threshold_key, None)
+    _discard_unpreserved_keys(device_runtime.state.analog_mouse_tasks, preserved)
+    _discard_unpreserved_keys(device_runtime.state.analog_mouse_accumulators, preserved)
+    _discard_unpreserved_keys(device_runtime.state.analog_mouse_area_offsets, preserved)
+    device_runtime.state.analog_mouse_area_active.intersection_update(preserved)
+    _discard_unpreserved_keys(device_runtime.state.analog_gamepad_outputs, preserved)
+
+
+def _discard_unpreserved_keys[StateValue](
+    mapping: dict[str, StateValue],
+    preserved: set[str],
+) -> None:
+    for state_key in list(mapping):
+        if state_key not in preserved:
+            mapping.pop(state_key, None)
 
 
 async def _evaluate_thresholds(
@@ -757,6 +800,10 @@ def _threshold_index(threshold_key: str) -> int | None:
         return int(threshold_key.rsplit(":", 1)[1])
     except (IndexError, ValueError):
         return None
+
+
+def _threshold_source_key(threshold_key: str) -> str:
+    return threshold_key.rsplit(":", 1)[0]
 
 
 def _child_event_name(source_id: str, threshold_index: int, action_index: int) -> str:
@@ -1258,8 +1305,12 @@ def _reset_recorded_gamepad_outputs(
     device_runtime: GrabbedDeviceRuntime,
     *,
     deps: ActionExecutionDeps,
+    preserved: set[str] | None = None,
 ) -> None:
+    preserved = preserved or set()
     for source_id, output in list(device_runtime.state.analog_gamepad_outputs.items()):
+        if source_id in preserved:
+            continue
         _write_recorded_gamepad_reset(device_runtime, source_id, output, deps=deps)
 
 

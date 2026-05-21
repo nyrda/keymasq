@@ -18,6 +18,7 @@ from keymasq.keymasqd.runtime.analog_controls import (
     _motion_delta,
     normalize_axis_value,
     normalize_control_axis_value,
+    preserved_analog_state_keys,
     process_analog_event,
     reset_analog_controls,
 )
@@ -334,6 +335,64 @@ async def test_axis_mouse_motion_uses_direction_and_response_curve() -> None:
         for event_type, code, value in mouse_events
     )
     assert not any(code == evdev.ecodes.REL_X for _event_type, code, _value in mouse_events)
+
+
+def test_preserved_analog_state_keys_only_keeps_unchanged_analog_controls() -> None:
+    analog_action = MappingAction(
+        action_type=ActionType.ANALOG_CONTROL,
+        analog_control_config=AnalogControlConfig(
+            name="Mouse",
+            mouse_motion=AnalogMouseMotionConfig(enabled=True),
+        ),
+    )
+    old_mapping = {
+        "left_stick": analog_action,
+        "right_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Old",
+                mouse_motion=AnalogMouseMotionConfig(enabled=True),
+            ),
+        ),
+    }
+    new_mapping = {
+        "left_stick": analog_action,
+        "right_stick": MappingAction(action_type=ActionType.SUPPRESS),
+        "south": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+    }
+
+    assert preserved_analog_state_keys(old_mapping, new_mapping) == {"left_stick"}
+
+
+@pytest.mark.asyncio
+async def test_reset_analog_controls_preserves_unchanged_mouse_motion() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Stick Mouse",
+                mouse_motion=AnalogMouseMotionConfig(
+                    enabled=True,
+                    speed=10000,
+                    deadzone=0.0,
+                    tick_ms=1,
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    await asyncio.sleep(0.01)
+    event_count = len(runtime.mouse_uinput.events)
+
+    mapping["south"] = MappingAction(action_type=ActionType.SUPPRESS)
+    await reset_analog_controls(runtime, deps=_deps(), preserve_state_keys={"left_stick"})
+    await asyncio.sleep(0.01)
+    await reset_analog_controls(runtime, deps=_deps())
+
+    assert len(runtime.mouse_uinput.events) > event_count
 
 
 def test_axis_mouse_motion_supports_bidirectional_signed_output() -> None:

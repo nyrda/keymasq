@@ -662,6 +662,8 @@ class DeviceManager:
             fire_and_observe_fn=_fire_and_observe,
         )
         async with self._op_lock:
+            self.device_inspector_active_hardware_ids.clear()
+            self.device_inspector_suppressed_hardware_ids.clear()
             await self._refresh_combo_runtime_unlocked()
 
     async def emergency_reset(self) -> JsonObject:
@@ -773,7 +775,6 @@ class DeviceManager:
         if not normalized_hardware_id:
             raise ValueError("hardware_id required")
         async with self._op_lock:
-            self.device_inspector_active_hardware_ids.add(normalized_hardware_id)
             was_suppressed = normalized_hardware_id in self.device_inspector_suppressed_hardware_ids
             self.device_inspector_suppressed_hardware_ids.discard(normalized_hardware_id)
             if was_suppressed:
@@ -783,7 +784,7 @@ class DeviceManager:
         return {
             "status": "ok",
             "hardware_id": normalized_hardware_id,
-            "active": True,
+            "active": self.device_inspector_active(normalized_hardware_id),
             "suppressed": False,
             "reason": str(reason or ""),
         }

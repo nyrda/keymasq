@@ -82,6 +82,49 @@ async def test_device_inspector_suppression_status_broadcasts() -> None:
     ]
 
 
+@pytest.mark.asyncio
+async def test_device_inspector_disable_does_not_activate_inactive_inspector() -> None:
+    manager = DeviceManager()
+    broadcasts: list[tuple[CommandType, dict[str, object]]] = []
+    manager._broadcast_runtime_event = lambda event_type, data: broadcasts.append(  # type: ignore[method-assign]
+        (event_type, data)
+    )
+
+    disabled = await manager.disable_device_inspector_suppression("1234:5678", "manual")
+
+    assert disabled == {
+        "status": "ok",
+        "hardware_id": "1234:5678",
+        "active": False,
+        "suppressed": False,
+        "reason": "manual",
+    }
+    assert "1234:5678" not in manager.device_inspector_active_hardware_ids
+    assert broadcasts == [
+        (
+            CommandType.DEVICE_INSPECTOR_STATUS,
+            {
+                "hardware_id": "1234:5678",
+                "active": False,
+                "suppressed": False,
+                "reason": "manual",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_release_all_devices_clears_device_inspector_state() -> None:
+    manager = DeviceManager()
+    manager.device_inspector_active_hardware_ids.add("1234:5678")
+    manager.device_inspector_suppressed_hardware_ids.add("1234:5678")
+
+    await manager.release_all_devices()
+
+    assert manager.device_inspector_active_hardware_ids == set()
+    assert manager.device_inspector_suppressed_hardware_ids == set()
+
+
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
 class TestDeviceManager:
     @pytest.fixture

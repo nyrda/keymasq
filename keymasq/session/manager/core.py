@@ -396,7 +396,16 @@ class SessionManager:
         self.broadcast_to_session_clients(cast(JsonObject, message))
 
     def broadcast_to_session_clients(self, message: JsonObject) -> None:
+        self.broadcast_to_session_client_ids(message, None)
+
+    def broadcast_to_session_client_ids(
+        self,
+        message: JsonObject,
+        writer_ids: set[int] | None,
+    ) -> None:
         for writer in list(self.session_clients):
+            if writer_ids is not None and id(writer) not in writer_ids:
+                continue
             try:
                 writer.write(json.dumps(message).encode() + b"\n")
                 task = self.session_client_drain_tasks.get(writer)

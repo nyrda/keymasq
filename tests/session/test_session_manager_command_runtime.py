@@ -1,4 +1,6 @@
 # ruff: noqa: F403, F405, I001
+import json
+
 from tests.session.command_support import *
 from keymasq.common import paths
 from keymasq.common.ipc import CommandType
@@ -500,9 +502,8 @@ async def test_runtime_reset_event_invalidates_and_reevaluates(
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
 
-    await session_events_module.handle_event(
+    await session_events_module.handle_runtime_reset_event(
         manager,
-        CommandType.RUNTIME_RESET,
         {"reason": "emergency_reset"},
     )
     await asyncio.sleep(0)
@@ -574,9 +575,23 @@ async def test_device_inspector_disable_session_command_forwards_reason() -> Non
 
 
 @pytest.mark.asyncio
-async def test_device_inspector_events_forward_to_gui_clients() -> None:
+async def test_device_inspector_events_forward_only_to_owner_clients() -> None:
     manager = SessionManager()
-    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    class Writer:
+        def __init__(self) -> None:
+            self.writes: list[bytes] = []
+
+        def write(self, data: bytes) -> None:
+            self.writes.append(data)
+
+        async def drain(self) -> None:
+            return None
+
+    owner = Writer()
+    other = Writer()
+    manager.session_clients.update({owner, other})  # type: ignore[arg-type]
+    manager.device_inspector_state.owners_by_hardware_id["1234:5678"] = {id(owner)}
 
     await session_events_module.handle_event(
         manager,
@@ -588,6 +603,26 @@ async def test_device_inspector_events_forward_to_gui_clients() -> None:
             "suppressed": True,
         },
     )
+
+    assert other.writes == []
+    assert len(owner.writes) == 1
+    assert json.loads(owner.writes[0]) == {
+        "event": "device_inspector_event",
+        "hardware_id": "1234:5678",
+        "code_name": "key_esc",
+        "value": 1,
+        "suppressed": True,
+    }
+
+    for task in list(manager.session_client_drain_tasks.values()):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_device_inspector_status_forwards_to_gui_clients() -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
     await session_events_module.handle_event(
         manager,
         CommandType.DEVICE_INSPECTOR_STATUS,
@@ -599,16 +634,7 @@ async def test_device_inspector_events_forward_to_gui_clients() -> None:
         },
     )
 
-    assert [
-        args.args[0] for args in manager.broadcast_to_session_clients.call_args_list  # type: ignore[attr-defined]
-    ] == [
-        {
-            "event": "device_inspector_event",
-            "hardware_id": "1234:5678",
-            "code_name": "key_esc",
-            "value": 1,
-            "suppressed": True,
-        },
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {
             "event": "device_inspector_status",
             "hardware_id": "1234:5678",
@@ -616,9 +642,36 @@ async def test_device_inspector_events_forward_to_gui_clients() -> None:
             "suppressed": False,
             "reason": "key_esc",
         },
-    ]
+    )
     assert "1234:5678" in manager.device_inspector_state.active_hardware_ids
     assert "1234:5678" not in manager.device_inspector_state.suppressed_hardware_ids
+
+
+@pytest.mark.asyncio
+async def test_runtime_reset_clears_session_device_inspector_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    manager.device_inspector_state.active_hardware_ids.add("1234:5678")
+    manager.device_inspector_state.suppressed_hardware_ids.add("1234:5678")
+    manager.device_inspector_state.owners_by_hardware_id["1234:5678"] = {1}
+
+    await session_events_module.handle_runtime_reset_event(
+        manager,
+        {"reason": "emergency_reset"},
+    )
+
+    assert manager.device_inspector_state.active_hardware_ids == set()
+    assert manager.device_inspector_state.suppressed_hardware_ids == set()
+    assert manager.device_inspector_state.owners_by_hardware_id == {}
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "runtime_reset", "reason": "emergency_reset"}
+    )
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="runtime reset")
 
 
 @pytest.mark.asyncio
@@ -717,6 +770,146 @@ async def test_start_device_inspector_returns_snapshot_and_forces_profile_reeval
     assert action["target"] == "key_space"
     assert axes[0]["evdev"] == "abs_x"
     assert hardware_id in manager.device_inspector_state.active_hardware_ids
+
+
+@pytest.mark.asyncio
+async def test_enable_device_inspector_suppression_requires_successful_grab(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    hardware_id = "1234:5678"
+    writer = object()
+    manager.hardware.get_hardware = lambda _hardware_id: HardwareConfig(  # type: ignore[assignment]
+        vendor_id="1234",
+        product_id="5678",
+        name="Inspector Pad",
+        evdev_devices=[
+            EvdevDevice(path="/dev/input/event10", device_type=DeviceType.GAMEPAD, id="pad")
+        ],
+        buttons=[],
+    )
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={}))
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    result = await manager._handle_session_request(
+        {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
+        "client",
+        PeerCredentials(pid=1, uid=1000, gid=1000),
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result["status"] == "error"
+    assert "could not grab" in str(result["message"])
+    assert reevaluate_profiles.await_count == 2
+    assert reevaluate_profiles.await_args_list[0].kwargs == {
+        "reason": f"device inspector suppression grab {hardware_id}"
+    }
+    assert reevaluate_profiles.await_args_list[1].kwargs == {
+        "reason": f"device inspector suppression rollback {hardware_id}"
+    }
+    manager.client.send_command.assert_not_awaited()
+    assert hardware_id not in manager.device_inspector_state.active_hardware_ids
+    assert manager.device_inspector_state.owners_by_hardware_id == {}
+
+
+@pytest.mark.asyncio
+async def test_enable_device_inspector_suppression_rolls_back_on_daemon_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    hardware_id = "1234:5678"
+    writer = object()
+    manager.hardware.get_hardware = lambda _hardware_id: HardwareConfig(  # type: ignore[assignment]
+        vendor_id="1234",
+        product_id="5678",
+        name="Inspector Pad",
+        evdev_devices=[
+            EvdevDevice(path="/dev/input/event10", device_type=DeviceType.GAMEPAD, id="pad")
+        ],
+        buttons=[],
+    )
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="daemon rejected suppression")
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    result = await manager._handle_session_request(
+        {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
+        "client",
+        PeerCredentials(pid=1, uid=1000, gid=1000),
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result == {
+        "status": "error",
+        "message": "daemon rejected suppression",
+    }
+    assert reevaluate_profiles.await_count == 2
+    assert reevaluate_profiles.await_args_list[0].kwargs == {
+        "reason": f"device inspector suppression grab {hardware_id}"
+    }
+    assert reevaluate_profiles.await_args_list[1].kwargs == {
+        "reason": f"device inspector suppression rollback {hardware_id}"
+    }
+    assert hardware_id not in manager.device_inspector_state.active_hardware_ids
+    assert manager.device_inspector_state.owners_by_hardware_id == {}
+
+
+@pytest.mark.asyncio
+async def test_enable_device_inspector_suppression_preserves_existing_inspector_on_daemon_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    hardware_id = "1234:5678"
+    writer = object()
+    writer_id = id(writer)
+    manager.hardware.get_hardware = lambda _hardware_id: HardwareConfig(  # type: ignore[assignment]
+        vendor_id="1234",
+        product_id="5678",
+        name="Inspector Pad",
+        evdev_devices=[
+            EvdevDevice(path="/dev/input/event10", device_type=DeviceType.GAMEPAD, id="pad")
+        ],
+        buttons=[],
+    )
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.device_inspector_state.active_hardware_ids.add(hardware_id)
+    manager.device_inspector_state.owners_by_hardware_id[hardware_id] = {writer_id}
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="daemon rejected suppression")
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    result = await manager._handle_session_request(
+        {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
+        "client",
+        PeerCredentials(pid=1, uid=1000, gid=1000),
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result == {
+        "status": "error",
+        "message": "daemon rejected suppression",
+    }
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason=f"device inspector suppression grab {hardware_id}",
+    )
+    assert hardware_id in manager.device_inspector_state.active_hardware_ids
+    assert manager.device_inspector_state.owners_by_hardware_id[hardware_id] == {writer_id}
 
 
 @pytest.mark.asyncio

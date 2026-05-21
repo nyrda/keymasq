@@ -57,6 +57,17 @@ def update_status_from_daemon_event(manager: "SessionManager", data: JsonObject)
         manager.device_inspector_state.suppressed_hardware_ids.discard(hardware_id)
 
 
+def broadcast_event_to_owners(manager: "SessionManager", data: JsonObject) -> None:
+    hardware_id = _normalize_hardware_id(data.get("hardware_id"))
+    if not hardware_id:
+        return
+    owner_ids = manager.device_inspector_state.owners_by_hardware_id.get(hardware_id, set())
+    if not owner_ids:
+        return
+
+    manager.broadcast_to_session_client_ids({"event": "device_inspector_event", **data}, owner_ids)
+
+
 async def start_device_inspector(
     manager: "SessionManager",
     hardware_id: str,
@@ -130,16 +141,29 @@ async def enable_device_inspector_suppression(
     if manager.hardware.get_hardware(normalized) is None:
         return {"status": "error", "message": f"Unknown hardware_id: {normalized}"}
 
-    manager.device_inspector_state.owners_by_hardware_id.setdefault(normalized, set()).add(
-        _writer_id(writer)
-    )
+    writer_id = _writer_id(writer)
+    owners = manager.device_inspector_state.owners_by_hardware_id.setdefault(normalized, set())
+    had_owner = writer_id in owners
+    was_active = normalized in manager.device_inspector_state.active_hardware_ids
+    owners.add(writer_id)
     manager.device_inspector_state.active_hardware_ids.add(normalized)
 
+    await runtime_profiles.reevaluate_profiles(
+        manager,
+        reason=f"device inspector suppression grab {normalized}",
+    )
     if normalized not in manager.profile_state.grabbed_devices:
-        await runtime_profiles.reevaluate_profiles(
+        await _rollback_suppression_enable_state(
             manager,
-            reason=f"device inspector suppression grab {normalized}",
+            normalized,
+            writer_id,
+            had_owner=had_owner,
+            was_active=was_active,
         )
+        return {
+            "status": "error",
+            "message": f"Device inspector could not grab {normalized} for suppression",
+        }
 
     result = await _send_inspector_command(
         manager,
@@ -147,6 +171,13 @@ async def enable_device_inspector_suppression(
         {"hardware_id": normalized},
     )
     if result.get("status") != "ok":
+        await _rollback_suppression_enable_state(
+            manager,
+            normalized,
+            writer_id,
+            had_owner=had_owner,
+            was_active=was_active,
+        )
         return result
 
     update_status_from_daemon_event(manager, result)
@@ -234,6 +265,31 @@ def _drop_owner(manager: "SessionManager", hardware_id: str, writer_id: int) -> 
         return False
     manager.device_inspector_state.owners_by_hardware_id.pop(hardware_id, None)
     return True
+
+
+async def _rollback_suppression_enable_state(
+    manager: "SessionManager",
+    hardware_id: str,
+    writer_id: int,
+    *,
+    had_owner: bool,
+    was_active: bool,
+) -> None:
+    if not had_owner:
+        _drop_owner(manager, hardware_id, writer_id)
+    if not was_active:
+        manager.device_inspector_state.active_hardware_ids.discard(hardware_id)
+        manager.device_inspector_state.suppressed_hardware_ids.discard(hardware_id)
+        await runtime_profiles.reevaluate_profiles(
+            manager,
+            reason=f"device inspector suppression rollback {hardware_id}",
+        )
+
+
+def clear_all_device_inspector_state(manager: "SessionManager") -> None:
+    manager.device_inspector_state.active_hardware_ids.clear()
+    manager.device_inspector_state.suppressed_hardware_ids.clear()
+    manager.device_inspector_state.owners_by_hardware_id.clear()
 
 
 async def _send_inspector_command(

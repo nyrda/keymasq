@@ -166,7 +166,7 @@ async def handle_event(
         return
 
     if event_type == CommandType.DEVICE_INSPECTOR_EVENT:
-        manager.broadcast_to_session_clients({"event": "device_inspector_event", **data})
+        runtime_device_inspector.broadcast_event_to_owners(manager, data)
         return
 
     if event_type == CommandType.DEVICE_INSPECTOR_STATUS:
@@ -384,6 +384,7 @@ def handle_macro_playback_cancelled_event(
 
 
 async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject) -> None:
+    runtime_device_inspector.clear_all_device_inspector_state(manager)
     manager.broadcast_to_session_clients({"event": "runtime_reset", **data})
     manager.send_notification(
         "Keymasq: Emergency Reset",

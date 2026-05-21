@@ -105,6 +105,63 @@ async def test_apply_resolved_device_profile_uses_extended_grab_timeout() -> Non
 
 
 @pytest.mark.asyncio
+async def test_apply_resolved_device_profile_force_grabs_all_interfaces_for_inspector() -> None:
+    from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    resolved = ResolvedDeviceProfile(hardware_id=hardware_id)
+    manager.device_inspector_state.active_hardware_ids.add(hardware_id)
+    manager.hardware.get_hardware = lambda _hardware_id: HardwareConfig(  # type: ignore[assignment]
+        vendor_id="1234",
+        product_id="5678",
+        name="Split Pad",
+        evdev_devices=[
+            EvdevDevice(
+                path="/dev/input/event10",
+                device_type=DeviceType.GAMEPAD,
+                id="buttons",
+            ),
+            EvdevDevice(
+                path="/dev/input/event11",
+                device_type=DeviceType.GAMEPAD,
+                id="axes",
+            ),
+        ],
+        buttons=[
+            ButtonDefinition(
+                id="btn_south",
+                label="A",
+                evdev="btn_south",
+                evdev_code=304,
+                source="buttons",
+            )
+        ],
+    )
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            Response(status="ok", data={"grabbed_count": 2}),
+            Response(status="ok", data={"updated": True}),
+        ]
+    )
+
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+
+    sent = manager.client.send_command.await_args_list
+    assert [call.args[0].command for call in sent] == [
+        CommandType.GRAB_DEVICE,
+        CommandType.SET_MAPPING,
+    ]
+    grab_data = sent[0].args[0].data
+    assert grab_data["evdev_paths"] == ["/dev/input/event10", "/dev/input/event11"]
+    assert grab_data["force_grab_unmapped"] is True
+    assert manager.profile_state.grabbed_interfaces[hardware_id] == {
+        "buttons": "/dev/input/event10",
+        "axes": "/dev/input/event11",
+    }
+
+
+@pytest.mark.asyncio
 async def test_apply_resolved_device_profile_retries_after_grab_timeout() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"
@@ -364,4 +421,3 @@ async def test_apply_resolved_device_profile_refreshes_same_interface_grab_confi
     assert manager.profile_state.last_sent_grab_signatures[hardware_id] == (
         session_profiles_module.grab_device_payload_signature(grab_data)
     )
-

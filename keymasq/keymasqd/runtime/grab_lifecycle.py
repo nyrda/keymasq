@@ -254,6 +254,13 @@ async def grab_device_unlocked(
                     recording_manager=manager.recording_manager,
                     macro_player=manager.play_macro,
                     emergency_resetter=manager.emergency_reset,
+                    inspector_event_callback=manager.broadcast_device_inspector_event,
+                    inspector_active_getter=manager.device_inspector_active,
+                    inspector_suppression_getter=manager.device_inspector_suppressed,
+                    inspector_suppressed_ids_getter=(
+                        manager.device_inspector_suppressed_hardware_ids_snapshot
+                    ),
+                    inspector_suppression_disabler=manager.disable_device_inspector_suppression,
                     suppress_rel_getter=lambda: manager.macro_state.mouse_rel_suppressed,
                     mouse_rel_suppression_start_callback=lambda: None,
                     diagnostics_recorder=diagnostics_recorder,

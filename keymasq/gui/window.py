@@ -107,6 +107,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._profile_reload_pending = False
         self._destroyed = False
         self.combo_tab: ComboTab | None = None
+        self._device_inspector_windows: dict[str, Gtk.Window] = {}
 
         self.set_title("Keymasq")
         self.set_default_size(760, 1000)
@@ -591,6 +592,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._gnome_setup_poll_source_id = self._remove_timeout_source(
             self._gnome_setup_poll_source_id
         )
+        for inspector_window in list(self._device_inspector_windows.values()):
+            inspector_window.close()
+        self._device_inspector_windows.clear()
 
         if self.demo_mode:
             return
@@ -1022,6 +1026,49 @@ class MainWindow(Adw.ApplicationWindow):
         page = self.stack.get_page(child)
         if page is not None:
             page.set_title(name)
+
+    def open_device_inspector(self, device) -> None:
+        hardware_id = str(getattr(device, "hardware_id", "") or "").strip()
+        if not hardware_id:
+            return
+        existing = self._device_inspector_windows.get(hardware_id)
+        if existing is not None:
+            if bool(getattr(existing, "_closing", False)):
+                self._device_inspector_windows.pop(hardware_id, None)
+            else:
+                existing.present()
+                return
+
+        if self.demo_mode:
+            self._show_demo_notification("Device inspector is not available in demo mode")
+            return
+
+        if not self._device_inspector_unlock_ready():
+            self.present_unlock_dialog(on_success=lambda: self.open_device_inspector(device))
+            return
+
+        from keymasq.gui.widgets.device_inspector_window import DeviceInspectorWindow
+
+        inspector = DeviceInspectorWindow(self, device)
+        self._device_inspector_windows[hardware_id] = inspector
+
+        def on_close_request(window: Gtk.Window) -> bool:
+            if self._device_inspector_windows.get(hardware_id) is window:
+                self._device_inspector_windows.pop(hardware_id, None)
+            return False
+
+        def on_destroy(window: Gtk.Window) -> None:
+            if self._device_inspector_windows.get(hardware_id) is window:
+                self._device_inspector_windows.pop(hardware_id, None)
+
+        inspector.connect("close-request", on_close_request)
+        inspector.connect("destroy", on_destroy)
+        inspector.present()
+
+    def _device_inspector_unlock_ready(self) -> bool:
+        if not self._recording_unlock_required:
+            return True
+        return self._recording_unlocked and self._recording_refresh_owner
 
     def _queue_profile_reload(self) -> None:
         if self._destroyed:

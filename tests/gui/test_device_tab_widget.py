@@ -79,6 +79,40 @@ class TestDeviceTabWidget:
 
         assert tab._supports_analog_learning() is False
 
+    def test_device_tab_inspect_button_delegates_to_main_window(self):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        calls = []
+
+        class MainWindow:
+            def open_device_inspector(self, device):
+                calls.append(device)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event4",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            main_window=MainWindow(),
+            demo_mode=False,
+        )
+
+        tab._on_inspect_device_clicked(None)  # type: ignore[arg-type]
+
+        assert calls == [device]
+
     def test_numbered_hardware_id_header_keeps_path_in_tooltip(self):
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
         from keymasq.gui.widgets.device_tab import DeviceTab

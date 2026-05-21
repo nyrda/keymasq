@@ -31,7 +31,7 @@ from keymasq.common.models import (
     MappingAction,
     is_protected_button,
 )
-from keymasq.gui.icons import device_icon_names, image_from_icon_names
+from keymasq.gui.icons import device_icon_names, image_from_icon_names, resolve_icon_name
 from keymasq.gui.session_client import (
     JsonDict,
     session_request_async,
@@ -43,12 +43,12 @@ from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileInfo, ProfileManager
 
 _ADD_INPUTS_TOOLTIP = "Capture additional physical buttons or keys for this device"
-_KEYBOARD_BUTTON_CARD_WIDTH = 112
-_KEYBOARD_LABEL_CHARS = 12
-_KEYBOARD_ACTION_SUMMARY_CHARS = 16
-_POINTER_BUTTON_CARD_WIDTH = 187
-_POINTER_NAME_LABEL_CHARS = 20
-_POINTER_ACTION_SUMMARY_CHARS = 24
+_MAPPING_BUTTON_CARD_WIDTH = 122
+_MAPPING_LABEL_CHARS = 14
+_MAPPING_ACTION_SUMMARY_CHARS = 15
+_MOUSE_MAPPING_BUTTON_CARD_WIDTH = 187
+_MOUSE_MAPPING_LABEL_CHARS = 20
+_MOUSE_MAPPING_ACTION_SUMMARY_CHARS = 24
 _ACTION_SUMMARY_MARKER = "..."
 _ANALOG_LAYOUT_ORDER = {
     "left_trigger": 0,
@@ -392,6 +392,20 @@ class DeviceTab(ProfileManagedTab):
         name_row.append(self.device_name_label)
 
         if not self.demo_mode:
+            inspect_btn = Gtk.Button(
+                icon_name=resolve_icon_name(
+                    "edit-find-symbolic",
+                    "system-search-symbolic",
+                    "zoom-in-symbolic",
+                    "dialog-information-symbolic",
+                )
+            )
+            inspect_btn.set_tooltip_text("Inspect device")
+            inspect_btn.add_css_class("flat")
+            inspect_btn.set_valign(Gtk.Align.CENTER)
+            inspect_btn.connect("clicked", self._on_inspect_device_clicked)
+            name_row.append(inspect_btn)
+
             delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
             delete_btn.set_tooltip_text("Delete device")
             delete_btn.add_css_class("destructive-action")
@@ -437,6 +451,12 @@ class DeviceTab(ProfileManagedTab):
         if iface_count > 1:
             return f"Always grab all {iface_count} interfaces of {device.name}"
         return f"Always grab {device.name}"
+
+    def _on_inspect_device_clicked(self, _button: Gtk.Button) -> None:
+        root = self.main_window or self.get_root()
+        opener = getattr(root, "open_device_inspector", None)
+        if callable(opener):
+            opener(self.device)
 
     def _on_device_name_right_clicked(self, click, n_press, x, y) -> None:
         if n_press != 1 or self.demo_mode:
@@ -944,7 +964,7 @@ class DeviceTab(ProfileManagedTab):
                 button = buttons_by_id.get(button_id)
                 if button is None:
                     spacer = Gtk.Box()
-                    spacer.set_size_request(92, -1)
+                    spacer.set_size_request(_MAPPING_BUTTON_CARD_WIDTH, -1)
                     grid.attach(spacer, col_i, row_i, 1, 1)
                 else:
                     widget = self._create_button_widget(button)
@@ -955,7 +975,7 @@ class DeviceTab(ProfileManagedTab):
 
             while col_i < max_cols:
                 spacer = Gtk.Box()
-                spacer.set_size_request(92, -1)
+                spacer.set_size_request(_MAPPING_BUTTON_CARD_WIDTH, -1)
                 grid.attach(spacer, col_i, row_i, 1, 1)
                 col_i += 1
 
@@ -996,9 +1016,19 @@ class DeviceTab(ProfileManagedTab):
             parent.append(expander)
 
     def _button_card_width(self) -> int:
-        if self._keyboard_layout_mode:
-            return _KEYBOARD_BUTTON_CARD_WIDTH
-        return _POINTER_BUTTON_CARD_WIDTH
+        if self.device_layout_kind() == "mouse":
+            return _MOUSE_MAPPING_BUTTON_CARD_WIDTH
+        return _MAPPING_BUTTON_CARD_WIDTH
+
+    def _mapping_label_chars(self) -> int:
+        if self.device_layout_kind() == "mouse":
+            return _MOUSE_MAPPING_LABEL_CHARS
+        return _MAPPING_LABEL_CHARS
+
+    def _mapping_action_summary_chars(self) -> int:
+        if self.device_layout_kind() == "mouse":
+            return _MOUSE_MAPPING_ACTION_SUMMARY_CHARS
+        return _MAPPING_ACTION_SUMMARY_CHARS
 
     def _create_button_widget(self, button) -> Gtk.Button:
         protected = is_protected_button(button.id)
@@ -1026,11 +1056,7 @@ class DeviceTab(ProfileManagedTab):
         name_label.set_xalign(0.0)
         name_label.set_ellipsize(Pango.EllipsizeMode.END)
         name_label.set_width_chars(1)
-        name_label.set_max_width_chars(
-            _KEYBOARD_LABEL_CHARS
-            if self._keyboard_layout_mode
-            else _POINTER_NAME_LABEL_CHARS
-        )
+        name_label.set_max_width_chars(self._mapping_label_chars())
         header.append(name_label)
 
         name_right_click = Gtk.GestureClick()
@@ -1056,11 +1082,7 @@ class DeviceTab(ProfileManagedTab):
         action_label.set_single_line_mode(True)
         action_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         action_label.set_width_chars(1)
-        action_label.set_max_width_chars(
-            _KEYBOARD_ACTION_SUMMARY_CHARS
-            if self._keyboard_layout_mode
-            else _POINTER_ACTION_SUMMARY_CHARS
-        )
+        action_label.set_max_width_chars(self._mapping_action_summary_chars())
         box.append(action_label)
 
         action_right_click = Gtk.GestureClick()
@@ -1128,7 +1150,7 @@ class DeviceTab(ProfileManagedTab):
         name_label.set_xalign(0.0)
         name_label.set_ellipsize(Pango.EllipsizeMode.END)
         name_label.set_width_chars(1)
-        name_label.set_max_width_chars(_POINTER_NAME_LABEL_CHARS)
+        name_label.set_max_width_chars(self._mapping_label_chars())
         box.append(name_label)
         name_right_click = Gtk.GestureClick()
         name_right_click.set_button(3)
@@ -1145,7 +1167,7 @@ class DeviceTab(ProfileManagedTab):
         action_label.set_single_line_mode(True)
         action_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         action_label.set_width_chars(1)
-        action_label.set_max_width_chars(_POINTER_ACTION_SUMMARY_CHARS)
+        action_label.set_max_width_chars(self._mapping_action_summary_chars())
         box.append(action_label)
 
         btn._action_label = action_label
@@ -1579,12 +1601,7 @@ class DeviceTab(ProfileManagedTab):
         return f"→ {self._label_from_evdev(button.evdev)}"
 
     def _set_action_label_text(self, label: Gtk.Label, text: str) -> None:
-        max_chars = (
-            _KEYBOARD_ACTION_SUMMARY_CHARS
-            if self._keyboard_layout_mode
-            else _POINTER_ACTION_SUMMARY_CHARS
-        )
-        display_text = _display_action_summary(text, max_chars)
+        display_text = _display_action_summary(text, self._mapping_action_summary_chars())
         label.set_text(display_text)
         label.set_tooltip_text(text if display_text != text else None)
 

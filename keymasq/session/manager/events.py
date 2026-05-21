@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from keymasq.common.ipc import Command, CommandType
 
 from . import compositor as runtime_compositor
+from . import device_inspector as runtime_device_inspector
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import JsonObject
@@ -162,6 +163,15 @@ async def handle_event(
 
     if event_type == CommandType.DIAGNOSTICS_SNAPSHOT:
         manager.broadcast_to_session_clients({"event": "diagnostics_snapshot", **data})
+        return
+
+    if event_type == CommandType.DEVICE_INSPECTOR_EVENT:
+        manager.broadcast_to_session_clients({"event": "device_inspector_event", **data})
+        return
+
+    if event_type == CommandType.DEVICE_INSPECTOR_STATUS:
+        runtime_device_inspector.update_status_from_daemon_event(manager, data)
+        manager.broadcast_to_session_clients({"event": "device_inspector_status", **data})
         return
 
     if event_type == CommandType.RECORDING_STARTED:

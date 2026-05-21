@@ -224,6 +224,82 @@ button.square-key-button {
   font-feature-settings: "tnum" 1;
 }
 
+.inspector-control-card:hover {
+  cursor: default;
+}
+
+.inspector-header-title {
+  color: @window_fg_color;
+  font-size: 1.08em;
+  font-weight: 700;
+}
+
+.inspector-header-monitoring {
+  color: @window_fg_color;
+}
+
+.inspector-header-suppressed {
+  color: @warning_color;
+}
+
+.inspector-header-stopped {
+  color: @error_color;
+}
+
+.inspector-suppression-hint {
+  color: @error_color;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.inspector-event-filter-button {
+  min-width: 0;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.inspector-copy-button {
+  min-width: 0;
+  min-height: 0;
+  padding: 2px 4px;
+}
+
+.inspector-control-active {
+  border-left-color: @accent_color;
+  background: alpha(@accent_color, 0.22);
+  opacity: 1;
+}
+
+.inspector-event-row {
+  padding: 0;
+}
+
+.inspector-event-row-pressed {
+  background: alpha(@accent_color, 0.12);
+}
+
+.inspector-axis-section {
+  padding: 8px 0;
+  border-top: 1px solid alpha(@borders, 0.28);
+}
+
+.inspector-axis-section:first-child {
+  border-top: none;
+}
+
+.inspector-axis-pad {
+  border-radius: 6px;
+  background: alpha(@shade_color, 0.08);
+}
+
+.inspector-axis-bar trough {
+  min-height: 12px;
+}
+
+.inspector-axis-value {
+  font-family: monospace;
+}
+
 button.media-key-button {
   padding: 6px 8px;
   min-width: 112px;

@@ -41,6 +41,7 @@ from keymasq.session.superkeys import SuperkeyManager
 
 from . import commands as session_commands
 from . import compositor as runtime_compositor
+from . import device_inspector as runtime_device_inspector
 from . import events as runtime_events
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
@@ -48,6 +49,7 @@ from .common import JsonObject
 from .state import (
     CaptureRuntimeState,
     CompositorRuntimeState,
+    DeviceInspectorRuntimeState,
     EventRuntimeState,
     ExecRuntimeState,
     ProfileRuntimeState,
@@ -110,6 +112,7 @@ class SessionManager:
 
         self.exec_state = ExecRuntimeState()
         self.event_state = EventRuntimeState()
+        self.device_inspector_state = DeviceInspectorRuntimeState()
         self.recording_state = RecordingRuntimeState()
         self.unlock_state = UnlockRuntimeState()
         runtime_recording.load_recording_settings_from_disk(self)
@@ -363,6 +366,8 @@ class SessionManager:
         except Exception as e:
             log.debug(f"Session client error: {e}")
         finally:
+            with contextlib.suppress(Exception):
+                await runtime_device_inspector.clear_device_inspectors_for_writer(self, writer)
             await runtime_recording.discard_pending_macro_save_if_writer(self, writer)
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
             self._drop_session_client_writer(writer)
@@ -589,6 +594,9 @@ class SessionManager:
         self.profile_state.last_sent_combo_signature = ""
         self.profile_state.active_profile_names.clear()
         self.profile_state.resolved_devices.clear()
+        self.device_inspector_state.active_hardware_ids.clear()
+        self.device_inspector_state.suppressed_hardware_ids.clear()
+        self.device_inspector_state.owners_by_hardware_id.clear()
         self.recording_state.devices_cache.clear()
         self.recording_state.selected_devices_cache.clear()
         self.recording_state.devices_cache_ready = False

@@ -29,6 +29,59 @@ async def test_set_cursor_position_reports_missing_mouse_uinput() -> None:
     }
 
 
+@pytest.mark.asyncio
+async def test_device_inspector_suppression_status_broadcasts() -> None:
+    manager = DeviceManager()
+    broadcasts: list[tuple[CommandType, dict[str, object]]] = []
+    manager._broadcast_runtime_event = lambda event_type, data: broadcasts.append(  # type: ignore[method-assign]
+        (event_type, data)
+    )
+
+    started = await manager.start_device_inspector("1234:5678")
+    enabled = await manager.enable_device_inspector_suppression("1234:5678")
+    disabled = await manager.disable_device_inspector_suppression("1234:5678", "key_esc")
+
+    assert started["active"] is True
+    assert started["suppressed"] is False
+    assert enabled["suppressed"] is True
+    assert disabled == {
+        "status": "ok",
+        "hardware_id": "1234:5678",
+        "active": True,
+        "suppressed": False,
+        "reason": "key_esc",
+    }
+    assert broadcasts == [
+        (
+            CommandType.DEVICE_INSPECTOR_STATUS,
+            {
+                "hardware_id": "1234:5678",
+                "active": True,
+                "suppressed": False,
+                "reason": "start",
+            },
+        ),
+        (
+            CommandType.DEVICE_INSPECTOR_STATUS,
+            {
+                "hardware_id": "1234:5678",
+                "active": True,
+                "suppressed": True,
+                "reason": "enable_suppression",
+            },
+        ),
+        (
+            CommandType.DEVICE_INSPECTOR_STATUS,
+            {
+                "hardware_id": "1234:5678",
+                "active": True,
+                "suppressed": False,
+                "reason": "key_esc",
+            },
+        ),
+    ]
+
+
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
 class TestDeviceManager:
     @pytest.fixture

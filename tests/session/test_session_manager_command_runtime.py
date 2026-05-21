@@ -549,6 +549,177 @@ async def test_diagnostics_snapshot_event_forwards_to_gui_clients() -> None:
 
 
 @pytest.mark.asyncio
+async def test_device_inspector_disable_session_command_forwards_reason() -> None:
+    manager = SessionManager()
+    manager.client = SimpleNamespace(
+        send_command=AsyncMock(return_value=Response(status="ok", data={"status": "ok"}))
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {
+            "command": "disable_device_inspector_suppression",
+            "hardware_id": "1234:5678",
+            "reason": "key_esc",
+        },
+        "client",
+        peer,
+        object(),  # type: ignore[arg-type]
+    )
+
+    sent = manager.client.send_command.await_args.args[0]
+    assert result == {"status": "ok"}
+    assert sent.command == CommandType.DEVICE_INSPECTOR_DISABLE_SUPPRESSION
+    assert sent.data == {"hardware_id": "1234:5678", "reason": "key_esc"}
+
+
+@pytest.mark.asyncio
+async def test_device_inspector_events_forward_to_gui_clients() -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.DEVICE_INSPECTOR_EVENT,
+        {
+            "hardware_id": "1234:5678",
+            "code_name": "key_esc",
+            "value": 1,
+            "suppressed": True,
+        },
+    )
+    await session_events_module.handle_event(
+        manager,
+        CommandType.DEVICE_INSPECTOR_STATUS,
+        {
+            "hardware_id": "1234:5678",
+            "active": True,
+            "suppressed": False,
+            "reason": "key_esc",
+        },
+    )
+
+    assert [
+        args.args[0] for args in manager.broadcast_to_session_clients.call_args_list  # type: ignore[attr-defined]
+    ] == [
+        {
+            "event": "device_inspector_event",
+            "hardware_id": "1234:5678",
+            "code_name": "key_esc",
+            "value": 1,
+            "suppressed": True,
+        },
+        {
+            "event": "device_inspector_status",
+            "hardware_id": "1234:5678",
+            "active": True,
+            "suppressed": False,
+            "reason": "key_esc",
+        },
+    ]
+    assert "1234:5678" in manager.device_inspector_state.active_hardware_ids
+    assert "1234:5678" not in manager.device_inspector_state.suppressed_hardware_ids
+
+
+@pytest.mark.asyncio
+async def test_start_device_inspector_returns_snapshot_and_forces_profile_reevaluate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keymasq.common.models import (
+        ActionType,
+        AnalogAxisDefinition,
+        AnalogInputDefinition,
+        ButtonDefinition,
+        DeviceType,
+        EvdevDevice,
+        HardwareConfig,
+        MappingAction,
+    )
+    from keymasq.session.profiles import ResolvedDeviceProfile
+
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    hardware_id = "1234:5678"
+    manager.hardware.get_hardware = lambda _hardware_id: HardwareConfig(  # type: ignore[assignment]
+        vendor_id="1234",
+        product_id="5678",
+        name="Inspector Pad",
+        evdev_devices=[
+            EvdevDevice(
+                path="/dev/input/event10",
+                device_type=DeviceType.GAMEPAD,
+                id="pad",
+            )
+        ],
+        buttons=[
+            ButtonDefinition(
+                id="btn_south",
+                label="A",
+                evdev="btn_south",
+                evdev_code=304,
+                source="pad",
+            )
+        ],
+        analog_inputs=[
+            AnalogInputDefinition(
+                id="left_stick",
+                label="Left Stick",
+                type="stick",
+                source="pad",
+                axes=[
+                    AnalogAxisDefinition(role="x", evdev="abs_x", evdev_code=0),
+                    AnalogAxisDefinition(role="y", evdev="abs_y", evdev_code=1),
+                ],
+            )
+        ],
+    )
+    manager.profile_state.resolved_devices[hardware_id] = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={
+            "btn_south": MappingAction(action_type=ActionType.KEYBOARD, target="key_space")
+        },
+        mapping_profile_names={"btn_south": "Desktop"},
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="ok",
+            data={"hardware_id": hardware_id, "active": True, "suppressed": False},
+        )
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    result = await manager._handle_session_request(
+        {"command": "start_device_inspector", "hardware_id": hardware_id},
+        "client",
+        PeerCredentials(pid=1, uid=1000, gid=1000),
+        object(),  # type: ignore[arg-type]
+    )
+
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.DEVICE_INSPECTOR_START
+    assert sent.data == {"hardware_id": hardware_id}
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason=f"device inspector start {hardware_id}",
+    )
+    assert result["status"] == "ok"
+    assert result["active"] is True
+    assert result["suppressed"] is False
+    assert result["device_name"] == "Inspector Pad"
+    assert result["active_profiles"] == ["Desktop"]
+    buttons = cast(list[dict[str, object]], result["buttons"])
+    action = cast(dict[str, object], buttons[0]["action"])
+    analog_inputs = cast(list[dict[str, object]], result["analog_inputs"])
+    axes = cast(list[dict[str, object]], analog_inputs[0]["axes"])
+    assert buttons[0]["profile_name"] == "Desktop"
+    assert action["target"] == "key_space"
+    assert axes[0]["evdev"] == "abs_x"
+    assert hardware_id in manager.device_inspector_state.active_hardware_ids
+
+
+@pytest.mark.asyncio
 async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

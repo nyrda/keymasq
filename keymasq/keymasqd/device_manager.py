@@ -442,6 +442,9 @@ class DeviceManager:
         )
         self.combo_state = runtime_combos.ComboRuntimeState()
         self._configured_combos: list[RuntimeCombo] = []
+        self.device_inspector_active_hardware_ids: set[str] = set()
+        self.device_inspector_suppressed_hardware_ids: set[str] = set()
+        self._device_inspector_event_sequence = 0
         self.topology_state = TopologyRuntimeState(
             poll_s=max(0.05, float(topology_poll_s)),
             debounce_s=max(0.05, float(topology_debounce_s)),
@@ -680,6 +683,119 @@ class DeviceManager:
             self.broadcast_callback(event_type, data),
             f"{event_type.value} broadcast",
         )
+
+    def device_inspector_active(self, hardware_id: str) -> bool:
+        return str(hardware_id or "").strip() in self.device_inspector_active_hardware_ids
+
+    def device_inspector_suppressed(self, hardware_id: str) -> bool:
+        return str(hardware_id or "").strip() in self.device_inspector_suppressed_hardware_ids
+
+    def device_inspector_suppressed_hardware_ids_snapshot(self) -> set[str]:
+        return set(self.device_inspector_suppressed_hardware_ids)
+
+    def broadcast_device_inspector_event(self, payload: JsonObject) -> None:
+        hardware_id = str(payload.get("hardware_id", "") or "").strip()
+        if not hardware_id or not self.device_inspector_active(hardware_id):
+            return
+        self._device_inspector_event_sequence += 1
+        event_payload = dict(payload)
+        event_payload["sequence"] = self._device_inspector_event_sequence
+        self._broadcast_runtime_event(CommandType.DEVICE_INSPECTOR_EVENT, event_payload)
+
+    def _broadcast_device_inspector_status(self, hardware_id: str, reason: str) -> None:
+        normalized_hardware_id = str(hardware_id or "").strip()
+        self._broadcast_runtime_event(
+            CommandType.DEVICE_INSPECTOR_STATUS,
+            {
+                "hardware_id": normalized_hardware_id,
+                "active": self.device_inspector_active(normalized_hardware_id),
+                "suppressed": self.device_inspector_suppressed(normalized_hardware_id),
+                "reason": str(reason or ""),
+            },
+        )
+
+    async def start_device_inspector(self, hardware_id: str) -> JsonObject:
+        normalized_hardware_id = str(hardware_id or "").strip()
+        if not normalized_hardware_id:
+            raise ValueError("hardware_id required")
+        async with self._op_lock:
+            self.device_inspector_active_hardware_ids.add(normalized_hardware_id)
+            self._broadcast_device_inspector_status(normalized_hardware_id, "start")
+        return {
+            "status": "ok",
+            "hardware_id": normalized_hardware_id,
+            "active": True,
+            "suppressed": self.device_inspector_suppressed(normalized_hardware_id),
+        }
+
+    async def stop_device_inspector(self, hardware_id: str) -> JsonObject:
+        normalized_hardware_id = str(hardware_id or "").strip()
+        if not normalized_hardware_id:
+            raise ValueError("hardware_id required")
+        async with self._op_lock:
+            was_suppressed = self.device_inspector_suppressed(normalized_hardware_id)
+            self.device_inspector_suppressed_hardware_ids.discard(normalized_hardware_id)
+            self.device_inspector_active_hardware_ids.discard(normalized_hardware_id)
+            if was_suppressed:
+                await self._reset_device_inspector_runtime_unlocked(normalized_hardware_id)
+                await self._refresh_combo_runtime_unlocked()
+            self._broadcast_device_inspector_status(normalized_hardware_id, "stop")
+        return {
+            "status": "ok",
+            "hardware_id": normalized_hardware_id,
+            "active": False,
+            "suppressed": False,
+        }
+
+    async def enable_device_inspector_suppression(self, hardware_id: str) -> JsonObject:
+        normalized_hardware_id = str(hardware_id or "").strip()
+        if not normalized_hardware_id:
+            raise ValueError("hardware_id required")
+        async with self._op_lock:
+            self.device_inspector_active_hardware_ids.add(normalized_hardware_id)
+            self.device_inspector_suppressed_hardware_ids.add(normalized_hardware_id)
+            await self._reset_device_inspector_runtime_unlocked(normalized_hardware_id)
+            await self._refresh_combo_runtime_unlocked()
+            self._broadcast_device_inspector_status(normalized_hardware_id, "enable_suppression")
+        return {
+            "status": "ok",
+            "hardware_id": normalized_hardware_id,
+            "active": True,
+            "suppressed": True,
+        }
+
+    async def disable_device_inspector_suppression(
+        self,
+        hardware_id: str,
+        reason: str = "manual",
+    ) -> JsonObject:
+        normalized_hardware_id = str(hardware_id or "").strip()
+        if not normalized_hardware_id:
+            raise ValueError("hardware_id required")
+        async with self._op_lock:
+            self.device_inspector_active_hardware_ids.add(normalized_hardware_id)
+            was_suppressed = normalized_hardware_id in self.device_inspector_suppressed_hardware_ids
+            self.device_inspector_suppressed_hardware_ids.discard(normalized_hardware_id)
+            if was_suppressed:
+                await self._reset_device_inspector_runtime_unlocked(normalized_hardware_id)
+                await self._refresh_combo_runtime_unlocked()
+            self._broadcast_device_inspector_status(normalized_hardware_id, reason)
+        return {
+            "status": "ok",
+            "hardware_id": normalized_hardware_id,
+            "active": True,
+            "suppressed": False,
+            "reason": str(reason or ""),
+        }
+
+    async def _reset_device_inspector_runtime_unlocked(self, hardware_id: str) -> None:
+        for device in self.grabbed_devices.get(hardware_id, []):
+            release_tracked_outputs = getattr(device, "release_tracked_outputs", None)
+            if callable(release_tracked_outputs):
+                release_tracked_outputs()
+            reset_mapping_runtime_state = getattr(device, "reset_mapping_runtime_state", None)
+            if callable(reset_mapping_runtime_state):
+                await cast(Awaitable[object], reset_mapping_runtime_state())
 
     async def set_mapping(
         self,

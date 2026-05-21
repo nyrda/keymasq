@@ -32,6 +32,56 @@ async def test_set_diagnostics_forwards_categories(daemon_testbed):
 
 
 @pytest.mark.asyncio
+async def test_device_inspector_commands_forward_to_device_manager(daemon_testbed):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+
+    await daemon._handle_command(
+        CommandType.DEVICE_INSPECTOR_START,
+        {"hardware_id": "1234:5678"},
+    )
+    await daemon._handle_command(
+        CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
+        {"hardware_id": "1234:5678"},
+    )
+    await daemon._handle_command(
+        CommandType.DEVICE_INSPECTOR_DISABLE_SUPPRESSION,
+        {"hardware_id": "1234:5678", "reason": "key_esc"},
+    )
+    await daemon._handle_command(
+        CommandType.DEVICE_INSPECTOR_STOP,
+        {"hardware_id": "1234:5678"},
+    )
+
+    device_manager.start_device_inspector.assert_awaited_once_with(  # type: ignore[attr-defined]
+        hardware_id="1234:5678"
+    )
+    device_manager.enable_device_inspector_suppression.assert_awaited_once_with(  # type: ignore[attr-defined]
+        hardware_id="1234:5678"
+    )
+    device_manager.disable_device_inspector_suppression.assert_awaited_once_with(  # type: ignore[attr-defined]
+        hardware_id="1234:5678",
+        reason="key_esc",
+    )
+    device_manager.stop_device_inspector.assert_awaited_once_with(  # type: ignore[attr-defined]
+        hardware_id="1234:5678"
+    )
+
+
+@pytest.mark.asyncio
+async def test_device_inspector_start_requires_recording_unlock(daemon_testbed, monkeypatch):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
+    with pytest.raises(PermissionError, match="recording_locked"):
+        await daemon._handle_command(
+            CommandType.DEVICE_INSPECTOR_START,
+            {"hardware_id": "1234:5678"},
+            client=_client(),
+        )
+
+
+@pytest.mark.asyncio
 async def test_macro_exec_complete_forwards_wait_id_and_returncode(daemon_testbed):
     daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
 

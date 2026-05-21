@@ -26,6 +26,11 @@ type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
 type EmergencyResetter = Callable[[], Awaitable[dict[str, object]]]
+type DeviceInspectorEventCallback = Callable[[dict[str, object]], None]
+type DeviceInspectorActiveGetter = Callable[[str], bool]
+type DeviceInspectorSuppressionGetter = Callable[[str], bool]
+type DeviceInspectorSuppressedIdsGetter = Callable[[], set[str]]
+type DeviceInspectorSuppressionDisabler = Callable[[str, str], Awaitable[dict[str, object]]]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
 _T = TypeVar("_T")
@@ -286,6 +291,25 @@ class GrabbedDeviceRuntime(Protocol):
 
     @property
     def emergency_resetter(self) -> EmergencyResetter | None: ...
+
+    @property
+    def inspector_event_callback(self) -> DeviceInspectorEventCallback | None: ...
+
+    @property
+    def inspector_active_getter(self) -> DeviceInspectorActiveGetter | None: ...
+
+    @property
+    def inspector_suppression_getter(self) -> DeviceInspectorSuppressionGetter | None: ...
+
+    @property
+    def inspector_suppressed_ids_getter(
+        self,
+    ) -> DeviceInspectorSuppressedIdsGetter | None: ...
+
+    @property
+    def inspector_suppression_disabler(
+        self,
+    ) -> DeviceInspectorSuppressionDisabler | None: ...
 
     @property
     def suppress_rel_getter(self) -> Callable[[], bool] | None: ...

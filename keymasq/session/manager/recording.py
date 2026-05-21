@@ -53,6 +53,8 @@ def is_sensitive_session_command(
         "capture_read",
         "end_capture",
         "capture_combo",
+        "start_device_inspector",
+        "enable_device_inspector_suppression",
     }:
         return True
 

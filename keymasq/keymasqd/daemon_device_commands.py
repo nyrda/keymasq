@@ -48,6 +48,18 @@ class _DeviceCommandManager(Protocol):
 
     async def set_virtual_gamepads(self, count: object) -> JsonObject: ...
 
+    async def start_device_inspector(self, hardware_id: str) -> JsonObject: ...
+
+    async def stop_device_inspector(self, hardware_id: str) -> JsonObject: ...
+
+    async def enable_device_inspector_suppression(self, hardware_id: str) -> JsonObject: ...
+
+    async def disable_device_inspector_suppression(
+        self,
+        hardware_id: str,
+        reason: str = "manual",
+    ) -> JsonObject: ...
+
 
 class _DeviceCommandMacroStore(Protocol):
     def get(self, name: str) -> JsonObject: ...
@@ -120,5 +132,26 @@ async def handle_device_command(
 
     if command_type == CommandType.SET_VIRTUAL_GAMEPADS:
         return await daemon.device_manager.set_virtual_gamepads(data.get("count"))
+
+    if command_type == CommandType.DEVICE_INSPECTOR_START:
+        return await daemon.device_manager.start_device_inspector(
+            hardware_id=str_value(data["hardware_id"]),
+        )
+
+    if command_type == CommandType.DEVICE_INSPECTOR_STOP:
+        return await daemon.device_manager.stop_device_inspector(
+            hardware_id=str_value(data["hardware_id"]),
+        )
+
+    if command_type == CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION:
+        return await daemon.device_manager.enable_device_inspector_suppression(
+            hardware_id=str_value(data["hardware_id"]),
+        )
+
+    if command_type == CommandType.DEVICE_INSPECTOR_DISABLE_SUPPRESSION:
+        return await daemon.device_manager.disable_device_inspector_suppression(
+            hardware_id=str_value(data["hardware_id"]),
+            reason=str_value(data.get("reason", "manual"), "manual"),
+        )
 
     return None

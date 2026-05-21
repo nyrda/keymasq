@@ -36,6 +36,14 @@ def daemon_testbed(monkeypatch):
         cancel_macro_playback=AsyncMock(return_value={"canceled": True}),
         emergency_reset=AsyncMock(return_value={"reset": True}),
         set_diagnostics=AsyncMock(return_value={"status": "ok"}),
+        start_device_inspector=AsyncMock(return_value={"status": "ok", "active": True}),
+        stop_device_inspector=AsyncMock(return_value={"status": "ok", "active": False}),
+        enable_device_inspector_suppression=AsyncMock(
+            return_value={"status": "ok", "suppressed": True}
+        ),
+        disable_device_inspector_suppression=AsyncMock(
+            return_value={"status": "ok", "suppressed": False}
+        ),
         complete_macro_exec_wait=Mock(return_value={"completed": True}),
         initialize_output_devices=Mock(return_value=None),
         shutdown_output_devices=Mock(return_value=None),

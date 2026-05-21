@@ -62,11 +62,30 @@ def build_active_profiles_payload(manager: "SessionManager") -> JsonObject:
     devices: dict[str, JsonObject] = {}
     for hardware_id, resolved in sorted(manager.profile_state.resolved_devices.items()):
         hardware = manager.hardware.get_hardware(hardware_id)
+        inspector_state = getattr(manager, "device_inspector_state", None)
+        active_hardware_ids = (
+            getattr(inspector_state, "active_hardware_ids", set[str]())
+            if inspector_state is not None
+            else set[str]()
+        )
+        suppressed_hardware_ids = (
+            getattr(inspector_state, "suppressed_hardware_ids", set[str]())
+            if inspector_state is not None
+            else set[str]()
+        )
+        inspector_active = bool(
+            inspector_state is not None and hardware_id in active_hardware_ids
+        )
+        inspector_suppressed = bool(
+            inspector_state is not None and hardware_id in suppressed_hardware_ids
+        )
         devices[hardware_id] = {
             "device_name": hardware.name if hardware else hardware_id,
             "profiles": list(resolved.active_profile_names),
             "mapping_count": resolved.mapping_count,
             "always_grab_all": resolved.always_grab_all,
+            "device_inspector_active": inspector_active,
+            "device_inspector_suppressed": inspector_suppressed,
         }
 
     return {
@@ -435,8 +454,9 @@ async def apply_resolved_device_profile(
     old_resolved = manager.profile_state.resolved_devices.get(hardware_id)
     old_profile_names = old_resolved.active_profile_names if old_resolved else []
     manager.profile_state.resolved_devices[hardware_id] = resolved
+    inspector_active = _device_inspector_active(manager, hardware_id)
 
-    if not resolved.has_effective_mapping:
+    if not resolved.has_effective_mapping and not inspector_active:
         cancel_grab_retry(manager, hardware_id)
         manager.profile_state.grab_waiting_devices.discard(hardware_id)
         if hardware_id in manager.profile_state.grabbed_devices:
@@ -448,7 +468,11 @@ async def apply_resolved_device_profile(
             )
         return
 
-    new_interfaces = get_interfaces_to_grab(hardware_config, resolved)
+    new_interfaces = (
+        all_configured_interfaces(hardware_config)
+        if inspector_active
+        else get_interfaces_to_grab(hardware_config, resolved)
+    )
     current_interfaces = manager.profile_state.grabbed_interfaces.get(hardware_id, {})
     grab_payload = build_grab_device_payload(
         manager,
@@ -456,6 +480,7 @@ async def apply_resolved_device_profile(
         hardware_config,
         resolved,
         new_interfaces,
+        force_grab_unmapped=inspector_active,
     )
     grab_signature = grab_device_payload_signature(grab_payload)
 
@@ -669,10 +694,7 @@ def get_interfaces_to_grab(
     hardware_config: HardwareConfig,
     resolved: ResolvedDeviceProfile,
 ) -> dict[str, str]:
-    interface_to_path: dict[str, str] = {}
-    for dev in hardware_config.evdev_devices:
-        if dev.id:
-            interface_to_path[dev.id] = dev.path
+    interface_to_path = all_configured_interfaces(hardware_config)
 
     if resolved.always_grab_all:
         return interface_to_path
@@ -717,12 +739,35 @@ def get_interfaces_to_grab(
     }
 
 
+def all_configured_interfaces(hardware_config: HardwareConfig) -> dict[str, str]:
+    return {
+        dev.id: dev.path
+        for dev in hardware_config.evdev_devices
+        if dev.id and str(dev.path or "").strip()
+    }
+
+
+def _device_inspector_active(manager: "SessionManager", hardware_id: str) -> bool:
+    inspector_state = getattr(manager, "device_inspector_state", None)
+    active_hardware_ids = (
+        getattr(inspector_state, "active_hardware_ids", set[str]())
+        if inspector_state is not None
+        else set[str]()
+    )
+    return bool(
+        inspector_state is not None
+        and str(hardware_id or "").strip() in active_hardware_ids
+    )
+
+
 def build_grab_device_payload(
     manager: "SessionManager",
     hardware_id: str,
     hardware_config: HardwareConfig,
     resolved: ResolvedDeviceProfile,
     interfaces: dict[str, str],
+    *,
+    force_grab_unmapped: bool = False,
 ) -> JsonObject:
     analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
     return {
@@ -773,7 +818,7 @@ def build_grab_device_payload(
             }
             for analog in analog_inputs
         },
-        "force_grab_unmapped": bool(resolved.combo_event_count),
+        "force_grab_unmapped": bool(force_grab_unmapped) or bool(resolved.combo_event_count),
     }
 
 

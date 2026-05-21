@@ -31,6 +31,11 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     BroadcastCallback,
     CursorPositionSetter,
     DeviceEventCallback,
+    DeviceInspectorActiveGetter,
+    DeviceInspectorEventCallback,
+    DeviceInspectorSuppressedIdsGetter,
+    DeviceInspectorSuppressionDisabler,
+    DeviceInspectorSuppressionGetter,
     EmergencyResetter,
     GrabbedDeviceState,
     MacroPlayer,
@@ -185,6 +190,11 @@ class GrabbedDevice:
         recording_manager: RecordingManager | None = None,
         macro_player: MacroPlayer | None = None,
         emergency_resetter: EmergencyResetter | None = None,
+        inspector_event_callback: DeviceInspectorEventCallback | None = None,
+        inspector_active_getter: DeviceInspectorActiveGetter | None = None,
+        inspector_suppression_getter: DeviceInspectorSuppressionGetter | None = None,
+        inspector_suppressed_ids_getter: DeviceInspectorSuppressedIdsGetter | None = None,
+        inspector_suppression_disabler: DeviceInspectorSuppressionDisabler | None = None,
         suppress_rel_getter: Callable[[], bool] | None = None,
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
         diagnostics_recorder: Callable[[str, float], None] | None = None,
@@ -225,6 +235,11 @@ class GrabbedDevice:
         self.recording_manager: RecordingManager | None = recording_manager
         self.macro_player = macro_player
         self.emergency_resetter = emergency_resetter
+        self.inspector_event_callback = inspector_event_callback
+        self.inspector_active_getter = inspector_active_getter
+        self.inspector_suppression_getter = inspector_suppression_getter
+        self.inspector_suppressed_ids_getter = inspector_suppressed_ids_getter
+        self.inspector_suppression_disabler = inspector_suppression_disabler
         self.suppress_rel_getter = suppress_rel_getter
         self.mouse_rel_suppression_start_callback = mouse_rel_suppression_start_callback
         self.diagnostics_recorder = diagnostics_recorder

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from keymasq.common.ipc import Command, CommandType
 
 from . import compositor as runtime_compositor
+from . import device_inspector as runtime_device_inspector
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import JsonObject
@@ -162,6 +163,15 @@ async def handle_event(
 
     if event_type == CommandType.DIAGNOSTICS_SNAPSHOT:
         manager.broadcast_to_session_clients({"event": "diagnostics_snapshot", **data})
+        return
+
+    if event_type == CommandType.DEVICE_INSPECTOR_EVENT:
+        runtime_device_inspector.broadcast_event_to_owners(manager, data)
+        return
+
+    if event_type == CommandType.DEVICE_INSPECTOR_STATUS:
+        runtime_device_inspector.update_status_from_daemon_event(manager, data)
+        manager.broadcast_to_session_clients({"event": "device_inspector_status", **data})
         return
 
     if event_type == CommandType.RECORDING_STARTED:
@@ -374,6 +384,7 @@ def handle_macro_playback_cancelled_event(
 
 
 async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject) -> None:
+    runtime_device_inspector.clear_all_device_inspector_state(manager)
     manager.broadcast_to_session_clients({"event": "runtime_reset", **data})
     manager.send_notification(
         "Keymasq: Emergency Reset",

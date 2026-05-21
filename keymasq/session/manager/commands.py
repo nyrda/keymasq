@@ -10,6 +10,7 @@ from keymasq.common.virtual_devices import MAX_VIRTUAL_GAMEPADS, MIN_VIRTUAL_GAM
 from keymasq.session.settings import save_global_settings, save_virtual_gamepad_count
 
 from . import compositor as runtime_compositor
+from . import device_inspector as runtime_device_inspector
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import (
@@ -90,6 +91,10 @@ async def handle_session_request(
 
     if command == "set_diagnostics":
         return await _handle_set_diagnostics(manager, request)
+
+    result = await _handle_device_inspector_commands(manager, command, request, peer, writer)
+    if result is not None:
+        return result
 
     return {"error": f"Unknown command: {command}"}
 
@@ -172,6 +177,54 @@ async def _handle_virtual_gamepad_commands(
         "min_count": MIN_VIRTUAL_GAMEPADS,
         "max_count": MAX_VIRTUAL_GAMEPADS,
     }
+
+
+async def _handle_device_inspector_commands(
+    manager: "SessionManager",
+    command: str,
+    request: JsonObject,
+    peer: PeerCredentials,
+    writer: asyncio.StreamWriter,
+) -> JsonObject | None:
+    if command not in {
+        "get_device_inspector_snapshot",
+        "start_device_inspector",
+        "stop_device_inspector",
+        "enable_device_inspector_suppression",
+        "disable_device_inspector_suppression",
+    }:
+        return None
+
+    hardware_id = str_value(request.get("hardware_id"), "").strip()
+    if not hardware_id:
+        return {"status": "error", "message": "missing hardware_id"}
+
+    if command == "get_device_inspector_snapshot":
+        return runtime_device_inspector.build_device_inspector_snapshot(manager, hardware_id)
+    if command == "start_device_inspector":
+        return await runtime_device_inspector.start_device_inspector(
+            manager,
+            hardware_id,
+            peer,
+            writer,
+        )
+    if command == "stop_device_inspector":
+        return await runtime_device_inspector.stop_device_inspector(
+            manager,
+            hardware_id,
+            writer,
+        )
+    if command == "enable_device_inspector_suppression":
+        return await runtime_device_inspector.enable_device_inspector_suppression(
+            manager,
+            hardware_id,
+            writer,
+        )
+    return await runtime_device_inspector.disable_device_inspector_suppression(
+        manager,
+        hardware_id,
+        reason=str_value(request.get("reason", "manual"), "manual"),
+    )
 
 
 async def _handle_settings_commands(

@@ -108,6 +108,92 @@ class TestMainWindow:
         assert add_calls == [True]
         assert unlock_calls == []
 
+    def test_main_window_device_inspector_uses_unlock_flow(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        window._recording_unlock_required = True
+        window._recording_unlocked = False
+        window._recording_refresh_owner = False
+        unlock_callbacks = []
+        window.present_unlock_dialog = (  # type: ignore[method-assign]
+            lambda on_success=None: unlock_callbacks.append(on_success)
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        window.open_device_inspector(device)
+
+        assert len(unlock_callbacks) == 1
+        assert window._device_inspector_windows == {}
+
+    def test_main_window_device_inspector_reuses_open_window(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_inspector_window as inspector_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        window._recording_unlock_required = False
+        present_calls = []
+        close_callbacks = []
+
+        class FakeInspector:
+            def __init__(self, parent, device):
+                self.parent = parent
+                self.device = device
+
+            def connect(self, signal, callback):
+                if signal == "close-request":
+                    close_callbacks.append((self, callback))
+                return 1
+
+            def present(self):
+                present_calls.append(self.device.hardware_id)
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(inspector_module, "DeviceInspectorWindow", FakeInspector)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        window.open_device_inspector(device)
+        window.open_device_inspector(device)
+
+        assert present_calls == [device.hardware_id, device.hardware_id]
+        assert len(window._device_inspector_windows) == 1
+
+        inspector = window._device_inspector_windows[device.hardware_id]
+        assert close_callbacks[-1][1](inspector) is False
+        assert window._device_inspector_windows == {}
+
+        window.open_device_inspector(device)
+
+        assert len(window._device_inspector_windows) == 1
+        assert present_calls == [
+            device.hardware_id,
+            device.hardware_id,
+            device.hardware_id,
+        ]
+
     def test_main_window_menu_reflects_saved_appearance(self, temp_config_dir):
         from keymasq.gui.preferences import save_appearance_mode
         from keymasq.gui.window import MainWindow

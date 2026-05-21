@@ -71,6 +71,7 @@ class ResolvedDeviceProfile:
     hardware_id: str
     active_profile_names: list[str] = field(default_factory=list)
     mappings: dict[str, MappingAction] = field(default_factory=dict)
+    mapping_profile_names: dict[str, str] = field(default_factory=dict)
     always_grab_all: bool = False
     notify_profiles: list[str] = field(default_factory=list)
     combo_event_count: int = 0
@@ -769,8 +770,10 @@ class ProfileManager:
                 for button_id, action in layer.mappings.items():
                     if action.action_type == ActionType.PASSTHROUGH:
                         resolved.mappings.pop(button_id, None)
+                        resolved.mapping_profile_names.pop(button_id, None)
                     else:
                         resolved.mappings[button_id] = copy.deepcopy(action)
+                        resolved.mapping_profile_names[button_id] = profile.name
             devices[hardware_id] = resolved
 
         for profile in active_profiles:

@@ -58,6 +58,13 @@ class UnlockRuntimeState:
 
 
 @dataclass
+class DeviceInspectorRuntimeState:
+    active_hardware_ids: set[str] = field(default_factory=set)
+    suppressed_hardware_ids: set[str] = field(default_factory=set)
+    owners_by_hardware_id: dict[str, set[int]] = field(default_factory=dict)
+
+
+@dataclass
 class ProfileRuntimeState:
     grabbed_devices: set[str] = field(default_factory=set)
     grabbed_interfaces: dict[str, dict[str, str]] = field(default_factory=dict)

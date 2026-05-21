@@ -45,6 +45,17 @@ Both services support `-v` and `-vv`.
 - `keymasq-session -v`: more detailed session and compositor logging,
   including daemon event flow.
 
+## Inspect a Device
+
+Use the Device Inspector from a device tab when you need to see the final
+resolved mapping and the raw events coming from that device. Enable suppression
+inside the inspector to test inputs without emitting remapped output. Press
+Escape on any grabbed keyboard to turn suppression off.
+
+Unknown raw axis events appear in the event stream. Add the relevant event names
+and codes to the hardware setup, then reopen the inspector to see them in the
+configured axes viewer.
+
 ## Run services manually with verbosity
 
 For short debugging sessions, stop the systemd service and run the process

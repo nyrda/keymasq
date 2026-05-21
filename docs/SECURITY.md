@@ -235,6 +235,8 @@ When `unlock_required = true`:
 - macro recording requires an unlock
 - live key/button capture requires an unlock
 - combo capture requires an unlock
+- starting the Device Inspector and enabling its suppression mode require an
+  unlock
 
 Template-based hardware creation in the GUI does not require unlock. The unlock
 gate applies to original-input observation flows, not to writing normal

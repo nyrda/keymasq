@@ -34,6 +34,8 @@ and multi-step automation.
 - [Combos](COMBOS.md) — trigger actions or superkeys from any input combination, even across devices.
 - [Macros](MACROS.md) — record, edit, and play back input sequences.
 - [Gamepad](GAMEPAD.md) — controller remapping, analog controls, and virtual gamepads.
+- [Device Inspector](DEVICE_INSPECTOR.md) — inspect final mappings, raw events,
+  and configured analog inputs for one device.
 
 ## Desktop support
 

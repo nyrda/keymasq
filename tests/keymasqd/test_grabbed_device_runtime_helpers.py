@@ -36,6 +36,102 @@ class _CountingUInput(_FakeUInput):
 
 
 class TestGrabbedDeviceHelpers:
+    @pytest.mark.asyncio
+    async def test_inspector_suppressed_key_esc_press_disables_suppression(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[dict[str, object]] = []
+        diagnostics: list[str] = []
+        disable_suppression = AsyncMock(
+            return_value={"status": "ok", "suppressed": False, "reason": "key_esc"}
+        )
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            inspector_event_callback=events.append,
+            inspector_active_getter=lambda _hardware_id: True,
+            inspector_suppression_getter=lambda _hardware_id: True,
+            inspector_suppression_disabler=disable_suppression,
+            diagnostics_recorder=lambda label, _duration_us: diagnostics.append(label),
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_ESC, 1),
+        )
+
+        disable_suppression.assert_awaited_once_with("1234:5678", "key_esc")
+        assert events[0]["code_name"] == "key_esc"
+        assert events[0]["suppressed"] is True
+        assert passthrough.writes == []
+        assert diagnostics == ["inspector_escape_key"]
+        cast(AsyncMock, device.event_callback).assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_inspector_key_esc_press_disables_other_suppressed_device(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        diagnostics: list[str] = []
+        disable_suppression = AsyncMock(return_value={"status": "ok"})
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            inspector_active_getter=lambda _hardware_id: False,
+            inspector_suppression_getter=lambda _hardware_id: False,
+            inspector_suppressed_ids_getter=lambda: {"mouse-hid"},
+            inspector_suppression_disabler=disable_suppression,
+            diagnostics_recorder=lambda label, _duration_us: diagnostics.append(label),
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_ESC, 1),
+        )
+
+        disable_suppression.assert_awaited_once_with("mouse-hid", "key_esc")
+        assert passthrough.writes == []
+        assert diagnostics == ["inspector_escape_key"]
+        cast(AsyncMock, device.event_callback).assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_inspector_suppressed_non_escape_and_escape_release_do_not_disable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[dict[str, object]] = []
+        diagnostics: list[str] = []
+        disable_suppression = AsyncMock(return_value={"status": "ok"})
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            inspector_event_callback=events.append,
+            inspector_active_getter=lambda _hardware_id: True,
+            inspector_suppression_getter=lambda _hardware_id: True,
+            inspector_suppression_disabler=disable_suppression,
+            diagnostics_recorder=lambda label, _duration_us: diagnostics.append(label),
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_ESC, 0),
+        )
+
+        disable_suppression.assert_not_awaited()
+        assert [event["code_name"] for event in events] == ["key_a", "key_esc"]
+        assert [event["suppressed"] for event in events] == [True, True]
+        assert passthrough.writes == []
+        assert diagnostics == ["inspector_suppressed", "inspector_suppressed"]
+        cast(AsyncMock, device.event_callback).assert_not_awaited()
+
     def test_find_action_for_event_prefers_evdev_code_over_alias_name(
         self,
         monkeypatch: pytest.MonkeyPatch,

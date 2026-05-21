@@ -134,6 +134,18 @@ class _DaemonDeviceManager(Protocol):
         categories: Sequence[object] | None = None,
     ) -> JsonObject: ...
 
+    async def start_device_inspector(self, hardware_id: str) -> JsonObject: ...
+
+    async def stop_device_inspector(self, hardware_id: str) -> JsonObject: ...
+
+    async def enable_device_inspector_suppression(self, hardware_id: str) -> JsonObject: ...
+
+    async def disable_device_inspector_suppression(
+        self,
+        hardware_id: str,
+        reason: str = "manual",
+    ) -> JsonObject: ...
+
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject: ...
 
 
@@ -432,6 +444,8 @@ class Daemon:
             CommandType.CAPTURE_READ,
             CommandType.CAPTURE_END,
             CommandType.CAPTURE_COMBO,
+            CommandType.DEVICE_INSPECTOR_START,
+            CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
         }
 
         tier2_commands = {
@@ -514,6 +528,8 @@ class Daemon:
             CommandType.MACRO_GET,
             CommandType.MACRO_CREATE,
             CommandType.MACRO_UPDATE,
+            CommandType.DEVICE_INSPECTOR_START,
+            CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
         }
         if command_type not in sensitive_commands:
             return

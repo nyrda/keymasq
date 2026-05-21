@@ -3,30 +3,34 @@
 [![Tests](https://github.com/nyrda/keymasq/actions/workflows/tests.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/tests.yml)
 [![Package](https://github.com/nyrda/keymasq/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/package.yml)
 
-Keyboard, mouse, and controller remapper with GUI configuration, per-window
-profiles, and macros.
+Keymasq is a Linux input remapper for keyboards, mice, and game controllers. It
+lets you remap your keys, buttons, clicks, wheels, and controller inputs from
+one place.
 
-Keymasq supports keyboard, mouse, and game controller remapping with layered
-profiles, window-aware activation, macros, tap/hold behaviors, and combos. Use
-it for workflows like a Linux autoclicker, game auto-fire, app-specific shortcuts, and
-multi-step automation.
+Layered profiles can switch automatically based on the focused window, so your
+bindings can change with the app or game you are using. Superkeys make one key
+or button multi-role. Combos can span keyboards, mice, and controllers, turning
+cross-device chords or short input sequences into shortcuts for anything Keymasq
+can do.
+
+Virtual keyboard, mouse, and gamepad output lets you route input across device
+types: turn a stick into mouse movement, a keyboard key into a gamepad button,
+or build autoclicker and auto-fire setups with rapidfire. The GTK4 GUI handles
+setup and configuration, while user config stays in plain TOML for hand editing
+and tooling. The CLI is available for profile control, macro playback, and
+scripted workflows.
 
 ## Features
 
-- Remap keyboard, mouse, game controller, and other analog inputs
-- Layer per-device mappings in global profiles
-- Auto-activate profiles based on the active window
-- Record, edit, and play macros
-- Build autoclicker and auto-fire setups with rapidfire actions or looped macros
-- Superkeys: one key fires multiple actions, or different actions for tap vs hold vs double-tap
-- Combos: trigger actions or superkeys from any input combination—even across devices
-
-## Supported Devices
-
-- **Keyboards**: fully supported
-- **Mice**: fully supported
-- **Game controllers**: fully supported
-- **Touchpads and other devices**: not supported
+- Remap keyboard, mouse, and game controller inputs
+- Layered profiles with permanent bindings and window-aware overlays
+- Automatic profile activation based on the focused app or window
+- Macro recording, editing, playback, and looping
+- Rapidfire actions for autoclicker and auto-fire setups
+- Superkeys for one-button multi-role or multi-output behavior
+- Combos for single-device, cross-device, and multi-step triggers that can run any Keymasq action
+- Analog controls for controller sticks, triggers, wheels, and axes
+- Virtual keyboard, mouse, and gamepad output
 
 ## Screenshot
 
@@ -34,47 +38,41 @@ multi-step automation.
 
 ## Use Cases
 
-**Remap without vendor software**
-- Remap mouse side buttons and thumb buttons without proprietary apps
+**Replace vendor utilities**
+- Remap mouse side buttons, controller buttons, and macro keys without
+  proprietary software
 
-**Customize controllers**
-- Remap controller buttons, sticks, triggers, wheels, or any analog axes
-- Route analog inputs to mouse movement, keyboard actions, or another gamepad output
+**Tune controllers for games**
+- Route sticks, triggers, wheels, and axes to mouse, keyboard, or gamepad output
+- Keep game-specific controller layouts in profiles
 
-**Reclaim underused keys**
-- Turn Caps Lock into Escape, a modifier, or both at the same time with a superkey
-- Repurpose function keys or other rarely-used keys
+**Turn spare buttons into workflows**
+- Make Caps Lock act as Escape, a modifier, or a superkey
+- Trigger macros, commands, profile changes, or several outputs from one press
 
-**Automate repetitive inputs**
-- Build a Linux autoclicker with rapidfire or a looped macro
-- Record input sequences and replay them from a key, combo, or CLI command
-- Fire multiple actions from a single button press
+**Automate repeated input**
+- Build autoclickers and auto-fire mappings with rapidfire
+- Replay recorded or hand-built input sequences from keys, combos, or the CLI
 
-**Per-app profiles**
-- Auto-switch layouts when specific apps or games gain focus
-- Keep separate bindings for different workflows
-- Game-specific mappings that only activate while playing
+**Switch by app**
+- Auto-switch bindings when apps or games gain focus
+- Keep separate profiles for work, desktop navigation, and games
 
-**Advanced input options**
-- Superkeys: assign different actions to tap, hold, double-tap, or tap-hold
-- Combos: trigger actions from multi-key or cross-device combinations
-- Multi-step combos: replace awkward shortcuts like Meta+Shift+X with easier sequences like Meta+X → 1
+**Build richer triggers**
+- Use superkeys for one-button multi-role behavior
+- Use combos for single-device or cross-device shortcut chords and sequences
 
 ## Desktop Support
 
-Keymasq supports current Linux desktop environments on both Wayland and X11.
+Keymasq works on X11 and on major Wayland desktops, including GNOME, KDE
+Plasma, Hyprland, Niri, COSMIC, and wlroots-based compositors such as Sway.
 
-- **Wayland**: supported on Hyprland, Niri, KDE Plasma, COSMIC, GNOME, and
-  wlroots-based compositors that expose `zwlr_foreign_toplevel_manager_v1`
-  (for example Sway, Wayfire, river, and labwc)
-- **X11**: supported on standard X11 desktop sessions
-- **GNOME**: requires the GNOME Shell bridge extension; see
-  [docs/GNOME.md](docs/GNOME.md)
-- **Wayland compositor details**: see [docs/WAYLAND.md](docs/WAYLAND.md)
+Window-aware profiles, pointer capture, and compositor actions depend on the
+desktop integration available in your session. GNOME requires the Keymasq GNOME
+Shell bridge extension.
 
-Keymasq auto-detects the current session and uses the appropriate compositor
-integration or Wayland fallback at runtime.
-
+See [docs/WAYLAND.md](docs/WAYLAND.md) for compositor details and
+[docs/GNOME.md](docs/GNOME.md) for GNOME setup.
 
 ## Quick Start
 
@@ -126,22 +124,28 @@ See [docs/INSTALL.md](docs/INSTALL.md) for full instructions.
 
 ## Configuration
 
-Keymasq is primarily configured through the GTK4 GUI. Configuration data is
+Keymasq is primarily configured through the GTK4 GUI. User configuration is
 stored in `~/.config/keymasq/`:
 
 ```text
 ~/.config/keymasq/
 ├── hardware/
-│   └── <hardware_id>.toml
-└── profiles/
-    └── <profile_name>.toml
+├── profiles/
+├── superkeys/
+├── analog_controls/
+├── recording_settings.toml
+└── settings.toml
 ```
 
 - `hardware/` stores per-device metadata
 - `profiles/` stores global profiles with one or more device layers
+- `superkeys/` stores reusable multi-action key definitions
+- `analog_controls/` stores reusable stick and axis behavior
+- `settings.toml` and `recording_settings.toml` store user preferences
 
-See [docs/PROFILES.md](docs/PROFILES.md) for the profile format and merge
-rules.
+Saved macros are daemon-managed under `/var/lib/keymasq/macros/`; use the GUI
+or CLI to create and edit them. See [docs/PROFILES.md](docs/PROFILES.md) for
+the profile format and merge rules.
 
 ## Security
 

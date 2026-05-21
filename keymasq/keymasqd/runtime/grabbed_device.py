@@ -298,13 +298,24 @@ class GrabbedDevice:
                     self.analog_axis_calibrations[(str(analog_id), role)] = calibration
         self._refresh_analog_axis_ranges()
 
-    async def reset_mapping_runtime_state(self) -> None:
+    async def reset_mapping_runtime_state(
+        self,
+        previous_mapping: dict[str, MappingAction] | None = None,
+    ) -> None:
         for event_name in self.state.combo_passthrough_held:
             self.state.held_source_keys.add(event_name)
             self.state.held_source_actions.setdefault(event_name, None)
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
-        await self.reset_analog_controls()
+        preserve_analog_state_keys = (
+            runtime_analog_controls.preserved_analog_state_keys(
+                previous_mapping,
+                self.mapping_getter(),
+            )
+            if previous_mapping is not None
+            else set[str]()
+        )
+        await self.reset_analog_controls(preserve_state_keys=preserve_analog_state_keys)
         await self.reset_superkeys()
         runtime_grab.seed_startup_held_actions(self)
 
@@ -313,10 +324,14 @@ class GrabbedDevice:
             await machine.stop()
         self.state.superkey_machines.clear()
 
-    async def reset_analog_controls(self) -> None:
+    async def reset_analog_controls(
+        self,
+        preserve_state_keys: set[str] | None = None,
+    ) -> None:
         await runtime_analog_controls.reset_analog_controls(
             self,
             deps=runtime_events.build_action_execution_deps(),
+            preserve_state_keys=preserve_state_keys,
         )
 
     async def grab(self) -> None:

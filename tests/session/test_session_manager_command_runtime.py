@@ -522,6 +522,35 @@ async def test_runtime_reset_event_invalidates_and_reevaluates(
 
 
 @pytest.mark.asyncio
+async def test_reevaluate_profiles_command_invalidates_runtime_payload_signatures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.profile_state.last_sent_mapping_signatures["1234:5678"] = "mapping"
+    manager.profile_state.last_sent_combo_signature = "combos"
+    manager.reload_config_from_disk = Mock()  # type: ignore[method-assign]
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "reevaluate_profiles"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok"}
+    manager.reload_config_from_disk.assert_called_once_with()  # type: ignore[attr-defined]
+    assert manager.profile_state.last_sent_mapping_signatures == {}
+    assert manager.profile_state.last_sent_combo_signature == ""
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason="session command reevaluate",
+    )
+
+
+@pytest.mark.asyncio
 async def test_diagnostics_snapshot_event_forwards_to_gui_clients() -> None:
     manager = SessionManager()
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]

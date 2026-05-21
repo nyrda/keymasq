@@ -705,8 +705,9 @@ async def set_mapping(
                     float_value=float_value_fn,
                 )
 
+        previous_mapping = dict(manager.active_mappings.get(hardware_id, {}))
         manager.active_mappings[hardware_id] = parsed_mapping
         for device in manager.grabbed_devices.get(hardware_id, []):
-            await device.reset_mapping_runtime_state()
+            await device.reset_mapping_runtime_state(previous_mapping=previous_mapping)
         log.info("Updated mapping for %s (%d buttons)", hardware_id, len(parsed_mapping))
         return {"updated": True, "hardware_id": hardware_id}

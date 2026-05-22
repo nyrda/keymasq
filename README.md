@@ -7,28 +7,29 @@ Keymasq is a Linux input remapper for keyboards, mice, and game controllers. It
 lets you remap your keys, buttons, clicks, wheels, and controller inputs from
 one place.
 
-Layered profiles can switch automatically based on the focused window, so your
-bindings can change with the app or game you are using. Superkeys make one key
-or button multi-role. Combos can span keyboards, mice, and controllers, turning
-cross-device chords or short input sequences into shortcuts for anything Keymasq
-can do.
+Layered profiles can switch automatically based on the app or window in focus,
+so your bindings can change with the app or game you are using. Superkeys make
+one key or button multi-role. Combos can span keyboards, mice, and controllers,
+turning cross-device chords or short input sequences into shortcuts for anything
+Keymasq can do. Macros record, edit, and replay longer input sequences.
 
-Virtual keyboard, mouse, and gamepad output lets you route input across device
+Virtual keyboard, mouse, and gamepad output let you route input across device
 types: turn a stick into mouse movement, a keyboard key into a gamepad button,
 or build autoclicker and auto-fire setups with rapidfire. The GTK4 GUI handles
-setup and configuration, while user config stays in plain TOML for hand editing
-and tooling. The CLI is available for profile control, macro playback, and
-scripted workflows.
+everyday setup and configuration, while user config stays in plain TOML for hand
+editing and tooling. The CLI is available for profile control, macro playback,
+and scripted workflows.
 
 ## Features
 
 - Remap keyboard, mouse, and game controller inputs
-- Layered profiles with permanent bindings and window-aware overlays
+- Full profile layering for base layouts and temporary layers
+- Momentary profile activation with while-held, one-shot, action-count, and timeout modes
 - Automatic profile activation based on the focused app or window
-- Macro recording, editing, playback, and looping
+- Macro recording, timeline editing, playback, and looping
 - Rapidfire actions for autoclicker and auto-fire setups
 - Superkeys for one-button multi-role or multi-output behavior
-- Combos for single-device, cross-device, and multi-step triggers that can run any Keymasq action
+- Combos for single-device, cross-device, and multi-step chords or sequences
 - Analog controls for controller sticks, triggers, wheels, and axes
 - Virtual keyboard, mouse, and gamepad output
 
@@ -58,6 +59,10 @@ scripted workflows.
 - Auto-switch bindings when apps or games gain focus
 - Keep separate profiles for work, desktop navigation, and games
 
+**Navigate without leaving home row**
+- Hold Caps Lock or a thumb button for WASD, Vim-style HJKL, Home/End, or scroll navigation
+- Release the button to return instantly to your normal layout
+
 **Build richer triggers**
 - Use superkeys for one-button multi-role behavior
 - Use combos for single-device or cross-device shortcut chords and sequences
@@ -67,8 +72,8 @@ scripted workflows.
 Keymasq works on X11 and on major Wayland desktops, including GNOME, KDE
 Plasma, Hyprland, Niri, COSMIC, and wlroots-based compositors such as Sway.
 
-Window-aware profiles, pointer capture, and compositor actions depend on the
-desktop integration available in your session. GNOME requires the Keymasq GNOME
+Window-aware profiles, pointer capture, and compositor actions depend on what
+your desktop session exposes to Keymasq. GNOME requires the Keymasq GNOME
 Shell bridge extension.
 
 See [docs/WAYLAND.md](docs/WAYLAND.md) for compositor details and
@@ -78,8 +83,8 @@ See [docs/WAYLAND.md](docs/WAYLAND.md) for compositor details and
 
 Keymasq uses two services: `keymasqd` handles the hardware (it needs elevated access to
 input devices), and `keymasq-session` handles your profiles and window tracking
-as your normal user. If the services aren't running, your devices work normally—Keymasq
-only remaps input when both services are active.
+as your normal user. If either service is stopped, your devices work normally;
+Keymasq only remaps input when both services are active.
 
 ### Arch Linux
 
@@ -92,7 +97,8 @@ keymasq
 
 ### Debian
 
-Also works on Ubuntu, Linux Mint, Pop!_OS, PikaOS, and other apt-based distros.
+Also works on Ubuntu, Linux Mint, Pop!_OS, PikaOS, and other
+Debian/Ubuntu-based distros.
 
 ```bash
 curl -fsSL https://repo.keymasq.tools/gpg-key.asc \

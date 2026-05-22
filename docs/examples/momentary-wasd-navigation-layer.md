@@ -55,7 +55,7 @@ Open the **Profile** action tab and set:
 |---|---|
 | Action | Enable |
 | Profile | `WASD Navigation` |
-| Activation mode | While trigger is held |
+| Mode | While trigger is held |
 
 When you hold the trigger, Keymasq activates `WASD Navigation` temporarily.
 When you release the trigger, Keymasq removes that temporary activation without

@@ -155,7 +155,7 @@ For each device, Keymasq resolves the final mapping by layering active profiles 
 
 1. Enabled permanent profiles
 2. Enabled conditional profiles whose window rules match
-3. Runtime profile activations created by profile actions with a lifetime
+3. Runtime profile activations created by profile actions with a temporary activation mode
 
 Within the permanent and conditional groups, profiles are applied in ascending:
 
@@ -336,16 +336,16 @@ Profile control actions inside mappings now target only a profile name:
 - disable profile
 - toggle profile
 
-Without a lifetime, these actions keep the traditional persistent behavior:
-enable/toggle writes `enabled = true`, disable/toggle off writes
+With **Persistent** mode, these actions keep the traditional saved-profile
+behavior: enable/toggle writes `enabled = true`, disable/toggle off writes
 `enabled = false`, and disable also cancels any runtime activation for the
 profile.
 
-With a lifetime, Enable creates a runtime-only profile activation. Toggle with a
-lifetime is also runtime-only: it creates the activation when the profile is not
-temporarily active, and cancels the current activation when it is. Toggle does
-not use trigger-end lifetimes; use Enable for held temporary layers. Disable
-does not use lifetimes and also cancels any runtime activation for the profile.
+With a temporary activation mode, Enable creates a runtime-only profile
+activation. Toggle with a temporary activation mode is also runtime-only: it
+creates the activation when the profile is not temporarily active, and cancels
+the current activation when it is. Disable does not use temporary activation
+modes and also cancels any runtime activation for the profile.
 
 ## Combos
 

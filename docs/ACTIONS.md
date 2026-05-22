@@ -370,8 +370,8 @@ Enable and Toggle can also use a lifetime when the target profile is disabled:
 
 | Lifetime | Meaning |
 |---|---|
-| **Until changed** | Persistent behavior. The profile file is updated just like older Keymasq versions. |
-| **While trigger is active** | Enable-only runtime layer that ends when the mapped key, combo, or superkey trigger ends. |
+| **Persistent** | Persistent behavior. The profile file is updated just like older Keymasq versions. |
+| **While trigger is held** | Enable-only runtime layer that ends when the mapped key, combo, or superkey trigger ends. |
 | **One-shot** | Runtime-only layer that ends after the first action from that profile. A timeout can be enabled as a fallback. |
 | **Custom** | Combine action count and timeout. Enable actions can also use trigger end. Timeout-only layers are configured here. |
 

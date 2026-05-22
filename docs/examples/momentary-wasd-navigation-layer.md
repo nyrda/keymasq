@@ -14,7 +14,7 @@ Use one held key as a temporary navigation layer:
 | `F` | Rapidfire Scroll Down |
 
 This works like a keyboard firmware layer, but it uses a disabled Keymasq
-profile and a profile action lifetime. Hold the layer key, navigate with
+profile and a temporary profile activation. Hold the layer key, navigate with
 WASD, then release the layer key to return to your normal layout.
 
 ## Create The Layer Profile
@@ -48,18 +48,18 @@ needs a longer wheel pulse.
 
 ## Bind It To A Hold Key
 
-In the **Device** tab or **Combos** tab, choose a key, mouse button, or combo
-and set its action to:
+In the **Device** tab or **Combos** tab, choose a key, mouse button, or combo.
+Open the **Profile** action tab and set:
 
 | Field | Value |
 |---|---|
-| Action | Profile: Enable |
+| Action | Enable |
 | Profile | `WASD Navigation` |
-| Lifetime | While trigger is active |
+| Activation mode | While trigger is held |
 
-When you hold the trigger, Keymasq activates `WASD Navigation` as a runtime
-overlay. When you release the trigger, Keymasq removes the runtime overlay
-without changing the saved profile's disabled state.
+When you hold the trigger, Keymasq activates `WASD Navigation` temporarily.
+When you release the trigger, Keymasq removes that temporary activation without
+changing the saved profile's disabled state.
 
 Good layer keys are keys you can hold comfortably while pressing WASD, such
 as Caps Lock, a thumb key, or a mouse side button.
@@ -75,7 +75,7 @@ Hold the layer key:
 
 Release the layer key:
 
-- The `WASD Navigation` runtime overlay is removed.
+- The temporary `WASD Navigation` activation is removed.
 - Your normal keyboard mappings come back.
 
 This is useful in games, editors, terminals, and browsers where your hand is

@@ -1649,7 +1649,7 @@ def test_key_selector_dialog_profile_toggle_lifetime_controls(monkeypatch):
         dialog._profile_lifetime_model.get_string(idx)
         for idx in range(dialog._profile_lifetime_model.get_n_items())
     ]
-    assert labels == ["Until changed", "One-shot", "Custom"]
+    assert labels == ["Persistent", "One-shot", "Custom"]
     assert dialog._profile_lifetime_dropdown.get_selected() == 1
     assert dialog._profile_lifetime_custom_box.get_visible() is True
     assert dialog._profile_custom_count_row.get_visible() is False

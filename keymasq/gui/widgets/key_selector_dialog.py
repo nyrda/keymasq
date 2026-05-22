@@ -66,13 +66,13 @@ from keymasq.session.virtual_devices import load_virtual_gamepad_count
 log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
 
 _PROFILE_LIFETIME_PRESETS_ENABLE: tuple[tuple[str, str], ...] = (
-    ("until_changed", "Until changed"),
-    ("while_trigger_active", "While trigger is active"),
+    ("until_changed", "Persistent"),
+    ("while_trigger_active", "While trigger is held"),
     ("after_one_action", "One-shot"),
     ("custom", "Custom"),
 )
 _PROFILE_LIFETIME_PRESETS_TOGGLE: tuple[tuple[str, str], ...] = (
-    ("until_changed", "Until changed"),
+    ("until_changed", "Persistent"),
     ("after_one_action", "One-shot"),
     ("custom", "Custom"),
 )
@@ -2016,12 +2016,12 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         box.set_halign(Gtk.Align.START)
         self._profile_lifetime_box = box
 
-        self._profile_lifetime_title = Gtk.Label(label="Lifetime")
+        self._profile_lifetime_title = Gtk.Label(label="Activation")
         self._profile_lifetime_title.set_halign(Gtk.Align.START)
         box.append(self._profile_lifetime_title)
 
         preset_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        preset_label = Gtk.Label(label="Lifetime")
+        preset_label = Gtk.Label(label="Mode")
         preset_label.set_size_request(90, -1)
         preset_label.set_halign(Gtk.Align.START)
         preset_row.append(preset_label)
@@ -2269,7 +2269,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._sync_profile_lifetime_dropdown(preset)
         self._profile_lifetime_box.set_visible(lifetime_available)
         self._profile_lifetime_title.set_label(
-            "When toggled on" if self._selected_profile_action == "toggle" else "Lifetime"
+            "When toggled on" if self._selected_profile_action == "toggle" else "Activation"
         )
         self._profile_lifetime_dropdown.set_sensitive(not blocked)
         self._profile_lifetime_timeout_row.set_visible(False)

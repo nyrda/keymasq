@@ -8,12 +8,8 @@ from keymasq.common.models import ProfileDeactivationPolicy
 
 type JsonObject = dict[str, object]
 type BroadcastDeactivateRequest = Callable[[JsonObject], None]
-type InputsSettled = Callable[[str | None], bool]
 
 log = logging.getLogger("keymasqd.runtime.profile_activation_tracker")
-
-KEY_SETTLE_POLL_S = 0.01
-KEY_SETTLE_MAX_WAIT_S = 5.0
 
 
 @dataclass
@@ -32,10 +28,8 @@ class ProfileActivationTracker:
         self,
         *,
         broadcast_deactivate_request: BroadcastDeactivateRequest,
-        inputs_settled: InputsSettled,
     ) -> None:
         self._broadcast_deactivate_request = broadcast_deactivate_request
-        self._inputs_settled = inputs_settled
         self._trackers: dict[str, RuntimeProfileActivationTracker] = {}
         self._activation_by_profile: dict[str, str] = {}
         self._active_trigger_ids: set[str] = set()
@@ -173,9 +167,6 @@ class ProfileActivationTracker:
         tracker: RuntimeProfileActivationTracker,
         reason: str,
     ) -> None:
-        if tracker.deactivation.defer_until_keys_released:
-            ignored_trigger_id = tracker.trigger_id if reason == "trigger_end" else None
-            await self._wait_for_inputs_to_settle(ignored_trigger_id)
         self._broadcast_deactivate_request(
             {
                 "profile_name": tracker.profile_name,
@@ -183,12 +174,6 @@ class ProfileActivationTracker:
                 "reason": reason,
             }
         )
-
-    async def _wait_for_inputs_to_settle(self, ignored_trigger_id: str | None) -> None:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + KEY_SETTLE_MAX_WAIT_S
-        while not self._inputs_settled(ignored_trigger_id) and loop.time() < deadline:
-            await asyncio.sleep(KEY_SETTLE_POLL_S)
 
     def _cancel_timeout(self, tracker: RuntimeProfileActivationTracker) -> None:
         task = tracker.timeout_task

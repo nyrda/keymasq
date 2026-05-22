@@ -432,6 +432,7 @@ async def _execute_overload_superkey(
             continue
         child_event_name = f"{event_name}#overload#{index}"
         if int(event.value) == 1:
+            device_runtime.state.held_profile_trigger_events.add(child_event_name)
             _observe_overload_profile_trigger(
                 device_runtime,
                 child_event_name,
@@ -447,6 +448,7 @@ async def _execute_overload_superkey(
             shared_abs_output_tracker=overload_abs_output_tracker,
         )
         if int(event.value) == 0:
+            device_runtime.state.held_profile_trigger_events.discard(child_event_name)
             _observe_overload_profile_trigger(
                 device_runtime,
                 child_event_name,

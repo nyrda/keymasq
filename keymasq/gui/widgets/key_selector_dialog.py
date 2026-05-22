@@ -614,7 +614,6 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._profile_custom_trigger_end: bool = False
         self._profile_custom_action_count: bool = False
         self._profile_custom_timeout: bool = False
-        self._profile_custom_defer: bool = False
         self._profile_lifetime_selection_updating: bool = False
         self._profile_lifetime_model_keys: list[str] = []
         self._selected_gamepad_output_id: str | None = (
@@ -711,24 +710,20 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._profile_custom_trigger_end = bool(policy.on_trigger_end)
         self._profile_custom_action_count = policy.after_actions is not None
         self._profile_custom_timeout = policy.timeout_ms is not None
-        self._profile_custom_defer = bool(policy.defer_until_keys_released)
 
         simple_trigger = (
             policy.on_trigger_end
             and policy.after_actions is None
             and policy.timeout_ms is None
-            and not policy.defer_until_keys_released
         )
         one_shot = (
             not policy.on_trigger_end
             and policy.after_actions == 1
-            and not policy.defer_until_keys_released
         )
         simple_count = (
             not policy.on_trigger_end
             and policy.after_actions is not None
             and policy.timeout_ms is None
-            and not policy.defer_until_keys_released
         )
         if simple_trigger:
             self._profile_lifetime_preset = "while_trigger_active"
@@ -2144,14 +2139,6 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         )
         self._profile_lifetime_custom_box.append(self._profile_custom_trigger_toggle)
 
-        self._profile_custom_defer_toggle = Gtk.ToggleButton(label="Wait for keys to settle")
-        self._profile_custom_defer_toggle.set_halign(Gtk.Align.START)
-        self._profile_custom_defer_toggle.set_active(self._profile_custom_defer)
-        self._profile_custom_defer_toggle.connect(
-            "toggled",
-            self._on_profile_custom_defer_toggled,
-        )
-        self._profile_lifetime_custom_box.append(self._profile_custom_defer_toggle)
         box.append(self._profile_lifetime_custom_box)
 
         self._profile_lifetime_notice_label = Gtk.Label(
@@ -2197,9 +2184,6 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
     def _on_profile_custom_timeout_toggled(self, check: Gtk.ToggleButton) -> None:
         self._profile_custom_timeout = bool(check.get_active())
         self._update_profile_lifetime_visibility()
-
-    def _on_profile_custom_defer_toggled(self, check: Gtk.ToggleButton) -> None:
-        self._profile_custom_defer = bool(check.get_active())
 
     def _profile_lifetime_presets(self) -> tuple[tuple[str, str], ...]:
         if self._selected_profile_action == "toggle":
@@ -2293,7 +2277,6 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._profile_custom_count_row.set_visible(is_custom)
         self._profile_custom_timeout_row.set_visible(is_custom or is_one_shot)
         self._profile_custom_trigger_toggle.set_visible(is_custom and allow_trigger_end)
-        self._profile_custom_defer_toggle.set_visible(is_custom)
         self._profile_lifetime_count_spin.set_sensitive(self._profile_custom_action_count)
         self._profile_custom_timeout_spin.set_visible(self._profile_custom_timeout)
         self._profile_custom_timeout_spin.set_sensitive(self._profile_custom_timeout)
@@ -2771,7 +2754,6 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             ),
             after_actions=after_actions,
             timeout_ms=timeout_ms,
-            defer_until_keys_released=bool(self._profile_custom_defer),
         )
         return policy if policy.has_condition else None
 

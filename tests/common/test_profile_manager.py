@@ -146,7 +146,6 @@ class TestProfileManager:
                                     on_trigger_end=True,
                                     after_actions=1,
                                     timeout_ms=1500,
-                                    defer_until_keys_released=True,
                                 ),
                             ),
                             "btn_side": MappingAction(
@@ -180,7 +179,6 @@ class TestProfileManager:
             on_trigger_end=True,
             after_actions=1,
             timeout_ms=1500,
-            defer_until_keys_released=True,
         )
         toggle = loaded.config.device_layers["1234:5678"].mappings["btn_side"]
         assert toggle.profile_deactivation == ProfileDeactivationPolicy(

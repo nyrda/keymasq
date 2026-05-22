@@ -495,7 +495,6 @@ class TestSuperkeys:
                 "source_button": "key_f13#overload#0",
                 "trigger_id": "1234:5678:key_f13#overload#0",
                 "deactivation": {
-                    "defer_until_keys_released": False,
                     "on_trigger_end": True,
                 },
             }

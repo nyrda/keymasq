@@ -228,6 +228,7 @@ class GrabbedDeviceState:
         }
     )
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
+    held_profile_trigger_events: set[str] = field(default_factory=set)
     analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
     analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
     analog_active_threshold_actions: dict[

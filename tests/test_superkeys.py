@@ -559,7 +559,6 @@ def test_combo_action_payload_includes_profile_policy_and_source() -> None:
         "source_profile_name": "Runtime",
         "profile_name": "Nav",
         "deactivation": {
-            "defer_until_keys_released": False,
             "after_actions": 1,
         },
     }

@@ -315,6 +315,7 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
     else:
         enabled = None
 
+    had_runtime_activation = profile_name in manager.profile_state.runtime_profile_activations
     result = await runtime_profiles.set_profile_enabled(manager, profile_name, enabled)
     if result.get("status") != "ok":
         log.warning(
@@ -326,7 +327,8 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
         return
 
     if action_type == "profile_disable" or (
-        action_type == "profile_toggle" and result.get("enabled") is False
+        action_type == "profile_toggle"
+        and (result.get("enabled") is False or had_runtime_activation)
     ):
         await _cancel_runtime_profile_activation(manager, profile_name)
 

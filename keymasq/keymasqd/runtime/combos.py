@@ -892,6 +892,24 @@ async def start_combo_action(
         deps=deps,
     )
     trigger_name = f"combo:{combo_id}"
+
+    superkey_config: RuntimeSuperkeyConfig | None = None
+    superkey_machine: SuperkeyMachine | None = None
+    if action.action_type == ActionType.SUPERKEY:
+        superkey_config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
+        if superkey_config is None:
+            return
+        if superkey_config.mode != SuperkeyMode.OVERLOAD:
+            superkey_machine = await _combo_superkey_machine(
+                manager,
+                combo_id,
+                action,
+                trigger_binding,
+                deps=deps,
+            )
+            if superkey_machine is None:
+                return
+
     _observe_combo_profile_trigger(
         manager,
         trigger_binding,
@@ -908,9 +926,7 @@ async def start_combo_action(
     )
 
     if action.action_type == ActionType.SUPERKEY:
-        config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
-        if config is None:
-            return
+        config = cast(RuntimeSuperkeyConfig, superkey_config)
         if config.mode == SuperkeyMode.OVERLOAD:
             if config.overload_down_actions or config.overload_up_actions:
                 split_child_combo_ids: list[str] = []
@@ -995,15 +1011,7 @@ async def start_combo_action(
             )
             return
 
-        machine = await _combo_superkey_machine(
-            manager,
-            combo_id,
-            action,
-            trigger_binding,
-            deps=deps,
-        )
-        if machine is None:
-            return
+        machine = cast(SuperkeyMachine, superkey_machine)
         manager.combo_state.active_actions[combo_id] = ComboActionState(
             kind="superkey_pattern",
             machine=machine,

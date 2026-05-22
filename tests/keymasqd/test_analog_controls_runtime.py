@@ -137,6 +137,16 @@ async def test_threshold_enter_and_release_emit_child_actions() -> None:
 async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycle() -> None:
     events: list[tuple[CommandType, dict[str, object]]] = []
     action_triggers: list[dict[str, object]] = []
+    action_trigger_event = asyncio.Event()
+    deactivate_event = asyncio.Event()
+    expected_deactivate = (
+        CommandType.PROFILE_DEACTIVATE_REQUESTED,
+        {
+            "profile_name": "Nav",
+            "activation_id": "activation-1",
+            "reason": "trigger_end",
+        },
+    )
 
     async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
         if event_type == CommandType.ACTION_TRIGGER:
@@ -147,8 +157,12 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
                 str(data["trigger_id"]),
                 data["deactivation"],
             )
+            action_trigger_event.set()
             return
-        events.append((event_type, data))
+        event = (event_type, data)
+        events.append(event)
+        if event == expected_deactivate:
+            deactivate_event.set()
 
     manager = DeviceManager(broadcast_callback=broadcast)
     keyboard = FakeUInput()
@@ -186,7 +200,7 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
     runtime.profile_activation_trigger_end_observer = manager.observe_profile_trigger_end
 
     assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
 
     assert action_triggers == [
         {
@@ -196,7 +210,6 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
             "source_button": "left_stick#analog_threshold#0#0",
             "trigger_id": "1234:5678:left_stick#analog_threshold#0#0",
             "deactivation": {
-                "defer_until_keys_released": False,
                 "on_trigger_end": True,
             },
         }
@@ -206,24 +219,29 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
     ] == []
 
     assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
-    assert (
-        CommandType.PROFILE_DEACTIVATE_REQUESTED,
-        {
-            "profile_name": "Nav",
-            "activation_id": "activation-1",
-            "reason": "trigger_end",
-        },
-    ) in events
+    assert expected_deactivate in events
 
 
 @pytest.mark.asyncio
 async def test_threshold_activation_counts_parent_profile_action() -> None:
     events: list[tuple[CommandType, dict[str, object]]] = []
+    deactivate_event = asyncio.Event()
+    expected_deactivate = (
+        CommandType.PROFILE_DEACTIVATE_REQUESTED,
+        {
+            "profile_name": "Nav",
+            "activation_id": "activation-1",
+            "reason": "action_count",
+        },
+    )
 
     async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
-        events.append((event_type, data))
+        event = (event_type, data)
+        events.append(event)
+        if event == expected_deactivate:
+            deactivate_event.set()
 
     manager = DeviceManager(broadcast_callback=broadcast)
     keyboard = FakeUInput()
@@ -256,22 +274,13 @@ async def test_threshold_activation_counts_parent_profile_action() -> None:
         "Nav",
         "activation-1",
         "trigger-1",
-        {"after_actions": 1, "defer_until_keys_released": False},
+        {"after_actions": 1},
     )
 
     assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
-    assert events == [
-        (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-1",
-                "reason": "action_count",
-            },
-        )
-    ]
+    assert events == [expected_deactivate]
     assert keyboard.events == [
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),

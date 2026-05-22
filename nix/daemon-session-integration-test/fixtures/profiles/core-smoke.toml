@@ -88,7 +88,6 @@ profile_name = "$TEMP_PROFILE_NAME"
 
 [devices."$HARDWARE_ID".mapping.key_f1.deactivation]
 on_trigger_end = true
-defer_until_keys_released = false
 
 [devices."$HARDWARE_ID".mapping.key_f2]
 action = "profile_enable"
@@ -96,7 +95,6 @@ profile_name = "$TEMP_PROFILE_NAME"
 
 [devices."$HARDWARE_ID".mapping.key_f2.deactivation]
 after_actions = 1
-defer_until_keys_released = false
 
 [devices."$HARDWARE_ID".mapping.key_f3]
 action = "profile_enable"
@@ -104,7 +102,6 @@ profile_name = "$TEMP_PROFILE_NAME"
 
 [devices."$HARDWARE_ID".mapping.key_f3.deactivation]
 after_actions = 2
-defer_until_keys_released = false
 
 [devices."$HARDWARE_ID".mapping.key_f4]
 action = "profile_enable"
@@ -112,7 +109,6 @@ profile_name = "$TEMP_PROFILE_NAME"
 
 [devices."$HARDWARE_ID".mapping.key_f4.deactivation]
 timeout_ms = 1000
-defer_until_keys_released = false
 
 [devices."$HARDWARE_ID".mapping.key_f5]
 action = "profile_toggle"
@@ -120,7 +116,6 @@ profile_name = "$TEMP_PROFILE_NAME"
 
 [devices."$HARDWARE_ID".mapping.key_f5.deactivation]
 after_actions = 1
-defer_until_keys_released = false
 
 [devices."$HARDWARE_ID".mapping.key_f6]
 action = "profile_toggle"
@@ -128,7 +123,6 @@ profile_name = "$TEMP_PROFILE_NAME"
 
 [devices."$HARDWARE_ID".mapping.key_f6.deactivation]
 after_actions = 2
-defer_until_keys_released = false
 
 [devices."$HARDWARE_ID".mapping.key_f7]
 action = "superkey"
@@ -269,7 +263,7 @@ steps = [
     { evdev = "key_f10", hardware_id = "$HARDWARE_ID" },
   ] },
 ]
-action = { action = "profile_enable", profile_name = "$TEMP_PROFILE_NAME", deactivation = { on_trigger_end = true, defer_until_keys_released = false } }
+action = { action = "profile_enable", profile_name = "$TEMP_PROFILE_NAME", deactivation = { on_trigger_end = true } }
 
 [[combos]]
 id = "integration-profile-lifetime-overload-superkey"

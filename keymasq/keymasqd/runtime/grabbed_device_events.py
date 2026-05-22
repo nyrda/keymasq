@@ -312,11 +312,13 @@ async def recover_from_event_processing_error(device_runtime: GrabbedDeviceRunti
 def observe_profile_trigger_end_for_held_sources(
     device_runtime: GrabbedDeviceRuntime,
 ) -> None:
+    event_names = set(device_runtime.state.held_source_keys)
+    event_names.update(device_runtime.state.held_source_actions)
+    event_names.update(device_runtime.state.held_profile_trigger_events)
+    device_runtime.state.held_profile_trigger_events.clear()
     observer = device_runtime.profile_activation_trigger_end_observer
     if observer is None:
         return
-    event_names = set(device_runtime.state.held_source_keys)
-    event_names.update(device_runtime.state.held_source_actions)
     for event_name in sorted(event_names):
         observer(source_trigger_id(device_runtime.hardware_id, event_name))
 

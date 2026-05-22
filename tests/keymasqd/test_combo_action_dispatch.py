@@ -5,9 +5,21 @@ class TestComboActionDispatch:
     @pytest.mark.asyncio
     async def test_profile_activation_trigger_end_follows_combo_lifecycle(self) -> None:
         events: list[tuple[CommandType, dict[str, object]]] = []
+        deactivate_event = asyncio.Event()
+        expected_deactivate = (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        )
 
         async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
-            events.append((event_type, data))
+            event = (event_type, data)
+            events.append(event)
+            if event == expected_deactivate:
+                deactivate_event.set()
 
         manager = DeviceManager(broadcast_callback=broadcast)
         binding = dm.RuntimeComboBinding("1234:5678", "btn_side", "mouse")
@@ -22,24 +34,16 @@ class TestComboActionDispatch:
             "Nav",
             "activation-1",
             "1234:5678:combo:profile",
-            {"on_trigger_end": True, "defer_until_keys_released": False},
+            {"on_trigger_end": True},
         )
-        await asyncio.sleep(0.05)
         assert [
             event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
         ] == []
 
         await _runtime_stop_combo_action(manager, "profile")
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
-        assert (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-1",
-                "reason": "trigger_end",
-            },
-        ) in events
+        assert expected_deactivate in events
 
     @pytest.mark.asyncio
     async def test_combo_overload_superkey_starts_children_and_releases_in_reverse_order(
@@ -76,6 +80,16 @@ class TestComboActionDispatch:
     ) -> None:
         events: list[tuple[CommandType, dict[str, object]]] = []
         action_triggers: list[dict[str, object]] = []
+        action_trigger_event = asyncio.Event()
+        deactivate_event = asyncio.Event()
+        expected_deactivate = (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        )
 
         async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
             if event_type == CommandType.ACTION_TRIGGER:
@@ -86,8 +100,12 @@ class TestComboActionDispatch:
                     str(data["trigger_id"]),
                     data["deactivation"],
                 )
+                action_trigger_event.set()
                 return
-            events.append((event_type, data))
+            event = (event_type, data)
+            events.append(event)
+            if event == expected_deactivate:
+                deactivate_event.set()
 
         manager = DeviceManager(broadcast_callback=broadcast)
         binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
@@ -109,7 +127,7 @@ class TestComboActionDispatch:
         )
 
         await _runtime_start_combo_action(manager, "combo-overload-profile", action, binding)
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
 
         assert action_triggers == [
             {
@@ -119,7 +137,6 @@ class TestComboActionDispatch:
                 "source_button": "combo:combo-overload-profile#overload#0",
                 "trigger_id": "1234:5678:combo:combo-overload-profile#overload#0",
                 "deactivation": {
-                    "defer_until_keys_released": False,
                     "on_trigger_end": True,
                 },
             }
@@ -129,16 +146,9 @@ class TestComboActionDispatch:
         ] == []
 
         await _runtime_stop_combo_action(manager, "combo-overload-profile")
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
-        assert (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-1",
-                "reason": "trigger_end",
-            },
-        ) in events
+        assert expected_deactivate in events
 
     @pytest.mark.asyncio
     async def test_combo_split_overload_superkey_pulses_down_and_up_children(
@@ -186,6 +196,29 @@ class TestComboActionDispatch:
                     dm.MappingAction(action_type=ActionType.SUPERKEY, superkey_name="nested"),
                 ],
             )
+
+    @pytest.mark.asyncio
+    async def test_combo_superkey_without_config_does_not_start_profile_trigger(
+        self,
+    ) -> None:
+        starts: list[str] = []
+        ends: list[str] = []
+        manager = DeviceManager()
+        manager.observe_profile_trigger_start = starts.append  # type: ignore[method-assign]
+        manager.observe_profile_trigger_end = ends.append  # type: ignore[method-assign]
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+
+        await _runtime_start_combo_action(
+            manager,
+            "combo-invalid-superkey",
+            dm.MappingAction(action_type=ActionType.SUPERKEY),
+            binding,
+        )
+
+        assert starts == []
+        assert ends == []
+        assert "combo-invalid-superkey" not in manager.combo_state.active_actions
+
     @pytest.mark.asyncio
     async def test_combo_overload_restore_runs_after_child_release_for_overlapping_key(
         self,

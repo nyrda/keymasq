@@ -198,7 +198,6 @@ class ProfileDeactivationPolicy:
     on_trigger_end: bool = False
     after_actions: int | None = None
     timeout_ms: int | None = None
-    defer_until_keys_released: bool = False
 
     @property
     def has_condition(self) -> bool:
@@ -234,7 +233,6 @@ def normalize_profile_deactivation_policy(
         else False,
         after_actions=_positive_int_or_none(policy.after_actions),
         timeout_ms=_positive_int_or_none(policy.timeout_ms),
-        defer_until_keys_released=bool(policy.defer_until_keys_released),
     )
     return normalized if normalized.has_condition else None
 
@@ -247,7 +245,6 @@ def parse_profile_deactivation_policy(data: object) -> ProfileDeactivationPolicy
         on_trigger_end=bool(payload.get("on_trigger_end", False)),
         after_actions=_positive_int_or_none(payload.get("after_actions")),
         timeout_ms=_positive_int_or_none(payload.get("timeout_ms")),
-        defer_until_keys_released=bool(payload.get("defer_until_keys_released", False)),
     )
     return policy if policy.has_condition else None
 
@@ -261,13 +258,10 @@ def profile_deactivation_policy_to_dict(
         on_trigger_end=bool(policy.on_trigger_end),
         after_actions=_positive_int_or_none(policy.after_actions),
         timeout_ms=_positive_int_or_none(policy.timeout_ms),
-        defer_until_keys_released=bool(policy.defer_until_keys_released),
     )
     if not normalized.has_condition:
         return None
-    data: dict[str, object] = {
-        "defer_until_keys_released": bool(normalized.defer_until_keys_released)
-    }
+    data: dict[str, object] = {}
     if normalized.on_trigger_end:
         data["on_trigger_end"] = True
     if normalized.after_actions is not None:

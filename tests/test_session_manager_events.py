@@ -380,7 +380,7 @@ async def test_lifetime_profile_enable_creates_runtime_activation_without_persis
         "profile_name": "Nav",
         "activation_id": activation.activation_id,
         "trigger_id": "1234:5678:btn_back",
-        "deactivation": {"defer_until_keys_released": False, "after_actions": 1},
+        "deactivation": {"after_actions": 1},
     }
 
     reloaded = manager.profiles.__class__()
@@ -497,7 +497,6 @@ async def test_lifetime_profile_toggle_creates_and_cancels_runtime_activation(
         "activation_id": activation.activation_id,
         "trigger_id": ":",
         "deactivation": {
-            "defer_until_keys_released": False,
             "after_actions": 1,
             "timeout_ms": 1500,
         },
@@ -577,6 +576,42 @@ async def test_no_lifetime_disable_cancels_runtime_activation_and_persists_disab
 
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     assert manager.profiles.get_profile("Nav").config.enabled is False
+    cancel_calls = [
+        call_args.args[0]
+        for call_args in manager.client.send_command.await_args_list
+        if call_args.args[0].command == CommandType.CANCEL_PROFILE_ACTIVATION
+    ]
+    assert cancel_calls[-1].data == {
+        "profile_name": "Nav",
+        "activation_id": activation_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_no_lifetime_toggle_cancels_runtime_activation_before_persisting_enabled(
+    temp_config_dir,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+
+    await session_events_module.handle_profile_trigger(
+        manager,
+        {
+            "action_type": "profile_enable",
+            "profile_name": "Nav",
+            "deactivation": {"timeout_ms": 1500},
+        },
+    )
+    activation_id = manager.profile_state.runtime_profile_activations["Nav"].activation_id
+
+    await session_events_module.handle_profile_trigger(
+        manager,
+        {"action_type": "profile_toggle", "profile_name": "Nav"},
+    )
+
+    assert "Nav" not in manager.profile_state.runtime_profile_activations
+    assert manager.profiles.get_profile("Nav").config.enabled is True
     cancel_calls = [
         call_args.args[0]
         for call_args in manager.client.send_command.await_args_list

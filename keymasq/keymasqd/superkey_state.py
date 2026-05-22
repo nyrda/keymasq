@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Protocol, cast
 
@@ -17,6 +17,7 @@ from keymasq.common.models import (
     clamp_rapidfire_hold_ms,
     clamp_rapidfire_wait_ms,
     normalize_profile_deactivation_policy,
+    normalize_pulse_profile_deactivation_policy,
     superkey_action_shared_kwargs,
 )
 from keymasq.keymasqd.output_helpers import (
@@ -388,10 +389,11 @@ class SuperkeyMachine:
                 await task
 
     async def _execute_actions_tap(self, actions: list[SuperkeyActionData]) -> None:
-        for action in actions:
+        pulse_actions = [self._with_pulse_profile_lifetime(action) for action in actions]
+        for action in pulse_actions:
             await self._execute_action_down(action)
         await asyncio.sleep(0.01)
-        for action in reversed(actions):
+        for action in reversed(pulse_actions):
             await self._execute_action_up(action)
 
     async def _execute_actions_down(self, actions: list[SuperkeyActionData]) -> None:
@@ -593,6 +595,22 @@ class SuperkeyMachine:
         return MappingAction(
             action_type=ActionType(action.action_type),
             **superkey_action_shared_kwargs(action),
+        )
+
+    def _with_pulse_profile_lifetime(self, action: SuperkeyActionData) -> SuperkeyActionData:
+        action_type = ActionType(action.action_type)
+        if action_type not in (
+            ActionType.PROFILE_ENABLE,
+            ActionType.PROFILE_DISABLE,
+            ActionType.PROFILE_TOGGLE,
+        ):
+            return action
+        return replace(
+            action,
+            profile_deactivation=normalize_pulse_profile_deactivation_policy(
+                action_type,
+                action.profile_deactivation,
+            ),
         )
 
     def _broadcast_action(self, action: SuperkeyActionData) -> dict[str, object] | None:

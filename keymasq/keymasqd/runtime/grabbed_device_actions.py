@@ -1,9 +1,15 @@
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from typing import cast
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
+from keymasq.common.models import (
+    ActionType,
+    MappingAction,
+    SuperkeyMode,
+    normalize_pulse_profile_deactivation_policy,
+)
 from keymasq.keymasqd.output_helpers import (
     resolve_gamepad_axis_code,
     resolve_output_code,
@@ -49,6 +55,25 @@ from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyCon
 from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
 log = logging.getLogger("keymasqd.runtime.grabbed_device_actions")
+
+
+_PROFILE_ACTION_TYPES = (
+    ActionType.PROFILE_ENABLE,
+    ActionType.PROFILE_DISABLE,
+    ActionType.PROFILE_TOGGLE,
+)
+
+
+def _with_pulse_profile_lifetime(action: MappingAction) -> MappingAction:
+    if action.action_type in _PROFILE_ACTION_TYPES and action.profile_deactivation is not None:
+        return replace(
+            action,
+            profile_deactivation=normalize_pulse_profile_deactivation_policy(
+                action.action_type,
+                action.profile_deactivation,
+            ),
+        )
+    return action
 
 
 async def execute_action(
@@ -332,9 +357,10 @@ async def execute_action_pulse(
     explicit_bucket: str | None = None,
 ) -> None:
     del explicit_bucket
+    pulse_action = _with_pulse_profile_lifetime(action)
     await execute_action(
         device_runtime,
-        action,
+        pulse_action,
         _SyntheticInputEvent(int(event.type), int(event.code), 1),
         event_name,
         deps=deps,
@@ -343,7 +369,7 @@ async def execute_action_pulse(
     )
     await execute_action(
         device_runtime,
-        action,
+        pulse_action,
         _SyntheticInputEvent(int(event.type), int(event.code), 0),
         event_name,
         deps=deps,
@@ -455,7 +481,7 @@ async def _execute_overload_superkey(
                 active=False,
             )
 
-    if int(event.value) in (0, 1):
+    if int(event.value) == 1:
         for index, child_action in enumerate(config.overload_down_actions):
             if child_action.action_type == ActionType.SUPERKEY:
                 log.warning(
@@ -465,14 +491,7 @@ async def _execute_overload_superkey(
                 )
                 continue
             child_event_name = f"{event_name}#overload_down#{index}"
-            if int(event.value) == 1:
-                device_runtime.state.held_profile_trigger_events.add(child_event_name)
-                _observe_overload_profile_trigger(
-                    device_runtime,
-                    child_event_name,
-                    active=True,
-                )
-            await execute_action(
+            await execute_action_pulse(
                 device_runtime,
                 child_action,
                 event,
@@ -481,13 +500,6 @@ async def _execute_overload_superkey(
                 shared_output_tracker=overload_output_tracker,
                 shared_abs_output_tracker=overload_abs_output_tracker,
             )
-            if int(event.value) == 0:
-                device_runtime.state.held_profile_trigger_events.discard(child_event_name)
-                _observe_overload_profile_trigger(
-                    device_runtime,
-                    child_event_name,
-                    active=False,
-                )
 
 
 async def _execute_gamepad_axis_action(

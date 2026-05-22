@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from typing import cast
 
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
@@ -14,6 +15,7 @@ from keymasq.common.models import (
     normalize_analog_control_features,
     normalize_macro_loop_stop_behavior,
     normalize_profile_deactivation_policy,
+    normalize_pulse_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     parse_rapidfire_fields,
 )
@@ -25,6 +27,25 @@ from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 type JsonObject = dict[str, object]
 
 log = logging.getLogger("keymasqd.runtime.actions")
+
+
+_PROFILE_ACTION_TYPES = (
+    ActionType.PROFILE_ENABLE,
+    ActionType.PROFILE_DISABLE,
+    ActionType.PROFILE_TOGGLE,
+)
+
+
+def _with_pulse_profile_lifetime(action: MappingAction) -> MappingAction:
+    if action.action_type in _PROFILE_ACTION_TYPES and action.profile_deactivation is not None:
+        return replace(
+            action,
+            profile_deactivation=normalize_pulse_profile_deactivation_policy(
+                action.action_type,
+                action.profile_deactivation,
+            ),
+        )
+    return action
 
 
 def _default_optional_str(value: object) -> str | None:
@@ -354,6 +375,7 @@ def parse_superkey_config(
         int_value=int_value,
         int_or_none=int_or_none,
         float_value=float_value,
+        supports_trigger_lifecycle=False,
     )
     overload_up_actions = parse_overload_action_bundle(
         manager,
@@ -364,6 +386,7 @@ def parse_superkey_config(
         int_value=int_value,
         int_or_none=int_or_none,
         float_value=float_value,
+        supports_trigger_lifecycle=False,
     )
     mode_value = config.get("mode")
     if not isinstance(mode_value, str):
@@ -394,6 +417,7 @@ def parse_superkey_config(
             optional_str=optional_str,
             int_or_none=int_or_none,
             int_value=int_value,
+            supports_trigger_lifecycle=False,
         )
         double_tap_actions = parse_superkey_action_bundle(
             manager,
@@ -403,6 +427,7 @@ def parse_superkey_config(
             optional_str=optional_str,
             int_or_none=int_or_none,
             int_value=int_value,
+            supports_trigger_lifecycle=False,
         )
         hold_actions = parse_superkey_action_bundle(
             manager,
@@ -447,6 +472,7 @@ def parse_superkey_action_bundle(
     optional_str: Callable[..., str | None] | None,
     int_or_none: Callable[..., int | None] | None,
     int_value: Callable[..., int],
+    supports_trigger_lifecycle: bool = True,
 ) -> list[SuperkeyActionData]:
     if data is None:
         return []
@@ -463,6 +489,7 @@ def parse_superkey_action_bundle(
             optional_str=optional_str,
             int_or_none=int_or_none,
             int_value=int_value,
+            supports_trigger_lifecycle=supports_trigger_lifecycle,
         )
         if parsed is not None:
             actions.append(parsed)
@@ -479,6 +506,7 @@ def parse_overload_action_bundle(
     int_value: Callable[..., int],
     int_or_none: Callable[..., int | None] | None,
     float_value: Callable[..., float] | None,
+    supports_trigger_lifecycle: bool = True,
 ) -> list[MappingAction]:
     if data is None:
         return []
@@ -504,16 +532,17 @@ def parse_overload_action_bundle(
             raise TypeError("overload action must be an object")
         if str_value(payload.get("action"), "passthrough") == "superkey":
             raise ValueError("nested superkeys are not allowed inside superkeys")
+        parsed = parse_action(
+            manager,
+            payload,
+            str_value=str_value,
+            optional_str=optional_str,
+            int_value=int_value,
+            int_or_none=int_or_none,
+            float_value=float_value,
+        )
         actions.append(
-            parse_action(
-                manager,
-                payload,
-                str_value=str_value,
-                optional_str=optional_str,
-                int_value=int_value,
-                int_or_none=int_or_none,
-                float_value=float_value,
-            )
+            parsed if supports_trigger_lifecycle else _with_pulse_profile_lifetime(parsed)
         )
     return actions
 
@@ -527,6 +556,7 @@ def parse_superkey_action(
     optional_str: Callable[..., str | None] | None,
     int_or_none: Callable[..., int | None] | None,
     int_value: Callable[..., int],
+    supports_trigger_lifecycle: bool = True,
 ) -> SuperkeyActionData | None:
     if data is None:
         return None
@@ -593,7 +623,11 @@ def parse_superkey_action(
         macro_start_y=int_value(action.get("macro_start_y"), 0),
         macro_block_mouse_movement=bool(action.get("macro_block_mouse_movement", False)),
         profile_name=optional_str(action.get("profile_name")),
-        profile_deactivation=normalize_profile_deactivation_policy(
+        profile_deactivation=(
+            normalize_profile_deactivation_policy
+            if supports_trigger_lifecycle
+            else normalize_pulse_profile_deactivation_policy
+        )(
             action_type,
             parse_profile_deactivation_policy(action.get("deactivation")),
         ),

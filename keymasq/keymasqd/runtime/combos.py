@@ -4,7 +4,7 @@ import logging
 import queue
 import time
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, cast
 
 from keymasq.common.combos import is_combo_pulse_evdev, normalize_combo_evdev
@@ -20,6 +20,7 @@ from keymasq.common.models import (
     clamp_rapidfire_hold_ms,
     clamp_rapidfire_wait_ms,
     combo_effective_superkey_config,
+    normalize_pulse_profile_deactivation_policy,
 )
 from keymasq.keymasqd.combo_engine import (
     ComboActionTransition,
@@ -51,6 +52,12 @@ from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
 log = logging.getLogger("keymasqd.runtime.combos")
 
+_PROFILE_ACTION_TYPES = (
+    ActionType.PROFILE_ENABLE,
+    ActionType.PROFILE_DISABLE,
+    ActionType.PROFILE_TOGGLE,
+)
+
 type JsonObject = dict[str, object]
 type IntValueFn = Callable[..., int]
 type StrValueFn = Callable[..., str]
@@ -62,6 +69,22 @@ type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type ComboCaptureQueueState = tuple[
     queue.SimpleQueue[dict[str, object]], set[str], asyncio.Event | None
 ]
+
+
+def _with_pulse_profile_lifetime(action: MappingAction | None) -> MappingAction | None:
+    if (
+        action is not None
+        and action.action_type in _PROFILE_ACTION_TYPES
+        and action.profile_deactivation is not None
+    ):
+        return replace(
+            action,
+            profile_deactivation=normalize_pulse_profile_deactivation_policy(
+                action.action_type,
+                action.profile_deactivation,
+            ),
+        )
+    return action
 
 
 class _EmitMouseMoveFn(Protocol):
@@ -484,10 +507,11 @@ async def apply_combo_action_transition(
             deps=deps,
         )
     elif transition.kind == "pulse":
+        pulse_action = _with_pulse_profile_lifetime(transition.action)
         await start_combo_action(
             manager,
             transition.combo_id,
-            transition.action,
+            pulse_action,
             transition.trigger_binding,
             transition.trigger_bindings,
             deps=deps,
@@ -960,7 +984,7 @@ async def start_combo_action(
                         )
                         continue
                     child_combo_id = f"{combo_id}#overload_down#{index}"
-                    await _start_combo_action_instance(
+                    await _pulse_combo_action_instance(
                         manager,
                         child_combo_id,
                         child_action,
@@ -968,8 +992,6 @@ async def start_combo_action(
                         trigger_name=f"{trigger_name}#overload_down#{index}",
                         deps=deps,
                     )
-                    if child_combo_id in manager.combo_state.active_actions:
-                        split_child_combo_ids.append(child_combo_id)
                 manager.combo_state.active_actions[combo_id] = ComboActionState(
                     kind="superkey_overload_split",
                     child_combo_ids=split_child_combo_ids,
@@ -1261,10 +1283,11 @@ async def _pulse_combo_action_instance(
     trigger_name: str,
     deps: ComboRuntimeDeps,
 ) -> None:
+    pulse_action = _with_pulse_profile_lifetime(action)
     await _start_combo_action_instance(
         manager,
         combo_id,
-        action,
+        pulse_action,
         trigger_binding,
         trigger_name=trigger_name,
         deps=deps,

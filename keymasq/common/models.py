@@ -235,6 +235,20 @@ def normalize_profile_deactivation_policy(
     return normalized if normalized.has_condition else None
 
 
+def normalize_pulse_profile_deactivation_policy(
+    action_type: ActionType,
+    policy: ProfileDeactivationPolicy | None,
+) -> ProfileDeactivationPolicy | None:
+    normalized = normalize_profile_deactivation_policy(action_type, policy)
+    if normalized is None:
+        return None
+    pulse_policy = ProfileDeactivationPolicy(
+        after_actions=normalized.after_actions,
+        timeout_ms=normalized.timeout_ms,
+    )
+    return pulse_policy if pulse_policy.has_condition else None
+
+
 def parse_profile_deactivation_policy(data: object) -> ProfileDeactivationPolicy | None:
     if not isinstance(data, dict):
         return None

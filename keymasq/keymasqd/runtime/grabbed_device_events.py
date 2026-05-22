@@ -297,6 +297,7 @@ async def cleanup_runtime_failure(
         log.warning(
             "Failed to reset superkeys after event error on %s: %s", device_runtime.path, exc
         )
+    observe_profile_trigger_end_for_held_sources(device_runtime)
     runtime_outputs.release_all_keys(
         device_runtime,
         evdev_mod=evdev,
@@ -306,6 +307,18 @@ async def cleanup_runtime_failure(
 
 async def recover_from_event_processing_error(device_runtime: GrabbedDeviceRuntime) -> None:
     await cleanup_runtime_failure(device_runtime, log=logging.getLogger("keymasqd.devices"))
+
+
+def observe_profile_trigger_end_for_held_sources(
+    device_runtime: GrabbedDeviceRuntime,
+) -> None:
+    observer = device_runtime.profile_activation_trigger_end_observer
+    if observer is None:
+        return
+    event_names = set(device_runtime.state.held_source_keys)
+    event_names.update(device_runtime.state.held_source_actions)
+    for event_name in sorted(event_names):
+        observer(source_trigger_id(device_runtime.hardware_id, event_name))
 
 
 def get_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:

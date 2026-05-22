@@ -49,6 +49,12 @@ async def set_profile_enabled(
             "message": f"Profile '{profile_name}' not found",
         }
 
+    if profile.enabled is False:
+        await _cancel_runtime_profile_activation_for_profile(
+            manager,
+            profile.name,
+        )
+
     await reevaluate_profiles(manager, reason=f"profile {profile_name} enabled={profile.enabled}")
     return {
         "status": "ok",
@@ -56,6 +62,33 @@ async def set_profile_enabled(
         "enabled": profile.enabled,
         "active_profiles": list(manager.profile_state.active_profile_names),
     }
+
+
+async def _cancel_runtime_profile_activation_for_profile(
+    manager: "SessionManager",
+    profile_name: str,
+) -> bool:
+    activation = manager.profile_state.runtime_profile_activations.pop(profile_name, None)
+    if activation is None:
+        return False
+    try:
+        await manager.client.send_command(
+            Command(
+                command=CommandType.CANCEL_PROFILE_ACTIVATION,
+                data={
+                    "profile_name": profile_name,
+                    "activation_id": activation.activation_id,
+                },
+            )
+        )
+    except Exception as exc:
+        log.debug(
+            "Failed to cancel runtime profile activation profile=%s activation=%s: %s",
+            profile_name,
+            activation.activation_id,
+            exc,
+        )
+    return True
 
 
 def build_active_profiles_payload(manager: "SessionManager") -> JsonObject:

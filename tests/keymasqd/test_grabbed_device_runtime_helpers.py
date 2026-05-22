@@ -37,6 +37,51 @@ class _CountingUInput(_FakeUInput):
 
 class TestGrabbedDeviceHelpers:
     @pytest.mark.asyncio
+    async def test_device_release_ends_held_profile_trigger_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[tuple[CommandType, dict[str, object]]] = []
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            events.append((event_type, data))
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"caps": "key_capslock"},
+            profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+        )
+        manager.grabbed_devices["1234:5678"] = [device]
+        device.state.held_source_keys.add("key_capslock")
+        device.state.held_source_actions["key_capslock"] = dm.MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Nav",
+        )
+
+        manager.observe_profile_trigger_start("1234:5678:key_capslock")
+        await manager.track_profile_activation(
+            "Nav",
+            "activation-1",
+            "1234:5678:key_capslock",
+            {"on_trigger_end": True, "defer_until_keys_released": True},
+        )
+
+        await device.release()
+        await asyncio.sleep(0.05)
+
+        assert (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        ) in events
+        assert "key_capslock" not in device.state.held_source_keys
+        assert "key_capslock" not in device.state.held_source_actions
+
+    @pytest.mark.asyncio
     async def test_consumed_release_clears_held_profile_trigger_state(
         self,
         monkeypatch: pytest.MonkeyPatch,

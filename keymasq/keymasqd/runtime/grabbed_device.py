@@ -457,6 +457,7 @@ class GrabbedDevice:
         self._running = False
         await self.reset_analog_controls()
         await self.reset_superkeys()
+        runtime_events.observe_profile_trigger_end_for_held_sources(self)
         runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
         self.state.held_source_keys.clear()
         self.state.held_source_actions.clear()

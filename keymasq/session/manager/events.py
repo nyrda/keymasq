@@ -3,7 +3,7 @@ import logging
 import time
 import uuid
 from collections.abc import Coroutine
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
@@ -393,18 +393,25 @@ async def _handle_lifetime_profile_trigger(
         manager,
         reason=f"runtime profile activation {profile_name}",
     )
-    await _track_runtime_profile_activation(manager, activation)
+    if not await _track_runtime_profile_activation(manager, activation):
+        current = manager.profile_state.runtime_profile_activations.get(profile_name)
+        if current is not None and current.activation_id == activation.activation_id:
+            manager.profile_state.runtime_profile_activations.pop(profile_name, None)
+            await runtime_profiles.reevaluate_profiles(
+                manager,
+                reason=f"runtime profile activation tracking failed {profile_name}",
+            )
 
 
 async def _track_runtime_profile_activation(
     manager: "SessionManager",
     activation: RuntimeProfileActivation,
-) -> None:
+) -> bool:
     deactivation_data = profile_deactivation_policy_to_dict(activation.deactivation)
     if deactivation_data is None:
-        return
+        return False
     try:
-        await manager.client.send_command(
+        response = await manager.client.send_command(
             Command(
                 command=CommandType.TRACK_PROFILE_ACTIVATION,
                 data={
@@ -422,6 +429,28 @@ async def _track_runtime_profile_activation(
             activation.activation_id,
             exc,
         )
+        return False
+    if response.status != "ok":
+        log.warning(
+            "Runtime profile activation tracking rejected profile=%s activation=%s: %s",
+            activation.profile_name,
+            activation.activation_id,
+            response.error or response.status,
+        )
+        return False
+    response_data = response.data
+    if isinstance(response_data, dict):
+        tracked_data = cast(dict[str, object], response_data)
+    else:
+        tracked_data = {}
+    if tracked_data.get("tracked") is False:
+        log.warning(
+            "Runtime profile activation was not tracked profile=%s activation=%s",
+            activation.profile_name,
+            activation.activation_id,
+        )
+        return False
+    return True
 
 
 async def _cancel_runtime_profile_activation(

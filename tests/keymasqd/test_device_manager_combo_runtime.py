@@ -1185,7 +1185,6 @@ class TestCombos:
         assert keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 1),
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 0),
         ]
 
         await manager.set_combos([combo_payload, unrelated_payload])
@@ -1193,7 +1192,6 @@ class TestCombos:
         assert keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 1),
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 0),
         ]
 
         released = await _runtime_on_device_event(
@@ -1209,9 +1207,9 @@ class TestCombos:
         assert keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 1),
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F16, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F16, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
         ]
 

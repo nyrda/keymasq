@@ -42,9 +42,21 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         events: list[tuple[CommandType, dict[str, object]]] = []
+        deactivate_event = asyncio.Event()
+        expected_deactivate = (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        )
 
         async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
-            events.append((event_type, data))
+            event = (event_type, data)
+            events.append(event)
+            if event == expected_deactivate:
+                deactivate_event.set()
 
         manager = DeviceManager(broadcast_callback=broadcast)
         device = _make_grabbed_device(
@@ -68,16 +80,9 @@ class TestGrabbedDeviceHelpers:
         )
 
         await device.release()
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
-        assert (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-1",
-                "reason": "trigger_end",
-            },
-        ) in events
+        assert expected_deactivate in events
         assert "key_capslock" not in device.state.held_source_keys
         assert "key_capslock" not in device.state.held_source_actions
 

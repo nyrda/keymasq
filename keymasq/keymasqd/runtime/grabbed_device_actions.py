@@ -455,7 +455,7 @@ async def _execute_overload_superkey(
                 active=False,
             )
 
-    if int(event.value) == 1:
+    if int(event.value) in (0, 1):
         for index, child_action in enumerate(config.overload_down_actions):
             if child_action.action_type == ActionType.SUPERKEY:
                 log.warning(
@@ -465,7 +465,14 @@ async def _execute_overload_superkey(
                 )
                 continue
             child_event_name = f"{event_name}#overload_down#{index}"
-            await execute_action_pulse(
+            if int(event.value) == 1:
+                device_runtime.state.held_profile_trigger_events.add(child_event_name)
+                _observe_overload_profile_trigger(
+                    device_runtime,
+                    child_event_name,
+                    active=True,
+                )
+            await execute_action(
                 device_runtime,
                 child_action,
                 event,
@@ -474,6 +481,13 @@ async def _execute_overload_superkey(
                 shared_output_tracker=overload_output_tracker,
                 shared_abs_output_tracker=overload_abs_output_tracker,
             )
+            if int(event.value) == 0:
+                device_runtime.state.held_profile_trigger_events.discard(child_event_name)
+                _observe_overload_profile_trigger(
+                    device_runtime,
+                    child_event_name,
+                    active=False,
+                )
 
 
 async def _execute_gamepad_axis_action(

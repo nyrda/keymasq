@@ -182,6 +182,7 @@ class TestProfileManager:
         )
         toggle = loaded.config.device_layers["1234:5678"].mappings["btn_side"]
         assert toggle.profile_deactivation == ProfileDeactivationPolicy(
+            on_trigger_end=True,
             after_actions=2,
             timeout_ms=2000,
         )

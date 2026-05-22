@@ -151,7 +151,7 @@ class TestComboActionDispatch:
         assert expected_deactivate in events
 
     @pytest.mark.asyncio
-    async def test_combo_split_overload_superkey_pulses_down_and_up_children(
+    async def test_combo_split_overload_superkey_holds_down_and_pulses_up_children(
         self,
     ) -> None:
         manager = DeviceManager()
@@ -180,11 +180,88 @@ class TestComboActionDispatch:
         assert manager.output_state.keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
         ]
+
+    @pytest.mark.asyncio
+    async def test_combo_overload_down_profile_lifetime_follows_combo_lifecycle(
+        self,
+    ) -> None:
+        events: list[tuple[CommandType, dict[str, object]]] = []
+        action_triggers: list[dict[str, object]] = []
+        action_trigger_event = asyncio.Event()
+        deactivate_event = asyncio.Event()
+        expected_deactivate = (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        )
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            if event_type == CommandType.ACTION_TRIGGER:
+                action_triggers.append(data)
+                await manager.track_profile_activation(
+                    str(data["profile_name"]),
+                    "activation-1",
+                    str(data["trigger_id"]),
+                    data["deactivation"],
+                )
+                action_trigger_event.set()
+                return
+            event = (event_type, data)
+            events.append(event)
+            if event == expected_deactivate:
+                deactivate_event.set()
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-split-overload-profile",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_down_actions=[
+                    dm.MappingAction(
+                        action_type=ActionType.PROFILE_ENABLE,
+                        profile_name="Nav",
+                        profile_deactivation=ProfileDeactivationPolicy(
+                            on_trigger_end=True
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+        await _runtime_start_combo_action(manager, "combo-split-overload-profile", action, binding)
+        await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
+
+        assert action_triggers == [
+            {
+                "action_type": "profile_enable",
+                "profile_name": "Nav",
+                "source_device": "1234:5678",
+                "source_button": "combo:combo-split-overload-profile#overload_down#0",
+                "trigger_id": "1234:5678:combo:combo-split-overload-profile#overload_down#0",
+                "deactivation": {
+                    "on_trigger_end": True,
+                },
+            }
+        ]
+        assert [
+            event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
+        ] == []
+
+        await _runtime_stop_combo_action(manager, "combo-split-overload-profile")
+        await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+        assert expected_deactivate in events
+
     def test_combo_overload_superkey_rejects_nested_superkey_children(
         self,
     ) -> None:

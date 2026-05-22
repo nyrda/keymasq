@@ -959,14 +959,17 @@ async def start_combo_action(
                             config.name,
                         )
                         continue
-                    await _pulse_combo_action_instance(
+                    child_combo_id = f"{combo_id}#overload_down#{index}"
+                    await _start_combo_action_instance(
                         manager,
-                        f"{combo_id}#overload_down#{index}",
+                        child_combo_id,
                         child_action,
                         trigger_binding,
                         trigger_name=f"{trigger_name}#overload_down#{index}",
                         deps=deps,
                     )
+                    if child_combo_id in manager.combo_state.active_actions:
+                        split_child_combo_ids.append(child_combo_id)
                 manager.combo_state.active_actions[combo_id] = ComboActionState(
                     kind="superkey_overload_split",
                     child_combo_ids=split_child_combo_ids,

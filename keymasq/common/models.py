@@ -228,9 +228,7 @@ def normalize_profile_deactivation_policy(
         return None
 
     normalized = ProfileDeactivationPolicy(
-        on_trigger_end=bool(policy.on_trigger_end)
-        if action_type == ActionType.PROFILE_ENABLE
-        else False,
+        on_trigger_end=bool(policy.on_trigger_end),
         after_actions=_positive_int_or_none(policy.after_actions),
         timeout_ms=_positive_int_or_none(policy.timeout_ms),
     )

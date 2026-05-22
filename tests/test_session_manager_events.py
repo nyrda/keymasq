@@ -590,6 +590,7 @@ async def test_no_lifetime_disable_cancels_runtime_activation_and_persists_disab
 @pytest.mark.asyncio
 async def test_no_lifetime_toggle_cancels_runtime_activation_before_persisting_enabled(
     temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
@@ -604,12 +605,32 @@ async def test_no_lifetime_toggle_cancels_runtime_activation_before_persisting_e
         },
     )
     activation_id = manager.profile_state.runtime_profile_activations["Nav"].activation_id
+    real_set_profile_enabled = session_events_module.runtime_profiles.set_profile_enabled
+    activation_cancelled_before_persist = False
+
+    async def observe_set_profile_enabled(
+        manager_arg: SessionManager,
+        profile_name: str,
+        enabled: bool | None,
+    ) -> dict[str, object]:
+        nonlocal activation_cancelled_before_persist
+        activation_cancelled_before_persist = (
+            profile_name not in manager.profile_state.runtime_profile_activations
+        )
+        return await real_set_profile_enabled(manager_arg, profile_name, enabled)
+
+    monkeypatch.setattr(
+        session_events_module.runtime_profiles,
+        "set_profile_enabled",
+        observe_set_profile_enabled,
+    )
 
     await session_events_module.handle_profile_trigger(
         manager,
         {"action_type": "profile_toggle", "profile_name": "Nav"},
     )
 
+    assert activation_cancelled_before_persist is True
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     assert manager.profiles.get_profile("Nav").config.enabled is True
     cancel_calls = [

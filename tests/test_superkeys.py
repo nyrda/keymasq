@@ -310,20 +310,7 @@ def test_superkey_profile_action_deactivation_policy_round_trips(
                 SuperkeyAction(
                     action_type=ActionType.PROFILE_ENABLE,
                     profile_name="Nav",
-                    profile_deactivation=ProfileDeactivationPolicy(
-                        on_trigger_end=True,
-                        after_actions=1,
-                    ),
-                )
-            ],
-            double_tap_actions=[
-                SuperkeyAction(
-                    action_type=ActionType.PROFILE_TOGGLE,
-                    profile_name="Nav",
-                    profile_deactivation=ProfileDeactivationPolicy(
-                        on_trigger_end=True,
-                        timeout_ms=1500,
-                    ),
+                    profile_deactivation=ProfileDeactivationPolicy(after_actions=1),
                 )
             ],
             hold_actions=[
@@ -341,9 +328,6 @@ def test_superkey_profile_action_deactivation_policy_round_trips(
     assert reloaded is not None
     assert reloaded.tap_actions[0].profile_deactivation == ProfileDeactivationPolicy(
         after_actions=1
-    )
-    assert reloaded.double_tap_actions[0].profile_deactivation == ProfileDeactivationPolicy(
-        timeout_ms=1500
     )
     assert reloaded.hold_actions[0].profile_deactivation == ProfileDeactivationPolicy(
         timeout_ms=1500
@@ -394,25 +378,9 @@ def test_superkey_manager_round_trips_split_overload_actions(temp_config_dir, mo
         ],
         overload_down_actions=[
             MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
-            MappingAction(
-                action_type=ActionType.PROFILE_ENABLE,
-                profile_name="Nav",
-                profile_deactivation=ProfileDeactivationPolicy(
-                    on_trigger_end=True,
-                    after_actions=1,
-                ),
-            ),
         ],
         overload_up_actions=[
             MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
-            MappingAction(
-                action_type=ActionType.PROFILE_TOGGLE,
-                profile_name="Nav",
-                profile_deactivation=ProfileDeactivationPolicy(
-                    on_trigger_end=True,
-                    timeout_ms=1500,
-                ),
-            ),
         ],
     )
 
@@ -422,18 +390,11 @@ def test_superkey_manager_round_trips_split_overload_actions(temp_config_dir, mo
     assert reloaded is not None
     assert reloaded.mode == SuperkeyMode.OVERLOAD
     assert [action.target for action in reloaded.overload_actions] == ["key_leftctrl"]
-    assert reloaded.overload_down_actions[0].target == "key_a"
-    assert reloaded.overload_down_actions[1].profile_deactivation == ProfileDeactivationPolicy(
-        after_actions=1
-    )
-    assert reloaded.overload_up_actions[0].target == "key_b"
-    assert reloaded.overload_up_actions[1].profile_deactivation == ProfileDeactivationPolicy(
-        timeout_ms=1500
-    )
+    assert [action.target for action in reloaded.overload_down_actions] == ["key_a"]
+    assert [action.target for action in reloaded.overload_up_actions] == ["key_b"]
     text = (superkeys_dir / "split-overload.toml").read_text(encoding="utf-8")
-    assert "[[actions.overload_down]]" in text
-    assert "[[actions.overload_up]]" in text
-    assert "on_trigger_end" not in text
+    assert "overload_down = [" in text
+    assert "overload_up = [" in text
 
 
 def test_superkey_manager_warns_and_strips_manual_unsupported_rapidfire(
@@ -520,25 +481,9 @@ def test_superkey_runtime_payload_round_trips_split_overload_actions() -> None:
         ],
         overload_down_actions=[
             MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
-            MappingAction(
-                action_type=ActionType.PROFILE_ENABLE,
-                profile_name="Nav",
-                profile_deactivation=ProfileDeactivationPolicy(
-                    on_trigger_end=True,
-                    after_actions=1,
-                ),
-            ),
         ],
         overload_up_actions=[
             MappingAction(action_type=ActionType.EXEC, cmd="echo up"),
-            MappingAction(
-                action_type=ActionType.PROFILE_TOGGLE,
-                profile_name="Nav",
-                profile_deactivation=ProfileDeactivationPolicy(
-                    on_trigger_end=True,
-                    timeout_ms=1500,
-                ),
-            ),
         ],
     )
 
@@ -557,15 +502,9 @@ def test_superkey_runtime_payload_round_trips_split_overload_actions() -> None:
 
     assert parsed.mode == SuperkeyMode.OVERLOAD
     assert [action.target for action in parsed.overload_actions] == ["key_leftctrl"]
-    assert parsed.overload_down_actions[0].target == "key_a"
-    assert parsed.overload_down_actions[1].profile_deactivation == ProfileDeactivationPolicy(
-        after_actions=1
-    )
+    assert [action.target for action in parsed.overload_down_actions] == ["key_a"]
     assert parsed.overload_up_actions[0].action_type == ActionType.EXEC
     assert parsed.overload_up_actions[0].exec_ref == 1
-    assert parsed.overload_up_actions[1].profile_deactivation == ProfileDeactivationPolicy(
-        timeout_ms=1500
-    )
     assert manager.exec_state.exec_refs[1] == ExecBinding(
         cmd="echo up",
         owner="device",

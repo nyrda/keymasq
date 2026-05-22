@@ -47,11 +47,6 @@ Each slot can run an ordered bundle of actions. When a slot fires:
 That makes bundles like `Ctrl` then `C`, or `Shift` then `Tab`, behave
 correctly.
 
-Profile lifetimes that depend on the trigger ending only apply to held slots:
-Hold, Tap + Hold, and the main Overload action list. Tap, Double Tap, and
-Overload on-press/on-release actions are pulse slots; profile one-shot,
-action-count, and timeout lifetimes can still be used there.
-
 ### Overload (Multi-Output)
 
 Overload mode does not do gesture recognition. Instead, the source key

@@ -186,65 +186,6 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
         ]
 
-    @pytest.mark.asyncio
-    async def test_combo_overload_down_profile_lifetime_filters_trigger_end_for_pulse(
-        self,
-    ) -> None:
-        events: list[tuple[CommandType, dict[str, object]]] = []
-        action_triggers: list[dict[str, object]] = []
-        action_trigger_event = asyncio.Event()
-
-        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
-            if event_type == CommandType.ACTION_TRIGGER:
-                action_triggers.append(data)
-                action_trigger_event.set()
-                return
-            events.append((event_type, data))
-
-        manager = DeviceManager(broadcast_callback=broadcast)
-        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
-        action = dm.MappingAction(
-            action_type=ActionType.SUPERKEY,
-            superkey_config=SuperkeyConfig(
-                name="combo-split-overload-profile",
-                mode=SuperkeyMode.OVERLOAD,
-                overload_down_actions=[
-                    dm.MappingAction(
-                        action_type=ActionType.PROFILE_ENABLE,
-                        profile_name="Nav",
-                        profile_deactivation=ProfileDeactivationPolicy(
-                            on_trigger_end=True,
-                            after_actions=1,
-                        ),
-                    ),
-                ],
-            ),
-        )
-
-        await _runtime_start_combo_action(manager, "combo-split-overload-profile", action, binding)
-        await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
-
-        assert action_triggers == [
-            {
-                "action_type": "profile_enable",
-                "profile_name": "Nav",
-                "source_device": "1234:5678",
-                "source_button": "combo:combo-split-overload-profile#overload_down#0",
-                "trigger_id": "1234:5678:combo:combo-split-overload-profile#overload_down#0",
-                "deactivation": {
-                    "after_actions": 1,
-                },
-            }
-        ]
-        assert [
-            event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-        ] == []
-
-        await _runtime_stop_combo_action(manager, "combo-split-overload-profile")
-        assert [
-            event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-        ] == []
-
     def test_combo_overload_superkey_rejects_nested_superkey_children(
         self,
     ) -> None:

@@ -12,7 +12,6 @@ from keymasq.common.models import (
     SuperkeyMode,
     combo_effective_superkey_config,
     normalize_analog_control_features,
-    normalize_pulse_profile_deactivation_policy,
     profile_deactivation_policy_to_dict,
     superkey_action_to_mapping_action,
 )
@@ -135,8 +134,6 @@ def action_signature_payload(
     manager: "SessionManager",
     action: MappingAction,
     hardware_id: str,
-    *,
-    supports_trigger_lifecycle: bool = True,
 ) -> dict[str, object]:
     action_type = action.action_type.value
     data: dict[str, object] = {"action": action_type}
@@ -193,16 +190,7 @@ def action_signature_payload(
         "profile_toggle",
     ):
         data["profile_name"] = action.profile_name or action.target or ""
-        deactivation = (
-            profile_deactivation_policy_to_dict(action.profile_deactivation)
-            if supports_trigger_lifecycle
-            else profile_deactivation_policy_to_dict(
-                normalize_pulse_profile_deactivation_policy(
-                    action.action_type,
-                    action.profile_deactivation,
-                )
-            )
-        )
+        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
         if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
             data["deactivation"] = deactivation
         return data
@@ -615,7 +603,6 @@ def serialize_superkey(
                     action,
                     hardware_id,
                     track_combo_refs=track_combo_refs,
-                    supports_trigger_lifecycle=False,
                 )
                 for action in config.tap_actions
             ]
@@ -626,7 +613,6 @@ def serialize_superkey(
                     action,
                     hardware_id,
                     track_combo_refs=track_combo_refs,
-                    supports_trigger_lifecycle=False,
                 )
                 for action in config.double_tap_actions
             ]
@@ -668,7 +654,6 @@ def serialize_superkey(
                     action,
                     hardware_id,
                     track_combo_refs=track_combo_refs,
-                    supports_trigger_lifecycle=False,
                 )
                 for action in config.overload_down_actions
             ]
@@ -679,7 +664,6 @@ def serialize_superkey(
                     action,
                     hardware_id,
                     track_combo_refs=track_combo_refs,
-                    supports_trigger_lifecycle=False,
                 )
                 for action in config.overload_up_actions
             ]
@@ -849,22 +833,12 @@ def serialize_superkey_signature(
     if config.mode == SuperkeyMode.PATTERN:
         if config.tap_actions:
             data["tap_actions"] = [
-                serialize_superkey_action_signature(
-                    manager,
-                    action,
-                    hardware_id,
-                    supports_trigger_lifecycle=False,
-                )
+                serialize_superkey_action_signature(manager, action, hardware_id)
                 for action in config.tap_actions
             ]
         if config.double_tap_actions:
             data["double_tap_actions"] = [
-                serialize_superkey_action_signature(
-                    manager,
-                    action,
-                    hardware_id,
-                    supports_trigger_lifecycle=False,
-                )
+                serialize_superkey_action_signature(manager, action, hardware_id)
                 for action in config.double_tap_actions
             ]
         if config.hold_actions:
@@ -885,22 +859,12 @@ def serialize_superkey_signature(
     if config.mode == SuperkeyMode.OVERLOAD:
         if config.overload_down_actions:
             data["overload_down_actions"] = [
-                action_signature_payload(
-                    manager,
-                    action,
-                    hardware_id,
-                    supports_trigger_lifecycle=False,
-                )
+                action_signature_payload(manager, action, hardware_id)
                 for action in config.overload_down_actions
             ]
         if config.overload_up_actions:
             data["overload_up_actions"] = [
-                action_signature_payload(
-                    manager,
-                    action,
-                    hardware_id,
-                    supports_trigger_lifecycle=False,
-                )
+                action_signature_payload(manager, action, hardware_id)
                 for action in config.overload_up_actions
             ]
 
@@ -913,14 +877,12 @@ def serialize_superkey_action(
     hardware_id: str,
     *,
     track_combo_refs: bool = False,
-    supports_trigger_lifecycle: bool = True,
 ) -> JsonObject:
     return serialize_overload_action(
         manager,
         superkey_action_to_mapping_action(action),
         hardware_id,
         track_combo_refs=track_combo_refs,
-        supports_trigger_lifecycle=supports_trigger_lifecycle,
     )
 
 
@@ -928,14 +890,11 @@ def serialize_superkey_action_signature(
     manager: "SessionManager",
     action: SuperkeyAction,
     hardware_id: str,
-    *,
-    supports_trigger_lifecycle: bool = True,
 ) -> JsonObject:
     return action_signature_payload(
         manager,
         superkey_action_to_mapping_action(action),
         hardware_id,
-        supports_trigger_lifecycle=supports_trigger_lifecycle,
     )
 
 
@@ -945,7 +904,6 @@ def serialize_overload_action(
     hardware_id: str,
     *,
     track_combo_refs: bool = False,
-    supports_trigger_lifecycle: bool = True,
 ) -> JsonObject:
     action_type = action.action_type.value
     if action.action_type == ActionType.SUPERKEY:
@@ -1012,16 +970,7 @@ def serialize_overload_action(
         "profile_toggle",
     ):
         action_data["profile_name"] = action.profile_name or action.target or ""
-        deactivation = (
-            profile_deactivation_policy_to_dict(action.profile_deactivation)
-            if supports_trigger_lifecycle
-            else profile_deactivation_policy_to_dict(
-                normalize_pulse_profile_deactivation_policy(
-                    action.action_type,
-                    action.profile_deactivation,
-                )
-            )
-        )
+        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
         if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
             action_data["deactivation"] = deactivation
         return action_data

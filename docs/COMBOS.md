@@ -69,10 +69,6 @@ Mouse wheel directions can be used as pulse inputs in combos. For example,
 the other trigger input is held. Wheel directions do not stay held, so
 wheel-triggered combo actions are pressed and released immediately.
 
-For profile lifetimes, wheel-triggered pulse actions can use action-count and
-timeout conditions. They cannot use trigger-end lifetimes because there is no
-held wheel trigger to release.
-
 ### Multi-Step Combos
 
 Multi-step combos also use held-state matching for step 1, then advance one

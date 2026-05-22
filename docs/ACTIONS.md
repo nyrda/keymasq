@@ -382,11 +382,6 @@ and also cancels any runtime activation for that profile. Profile action
 lifetimes use "any" semantics: the first configured condition to happen
 deactivates the runtime layer.
 
-Pulse-only triggers, such as mouse wheel mappings, superkey Tap/Double Tap, and
-superkey Overload on-press/on-release actions, can use self-contained lifetimes
-like One-shot, action count, and timeout. They cannot use While trigger is
-active because those slots do not have a held trigger lifecycle.
-
 If the selected target profile is already enabled, lifetime controls are
 disabled in the editor. Disable that profile first to use it as a temporary
 layer.

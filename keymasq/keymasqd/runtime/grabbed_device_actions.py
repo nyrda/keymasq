@@ -1,15 +1,9 @@
 import logging
 from collections.abc import Callable
-from dataclasses import replace
 from typing import cast
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import (
-    ActionType,
-    MappingAction,
-    SuperkeyMode,
-    normalize_pulse_profile_deactivation_policy,
-)
+from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
 from keymasq.keymasqd.output_helpers import (
     resolve_gamepad_axis_code,
     resolve_output_code,
@@ -55,25 +49,6 @@ from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyCon
 from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
 log = logging.getLogger("keymasqd.runtime.grabbed_device_actions")
-
-
-_PROFILE_ACTION_TYPES = (
-    ActionType.PROFILE_ENABLE,
-    ActionType.PROFILE_DISABLE,
-    ActionType.PROFILE_TOGGLE,
-)
-
-
-def _with_pulse_profile_lifetime(action: MappingAction) -> MappingAction:
-    if action.action_type in _PROFILE_ACTION_TYPES and action.profile_deactivation is not None:
-        return replace(
-            action,
-            profile_deactivation=normalize_pulse_profile_deactivation_policy(
-                action.action_type,
-                action.profile_deactivation,
-            ),
-        )
-    return action
 
 
 async def execute_action(
@@ -357,10 +332,9 @@ async def execute_action_pulse(
     explicit_bucket: str | None = None,
 ) -> None:
     del explicit_bucket
-    pulse_action = _with_pulse_profile_lifetime(action)
     await execute_action(
         device_runtime,
-        pulse_action,
+        action,
         _SyntheticInputEvent(int(event.type), int(event.code), 1),
         event_name,
         deps=deps,
@@ -369,7 +343,7 @@ async def execute_action_pulse(
     )
     await execute_action(
         device_runtime,
-        pulse_action,
+        action,
         _SyntheticInputEvent(int(event.type), int(event.code), 0),
         event_name,
         deps=deps,

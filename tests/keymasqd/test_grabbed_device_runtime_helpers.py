@@ -667,69 +667,6 @@ class TestGrabbedDeviceHelpers:
         ]
 
     @pytest.mark.asyncio
-    async def test_process_grabbed_wheel_profile_lifetime_filters_trigger_end_for_pulse(
-        self,
-        monkeypatch,
-    ) -> None:
-        action_triggers: list[dict[str, object]] = []
-        events: list[tuple[CommandType, dict[str, object]]] = []
-        action_trigger_event = asyncio.Event()
-
-        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
-            if event_type == CommandType.ACTION_TRIGGER:
-                action_triggers.append(data)
-                action_trigger_event.set()
-                return
-            events.append((event_type, data))
-
-        device = _make_grabbed_device(
-            monkeypatch,
-            button_map={"wheel_up": "rel_wheel"},
-            button_codes={"wheel_up": evdev.ecodes.REL_WHEEL},
-            button_values={"wheel_up": 1},
-            broadcast_callback=broadcast,
-        )
-        mapping = {
-            "wheel_up": MappingAction(
-                action_type=ActionType.PROFILE_TOGGLE,
-                profile_name="Nav",
-                profile_deactivation=ProfileDeactivationPolicy(
-                    on_trigger_end=True,
-                    after_actions=1,
-                ),
-            ),
-        }
-        device.mapping_getter = lambda: mapping  # type: ignore[method-assign]
-
-        await _runtime_process_grabbed_event(
-            device,
-            evdev.InputEvent(
-                0,
-                0,
-                evdev.ecodes.EV_REL,
-                evdev.ecodes.REL_WHEEL,
-                1,
-            ),
-        )
-        await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
-
-        assert action_triggers == [
-            {
-                "action_type": "profile_toggle",
-                "profile_name": "Nav",
-                "source_device": "1234:5678",
-                "source_button": "wheel_up",
-                "trigger_id": "1234:5678:wheel_up",
-                "deactivation": {
-                    "after_actions": 1,
-                },
-            }
-        ]
-        assert [
-            event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-        ] == []
-
-    @pytest.mark.asyncio
     async def test_process_grabbed_wheel_passthrough_and_suppress(
         self,
         monkeypatch,

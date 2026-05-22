@@ -16,7 +16,6 @@ from keymasq.common.models import (
     mapping_action_to_superkey_action,
     normalize_macro_loop_stop_behavior,
     normalize_profile_deactivation_policy,
-    normalize_pulse_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     parse_rapidfire_fields,
     profile_deactivation_policy_to_dict,
@@ -93,25 +92,15 @@ class SuperkeyManager:
         timing = _as_toml_dict(data.get("timing")) or {}
         actions_data = _as_toml_dict(data.get("actions")) or {}
 
-        tap_actions = self._parse_superkey_action_bundle(
-            actions_data.get("tap"),
-            supports_trigger_lifecycle=False,
-        )
-        double_tap_actions = self._parse_superkey_action_bundle(
-            actions_data.get("double_tap"),
-            supports_trigger_lifecycle=False,
-        )
+        tap_actions = self._parse_superkey_action_bundle(actions_data.get("tap"))
+        double_tap_actions = self._parse_superkey_action_bundle(actions_data.get("double_tap"))
         hold_actions = self._parse_superkey_action_bundle(actions_data.get("hold"))
         tap_hold_actions = self._parse_superkey_action_bundle(actions_data.get("tap_hold"))
         overload_actions = self._parse_overload_action_bundle(actions_data.get("overload"))
         overload_down_actions = self._parse_overload_action_bundle(
-            actions_data.get("overload_down"),
-            supports_trigger_lifecycle=False,
+            actions_data.get("overload_down")
         )
-        overload_up_actions = self._parse_overload_action_bundle(
-            actions_data.get("overload_up"),
-            supports_trigger_lifecycle=False,
-        )
+        overload_up_actions = self._parse_overload_action_bundle(actions_data.get("overload_up"))
 
         mode = _parse_superkey_mode(data.get("mode"))
 
@@ -133,12 +122,7 @@ class SuperkeyManager:
         self._validate_before_save(config)
         return config
 
-    def _parse_superkey_action_bundle(
-        self,
-        data: object,
-        *,
-        supports_trigger_lifecycle: bool = True,
-    ) -> list[SuperkeyAction]:
+    def _parse_superkey_action_bundle(self, data: object) -> list[SuperkeyAction]:
         if data is None:
             return []
         if not isinstance(data, list):
@@ -149,28 +133,15 @@ class SuperkeyManager:
             action_data = _as_toml_dict(item)
             if action_data is None:
                 raise ValueError("pattern action bundle items must be TOML tables")
-            actions.append(
-                self._parse_superkey_action(
-                    action_data,
-                    supports_trigger_lifecycle=supports_trigger_lifecycle,
-                )
-            )
+            actions.append(self._parse_superkey_action(action_data))
         return actions
 
-    def _parse_superkey_action(
-        self,
-        data: TomlDict | None,
-        *,
-        supports_trigger_lifecycle: bool = True,
-    ) -> SuperkeyAction:
+    def _parse_superkey_action(self, data: TomlDict | None) -> SuperkeyAction:
         if not data:
             raise ValueError("pattern action must be a TOML table")
         action_type_str = _toml_str(data, "action", "passthrough") or "passthrough"
         try:
-            action = self._parse_mapping_action(
-                data,
-                supports_trigger_lifecycle=supports_trigger_lifecycle,
-            )
+            action = self._parse_mapping_action(data)
         except UnknownActionTypeError as exc:
             raise ValueError(f"unknown pattern superkey action type '{action_type_str}'") from exc
         except ValueError:
@@ -180,12 +151,7 @@ class SuperkeyManager:
         except ValueError as exc:
             raise ValueError(f"invalid pattern superkey action type '{action_type_str}'") from exc
 
-    def _parse_overload_action_bundle(
-        self,
-        data: object,
-        *,
-        supports_trigger_lifecycle: bool = True,
-    ) -> list[MappingAction]:
+    def _parse_overload_action_bundle(self, data: object) -> list[MappingAction]:
         if data is None:
             return []
         if not isinstance(data, list):
@@ -196,20 +162,10 @@ class SuperkeyManager:
             action_data = _as_toml_dict(item)
             if action_data is None:
                 raise ValueError("overload action items must be TOML tables")
-            actions.append(
-                self._parse_mapping_action(
-                    action_data,
-                    supports_trigger_lifecycle=supports_trigger_lifecycle,
-                )
-            )
+            actions.append(self._parse_mapping_action(action_data))
         return actions
 
-    def _parse_mapping_action(
-        self,
-        action_data: TomlDict,
-        *,
-        supports_trigger_lifecycle: bool = True,
-    ) -> MappingAction:
+    def _parse_mapping_action(self, action_data: TomlDict) -> MappingAction:
         action_type_str = str(action_data.get("action", "passthrough"))
         if action_type_str == "rapidfire":
             action_type_str = "keyboard"
@@ -278,11 +234,7 @@ class SuperkeyManager:
             profile_name = str(action_data.get("profile_name", "") or "")
             if not profile_name:
                 profile_name = str(action_data.get("target", "") or "")
-            deactivation = (
-                normalize_profile_deactivation_policy
-                if supports_trigger_lifecycle
-                else normalize_pulse_profile_deactivation_policy
-            )(
+            deactivation = normalize_profile_deactivation_policy(
                 action_type,
                 parse_profile_deactivation_policy(action_data.get("deactivation")),
             )
@@ -377,13 +329,11 @@ class SuperkeyManager:
         if config.mode == SuperkeyMode.PATTERN:
             if config.tap_actions:
                 actions["tap"] = [
-                    self._serialize_pattern_action(action, supports_trigger_lifecycle=False)
-                    for action in config.tap_actions
+                    self._serialize_pattern_action(action) for action in config.tap_actions
                 ]
             if config.double_tap_actions:
                 actions["double_tap"] = [
-                    self._serialize_pattern_action(action, supports_trigger_lifecycle=False)
-                    for action in config.double_tap_actions
+                    self._serialize_pattern_action(action) for action in config.double_tap_actions
                 ]
             if config.hold_actions:
                 actions["hold"] = [
@@ -400,13 +350,12 @@ class SuperkeyManager:
                 ]
             if config.overload_down_actions:
                 actions["overload_down"] = [
-                    self._serialize_mapping_action(action, supports_trigger_lifecycle=False)
+                    self._serialize_mapping_action(action)
                     for action in config.overload_down_actions
                 ]
             if config.overload_up_actions:
                 actions["overload_up"] = [
-                    self._serialize_mapping_action(action, supports_trigger_lifecycle=False)
-                    for action in config.overload_up_actions
+                    self._serialize_mapping_action(action) for action in config.overload_up_actions
                 ]
         if actions:
             data["actions"] = actions
@@ -443,23 +392,10 @@ class SuperkeyManager:
                         f"invalid pattern superkey action type: {action.action_type.value}"
                     )
 
-    def _serialize_pattern_action(
-        self,
-        action: SuperkeyAction,
-        *,
-        supports_trigger_lifecycle: bool = True,
-    ) -> TomlDict:
-        return self._serialize_mapping_action(
-            superkey_action_to_mapping_action(action),
-            supports_trigger_lifecycle=supports_trigger_lifecycle,
-        )
+    def _serialize_pattern_action(self, action: SuperkeyAction) -> TomlDict:
+        return self._serialize_mapping_action(superkey_action_to_mapping_action(action))
 
-    def _serialize_mapping_action(
-        self,
-        action: MappingAction,
-        *,
-        supports_trigger_lifecycle: bool = True,
-    ) -> TomlDict:
+    def _serialize_mapping_action(self, action: MappingAction) -> TomlDict:
         action_data: dict[str, object] = {"action": action.action_type.value}
         if action.target:
             action_data["target"] = action.target
@@ -494,11 +430,7 @@ class SuperkeyManager:
         ):
             action_data["target"] = action.profile_name or ""
             action_data["profile_name"] = action.profile_name or ""
-            deactivation = (
-                normalize_profile_deactivation_policy
-                if supports_trigger_lifecycle
-                else normalize_pulse_profile_deactivation_policy
-            )(
+            deactivation = normalize_profile_deactivation_policy(
                 action.action_type,
                 action.profile_deactivation,
             )

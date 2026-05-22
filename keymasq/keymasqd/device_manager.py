@@ -4,7 +4,7 @@ import errno
 import logging
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
@@ -29,6 +29,7 @@ from keymasq.common.models import (
     DeviceType,
     MappingAction,
     SuperkeyMode,
+    parse_profile_deactivation_policy,
 )
 from keymasq.common.virtual_devices import (
     DEFAULT_VIRTUAL_GAMEPADS,
@@ -51,6 +52,7 @@ from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 from keymasq.keymasqd.runtime import topology as runtime_topology
+from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 log = logging.getLogger("keymasqd.devices")
@@ -115,6 +117,86 @@ def _str_value(value: object, default: str = "") -> str:
 
 def _optional_str(value: object) -> str | None:
     return None if value is None else str(value)
+
+
+def _split_source_trigger_id(trigger_id: str | None) -> tuple[str, str]:
+    normalized = str(trigger_id or "").strip()
+    if ":" not in normalized:
+        return "", ""
+    hardware_id, event_name = normalized.rsplit(":", 1)
+    return hardware_id, event_name.lower()
+
+
+def _is_ignored_trigger_event(
+    event_name: object,
+    *,
+    hardware_id: str,
+    ignored_hardware_id: str,
+    ignored_event_name: str,
+) -> bool:
+    return (
+        bool(ignored_hardware_id)
+        and bool(ignored_event_name)
+        and hardware_id == ignored_hardware_id
+        and str(event_name or "").lower() == ignored_event_name
+    )
+
+
+def _has_unignored_event_names(
+    event_names: object,
+    *,
+    hardware_id: str,
+    ignored_hardware_id: str,
+    ignored_event_name: str,
+) -> bool:
+    if not isinstance(event_names, Collection):
+        return bool(event_names)
+    for event_name in cast(Collection[object], event_names):
+        if not _is_ignored_trigger_event(
+            event_name,
+            hardware_id=hardware_id,
+            ignored_hardware_id=ignored_hardware_id,
+            ignored_event_name=ignored_event_name,
+        ):
+            return True
+    return False
+
+
+def _evdev_key_name(code: int) -> str:
+    try:
+        raw_name: object = evdev.ecodes.bytype[evdev.ecodes.EV_KEY].get(code, str(code))
+    except Exception:
+        return str(code)
+    if isinstance(raw_name, tuple):
+        names = cast(tuple[object, ...], raw_name)
+        return str(names[0] if names else code).lower()
+    return str(raw_name).lower()
+
+
+def _has_unignored_active_key_codes(
+    active_keys_value: object,
+    *,
+    hardware_id: str,
+    ignored_hardware_id: str,
+    ignored_event_name: str,
+) -> bool:
+    if not isinstance(active_keys_value, Collection) or isinstance(
+        active_keys_value, str | bytes
+    ):
+        return False
+    for raw_code in cast(Collection[object], active_keys_value):
+        try:
+            event_name = _evdev_key_name(int(cast(int | str | bytes, raw_code)))
+        except (TypeError, ValueError):
+            event_name = str(raw_code).lower()
+        if not _is_ignored_trigger_event(
+            event_name,
+            hardware_id=hardware_id,
+            ignored_hardware_id=ignored_hardware_id,
+            ignored_event_name=ignored_event_name,
+        ):
+            return True
+    return False
 
 
 def _int_value(value: object, default: int = 0) -> int:
@@ -441,6 +523,10 @@ class DeviceManager:
             held_release_retry_s=max(0.01, float(held_release_retry_s)),
         )
         self.combo_state = runtime_combos.ComboRuntimeState()
+        self.profile_activation_tracker = ProfileActivationTracker(
+            broadcast_deactivate_request=self._broadcast_profile_deactivate_requested,
+            inputs_settled=self._grabbed_inputs_settled,
+        )
         self._configured_combos: list[RuntimeCombo] = []
         self.device_inspector_active_hardware_ids: set[str] = set()
         self.device_inspector_suppressed_hardware_ids: set[str] = set()
@@ -657,6 +743,7 @@ class DeviceManager:
             )
 
     async def release_all_devices(self) -> None:
+        self.profile_activation_tracker.reset()
         await runtime_grab_lifecycle.release_all_devices(
             self,
             fire_and_observe_fn=_fire_and_observe,
@@ -685,6 +772,93 @@ class DeviceManager:
             self.broadcast_callback(event_type, data),
             f"{event_type.value} broadcast",
         )
+
+    def _broadcast_profile_deactivate_requested(self, data: JsonObject) -> None:
+        self._broadcast_runtime_event(CommandType.PROFILE_DEACTIVATE_REQUESTED, data)
+
+    def _grabbed_inputs_settled(self, ignored_trigger_id: str | None = None) -> bool:
+        ignored_hardware_id, ignored_event_name = _split_source_trigger_id(ignored_trigger_id)
+        for hardware_id, devices in self.grabbed_devices.items():
+            for device in devices:
+                state = getattr(device, "state", None)
+                if state is not None:
+                    if _has_unignored_event_names(
+                        getattr(state, "held_source_keys", None),
+                        hardware_id=hardware_id,
+                        ignored_hardware_id=ignored_hardware_id,
+                        ignored_event_name=ignored_event_name,
+                    ):
+                        return False
+                    held_source_actions = getattr(state, "held_source_actions", None)
+                    if isinstance(held_source_actions, dict):
+                        action_keys = cast(dict[object, object], held_source_actions).keys()
+                        if _has_unignored_event_names(
+                            action_keys,
+                            hardware_id=hardware_id,
+                            ignored_hardware_id=ignored_hardware_id,
+                            ignored_event_name=ignored_event_name,
+                        ):
+                            return False
+                input_device = getattr(device, "device", None)
+                active_keys = getattr(input_device, "active_keys", None)
+                if callable(active_keys):
+                    with contextlib.suppress(Exception):
+                        active_keys_value = active_keys()
+                        if _has_unignored_active_key_codes(
+                            active_keys_value,
+                            hardware_id=hardware_id,
+                            ignored_hardware_id=ignored_hardware_id,
+                            ignored_event_name=ignored_event_name,
+                        ):
+                            return False
+        return True
+
+    async def track_profile_activation(
+        self,
+        profile_name: str,
+        activation_id: str,
+        trigger_id: str,
+        deactivation: object,
+    ) -> JsonObject:
+        policy = parse_profile_deactivation_policy(deactivation)
+        if policy is None:
+            return {"status": "ok", "tracked": False}
+        self.profile_activation_tracker.track(
+            profile_name=profile_name,
+            activation_id=activation_id,
+            trigger_id=trigger_id,
+            deactivation=policy,
+        )
+        return {
+            "status": "ok",
+            "tracked": True,
+            "profile_name": profile_name,
+            "activation_id": activation_id,
+        }
+
+    async def cancel_profile_activation(
+        self,
+        profile_name: str = "",
+        activation_id: str = "",
+    ) -> JsonObject:
+        self.profile_activation_tracker.cancel(
+            profile_name=profile_name or None,
+            activation_id=activation_id or None,
+        )
+        return {
+            "status": "ok",
+            "profile_name": profile_name,
+            "activation_id": activation_id,
+        }
+
+    def observe_profile_trigger_start(self, trigger_id: str | None) -> None:
+        self.profile_activation_tracker.observe_trigger_start(trigger_id)
+
+    def observe_profile_trigger_end(self, trigger_id: str | None) -> None:
+        self.profile_activation_tracker.observe_trigger_end(trigger_id)
+
+    def record_profile_action(self, source_profile_name: str | None) -> None:
+        self.profile_activation_tracker.record_action(source_profile_name)
 
     def device_inspector_active(self, hardware_id: str) -> bool:
         return str(hardware_id or "").strip() in self.device_inspector_active_hardware_ids

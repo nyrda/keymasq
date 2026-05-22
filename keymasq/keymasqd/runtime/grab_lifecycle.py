@@ -261,6 +261,11 @@ async def grab_device_unlocked(
                         manager.device_inspector_suppressed_hardware_ids_snapshot
                     ),
                     inspector_suppression_disabler=manager.disable_device_inspector_suppression,
+                    profile_activation_recorder=manager.record_profile_action,
+                    profile_activation_trigger_start_observer=(
+                        manager.observe_profile_trigger_start
+                    ),
+                    profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
                     suppress_rel_getter=lambda: manager.macro_state.mouse_rel_suppressed,
                     mouse_rel_suppression_start_callback=lambda: None,
                     diagnostics_recorder=diagnostics_recorder,

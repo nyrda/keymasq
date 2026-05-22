@@ -12,6 +12,7 @@ from keymasq.common.models import (
     SuperkeyMode,
     combo_effective_superkey_config,
     normalize_analog_control_features,
+    profile_deactivation_policy_to_dict,
     superkey_action_to_mapping_action,
 )
 from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
@@ -136,6 +137,8 @@ def action_signature_payload(
 ) -> dict[str, object]:
     action_type = action.action_type.value
     data: dict[str, object] = {"action": action_type}
+    if action.source_profile_name:
+        data["source_profile_name"] = action.source_profile_name
 
     if action_type in (
         "keyboard",
@@ -187,6 +190,9 @@ def action_signature_payload(
         "profile_toggle",
     ):
         data["profile_name"] = action.profile_name or action.target or ""
+        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
+        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
+            data["deactivation"] = deactivation
         return data
 
     if action_type == "macro":
@@ -242,10 +248,13 @@ def combo_action_signature_payload(
         config = _resolved_combo_superkey_config(manager, action, step_count=step_count)
         if config is None:
             return None
-        return {
+        data: dict[str, object] = {
             "action": action.action_type.value,
             "superkey": serialize_superkey_signature(manager, config, "combo"),
         }
+        if action.source_profile_name:
+            data["source_profile_name"] = action.source_profile_name
+        return data
 
     data = action_signature_payload(manager, action, "")
     if data.get("action") == "superkey":
@@ -273,6 +282,8 @@ def profile_to_mapping(
     mapping: dict[str, dict[str, object]] = {}
     for button_id, action in resolved.mappings.items():
         action_data: dict[str, object] = {"action": action.action_type.value}
+        if action.source_profile_name:
+            action_data["source_profile_name"] = action.source_profile_name
 
         if action.action_type.value in (
             "keyboard",
@@ -324,6 +335,9 @@ def profile_to_mapping(
             "profile_toggle",
         ):
             action_data["profile_name"] = action.profile_name or action.target or ""
+            deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
+            if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
+                action_data["deactivation"] = deactivation
         elif action.action_type.value == "macro":
             if action.macro_name:
                 action_data["macro_name"] = action.macro_name
@@ -426,6 +440,8 @@ def combo_action_to_payload(
 ) -> JsonObject | None:
     action_type = action.action_type.value
     action_data: dict[str, object] = {"action": action_type}
+    if action.source_profile_name:
+        action_data["source_profile_name"] = action.source_profile_name
 
     if action_type in (
         "keyboard",
@@ -479,6 +495,9 @@ def combo_action_to_payload(
 
     if action_type in ("profile_enable", "profile_disable", "profile_toggle"):
         action_data["profile_name"] = action.profile_name or action.target or ""
+        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
+        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
+            action_data["deactivation"] = deactivation
         return action_data
 
     if action_type == "macro":
@@ -504,6 +523,8 @@ def combo_action_to_payload(
         config = _resolved_combo_superkey_config(manager, action, step_count=step_count)
         if config is None:
             return None
+        if action.source_profile_name:
+            action_data["source_profile_name"] = action.source_profile_name
         action_data["superkey"] = serialize_superkey(
             manager,
             config,
@@ -890,6 +911,8 @@ def serialize_overload_action(
     if action.action_type == ActionType.ANALOG_CONTROL:
         raise ValueError("nested analog controls are not allowed inside analog controls")
     action_data: JsonObject = {"action": action_type}
+    if action.source_profile_name:
+        action_data["source_profile_name"] = action.source_profile_name
 
     if action_type in (
         "keyboard",
@@ -947,6 +970,9 @@ def serialize_overload_action(
         "profile_toggle",
     ):
         action_data["profile_name"] = action.profile_name or action.target or ""
+        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
+        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
+            action_data["deactivation"] = deactivation
         return action_data
 
     if action_type == "macro":

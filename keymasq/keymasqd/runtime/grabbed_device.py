@@ -195,6 +195,11 @@ class GrabbedDevice:
         inspector_suppression_getter: DeviceInspectorSuppressionGetter | None = None,
         inspector_suppressed_ids_getter: DeviceInspectorSuppressedIdsGetter | None = None,
         inspector_suppression_disabler: DeviceInspectorSuppressionDisabler | None = None,
+        profile_activation_recorder: Callable[[str | None], None] | None = None,
+        profile_activation_trigger_start_observer: Callable[[str | None], None]
+        | None = None,
+        profile_activation_trigger_end_observer: Callable[[str | None], None]
+        | None = None,
         suppress_rel_getter: Callable[[], bool] | None = None,
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
         diagnostics_recorder: Callable[[str, float], None] | None = None,
@@ -240,6 +245,11 @@ class GrabbedDevice:
         self.inspector_suppression_getter = inspector_suppression_getter
         self.inspector_suppressed_ids_getter = inspector_suppressed_ids_getter
         self.inspector_suppression_disabler = inspector_suppression_disabler
+        self.profile_activation_recorder = profile_activation_recorder
+        self.profile_activation_trigger_start_observer = (
+            profile_activation_trigger_start_observer
+        )
+        self.profile_activation_trigger_end_observer = profile_activation_trigger_end_observer
         self.suppress_rel_getter = suppress_rel_getter
         self.mouse_rel_suppression_start_callback = mouse_rel_suppression_start_callback
         self.diagnostics_recorder = diagnostics_recorder

@@ -21,8 +21,13 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
     manager.hardware.list_hardware_ids = lambda: [hardware_id]  # type: ignore[assignment]
 
     def resolve_active_profiles(
-        window_info: dict | None, _caps: list[str], hardware_ids: list[str]
+        window_info: dict | None,
+        _caps: list[str],
+        hardware_ids: list[str],
+        *,
+        runtime_profile_names: list[str] | None = None,
     ) -> ResolvedProfiles:
+        assert runtime_profile_names in (None, [])
         assert hardware_ids == [hardware_id]
         title = str((window_info or {}).get("title", ""))
         if title == "game":
@@ -106,8 +111,13 @@ async def test_profile_reevaluation_interrupts_stale_apply() -> None:
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
 
     def resolve_active_profiles(
-        window_info: dict | None, _caps: list[str], hardware_ids: list[str]
+        window_info: dict | None,
+        _caps: list[str],
+        hardware_ids: list[str],
+        *,
+        runtime_profile_names: list[str] | None = None,
     ) -> ResolvedProfiles:
+        assert runtime_profile_names in (None, [])
         assert hardware_ids == [hardware_id]
         title = str((window_info or {}).get("title", ""))
         profile = profile_game if title == "game" else profile_base

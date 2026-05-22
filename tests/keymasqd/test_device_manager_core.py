@@ -125,6 +125,150 @@ async def test_release_all_devices_clears_device_inspector_state() -> None:
     assert manager.device_inspector_suppressed_hardware_ids == set()
 
 
+@pytest.mark.asyncio
+async def test_profile_activation_timeout_broadcasts_deactivate_requested() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        events.append((event_type, data))
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        "trigger-1",
+        {"timeout_ms": 1, "defer_until_keys_released": False},
+    )
+    await asyncio.sleep(0.05)
+
+    assert events == [
+        (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "timeout",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_profile_activation_action_count_matches_source_profile_only() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        events.append((event_type, data))
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        "trigger-1",
+        {"after_actions": 2, "defer_until_keys_released": False},
+    )
+    manager.record_profile_action("Other")
+    manager.record_profile_action("Nav")
+    await asyncio.sleep(0.01)
+    assert events == []
+
+    manager.record_profile_action("Nav")
+    await asyncio.sleep(0.05)
+
+    assert events == [
+        (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "action_count",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_profile_activation_trigger_end_and_key_settle_deferral() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        events.append((event_type, data))
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+    fake_state = SimpleNamespace(held_source_keys={"key_a"}, held_source_actions={})
+    manager.grabbed_devices["1234:5678"] = [SimpleNamespace(state=fake_state, device=None)]
+
+    manager.observe_profile_trigger_start("trigger-1")
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        "trigger-1",
+        {"on_trigger_end": True, "defer_until_keys_released": True},
+    )
+    manager.observe_profile_trigger_end("trigger-1")
+    await asyncio.sleep(0.05)
+    assert events == []
+
+    fake_state.held_source_keys.clear()
+    await asyncio.sleep(0.05)
+
+    assert events == [
+        (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_profile_activation_trigger_end_ignores_ended_trigger_for_settle() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        events.append((event_type, data))
+
+    class FakeInputDevice:
+        def active_keys(self) -> list[int]:
+            return [evdev.ecodes.KEY_CAPSLOCK]
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+    trigger_id = "1234:5678:key_capslock"
+    fake_state = SimpleNamespace(
+        held_source_keys={"key_capslock"},
+        held_source_actions={"key_capslock": object()},
+    )
+    manager.grabbed_devices["1234:5678"] = [
+        SimpleNamespace(state=fake_state, device=FakeInputDevice())
+    ]
+
+    manager.observe_profile_trigger_start(trigger_id)
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        trigger_id,
+        {"on_trigger_end": True, "defer_until_keys_released": True},
+    )
+    manager.observe_profile_trigger_end(trigger_id)
+    await asyncio.sleep(0.05)
+
+    assert events == [
+        (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        )
+    ]
+
+
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
 class TestDeviceManager:
     @pytest.fixture

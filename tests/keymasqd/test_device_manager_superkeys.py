@@ -423,6 +423,102 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
         ]
+
+    @pytest.mark.asyncio
+    async def test_overload_superkey_profile_lifetime_follows_child_trigger(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        events: list[tuple[CommandType, dict[str, object]]] = []
+        action_triggers: list[dict[str, object]] = []
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            if event_type == CommandType.ACTION_TRIGGER:
+                action_triggers.append(data)
+                await manager.track_profile_activation(
+                    str(data["profile_name"]),
+                    "activation-1",
+                    str(data["trigger_id"]),
+                    data["deactivation"],
+                )
+                return
+            events.append((event_type, data))
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        mapping_state = {
+            "key_f13": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=SuperkeyConfig(
+                    name="overload",
+                    mode=SuperkeyMode.OVERLOAD,
+                    overload_actions=[
+                        dm.MappingAction(
+                            action_type=ActionType.PROFILE_ENABLE,
+                            profile_name="Nav",
+                            profile_deactivation=ProfileDeactivationPolicy(
+                                on_trigger_end=True
+                            ),
+                        ),
+                    ],
+                ),
+            )
+        }
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={"key_f13": "key_f13"},
+            mapping_getter=lambda: mapping_state,
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            broadcast_callback=broadcast,
+            profile_activation_trigger_start_observer=manager.observe_profile_trigger_start,
+            profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+        )
+        device._running = True
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+        )
+        await asyncio.sleep(0.05)
+
+        assert action_triggers == [
+            {
+                "action_type": "profile_enable",
+                "profile_name": "Nav",
+                "source_device": "1234:5678",
+                "source_button": "key_f13#overload#0",
+                "trigger_id": "1234:5678:key_f13#overload#0",
+                "deactivation": {
+                    "defer_until_keys_released": False,
+                    "on_trigger_end": True,
+                },
+            }
+        ]
+        assert [
+            event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
+        ] == []
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+        )
+        await asyncio.sleep(0.05)
+
+        assert (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        ) in events
+
     @pytest.mark.asyncio
     async def test_split_overload_superkey_pulses_down_and_up_actions(
         self,

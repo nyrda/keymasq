@@ -7,6 +7,7 @@ from keymasq.common.models import (
     ActionType,
     MappingAction,
     normalize_macro_loop_stop_behavior,
+    profile_deactivation_policy_to_dict,
 )
 
 type JsonObject = dict[str, object]
@@ -37,15 +38,24 @@ def build_action_trigger_payload(
     *,
     source_device: str,
     source_button: str,
+    trigger_id: str | None = None,
 ) -> JsonObject | None:
+    base_payload: JsonObject = {
+        "source_device": source_device,
+        "source_button": source_button,
+    }
+    if trigger_id:
+        base_payload["trigger_id"] = trigger_id
+    if action.source_profile_name:
+        base_payload["source_profile_name"] = action.source_profile_name
+
     if action.action_type == ActionType.EXEC:
         if action.exec_ref is None:
             return None
         return {
             "action_type": "exec",
             "exec_ref": action.exec_ref,
-            "source_device": source_device,
-            "source_button": source_button,
+            **base_payload,
         }
 
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:
@@ -54,8 +64,7 @@ def build_action_trigger_payload(
             "compositor": action.compositor_id or "",
             "dispatcher": action.compositor_dispatcher or "",
             "args": action.compositor_args or "",
-            "source_device": source_device,
-            "source_button": source_button,
+            **base_payload,
         }
 
     if action.action_type in {
@@ -66,8 +75,7 @@ def build_action_trigger_payload(
     }:
         return {
             "action_type": action.action_type.value,
-            "source_device": source_device,
-            "source_button": source_button,
+            **base_payload,
         }
 
     if action.action_type in {
@@ -75,14 +83,21 @@ def build_action_trigger_payload(
         ActionType.PROFILE_DISABLE,
         ActionType.PROFILE_TOGGLE,
     }:
-        return {
+        payload = {
             "action_type": action.action_type.value,
             "profile_name": action.profile_name or action.target or "",
-            "source_device": source_device,
-            "source_button": source_button,
+            **base_payload,
         }
+        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
+        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
+            payload["deactivation"] = deactivation
+        return payload
 
     return None
+
+
+def source_trigger_id(source_device: str, source_button: str) -> str:
+    return f"{source_device}:{source_button}"
 
 
 def build_macro_playback_request(

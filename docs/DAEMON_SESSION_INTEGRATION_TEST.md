@@ -22,6 +22,8 @@ coverage. It verifies that the core runtime classes still work together:
 - combo bound to a superkey
 - combo trigger-key recall and restore timing with a combo-bound superkey
 - profile toggle, priority override, passthrough override, and held-output profile change
+- profile action lifetimes across direct mappings, temporary toggles, superkeys, overload
+  superkeys, combos, and combo-bound overload superkeys
 - mouse button, relative movement, wheel, and mouse combo output
 - gamepad button and analog axis output
 - emergency reset

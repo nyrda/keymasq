@@ -1,0 +1,7 @@
+name = "$PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME"
+mode = "overload"
+
+[actions]
+overload = [
+  { action = "profile_enable", profile_name = "$TEMP_PROFILE_NAME", deactivation = { on_trigger_end = true, defer_until_keys_released = false } },
+]

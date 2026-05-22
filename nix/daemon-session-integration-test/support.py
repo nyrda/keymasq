@@ -23,11 +23,14 @@ PROFILE_NAME = "Integration Core Smoke"
 SECOND_PROFILE_NAME = "Integration Priority Override"
 LOWER_PROFILE_NAME = "Integration Lower Fallback"
 PASSTHROUGH_PROFILE_NAME = "Integration Passthrough Override"
+TEMP_PROFILE_NAME = "Integration Temporary Layer"
 MACRO_NAME = "integration-macro"
 LONG_MACRO_NAME = "integration-hold-macro"
 SUPERKEY_NAME = "integration-tap-superkey"
 COMBO_SUPERKEY_NAME = "integration-combo-superkey"
 OVERLOAD_SUPERKEY_NAME = "integration-overload-superkey"
+PROFILE_LIFETIME_HOLD_SUPERKEY_NAME = "integration-profile-lifetime-hold-superkey"
+PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME = "integration-profile-lifetime-overload-superkey"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
@@ -78,6 +81,10 @@ class ScenarioContext:
                 self.request({"command": "disable_profile", "profile_name": profile_name}, ok=False)
             self.request(
                 {"command": "disable_profile", "profile_name": PASSTHROUGH_PROFILE_NAME},
+                ok=False,
+            )
+            self.request(
+                {"command": "disable_profile", "profile_name": TEMP_PROFILE_NAME},
                 ok=False,
             )
             self.request(
@@ -160,6 +167,10 @@ class ScenarioContext:
         source_keys = [
             getattr(evdev.ecodes, f"KEY_{letter}") for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         ]
+        if product == 0x0001:
+            source_keys.extend(
+                getattr(evdev.ecodes, f"KEY_F{index}") for index in range(1, 13)
+            )
         device = evdev.UInput(
             events={
                 evdev.ecodes.EV_KEY: source_keys,
@@ -207,6 +218,16 @@ class ScenarioContext:
             values,
         )
         self.write_fixture(
+            superkeys_dir / "integration-profile-lifetime-hold-superkey.toml",
+            "superkeys/profile-lifetime-hold-superkey.toml",
+            values,
+        )
+        self.write_fixture(
+            superkeys_dir / "integration-profile-lifetime-overload-superkey.toml",
+            "superkeys/profile-lifetime-overload-superkey.toml",
+            values,
+        )
+        self.write_fixture(
             profiles_dir / "integration-core-smoke.toml",
             "profiles/core-smoke.toml",
             values,
@@ -224,6 +245,11 @@ class ScenarioContext:
         self.write_fixture(
             profiles_dir / "integration-passthrough-override.toml",
             "profiles/passthrough-override.toml",
+            values,
+        )
+        self.write_fixture(
+            profiles_dir / "integration-temporary-layer.toml",
+            "profiles/temporary-layer.toml",
             values,
         )
         for fixture_name in (
@@ -276,30 +302,40 @@ class ScenarioContext:
         primary_source_path: str,
         secondary_source_path: str,
     ) -> dict[str, str]:
+        primary_buttons = list("abcdefghijklmnopqrstuvwxyz") + [
+            f"f{index}" for index in range(1, 13)
+        ]
         return {
             "HARDWARE_ID": HARDWARE_ID,
             "SECOND_HARDWARE_ID": SECOND_HARDWARE_ID,
             "PRIMARY_SOURCE_PATH": primary_source_path,
             "SECONDARY_SOURCE_PATH": secondary_source_path,
-            "PRIMARY_BUTTONS": self.button_blocks("abcdefghijklmnopqrstuvwxyz"),
+            "PRIMARY_BUTTONS": self.button_blocks(primary_buttons),
             "SECONDARY_BUTTONS": self.button_blocks("abcdefghijklmnopqrstuvwxyz"),
             "PROFILE_NAME": PROFILE_NAME,
             "SECOND_PROFILE_NAME": SECOND_PROFILE_NAME,
             "LOWER_PROFILE_NAME": LOWER_PROFILE_NAME,
             "PASSTHROUGH_PROFILE_NAME": PASSTHROUGH_PROFILE_NAME,
+            "TEMP_PROFILE_NAME": TEMP_PROFILE_NAME,
             "MACRO_NAME": MACRO_NAME,
             "LONG_MACRO_NAME": LONG_MACRO_NAME,
             "SUPERKEY_NAME": SUPERKEY_NAME,
             "COMBO_SUPERKEY_NAME": COMBO_SUPERKEY_NAME,
             "OVERLOAD_SUPERKEY_NAME": OVERLOAD_SUPERKEY_NAME,
+            "PROFILE_LIFETIME_HOLD_SUPERKEY_NAME": (
+                PROFILE_LIFETIME_HOLD_SUPERKEY_NAME
+            ),
+            "PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME": (
+                PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME
+            ),
         }
 
-    def button_blocks(self, keys: str) -> str:
+    def button_blocks(self, keys: list[str] | str) -> str:
         return "\n\n".join(
             f"""
 [[hardware.layout.buttons]]
 id = "key_{key}"
-label = "{key.upper()}"
+label = "{str(key).upper()}"
 evdev = "key_{key}"
 source = "kbd"
 type = "key"

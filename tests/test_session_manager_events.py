@@ -8,6 +8,7 @@ import pytest
 import keymasq.session.manager.events as session_events_module
 import keymasq.session.manager.profiles as session_profiles_module
 from keymasq.common.ipc import CommandType
+from keymasq.common.models import ProfileConfig
 from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.manager import SessionManager
 from keymasq.session.manager.state import ExecBinding
@@ -344,6 +345,165 @@ async def test_handle_event_macro_trigger_logs_playback_exceptions(caplog) -> No
 
     assert "Failed to play macro trigger" in caplog.text
     assert "daemon boom" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_lifetime_profile_enable_creates_runtime_activation_without_persisting(
+    temp_config_dir,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+
+    await session_events_module.handle_profile_trigger(
+        manager,
+        {
+            "action_type": "profile_enable",
+            "profile_name": "Nav",
+            "source_device": "1234:5678",
+            "source_button": "btn_back",
+            "trigger_id": "1234:5678:btn_back",
+            "deactivation": {"after_actions": 1},
+        },
+    )
+
+    assert manager.profiles.get_profile("Nav").config.enabled is False
+    assert manager.profile_state.active_profile_names[-1] == "Nav"
+    activation = manager.profile_state.runtime_profile_activations["Nav"]
+    track_calls = [
+        call_args.args[0]
+        for call_args in manager.client.send_command.await_args_list
+        if call_args.args[0].command == CommandType.TRACK_PROFILE_ACTIVATION
+    ]
+    assert len(track_calls) == 1
+    assert track_calls[0].data == {
+        "profile_name": "Nav",
+        "activation_id": activation.activation_id,
+        "trigger_id": "1234:5678:btn_back",
+        "deactivation": {"defer_until_keys_released": False, "after_actions": 1},
+    }
+
+    reloaded = manager.profiles.__class__()
+    assert reloaded.get_profile("Nav").config.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_lifetime_profile_toggle_creates_and_cancels_runtime_activation(
+    temp_config_dir,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+    trigger = {
+        "action_type": "profile_toggle",
+        "profile_name": "Nav",
+        "deactivation": {"after_actions": 1, "timeout_ms": 1500},
+    }
+
+    await session_events_module.handle_profile_trigger(manager, trigger)
+
+    assert manager.profiles.get_profile("Nav").config.enabled is False
+    activation = manager.profile_state.runtime_profile_activations["Nav"]
+    track_calls = [
+        call_args.args[0]
+        for call_args in manager.client.send_command.await_args_list
+        if call_args.args[0].command == CommandType.TRACK_PROFILE_ACTIVATION
+    ]
+    assert len(track_calls) == 1
+    assert track_calls[0].data == {
+        "profile_name": "Nav",
+        "activation_id": activation.activation_id,
+        "trigger_id": ":",
+        "deactivation": {
+            "defer_until_keys_released": False,
+            "after_actions": 1,
+            "timeout_ms": 1500,
+        },
+    }
+
+    await session_events_module.handle_profile_trigger(manager, trigger)
+
+    assert "Nav" not in manager.profile_state.runtime_profile_activations
+    assert manager.profiles.get_profile("Nav").config.enabled is False
+    cancel_calls = [
+        call_args.args[0]
+        for call_args in manager.client.send_command.await_args_list
+        if call_args.args[0].command == CommandType.CANCEL_PROFILE_ACTIVATION
+    ]
+    assert len(cancel_calls) == 1
+    assert cancel_calls[0].data == {
+        "profile_name": "Nav",
+        "activation_id": activation.activation_id,
+    }
+
+    reloaded = manager.profiles.__class__()
+    assert reloaded.get_profile("Nav").config.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_runtime_activation_replacement_ignores_stale_expiry(
+    temp_config_dir,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+    trigger = {
+        "action_type": "profile_enable",
+        "profile_name": "Nav",
+        "deactivation": {"timeout_ms": 1500},
+    }
+
+    await session_events_module.handle_profile_trigger(manager, trigger)
+    old_id = manager.profile_state.runtime_profile_activations["Nav"].activation_id
+    await session_events_module.handle_profile_trigger(manager, trigger)
+    new_id = manager.profile_state.runtime_profile_activations["Nav"].activation_id
+
+    await session_events_module.handle_profile_deactivate_requested(
+        manager,
+        {"profile_name": "Nav", "activation_id": old_id, "reason": "timeout"},
+    )
+    assert manager.profile_state.runtime_profile_activations["Nav"].activation_id == new_id
+
+    await session_events_module.handle_profile_deactivate_requested(
+        manager,
+        {"profile_name": "Nav", "activation_id": new_id, "reason": "timeout"},
+    )
+    assert "Nav" not in manager.profile_state.runtime_profile_activations
+
+
+@pytest.mark.asyncio
+async def test_no_lifetime_disable_cancels_runtime_activation_and_persists_disabled(
+    temp_config_dir,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=True, is_permanent=True))
+
+    await session_events_module.handle_profile_trigger(
+        manager,
+        {
+            "action_type": "profile_enable",
+            "profile_name": "Nav",
+            "deactivation": {"timeout_ms": 1500},
+        },
+    )
+    activation_id = manager.profile_state.runtime_profile_activations["Nav"].activation_id
+    await session_events_module.handle_profile_trigger(
+        manager,
+        {"action_type": "profile_disable", "profile_name": "Nav"},
+    )
+
+    assert "Nav" not in manager.profile_state.runtime_profile_activations
+    assert manager.profiles.get_profile("Nav").config.enabled is False
+    cancel_calls = [
+        call_args.args[0]
+        for call_args in manager.client.send_command.await_args_list
+        if call_args.args[0].command == CommandType.CANCEL_PROFILE_ACTIVATION
+    ]
+    assert cancel_calls[-1].data == {
+        "profile_name": "Nav",
+        "activation_id": activation_id,
+    }
 
 
 @pytest.mark.asyncio

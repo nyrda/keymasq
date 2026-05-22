@@ -164,3 +164,6 @@ class TestCommandTypes:
         assert CommandType.PING.value == "ping"
         assert CommandType.DEVICE_EVENT.value == "device_event"
         assert CommandType.ACTION_TRIGGER.value == "action_trigger"
+        assert CommandType.TRACK_PROFILE_ACTIVATION.value == "track_profile_activation"
+        assert CommandType.CANCEL_PROFILE_ACTIVATION.value == "cancel_profile_activation"
+        assert CommandType.PROFILE_DEACTIVATE_REQUESTED.value == "profile_deactivate_requested"

@@ -15,7 +15,10 @@ from keymasq.common.models import (
     SuperkeyMode,
     mapping_action_to_superkey_action,
     normalize_macro_loop_stop_behavior,
+    normalize_profile_deactivation_policy,
+    parse_profile_deactivation_policy,
     parse_rapidfire_fields,
+    profile_deactivation_policy_to_dict,
     resolve_rapidfire_fields,
     superkey_action_to_mapping_action,
 )
@@ -231,9 +234,14 @@ class SuperkeyManager:
             profile_name = str(action_data.get("profile_name", "") or "")
             if not profile_name:
                 profile_name = str(action_data.get("target", "") or "")
+            deactivation = normalize_profile_deactivation_policy(
+                action_type,
+                parse_profile_deactivation_policy(action_data.get("deactivation")),
+            )
             return MappingAction(
                 action_type=action_type,
                 profile_name=profile_name,
+                profile_deactivation=deactivation,
             )
 
         if action_type == ActionType.COMPOSITOR_DISPATCH:
@@ -422,6 +430,13 @@ class SuperkeyManager:
         ):
             action_data["target"] = action.profile_name or ""
             action_data["profile_name"] = action.profile_name or ""
+            deactivation = normalize_profile_deactivation_policy(
+                action.action_type,
+                action.profile_deactivation,
+            )
+            deactivation_data = profile_deactivation_policy_to_dict(deactivation)
+            if deactivation_data is not None:
+                action_data["deactivation"] = deactivation_data
         if action.action_type == ActionType.COMPOSITOR_DISPATCH:
             if action.compositor_id:
                 action_data["compositor"] = action.compositor_id

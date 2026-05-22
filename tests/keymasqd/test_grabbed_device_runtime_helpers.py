@@ -37,6 +37,47 @@ class _CountingUInput(_FakeUInput):
 
 class TestGrabbedDeviceHelpers:
     @pytest.mark.asyncio
+    async def test_consumed_release_clears_held_profile_trigger_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        action = dm.MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Nav",
+        )
+
+        async def consume_release(*args: object) -> bool:
+            return int(cast(int, args[4])) == 0
+
+        starts: list[str | None] = []
+        ends: list[str | None] = []
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"caps": "key_capslock"},
+            profile_activation_trigger_start_observer=starts.append,
+            profile_activation_trigger_end_observer=ends.append,
+        )
+        device.mapping_getter = lambda: {"caps": action}
+        device.event_callback = AsyncMock(side_effect=consume_release)
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 1),
+        )
+        assert "key_capslock" in device.state.held_source_keys
+        assert "key_capslock" in device.state.held_source_actions
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 0),
+        )
+
+        assert starts == ["1234:5678:key_capslock"]
+        assert ends == ["1234:5678:key_capslock"]
+        assert "key_capslock" not in device.state.held_source_keys
+        assert "key_capslock" not in device.state.held_source_actions
+
+    @pytest.mark.asyncio
     async def test_inspector_suppressed_key_esc_press_disables_suppression(
         self,
         monkeypatch: pytest.MonkeyPatch,

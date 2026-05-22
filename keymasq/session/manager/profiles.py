@@ -195,6 +195,27 @@ def invalidate_runtime_payload_signatures(manager: "SessionManager") -> None:
     manager.profile_state.last_sent_combo_signature = ""
 
 
+def runtime_profile_names(manager: "SessionManager") -> list[str]:
+    return [
+        activation.profile_name
+        for activation in sorted(
+            manager.profile_state.runtime_profile_activations.values(),
+            key=lambda item: item.sequence,
+        )
+    ]
+
+
+async def clear_runtime_profile_activations(
+    manager: "SessionManager",
+    *,
+    reason: str,
+) -> None:
+    if not manager.profile_state.runtime_profile_activations:
+        return
+    manager.profile_state.runtime_profile_activations.clear()
+    await reevaluate_profiles(manager, reason=reason)
+
+
 async def refresh_macro_bindings(manager: "SessionManager") -> None:
     invalidate_runtime_payload_signatures(manager)
     await reevaluate_profiles(manager, reason="macro bindings refreshed")
@@ -320,6 +341,7 @@ async def _reevaluate_profiles(
         manager.compositor_state.current_window,
         manager.compositor_state.compositor_capabilities,
         hardware_ids=hardware_ids,
+        runtime_profile_names=runtime_profile_names(manager),
     )
     raise_if_stale_profile_apply(manager, generation)
     old_active_profile_names = list(manager.profile_state.active_profile_names)

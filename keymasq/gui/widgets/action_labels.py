@@ -66,11 +66,11 @@ def describe_mapping_action_compact(
     elif action.action_type == ActionType.EMERGENCY_RESET:
         parts.append("⏹ emergency reset")
     elif action.action_type == ActionType.PROFILE_ENABLE:
-        parts.append(f"🗂 enable {action.profile_name or '?'}")
+        parts.append(f"🗂 enable {action.profile_name or '?'}{_profile_lifetime_suffix(action)}")
     elif action.action_type == ActionType.PROFILE_DISABLE:
         parts.append(f"🗂 disable {action.profile_name or '?'}")
     elif action.action_type == ActionType.PROFILE_TOGGLE:
-        parts.append(f"🗂 toggle {action.profile_name or '?'}")
+        parts.append(f"🗂 toggle {action.profile_name or '?'}{_profile_lifetime_suffix(action)}")
     elif action.action_type == ActionType.SUPPRESS:
         parts.append("× suppress")
     elif action.action_type == ActionType.PASSTHROUGH:
@@ -149,11 +149,11 @@ def describe_mapping_action_verbose(
     if action.action_type == ActionType.EMERGENCY_RESET:
         return "Emergency Runtime Reset"
     if action.action_type == ActionType.PROFILE_ENABLE:
-        return f"Enable Profile → {action.profile_name or '?'}"
+        return f"Enable Profile → {action.profile_name or '?'}{_profile_lifetime_suffix(action)}"
     if action.action_type == ActionType.PROFILE_DISABLE:
         return f"Disable Profile → {action.profile_name or '?'}"
     if action.action_type == ActionType.PROFILE_TOGGLE:
-        return f"Toggle Profile → {action.profile_name or '?'}"
+        return f"Toggle Profile → {action.profile_name or '?'}{_profile_lifetime_suffix(action)}"
     return action.action_type.value
 
 
@@ -178,3 +178,18 @@ def _analog_control_action_label(action: MappingAction) -> str:
     if len(names) == 1:
         return names[0]
     return f"{len(names)} controls"
+
+
+def _profile_lifetime_suffix(action: MappingAction) -> str:
+    policy = action.profile_deactivation
+    if policy is None:
+        return ""
+    if policy.on_trigger_end and policy.after_actions is None and policy.timeout_ms is None:
+        return " (while held)"
+    if not policy.on_trigger_end and policy.timeout_ms is None and policy.after_actions == 1:
+        return " (one-shot)"
+    if not policy.on_trigger_end and policy.timeout_ms is None and policy.after_actions:
+        return f" ({int(policy.after_actions)} actions)"
+    if not policy.on_trigger_end and policy.after_actions is None and policy.timeout_ms:
+        return f" ({int(policy.timeout_ms)} ms)"
+    return " (custom)"

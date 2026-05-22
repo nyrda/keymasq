@@ -13,6 +13,8 @@ from keymasq.common.models import (
     SuperkeyMode,
     normalize_analog_control_features,
     normalize_macro_loop_stop_behavior,
+    normalize_profile_deactivation_policy,
+    parse_profile_deactivation_policy,
     parse_rapidfire_fields,
 )
 from keymasq.common.models import (
@@ -102,6 +104,10 @@ def parse_action(
     cmd = action_data.get("cmd")
     macro_name = action_data.get("macro_name")
     profile_name = action_data.get("profile_name")
+    profile_deactivation = normalize_profile_deactivation_policy(
+        action_type,
+        parse_profile_deactivation_policy(action_data.get("deactivation")),
+    )
     compositor_id = action_data.get("compositor")
     compositor_dispatcher = action_data.get("dispatcher")
     compositor_args = action_data.get("args")
@@ -125,6 +131,7 @@ def parse_action(
 
     return MappingAction(
         action_type=action_type,
+        source_profile_name=optional_str(action_data.get("source_profile_name")),
         target=optional_str(target),
         output_id=optional_str(action_data.get("output_id")),
         keys=cast(list[str] | None, action_data.get("keys")),
@@ -150,6 +157,7 @@ def parse_action(
         macro_start_y=int_value(action_data.get("macro_start_y"), 0),
         macro_block_mouse_movement=bool(action_data.get("macro_block_mouse_movement", False)),
         profile_name=optional_str(profile_name),
+        profile_deactivation=profile_deactivation,
         compositor_id=optional_str(compositor_id),
         compositor_dispatcher=optional_str(compositor_dispatcher),
         compositor_args=optional_str(compositor_args),
@@ -585,6 +593,10 @@ def parse_superkey_action(
         macro_start_y=int_value(action.get("macro_start_y"), 0),
         macro_block_mouse_movement=bool(action.get("macro_block_mouse_movement", False)),
         profile_name=optional_str(action.get("profile_name")),
+        profile_deactivation=normalize_profile_deactivation_policy(
+            action_type,
+            parse_profile_deactivation_policy(action.get("deactivation")),
+        ),
         compositor_id=optional_str(action.get("compositor")),
         compositor_dispatcher=optional_str(action.get("dispatcher")),
         compositor_args=optional_str(action.get("args")),

@@ -1517,6 +1517,16 @@ def test_key_selector_dialog_profile_tab_populates_and_maps_selected_action(monk
     )
     dialog.stack.set_visible_child_name("profile")
     dialog._on_tab_changed(dialog.stack, None)
+    assert dialog._profile_action_dropdown.get_selected() == 0
+    assert dialog._profile_hint_label.get_label() == "Enable profile 'Desktop'."
+    assert dialog._profile_lifetime_dropdown.get_sensitive() is False
+    assert dialog._profile_lifetime_dropdown.get_selected() == 0
+    assert dialog._profile_lifetime_notice_label.get_visible() is True
+    assert (
+        dialog._profile_lifetime_notice_label.get_label()
+        == "Disable this profile first to use it as a temporary layer."
+    )
+
     dialog._profile_action_dropdown.set_selected(2)
     dialog._on_profile_action_changed(dialog._profile_action_dropdown, None)
     dialog._profile_name_dropdown.set_selected(1)
@@ -1530,6 +1540,324 @@ def test_key_selector_dialog_profile_tab_populates_and_maps_selected_action(monk
     assert len(results) == 1
     assert results[0].action_type == ActionType.PROFILE_DISABLE
     assert results[0].profile_name == "Gaming"
+
+
+def test_key_selector_dialog_profile_tab_restores_edited_profile_mapping(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import (
+        ActionType,
+        MappingAction,
+        ProfileDeactivationPolicy,
+    )
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def fake_session_request_async(_payload, _callback, timeout=5.0):
+        _ = timeout
+        return None
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        current_action=MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Gaming",
+            profile_deactivation=ProfileDeactivationPolicy(after_actions=1),
+        ),
+    )
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog._on_profile_name_changed(dialog._profile_name_dropdown, None)
+    assert dialog._selected_profile_name == "Gaming"
+
+    dialog._on_profile_overview_loaded(
+        {
+            "status": "ok",
+            "profiles": [
+                {"name": "Desktop", "enabled": True},
+                {"name": "Gaming", "enabled": False},
+            ],
+        }
+    )
+    dialog.stack.set_visible_child_name("profile")
+    dialog._on_tab_changed(dialog.stack, None)
+
+    assert dialog._profile_action_dropdown.get_selected() == 0
+    assert dialog._profile_name_dropdown.get_selected() == 1
+    assert dialog._profile_lifetime_dropdown.get_selected() == 2
+    assert dialog._profile_lifetime_dropdown.get_sensitive() is True
+    assert dialog._profile_lifetime_notice_label.get_visible() is False
+    assert dialog._profile_hint_label.get_label() == "Enable profile 'Gaming'."
+    assert dialog.map_btn.get_sensitive() is True
+
+    dialog._on_profile_map_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.PROFILE_ENABLE
+    assert results[0].profile_name == "Gaming"
+    assert results[0].profile_deactivation == ProfileDeactivationPolicy(after_actions=1)
+
+
+def test_key_selector_dialog_profile_toggle_lifetime_controls(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import (
+        ActionType,
+        MappingAction,
+        ProfileDeactivationPolicy,
+    )
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def fake_session_request_async(_payload, _callback, timeout=5.0):
+        _ = timeout
+        return None
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        current_action=MappingAction(
+            action_type=ActionType.PROFILE_TOGGLE,
+            profile_name="Gaming",
+            profile_deactivation=ProfileDeactivationPolicy(after_actions=1),
+        ),
+    )
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog._on_profile_overview_loaded(
+        {
+            "status": "ok",
+            "profiles": [
+                {"name": "Desktop", "enabled": True},
+                {"name": "Gaming", "enabled": False},
+            ],
+        }
+    )
+    dialog.stack.set_visible_child_name("profile")
+    dialog._on_tab_changed(dialog.stack, None)
+
+    assert dialog._profile_action_dropdown.get_selected() == 1
+    assert dialog._profile_name_dropdown.get_selected() == 1
+    assert dialog._profile_lifetime_box.get_visible() is True
+    assert dialog._profile_lifetime_title.get_label() == "When toggled on"
+    labels = [
+        dialog._profile_lifetime_model.get_string(idx)
+        for idx in range(dialog._profile_lifetime_model.get_n_items())
+    ]
+    assert labels == ["Until changed", "One-shot", "Custom"]
+    assert dialog._profile_lifetime_dropdown.get_selected() == 1
+    assert dialog._profile_lifetime_custom_box.get_visible() is True
+    assert dialog._profile_custom_count_row.get_visible() is False
+    assert dialog._profile_custom_timeout_row.get_visible() is True
+    assert dialog._profile_custom_timeout_toggle.get_active() is False
+    assert dialog._profile_custom_timeout_spin.get_visible() is False
+    assert dialog._profile_custom_timeout_unit.get_visible() is False
+    assert dialog._profile_custom_trigger_toggle.get_visible() is False
+
+    dialog._profile_custom_timeout_toggle.set_active(True)
+    assert dialog._profile_custom_timeout_spin.get_visible() is True
+    assert dialog._profile_custom_timeout_unit.get_visible() is True
+
+    dialog._on_profile_map_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.PROFILE_TOGGLE
+    assert results[0].profile_name == "Gaming"
+    assert results[0].profile_deactivation == ProfileDeactivationPolicy(
+        after_actions=1,
+        timeout_ms=1500,
+    )
+
+
+def test_key_selector_dialog_profile_custom_lifetime_restores_count_row(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import (
+        ActionType,
+        MappingAction,
+        ProfileDeactivationPolicy,
+    )
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def fake_session_request_async(_payload, _callback, timeout=5.0):
+        _ = timeout
+        return None
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        current_action=MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Gaming",
+            profile_deactivation=ProfileDeactivationPolicy(after_actions=3),
+        ),
+    )
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog._on_profile_overview_loaded(
+        {
+            "status": "ok",
+            "profiles": [
+                {"name": "Gaming", "enabled": False},
+            ],
+        }
+    )
+    dialog.stack.set_visible_child_name("profile")
+    dialog._on_tab_changed(dialog.stack, None)
+
+    assert dialog._profile_lifetime_dropdown.get_selected() == 3
+    assert dialog._profile_lifetime_custom_box.get_visible() is True
+    assert dialog._profile_custom_count_toggle.get_active() is True
+    assert int(dialog._profile_lifetime_count_spin.get_value()) == 3
+    assert dialog._profile_lifetime_count_spin.get_sensitive() is True
+    assert dialog._profile_lifetime_timeout_row.get_visible() is False
+    assert dialog._profile_custom_timeout_toggle.get_active() is False
+    assert dialog._profile_custom_timeout_spin.get_visible() is False
+    assert dialog._profile_custom_timeout_unit.get_visible() is False
+    assert dialog._profile_custom_trigger_toggle.get_active() is False
+
+    dialog._profile_custom_timeout_toggle.set_active(True)
+    assert dialog._profile_lifetime_timeout_row.get_visible() is False
+    assert dialog._profile_custom_timeout_spin.get_visible() is True
+    assert dialog._profile_custom_timeout_spin.get_sensitive() is True
+    assert dialog._profile_custom_timeout_unit.get_visible() is True
+
+    dialog._on_profile_map_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].profile_deactivation == ProfileDeactivationPolicy(
+        after_actions=3,
+        timeout_ms=1500,
+    )
+
+
+def test_key_selector_dialog_profile_timeout_only_lifetime_restores_as_custom(
+    monkeypatch,
+):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import (
+        ActionType,
+        MappingAction,
+        ProfileDeactivationPolicy,
+    )
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def fake_session_request_async(_payload, _callback, timeout=5.0):
+        _ = timeout
+        return None
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        current_action=MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Gaming",
+            profile_deactivation=ProfileDeactivationPolicy(timeout_ms=2500),
+        ),
+    )
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog._on_profile_overview_loaded(
+        {
+            "status": "ok",
+            "profiles": [
+                {"name": "Gaming", "enabled": False},
+            ],
+        }
+    )
+    dialog.stack.set_visible_child_name("profile")
+    dialog._on_tab_changed(dialog.stack, None)
+
+    assert dialog._profile_lifetime_dropdown.get_selected() == 3
+    assert dialog._profile_lifetime_custom_box.get_visible() is True
+    assert dialog._profile_custom_count_toggle.get_active() is False
+    assert dialog._profile_custom_timeout_toggle.get_active() is True
+    assert dialog._profile_custom_timeout_spin.get_visible() is True
+    assert int(dialog._profile_custom_timeout_spin.get_value()) == 2500
+
+    dialog._on_profile_map_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].profile_deactivation == ProfileDeactivationPolicy(timeout_ms=2500)
+
+
+def test_key_selector_dialog_profile_lifetime_requires_disabled_profile(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import (
+        ActionType,
+        MappingAction,
+        ProfileDeactivationPolicy,
+    )
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def fake_session_request_async(_payload, _callback, timeout=5.0):
+        _ = timeout
+        return None
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        current_action=MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Desktop",
+            profile_deactivation=ProfileDeactivationPolicy(after_actions=1),
+        ),
+    )
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog._on_profile_overview_loaded(
+        {
+            "status": "ok",
+            "profiles": [
+                {"name": "Desktop", "enabled": True},
+                {"name": "Gaming", "enabled": False},
+            ],
+        }
+    )
+    dialog.stack.set_visible_child_name("profile")
+    dialog._on_tab_changed(dialog.stack, None)
+
+    assert dialog._profile_name_dropdown.get_selected() == 0
+    assert dialog._profile_lifetime_dropdown.get_selected() == 0
+    assert dialog._profile_lifetime_dropdown.get_sensitive() is False
+    assert dialog._profile_lifetime_notice_label.get_visible() is True
+
+    dialog._profile_name_dropdown.set_selected(1)
+    dialog._on_profile_name_changed(dialog._profile_name_dropdown, None)
+
+    assert dialog._profile_lifetime_dropdown.get_sensitive() is True
+    assert dialog._profile_lifetime_dropdown.get_selected() == 2
+    assert dialog._profile_lifetime_notice_label.get_visible() is False
+
+    dialog._profile_name_dropdown.set_selected(0)
+    dialog._on_profile_name_changed(dialog._profile_name_dropdown, None)
+
+    assert dialog._profile_lifetime_dropdown.get_selected() == 0
+    assert dialog._profile_lifetime_dropdown.get_sensitive() is False
+    assert dialog._profile_lifetime_notice_label.get_visible() is True
+
+    dialog._on_profile_map_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.PROFILE_ENABLE
+    assert results[0].profile_name == "Desktop"
+    assert results[0].profile_deactivation is None
 
 
 def test_key_selector_dialog_only_shows_hyprland_actions_for_active_hyprland_listener():

@@ -31,6 +31,8 @@ type DeviceInspectorActiveGetter = Callable[[str], bool]
 type DeviceInspectorSuppressionGetter = Callable[[str], bool]
 type DeviceInspectorSuppressedIdsGetter = Callable[[], set[str]]
 type DeviceInspectorSuppressionDisabler = Callable[[str, str], Awaitable[dict[str, object]]]
+type ProfileActivationRecorder = Callable[[str | None], None]
+type ProfileActivationTriggerObserver = Callable[[str | None], None]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
 _T = TypeVar("_T")
@@ -310,6 +312,19 @@ class GrabbedDeviceRuntime(Protocol):
     def inspector_suppression_disabler(
         self,
     ) -> DeviceInspectorSuppressionDisabler | None: ...
+
+    @property
+    def profile_activation_recorder(self) -> ProfileActivationRecorder | None: ...
+
+    @property
+    def profile_activation_trigger_start_observer(
+        self,
+    ) -> ProfileActivationTriggerObserver | None: ...
+
+    @property
+    def profile_activation_trigger_end_observer(
+        self,
+    ) -> ProfileActivationTriggerObserver | None: ...
 
     @property
     def suppress_rel_getter(self) -> Callable[[], bool] | None: ...

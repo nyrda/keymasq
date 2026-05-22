@@ -22,6 +22,7 @@ from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
+from keymasq.keymasqd.runtime.action_runner import source_trigger_id
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
     AsyncioModule,
@@ -515,10 +516,17 @@ async def process_event(
         )
         return
     if event.type == evdev_mod.ecodes.EV_KEY:
+        trigger_id = source_trigger_id(device_runtime.hardware_id, event_name)
         if int(event.value) == 1:
             device_runtime.state.held_source_keys.add(event_name)
+            observer = device_runtime.profile_activation_trigger_start_observer
+            if observer is not None:
+                observer(trigger_id)
         elif int(event.value) == 0:
             device_runtime.state.held_source_keys.discard(event_name)
+            observer = device_runtime.profile_activation_trigger_end_observer
+            if observer is not None:
+                observer(trigger_id)
     normalized_event_name = normalize_combo_evdev(event_name)
     if (
         event.type == evdev_mod.ecodes.EV_KEY
@@ -547,6 +555,12 @@ async def process_event(
         device_runtime.interface_id,
     )
     if consumed is True:
+        _clear_released_source_action(
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         return
     if isinstance(consumed, ComboDecision):
         if consumed.consume_current_event:
@@ -564,7 +578,12 @@ async def process_event(
             combo_passthrough_requested = True
 
     if suppress_recalled_release_passthrough:
-        device_runtime.state.held_source_actions.pop(event_name, None)
+        _clear_released_source_action(
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         _record_diagnostics(
             device_runtime,
             "combo_recalled_release_suppressed",
@@ -642,6 +661,12 @@ async def process_event(
         )
         if int(event.value) == 0:
             device_runtime.state.combo_passthrough_held.discard(event_name)
+            _clear_released_source_action(
+                device_runtime,
+                event,
+                event_name,
+                evdev_mod=evdev_mod,
+            )
         _record_diagnostics(device_runtime, "combo_passthrough_held", started_ns, time_mod=time_mod)
         return
 
@@ -737,6 +762,12 @@ async def process_event(
     )
 
     if action:
+        _record_profile_action_if_countable(
+            device_runtime,
+            action,
+            event,
+            evdev_mod=evdev_mod,
+        )
         await runtime_actions.execute_action(
             device_runtime,
             action,
@@ -769,6 +800,35 @@ async def process_event(
         device_runtime.state.held_source_actions.pop(event_name, None)
 
     _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
+
+
+def _clear_released_source_action(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    evdev_mod: EvdevModule,
+) -> None:
+    if int(event.type) == int(evdev_mod.ecodes.EV_KEY) and int(event.value) == 0:
+        device_runtime.state.held_source_actions.pop(event_name, None)
+
+
+def _record_profile_action_if_countable(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    event: InputEventLike,
+    *,
+    evdev_mod: EvdevModule,
+) -> None:
+    if action.action_type in (ActionType.PASSTHROUGH, ActionType.SUPPRESS):
+        return
+    if int(event.type) == int(evdev_mod.ecodes.EV_KEY) and int(event.value) != 1:
+        return
+    if int(event.type) == int(evdev_mod.ecodes.EV_REL):
+        return
+    recorder = device_runtime.profile_activation_recorder
+    if recorder is not None:
+        recorder(action.source_profile_name)
 
 
 def _is_recording_control_action(
@@ -923,6 +983,9 @@ async def _process_wheel_pulse_event(
     pulse_event_name = button_id or wheel_button_id(event_name, normalized_value) or event_name
     pulse_count = max(1, abs(int(event.value)))
     for _ in range(pulse_count):
+        recorder = device_runtime.profile_activation_recorder
+        if recorder is not None:
+            recorder(action.source_profile_name)
         await runtime_actions.execute_action_pulse(
             device_runtime,
             action,

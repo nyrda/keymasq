@@ -143,6 +143,17 @@ def _clear_active_recording_owner(manager: "SessionManager") -> None:
     state.active_owner_uid = None
 
 
+def clear_active_recording_owner_if_writer(
+    manager: "SessionManager",
+    writer: asyncio.StreamWriter,
+) -> None:
+    state = manager.recording_state
+    if not state.active:
+        return
+    if state.active_owner_writer_id == id(writer):
+        _clear_active_recording_owner(manager)
+
+
 def begin_pending_macro_save(manager: "SessionManager", recording_data: JsonObject) -> str:
     state = manager.recording_state
     token = secrets.token_urlsafe(16)
@@ -179,7 +190,7 @@ def clear_pending_macro_save_if_writer(
     if not has_pending_macro_save(manager):
         return
     owner_writer_id = state.pending_save_owner_writer_id
-    if owner_writer_id == id(writer) or owner_writer_id is None:
+    if owner_writer_id == id(writer):
         clear_pending_macro_save(manager)
 
 
@@ -191,7 +202,7 @@ async def discard_pending_macro_save_if_writer(
     if not has_pending_macro_save(manager):
         return
     owner_writer_id = state.pending_save_owner_writer_id
-    if owner_writer_id != id(writer) and owner_writer_id is not None:
+    if owner_writer_id != id(writer):
         return
 
     pending_data = state.pending_data or {}

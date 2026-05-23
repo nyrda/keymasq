@@ -29,6 +29,13 @@ def run(ctx: ScenarioContext) -> None:
     ctx.wait_for_active_profile(TEMP_PROFILE_NAME, enabled=False)
     expect_base_mapping(ctx)
 
+    reset_temporary_layer(ctx)
+    ctx.tap_source(evdev.ecodes.KEY_F2)
+    ctx.wait_for_active_profile(TEMP_PROFILE_NAME, enabled=True)
+    ctx.tap_source(evdev.ecodes.KEY_Z)
+    ctx.wait_for_active_profile(TEMP_PROFILE_NAME, enabled=False)
+    expect_base_mapping(ctx)
+
     ctx.tap_source(evdev.ecodes.KEY_F3)
     ctx.wait_for_active_profile(TEMP_PROFILE_NAME, enabled=True)
     expect_temporary_mapping(ctx)

@@ -10,6 +10,7 @@ from keymasq.common.models import (
     ComboStep,
     MappingAction,
     ProfileConfig,
+    ProfileDeactivationPolicy,
     SuperkeyAction,
     SuperkeyConfig,
     SuperkeyMode,
@@ -292,6 +293,47 @@ def test_superkey_manager_round_trips_extended_pattern_actions(
     assert reloaded.tap_hold_actions[0].action_type == ActionType.CANCEL_MACRO_PLAYBACK
 
 
+def test_superkey_profile_action_deactivation_policy_round_trips(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    manager = SuperkeyManager()
+    manager.save_superkey(
+        SuperkeyConfig(
+            name="profile-layer",
+            mode=SuperkeyMode.PATTERN,
+            tap_actions=[
+                SuperkeyAction(
+                    action_type=ActionType.PROFILE_ENABLE,
+                    profile_name="Nav",
+                    profile_deactivation=ProfileDeactivationPolicy(after_actions=1),
+                )
+            ],
+            hold_actions=[
+                SuperkeyAction(
+                    action_type=ActionType.PROFILE_TOGGLE,
+                    profile_name="Nav",
+                    profile_deactivation=ProfileDeactivationPolicy(timeout_ms=1500),
+                )
+            ],
+        )
+    )
+
+    reloaded = SuperkeyManager().get_superkey("profile-layer")
+
+    assert reloaded is not None
+    assert reloaded.tap_actions[0].profile_deactivation == ProfileDeactivationPolicy(
+        after_actions=1
+    )
+    assert reloaded.hold_actions[0].profile_deactivation == ProfileDeactivationPolicy(
+        timeout_ms=1500
+    )
+
+
 def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypatch) -> None:
     superkeys_dir = temp_config_dir / "superkeys"
     superkeys_dir.mkdir()
@@ -498,6 +540,29 @@ def test_combo_superkey_payload_tracks_combo_scoped_exec_refs() -> None:
     assert tap_actions[0]["exec_ref"] == 1
     assert manager.exec_state.combo_exec_refs == {1}
     assert manager.exec_state.exec_refs[1] == ExecBinding(cmd="echo combo", owner="combo")
+
+
+def test_combo_action_payload_includes_profile_policy_and_source() -> None:
+    manager = SimpleNamespace(exec_state=ExecRuntimeState(), superkeys=SimpleNamespace())
+    action = MappingAction(
+        action_type=ActionType.PROFILE_ENABLE,
+        profile_name="Nav",
+        profile_deactivation=ProfileDeactivationPolicy(after_actions=1),
+        source_profile_name="Runtime",
+    )
+
+    payload = combo_action_to_payload(manager, action, step_count=1)
+    signature = combo_action_signature_payload(manager, action, step_count=1)
+
+    assert payload == {
+        "action": "profile_enable",
+        "source_profile_name": "Runtime",
+        "profile_name": "Nav",
+        "deactivation": {
+            "after_actions": 1,
+        },
+    }
+    assert signature == payload
 
 
 def test_combo_superkey_multistep_payload_and_signature_strip_double_tap_slots() -> None:

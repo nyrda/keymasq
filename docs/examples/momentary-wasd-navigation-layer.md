@@ -13,9 +13,9 @@ Use one held key as a temporary navigation layer:
 | `R` | Rapidfire Scroll Up |
 | `F` | Rapidfire Scroll Down |
 
-This works like a keyboard firmware layer, but it uses normal Keymasq
-profiles and an overload superkey. Hold the layer key, navigate with WASD,
-then release the layer key to return to your normal layout.
+This works like a keyboard firmware layer, but it uses a disabled Keymasq
+profile and a temporary profile activation. Hold the layer key, navigate with
+WASD, then release the layer key to return to your normal layout.
 
 ## Create The Layer Profile
 
@@ -46,44 +46,23 @@ control: lower **Wait (ms)** for faster
 scrolling, raise it for slower scrolling, and adjust **Hold (ms)** if an app
 needs a longer wheel pulse.
 
-## Create The Momentary Layer Superkey
-
-Open **Super Keys**, create a new superkey, and choose **Overload** mode.
-
-Suggested name:
-
-```text
-hold_wasd_navigation
-```
-
-Set **Main Actions** to empty.
-
-Set the overload action lists like this:
-
-| List | Action |
-|---|---|
-| On Press | Profile: Enable `WASD Navigation` |
-| On Release | Profile: Disable `WASD Navigation` |
-
-When you hold the layer key, On Press enables the profile. When you release
-the layer key, On Release disables it again.
-
 ## Bind It To A Hold Key
 
-Bind `hold_wasd_navigation` anywhere a superkey can be used:
+In the **Device** tab or **Combos** tab, choose a key, mouse button, or combo.
+Open the **Profile** action tab and set:
 
-- **Device tab**: choose a key or mouse button and set its action to
-  **Super Key**.
-- **Combos tab**: create a combo and set its action to **Super Key**.
+| Field | Value |
+|---|---|
+| Action | Enable |
+| Profile | `WASD Navigation` |
+| Mode | While trigger is held |
+
+When you hold the trigger, Keymasq activates `WASD Navigation` temporarily.
+When you release the trigger, Keymasq removes that temporary activation without
+changing the saved profile's disabled state.
 
 Good layer keys are keys you can hold comfortably while pressing WASD, such
 as Caps Lock, a thumb key, or a mouse side button.
-
-In either place, select:
-
-```text
-hold_wasd_navigation
-```
 
 ## How It Feels
 
@@ -96,7 +75,7 @@ Hold the layer key:
 
 Release the layer key:
 
-- The `WASD Navigation` profile is disabled.
+- The temporary `WASD Navigation` activation is removed.
 - Your normal keyboard mappings come back.
 
 This is useful in games, editors, terminals, and browsers where your hand is
@@ -108,5 +87,5 @@ cluster.
 - Use Page Up / Page Down instead of rapidfire Scroll Up / Scroll Down if you
   prefer discrete page jumps.
 - Add `Z` / `X` for Back / Forward.
-- Bind the layer superkey to a mouse side button so your keyboard hand stays
-  on WASD.
+- Bind the layer action to a mouse side button so your keyboard hand stays on
+  WASD.

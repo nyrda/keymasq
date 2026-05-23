@@ -29,6 +29,7 @@ from keymasq.common.models import (
     ActionType,
     AnalogControlConfig,
     MappingAction,
+    ProfileDeactivationPolicy,
     SuperkeyAction,
     SuperkeyConfig,
     action_type_supports_rapidfire,
@@ -63,6 +64,18 @@ from keymasq.session.superkeys import SuperkeyManager
 from keymasq.session.virtual_devices import load_virtual_gamepad_count
 
 log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
+
+_PROFILE_LIFETIME_PRESETS_ENABLE: tuple[tuple[str, str], ...] = (
+    ("until_changed", "Persistent"),
+    ("while_trigger_active", "While trigger is held"),
+    ("after_one_action", "One-shot"),
+    ("custom", "Custom"),
+)
+_PROFILE_LIFETIME_PRESETS_TOGGLE: tuple[tuple[str, str], ...] = (
+    ("until_changed", "Persistent"),
+    ("after_one_action", "One-shot"),
+    ("custom", "Custom"),
+)
 
 
 def _virtual_gamepad_count() -> int:
@@ -593,8 +606,16 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._macro_replay_clicks: bool = True
         self._macro_speed: float = 1.0
         self._profile_entries: list[dict] = []
-        self._selected_profile_action: str = "toggle"
+        self._selected_profile_action: str = "enable"
         self._selected_profile_name: str = ""
+        self._profile_lifetime_preset: str = "until_changed"
+        self._profile_lifetime_action_count: int = 2
+        self._profile_lifetime_timeout_ms: int = 1500
+        self._profile_custom_trigger_end: bool = False
+        self._profile_custom_action_count: bool = False
+        self._profile_custom_timeout: bool = False
+        self._profile_lifetime_selection_updating: bool = False
+        self._profile_lifetime_model_keys: list[str] = []
         self._selected_gamepad_output_id: str | None = (
             current_action.output_id
             if current_action
@@ -606,6 +627,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._gamepad_output_header: Gtk.Widget | None = None
         self._gamepad_output_warning_label: Gtk.Label | None = None
         self._profile_name_items: list[str] = []
+        self._profile_name_populating: bool = False
         self._exec_cmd: str = ""
         self._mouse_move_x: int = 0
         self._mouse_move_y: int = 0
@@ -650,7 +672,10 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
                 ActionType.PROFILE_DISABLE,
                 ActionType.PROFILE_TOGGLE,
             ):
-                self._selected_profile_name = str(current_action.profile_name or "")
+                self._selected_profile_name = str(
+                    current_action.profile_name or current_action.target or ""
+                )
+                self._restore_profile_lifetime(current_action.profile_deactivation)
                 if current_action.action_type == ActionType.PROFILE_ENABLE:
                     self._selected_profile_action = "enable"
                 elif current_action.action_type == ActionType.PROFILE_DISABLE:
@@ -671,6 +696,43 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self._tap_enabled = False
 
         self._build_ui()
+
+    def _restore_profile_lifetime(
+        self,
+        policy: ProfileDeactivationPolicy | None,
+    ) -> None:
+        if policy is None:
+            self._profile_lifetime_preset = "until_changed"
+            return
+
+        self._profile_lifetime_action_count = int(policy.after_actions or 2)
+        self._profile_lifetime_timeout_ms = int(policy.timeout_ms or 1500)
+        self._profile_custom_trigger_end = bool(policy.on_trigger_end)
+        self._profile_custom_action_count = policy.after_actions is not None
+        self._profile_custom_timeout = policy.timeout_ms is not None
+
+        simple_trigger = (
+            policy.on_trigger_end
+            and policy.after_actions is None
+            and policy.timeout_ms is None
+        )
+        one_shot = (
+            not policy.on_trigger_end
+            and policy.after_actions == 1
+        )
+        simple_count = (
+            not policy.on_trigger_end
+            and policy.after_actions is not None
+            and policy.timeout_ms is None
+        )
+        if simple_trigger:
+            self._profile_lifetime_preset = "while_trigger_active"
+        elif one_shot:
+            self._profile_lifetime_preset = "after_one_action"
+        elif simple_count:
+            self._profile_lifetime_preset = "custom"
+        else:
+            self._profile_lifetime_preset = "custom"
 
     def _build_ui(self):
         _ensure_compact_tabs_css()
@@ -1886,12 +1948,12 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
         self._profile_action_dropdown = Gtk.DropDown()
         action_model = Gtk.StringList()
-        action_model.append("Toggle")
         action_model.append("Enable")
+        action_model.append("Toggle")
         action_model.append("Disable")
         self._profile_action_dropdown.set_model(action_model)
         self._profile_action_dropdown.set_selected(
-            {"toggle": 0, "enable": 1, "disable": 2}.get(self._selected_profile_action, 0)
+            {"enable": 0, "toggle": 1, "disable": 2}.get(self._selected_profile_action, 0)
         )
         self._profile_action_dropdown.connect("notify::selected", self._on_profile_action_changed)
         action_row.append(self._profile_action_dropdown)
@@ -1912,6 +1974,9 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._profile_name_dropdown.connect("notify::selected", self._on_profile_name_changed)
         profile_row.append(self._profile_name_dropdown)
         outer.append(profile_row)
+
+        self._profile_lifetime_box = self._build_profile_lifetime_controls()
+        outer.append(self._profile_lifetime_box)
 
         self._profile_hint_label = Gtk.Label(label="")
         self._profile_hint_label.add_css_class("dim-label")
@@ -1934,27 +1999,311 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
     def _on_profile_action_changed(self, dropdown, _pspec) -> None:
         idx = dropdown.get_selected()
-        if idx == 1:
+        if idx == 0:
             self._selected_profile_action = "enable"
         elif idx == 2:
             self._selected_profile_action = "disable"
         else:
             self._selected_profile_action = "toggle"
+        self._profile_lifetime_preset = self._coerce_profile_lifetime_preset(
+            self._profile_lifetime_preset
+        )
+        self._update_profile_lifetime_visibility()
         self._update_profile_hint()
 
-    def _populate_profile_names(self) -> None:
-        self._profile_name_items = []
-        while self._profile_name_model.get_n_items() > 0:
-            self._profile_name_model.remove(0)
+    def _build_profile_lifetime_controls(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_halign(Gtk.Align.START)
+        self._profile_lifetime_box = box
 
+        self._profile_lifetime_title = Gtk.Label(label="Activation")
+        self._profile_lifetime_title.set_halign(Gtk.Align.START)
+        box.append(self._profile_lifetime_title)
+
+        preset_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        preset_label = Gtk.Label(label="Mode")
+        preset_label.set_size_request(90, -1)
+        preset_label.set_halign(Gtk.Align.START)
+        preset_row.append(preset_label)
+
+        self._profile_lifetime_dropdown = Gtk.DropDown()
+        self._profile_lifetime_model = Gtk.StringList()
+        self._sync_profile_lifetime_model()
+        self._profile_lifetime_dropdown.set_model(self._profile_lifetime_model)
+        self._profile_lifetime_dropdown.set_selected(
+            self._profile_lifetime_preset_index(self._profile_lifetime_preset)
+        )
+        self._profile_lifetime_dropdown.connect(
+            "notify::selected",
+            self._on_profile_lifetime_preset_changed,
+        )
+        preset_row.append(self._profile_lifetime_dropdown)
+        box.append(preset_row)
+
+        self._profile_lifetime_timeout_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        timeout_label = Gtk.Label(label="Timeout")
+        timeout_label.set_size_request(90, -1)
+        timeout_label.set_halign(Gtk.Align.START)
+        self._profile_lifetime_timeout_row.append(timeout_label)
+        self._profile_lifetime_timeout_adjustment = Gtk.Adjustment(
+            value=self._profile_lifetime_timeout_ms,
+            lower=1,
+            upper=3_600_000,
+            step_increment=50,
+        )
+        self._profile_lifetime_timeout_spin = Gtk.SpinButton()
+        self._profile_lifetime_timeout_spin.set_adjustment(
+            self._profile_lifetime_timeout_adjustment
+        )
+        self._profile_lifetime_timeout_spin.connect(
+            "value-changed",
+            self._on_profile_lifetime_timeout_changed,
+        )
+        self._profile_lifetime_timeout_row.append(self._profile_lifetime_timeout_spin)
+        timeout_unit = Gtk.Label(label="ms")
+        timeout_unit.add_css_class("dim-label")
+        self._profile_lifetime_timeout_row.append(timeout_unit)
+        box.append(self._profile_lifetime_timeout_row)
+
+        self._profile_lifetime_custom_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+        )
+
+        self._profile_custom_count_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        self._profile_custom_count_row.set_halign(Gtk.Align.START)
+        self._profile_custom_count_toggle = Gtk.ToggleButton(label="Action count")
+        self._profile_custom_count_toggle.set_size_request(140, -1)
+        self._profile_custom_count_toggle.set_active(self._profile_custom_action_count)
+        self._profile_custom_count_toggle.connect(
+            "toggled",
+            self._on_profile_custom_count_toggled,
+        )
+        self._profile_custom_count_row.append(self._profile_custom_count_toggle)
+        self._profile_lifetime_count_spin = Gtk.SpinButton()
+        self._profile_lifetime_count_spin.set_size_request(92, -1)
+        self._profile_lifetime_count_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._profile_lifetime_action_count,
+                lower=1,
+                upper=999,
+                step_increment=1,
+            )
+        )
+        self._profile_lifetime_count_spin.connect(
+            "value-changed",
+            self._on_profile_lifetime_count_changed,
+        )
+        self._profile_custom_count_row.append(self._profile_lifetime_count_spin)
+        self._profile_lifetime_custom_box.append(self._profile_custom_count_row)
+
+        self._profile_custom_timeout_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        self._profile_custom_timeout_row.set_halign(Gtk.Align.START)
+        self._profile_custom_timeout_toggle = Gtk.ToggleButton(label="Timeout")
+        self._profile_custom_timeout_toggle.set_size_request(140, -1)
+        self._profile_custom_timeout_toggle.set_active(self._profile_custom_timeout)
+        self._profile_custom_timeout_toggle.connect(
+            "toggled",
+            self._on_profile_custom_timeout_toggled,
+        )
+        self._profile_custom_timeout_row.append(self._profile_custom_timeout_toggle)
+        self._profile_custom_timeout_spin = Gtk.SpinButton()
+        self._profile_custom_timeout_spin.set_size_request(92, -1)
+        self._profile_custom_timeout_spin.set_adjustment(self._profile_lifetime_timeout_adjustment)
+        self._profile_custom_timeout_spin.connect(
+            "value-changed",
+            self._on_profile_lifetime_timeout_changed,
+        )
+        self._profile_custom_timeout_row.append(self._profile_custom_timeout_spin)
+        self._profile_custom_timeout_unit = Gtk.Label(label="ms")
+        self._profile_custom_timeout_unit.add_css_class("dim-label")
+        self._profile_custom_timeout_row.append(self._profile_custom_timeout_unit)
+        self._profile_lifetime_custom_box.append(self._profile_custom_timeout_row)
+
+        self._profile_custom_trigger_toggle = Gtk.ToggleButton(label="Trigger end")
+        self._profile_custom_trigger_toggle.set_halign(Gtk.Align.START)
+        self._profile_custom_trigger_toggle.set_size_request(140, -1)
+        self._profile_custom_trigger_toggle.set_active(self._profile_custom_trigger_end)
+        self._profile_custom_trigger_toggle.connect(
+            "toggled",
+            self._on_profile_custom_trigger_toggled,
+        )
+        self._profile_lifetime_custom_box.append(self._profile_custom_trigger_toggle)
+
+        box.append(self._profile_lifetime_custom_box)
+
+        self._profile_lifetime_notice_label = Gtk.Label(
+            label="Disable this profile first to use it as a temporary layer."
+        )
+        self._profile_lifetime_notice_label.add_css_class("dim-label")
+        self._profile_lifetime_notice_label.set_halign(Gtk.Align.START)
+        self._profile_lifetime_notice_label.set_wrap(True)
+        box.append(self._profile_lifetime_notice_label)
+
+        self._update_profile_lifetime_visibility()
+        return box
+
+    def _on_profile_lifetime_preset_changed(self, dropdown, _pspec) -> None:
+        if self._profile_lifetime_selection_updating:
+            return
+        if self._profile_lifetime_blocked():
+            self._sync_profile_lifetime_dropdown("until_changed")
+            self._update_profile_lifetime_visibility()
+            self._update_profile_hint()
+            return
+        idx = int(dropdown.get_selected())
+        presets = self._profile_lifetime_presets()
+        self._profile_lifetime_preset = (
+            presets[idx][0] if 0 <= idx < len(presets) else "until_changed"
+        )
+        self._update_profile_lifetime_visibility()
+        self._update_profile_hint()
+
+    def _on_profile_lifetime_count_changed(self, spin: Gtk.SpinButton) -> None:
+        self._profile_lifetime_action_count = int(spin.get_value())
+
+    def _on_profile_lifetime_timeout_changed(self, spin: Gtk.SpinButton) -> None:
+        self._profile_lifetime_timeout_ms = int(spin.get_value())
+
+    def _on_profile_custom_trigger_toggled(self, check: Gtk.ToggleButton) -> None:
+        self._profile_custom_trigger_end = bool(check.get_active())
+
+    def _on_profile_custom_count_toggled(self, check: Gtk.ToggleButton) -> None:
+        self._profile_custom_action_count = bool(check.get_active())
+        self._update_profile_lifetime_visibility()
+
+    def _on_profile_custom_timeout_toggled(self, check: Gtk.ToggleButton) -> None:
+        self._profile_custom_timeout = bool(check.get_active())
+        self._update_profile_lifetime_visibility()
+
+    def _profile_lifetime_presets(self) -> tuple[tuple[str, str], ...]:
+        if self._selected_profile_action == "toggle":
+            return _PROFILE_LIFETIME_PRESETS_TOGGLE
+        return _PROFILE_LIFETIME_PRESETS_ENABLE
+
+    def _coerce_profile_lifetime_preset(self, preset: str) -> str:
+        keys = {key for key, _label in self._profile_lifetime_presets()}
+        return preset if preset in keys else "until_changed"
+
+    def _profile_lifetime_preset_index(self, preset: str) -> int:
+        preset = self._coerce_profile_lifetime_preset(preset)
+        for idx, (key, _label) in enumerate(self._profile_lifetime_presets()):
+            if key == preset:
+                return idx
+        return 0
+
+    def _sync_profile_lifetime_model(self) -> None:
+        if not hasattr(self, "_profile_lifetime_model"):
+            return
+        presets = self._profile_lifetime_presets()
+        keys = [key for key, _label in presets]
+        if self._profile_lifetime_model_keys == keys:
+            return
+        self._profile_lifetime_selection_updating = True
+        try:
+            while self._profile_lifetime_model.get_n_items() > 0:
+                self._profile_lifetime_model.remove(0)
+            for _key, label in presets:
+                self._profile_lifetime_model.append(label)
+            self._profile_lifetime_model_keys = keys
+        finally:
+            self._profile_lifetime_selection_updating = False
+
+    def _sync_profile_lifetime_dropdown(self, preset: str) -> None:
+        if not hasattr(self, "_profile_lifetime_dropdown"):
+            return
+        self._sync_profile_lifetime_model()
+        preset = self._coerce_profile_lifetime_preset(preset)
+        idx = self._profile_lifetime_preset_index(preset)
+        if int(self._profile_lifetime_dropdown.get_selected()) == idx:
+            return
+        self._profile_lifetime_selection_updating = True
+        try:
+            self._profile_lifetime_dropdown.set_selected(idx)
+        finally:
+            self._profile_lifetime_selection_updating = False
+
+    def _selected_profile_entry(self) -> dict | None:
+        for profile in self._profile_entries:
+            if str(profile.get("name", "") or "") == self._selected_profile_name:
+                return profile
+        return None
+
+    def _selected_profile_enabled(self) -> bool:
+        profile = self._selected_profile_entry()
+        return bool(profile and bool(profile.get("enabled", True)))
+
+    def _profile_lifetime_available(self) -> bool:
+        return self._selected_profile_action in {"enable", "toggle"}
+
+    def _profile_lifetime_blocked(self) -> bool:
+        return self._profile_lifetime_available() and self._selected_profile_enabled()
+
+    def _update_profile_lifetime_visibility(self) -> None:
+        if not hasattr(self, "_profile_lifetime_box"):
+            return
+        lifetime_available = self._profile_lifetime_available()
+        blocked = self._profile_lifetime_blocked()
+        preset = (
+            "until_changed"
+            if blocked
+            else self._coerce_profile_lifetime_preset(self._profile_lifetime_preset)
+        )
+        if not blocked:
+            self._profile_lifetime_preset = preset
+        is_custom = preset == "custom"
+        is_one_shot = preset == "after_one_action"
+        allow_trigger_end = self._selected_profile_action == "enable"
+        if not allow_trigger_end and self._profile_custom_trigger_end:
+            self._profile_custom_trigger_end = False
+            self._profile_custom_trigger_toggle.set_active(False)
+        self._sync_profile_lifetime_dropdown(preset)
+        self._profile_lifetime_box.set_visible(lifetime_available)
+        self._profile_lifetime_title.set_label(
+            "When toggled on" if self._selected_profile_action == "toggle" else "Activation"
+        )
+        self._profile_lifetime_dropdown.set_sensitive(not blocked)
+        self._profile_lifetime_timeout_row.set_visible(False)
+        self._profile_lifetime_custom_box.set_visible(is_custom or is_one_shot)
+        self._profile_custom_count_row.set_visible(is_custom)
+        self._profile_custom_timeout_row.set_visible(is_custom or is_one_shot)
+        self._profile_custom_trigger_toggle.set_visible(is_custom and allow_trigger_end)
+        self._profile_lifetime_count_spin.set_sensitive(self._profile_custom_action_count)
+        self._profile_custom_timeout_spin.set_visible(self._profile_custom_timeout)
+        self._profile_custom_timeout_spin.set_sensitive(self._profile_custom_timeout)
+        self._profile_custom_timeout_unit.set_visible(self._profile_custom_timeout)
+        self._profile_lifetime_notice_label.set_visible(blocked)
+
+    def _populate_profile_names(self) -> None:
+        profile_name_items: list[str] = []
+        profile_name_labels: list[str] = []
         for profile in self._profile_entries:
             name = str(profile.get("name", "") or "")
             if not name:
                 continue
-            self._profile_name_items.append(name)
+            profile_name_items.append(name)
             enabled = bool(profile.get("enabled", True))
             marker = "" if enabled else " [disabled]"
-            self._profile_name_model.append(f"{name}{marker}")
+            profile_name_labels.append(f"{name}{marker}")
+
+        self._profile_name_populating = True
+        try:
+            self._profile_name_items = profile_name_items
+            while self._profile_name_model.get_n_items() > 0:
+                self._profile_name_model.remove(0)
+            for label in profile_name_labels:
+                self._profile_name_model.append(label)
+        finally:
+            self._profile_name_populating = False
 
         if not self._profile_name_items:
             self._selected_profile_name = ""
@@ -1972,11 +2321,14 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._on_profile_name_changed(self._profile_name_dropdown, None)
 
     def _on_profile_name_changed(self, dropdown, _pspec) -> None:
+        if self._profile_name_populating or not self._profile_name_items:
+            return
         idx = int(dropdown.get_selected())
         if idx < 0 or idx >= len(self._profile_name_items):
             self._selected_profile_name = ""
         else:
             self._selected_profile_name = self._profile_name_items[idx]
+        self._update_profile_lifetime_visibility()
         self._update_profile_hint()
         self._on_tab_changed(self.stack, None)
 
@@ -2356,9 +2708,54 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         action = MappingAction(
             action_type=action_type,
             profile_name=self._selected_profile_name,
+            profile_deactivation=self._profile_deactivation_policy(action_type),
         )
         self.emit("key-selected", action)
         self.close()
+
+    def _profile_deactivation_policy(
+        self,
+        action_type: ActionType,
+    ) -> ProfileDeactivationPolicy | None:
+        if action_type not in (ActionType.PROFILE_ENABLE, ActionType.PROFILE_TOGGLE):
+            return None
+        if self._profile_lifetime_blocked():
+            return None
+        preset = self._coerce_profile_lifetime_preset(self._profile_lifetime_preset)
+        if preset == "while_trigger_active":
+            if action_type == ActionType.PROFILE_ENABLE:
+                return ProfileDeactivationPolicy(on_trigger_end=True)
+            return None
+        if preset == "after_one_action":
+            timeout_ms = (
+                max(1, int(self._profile_lifetime_timeout_ms))
+                if self._profile_custom_timeout
+                else None
+            )
+            return ProfileDeactivationPolicy(after_actions=1, timeout_ms=timeout_ms)
+        if preset != "custom":
+            return None
+
+        after_actions = (
+            max(1, int(self._profile_lifetime_action_count))
+            if self._profile_custom_action_count
+            else None
+        )
+        timeout_ms = (
+            max(1, int(self._profile_lifetime_timeout_ms))
+            if self._profile_custom_timeout
+            else None
+        )
+        policy = ProfileDeactivationPolicy(
+            on_trigger_end=(
+                bool(self._profile_custom_trigger_end)
+                if action_type == ActionType.PROFILE_ENABLE
+                else False
+            ),
+            after_actions=after_actions,
+            timeout_ms=timeout_ms,
+        )
+        return policy if policy.has_condition else None
 
     def _set_initial_tab(self):
         if not self._current_action:

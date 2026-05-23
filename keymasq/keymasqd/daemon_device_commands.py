@@ -48,6 +48,20 @@ class _DeviceCommandManager(Protocol):
 
     async def set_virtual_gamepads(self, count: object) -> JsonObject: ...
 
+    async def track_profile_activation(
+        self,
+        profile_name: str,
+        activation_id: str,
+        trigger_id: str,
+        deactivation: object,
+    ) -> JsonObject: ...
+
+    async def cancel_profile_activation(
+        self,
+        profile_name: str = "",
+        activation_id: str = "",
+    ) -> JsonObject: ...
+
     async def start_device_inspector(self, hardware_id: str) -> JsonObject: ...
 
     async def stop_device_inspector(self, hardware_id: str) -> JsonObject: ...
@@ -132,6 +146,20 @@ async def handle_device_command(
 
     if command_type == CommandType.SET_VIRTUAL_GAMEPADS:
         return await daemon.device_manager.set_virtual_gamepads(data.get("count"))
+
+    if command_type == CommandType.TRACK_PROFILE_ACTIVATION:
+        return await daemon.device_manager.track_profile_activation(
+            profile_name=str_value(data.get("profile_name", "")),
+            activation_id=str_value(data.get("activation_id", "")),
+            trigger_id=str_value(data.get("trigger_id", "")),
+            deactivation=data.get("deactivation", {}),
+        )
+
+    if command_type == CommandType.CANCEL_PROFILE_ACTIVATION:
+        return await daemon.device_manager.cancel_profile_activation(
+            profile_name=str_value(data.get("profile_name", "")),
+            activation_id=str_value(data.get("activation_id", "")),
+        )
 
     if command_type == CommandType.DEVICE_INSPECTOR_START:
         return await daemon.device_manager.start_device_inspector(

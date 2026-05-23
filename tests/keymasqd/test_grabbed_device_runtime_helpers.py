@@ -37,6 +37,190 @@ class _CountingUInput(_FakeUInput):
 
 class TestGrabbedDeviceHelpers:
     @pytest.mark.asyncio
+    async def test_device_release_ends_held_profile_trigger_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[tuple[CommandType, dict[str, object]]] = []
+        deactivate_event = asyncio.Event()
+        expected_deactivate = (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        )
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            event = (event_type, data)
+            events.append(event)
+            if event == expected_deactivate:
+                deactivate_event.set()
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"caps": "key_capslock"},
+            profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+        )
+        manager.grabbed_devices["1234:5678"] = [device]
+        device.state.held_source_keys.add("key_capslock")
+        device.state.held_source_actions["key_capslock"] = dm.MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Nav",
+        )
+
+        manager.observe_profile_trigger_start("1234:5678:key_capslock")
+        await manager.track_profile_activation(
+            "Nav",
+            "activation-1",
+            "1234:5678:key_capslock",
+            {"on_trigger_end": True},
+        )
+
+        await device.release()
+        await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+        assert expected_deactivate in events
+        assert "key_capslock" not in device.state.held_source_keys
+        assert "key_capslock" not in device.state.held_source_actions
+
+    @pytest.mark.asyncio
+    async def test_device_release_ends_held_overload_profile_trigger_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[tuple[CommandType, dict[str, object]]] = []
+        deactivate_event = asyncio.Event()
+        expected_deactivate = (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        )
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            event = (event_type, data)
+            events.append(event)
+            if event == expected_deactivate:
+                deactivate_event.set()
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"f13": "key_f13"},
+            profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+        )
+        manager.grabbed_devices["1234:5678"] = [device]
+        child_event_name = "key_f13#overload#0"
+        trigger_id = f"1234:5678:{child_event_name}"
+        device.state.held_profile_trigger_events.add(child_event_name)
+
+        manager.observe_profile_trigger_start(trigger_id)
+        await manager.track_profile_activation(
+            "Nav",
+            "activation-1",
+            trigger_id,
+            {"on_trigger_end": True},
+        )
+
+        await device.release()
+        await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+        assert expected_deactivate in events
+        assert device.state.held_profile_trigger_events == set()
+
+    @pytest.mark.asyncio
+    async def test_consumed_release_clears_held_profile_trigger_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        action = dm.MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Nav",
+        )
+
+        async def consume_release(*args: object) -> bool:
+            return int(cast(int, args[4])) == 0
+
+        starts: list[str | None] = []
+        ends: list[str | None] = []
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"caps": "key_capslock"},
+            profile_activation_trigger_start_observer=starts.append,
+            profile_activation_trigger_end_observer=ends.append,
+        )
+        device.mapping_getter = lambda: {"caps": action}
+        device.event_callback = AsyncMock(side_effect=consume_release)
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 1),
+        )
+        assert "key_capslock" in device.state.held_source_keys
+        assert "key_capslock" in device.state.held_source_actions
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 0),
+        )
+
+        assert starts == ["1234:5678:key_capslock"]
+        assert ends == ["1234:5678:key_capslock"]
+        assert "key_capslock" not in device.state.held_source_keys
+        assert "key_capslock" not in device.state.held_source_actions
+
+    @pytest.mark.asyncio
+    async def test_unmapped_grabbed_key_press_consumes_profile_action_count(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[tuple[CommandType, dict[str, object]]] = []
+        deactivate_event = asyncio.Event()
+        expected_deactivate = (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "action_count",
+            },
+        )
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            event = (event_type, data)
+            events.append(event)
+            if event == expected_deactivate:
+                deactivate_event.set()
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            profile_activation_recorder=manager.record_profile_action,
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+
+        await manager.track_profile_activation(
+            "Nav",
+            "activation-1",
+            "1234:5678:key_capslock",
+            {"after_actions": 1},
+        )
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        )
+        await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+        assert expected_deactivate in events
+        assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
+
+    @pytest.mark.asyncio
     async def test_inspector_suppressed_key_esc_press_disables_suppression(
         self,
         monkeypatch: pytest.MonkeyPatch,

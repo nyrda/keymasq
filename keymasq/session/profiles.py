@@ -24,7 +24,10 @@ from keymasq.common.models import (
     ProfileConfig,
     WindowRule,
     normalize_macro_loop_stop_behavior,
+    normalize_profile_deactivation_policy,
+    parse_profile_deactivation_policy,
     parse_rapidfire_fields,
+    profile_deactivation_policy_to_dict,
     resolve_rapidfire_fields,
 )
 
@@ -409,9 +412,14 @@ class ProfileManager:
             profile_name = str(action_data.get("profile_name", "") or "")
             if not profile_name:
                 profile_name = str(action_data.get("target", "") or "")
+            deactivation = normalize_profile_deactivation_policy(
+                action_type,
+                parse_profile_deactivation_policy(action_data.get("deactivation")),
+            )
             return MappingAction(
                 action_type=action_type,
                 profile_name=profile_name,
+                profile_deactivation=deactivation,
             )
 
         if action_type == ActionType.COMPOSITOR_DISPATCH:
@@ -515,6 +523,13 @@ class ProfileManager:
         ):
             action_data["target"] = action.profile_name or ""
             action_data["profile_name"] = action.profile_name or ""
+            deactivation = normalize_profile_deactivation_policy(
+                action.action_type,
+                action.profile_deactivation,
+            )
+            deactivation_data = profile_deactivation_policy_to_dict(deactivation)
+            if deactivation_data is not None:
+                action_data["deactivation"] = deactivation_data
         if action.action_type == ActionType.COMPOSITOR_DISPATCH:
             if action.compositor_id:
                 action_data["compositor"] = action.compositor_id
@@ -728,10 +743,16 @@ class ProfileManager:
         window_info: TomlDict | None = None,
         capabilities: list[str] | None = None,
         hardware_ids: list[str] | None = None,
+        runtime_profile_names: list[str] | None = None,
     ) -> ResolvedProfiles:
         capabilities = capabilities or []
         known_hardware_ids = set(hardware_ids or [])
         active_profiles: list[ProfileConfig] = []
+        runtime_names = [
+            str(name).strip()
+            for name in (runtime_profile_names or [])
+            if str(name).strip()
+        ]
 
         for info in self.list_profiles():
             profile = info.config
@@ -751,6 +772,25 @@ class ProfileManager:
                 p.name.casefold(),
             )
         )
+
+        runtime_profiles: list[ProfileConfig] = []
+        seen_runtime_names: set[str] = set()
+        for name in runtime_names:
+            if name in seen_runtime_names:
+                continue
+            seen_runtime_names.add(name)
+            info = self.get_profile(name)
+            if info is not None:
+                runtime_profiles.append(info.config)
+        if runtime_profiles:
+            runtime_name_set = {profile.name for profile in runtime_profiles}
+            active_profiles = [
+                profile for profile in active_profiles if profile.name not in runtime_name_set
+            ]
+            active_profiles.extend(runtime_profiles)
+
+        for profile in active_profiles:
+            known_hardware_ids.update(profile.device_layers.keys())
 
         devices: dict[str, ResolvedDeviceProfile] = {}
         combos_by_signature: dict[
@@ -772,7 +812,9 @@ class ProfileManager:
                         resolved.mappings.pop(button_id, None)
                         resolved.mapping_profile_names.pop(button_id, None)
                     else:
-                        resolved.mappings[button_id] = copy.deepcopy(action)
+                        copied_action = copy.deepcopy(action)
+                        copied_action.source_profile_name = profile.name
+                        resolved.mappings[button_id] = copied_action
                         resolved.mapping_profile_names[button_id] = profile.name
             devices[hardware_id] = resolved
 
@@ -820,11 +862,13 @@ class ProfileManager:
                 signature = tuple(normalized_steps)
                 if signature in combos_by_signature:
                     combos_by_signature.pop(signature, None)
+                combo_action = copy.deepcopy(combo.action)
+                combo_action.source_profile_name = profile.name
                 combos_by_signature[signature] = ResolvedCombo(
                     id=combo.id,
                     name=combo.name,
                     steps=combo_steps,
-                    action=copy.deepcopy(combo.action),
+                    action=combo_action,
                     profile_name=profile.name,
                     recall_trigger_keys=bool(combo.recall_trigger_keys),
                     restore_trigger_keys=normalize_combo_restore_keys(

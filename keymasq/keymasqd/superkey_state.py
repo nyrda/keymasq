@@ -12,9 +12,11 @@ from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_game
 from keymasq.common.models import (
     ActionType,
     MappingAction,
+    ProfileDeactivationPolicy,
     SuperkeyMode,
     clamp_rapidfire_hold_ms,
     clamp_rapidfire_wait_ms,
+    normalize_profile_deactivation_policy,
     superkey_action_shared_kwargs,
 )
 from keymasq.keymasqd.output_helpers import (
@@ -25,6 +27,7 @@ from keymasq.keymasqd.output_helpers import (
 from keymasq.keymasqd.runtime.action_runner import (
     build_action_trigger_payload,
     build_macro_playback_request,
+    source_trigger_id,
 )
 from keymasq.keymasqd.runtime.mouse_actions import (
     emit_relative_pulse,
@@ -80,6 +83,7 @@ class SuperkeyActionData:
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = 20
     rapidfire_wait_ms: int = 20
+    profile_deactivation: ProfileDeactivationPolicy | None = None
 
     def __post_init__(self) -> None:
         self.output_id = (
@@ -93,6 +97,10 @@ class SuperkeyActionData:
             self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)
         self.rapidfire_hold_ms = clamp_rapidfire_hold_ms(self.rapidfire_hold_ms)
         self.rapidfire_wait_ms = clamp_rapidfire_wait_ms(self.rapidfire_wait_ms)
+        self.profile_deactivation = normalize_profile_deactivation_policy(
+            ActionType(self.action_type),
+            self.profile_deactivation,
+        )
 
 
 @dataclass
@@ -604,6 +612,7 @@ class SuperkeyMachine:
             self._mapping_action(action),
             source_device=self.source_device,
             source_button=self.event_name,
+            trigger_id=source_trigger_id(self.source_device, self.event_name),
         )
 
     def _macro_trigger_payload(

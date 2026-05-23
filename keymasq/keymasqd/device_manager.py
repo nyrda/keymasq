@@ -29,6 +29,7 @@ from keymasq.common.models import (
     DeviceType,
     MappingAction,
     SuperkeyMode,
+    parse_profile_deactivation_policy,
 )
 from keymasq.common.virtual_devices import (
     DEFAULT_VIRTUAL_GAMEPADS,
@@ -51,6 +52,7 @@ from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 from keymasq.keymasqd.runtime import topology as runtime_topology
+from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 log = logging.getLogger("keymasqd.devices")
@@ -441,6 +443,9 @@ class DeviceManager:
             held_release_retry_s=max(0.01, float(held_release_retry_s)),
         )
         self.combo_state = runtime_combos.ComboRuntimeState()
+        self.profile_activation_tracker = ProfileActivationTracker(
+            broadcast_deactivate_request=self._broadcast_profile_deactivate_requested,
+        )
         self._configured_combos: list[RuntimeCombo] = []
         self.device_inspector_active_hardware_ids: set[str] = set()
         self.device_inspector_suppressed_hardware_ids: set[str] = set()
@@ -657,6 +662,7 @@ class DeviceManager:
             )
 
     async def release_all_devices(self) -> None:
+        self.profile_activation_tracker.reset()
         await runtime_grab_lifecycle.release_all_devices(
             self,
             fire_and_observe_fn=_fire_and_observe,
@@ -685,6 +691,60 @@ class DeviceManager:
             self.broadcast_callback(event_type, data),
             f"{event_type.value} broadcast",
         )
+
+    def _broadcast_profile_deactivate_requested(self, data: JsonObject) -> None:
+        self._broadcast_runtime_event(CommandType.PROFILE_DEACTIVATE_REQUESTED, data)
+
+    async def track_profile_activation(
+        self,
+        profile_name: str,
+        activation_id: str,
+        trigger_id: str,
+        deactivation: object,
+    ) -> JsonObject:
+        policy = parse_profile_deactivation_policy(deactivation)
+        if policy is None:
+            return {"status": "ok", "tracked": False}
+        self.profile_activation_tracker.track(
+            profile_name=profile_name,
+            activation_id=activation_id,
+            trigger_id=trigger_id,
+            deactivation=policy,
+        )
+        return {
+            "status": "ok",
+            "tracked": True,
+            "profile_name": profile_name,
+            "activation_id": activation_id,
+        }
+
+    async def cancel_profile_activation(
+        self,
+        profile_name: str = "",
+        activation_id: str = "",
+    ) -> JsonObject:
+        self.profile_activation_tracker.cancel(
+            profile_name=profile_name or None,
+            activation_id=activation_id or None,
+        )
+        return {
+            "status": "ok",
+            "profile_name": profile_name,
+            "activation_id": activation_id,
+        }
+
+    def observe_profile_trigger_start(self, trigger_id: str | None) -> None:
+        self.profile_activation_tracker.observe_trigger_start(trigger_id)
+
+    def observe_profile_trigger_end(self, trigger_id: str | None) -> None:
+        self.profile_activation_tracker.observe_trigger_end(trigger_id)
+
+    def record_profile_action(
+        self,
+        source_profile_name: str | None = None,
+        trigger_id: str | None = None,
+    ) -> None:
+        self.profile_activation_tracker.record_action(source_profile_name, trigger_id)
 
     def device_inspector_active(self, hardware_id: str) -> bool:
         return str(hardware_id or "").strip() in self.device_inspector_active_hardware_ids

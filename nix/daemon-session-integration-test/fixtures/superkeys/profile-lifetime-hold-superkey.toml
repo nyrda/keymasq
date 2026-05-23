@@ -1,0 +1,12 @@
+name = "$PROFILE_LIFETIME_HOLD_SUPERKEY_NAME"
+mode = "pattern"
+
+[timing]
+tap_timeout_ms = 80
+double_tap_window_ms = 120
+hold_threshold_ms = 120
+
+[actions]
+hold = [
+  { action = "profile_enable", profile_name = "$TEMP_PROFILE_NAME", deactivation = { on_trigger_end = true } },
+]

@@ -14,7 +14,13 @@ import evdev
 import pytest
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, DeviceType, MappingAction, SuperkeyMode
+from keymasq.common.models import (
+    ActionType,
+    DeviceType,
+    MappingAction,
+    ProfileDeactivationPolicy,
+    SuperkeyMode,
+)
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
@@ -420,6 +426,7 @@ __all__ = [
     'ActionType',
     'DeviceType',
     'MappingAction',
+    'ProfileDeactivationPolicy',
     'SuperkeyMode',
     'dm',
     'ComboDecision',

@@ -12,6 +12,7 @@ from keymasq.keymasqd.runtime.action_runner import (
     build_action_trigger_payload,
     build_macro_playback_request,
     dispatch_action_trigger,
+    source_trigger_id,
 )
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     bucket_for_uinput,
@@ -140,6 +141,7 @@ async def execute_action(
                     action,
                     source_device=device_runtime.hardware_id,
                     source_button=event_name,
+                    trigger_id=source_trigger_id(device_runtime.hardware_id, event_name),
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
                 label=f"exec action {event_name}",
@@ -153,6 +155,7 @@ async def execute_action(
                     action,
                     source_device=device_runtime.hardware_id,
                     source_button=event_name,
+                    trigger_id=source_trigger_id(device_runtime.hardware_id, event_name),
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
                 label=f"compositor action {event_name}",
@@ -166,6 +169,7 @@ async def execute_action(
                     action,
                     source_device=device_runtime.hardware_id,
                     source_button=event_name,
+                    trigger_id=source_trigger_id(device_runtime.hardware_id, event_name),
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
                 label=f"start recording action {event_name}",
@@ -179,6 +183,7 @@ async def execute_action(
                     action,
                     source_device=device_runtime.hardware_id,
                     source_button=event_name,
+                    trigger_id=source_trigger_id(device_runtime.hardware_id, event_name),
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
                 label=f"stop recording action {event_name}",
@@ -192,6 +197,7 @@ async def execute_action(
                     action,
                     source_device=device_runtime.hardware_id,
                     source_button=event_name,
+                    trigger_id=source_trigger_id(device_runtime.hardware_id, event_name),
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
                 label=f"cancel macro action {event_name}",
@@ -216,6 +222,7 @@ async def execute_action(
                     action,
                     source_device=device_runtime.hardware_id,
                     source_button=event_name,
+                    trigger_id=source_trigger_id(device_runtime.hardware_id, event_name),
                 ),
                 fire_and_observe_fn=fire_and_observe_fn,
                 label=f"profile action {event_name}",
@@ -352,6 +359,21 @@ class _SyntheticInputEvent:
         self.value = int(value)
 
 
+def _observe_overload_profile_trigger(
+    device_runtime: GrabbedDeviceRuntime,
+    child_event_name: str,
+    *,
+    active: bool,
+) -> None:
+    observer = (
+        device_runtime.profile_activation_trigger_start_observer
+        if active
+        else device_runtime.profile_activation_trigger_end_observer
+    )
+    if observer is not None:
+        observer(source_trigger_id(device_runtime.hardware_id, child_event_name))
+
+
 async def _execute_overload_superkey(
     device_runtime: GrabbedDeviceRuntime,
     action: MappingAction,
@@ -409,6 +431,13 @@ async def _execute_overload_superkey(
             )
             continue
         child_event_name = f"{event_name}#overload#{index}"
+        if int(event.value) == 1:
+            device_runtime.state.held_profile_trigger_events.add(child_event_name)
+            _observe_overload_profile_trigger(
+                device_runtime,
+                child_event_name,
+                active=True,
+            )
         await execute_action(
             device_runtime,
             child_action,
@@ -418,6 +447,13 @@ async def _execute_overload_superkey(
             shared_output_tracker=overload_output_tracker,
             shared_abs_output_tracker=overload_abs_output_tracker,
         )
+        if int(event.value) == 0:
+            device_runtime.state.held_profile_trigger_events.discard(child_event_name)
+            _observe_overload_profile_trigger(
+                device_runtime,
+                child_event_name,
+                active=False,
+            )
 
     if int(event.value) == 1:
         for index, child_action in enumerate(config.overload_down_actions):

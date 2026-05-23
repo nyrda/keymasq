@@ -128,6 +128,117 @@ class TestProfileManager:
         assert [profile.name for profile in resolved.active_profiles] == ["Base", "Overlay"]
         assert resolved.devices["1234:5678"].mappings["btn_back"].target == "key_2"
 
+    def test_profile_action_deactivation_policy_round_trips(self, temp_config_dir):
+        manager = ProfileManager()
+        manager.save_profile(
+            ProfileConfig(
+                name="Launcher",
+                enabled=True,
+                is_permanent=True,
+                device_layers={
+                    "1234:5678": DeviceProfileLayer(
+                        hardware_id="1234:5678",
+                        mappings={
+                            "btn_back": MappingAction(
+                                action_type=ActionType.PROFILE_ENABLE,
+                                profile_name="Nav Layer",
+                                profile_deactivation=ProfileDeactivationPolicy(
+                                    on_trigger_end=True,
+                                    after_actions=1,
+                                    timeout_ms=1500,
+                                ),
+                            ),
+                            "btn_side": MappingAction(
+                                action_type=ActionType.PROFILE_TOGGLE,
+                                profile_name="Nav Layer",
+                                profile_deactivation=ProfileDeactivationPolicy(
+                                    on_trigger_end=True,
+                                    after_actions=2,
+                                    timeout_ms=2000,
+                                ),
+                            ),
+                            "btn_middle": MappingAction(
+                                action_type=ActionType.PROFILE_DISABLE,
+                                profile_name="Nav Layer",
+                                profile_deactivation=ProfileDeactivationPolicy(
+                                    on_trigger_end=True
+                                ),
+                            ),
+                        },
+                    )
+                },
+            )
+        )
+
+        reloaded = ProfileManager()
+        loaded = reloaded.get_profile("Launcher")
+
+        assert loaded is not None
+        action = loaded.config.device_layers["1234:5678"].mappings["btn_back"]
+        assert action.profile_deactivation == ProfileDeactivationPolicy(
+            on_trigger_end=True,
+            after_actions=1,
+            timeout_ms=1500,
+        )
+        toggle = loaded.config.device_layers["1234:5678"].mappings["btn_side"]
+        assert toggle.profile_deactivation == ProfileDeactivationPolicy(
+            on_trigger_end=True,
+            after_actions=2,
+            timeout_ms=2000,
+        )
+        disabled = loaded.config.device_layers["1234:5678"].mappings["btn_middle"]
+        assert disabled.profile_deactivation is None
+        content = loaded.path.read_text(encoding="utf-8")
+        assert "deactivation" in content
+        assert "on_trigger_end = true" in content
+        assert "after_actions = 1" in content
+        assert "timeout_ms = 1500" in content
+        assert "after_actions = 2" in content
+        assert "timeout_ms = 2000" in content
+
+    def test_runtime_profile_ordering_appends_overlays(self, temp_config_dir):
+        manager = ProfileManager()
+        for name, enabled, key in (
+            ("Base", True, "key_1"),
+            ("Overlay", True, "key_2"),
+            ("Runtime", False, "key_3"),
+        ):
+            manager.save_profile(
+                ProfileConfig(
+                    name=name,
+                    enabled=enabled,
+                    is_permanent=True,
+                    priority=1,
+                    created_at=datetime.now(),
+                    device_layers={
+                        "1234:5678": DeviceProfileLayer(
+                            hardware_id="1234:5678",
+                            mappings={
+                                "btn_back": MappingAction(
+                                    action_type=ActionType.KEYBOARD,
+                                    target=key,
+                                )
+                            },
+                        )
+                    },
+                )
+            )
+
+        resolved = manager.resolve_active_profiles(
+            hardware_ids=["1234:5678"],
+            runtime_profile_names=["Base", "Runtime"],
+        )
+
+        assert [profile.name for profile in resolved.active_profiles] == [
+            "Overlay",
+            "Base",
+            "Runtime",
+        ]
+        device = resolved.devices["1234:5678"]
+        assert device.active_profile_names == ["Overlay", "Base", "Runtime"]
+        assert device.mappings["btn_back"].target == "key_3"
+        assert device.mappings["btn_back"].source_profile_name == "Runtime"
+
     def test_resolve_active_profiles_collects_combo_sources(self, temp_config_dir):
         manager = ProfileManager()
         profile = ProfileConfig(

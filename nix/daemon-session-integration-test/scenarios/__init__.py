@@ -28,6 +28,10 @@ from .mouse_output import run as mouse_output
 from .multi_source_combo import run as multi_source_combo
 from .multi_step_combo import run as multi_step_combo
 from .passthrough_fallback import run as passthrough_override
+from .profile_lifetime_combos import run as profile_lifetime_combos
+from .profile_lifetime_direct import run as profile_lifetime_direct
+from .profile_lifetime_superkeys import run as profile_lifetime_superkeys
+from .profile_lifetime_toggle import run as profile_lifetime_toggle
 from .profile_toggle import run as profile_toggle
 from .rapidfire_keyboard import run as rapidfire_keyboard
 from .recording_capture import run as recording_capture
@@ -56,6 +60,10 @@ SCENARIOS = [
     ScenarioCase("prefix and overlapping combos", combo_prefix_overlap),
     ScenarioCase("multi-source combo", multi_source_combo),
     ScenarioCase("profile toggle", profile_toggle),
+    ScenarioCase("profile lifetime direct actions", profile_lifetime_direct),
+    ScenarioCase("profile lifetime toggle actions", profile_lifetime_toggle),
+    ScenarioCase("profile lifetime superkeys", profile_lifetime_superkeys),
+    ScenarioCase("profile lifetime combos", profile_lifetime_combos),
     ScenarioCase("passthrough overrides lower-profile mapping", passthrough_override),
     ScenarioCase("held output profile change", held_output_profile_change),
     ScenarioCase("mouse output", mouse_output),

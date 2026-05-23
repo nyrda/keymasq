@@ -1,9 +1,18 @@
 import asyncio
 import logging
+import time
+import uuid
 from collections.abc import Coroutine
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from keymasq.common.ipc import Command, CommandType
+from keymasq.common.models import (
+    ActionType,
+    ProfileDeactivationPolicy,
+    normalize_profile_deactivation_policy,
+    parse_profile_deactivation_policy,
+    profile_deactivation_policy_to_dict,
+)
 
 from . import compositor as runtime_compositor
 from . import device_inspector as runtime_device_inspector
@@ -13,6 +22,7 @@ from .common import JsonObject
 from .common import int_value as _int_value
 from .common import json_list as _json_list
 from .common import str_value as _str_value
+from .state import RuntimeProfileActivation
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -161,6 +171,14 @@ async def handle_event(
         )
         return
 
+    if event_type == CommandType.PROFILE_DEACTIVATE_REQUESTED:
+        create_event_task(
+            manager,
+            handle_profile_deactivate_requested(manager, data),
+            name="profile_deactivate_requested",
+        )
+        return
+
     if event_type == CommandType.DIAGNOSTICS_SNAPSHOT:
         manager.broadcast_to_session_clients({"event": "diagnostics_snapshot", **data})
         return
@@ -278,6 +296,17 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
     if not profile_name:
         return
 
+    deactivation = _trigger_deactivation_policy(action_type, data)
+    if deactivation is not None:
+        await _handle_lifetime_profile_trigger(
+            manager,
+            action_type,
+            profile_name,
+            deactivation,
+            data,
+        )
+        return
+
     enabled: bool | None
     if action_type == "profile_enable":
         enabled = True
@@ -285,6 +314,12 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
         enabled = False
     else:
         enabled = None
+
+    if (
+        action_type in {"profile_disable", "profile_toggle"}
+        and profile_name in manager.profile_state.runtime_profile_activations
+    ):
+        await _cancel_runtime_profile_activation(manager, profile_name)
 
     result = await runtime_profiles.set_profile_enabled(manager, profile_name, enabled)
     if result.get("status") != "ok":
@@ -294,6 +329,183 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
             profile_name,
             result.get("message", "unknown error"),
         )
+        return
+
+    if action_type == "profile_disable" or (
+        action_type == "profile_toggle" and result.get("enabled") is False
+    ):
+        await _cancel_runtime_profile_activation(manager, profile_name)
+
+
+def _trigger_deactivation_policy(
+    action_type: str,
+    data: JsonObject,
+) -> ProfileDeactivationPolicy | None:
+    try:
+        model_action_type = ActionType(action_type)
+    except ValueError:
+        return None
+    return normalize_profile_deactivation_policy(
+        model_action_type,
+        parse_profile_deactivation_policy(data.get("deactivation")),
+    )
+
+
+async def _handle_lifetime_profile_trigger(
+    manager: "SessionManager",
+    action_type: str,
+    profile_name: str,
+    deactivation: ProfileDeactivationPolicy,
+    data: JsonObject,
+) -> None:
+    if manager.profiles.get_profile(profile_name) is None:
+        manager.send_notification(
+            "Keymasq: Profile Not Found",
+            f"Profile '{profile_name}' was not found.",
+        )
+        log.warning(
+            "Profile trigger failed action=%s profile=%s not found",
+            action_type,
+            profile_name,
+        )
+        return
+
+    if action_type == ActionType.PROFILE_TOGGLE.value:
+        if await _cancel_runtime_profile_activation(manager, profile_name):
+            return
+    elif action_type != ActionType.PROFILE_ENABLE.value:
+        result = await runtime_profiles.set_profile_enabled(manager, profile_name, False)
+        if result.get("status") == "ok":
+            await _cancel_runtime_profile_activation(manager, profile_name)
+        return
+
+    manager.profile_state.runtime_profile_activation_seq += 1
+    activation_id = uuid.uuid4().hex
+    trigger_id = str(data.get("trigger_id", "") or "").strip()
+    if not trigger_id:
+        trigger_id = f"{data.get('source_device', '')}:{data.get('source_button', '')}"
+    activation = RuntimeProfileActivation(
+        profile_name=profile_name,
+        activation_id=activation_id,
+        sequence=manager.profile_state.runtime_profile_activation_seq,
+        deactivation=deactivation,
+        source_device=str(data.get("source_device", "") or ""),
+        source_button=str(data.get("source_button", "") or ""),
+        trigger_id=trigger_id,
+        created_at=time.time(),
+    )
+    manager.profile_state.runtime_profile_activations[profile_name] = activation
+    await runtime_profiles.reevaluate_profiles(
+        manager,
+        reason=f"runtime profile activation {profile_name}",
+    )
+    if not await _track_runtime_profile_activation(manager, activation):
+        current = manager.profile_state.runtime_profile_activations.get(profile_name)
+        if current is not None and current.activation_id == activation.activation_id:
+            manager.profile_state.runtime_profile_activations.pop(profile_name, None)
+            await runtime_profiles.reevaluate_profiles(
+                manager,
+                reason=f"runtime profile activation tracking failed {profile_name}",
+            )
+
+
+async def _track_runtime_profile_activation(
+    manager: "SessionManager",
+    activation: RuntimeProfileActivation,
+) -> bool:
+    deactivation_data = profile_deactivation_policy_to_dict(activation.deactivation)
+    if deactivation_data is None:
+        return False
+    try:
+        response = await manager.client.send_command(
+            Command(
+                command=CommandType.TRACK_PROFILE_ACTIVATION,
+                data={
+                    "profile_name": activation.profile_name,
+                    "activation_id": activation.activation_id,
+                    "trigger_id": activation.trigger_id,
+                    "deactivation": deactivation_data,
+                },
+            )
+        )
+    except Exception as exc:
+        log.warning(
+            "Failed to track runtime profile activation profile=%s activation=%s: %s",
+            activation.profile_name,
+            activation.activation_id,
+            exc,
+        )
+        return False
+    if response.status != "ok":
+        log.warning(
+            "Runtime profile activation tracking rejected profile=%s activation=%s: %s",
+            activation.profile_name,
+            activation.activation_id,
+            response.error or response.status,
+        )
+        return False
+    response_data = response.data
+    if isinstance(response_data, dict):
+        tracked_data = cast(dict[str, object], response_data)
+    else:
+        tracked_data = {}
+    if tracked_data.get("tracked") is False:
+        log.warning(
+            "Runtime profile activation was not tracked profile=%s activation=%s",
+            activation.profile_name,
+            activation.activation_id,
+        )
+        return False
+    return True
+
+
+async def _cancel_runtime_profile_activation(
+    manager: "SessionManager",
+    profile_name: str,
+) -> bool:
+    activation = manager.profile_state.runtime_profile_activations.pop(profile_name, None)
+    if activation is None:
+        return False
+    try:
+        await manager.client.send_command(
+            Command(
+                command=CommandType.CANCEL_PROFILE_ACTIVATION,
+                data={
+                    "profile_name": profile_name,
+                    "activation_id": activation.activation_id,
+                },
+            )
+        )
+    except Exception as exc:
+        log.debug(
+            "Failed to cancel runtime profile activation profile=%s activation=%s: %s",
+            profile_name,
+            activation.activation_id,
+            exc,
+        )
+    await runtime_profiles.reevaluate_profiles(
+        manager,
+        reason=f"runtime profile activation cancelled {profile_name}",
+    )
+    return True
+
+
+async def handle_profile_deactivate_requested(
+    manager: "SessionManager",
+    data: JsonObject,
+) -> None:
+    profile_name = str(data.get("profile_name", "") or "").strip()
+    activation_id = str(data.get("activation_id", "") or "").strip()
+    if not profile_name or not activation_id:
+        return
+    activation = manager.profile_state.runtime_profile_activations.get(profile_name)
+    if activation is None or activation.activation_id != activation_id:
+        return
+    manager.profile_state.runtime_profile_activations.pop(profile_name, None)
+    await runtime_profiles.reevaluate_profiles(
+        manager,
+        reason=f"runtime profile activation expired {profile_name}",
+    )
 
 
 async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> None:
@@ -391,6 +603,7 @@ async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject
         "Released all grabbed devices. Reapplying active profiles.",
     )
     runtime_profiles.invalidate_grabbed_state(manager)
+    manager.profile_state.runtime_profile_activations.clear()
     try:
         await runtime_profiles.reevaluate_profiles(manager, reason="runtime reset")
     except Exception as exc:

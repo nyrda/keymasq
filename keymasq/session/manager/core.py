@@ -368,6 +368,7 @@ class SessionManager:
         finally:
             with contextlib.suppress(Exception):
                 await runtime_device_inspector.clear_device_inspectors_for_writer(self, writer)
+            runtime_recording.clear_active_recording_owner_if_writer(self, writer)
             await runtime_recording.discard_pending_macro_save_if_writer(self, writer)
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
             self._drop_session_client_writer(writer)
@@ -603,6 +604,7 @@ class SessionManager:
         self.profile_state.last_sent_combo_signature = ""
         self.profile_state.active_profile_names.clear()
         self.profile_state.resolved_devices.clear()
+        self.profile_state.runtime_profile_activations.clear()
         self.device_inspector_state.active_hardware_ids.clear()
         self.device_inspector_state.suppressed_hardware_ids.clear()
         self.device_inspector_state.owners_by_hardware_id.clear()

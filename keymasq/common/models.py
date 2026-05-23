@@ -194,6 +194,82 @@ def normalize_output_id(output_id: object) -> str | None:
 
 
 @dataclass
+class ProfileDeactivationPolicy:
+    on_trigger_end: bool = False
+    after_actions: int | None = None
+    timeout_ms: int | None = None
+
+    @property
+    def has_condition(self) -> bool:
+        return bool(
+            self.on_trigger_end
+            or (self.after_actions is not None and self.after_actions > 0)
+            or (self.timeout_ms is not None and self.timeout_ms > 0)
+        )
+
+
+def _positive_int_or_none(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(cast(int | float | str | bytes, value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def normalize_profile_deactivation_policy(
+    action_type: ActionType,
+    policy: ProfileDeactivationPolicy | None,
+) -> ProfileDeactivationPolicy | None:
+    if action_type not in (ActionType.PROFILE_ENABLE, ActionType.PROFILE_TOGGLE):
+        return None
+    if policy is None:
+        return None
+
+    normalized = ProfileDeactivationPolicy(
+        on_trigger_end=bool(policy.on_trigger_end),
+        after_actions=_positive_int_or_none(policy.after_actions),
+        timeout_ms=_positive_int_or_none(policy.timeout_ms),
+    )
+    return normalized if normalized.has_condition else None
+
+
+def parse_profile_deactivation_policy(data: object) -> ProfileDeactivationPolicy | None:
+    if not isinstance(data, dict):
+        return None
+    payload = cast(dict[str, object], data)
+    policy = ProfileDeactivationPolicy(
+        on_trigger_end=bool(payload.get("on_trigger_end", False)),
+        after_actions=_positive_int_or_none(payload.get("after_actions")),
+        timeout_ms=_positive_int_or_none(payload.get("timeout_ms")),
+    )
+    return policy if policy.has_condition else None
+
+
+def profile_deactivation_policy_to_dict(
+    policy: ProfileDeactivationPolicy | None,
+) -> dict[str, object] | None:
+    if policy is None:
+        return None
+    normalized = ProfileDeactivationPolicy(
+        on_trigger_end=bool(policy.on_trigger_end),
+        after_actions=_positive_int_or_none(policy.after_actions),
+        timeout_ms=_positive_int_or_none(policy.timeout_ms),
+    )
+    if not normalized.has_condition:
+        return None
+    data: dict[str, object] = {}
+    if normalized.on_trigger_end:
+        data["on_trigger_end"] = True
+    if normalized.after_actions is not None:
+        data["after_actions"] = int(normalized.after_actions)
+    if normalized.timeout_ms is not None:
+        data["timeout_ms"] = int(normalized.timeout_ms)
+    return data
+
+
+@dataclass
 class EvdevDevice:
     path: str
     device_type: DeviceType
@@ -299,8 +375,13 @@ class MappingAction:
 
     tap_enabled: bool = False
     tap_hold_ms: int = 10
+    profile_deactivation: ProfileDeactivationPolicy | None = None
+    source_profile_name: str | None = None
 
     def __post_init__(self) -> None:
+        self.source_profile_name = (
+            str(self.source_profile_name).strip() if self.source_profile_name else None
+        ) or None
         self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
         if self.analog_control_name and not self.analog_control_names:
             self.analog_control_names = [self.analog_control_name]
@@ -326,6 +407,10 @@ class MappingAction:
         self.rapidfire_enabled = rapidfire_enabled
         self.rapidfire_hold_ms = rapidfire_hold_ms
         self.rapidfire_wait_ms = rapidfire_wait_ms
+        self.profile_deactivation = normalize_profile_deactivation_policy(
+            self.action_type,
+            self.profile_deactivation,
+        )
 
 
 ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
@@ -583,6 +668,7 @@ class SuperkeyAction:
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
     rapidfire_wait_ms: int = DEFAULT_RAPIDFIRE_WAIT_MS
+    profile_deactivation: ProfileDeactivationPolicy | None = None
 
     def is_valid(self) -> bool:
         return self.action_type in SUPERKEY_ACTION_TYPES
@@ -601,6 +687,10 @@ class SuperkeyAction:
         self.rapidfire_enabled = rapidfire_enabled
         self.rapidfire_hold_ms = rapidfire_hold_ms
         self.rapidfire_wait_ms = rapidfire_wait_ms
+        self.profile_deactivation = normalize_profile_deactivation_policy(
+            self.action_type,
+            self.profile_deactivation,
+        )
 
 
 SUPERKEY_ACTION_SHARED_FIELDS = (
@@ -620,6 +710,7 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
     "macro_start_y",
     "macro_block_mouse_movement",
     "profile_name",
+    "profile_deactivation",
     "compositor_id",
     "compositor_dispatcher",
     "compositor_args",

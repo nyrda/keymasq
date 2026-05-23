@@ -16,6 +16,7 @@ from keymasq.common.models import (
     analog_gamepad_output_distance,
 )
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
+from keymasq.keymasqd.runtime.action_runner import source_trigger_id
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     syn_if_passthrough_frame_closed,
     track_abs_state,
@@ -247,6 +248,7 @@ async def process_analog_event(
                 state_key,
                 config,
                 event,
+                source_profile_name=action.source_profile_name,
                 deps=deps,
             )
         elif mode == "gamepad":
@@ -351,6 +353,7 @@ async def _evaluate_thresholds(
     config: AnalogControlConfig,
     event: InputEventLike,
     *,
+    source_profile_name: str | None = None,
     deps: ActionExecutionDeps,
 ) -> None:
     source_active = device_runtime.state.analog_active_thresholds.setdefault(source_id, set())
@@ -368,6 +371,7 @@ async def _evaluate_thresholds(
                 index,
                 threshold,
                 event,
+                source_profile_name=source_profile_name,
                 deps=deps,
             )
         elif is_active and not _inside(value, threshold.release_min, threshold.release_max):
@@ -391,11 +395,13 @@ async def _activate_threshold_actions(
     threshold: AnalogActionThreshold,
     event: InputEventLike,
     *,
+    source_profile_name: str | None,
     deps: ActionExecutionDeps,
 ) -> None:
     synthetic = _SyntheticInputEvent(int(event.type), int(event.code), 1)
     threshold_key = _threshold_key(source_id, index)
     executable_actions: list[tuple[int, MappingAction]] = []
+    recorded_profile_action = False
     for action_index, action in enumerate(threshold.actions):
         if action.action_type in {
             ActionType.PASSTHROUGH,
@@ -404,11 +410,25 @@ async def _activate_threshold_actions(
         }:
             continue
         executable_actions.append((action_index, action))
+        if not recorded_profile_action:
+            _record_threshold_profile_action(
+                device_runtime,
+                source_profile_name,
+                source_id,
+            )
+            recorded_profile_action = True
+        child_event_name = _child_event_name(source_id, index, action_index)
+        _observe_threshold_profile_trigger(
+            device_runtime,
+            action,
+            child_event_name,
+            active=True,
+        )
         await runtime_actions.execute_action(
             device_runtime,
             action,
             synthetic,
-            _child_event_name(source_id, index, action_index),
+            child_event_name,
             deps=deps,
             shared_output_tracker=lambda bucket, code, value: _track_threshold_output(
                 device_runtime,
@@ -452,11 +472,12 @@ async def _release_threshold_actions(
             ActionType.ANALOG_CONTROL,
         }:
             continue
+        child_event_name = _child_event_name(source_id, index, action_index)
         await runtime_actions.execute_action(
             device_runtime,
             action,
             synthetic,
-            _child_event_name(source_id, index, action_index),
+            child_event_name,
             deps=deps,
             shared_output_tracker=lambda bucket, code, value: _track_threshold_output(
                 device_runtime,
@@ -471,6 +492,51 @@ async def _release_threshold_actions(
                 value,
             ),
         )
+        _observe_threshold_profile_trigger(
+            device_runtime,
+            action,
+            child_event_name,
+            active=False,
+        )
+
+
+def _observe_threshold_profile_trigger(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    child_event_name: str,
+    *,
+    active: bool,
+) -> None:
+    policy = action.profile_deactivation
+    if (
+        action.action_type != ActionType.PROFILE_ENABLE
+        or policy is None
+        or not policy.on_trigger_end
+    ):
+        return
+    observer_name = (
+        "profile_activation_trigger_start_observer"
+        if active
+        else "profile_activation_trigger_end_observer"
+    )
+    observer = getattr(device_runtime, observer_name, None)
+    if observer is not None:
+        observer(source_trigger_id(device_runtime.hardware_id, child_event_name))
+
+
+def _record_threshold_profile_action(
+    device_runtime: GrabbedDeviceRuntime,
+    source_profile_name: str | None,
+    source_id: str | None = None,
+) -> None:
+    recorder = getattr(device_runtime, "profile_activation_recorder", None)
+    if recorder is not None:
+        trigger_id = (
+            source_trigger_id(device_runtime.hardware_id, source_id)
+            if source_id
+            else None
+        )
+        recorder(source_profile_name, trigger_id)
 
 
 def _track_threshold_output(

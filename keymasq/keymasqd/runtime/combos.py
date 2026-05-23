@@ -37,6 +37,7 @@ from keymasq.keymasqd.runtime.action_runner import (
     build_macro_playback_request,
     dispatch_action_trigger,
     is_hold_macro_action,
+    source_trigger_id,
 )
 from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
 from keymasq.keymasqd.runtime.mouse_actions import (
@@ -519,6 +520,22 @@ async def broadcast_combo_action(
     )
 
 
+def _observe_combo_profile_trigger(
+    manager: _ComboManager,
+    trigger_binding: RuntimeComboBinding,
+    trigger_name: str,
+    *,
+    active: bool,
+) -> None:
+    observer = (
+        getattr(manager, "observe_profile_trigger_start", None)
+        if active
+        else getattr(manager, "observe_profile_trigger_end", None)
+    )
+    if callable(observer):
+        observer(source_trigger_id(trigger_binding.hardware_id, trigger_name))
+
+
 def prune_combo_action_task(
     manager: _ComboManager, combo_id: str, task: asyncio.Task[None] | None
 ) -> None:
@@ -692,6 +709,7 @@ async def _combo_superkey_machine(
         keyboard_uinput=cast(runtime_adapters.WritableUInput, manager.output_state.keyboard_uinput),
         mouse_uinput=cast(runtime_adapters.WritableUInput, manager.output_state.mouse_uinput),
         gamepad_uinput=cast(runtime_adapters.WritableUInput, manager.output_state.gamepad_uinput),
+        source_device=trigger_binding.hardware_id,
         broadcast_callback=combo_superkey_broadcast,
         cursor_position_setter=manager.set_cursor_position,
         key_event_tracker=combo_superkey_output_tracker,
@@ -874,6 +892,33 @@ async def start_combo_action(
         deps=deps,
     )
     trigger_name = f"combo:{combo_id}"
+
+    superkey_config: RuntimeSuperkeyConfig | None = None
+    superkey_machine: SuperkeyMachine | None = None
+    if action.action_type == ActionType.SUPERKEY:
+        superkey_config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
+        if superkey_config is None:
+            return
+        if superkey_config.mode != SuperkeyMode.OVERLOAD:
+            superkey_machine = await _combo_superkey_machine(
+                manager,
+                combo_id,
+                action,
+                trigger_binding,
+                deps=deps,
+            )
+            if superkey_machine is None:
+                return
+
+    _observe_combo_profile_trigger(
+        manager,
+        trigger_binding,
+        trigger_name,
+        active=True,
+    )
+    recorder = getattr(manager, "record_profile_action", None)
+    if callable(recorder):
+        recorder(action.source_profile_name)
     recalled_bindings, restore_bindings = _combo_trigger_recall_state(
         manager,
         combo_id,
@@ -881,9 +926,7 @@ async def start_combo_action(
     )
 
     if action.action_type == ActionType.SUPERKEY:
-        config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
-        if config is None:
-            return
+        config = cast(RuntimeSuperkeyConfig, superkey_config)
         if config.mode == SuperkeyMode.OVERLOAD:
             if config.overload_down_actions or config.overload_up_actions:
                 split_child_combo_ids: list[str] = []
@@ -916,9 +959,10 @@ async def start_combo_action(
                             config.name,
                         )
                         continue
+                    child_combo_id = f"{combo_id}#overload_down#{index}"
                     await _pulse_combo_action_instance(
                         manager,
-                        f"{combo_id}#overload_down#{index}",
+                        child_combo_id,
                         child_action,
                         trigger_binding,
                         trigger_name=f"{trigger_name}#overload_down#{index}",
@@ -961,23 +1005,19 @@ async def start_combo_action(
             manager.combo_state.active_actions[combo_id] = ComboActionState(
                 kind="superkey_overload",
                 child_combo_ids=child_combo_ids,
+                trigger_binding=trigger_binding,
+                source_button=trigger_name,
                 recalled_bindings=recalled_bindings,
                 restore_bindings=restore_bindings,
             )
             return
 
-        machine = await _combo_superkey_machine(
-            manager,
-            combo_id,
-            action,
-            trigger_binding,
-            deps=deps,
-        )
-        if machine is None:
-            return
+        machine = cast(SuperkeyMachine, superkey_machine)
         manager.combo_state.active_actions[combo_id] = ComboActionState(
             kind="superkey_pattern",
             machine=machine,
+            trigger_binding=trigger_binding,
+            source_button=trigger_name,
             recalled_bindings=recalled_bindings,
             restore_bindings=restore_bindings,
         )
@@ -992,6 +1032,17 @@ async def start_combo_action(
         trigger_name=trigger_name,
         deps=deps,
     )
+    state = manager.combo_state.active_actions.get(combo_id)
+    if state is not None:
+        state.trigger_binding = trigger_binding
+        state.source_button = trigger_name
+    else:
+        _observe_combo_profile_trigger(
+            manager,
+            trigger_binding,
+            trigger_name,
+            active=False,
+        )
     if not _attach_combo_trigger_recall_state(
         manager,
         combo_id,
@@ -1176,12 +1227,25 @@ async def _start_combo_action_instance(
         action,
         source_device=trigger_binding.hardware_id,
         source_button=trigger_name,
+        trigger_id=source_trigger_id(trigger_binding.hardware_id, trigger_name),
     )
     if action_payload is not None:
+        _observe_combo_profile_trigger(
+            manager,
+            trigger_binding,
+            trigger_name,
+            active=True,
+        )
         await broadcast_combo_action(
             manager,
             action_payload,
             deps=deps,
+        )
+        manager.combo_state.active_actions[combo_id] = ComboActionState(
+            kind="trigger_only",
+            action=action,
+            trigger_binding=trigger_binding,
+            source_button=trigger_name,
         )
         return
 
@@ -1360,6 +1424,15 @@ async def stop_combo_action(
     state = manager.combo_state.active_actions.pop(combo_id, None)
     if not state:
         return
+    trigger_binding = state.trigger_binding
+    source_button = str(state.source_button or f"combo:{combo_id}")
+    if trigger_binding is not None:
+        _observe_combo_profile_trigger(
+            manager,
+            trigger_binding,
+            source_button,
+            active=False,
+        )
     kind = state.kind
     restore_bindings = state.restore_bindings
     if kind == "superkey_overload":

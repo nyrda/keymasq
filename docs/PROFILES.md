@@ -155,8 +155,9 @@ For each device, Keymasq resolves the final mapping by layering active profiles 
 
 1. Enabled permanent profiles
 2. Enabled conditional profiles whose window rules match
+3. Runtime profile activations created by profile actions with a temporary activation mode
 
-Within those two groups, profiles are applied in ascending:
+Within the permanent and conditional groups, profiles are applied in ascending:
 
 1. `priority`
 2. `created_at`
@@ -169,6 +170,22 @@ The last applied mapping wins. In practice:
 - if both are equal, name order is the tiebreaker
 
 Conditional profiles always override permanent profiles, even if the permanent profile has a higher numeric priority.
+
+Runtime profile activations are temporary overlays. They do not write
+`enabled` to the profile TOML file. If a runtime-activated profile is already
+active through normal permanent or window-rule resolution, Keymasq includes it
+once at the runtime overlay position. When the runtime activation expires, the
+profile falls back to its normal active position if it is still enabled and
+matches the current window.
+
+Action-count activations behave like one-shot keyboard layers: each grabbed
+input press consumes one count, even when that input falls through to a lower
+profile or has no mapping. Combo completions, wheel ticks, and top-level
+superkey activations each consume one count.
+
+Only one runtime activation can own a profile at a time. A new runtime
+activation for the same profile replaces the previous activation and stale
+expiry events from the daemon are ignored by the session.
 
 ## Unmapped Buttons and Overrides
 
@@ -324,7 +341,16 @@ Profile control actions inside mappings now target only a profile name:
 - disable profile
 - toggle profile
 
-Toggling a profile affects all device layers contained in that profile.
+With **Persistent** mode, these actions keep the traditional saved-profile
+behavior: enable/toggle writes `enabled = true`, disable/toggle off writes
+`enabled = false`, and disable also cancels any runtime activation for the
+profile.
+
+With a temporary activation mode, Enable creates a runtime-only profile
+activation. Toggle with a temporary activation mode is also runtime-only: it
+creates the activation when the profile is not temporarily active, and cancels
+the current activation when it is. Disable does not use temporary activation
+modes and also cancels any runtime activation for the profile.
 
 ## Combos
 

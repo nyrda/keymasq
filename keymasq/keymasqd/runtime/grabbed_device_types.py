@@ -31,6 +31,8 @@ type DeviceInspectorActiveGetter = Callable[[str], bool]
 type DeviceInspectorSuppressionGetter = Callable[[str], bool]
 type DeviceInspectorSuppressedIdsGetter = Callable[[], set[str]]
 type DeviceInspectorSuppressionDisabler = Callable[[str, str], Awaitable[dict[str, object]]]
+type ProfileActivationRecorder = Callable[[str | None, str | None], None]
+type ProfileActivationTriggerObserver = Callable[[str | None], None]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
 _T = TypeVar("_T")
@@ -226,6 +228,7 @@ class GrabbedDeviceState:
         }
     )
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
+    held_profile_trigger_events: set[str] = field(default_factory=set)
     analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
     analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
     analog_active_threshold_actions: dict[
@@ -310,6 +313,19 @@ class GrabbedDeviceRuntime(Protocol):
     def inspector_suppression_disabler(
         self,
     ) -> DeviceInspectorSuppressionDisabler | None: ...
+
+    @property
+    def profile_activation_recorder(self) -> ProfileActivationRecorder | None: ...
+
+    @property
+    def profile_activation_trigger_start_observer(
+        self,
+    ) -> ProfileActivationTriggerObserver | None: ...
+
+    @property
+    def profile_activation_trigger_end_observer(
+        self,
+    ) -> ProfileActivationTriggerObserver | None: ...
 
     @property
     def suppress_rel_getter(self) -> Callable[[], bool] | None: ...

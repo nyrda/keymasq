@@ -125,6 +125,128 @@ async def test_release_all_devices_clears_device_inspector_state() -> None:
     assert manager.device_inspector_suppressed_hardware_ids == set()
 
 
+@pytest.mark.asyncio
+async def test_profile_activation_timeout_broadcasts_deactivate_requested() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+    deactivate_event = asyncio.Event()
+    expected_deactivate = (
+        CommandType.PROFILE_DEACTIVATE_REQUESTED,
+        {
+            "profile_name": "Nav",
+            "activation_id": "activation-1",
+            "reason": "timeout",
+        },
+    )
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        event = (event_type, data)
+        events.append(event)
+        if event == expected_deactivate:
+            deactivate_event.set()
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        "trigger-1",
+        {"timeout_ms": 1},
+    )
+    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+    assert events == [expected_deactivate]
+
+
+@pytest.mark.asyncio
+async def test_profile_activation_action_count_consumes_any_recorded_action() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+    deactivate_event = asyncio.Event()
+    expected_deactivate = (
+        CommandType.PROFILE_DEACTIVATE_REQUESTED,
+        {
+            "profile_name": "Nav",
+            "activation_id": "activation-1",
+            "reason": "action_count",
+        },
+    )
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        event = (event_type, data)
+        events.append(event)
+        if event == expected_deactivate:
+            deactivate_event.set()
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        "trigger-1",
+        {"after_actions": 2},
+    )
+    manager.record_profile_action("Other")
+    manager.record_profile_action("Nav")
+    assert events == []
+
+    manager.record_profile_action(None)
+    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+    assert events == [expected_deactivate]
+
+
+@pytest.mark.asyncio
+async def test_profile_activation_action_count_ignores_activation_trigger() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        events.append((event_type, data))
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        "1234:5678:key_capslock",
+        {"after_actions": 1},
+    )
+    manager.record_profile_action(None, "1234:5678:key_capslock")
+
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_profile_activation_trigger_end_broadcasts_deactivate_requested() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+    deactivate_event = asyncio.Event()
+    expected_deactivate = (
+        CommandType.PROFILE_DEACTIVATE_REQUESTED,
+        {
+            "profile_name": "Nav",
+            "activation_id": "activation-1",
+            "reason": "trigger_end",
+        },
+    )
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        event = (event_type, data)
+        events.append(event)
+        if event == expected_deactivate:
+            deactivate_event.set()
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+    manager.observe_profile_trigger_start("trigger-1")
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        "trigger-1",
+        {"on_trigger_end": True},
+    )
+    manager.observe_profile_trigger_end("trigger-1")
+    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+    assert events == [expected_deactivate]
+
+
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
 class TestDeviceManager:
     @pytest.fixture

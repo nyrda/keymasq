@@ -366,8 +366,43 @@ Select the action type from the dropdown, then pick the target profile. The
 hint label below shows what the mapping will do (e.g. "Toggle profile
 'Gaming'").
 
-Profile actions fire once on key press — they don't have a press/release
-lifecycle.
+Enable and Toggle can also use an activation mode when the target profile is disabled:
+
+| Mode | Meaning |
+|---|---|
+| **Persistent** | Persistent behavior. The profile file is updated just like older Keymasq versions. |
+| **While trigger is held** | Enable-only runtime layer that ends when the mapped key, combo, or superkey trigger ends. |
+| **One-shot** | Runtime-only layer that ends after the next grabbed input press or top-level combo, wheel, or superkey action. A timeout can be enabled as a fallback. |
+| **Custom** | Combine action count and timeout. Action counts are consumed by grabbed input presses and top-level combo, wheel, or superkey actions. Enable actions can also use trigger end. Timeout-only layers are configured here. |
+
+Note: One-shot layers are consumed by the next key or button press. Combos
+inside a one-shot layer usually cannot complete because the first combo input
+deactivates the layer.
+
+Toggle with **Persistent** mode is saved to the profile file. Toggle with any
+temporary activation mode is runtime-only: pressing it once activates the
+temporary layer, and pressing it again cancels the same temporary layer before
+its conditions expire. Disable is always persistent and also cancels any runtime
+activation for that profile. Profile action deactivation conditions use "any"
+semantics: the first configured condition to happen deactivates the runtime
+layer.
+
+If the selected target profile is already enabled, activation controls are
+disabled in the editor. Disable that profile first to use it as a temporary
+layer.
+
+TOML stores temporary activation settings under `deactivation` on profile actions:
+
+```toml
+[devices."046d:c548".mapping.btn_extra]
+action = "profile_enable"
+profile_name = "Nav Layer"
+
+[devices."046d:c548".mapping.btn_extra.deactivation]
+on_trigger_end = true
+after_actions = 1
+timeout_ms = 1500
+```
 
 ![Profile tab — Toggle/Enable/Disable dropdown and profile selector](assets/screenshots/key_selector_profile.png)
 

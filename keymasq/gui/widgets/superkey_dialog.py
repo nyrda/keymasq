@@ -97,14 +97,35 @@ def _describe_pattern_superkey_action(
     elif action.action_type == ActionType.EMERGENCY_RESET:
         label = type_label("Emergency Runtime Reset")
     elif action.action_type == ActionType.PROFILE_ENABLE:
-        label = f"{type_label('Enable Profile')}{target_separator}{action.profile_name or ''}"
+        label = (
+            f"{type_label('Enable Profile')}{target_separator}{action.profile_name or ''}"
+            f"{_profile_lifetime_suffix(action)}"
+        )
     elif action.action_type == ActionType.PROFILE_DISABLE:
         label = f"{type_label('Disable Profile')}{target_separator}{action.profile_name or ''}"
     elif action.action_type == ActionType.PROFILE_TOGGLE:
-        label = f"{type_label('Toggle Profile')}{target_separator}{action.profile_name or ''}"
+        label = (
+            f"{type_label('Toggle Profile')}{target_separator}{action.profile_name or ''}"
+            f"{_profile_lifetime_suffix(action)}"
+        )
     else:
         label = describe_mapping_action_verbose(superkey_action_to_mapping_action(action))
     return _append_action_state_markers(label, action)
+
+
+def _profile_lifetime_suffix(action: object) -> str:
+    policy = getattr(action, "profile_deactivation", None)
+    if policy is None:
+        return ""
+    if policy.on_trigger_end and policy.after_actions is None and policy.timeout_ms is None:
+        return " (while held)"
+    if not policy.on_trigger_end and policy.timeout_ms is None and policy.after_actions == 1:
+        return " (one-shot)"
+    if not policy.on_trigger_end and policy.timeout_ms is None and policy.after_actions:
+        return f" ({int(policy.after_actions)} actions)"
+    if not policy.on_trigger_end and policy.after_actions is None and policy.timeout_ms:
+        return f" ({int(policy.timeout_ms)} ms)"
+    return " (custom)"
 
 
 def _describe_superkey_dialog_action(action: object, row_mode: str) -> str:

@@ -172,11 +172,11 @@ def combo_action_label(action: MappingAction | None) -> str:
     if action.action_type == ActionType.MACRO:
         return action.macro_name or "Macro"
     if action.action_type == ActionType.PROFILE_ENABLE:
-        return f"Enable {action.profile_name or '?'}"
+        return f"Enable {action.profile_name or '?'}{_profile_lifetime_suffix(action)}"
     if action.action_type == ActionType.PROFILE_DISABLE:
         return f"Disable {action.profile_name or '?'}"
     if action.action_type == ActionType.PROFILE_TOGGLE:
-        return f"Toggle {action.profile_name or '?'}"
+        return f"Toggle {action.profile_name or '?'}{_profile_lifetime_suffix(action)}"
     if action.action_type == ActionType.START_MACRO_RECORDING:
         return "Start Recording"
     if action.action_type == ActionType.STOP_MACRO_RECORDING:
@@ -192,6 +192,21 @@ def combo_action_label(action: MappingAction | None) -> str:
     if action.action_type == ActionType.SUPERKEY:
         return action.superkey_name or "Super Key"
     return action.action_type.value.replace("_", " ").title()
+
+
+def _profile_lifetime_suffix(action: MappingAction) -> str:
+    policy = action.profile_deactivation
+    if policy is None:
+        return ""
+    if policy.on_trigger_end and policy.after_actions is None and policy.timeout_ms is None:
+        return " (while held)"
+    if not policy.on_trigger_end and policy.timeout_ms is None and policy.after_actions == 1:
+        return " (one-shot)"
+    if not policy.on_trigger_end and policy.timeout_ms is None and policy.after_actions:
+        return f" ({int(policy.after_actions)} actions)"
+    if not policy.on_trigger_end and policy.after_actions is None and policy.timeout_ms:
+        return f" ({int(policy.timeout_ms)} ms)"
+    return " (custom)"
 
 
 def combo_default_name(combo: ComboConfig) -> str:

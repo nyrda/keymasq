@@ -63,7 +63,7 @@ and scripted workflows.
 - Hold Caps Lock or a thumb button for WASD, Vim-style HJKL, Home/End, or scroll navigation
 - Release the button to return instantly to your normal layout
 
-**Build richer triggers**
+**Build richer shortcuts**
 - Use superkeys for one-button multi-role behavior
 - Use combos for single-device or cross-device shortcut chords and sequences
 

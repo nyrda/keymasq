@@ -122,22 +122,24 @@ class ProfileActivationTracker:
             ):
                 self._expire(tracker, "trigger_end")
 
-    def record_action(self, source_profile_name: str | None) -> None:
-        normalized = str(source_profile_name or "").strip()
-        if not normalized:
-            return
-        activation_id = self._activation_by_profile.get(normalized)
-        if not activation_id:
-            return
-        tracker = self._trackers.get(activation_id)
-        if tracker is None or tracker.expired:
-            return
-        threshold = tracker.deactivation.after_actions
-        if threshold is None or threshold <= 0:
-            return
-        tracker.action_count += 1
-        if tracker.action_count >= threshold:
-            self._expire(tracker, "action_count")
+    def record_action(
+        self,
+        source_profile_name: str | None = None,
+        trigger_id: str | None = None,
+    ) -> None:
+        del source_profile_name
+        normalized_trigger_id = str(trigger_id or "").strip()
+        for tracker in list(self._trackers.values()):
+            if tracker.expired:
+                continue
+            if normalized_trigger_id and tracker.trigger_id == normalized_trigger_id:
+                continue
+            threshold = tracker.deactivation.after_actions
+            if threshold is None or threshold <= 0:
+                continue
+            tracker.action_count += 1
+            if tracker.action_count >= threshold:
+                self._expire(tracker, "action_count")
 
     async def _timeout_after(
         self,

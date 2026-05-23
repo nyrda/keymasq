@@ -411,7 +411,11 @@ async def _activate_threshold_actions(
             continue
         executable_actions.append((action_index, action))
         if not recorded_profile_action:
-            _record_threshold_profile_action(device_runtime, source_profile_name)
+            _record_threshold_profile_action(
+                device_runtime,
+                source_profile_name,
+                source_id,
+            )
             recorded_profile_action = True
         child_event_name = _child_event_name(source_id, index, action_index)
         _observe_threshold_profile_trigger(
@@ -523,10 +527,16 @@ def _observe_threshold_profile_trigger(
 def _record_threshold_profile_action(
     device_runtime: GrabbedDeviceRuntime,
     source_profile_name: str | None,
+    source_id: str | None = None,
 ) -> None:
     recorder = getattr(device_runtime, "profile_activation_recorder", None)
     if recorder is not None:
-        recorder(source_profile_name)
+        trigger_id = (
+            source_trigger_id(device_runtime.hardware_id, source_id)
+            if source_id
+            else None
+        )
+        recorder(source_profile_name, trigger_id)
 
 
 def _track_threshold_output(

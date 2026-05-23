@@ -195,7 +195,7 @@ class GrabbedDevice:
         inspector_suppression_getter: DeviceInspectorSuppressionGetter | None = None,
         inspector_suppressed_ids_getter: DeviceInspectorSuppressedIdsGetter | None = None,
         inspector_suppression_disabler: DeviceInspectorSuppressionDisabler | None = None,
-        profile_activation_recorder: Callable[[str | None], None] | None = None,
+        profile_activation_recorder: Callable[[str | None, str | None], None] | None = None,
         profile_activation_trigger_start_observer: Callable[[str | None], None]
         | None = None,
         profile_activation_trigger_end_observer: Callable[[str | None], None]

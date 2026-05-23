@@ -158,7 +158,7 @@ async def test_profile_activation_timeout_broadcasts_deactivate_requested() -> N
 
 
 @pytest.mark.asyncio
-async def test_profile_activation_action_count_matches_source_profile_only() -> None:
+async def test_profile_activation_action_count_consumes_any_recorded_action() -> None:
     events: list[tuple[CommandType, dict[str, object]]] = []
     deactivate_event = asyncio.Event()
     expected_deactivate = (
@@ -188,10 +188,30 @@ async def test_profile_activation_action_count_matches_source_profile_only() -> 
     manager.record_profile_action("Nav")
     assert events == []
 
-    manager.record_profile_action("Nav")
+    manager.record_profile_action(None)
     await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
     assert events == [expected_deactivate]
+
+
+@pytest.mark.asyncio
+async def test_profile_activation_action_count_ignores_activation_trigger() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        events.append((event_type, data))
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    await manager.track_profile_activation(
+        "Nav",
+        "activation-1",
+        "1234:5678:key_capslock",
+        {"after_actions": 1},
+    )
+    manager.record_profile_action(None, "1234:5678:key_capslock")
+
+    assert events == []
 
 
 @pytest.mark.asyncio

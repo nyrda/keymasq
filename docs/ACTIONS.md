@@ -372,8 +372,12 @@ Enable and Toggle can also use an activation mode when the target profile is dis
 |---|---|
 | **Persistent** | Persistent behavior. The profile file is updated just like older Keymasq versions. |
 | **While trigger is held** | Enable-only runtime layer that ends when the mapped key, combo, or superkey trigger ends. |
-| **One-shot** | Runtime-only layer that ends after the first action from that profile. A timeout can be enabled as a fallback. |
-| **Custom** | Combine action count and timeout. Enable actions can also use trigger end. Timeout-only layers are configured here. |
+| **One-shot** | Runtime-only layer that ends after the next grabbed input press or top-level combo, wheel, or superkey action. A timeout can be enabled as a fallback. |
+| **Custom** | Combine action count and timeout. Action counts are consumed by grabbed input presses and top-level combo, wheel, or superkey actions. Enable actions can also use trigger end. Timeout-only layers are configured here. |
+
+Note: One-shot layers are consumed by the next key or button press. Combos
+inside a one-shot layer usually cannot complete because the first combo input
+deactivates the layer.
 
 Toggle with **Persistent** mode is saved to the profile file. Toggle with any
 temporary activation mode is runtime-only: pressing it once activates the

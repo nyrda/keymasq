@@ -178,6 +178,11 @@ once at the runtime overlay position. When the runtime activation expires, the
 profile falls back to its normal active position if it is still enabled and
 matches the current window.
 
+Action-count activations behave like one-shot keyboard layers: each grabbed
+input press consumes one count, even when that input falls through to a lower
+profile or has no mapping. Combo completions, wheel ticks, and top-level
+superkey activations each consume one count.
+
 Only one runtime activation can own a profile at a time. A new runtime
 activation for the same profile replaces the previous activation and stale
 expiry events from the daemon are ignored by the session.

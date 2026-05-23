@@ -747,6 +747,12 @@ async def process_event(
             uinput_writer=identity_uinput_writer,
             sync=False,
         )
+        _record_profile_input_if_countable(
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_fast"
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
         return
@@ -781,6 +787,7 @@ async def process_event(
             device_runtime,
             action,
             event,
+            event_name,
             evdev_mod=evdev_mod,
         )
         await runtime_actions.execute_action(
@@ -809,6 +816,12 @@ async def process_event(
             uinput_writer=identity_uinput_writer,
             sync=False,
         )
+        _record_profile_input_if_countable(
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_mapped"
 
     if event.type == evdev_mod.ecodes.EV_KEY and int(event.value) == 0:
@@ -828,22 +841,38 @@ def _clear_released_source_action(
         device_runtime.state.held_source_actions.pop(event_name, None)
 
 
+def _record_profile_input_if_countable(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    evdev_mod: EvdevModule,
+) -> None:
+    if int(event.type) != int(evdev_mod.ecodes.EV_KEY) or int(event.value) != 1:
+        return
+    recorder = device_runtime.profile_activation_recorder
+    if recorder is not None:
+        recorder(None, source_trigger_id(device_runtime.hardware_id, event_name))
+
+
 def _record_profile_action_if_countable(
     device_runtime: GrabbedDeviceRuntime,
     action: MappingAction,
     event: InputEventLike,
+    event_name: str,
     *,
     evdev_mod: EvdevModule,
 ) -> None:
-    if action.action_type in (ActionType.PASSTHROUGH, ActionType.SUPPRESS):
-        return
     if int(event.type) == int(evdev_mod.ecodes.EV_KEY) and int(event.value) != 1:
         return
     if int(event.type) == int(evdev_mod.ecodes.EV_REL):
         return
     recorder = device_runtime.profile_activation_recorder
     if recorder is not None:
-        recorder(action.source_profile_name)
+        recorder(
+            action.source_profile_name,
+            source_trigger_id(device_runtime.hardware_id, event_name),
+        )
 
 
 def _is_recording_control_action(
@@ -1000,7 +1029,10 @@ async def _process_wheel_pulse_event(
     for _ in range(pulse_count):
         recorder = device_runtime.profile_activation_recorder
         if recorder is not None:
-            recorder(action.source_profile_name)
+            recorder(
+                action.source_profile_name,
+                source_trigger_id(device_runtime.hardware_id, pulse_event_name),
+            )
         await runtime_actions.execute_action_pulse(
             device_runtime,
             action,

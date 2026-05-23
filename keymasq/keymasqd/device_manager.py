@@ -739,8 +739,12 @@ class DeviceManager:
     def observe_profile_trigger_end(self, trigger_id: str | None) -> None:
         self.profile_activation_tracker.observe_trigger_end(trigger_id)
 
-    def record_profile_action(self, source_profile_name: str | None) -> None:
-        self.profile_activation_tracker.record_action(source_profile_name)
+    def record_profile_action(
+        self,
+        source_profile_name: str | None = None,
+        trigger_id: str | None = None,
+    ) -> None:
+        self.profile_activation_tracker.record_action(source_profile_name, trigger_id)
 
     def device_inspector_active(self, hardware_id: str) -> bool:
         return str(hardware_id or "").strip() in self.device_inspector_active_hardware_ids

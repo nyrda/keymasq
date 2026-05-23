@@ -175,6 +175,52 @@ class TestGrabbedDeviceHelpers:
         assert "key_capslock" not in device.state.held_source_actions
 
     @pytest.mark.asyncio
+    async def test_unmapped_grabbed_key_press_consumes_profile_action_count(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[tuple[CommandType, dict[str, object]]] = []
+        deactivate_event = asyncio.Event()
+        expected_deactivate = (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "action_count",
+            },
+        )
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            event = (event_type, data)
+            events.append(event)
+            if event == expected_deactivate:
+                deactivate_event.set()
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            profile_activation_recorder=manager.record_profile_action,
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+
+        await manager.track_profile_activation(
+            "Nav",
+            "activation-1",
+            "1234:5678:key_capslock",
+            {"after_actions": 1},
+        )
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        )
+        await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+        assert expected_deactivate in events
+        assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
+
+    @pytest.mark.asyncio
     async def test_inspector_suppressed_key_esc_press_disables_suppression(
         self,
         monkeypatch: pytest.MonkeyPatch,

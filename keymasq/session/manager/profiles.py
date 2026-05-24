@@ -815,7 +815,7 @@ def get_interfaces_to_grab(
         else:
             return interface_to_path
 
-    log.info(
+    log.debug(
         (
             "Interface selection for %s profile=%s: total_ifaces=%d "
             "mapped_buttons=%d resolved_sources=%d"

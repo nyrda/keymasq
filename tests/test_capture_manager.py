@@ -124,8 +124,9 @@ def test_capture_manager_resolves_keymasq_paths(monkeypatch) -> None:
         primary_input_class_fn=primary_input_class,
     )
 
+    manager = CaptureManager()
+    token: str | None = None
     try:
-        manager = CaptureManager()
         begin = manager.begin(
             "2dc8:3106",
             evdev_interfaces=[
@@ -143,6 +144,8 @@ def test_capture_manager_resolves_keymasq_paths(monkeypatch) -> None:
         assert captured["evdev"] == "key_a"
         assert captured["source"] == "gamepad"
     finally:
+        if token is not None:
+            manager.end(token)
         device_path_resolver.clear_cached_devices()
 
 

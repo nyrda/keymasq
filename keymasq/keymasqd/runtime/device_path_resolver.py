@@ -2,7 +2,7 @@ import logging
 import re
 import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, cast
 
 from keymasq.common.devices import (
@@ -72,6 +72,59 @@ class CachedDeviceInfo:
     is_virtual: bool
 
 
+@dataclass
+class DeviceCache:
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+    _devices: dict[str, CachedDeviceInfo] = field(default_factory=dict)
+
+    def refresh_sync(
+        self,
+        *,
+        device_paths_fn: Callable[[], list[str]],
+        device_input_fn: Callable[[str], InputDeviceLike],
+        detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
+        primary_input_class_fn: Callable[
+            [Iterable[str | DeviceType] | None], DeviceType
+        ],
+    ) -> dict[str, CachedDeviceInfo]:
+        devices: dict[str, CachedDeviceInfo] = {}
+        for path in sorted(device_paths_fn()):
+            device: InputDeviceLike | None = None
+            try:
+                device = device_input_fn(path)
+                info = device.info
+                caps = device.capabilities()
+                devices[path] = CachedDeviceInfo(
+                    path=path,
+                    vendor_id=f"{info.vendor:04x}",
+                    product_id=f"{info.product:04x}",
+                    phys=str(getattr(device, "phys", "") or "").strip(),
+                    device_type=primary_input_class_fn(detect_input_classes_fn(device)),
+                    capabilities=_normalize_capability_names(
+                        capability_names_from_capabilities(caps)
+                    ),
+                    is_virtual=_is_keymasq_virtual_device(device),
+                )
+            except Exception:
+                continue
+            finally:
+                if device is not None:
+                    _close_device(device)
+
+        with self._lock:
+            self._devices.clear()
+            self._devices.update(devices)
+        return devices
+
+    def snapshot(self) -> dict[str, CachedDeviceInfo]:
+        with self._lock:
+            return dict(self._devices)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._devices.clear()
+
+
 @dataclass(frozen=True)
 class DevicePathResolverDeps:
     device_paths_fn: Callable[[], list[str]]
@@ -79,10 +132,10 @@ class DevicePathResolverDeps:
     detect_input_classes_fn: Callable[[InputDeviceLike], list[str]]
     primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType]
     resolve_stable_path_fn: Callable[[str], str] | None = None
+    cache: DeviceCache | None = None
 
 
-_CACHE_LOCK = threading.Lock()
-_CACHED_DEVICES: dict[str, CachedDeviceInfo] = {}
+_DEFAULT_CACHE = DeviceCache()
 
 
 def refresh_cached_devices_sync(
@@ -92,44 +145,20 @@ def refresh_cached_devices_sync(
     detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
     primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType],
 ) -> dict[str, CachedDeviceInfo]:
-    devices: dict[str, CachedDeviceInfo] = {}
-    for path in sorted(device_paths_fn()):
-        device: InputDeviceLike | None = None
-        try:
-            device = device_input_fn(path)
-            info = device.info
-            caps = device.capabilities()
-            devices[path] = CachedDeviceInfo(
-                path=path,
-                vendor_id=f"{info.vendor:04x}",
-                product_id=f"{info.product:04x}",
-                phys=str(getattr(device, "phys", "") or "").strip(),
-                device_type=primary_input_class_fn(detect_input_classes_fn(device)),
-                capabilities=_normalize_capability_names(
-                    capability_names_from_capabilities(caps)
-                ),
-                is_virtual=_is_keymasq_virtual_device(device),
-            )
-        except Exception:
-            continue
-        finally:
-            if device is not None:
-                _close_device(device)
-
-    with _CACHE_LOCK:
-        _CACHED_DEVICES.clear()
-        _CACHED_DEVICES.update(devices)
-    return devices
+    return _DEFAULT_CACHE.refresh_sync(
+        device_paths_fn=device_paths_fn,
+        device_input_fn=device_input_fn,
+        detect_input_classes_fn=detect_input_classes_fn,
+        primary_input_class_fn=primary_input_class_fn,
+    )
 
 
 def cached_devices_snapshot() -> dict[str, CachedDeviceInfo]:
-    with _CACHE_LOCK:
-        return dict(_CACHED_DEVICES)
+    return _DEFAULT_CACHE.snapshot()
 
 
 def clear_cached_devices() -> None:
-    with _CACHE_LOCK:
-        _CACHED_DEVICES.clear()
+    _DEFAULT_CACHE.clear()
 
 
 def interface_descriptors_from_paths(paths: list[str]) -> list[JsonObject]:
@@ -217,7 +246,7 @@ def _resolve_keymasq_path(
         return None
     vendor_id, product_id = parsed
     candidates: list[_Candidate] = []
-    cached_devices = cached_devices_snapshot()
+    cached_devices = (deps.cache or _DEFAULT_CACHE).snapshot()
     for path in sorted(deps.device_paths_fn()):
         if path in selected_paths:
             continue

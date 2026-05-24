@@ -5,8 +5,8 @@ import evdev
 from keymasq.common.devices import detect_input_classes, primary_input_class
 from keymasq.common.models import DeviceType
 from keymasq.keymasqd.runtime.device_path_resolver import (
+    DeviceCache,
     DevicePathResolverDeps,
-    refresh_cached_devices_sync,
     resolve_evdev_interfaces,
 )
 
@@ -49,7 +49,8 @@ def _resolve(
     excluded_paths=None,
     resolve_stable_path_fn=None,
 ):
-    refresh_cached_devices_sync(
+    cache = DeviceCache()
+    cache.refresh_sync(
         device_paths_fn=lambda: list(devices),
         device_input_fn=lambda path: devices[path],
         detect_input_classes_fn=detect_input_classes,
@@ -63,6 +64,7 @@ def _resolve(
             detect_input_classes_fn=detect_input_classes,
             primary_input_class_fn=primary_input_class,
             resolve_stable_path_fn=resolve_stable_path_fn,
+            cache=cache,
         ),
         hardware_id=hardware_id,
         excluded_paths=excluded_paths,
@@ -99,7 +101,8 @@ def test_keymasq_path_uses_cached_probe_metadata() -> None:
     devices = {
         "/dev/input/event2": _FakeDevice("/dev/input/event2"),
     }
-    refresh_cached_devices_sync(
+    cache = DeviceCache()
+    cache.refresh_sync(
         device_paths_fn=lambda: list(devices),
         device_input_fn=lambda path: devices[path],
         detect_input_classes_fn=detect_input_classes,
@@ -116,6 +119,7 @@ def test_keymasq_path_uses_cached_probe_metadata() -> None:
             device_input_fn=fail_input_device,
             detect_input_classes_fn=detect_input_classes,
             primary_input_class_fn=primary_input_class,
+            cache=cache,
         ),
     )
 

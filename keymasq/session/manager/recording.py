@@ -1291,12 +1291,6 @@ async def get_devices_for_recording(
     if result.status != "ok" or result_data is None:
         return []
 
-    grabbed_paths = {
-        path
-        for interface_map in manager.profile_state.grabbed_interfaces.values()
-        for path in interface_map.values()
-    }
-
     devices: list[JsonObject] = []
     for raw_device in json_list(result_data.get("devices")):
         d = json_object(raw_device)
@@ -1309,9 +1303,7 @@ async def get_devices_for_recording(
         if not path or not set(device_types).intersection(resolved_types):
             continue
 
-        is_grabbed = bool(d.get("grabbed_by_keymasq", False)) or path in grabbed_paths
-        if stable_path in grabbed_paths:
-            is_grabbed = True
+        is_grabbed = bool(d.get("grabbed_by_keymasq", False))
         if is_grabbed and not include_grabbed:
             continue
 

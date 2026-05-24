@@ -626,10 +626,15 @@ class TestDeviceTabWidget:
         )
 
         reload_requests: list[dict] = []
+
+        def fake_session_request_async(payload, callback):
+            reload_requests.append(payload)
+            callback({"status": "ok"})
+
         monkeypatch.setattr(
             device_tab_module,
             "session_request_async",
-            lambda payload, callback: reload_requests.append(payload),
+            fake_session_request_async,
         )
 
         root = _Root()
@@ -644,7 +649,10 @@ class TestDeviceTabWidget:
 
         assert profile_manager.removed == ["1234:5678"]
         assert hardware_manager.deleted == ["1234:5678"]
-        assert reload_requests == [{"command": "reload"}]
+        assert reload_requests == [
+            {"command": "release_device", "hardware_id": "1234:5678", "immediate": True},
+            {"command": "reload"},
+        ]
         assert root.stack.removed == [tab]
         assert root.checked == 1
         assert closed == [True]

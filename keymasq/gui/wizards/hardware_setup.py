@@ -181,6 +181,7 @@ def _logical_hardware_identity_key(
     device_types: list[str],
     stable_path: str,
     phys: str = "",
+    path: str = "",
 ) -> str:
     normalized_types = normalize_input_classes(device_types)
     if "gamepad" in normalized_types and _looks_like_by_id_path(stable_path):
@@ -192,6 +193,9 @@ def _logical_hardware_identity_key(
         return f"uinput-model:{model_id}"
     if phys_base and not _is_usb_phys(phys_base):
         return f"phys:{phys_base}"
+    path_key = str(stable_path or path or "").strip()
+    if path_key:
+        return f"path:{path_key}"
     return f"model:{model_id}"
 
 
@@ -685,6 +689,7 @@ class HardwareSetupDialog(Adw.Dialog):
             device_types=device_types,
             stable_path=stable_path,
             phys=phys,
+            path=path,
         )
 
     def _detect_devices_locally(
@@ -1016,6 +1021,7 @@ class HardwareSetupDialog(Adw.Dialog):
                         device_types=device_types,
                         stable_path=self._configured_device_stable_path(path),
                         phys=self._configured_device_phys(device),
+                        path=path,
                     ),
                     hardware_id,
                 )
@@ -1833,12 +1839,16 @@ class HardwareSetupDialog(Adw.Dialog):
             return
 
         keyboard_interfaces = self._interfaces_for_roles({"keyboard"})
+        interfaces = self._merge_interface_lists(
+            keyboard_interfaces,
+            list(self.discovered_interfaces.values()),
+        )
 
         primary_keyboard_source = ""
         if keyboard_interfaces:
             primary_keyboard_source = str(keyboard_interfaces[0].get("id", "") or "")
 
-        evdev_devices = self._build_evdev_devices(keyboard_interfaces)
+        evdev_devices = self._build_evdev_devices(interfaces)
 
         buttons = self._build_standard_keyboard_buttons(primary_keyboard_source)
 
@@ -1861,6 +1871,10 @@ class HardwareSetupDialog(Adw.Dialog):
             return
 
         mouse_interfaces = self._interfaces_for_roles({"mouse", "pointstick"})
+        interfaces = self._merge_interface_lists(
+            mouse_interfaces,
+            list(self.discovered_interfaces.values()),
+        )
         primary_mouse_source = ""
         if mouse_interfaces:
             primary_mouse_source = str(mouse_interfaces[0].get("id", "") or "")
@@ -1869,7 +1883,7 @@ class HardwareSetupDialog(Adw.Dialog):
             vendor_id=selected_device["vendor_id"],
             product_id=selected_device["product_id"],
             name=selected_device["name"],
-            evdev_devices=self._build_evdev_devices(mouse_interfaces),
+            evdev_devices=self._build_evdev_devices(interfaces),
             buttons=self._build_standard_mouse_buttons(
                 primary_mouse_source,
                 include_horizontal=self._interfaces_have_capability(
@@ -1900,7 +1914,11 @@ class HardwareSetupDialog(Adw.Dialog):
         if mouse_interfaces:
             primary_mouse_source = str(mouse_interfaces[0].get("id", "") or "")
 
-        interfaces = self._merge_interface_lists(mouse_interfaces, keyboard_interfaces)
+        interfaces = self._merge_interface_lists(
+            mouse_interfaces,
+            keyboard_interfaces,
+            list(self.discovered_interfaces.values()),
+        )
         buttons = self._build_standard_mouse_buttons(
             primary_mouse_source,
             include_horizontal=self._interfaces_have_capability(
@@ -2200,29 +2218,16 @@ class HardwareSetupDialog(Adw.Dialog):
             return
 
         gamepad_interfaces = self._gamepad_interfaces()
-
-        evdev_devices = []
-        for iface in gamepad_interfaces:
-            config_path = str(iface.get("config_path", "") or iface.get("stable_path", "") or "")
-            iface_id = str(iface.get("id", "") or "")
-            if not config_path or not iface_id:
-                continue
-            dev_type = primary_input_class(iface.get("device_types"))
-            evdev_devices.append(
-                EvdevDevice(
-                    path=config_path,
-                    device_type=dev_type,
-                    id=iface_id,
-                    phys=str(iface.get("phys", "") or "") or None,
-                    capabilities=list(iface.get("capabilities", [])),
-                )
-            )
+        interfaces = self._merge_interface_lists(
+            gamepad_interfaces,
+            list(self.discovered_interfaces.values()),
+        )
 
         config = HardwareConfig(
             vendor_id=selected_device["vendor_id"],
             product_id=selected_device["product_id"],
             name=selected_device["name"],
-            evdev_devices=evdev_devices,
+            evdev_devices=self._build_evdev_devices(interfaces),
             buttons=self._build_gamepad_buttons(gamepad_interfaces),
             analog_inputs=self._build_gamepad_analog_inputs(gamepad_interfaces),
             id=self._selected_config_id(selected_device),

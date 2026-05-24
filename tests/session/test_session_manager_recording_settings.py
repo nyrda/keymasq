@@ -180,6 +180,43 @@ async def test_start_recording_sends_selected_devices_from_cache() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_devices_for_recording_uses_daemon_grabbed_state_only() -> None:
+    manager = SessionManager()
+    manager.profile_state.grabbed_interfaces["045e:02a1"] = {
+        "gamepad": "/dev/input/event20"
+    }
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="ok",
+            data={
+                "devices": [
+                    {
+                        "path": "/dev/input/event20",
+                        "stable_path": "/dev/input/event20",
+                        "name": "Xbox 360 Wireless Receiver",
+                        "vendor_id": "045e",
+                        "product_id": "02a1",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                        "grabbed_by_keymasq": False,
+                    }
+                ]
+            },
+        )
+    )
+
+    devices = await session_recording_module.get_devices_for_recording(
+        manager,
+        ["gamepad"],
+        include_grabbed=True,
+    )
+
+    assert devices[0]["grabbed_by_keymasq"] is False
+    assert devices[0]["source_hardware_id"] == ""
+    assert devices[0]["source_interface_id"] == ""
+
+
+@pytest.mark.asyncio
 async def test_start_recording_defaults_to_recommended_sources_only() -> None:
     manager = SessionManager()
     sent_payloads: list[dict[str, object]] = []

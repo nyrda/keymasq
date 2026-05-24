@@ -586,6 +586,26 @@ class DeviceTab(ProfileManagedTab):
         delete_profiles = delete_profiles_check.get_active()
         hardware_id = self.device.hardware_id
 
+        button.set_sensitive(False)
+        session_request_async(
+            {
+                "command": "release_device",
+                "hardware_id": hardware_id,
+                "immediate": True,
+            },
+            lambda _result: self._delete_device_after_release(
+                hardware_id,
+                delete_profiles,
+                dialog,
+            ),
+        )
+
+    def _delete_device_after_release(
+        self,
+        hardware_id: str,
+        delete_profiles: bool,
+        dialog: Adw.Dialog,
+    ) -> bool:
         if delete_profiles:
             assert self.profile_manager is not None
             self.profile_manager.remove_device_layers(hardware_id)
@@ -600,6 +620,7 @@ class DeviceTab(ProfileManagedTab):
         if root and hasattr(root, "stack"):
             root.stack.remove(self)
             root._check_empty_state()
+        return False
 
     def _setup_button_grid(self) -> None:
         scrolled = Gtk.ScrolledWindow()

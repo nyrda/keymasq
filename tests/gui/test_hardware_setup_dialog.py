@@ -1208,7 +1208,7 @@ class TestHardwareSetupDialog:
         assert dialog._detect_devices_via_session(detected_devices) is False
         assert detected_devices == {}
 
-    def test_detect_devices_via_session_ignores_unstable_usb_phys_for_identity(
+    def test_detect_devices_via_session_keeps_no_by_id_usb_event_nodes_separate(
         self, monkeypatch
     ):
         gi.require_version("Gtk", "4.0")
@@ -1251,8 +1251,9 @@ class TestHardwareSetupDialog:
 
         assert dialog._detect_devices_via_session(detected_devices) is True
 
-        assert set(detected_devices) == {"1234:5678"}
-        assert len(detected_devices["1234:5678"]["interfaces"]) == 2
+        assert set(detected_devices) == {"1234:5678", "1234:5678@2"}
+        assert detected_devices["1234:5678"]["paths"] == ["/dev/input/event10"]
+        assert detected_devices["1234:5678@2"]["paths"] == ["/dev/input/event11"]
 
     def test_save_gamepad_config_builds_buttons_from_capabilities(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -1463,6 +1464,62 @@ class TestHardwareSetupDialog:
         assert saved.buttons[7].source == "kbd"
         assert saved.buttons[7].id == "key_esc"
         assert emitted == [("device-created", saved)]
+
+    def test_save_mouse_config_keeps_grouped_keyboard_interface(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved = []
+
+            def save_hardware(self, config) -> None:
+                self.saved.append(config)
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        hardware_manager = _HardwareManager()
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog.selected_device = {
+            "vendor_id": "1532",
+            "product_id": "00b4",
+            "name": "Razer Naga",
+        }
+        dialog.discovered_interfaces = {
+            "mouse": {
+                "id": "mouse",
+                "stable_path": "/dev/input/by-id/usb-Razer_Naga-event-mouse",
+                "path": "/dev/input/event5",
+                "name": "Razer Naga",
+                "device_type": DeviceType.MOUSE,
+                "device_types": ["mouse"],
+                "capabilities": ["btn_left", "btn_right", "rel_wheel"],
+            },
+            "kbd": {
+                "id": "kbd",
+                "stable_path": "/dev/input/by-id/usb-Razer_Naga-if02-event-kbd",
+                "path": "/dev/input/event7",
+                "name": "Razer Naga",
+                "device_type": DeviceType.KEYBOARD,
+                "device_types": ["keyboard"],
+                "capabilities": ["key_a"],
+            },
+        }
+        dialog.emit = lambda _signal, _config: None
+        dialog.close = lambda: None
+
+        dialog._save_mouse_config()
+
+        saved = hardware_manager.saved[0]
+        assert [device.id for device in saved.evdev_devices] == ["mouse", "kbd"]
+        assert [device.device_type for device in saved.evdev_devices] == [
+            DeviceType.MOUSE,
+            DeviceType.KEYBOARD,
+        ]
+        assert [button.source for button in saved.buttons] == ["mouse"] * len(saved.buttons)
 
     def test_standard_mouse_template_adds_horizontal_wheel_when_supported(self, monkeypatch):
         gi.require_version("Gtk", "4.0")

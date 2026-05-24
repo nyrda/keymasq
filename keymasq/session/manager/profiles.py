@@ -223,6 +223,16 @@ def invalidate_grabbed_state(manager: "SessionManager") -> None:
     manager.profile_state.last_sent_combo_signature = ""
 
 
+def clear_hardware_runtime_state(manager: "SessionManager", hardware_id: str) -> None:
+    cancel_grab_retry(manager, hardware_id)
+    manager.profile_state.grabbed_devices.discard(hardware_id)
+    manager.profile_state.grabbed_interfaces.pop(hardware_id, None)
+    manager.profile_state.grab_waiting_devices.discard(hardware_id)
+    manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
+    manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
+    runtime_payloads.clear_exec_refs(manager, hardware_id)
+
+
 def invalidate_runtime_payload_signatures(manager: "SessionManager") -> None:
     manager.profile_state.last_sent_mapping_signatures.clear()
     manager.profile_state.last_sent_combo_signature = ""
@@ -398,15 +408,24 @@ async def _reevaluate_profiles(
         )
         raise_if_stale_profile_apply(manager, generation)
 
-    stale_ids = [
-        hardware_id
-        for hardware_id in list(manager.profile_state.resolved_devices)
-        if hardware_id not in set(hardware_ids)
-    ]
+    active_hardware_ids = set(hardware_ids)
+    stale_ids = sorted(
+        (
+            set(manager.profile_state.resolved_devices)
+            | set(manager.profile_state.grabbed_devices)
+            | set(manager.profile_state.grabbed_interfaces)
+            | set(manager.profile_state.grab_waiting_devices)
+            | set(manager.profile_state.last_sent_grab_signatures)
+            | set(manager.profile_state.last_sent_mapping_signatures)
+        )
+        - active_hardware_ids
+    )
     for hardware_id in stale_ids:
+        if hardware_id in manager.profile_state.grabbed_devices:
+            await deactivate_profile(manager, hardware_id, immediate=True, generation=generation)
+            raise_if_stale_profile_apply(manager, generation)
         manager.profile_state.resolved_devices.pop(hardware_id, None)
-        manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
-        manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
+        clear_hardware_runtime_state(manager, hardware_id)
 
     await update_combos(manager, resolved.combos, generation=generation)
     raise_if_stale_profile_apply(manager, generation)
@@ -1102,10 +1121,7 @@ async def deactivate_profile(
         if result.status != "ok":
             log.error("Failed to release device %s: %s", hardware_id, result.error)
             return
-        manager.profile_state.grabbed_devices.discard(hardware_id)
-        manager.profile_state.grabbed_interfaces.pop(hardware_id, None)
-        manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
-        manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
+        clear_hardware_runtime_state(manager, hardware_id)
     except Exception as e:
         log.error("Failed to release device %s: %s", hardware_id, e)
 

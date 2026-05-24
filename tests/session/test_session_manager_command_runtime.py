@@ -58,6 +58,40 @@ async def test_handle_session_request_set_settings_does_not_broadcast_on_daemon_
 
 
 @pytest.mark.asyncio
+async def test_release_device_command_forwards_to_daemon_and_clears_runtime_state() -> None:
+    manager = SessionManager()
+    hardware_id = "045e:02a1"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.grabbed_interfaces[hardware_id] = {
+        "gamepad": "/dev/input/event20"
+    }
+    manager.profile_state.grab_waiting_devices.add(hardware_id)
+    manager.profile_state.last_sent_grab_signatures[hardware_id] = "grab"
+    manager.profile_state.last_sent_mapping_signatures[hardware_id] = "mapping"
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"released": True})
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "release_device", "hardware_id": hardware_id},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"released": True, "status": "ok"}
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.RELEASE_DEVICE
+    assert sent.data == {"hardware_id": hardware_id, "immediate": True}
+    assert hardware_id not in manager.profile_state.grabbed_devices
+    assert hardware_id not in manager.profile_state.grabbed_interfaces
+    assert hardware_id not in manager.profile_state.grab_waiting_devices
+    assert hardware_id not in manager.profile_state.last_sent_grab_signatures
+    assert hardware_id not in manager.profile_state.last_sent_mapping_signatures
+
+
+@pytest.mark.asyncio
 async def test_handle_session_request_refresh_compositor_forces_binding_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

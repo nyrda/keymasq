@@ -127,6 +127,31 @@ async def _handle_profile_commands(
         await manager.reload_profiles()
         return {"status": "ok"}
 
+    if command == "release_device":
+        hardware_id = str_value(request.get("hardware_id"), "").strip()
+        if not hardware_id:
+            return {"status": "error", "message": "missing hardware_id"}
+        immediate = bool(request.get("immediate", True))
+        try:
+            result = await manager.client.send_command(
+                Command(
+                    command=CommandType.RELEASE_DEVICE,
+                    data={"hardware_id": hardware_id, "immediate": immediate},
+                )
+            )
+        except Exception:
+            return {"status": "error", "message": "Daemon unavailable"}
+        if result.status != "ok":
+            return {
+                "status": "error",
+                "message": result.error or f"Failed to release {hardware_id}",
+            }
+        runtime_profiles.clear_hardware_runtime_state(manager, hardware_id)
+        response_data = json_object(result.data)
+        response = response_data if response_data else {}
+        response["status"] = "ok"
+        return response
+
     if command in {"reevaluate_profiles", "reevaluate_hardware"}:
         log.info("Global profile reevaluate requested")
         await asyncio.to_thread(manager.reload_config_from_disk)

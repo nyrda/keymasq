@@ -516,7 +516,7 @@ class SessionManager:
         ]
         for hardware_id in stale_ids:
             log.info(f"Hardware removed for {hardware_id}, deactivating profile")
-            await runtime_profiles.deactivate_profile(self, hardware_id)
+            await runtime_profiles.deactivate_profile(self, hardware_id, immediate=True)
             self.profile_state.resolved_devices.pop(hardware_id, None)
 
         await runtime_profiles.reevaluate_profiles(self, reason="config reload")

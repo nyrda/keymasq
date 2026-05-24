@@ -518,6 +518,21 @@ class TestHardwareSetupDialog:
             "In use by 045e:02a1 (gamepad)"
         )
 
+    def test_device_in_use_summary_ignores_non_dict_interfaces(self):
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        summary = HardwareSetupDialog._device_in_use_summary(
+            None,
+            {
+                "interfaces": [
+                    "invalid",
+                    {"configured_hardware_id": "045e:02a1"},
+                ]
+            },
+        )
+
+        assert summary == "Configured as 045e:02a1"
+
     def test_selecting_row_without_expander_still_enables_next(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

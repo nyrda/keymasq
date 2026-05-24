@@ -367,7 +367,7 @@ async def test_apply_resolved_device_profile_keeps_waiting_cache_across_inactive
 
 
 @pytest.mark.asyncio
-async def test_apply_resolved_device_profile_skips_waiting_device_when_payload_changes() -> None:
+async def test_apply_resolved_device_profile_resends_waiting_device_when_payload_changes() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678@2"
     mapped = ResolvedDeviceProfile(
@@ -411,7 +411,7 @@ async def test_apply_resolved_device_profile_skips_waiting_device_when_payload_c
     await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, mapped)
     await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, changed)
 
-    manager.client.send_command.assert_awaited_once()
+    assert manager.client.send_command.await_count == 2
     assert hardware_id in manager.profile_state.grab_waiting_devices
 
 

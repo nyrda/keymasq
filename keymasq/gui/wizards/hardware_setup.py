@@ -636,7 +636,9 @@ class HardwareSetupDialog(Adw.Dialog):
 
     def _device_in_use_summary(self, dev_info: dict) -> str:
         for iface in dev_info.get("interfaces", []):
-            if not isinstance(iface, dict) or not bool(iface.get("grabbed_by_keymasq", False)):
+            if not isinstance(iface, dict):
+                continue
+            if not bool(iface.get("grabbed_by_keymasq", False)):
                 configured_hardware_id = str(iface.get("configured_hardware_id", "") or "")
                 if configured_hardware_id:
                     return f"Configured as {configured_hardware_id}"

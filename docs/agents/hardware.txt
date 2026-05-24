@@ -10,10 +10,8 @@ Hardware files live at:
 
 The hardware ID is `vendor_id:product_id`, for example `046d:c08b`.
 Profile mappings refer to these IDs under `[devices."<hardware_id>"]`.
-For duplicate devices with the same vendor/product IDs, use an explicit
-`hardware_id` such as `046d:c08b@2` in the hardware file. When an evdev entry
-uses `keymasq:<vendor_id>:<product_id>`, the suffix selects the Nth matching
-runtime interface instead of falling back to the first identical device.
+For duplicate devices with the same vendor/product IDs, use `@N` hardware IDs
+such as `046d:c08b@2`. The hardware ID is the config/profile key.
 
 Only edit hardware config when adding or fixing physical button/key
 definitions. For normal remaps, edit profiles instead.
@@ -85,17 +83,17 @@ evdev_code = 2
 - `name`: display name
 - `vendor_id`: USB/vendor ID string
 - `product_id`: USB/product ID string
-- `hardware_id`: optional explicit ID, mainly for duplicate devices such as
-  `046d:c08b@2`; the vendor/product prefix must match
+- `hardware_id`: optional explicit config/profile key, usually for duplicates
+  such as `046d:c08b@2`; the vendor/product prefix must match
 - `image`: optional image filename
 
 `[hardware.evdev].devices` entries:
 
-- `path`: stable `/dev/input/by-id/...` path, explicit `/dev/input/by-path/...`
-  or `/dev/input/eventN` override, or Keymasq logical path
-  `keymasq:<vendor_id>:<product_id>` when Linux exposes no by-id link
+- `path`: `/dev/input/by-id/...`, `/dev/input/by-path/...`,
+  `/dev/input/eventN`, or logical `keymasq:<vendor_id>:<product_id>`
 - `type`: `keyboard`, `mouse`, `gamepad`, or `other`
 - `id`: optional source interface ID used by buttons
+- `phys`: optional kernel physical/topology hint
 - `capabilities`: optional capability list
 
 `[[hardware.layout.buttons]]` entries:

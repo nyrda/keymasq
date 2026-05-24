@@ -558,6 +558,7 @@ async def apply_resolved_device_profile(
     if (
         hardware_id in manager.profile_state.grab_waiting_devices
         and hardware_id not in manager.profile_state.grabbed_devices
+        and manager.profile_state.last_sent_grab_signatures.get(hardware_id) == grab_signature
     ):
         log.debug("Skipping pending grab for unavailable device %s", hardware_id)
         maybe_notify_profile_activation(

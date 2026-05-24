@@ -8,8 +8,9 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.models import HardwareConfig
 from keymasq.common.paths import KEYMASQ_RECORD_HELPER_PATH, resolve_keymasq_record_helper_path
 from keymasq.common.recording_guard import resolve_unlock_status
 from keymasq.gui.icons import (
@@ -18,7 +19,12 @@ from keymasq.gui.icons import (
     image_from_icon_names,
     resolve_icon_name,
 )
-from keymasq.gui.preferences import AppearanceMode, load_appearance_mode
+from keymasq.gui.preferences import (
+    AppearanceMode,
+    load_appearance_mode,
+    load_device_tab_order,
+    save_device_tab_order,
+)
 from keymasq.gui.session_client import (
     GuiTaskResult,
     register_session_event_callback,
@@ -31,6 +37,7 @@ from keymasq.gui.session_client import (
 from keymasq.gui.widgets.combo_tab import ComboTab
 from keymasq.gui.widgets.device_tab import DeviceTab
 from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
+from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.compositor import (
     detect_compositor_sync,
     get_compositor_capabilities,
@@ -106,6 +113,12 @@ class MainWindow(Adw.ApplicationWindow):
         self._profile_reload_inflight = False
         self._profile_reload_pending = False
         self._destroyed = False
+        self._device_tab_order = load_device_tab_order()
+        self._device_pages: dict[str, Adw.TabPage] = {}
+        self._placeholder_page: Adw.TabPage | None = None
+        self._allow_tab_page_close = False
+        self._suppress_tab_order_save = False
+        self._syncing_combo_tab_button = False
         self.combo_tab: ComboTab | None = None
         self._device_inspector_windows: dict[str, Gtk.Window] = {}
 
@@ -125,7 +138,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.connect("destroy", self._on_destroy)
 
-    def _probe_startup_state(self) -> tuple[dict[str, object], list]:
+    def _probe_startup_state(self) -> tuple[dict[str, object], list[HardwareConfig]]:
         compositor_id = detect_compositor_sync()
         support_details = get_compositor_support_details_sync(compositor_id)
         supported = bool(support_details.get("supported", False))
@@ -149,7 +162,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_startup_probe_finished(
         self,
-        result: GuiTaskResult[tuple[dict[str, object], list]],
+        result: GuiTaskResult[tuple[dict[str, object], list[HardwareConfig]]],
     ) -> bool:
         if result.ok and result.value is not None:
             compositor_state, devices = result.value
@@ -182,18 +195,140 @@ class MainWindow(Adw.ApplicationWindow):
         self._close_gnome_setup_dialog_if_ready()
         self._maybe_present_gnome_setup_dialog()
 
+    def _icon_from_name(self, icon_name: str) -> Gio.Icon:
+        return Gio.ThemedIcon.new(icon_name)
+
+    def _iter_tab_pages(self):
+        for position in range(self.tab_view.get_n_pages()):
+            yield self.tab_view.get_nth_page(position)
+
+    def _iter_tab_children(self):
+        for page in self._iter_tab_pages():
+            child = page.get_child()
+            if child is not None:
+                yield child
+
+    def _iter_profile_tabs(self):
+        yield from self._iter_tab_children()
+        if self.combo_tab is not None:
+            yield self.combo_tab
+
+    def _page_for_child(self, widget: Gtk.Widget | None) -> Adw.TabPage | None:
+        if widget is None:
+            return None
+        if widget is self.placeholder:
+            return self._placeholder_page
+        for page in self._device_pages.values():
+            if page.get_child() is widget:
+                return page
+        return None
+
+    def _page_for_hardware_id(self, hardware_id: str) -> Adw.TabPage | None:
+        return self._device_pages.get(hardware_id)
+
+    def _child_for_hardware_id(self, hardware_id: str) -> Gtk.Widget | None:
+        page = self._page_for_hardware_id(hardware_id)
+        return page.get_child() if page is not None else None
+
+    def _append_tab_page(
+        self,
+        child: Gtk.Widget,
+        *,
+        title: str,
+        icon_name: str,
+        pinned: bool = False,
+    ) -> Adw.TabPage:
+        page = self.tab_view.append_pinned(child) if pinned else self.tab_view.append(child)
+        page.set_title(title)
+        page.set_icon(self._icon_from_name(icon_name))
+        GLib.idle_add(self._sync_tab_close_tooltips)
+        return page
+
+    def _walk_widget_tree(self, widget: Gtk.Widget):
+        yield widget
+        child = widget.get_first_child()
+        while child is not None:
+            yield from self._walk_widget_tree(child)
+            child = child.get_next_sibling()
+
+    def _sync_tab_close_tooltips(self) -> bool:
+        for widget in self._walk_widget_tree(self.tab_bar):
+            if "tab-close-button" in widget.get_css_classes():
+                widget.set_tooltip_text("Remove device")
+        return False
+
+    def _close_tab_page(self, page: Adw.TabPage | None) -> None:
+        if page is None:
+            return
+        self._allow_tab_page_close = True
+        try:
+            self.tab_view.close_page(page)
+        finally:
+            self._allow_tab_page_close = False
+
+    def _on_tab_close_page(self, _tab_view: Adw.TabView, page: Adw.TabPage) -> bool:
+        if self._allow_tab_page_close:
+            self.tab_view.close_page_finish(page, True)
+            return True
+
+        self.tab_view.close_page_finish(page, False)
+        child = page.get_child()
+        if isinstance(child, DeviceTab):
+            child.present_delete_device_dialog()
+        return True
+
+    def _on_tab_page_reordered(
+        self,
+        _tab_view: Adw.TabView,
+        _page: Adw.TabPage,
+        _position: int,
+    ) -> None:
+        if not self._suppress_tab_order_save:
+            self._save_device_tab_order()
+
+    def _current_device_tab_order(self) -> list[str]:
+        order: list[str] = []
+        for page in self._iter_tab_pages():
+            child = page.get_child()
+            if isinstance(child, DeviceTab):
+                order.append(child.device.hardware_id)
+        return order
+
+    def list_device_tab_configs(self) -> list[HardwareConfig]:
+        devices: list[HardwareConfig] = []
+        for page in self._iter_tab_pages():
+            child = page.get_child()
+            if isinstance(child, DeviceTab):
+                devices.append(child.device)
+        return devices
+
+    def _save_device_tab_order(self) -> None:
+        self._device_tab_order = self._current_device_tab_order()
+        save_device_tab_order(self._device_tab_order)
+
+    def _order_devices_for_tabs(self, devices: list[HardwareConfig]) -> list[HardwareConfig]:
+        order_index = {
+            hardware_id: index for index, hardware_id in enumerate(self._device_tab_order)
+        }
+        fallback_offset = len(order_index)
+        indexed_devices: list[tuple[int, HardwareConfig]] = list(enumerate(devices))
+        indexed_devices.sort(
+            key=lambda item: (
+                order_index.get(getattr(item[1], "hardware_id", ""), fallback_offset),
+                item[0],
+            )
+        )
+        return [device for _index, device in indexed_devices]
+
     def _refresh_device_tabs(
         self,
         preferred_profile_name: str | None = None,
         source_hardware_id: str | None = None,
         source_widget: Gtk.Widget | None = None,
     ) -> None:
-        child = self.stack.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            if hasattr(child, "refresh_profiles"):
+        for child in self._iter_profile_tabs():
+            if isinstance(child, ProfileManagedTab):
                 if source_widget is not None and child is source_widget:
-                    child = next_child
                     continue
                 preferred = None
                 if (
@@ -205,7 +340,6 @@ class MainWindow(Adw.ApplicationWindow):
                 elif preferred_profile_name is not None:
                     preferred = preferred_profile_name
                 child.refresh_profiles(preferred_profile_name=preferred)
-            child = next_child
 
     def _set_selected_profile_name(self, profile_name: str | None) -> None:
         self._selected_profile_name = profile_name
@@ -223,35 +357,49 @@ class MainWindow(Adw.ApplicationWindow):
         self._selected_profile_name = profile_name
         self._syncing_profile_selection = True
         try:
-            child = self.stack.get_first_child()
-            while child is not None:
-                next_child = child.get_next_sibling()
-                if hasattr(child, "refresh_profiles"):
+            for child in self._iter_profile_tabs():
+                if isinstance(child, ProfileManagedTab):
                     if source_widget is not None and child is source_widget:
-                        child = next_child
                         continue
                     if (
                         isinstance(child, DeviceTab)
                         and source_hardware_id is not None
                         and child.device.hardware_id == source_hardware_id
                     ):
-                        child = next_child
                         continue
                     child.refresh_profiles(
                         preferred_profile_name=profile_name,
                         publish_selection=False,
                     )
-                child = next_child
         finally:
             self._syncing_profile_selection = False
 
-    def _on_visible_tab_changed(self, _stack, _pspec) -> None:
-        child = self.stack.get_visible_child()
-        if hasattr(child, "refresh_profiles"):
+    def _on_selected_tab_changed(self, _tab_view, _pspec) -> None:
+        if hasattr(self, "content_stack"):
+            self.content_stack.set_visible_child(self.tab_view)
+        if hasattr(self, "combo_tab_button") and self.combo_tab_button.get_active():
+            self._syncing_combo_tab_button = True
+            self.combo_tab_button.set_active(False)
+            self._syncing_combo_tab_button = False
+        page = self.tab_view.get_selected_page()
+        child = page.get_child() if page is not None else None
+        if isinstance(child, ProfileManagedTab):
             child.refresh_profiles(
                 preferred_profile_name=self._selected_profile_name,
                 publish_selection=False,
             )
+
+    def _on_combo_tab_button_toggled(self, button: Gtk.ToggleButton) -> None:
+        if self._syncing_combo_tab_button or self.combo_tab is None:
+            return
+        if button.get_active():
+            self.content_stack.set_visible_child(self.combo_tab)
+            self.combo_tab.refresh_profiles(
+                preferred_profile_name=self._selected_profile_name,
+                publish_selection=False,
+            )
+            return
+        self.content_stack.set_visible_child(self.tab_view)
 
     def _on_session_event(self, event: dict) -> bool:
         self._handle_session_event(event)
@@ -631,16 +779,35 @@ class MainWindow(Adw.ApplicationWindow):
     def _setup_content(self) -> None:
         self.main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
-        self.stack = Adw.ViewStack()
-        self.stack.set_vexpand(True)
-        self.stack.connect("notify::visible-child", self._on_visible_tab_changed)
+        self.tab_view = Adw.TabView()
+        self.tab_view.set_vexpand(True)
+        self.tab_view.set_shortcuts(
+            Adw.TabViewShortcuts.CONTROL_TAB
+            | Adw.TabViewShortcuts.CONTROL_SHIFT_TAB
+            | Adw.TabViewShortcuts.CONTROL_PAGE_UP
+            | Adw.TabViewShortcuts.CONTROL_PAGE_DOWN
+        )
+        self.tab_view.connect("notify::selected-page", self._on_selected_tab_changed)
+        self.tab_view.connect("close-page", self._on_tab_close_page)
+        self.tab_view.connect("page-reordered", self._on_tab_page_reordered)
 
-        self.stack_switcher = Adw.ViewSwitcher()
-        self.stack_switcher.set_stack(self.stack)
-        self.stack_switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
+        self.tab_bar = Adw.TabBar()
+        self.tab_bar.set_view(self.tab_view)
+        self.tab_bar.set_autohide(False)
+        self.tab_bar.set_expand_tabs(False)
+
+        self.combo_tab_button = Gtk.ToggleButton()
+        self.combo_tab_button.add_css_class("flat")
+        self.combo_tab_button.add_css_class("keymasq-combo-tab-button")
+        self.combo_tab_button.set_tooltip_text("Combos")
+        combo_button_content = Adw.ButtonContent()
+        combo_button_content.set_icon_name(resolve_icon_name(*combo_icon_names()))
+        combo_button_content.set_label("Combos")
+        self.combo_tab_button.set_child(combo_button_content)
+        self.combo_tab_button.connect("toggled", self._on_combo_tab_button_toggled)
+        self.tab_bar.set_end_action_widget(self.combo_tab_button)
 
         header = Adw.HeaderBar()
-        header.set_title_widget(self.stack_switcher)
 
         unlock_add_button = Gtk.Button(icon_name="list-add-symbolic")
         unlock_add_button.set_tooltip_text("Add device")
@@ -767,6 +934,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(header)
+        toolbar.add_top_bar(self.tab_bar)
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
@@ -775,7 +943,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.warning_banner.set_revealed(False)
         content_box.append(self.warning_banner)
 
-        content_box.append(self.stack)
+        self.content_stack = Gtk.Stack()
+        self.content_stack.set_vexpand(True)
+        self.content_stack.add_named(self.tab_view, "devices")
+        content_box.append(self.content_stack)
 
         from keymasq.gui.widgets.recording_overlay import RecordingOverlay
 
@@ -887,6 +1058,13 @@ class MainWindow(Adw.ApplicationWindow):
         self.present_unlock_dialog()
 
     def _setup_placeholder(self) -> None:
+        self._create_placeholder_widget(
+            title_text="Loading devices...",
+            subtitle_text="Checking compositor support and loading saved hardware",
+        )
+        self._ensure_placeholder_page()
+
+    def _create_placeholder_widget(self, *, title_text: str, subtitle_text: str) -> None:
         self.placeholder = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             valign=Gtk.Align.CENTER,
@@ -898,26 +1076,28 @@ class MainWindow(Adw.ApplicationWindow):
         icon.add_css_class("dim-label")
         self.placeholder.append(icon)
 
-        title = Gtk.Label(label="Loading devices...")
+        title = Gtk.Label(label=title_text)
         title.add_css_class("title-1")
         self.placeholder.append(title)
         self._placeholder_title = title
 
-        subtitle = Gtk.Label(label="Checking compositor support and loading saved hardware")
+        subtitle = Gtk.Label(label=subtitle_text)
         subtitle.add_css_class("dim-label")
         self.placeholder.append(subtitle)
         self._placeholder_subtitle = subtitle
 
-        self._ensure_placeholder_page()
-
     def _ensure_placeholder_page(self) -> None:
-        if self.placeholder in self.stack:
+        if self._page_for_child(self.placeholder) is not None:
             return
-        self.stack.add_titled_with_icon(
+        if self.placeholder.get_parent() is not None:
+            self._create_placeholder_widget(
+                title_text="No devices configured",
+                subtitle_text="Click + to add a new device",
+            )
+        self._placeholder_page = self._append_tab_page(
             self.placeholder,
-            "placeholder",
-            "Welcome",
-            resolve_icon_name(*device_icon_names(False)),
+            title="Welcome",
+            icon_name=resolve_icon_name(*device_icon_names(False)),
         )
 
     def _set_empty_placeholder_state(self) -> None:
@@ -926,7 +1106,7 @@ class MainWindow(Adw.ApplicationWindow):
         if self._placeholder_subtitle is not None:
             self._placeholder_subtitle.set_label("Click + to add a new device")
 
-    def _apply_loaded_devices(self, devices: list) -> None:
+    def _apply_loaded_devices(self, devices: list[HardwareConfig]) -> None:
         if self.demo_mode and not devices:
             self._load_demo_devices()
             return
@@ -935,10 +1115,15 @@ class MainWindow(Adw.ApplicationWindow):
             self._set_empty_placeholder_state()
             return
 
-        self.stack.remove(self.placeholder)
+        self._close_tab_page(self._page_for_child(self.placeholder))
+        self._placeholder_page = None
 
-        for device in devices:
-            self._add_device_tab(device)
+        self._suppress_tab_order_save = True
+        try:
+            for device in self._order_devices_for_tabs(devices):
+                self._add_device_tab(device, persist_order=False)
+        finally:
+            self._suppress_tab_order_save = False
 
     def _load_demo_devices(self) -> None:
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
@@ -965,8 +1150,9 @@ class MainWindow(Adw.ApplicationWindow):
             ],
         )
 
-        self.stack.remove(self.placeholder)
-        self._add_device_tab(demo_device)
+        self._close_tab_page(self._page_for_child(self.placeholder))
+        self._placeholder_page = None
+        self._add_device_tab(demo_device, persist_order=False)
 
     def _setup_combo_tab(self) -> None:
         self.combo_tab = ComboTab(
@@ -975,20 +1161,16 @@ class MainWindow(Adw.ApplicationWindow):
             demo_mode=self.demo_mode,
             compositor_capabilities=self._compositor_capabilities,
         )
-        self.stack.add_titled_with_icon(
-            self.combo_tab, "combos", "Combos", resolve_icon_name(*combo_icon_names()),
-        )
+        self.content_stack.add_named(self.combo_tab, "combos")
         if self._selected_profile_name:
             self.combo_tab.refresh_profiles(
                 preferred_profile_name=self._selected_profile_name,
                 publish_selection=False,
             )
         self._apply_profile_runtime_state_to_widget(self.combo_tab)
+        self.content_stack.set_visible_child(self.tab_view)
 
-    def _add_device_tab(self, device) -> None:
-        if self.combo_tab and self.combo_tab in self.stack:
-            self.stack.remove(self.combo_tab)
-
+    def _add_device_tab(self, device: HardwareConfig, *, persist_order: bool = True) -> None:
         tab = DeviceTab(
             device=device,
             profile_manager=self.profile_manager,
@@ -999,7 +1181,8 @@ class MainWindow(Adw.ApplicationWindow):
         )
 
         icon = resolve_icon_name(*device_icon_names(device_kind=tab.device_layout_kind()))
-        self.stack.add_titled_with_icon(tab, device.hardware_id, device.name, icon)
+        page = self._append_tab_page(tab, title=device.name, icon_name=icon)
+        self._device_pages[device.hardware_id] = page
         if self._selected_profile_name:
             tab.refresh_profiles(
                 preferred_profile_name=self._selected_profile_name,
@@ -1011,19 +1194,11 @@ class MainWindow(Adw.ApplicationWindow):
                 preferred_profile_name=self._selected_profile_name,
                 publish_selection=False,
             )
-        if self.combo_tab and self.combo_tab not in self.stack:
-            self.stack.add_titled_with_icon(
-                self.combo_tab, "combos", "Combos",
-                resolve_icon_name(*combo_icon_names()),
-            )
-            self._apply_profile_runtime_state_to_widget(self.combo_tab)
+        if persist_order:
+            self._save_device_tab_order()
 
     def update_device_display_name(self, hardware_id: str, name: str) -> None:
-        child = self.stack.get_child_by_name(hardware_id)
-        if child is None:
-            return
-
-        page = self.stack.get_page(child)
+        page = self._page_for_hardware_id(hardware_id)
         if page is not None:
             page.set_title(name)
 
@@ -1070,6 +1245,12 @@ class MainWindow(Adw.ApplicationWindow):
             return True
         return self._recording_unlocked and self._recording_refresh_owner
 
+    def remove_device_tab(self, hardware_id: str) -> None:
+        page = self._device_pages.pop(hardware_id, None)
+        self._close_tab_page(page)
+        self._save_device_tab_order()
+        self._check_empty_state()
+
     def _queue_profile_reload(self) -> None:
         if self._destroyed:
             return
@@ -1104,12 +1285,9 @@ class MainWindow(Adw.ApplicationWindow):
         from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 
         self.profile_manager = profile_manager
-        child = self.stack.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
+        for child in self._iter_profile_tabs():
             if isinstance(child, ProfileManagedTab):
                 child.profile_manager = profile_manager
-            child = next_child
 
     def _normalize_profile_runtime_state(self, state: dict | None) -> dict[str, object]:
         if not isinstance(state, dict):
@@ -1140,11 +1318,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _apply_profile_runtime_state(self, state: dict | None) -> None:
         self._profile_runtime_state = self._normalize_profile_runtime_state(state)
-        child = self.stack.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
+        for child in self._iter_profile_tabs():
             self._apply_profile_runtime_state_to_widget(child)
-            child = next_child
 
     def _on_add_device(self, button: Gtk.Button) -> None:
         if self.demo_mode:
@@ -1449,11 +1624,14 @@ class MainWindow(Adw.ApplicationWindow):
         return False
 
     def _on_device_created(self, dialog, device) -> None:
-        if self.placeholder and self.placeholder in self.stack:
-            self.stack.remove(self.placeholder)
+        if self.placeholder:
+            self._close_tab_page(self._page_for_child(self.placeholder))
+            self._placeholder_page = None
 
         self._add_device_tab(device)
-        self.stack.set_visible_child_name(device.hardware_id)
+        page = self._page_for_hardware_id(device.hardware_id)
+        if page is not None:
+            self.tab_view.set_selected_page(page)
         session_request_async({"command": "reload"}, lambda _result: False)
 
     def _show_demo_notification(self, message: str) -> None:
@@ -1462,16 +1640,9 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def _check_empty_state(self) -> None:
-        has_device_tabs = False
-        for page in self.stack.get_pages():
-            child = page.get_child()
-            if child is not self.placeholder and child is not self.combo_tab:
-                has_device_tabs = True
-                break
-
-        if not has_device_tabs:
-            self._set_empty_placeholder_state()
+        if not self._device_pages:
             self._ensure_placeholder_page()
+            self._set_empty_placeholder_state()
 
     def _update_compositor_status(self) -> None:
         if not self._startup_probe_done:

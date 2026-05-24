@@ -49,7 +49,7 @@ class TestComboTabWidget:
         )
 
         window._add_device_tab(device)
-        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        tab = window._child_for_hardware_id(device.hardware_id)
 
         tab.profile_dropdown.set_selected(tab._profile_names.index("Gaming"))
 
@@ -93,7 +93,7 @@ class TestComboTabWidget:
         )
 
         window._add_device_tab(device)
-        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        tab = window._child_for_hardware_id(device.hardware_id)
 
         assert window.combo_tab is not None
         window.combo_tab.profile_dropdown.set_selected(

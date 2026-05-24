@@ -1,4 +1,17 @@
 /* Active mapping: green left indicator + subtle tint */
+tabbar tab button.tab-close-button {
+  opacity: 0;
+}
+
+tabbar tab:hover button.tab-close-button {
+  opacity: 0.65;
+}
+
+button.keymasq-combo-tab-button {
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
 button.button-card-passthrough,
 button.button-card-mapped-active,
 button.button-card-mapped-inactive {

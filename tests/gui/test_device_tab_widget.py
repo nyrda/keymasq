@@ -551,7 +551,7 @@ class TestDeviceTabWidget:
 
         window._add_device_tab(device1)
         window._add_device_tab(device2)
-        tab = window.stack.get_page(window.stack.get_child_by_name(device1.hardware_id)).get_child()
+        tab = window._child_for_hardware_id(device1.hardware_id)
         tab.refresh_profiles(preferred_profile_name="Gaming", publish_selection=False)
 
         tab._on_profile_settings_clicked(tab.settings_btn)

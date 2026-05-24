@@ -132,6 +132,23 @@ def test_gui_appearance_preference_round_trips(temp_config_dir) -> None:
     )
 
 
+def test_gui_device_tab_order_preference_round_trips_with_appearance(temp_config_dir) -> None:
+    from keymasq.gui.preferences import (
+        load_appearance_mode,
+        load_device_tab_order,
+        save_appearance_mode,
+        save_device_tab_order,
+    )
+
+    assert load_device_tab_order() == []
+
+    save_appearance_mode("dark")
+    save_device_tab_order(["2222:0002", "1111:0001", "2222:0002", ""])
+
+    assert load_appearance_mode() == "dark"
+    assert load_device_tab_order() == ["2222:0002", "1111:0001"]
+
+
 def test_session_reload_reports_sync_and_async_status(monkeypatch) -> None:
     import keymasq.gui.session_reload as session_reload_module
 

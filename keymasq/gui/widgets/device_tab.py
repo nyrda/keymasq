@@ -1,6 +1,7 @@
 import logging
 import re
 import shlex
+from collections.abc import Callable
 from typing import cast
 
 import gi
@@ -316,6 +317,15 @@ class DeviceTab(ProfileManagedTab):
         seen: set[str] = set()
 
         root = self.main_window or self.get_root()
+        list_device_tab_configs = getattr(root, "list_device_tab_configs", None)
+        if callable(list_device_tab_configs):
+            get_devices = cast(Callable[[], list[HardwareConfig]], list_device_tab_configs)
+            for device in get_devices():
+                hardware_id = getattr(device, "hardware_id", None)
+                if isinstance(hardware_id, str) and hardware_id not in seen:
+                    devices.append(device)
+                    seen.add(hardware_id)
+
         stack = getattr(root, "stack", None)
         if stack is not None:
             child = stack.get_first_child()
@@ -542,7 +552,10 @@ class DeviceTab(ProfileManagedTab):
         if callable(updater):
             updater(self.device.hardware_id, self.device.name)
 
-    def _on_delete_device(self, button: Gtk.Button) -> None:
+    def _on_delete_device(self, _button: Gtk.Button) -> None:
+        self.present_delete_device_dialog()
+
+    def present_delete_device_dialog(self) -> None:
         dialog = Adw.Dialog(title="Delete Device", content_width=360, content_height=-1)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -661,8 +674,11 @@ class DeviceTab(ProfileManagedTab):
 
         dialog.close()
 
-        root = self.get_root()
-        if root and hasattr(root, "stack"):
+        root = self.main_window or self.get_root()
+        remove_device_tab = getattr(root, "remove_device_tab", None)
+        if callable(remove_device_tab):
+            remove_device_tab(hardware_id)
+        elif root and hasattr(root, "stack"):
             root.stack.remove(self)
             root._check_empty_state()
         return False

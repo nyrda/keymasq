@@ -497,6 +497,7 @@ async def test_axis_mouse_motion_uses_direction_and_response_curve() -> None:
 def test_preserved_analog_state_keys_only_keeps_unchanged_analog_controls() -> None:
     analog_action = MappingAction(
         action_type=ActionType.ANALOG_CONTROL,
+        source_profile_name="Desktop",
         analog_control_config=AnalogControlConfig(
             name="Mouse",
             mouse_motion=AnalogMouseMotionConfig(enabled=True),
@@ -513,7 +514,14 @@ def test_preserved_analog_state_keys_only_keeps_unchanged_analog_controls() -> N
         ),
     }
     new_mapping = {
-        "left_stick": analog_action,
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            source_profile_name="Plex",
+            analog_control_config=AnalogControlConfig(
+                name="Mouse",
+                mouse_motion=AnalogMouseMotionConfig(enabled=True),
+            ),
+        ),
         "right_stick": MappingAction(action_type=ActionType.SUPPRESS),
         "south": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
     }

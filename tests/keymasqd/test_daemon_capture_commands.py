@@ -330,24 +330,27 @@ def test_capture_manager_resolves_logical_combo_interfaces(monkeypatch):
         primary_input_class_fn=primary_input_class,
     )
 
-    manager = CaptureManager()
-    path_hardware_ids, path_sources = manager._hardware_interface_lookup(
-        {
-            "2dc8:3106": [
-                {
-                    "id": "gamepad",
-                    "path": "keymasq:2dc8:3106",
-                    "type": "gamepad",
-                    "phys": "bluetooth/input0",
-                    "capabilities": ["btn_south"],
-                }
-            ]
-        }
-    )
+    try:
+        manager = CaptureManager()
+        path_hardware_ids, path_sources = manager._hardware_interface_lookup(
+            {
+                "2dc8:3106": [
+                    {
+                        "id": "gamepad",
+                        "path": "keymasq:2dc8:3106",
+                        "type": "gamepad",
+                        "phys": "bluetooth/input0",
+                        "capabilities": ["btn_south"],
+                    }
+                ]
+            }
+        )
 
-    assert path_hardware_ids["/dev/input/event9"] == "2dc8:3106"
-    assert "/dev/input/event2" not in path_hardware_ids
-    assert path_sources["/dev/input/event9"] == "gamepad"
+        assert path_hardware_ids["/dev/input/event9"] == "2dc8:3106"
+        assert "/dev/input/event2" not in path_hardware_ids
+        assert path_sources["/dev/input/event9"] == "gamepad"
+    finally:
+        device_path_resolver.clear_cached_devices()
 
 
 @pytest.mark.asyncio

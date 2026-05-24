@@ -124,23 +124,26 @@ def test_capture_manager_resolves_keymasq_paths(monkeypatch) -> None:
         primary_input_class_fn=primary_input_class,
     )
 
-    manager = CaptureManager()
-    begin = manager.begin(
-        "2dc8:3106",
-        evdev_interfaces=[
-            {
-                "id": "gamepad",
-                "path": "keymasq:2dc8:3106",
-                "type": "keyboard",
-                "capabilities": ["key_a"],
-            }
-        ],
-    )
-    token = str(begin["token"])
+    try:
+        manager = CaptureManager()
+        begin = manager.begin(
+            "2dc8:3106",
+            evdev_interfaces=[
+                {
+                    "id": "gamepad",
+                    "path": "keymasq:2dc8:3106",
+                    "type": "keyboard",
+                    "capabilities": ["key_a"],
+                }
+            ],
+        )
+        token = str(begin["token"])
 
-    captured = cast(dict[str, object], manager.read(token)["captured"])
-    assert captured["evdev"] == "key_a"
-    assert captured["source"] == "gamepad"
+        captured = cast(dict[str, object], manager.read(token)["captured"])
+        assert captured["evdev"] == "key_a"
+        assert captured["source"] == "gamepad"
+    finally:
+        device_path_resolver.clear_cached_devices()
 
 
 def test_capture_manager_analog_mode_reads_abs_events(monkeypatch) -> None:

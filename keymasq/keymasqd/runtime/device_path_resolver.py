@@ -110,6 +110,11 @@ def cached_devices_snapshot() -> dict[str, CachedDeviceInfo]:
         return dict(_CACHED_DEVICES)
 
 
+def clear_cached_devices() -> None:
+    with _CACHE_LOCK:
+        _CACHED_DEVICES.clear()
+
+
 def interface_descriptors_from_paths(paths: list[str]) -> list[JsonObject]:
     return [
         {"path": str(path), "id": "", "type": "", "capabilities": []}

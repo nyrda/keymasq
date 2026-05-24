@@ -165,10 +165,20 @@ def preserved_analog_state_keys(
     preserved: set[str] = set()
     for source_id, old_action in old_mapping.items():
         new_action = new_mapping.get(source_id)
-        if old_action != new_action:
+        if not _same_analog_control_configs(old_action, new_action):
             continue
         preserved.update(analog_state_keys_for_action(source_id, new_action))
     return preserved
+
+
+def _same_analog_control_configs(
+    old_action: MappingAction | None,
+    new_action: MappingAction | None,
+) -> bool:
+    old_configs = _action_analog_control_configs(old_action)
+    if not old_configs:
+        return False
+    return old_configs == _action_analog_control_configs(new_action)
 
 
 def _record_axis_value(

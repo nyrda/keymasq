@@ -10,6 +10,7 @@ import evdev
 from keymasq.common.models import DeviceType
 
 INPUT_CLASS_ORDER = ("mouse", "touchpad", "keyboard", "gamepad", "pointstick", "other")
+KEYMASQ_DEVICE_PATH_PREFIX = "keymasq:"
 INPUT_CLASS_LABELS = {
     "mouse": "Mouse",
     "touchpad": "Touchpad",
@@ -456,6 +457,43 @@ def resolve_stable_path(event_path: str) -> str:
     if not event_path:
         return event_path
     return _resolve_stable_path_cached(str(event_path))
+
+
+def is_keymasq_device_path(path: str) -> bool:
+    return str(path or "").strip().lower().startswith(KEYMASQ_DEVICE_PATH_PREFIX)
+
+
+def make_keymasq_device_path(vendor_id: str, product_id: str) -> str:
+    return (
+        f"{KEYMASQ_DEVICE_PATH_PREFIX}"
+        f"{str(vendor_id or '').strip().lower()}:{str(product_id or '').strip().lower()}"
+    )
+
+
+def parse_keymasq_device_path(path: str) -> tuple[str, str] | None:
+    normalized = str(path or "").strip().lower()
+    if not normalized.startswith(KEYMASQ_DEVICE_PATH_PREFIX):
+        return None
+    parts = normalized.removeprefix(KEYMASQ_DEVICE_PATH_PREFIX).split(":")
+    if len(parts) != 2:
+        return None
+    vendor_id, product_id = (part.strip() for part in parts)
+    if not re.fullmatch(r"[0-9a-f]{1,4}", vendor_id) or not re.fullmatch(
+        r"[0-9a-f]{1,4}", product_id
+    ):
+        return None
+    return vendor_id.zfill(4), product_id.zfill(4)
+
+
+def is_by_id_path(path: str) -> bool:
+    return "/dev/input/by-id/" in str(path or "")
+
+
+def config_path_for_detected_event(event_path: str, vendor_id: str, product_id: str) -> str:
+    stable_path = resolve_stable_path(event_path)
+    if is_by_id_path(stable_path):
+        return stable_path
+    return make_keymasq_device_path(vendor_id, product_id)
 
 
 def clear_device_path_cache() -> None:

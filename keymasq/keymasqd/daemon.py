@@ -86,6 +86,7 @@ class _DaemonDeviceManager(Protocol):
         button_values: dict[str, int] | None = None,
         analog_inputs: JsonObject | None = None,
         force_grab_unmapped: bool = False,
+        evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject: ...
 
     async def release_device(

@@ -8,9 +8,12 @@ import pytest
 from keymasq.common.devices import (
     classify_event_device_type,
     clear_device_path_cache,
+    config_path_for_detected_event,
     detect_input_classes_from_capabilities,
     find_all_interfaces,
     get_interface_id,
+    make_keymasq_device_path,
+    parse_keymasq_device_path,
     primary_input_class,
     resolve_stable_path,
 )
@@ -104,6 +107,42 @@ def test_resolve_stable_path_skips_symlink_read_errors(monkeypatch: pytest.Monke
     assert resolve_stable_path("/dev/input/event9") == "/dev/input/event9"
 
     clear_device_path_cache()
+
+
+def test_keymasq_device_path_helpers() -> None:
+    assert make_keymasq_device_path("2DC8", "3106") == "keymasq:2dc8:3106"
+    assert parse_keymasq_device_path("keymasq:2dc8:3106") == ("2dc8", "3106")
+    assert parse_keymasq_device_path("keymasq:dc8:1") == ("0dc8", "0001")
+    assert parse_keymasq_device_path("keymasq:2dc8") is None
+    assert parse_keymasq_device_path("/dev/input/event1") is None
+
+
+def test_config_path_for_detected_event_prefers_by_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "keymasq.common.devices.resolve_stable_path",
+        lambda _path: "/dev/input/by-id/usb-Test-event-joystick",
+    )
+
+    assert (
+        config_path_for_detected_event("/dev/input/event5", "2dc8", "3106")
+        == "/dev/input/by-id/usb-Test-event-joystick"
+    )
+
+
+def test_config_path_for_detected_event_uses_keymasq_path_without_by_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "keymasq.common.devices.resolve_stable_path",
+        lambda path: path,
+    )
+
+    assert (
+        config_path_for_detected_event("/dev/input/event5", "2dc8", "3106")
+        == "keymasq:2dc8:3106"
+    )
 
 
 def test_find_all_interfaces_filters_matching_devices(monkeypatch: pytest.MonkeyPatch) -> None:

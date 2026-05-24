@@ -206,7 +206,8 @@ Some devices do not expose enough stable identity data for Linux to distinguish
 two physical units of the same model. This usually happens when both devices
 report the same USB vendor ID, product ID, name, and serial number. Keymasq can
 keep separate numbered hardware IDs such as `045e:02a1` and `045e:02a1@2`, but
-the saved evdev path still has to point at the intended physical interface.
+those IDs are also profile/config keys. Changing a hardware ID requires the
+matching profile device layer to use the same ID.
 
 Symptoms:
 
@@ -228,6 +229,19 @@ If `by-id` cannot distinguish the devices, manually use `/dev/input/by-path/...`
 instead. `by-path` is stable across reboots as long as the device stays in the
 same USB or PCI path. If you move the receiver or device to another port, the
 `by-path` link changes and you must update the config again.
+
+If Linux does not expose a `/dev/input/by-id/...` link at all, Keymasq stores a
+logical path such as `keymasq:2dc8:3106` instead of the unstable
+`/dev/input/eventN` node. This is not a real filesystem path. At runtime,
+`keymasqd` resolves it by matching live evdev devices with the configured
+vendor/product IDs and interface metadata such as type, `phys`, and
+capabilities.
+
+For logical paths, a numbered hardware ID such as `045e:02a1@2` is only a
+best-effort duplicate hint. It is not a serial number. If the requested numbered
+candidate is unavailable, `keymasqd` may choose the best unclaimed matching
+candidate instead. This keeps reconnects usable, but it cannot make two
+perfectly identical unserialized devices reliably distinguishable.
 
 Edit the affected hardware file:
 

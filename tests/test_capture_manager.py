@@ -4,7 +4,9 @@ from unittest.mock import Mock
 import evdev
 import pytest
 
+from keymasq.common.devices import detect_input_classes, primary_input_class
 from keymasq.keymasqd.capture_manager import CaptureManager
+from keymasq.keymasqd.runtime import device_path_resolver
 
 
 class _FakeInfo:
@@ -107,6 +109,44 @@ def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:
 
     captured = cast(dict[str, object], manager.read(token)["captured"])
     assert captured["evdev"] == "key_a"
+
+
+def test_capture_manager_resolves_keymasq_paths(monkeypatch) -> None:
+    key_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    fake = _FakeDevice("/dev/input/event7", 0x2DC8, 0x3106, [key_event])
+
+    monkeypatch.setattr(evdev, "list_devices", lambda: ["/dev/input/event7"])
+    monkeypatch.setattr(evdev, "InputDevice", lambda path: fake)
+    device_path_resolver.refresh_cached_devices_sync(
+        device_paths_fn=evdev.list_devices,
+        device_input_fn=evdev.InputDevice,
+        detect_input_classes_fn=detect_input_classes,
+        primary_input_class_fn=primary_input_class,
+    )
+
+    manager = CaptureManager()
+    token: str | None = None
+    try:
+        begin = manager.begin(
+            "2dc8:3106",
+            evdev_interfaces=[
+                {
+                    "id": "gamepad",
+                    "path": "keymasq:2dc8:3106",
+                    "type": "keyboard",
+                    "capabilities": ["key_a"],
+                }
+            ],
+        )
+        token = str(begin["token"])
+
+        captured = cast(dict[str, object], manager.read(token)["captured"])
+        assert captured["evdev"] == "key_a"
+        assert captured["source"] == "gamepad"
+    finally:
+        if token is not None:
+            manager.end(token)
+        device_path_resolver.clear_cached_devices()
 
 
 def test_capture_manager_analog_mode_reads_abs_events(monkeypatch) -> None:

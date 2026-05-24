@@ -191,6 +191,36 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
     assert manager.delete_hardware("1111:2222") is False
 
 
+def test_hardware_manager_preserves_keymasq_logical_path(temp_config_dir) -> None:
+    manager = HardwareManager()
+    config = HardwareConfig(
+        vendor_id="2dc8",
+        product_id="3106",
+        name="Bluetooth Pad",
+        evdev_devices=[
+            EvdevDevice(
+                path="keymasq:2dc8:3106",
+                device_type=DeviceType.GAMEPAD,
+                id="gamepad",
+                capabilities=["btn_south", "abs_x"],
+            ),
+            EvdevDevice(
+                path="/dev/input/by-path/pci-test-event-joystick",
+                device_type=DeviceType.GAMEPAD,
+                id="manual_path",
+            ),
+        ],
+        buttons=[],
+    )
+
+    manager.save_hardware(config)
+
+    text = (temp_config_dir / "hardware" / "2dc8_3106.toml").read_text(encoding="utf-8")
+    assert 'path = "keymasq:2dc8:3106"' in text
+    assert 'path = "/dev/input/by-path/pci-test-event-joystick"' in text
+    assert HardwareManager().get_hardware("2dc8:3106") == config
+
+
 def test_hardware_manager_preserves_explicit_hardware_id(temp_config_dir) -> None:
     manager = HardwareManager()
     config = HardwareConfig(

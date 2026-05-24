@@ -317,6 +317,193 @@ class TestDeviceManager:
         create_global_uinputs.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_grab_device_waits_when_keymasq_path_is_unresolved(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
+        evdev_interfaces = [
+            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+        ]
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=["keymasq:2dc8:3106"],
+            evdev_interfaces=evdev_interfaces,
+            button_map={"btn_south": "btn_south"},
+        )
+
+        assert result == {
+            "grabbed": True,
+            "hardware_id": "2dc8:3106",
+            "grabbed_count": 0,
+            "skipped_count": 0,
+            "waiting_for_device": True,
+        }
+        assert manager.grab_state.desired_paths["2dc8:3106"] == {"keymasq:2dc8:3106"}
+        assert manager.grab_state.desired_grabs["2dc8:3106"] == DesiredGrabConfig(
+            paths={"keymasq:2dc8:3106"},
+            button_map={"btn_south": "btn_south"},
+            force_grab_unmapped=False,
+            evdev_interfaces=evdev_interfaces,
+        )
+
+    @pytest.mark.asyncio
+    async def test_grab_device_excludes_paths_grabbed_by_other_hardware(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.grabbed_devices["other"] = [
+            SimpleNamespace(
+                path="/dev/input/event2",
+                stable_path="/dev/input/by-id/claimed-pad",
+            )
+        ]
+        captured: dict[str, object] = {}
+
+        def fake_resolve_evdev_interfaces(interfaces, **kwargs):
+            captured["interfaces"] = interfaces
+            captured["excluded_paths"] = kwargs.get("excluded_paths")
+            captured["deps"] = kwargs.get("deps")
+            return []
+
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "resolve_evdev_interfaces",
+            fake_resolve_evdev_interfaces,
+        )
+        evdev_interfaces = [
+            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+        ]
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=["keymasq:2dc8:3106"],
+            evdev_interfaces=evdev_interfaces,
+            button_map={"btn_south": "btn_south"},
+        )
+
+        assert result["waiting_for_device"] is True
+        assert captured["interfaces"] == evdev_interfaces
+        assert captured["excluded_paths"] == {
+            "/dev/input/event2",
+            "/dev/input/by-id/claimed-pad",
+        }
+        deps = captured["deps"]
+        assert isinstance(deps, ldm.device_path_resolver.DevicePathResolverDeps)
+        assert deps.resolve_stable_path_fn is dm.resolve_stable_path
+
+    @pytest.mark.asyncio
+    async def test_grab_device_resolves_keymasq_path_and_uses_configured_interface_id(
+        self,
+        manager,
+        virtual_mouse,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device_path = virtual_mouse.device.path
+        info = virtual_mouse.device.info
+        logical_path = f"keymasq:{info.vendor:04x}:{info.product:04x}"
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [device_path])
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "_is_keymasq_virtual_device",
+            lambda _d: False,
+        )
+        ldm.device_path_resolver.refresh_cached_devices_sync(
+            device_paths_fn=dm._device_paths,
+            device_input_fn=dm._device_input,
+            detect_input_classes_fn=dm.detect_input_classes,
+            primary_input_class_fn=dm.primary_input_class,
+        )
+
+        result = await manager.grab_device(
+            hardware_id=f"{info.vendor:04x}:{info.product:04x}",
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                {
+                    "id": "mouse",
+                    "path": logical_path,
+                    "type": "mouse",
+                    "capabilities": ["btn_left"],
+                }
+            ],
+            button_map={"btn_left": "btn_left"},
+        )
+
+        assert result["grabbed_count"] == 1
+        grabbed = manager.grabbed_devices[f"{info.vendor:04x}:{info.product:04x}"][0]
+        assert grabbed.path == device_path
+        assert grabbed.interface_id == "mouse"
+
+        await manager.release_device(f"{info.vendor:04x}:{info.product:04x}")
+
+    @pytest.mark.asyncio
+    async def test_grab_device_updates_existing_interface_id(
+        self,
+        manager,
+        virtual_mouse,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device_path = virtual_mouse.device.path
+        info = virtual_mouse.device.info
+        hardware_id = f"{info.vendor:04x}:{info.product:04x}"
+        logical_path = f"keymasq:{hardware_id}"
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [device_path])
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "_is_keymasq_virtual_device",
+            lambda _d: False,
+        )
+        ldm.device_path_resolver.refresh_cached_devices_sync(
+            device_paths_fn=dm._device_paths,
+            device_input_fn=dm._device_input,
+            detect_input_classes_fn=dm.detect_input_classes,
+            primary_input_class_fn=dm.primary_input_class,
+        )
+
+        await manager.grab_device(
+            hardware_id=hardware_id,
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                {"id": "mouse", "path": logical_path, "type": "mouse"},
+            ],
+            button_map={"btn_left": "btn_left"},
+        )
+        grabbed = manager.grabbed_devices[hardware_id][0]
+        assert grabbed.interface_id == "mouse"
+
+        result = await manager.grab_device(
+            hardware_id=hardware_id,
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                {"id": "pointer", "path": logical_path, "type": "mouse"},
+            ],
+            button_map={"btn_left": "btn_left"},
+            analog_inputs={
+                "stick": {
+                    "source": "pointer",
+                    "type": "stick",
+                    "axes": [
+                        {
+                            "role": "x",
+                            "evdev": "abs_x",
+                            "evdev_code": evdev.ecodes.ABS_X,
+                        }
+                    ],
+                }
+            },
+        )
+
+        assert result["grabbed_count"] == 1
+        assert manager.grabbed_devices[hardware_id][0] is grabbed
+        assert grabbed.interface_id == "pointer"
+        assert grabbed.analog_input_types["stick"] == "stick"
+
+        await manager.release_device(hardware_id)
+
+    @pytest.mark.asyncio
     async def test_grab_device_still_errors_when_present_interfaces_match_no_buttons(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -851,6 +1038,40 @@ class TestListDevices:
             log=dm.log,
             deps=dm._topology_runtime_deps(),
         )
+
+    def test_topology_events_match_numbered_desired_hardware_id(self) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        snapshot = {
+            "/dev/input/by-id/test-pad": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-pad",
+                path="/dev/input/event10",
+                interface_id="gamepad",
+            )
+        }
+
+        events = tdm.build_topology_events(
+            manager,
+            {},
+            snapshot,
+            {"1234:5678@2"},
+        )
+
+        assert events == [
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/test-pad",
+                    "interface_id": "gamepad",
+                },
+            )
+        ]
 
 
 class TestMacroControlActions:

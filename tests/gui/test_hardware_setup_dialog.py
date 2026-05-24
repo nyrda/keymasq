@@ -186,9 +186,9 @@ class TestHardwareSetupDialog:
         assert requests == [
             {"command": "list_devices_for_recording", "include_other": True}
         ]
-        assert set(detected_devices) == {"1234:1002", "1234:1002@2"}
-        assert detected_devices["1234:1002"]["paths"] == ["/dev/input/event20"]
-        assert detected_devices["1234:1002@2"]["paths"] == ["/dev/input/event21"]
+        assert set(detected_devices) == {"raw:/dev/input/event20", "raw:/dev/input/event21"}
+        assert detected_devices["raw:/dev/input/event20"]["paths"] == ["/dev/input/event20"]
+        assert detected_devices["raw:/dev/input/event21"]["paths"] == ["/dev/input/event21"]
 
     def test_raw_evdev_toggle_is_disabled_during_detection(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -222,7 +222,7 @@ class TestHardwareSetupDialog:
 
         assert dialog.raw_evdev_check.get_sensitive() is True
 
-    def test_raw_evdev_mode_skips_configured_event_nodes(self, monkeypatch):
+    def test_raw_evdev_mode_keeps_configured_event_nodes_visible(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
@@ -276,8 +276,77 @@ class TestHardwareSetupDialog:
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True
-        assert set(detected_devices) == {"1234:1002@2"}
-        assert detected_devices["1234:1002@2"]["paths"] == ["/dev/input/event21"]
+        assert set(detected_devices) == {
+            "1234:1002#/dev/input/event20",
+            "raw:/dev/input/event21",
+        }
+        assert detected_devices["1234:1002#/dev/input/event20"]["paths"] == [
+            "/dev/input/event20"
+        ]
+        assert detected_devices["1234:1002#/dev/input/event20"]["interfaces"][0][
+            "configured_hardware_id"
+        ] == "1234:1002"
+        assert detected_devices["raw:/dev/input/event21"]["paths"] == ["/dev/input/event21"]
+
+    def test_raw_evdev_mode_keeps_grabbed_rows_without_consuming_duplicate_id(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event20",
+                        "stable_path": "/dev/input/event20",
+                        "name": "Xbox 360 Wireless Receiver",
+                        "phys": "usb-0000:0e:00.3-1.2/input0",
+                        "vendor_id": "045e",
+                        "product_id": "02a1",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                        "grabbed_by_keymasq": True,
+                        "source_hardware_id": "045e:02a1",
+                        "source_interface_id": "gamepad",
+                    },
+                    {
+                        "path": "/dev/input/event21",
+                        "stable_path": "/dev/input/event21",
+                        "name": "Xbox 360 Wireless Receiver",
+                        "phys": "usb-0000:0e:00.3-1.3/input0",
+                        "vendor_id": "045e",
+                        "product_id": "02a1",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                ],
+            },
+        )
+
+        hardware_manager = SimpleNamespace(list_hardware_ids=lambda: ["045e:02a1"])
+        dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
+        dialog._show_raw_evdev_devices = True
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+
+        assert set(detected_devices) == {
+            "045e:02a1#/dev/input/event20",
+            "raw:/dev/input/event21",
+        }
+        assert detected_devices["045e:02a1#/dev/input/event20"]["hardware_id"] == "045e:02a1"
+        assert detected_devices["045e:02a1#/dev/input/event20"]["interfaces"][0][
+            "grabbed_by_keymasq"
+        ] is True
+        assert detected_devices["raw:/dev/input/event21"]["paths"] == ["/dev/input/event21"]
 
     def test_raw_unknown_device_uses_custom_empty_profile_mode(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -334,7 +403,7 @@ class TestHardwareSetupDialog:
         assert saved.buttons == []
         assert emitted == [("device-created", saved)]
 
-    def test_raw_evdev_discovery_preserves_raw_config_paths(self, monkeypatch):
+    def test_raw_evdev_discovery_uses_logical_config_path_without_by_id(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
@@ -368,7 +437,7 @@ class TestHardwareSetupDialog:
         dialog._discover_interfaces()
 
         raw_iface = next(iter(dialog.discovered_interfaces.values()))
-        assert raw_iface["config_path"] == "/dev/input/event20"
+        assert raw_iface["config_path"] == "keymasq:1234:1002"
 
         dialog.selected_device = {
             "vendor_id": "1234",
@@ -390,9 +459,9 @@ class TestHardwareSetupDialog:
         dialog._discover_interfaces()
 
         fallback_iface = next(iter(dialog.discovered_interfaces.values()))
-        assert fallback_iface["config_path"] == "/dev/input/event21"
+        assert fallback_iface["config_path"] == "keymasq:1234:1002"
 
-    def test_raw_evdev_rows_hide_interface_expander(self, monkeypatch):
+    def test_normal_rows_show_interface_expander_and_raw_rows_use_summary(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
@@ -403,11 +472,51 @@ class TestHardwareSetupDialog:
         dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
 
         dialog._show_raw_evdev_devices = False
+        assert dialog._should_show_interface_expander([{}]) is True
         assert dialog._should_show_interface_expander([{}, {}]) is True
 
         dialog._show_raw_evdev_devices = True
         assert dialog._should_show_interface_expander([{}]) is False
         assert dialog._should_show_interface_expander([{}, {}]) is False
+
+    def test_selecting_in_use_raw_row_disables_next(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog._show_raw_evdev_devices = True
+        dialog._discover_interfaces = lambda: None  # type: ignore[method-assign]
+        dialog._refresh_configure_modes = lambda: None  # type: ignore[method-assign]
+        dialog.detected_devices = {
+            "045e:02a1#/dev/input/event20": {
+                "vendor_id": "045e",
+                "product_id": "02a1",
+                "name": "Xbox 360 Wireless Receiver",
+                "interfaces": [
+                    {
+                        "path": "/dev/input/event20",
+                        "grabbed_by_keymasq": True,
+                        "source_hardware_id": "045e:02a1",
+                        "source_interface_id": "gamepad",
+                    }
+                ],
+            }
+        }
+        row = Gtk.ListBoxRow()
+        row.hardware_id = "045e:02a1#/dev/input/event20"
+        dialog.device_list.append(row)
+
+        dialog._on_device_selected(None, row)
+
+        assert dialog.selected_device is dialog.detected_devices[row.hardware_id]
+        assert dialog.next_btn.get_sensitive() is False
+        assert dialog._device_in_use_summary(dialog.selected_device) == (
+            "In use by 045e:02a1 (gamepad)"
+        )
 
     def test_selecting_row_without_expander_still_enables_next(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -540,6 +649,32 @@ class TestHardwareSetupDialog:
                     "vendor_id": "045e",
                     "product_id": "02a1",
                     "hardware_id": "045e:02a1@2",
+                }
+            )
+            == "045e:02a1@2"
+        )
+
+    def test_raw_selected_config_id_allocates_lowest_free_id(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(
+            Gtk.Window(),
+            SimpleNamespace(list_hardware_ids=lambda: ["045e:02a1"]),
+        )
+        dialog._show_raw_evdev_devices = True
+
+        assert (
+            dialog._selected_config_id(
+                {
+                    "vendor_id": "045e",
+                    "product_id": "02a1",
+                    "hardware_id": "045e:02a1",
+                    "interfaces": [{"path": "/dev/input/event28"}],
                 }
             )
             == "045e:02a1@2"

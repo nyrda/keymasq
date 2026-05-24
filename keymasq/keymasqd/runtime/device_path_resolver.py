@@ -280,22 +280,24 @@ def _resolve_keymasq_path(
         ]
         if instance_index >= len(matching_instances):
             log.info(
-                "No %s instance %d match from candidates %s",
+                "No %s instance %d match from candidates %s; using best unclaimed match %s",
                 configured_path,
                 instance_index + 1,
                 [candidate.path for candidate in matching_instances],
+                available_candidates[0].path,
             )
-            return None
+            return available_candidates[0]
         for candidate in matching_instances[instance_index:]:
             if not candidate.claimed:
                 return candidate
         log.info(
-            "No unclaimed %s instance %d match from candidates %s",
+            "No unclaimed %s instance %d match from candidates %s; using best unclaimed match %s",
             configured_path,
             instance_index + 1,
             [candidate.path for candidate in matching_instances],
+            available_candidates[0].path,
         )
-        return None
+        return available_candidates[0]
 
     best = available_candidates[0]
     if len(available_candidates) > 1 and available_candidates[1].score == best.score:

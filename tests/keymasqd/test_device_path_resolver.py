@@ -352,7 +352,7 @@ def test_numbered_hardware_id_counts_claimed_instances_but_returns_unclaimed() -
     assert [interface.path for interface in resolved] == ["/dev/input/event9"]
 
 
-def test_numbered_hardware_id_out_of_range_does_not_fall_back_to_first() -> None:
+def test_numbered_hardware_id_out_of_range_falls_back_to_best_unclaimed() -> None:
     devices = {
         "/dev/input/event2": _FakeDevice("/dev/input/event2"),
     }
@@ -363,7 +363,7 @@ def test_numbered_hardware_id_out_of_range_does_not_fall_back_to_first() -> None
         hardware_id="2dc8:3106@2",
     )
 
-    assert resolved == []
+    assert [interface.path for interface in resolved] == ["/dev/input/event2"]
 
 
 def test_unresolved_keymasq_path_returns_no_interface() -> None:

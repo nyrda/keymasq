@@ -5,6 +5,7 @@ import evdev
 from keymasq.common.devices import detect_input_classes, primary_input_class
 from keymasq.common.models import DeviceType
 from keymasq.keymasqd.runtime.device_path_resolver import (
+    DevicePathResolverDeps,
     refresh_cached_devices_sync,
     resolve_evdev_interfaces,
 )
@@ -56,13 +57,15 @@ def _resolve(
     )
     return resolve_evdev_interfaces(
         interfaces,
+        deps=DevicePathResolverDeps(
+            device_paths_fn=lambda: list(devices),
+            device_input_fn=lambda path: devices[path],
+            detect_input_classes_fn=detect_input_classes,
+            primary_input_class_fn=primary_input_class,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+        ),
         hardware_id=hardware_id,
         excluded_paths=excluded_paths,
-        resolve_stable_path_fn=resolve_stable_path_fn,
-        device_paths_fn=lambda: list(devices),
-        device_input_fn=lambda path: devices[path],
-        detect_input_classes_fn=detect_input_classes,
-        primary_input_class_fn=primary_input_class,
     )
 
 
@@ -108,10 +111,12 @@ def test_keymasq_path_uses_cached_probe_metadata() -> None:
 
     resolved = resolve_evdev_interfaces(
         [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
-        device_paths_fn=lambda: list(devices),
-        device_input_fn=fail_input_device,
-        detect_input_classes_fn=detect_input_classes,
-        primary_input_class_fn=primary_input_class,
+        deps=DevicePathResolverDeps(
+            device_paths_fn=lambda: list(devices),
+            device_input_fn=fail_input_device,
+            detect_input_classes_fn=detect_input_classes,
+            primary_input_class_fn=primary_input_class,
+        ),
     )
 
     assert [interface.path for interface in resolved] == ["/dev/input/event2"]

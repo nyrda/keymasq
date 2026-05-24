@@ -45,12 +45,19 @@ class ResolvedInterface:
 
 
 @dataclass(frozen=True)
+class _MatchScore:
+    type_match: int
+    phys_match: int
+    cap_overlap: int
+
+
+@dataclass(frozen=True)
 class _Candidate:
     path: str
     phys: str
     device_type: DeviceType
     capabilities: set[str]
-    score: tuple[int, int, int]
+    score: _MatchScore
     claimed: bool = False
 
 
@@ -63,6 +70,15 @@ class CachedDeviceInfo:
     device_type: DeviceType
     capabilities: set[str]
     is_virtual: bool
+
+
+@dataclass(frozen=True)
+class DevicePathResolverDeps:
+    device_paths_fn: Callable[[], list[str]]
+    device_input_fn: Callable[[str], InputDeviceLike]
+    detect_input_classes_fn: Callable[[InputDeviceLike], list[str]]
+    primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType]
+    resolve_stable_path_fn: Callable[[str], str] | None = None
 
 
 _CACHE_LOCK = threading.Lock()
@@ -127,13 +143,9 @@ def interface_descriptors_from_paths(paths: list[str]) -> list[JsonObject]:
 def resolve_evdev_interfaces(
     interfaces: list[JsonObject],
     *,
+    deps: DevicePathResolverDeps,
     hardware_id: str | None = None,
     excluded_paths: Iterable[str] | None = None,
-    resolve_stable_path_fn: Callable[[str], str] | None = None,
-    device_paths_fn: Callable[[], list[str]],
-    device_input_fn: Callable[[str], InputDeviceLike],
-    detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
-    primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType],
 ) -> list[ResolvedInterface]:
     resolved: list[ResolvedInterface] = []
     selected_paths: set[str] = set()
@@ -171,11 +183,7 @@ def resolve_evdev_interfaces(
             selected_paths=selected_paths,
             excluded_paths=normalized_excluded_paths,
             hardware_id=hardware_id,
-            resolve_stable_path_fn=resolve_stable_path_fn,
-            device_paths_fn=device_paths_fn,
-            device_input_fn=device_input_fn,
-            detect_input_classes_fn=detect_input_classes_fn,
-            primary_input_class_fn=primary_input_class_fn,
+            deps=deps,
         )
         if candidate is None:
             continue
@@ -202,11 +210,7 @@ def _resolve_keymasq_path(
     selected_paths: set[str],
     excluded_paths: set[str],
     hardware_id: str | None,
-    resolve_stable_path_fn: Callable[[str], str] | None,
-    device_paths_fn: Callable[[], list[str]],
-    device_input_fn: Callable[[str], InputDeviceLike],
-    detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
-    primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType],
+    deps: DevicePathResolverDeps,
 ) -> _Candidate | None:
     parsed = parse_keymasq_device_path(configured_path)
     if parsed is None:
@@ -214,7 +218,7 @@ def _resolve_keymasq_path(
     vendor_id, product_id = parsed
     candidates: list[_Candidate] = []
     cached_devices = cached_devices_snapshot()
-    for path in sorted(device_paths_fn()):
+    for path in sorted(deps.device_paths_fn()):
         if path in selected_paths:
             continue
         cached = cached_devices.get(path)
@@ -239,11 +243,15 @@ def _resolve_keymasq_path(
                 phys=cached.phys,
                 device_type=cached.device_type,
                 capabilities=cached.capabilities,
-                score=(type_score, phys_score, cap_score),
+                score=_MatchScore(
+                    type_match=type_score,
+                    phys_match=phys_score,
+                    cap_overlap=cap_score,
+                ),
                 claimed=_is_excluded_path(
                     path,
                     excluded_paths,
-                    resolve_stable_path_fn=resolve_stable_path_fn,
+                    resolve_stable_path_fn=deps.resolve_stable_path_fn,
                 ),
             )
         )
@@ -252,9 +260,9 @@ def _resolve_keymasq_path(
         return None
     candidates.sort(
         key=lambda candidate: (
-            -candidate.score[0],
-            -candidate.score[1],
-            -candidate.score[2],
+            -candidate.score.type_match,
+            -candidate.score.phys_match,
+            -candidate.score.cap_overlap,
             candidate.path,
         )
     )

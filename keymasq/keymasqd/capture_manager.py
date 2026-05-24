@@ -57,6 +57,20 @@ class _CaptureInputDevice(Protocol):
     def absinfo(self, axis: int) -> object: ...
 
 
+def _device_path_resolver_deps() -> device_path_resolver.DevicePathResolverDeps:
+    list_devices = cast(Callable[[], list[str]], evdev.list_devices)
+    return device_path_resolver.DevicePathResolverDeps(
+        device_paths_fn=list_devices,
+        device_input_fn=lambda path: cast(
+            device_path_resolver.InputDeviceLike,
+            evdev.InputDevice(path),
+        ),
+        detect_input_classes_fn=detect_input_classes,
+        primary_input_class_fn=primary_input_class,
+        resolve_stable_path_fn=resolve_stable_path,
+    )
+
+
 def _event_code_name(event_type: int, code: int) -> str:
     bytype = cast(dict[int, dict[int, object]], evdev.ecodes.bytype)
     code_name = bytype.get(event_type, {}).get(code, str(code))
@@ -439,17 +453,10 @@ class CaptureManager:
         evdev_interfaces: list[JsonObject],
     ) -> tuple[list[_CaptureInputDevice], dict[str, str]]:
         clear_device_path_cache()
-        list_devices = cast(Callable[[], list[str]], evdev.list_devices)
         resolved = device_path_resolver.resolve_evdev_interfaces(
             evdev_interfaces,
+            deps=_device_path_resolver_deps(),
             hardware_id=hardware_id,
-            device_paths_fn=list_devices,
-            device_input_fn=lambda path: cast(
-                device_path_resolver.InputDeviceLike,
-                evdev.InputDevice(path),
-            ),
-            detect_input_classes_fn=detect_input_classes,
-            primary_input_class_fn=primary_input_class,
         )
         devices: list[_CaptureInputDevice] = []
         path_sources: dict[str, str] = {}
@@ -470,21 +477,15 @@ class CaptureManager:
         path_hardware_ids: dict[str, str] = {}
         path_sources: dict[str, str] = {}
         clear_device_path_cache()
-        list_devices = cast(Callable[[], list[str]], evdev.list_devices)
+        deps = _device_path_resolver_deps()
         for hardware_id, interfaces in hardware_interfaces.items():
             normalized_hardware_id = str(hardware_id or "").lower()
             if not normalized_hardware_id:
                 continue
             resolved = device_path_resolver.resolve_evdev_interfaces(
                 list(interfaces),
+                deps=deps,
                 hardware_id=normalized_hardware_id,
-                device_paths_fn=list_devices,
-                device_input_fn=lambda path: cast(
-                    device_path_resolver.InputDeviceLike,
-                    evdev.InputDevice(path),
-                ),
-                detect_input_classes_fn=detect_input_classes,
-                primary_input_class_fn=primary_input_class,
             )
             for interface in resolved:
                 for alias in _path_aliases(interface.path):

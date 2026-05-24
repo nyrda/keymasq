@@ -366,7 +366,7 @@ class TestDeviceManager:
         def fake_resolve_evdev_interfaces(interfaces, **kwargs):
             captured["interfaces"] = interfaces
             captured["excluded_paths"] = kwargs.get("excluded_paths")
-            captured["resolve_stable_path_fn"] = kwargs.get("resolve_stable_path_fn")
+            captured["deps"] = kwargs.get("deps")
             return []
 
         monkeypatch.setattr(
@@ -391,7 +391,9 @@ class TestDeviceManager:
             "/dev/input/event2",
             "/dev/input/by-id/claimed-pad",
         }
-        assert captured["resolve_stable_path_fn"] is dm.resolve_stable_path
+        deps = captured["deps"]
+        assert isinstance(deps, ldm.device_path_resolver.DevicePathResolverDeps)
+        assert deps.resolve_stable_path_fn is dm.resolve_stable_path
 
     @pytest.mark.asyncio
     async def test_grab_device_resolves_keymasq_path_and_uses_configured_interface_id(

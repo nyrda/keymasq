@@ -47,6 +47,7 @@ from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import actions as runtime_actions
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import combos as runtime_combos
+from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime import grab_lifecycle as runtime_grab_lifecycle
 from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
@@ -177,6 +178,16 @@ def _topology_runtime_deps() -> runtime_topology.TopologyRuntimeDeps:
         resolve_stable_path_fn=resolve_stable_path,
         get_interface_id_fn=get_interface_id,
         release_interface_fn=runtime_grab_lifecycle.release_interface_unlocked,
+    )
+
+
+def _device_path_resolver_deps() -> device_path_resolver.DevicePathResolverDeps:
+    return device_path_resolver.DevicePathResolverDeps(
+        device_paths_fn=_device_paths,
+        device_input_fn=_device_input,
+        detect_input_classes_fn=detect_input_classes,
+        primary_input_class_fn=primary_input_class,
+        resolve_stable_path_fn=resolve_stable_path,
     )
 
 
@@ -631,10 +642,7 @@ class DeviceManager:
                 desired_grab_config_cls=DesiredGrabConfig,
                 clear_device_path_cache_fn=clear_device_path_cache,
                 resolve_stable_path_fn=resolve_stable_path,
-                device_paths_fn=_device_paths,
-                device_input_fn=_device_input,
-                detect_input_classes_fn=detect_input_classes,
-                primary_input_class_fn=primary_input_class,
+                device_path_resolver_deps=_device_path_resolver_deps(),
                 grabbed_device_cls=GrabbedDevice,
                 get_interface_id_fn=get_interface_id,
                 str_value_fn=_str_value,

@@ -1,12 +1,12 @@
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
 
 import evdev
 
 from keymasq.common.devices import resolve_evdev_code, resolve_evdev_event_type
-from keymasq.common.models import DeviceType, MappingAction
+from keymasq.common.models import MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime import actions as runtime_actions
@@ -25,10 +25,6 @@ type IntOrNoneFn = Callable[..., int | None]
 type FloatValueFn = Callable[..., float]
 type ResolveStablePathFn = Callable[[str], str]
 type GetInterfaceIdFn = Callable[[str], str | None]
-type PrimaryInputClassFn = Callable[[Iterable[str | DeviceType] | None], DeviceType]
-type DevicePathsFn = Callable[[], list[str]]
-type DeviceInputFn = Callable[[str], device_path_resolver.InputDeviceLike]
-type DetectInputClassesFn = Callable[[device_path_resolver.InputDeviceLike], list[str]]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type DesiredGrabConfigFactory = Callable[..., object]
 type GrabbedDeviceFactory = Callable[..., Any]
@@ -82,10 +78,7 @@ async def grab_device_unlocked(
     desired_grab_config_cls: DesiredGrabConfigFactory,
     clear_device_path_cache_fn: Callable[[], None],
     resolve_stable_path_fn: ResolveStablePathFn,
-    device_paths_fn: DevicePathsFn,
-    device_input_fn: DeviceInputFn,
-    detect_input_classes_fn: DetectInputClassesFn,
-    primary_input_class_fn: PrimaryInputClassFn,
+    device_path_resolver_deps: device_path_resolver.DevicePathResolverDeps,
     grabbed_device_cls: GrabbedDeviceFactory,
     get_interface_id_fn: GetInterfaceIdFn,
     str_value_fn: StrValueFn,
@@ -107,13 +100,9 @@ async def grab_device_unlocked(
     excluded_paths = grabbed_paths_for_other_hardware(manager, hardware_id)
     resolved_interfaces = device_path_resolver.resolve_evdev_interfaces(
         raw_interfaces,
+        deps=device_path_resolver_deps,
         hardware_id=hardware_id,
         excluded_paths=excluded_paths,
-        resolve_stable_path_fn=resolve_stable_path_fn,
-        device_paths_fn=device_paths_fn,
-        device_input_fn=device_input_fn,
-        detect_input_classes_fn=detect_input_classes_fn,
-        primary_input_class_fn=primary_input_class_fn,
     )
     requested_interface_paths = [
         resolve_stable_path_fn(interface.path) for interface in resolved_interfaces
@@ -267,7 +256,9 @@ async def grab_device_unlocked(
                     )
                     created_global_uinputs = True
                 detected_types = manager._detect_device_types(raw_device)
-                detected_type = primary_input_class_fn(detected_types)
+                detected_type = device_path_resolver_deps.primary_input_class_fn(
+                    detected_types
+                )
 
                 def mapping_getter(hid: str = hardware_id) -> dict[str, MappingAction]:
                     return manager.active_mappings.get(hid, {})

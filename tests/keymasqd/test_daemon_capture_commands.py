@@ -1,6 +1,11 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.daemon_support import *
 
+import evdev
+
+from keymasq.keymasqd import capture_manager as capture_manager_module
+from keymasq.keymasqd.capture_manager import CaptureManager
+
 @pytest.mark.asyncio
 async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
@@ -150,7 +155,7 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
             CommandType.CAPTURE_COMBO,
             {"hardware_ids": ["1234:5678"], "timeout_s": 9.0},
             "_capture_combo",
-            ({"1234:5678"}, 9.0, {}),
+            ({"1234:5678"}, 9.0, {}, {}),
             {"events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}]},
         ),
     ],
@@ -202,6 +207,29 @@ async def test_capture_begin_forwards_explicit_evdev_paths(daemon_testbed):
 
 
 @pytest.mark.asyncio
+async def test_capture_begin_forwards_evdev_interfaces(daemon_testbed):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+    interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
+
+    result = await daemon._handle_command(
+        CommandType.CAPTURE_BEGIN,
+        {
+            "hardware_id": "2dc8:3106",
+            "evdev_paths": ["keymasq:2dc8:3106"],
+            "evdev_interfaces": interfaces,
+        },
+    )
+
+    assert result == {"token": "cap-token"}
+    capture_manager.begin.assert_called_once_with(
+        "2dc8:3106",
+        evdev_paths=["keymasq:2dc8:3106"],
+        evdev_interfaces=interfaces,
+        mode="button",
+    )
+
+
+@pytest.mark.asyncio
 async def test_capture_combo_forwards_explicit_hardware_paths(daemon_testbed, monkeypatch):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     capture_combo = AsyncMock(return_value={"events": []})
@@ -222,7 +250,96 @@ async def test_capture_combo_forwards_explicit_hardware_paths(daemon_testbed, mo
         {"1234:5678@2"},
         2.0,
         {"1234:5678@2": ["/dev/input/by-path/test-event-kbd"]},
+        {},
     )
+
+
+@pytest.mark.asyncio
+async def test_capture_combo_forwards_hardware_interfaces(daemon_testbed, monkeypatch):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    interfaces = {
+        "2dc8:3106": [
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "phys": "bluetooth/input0",
+                "capabilities": ["btn_south"],
+            }
+        ]
+    }
+    capture_combo = AsyncMock(return_value={"events": []})
+    monkeypatch.setattr(daemon_capture_commands, "capture_combo", capture_combo)
+
+    result = await daemon._handle_command(
+        CommandType.CAPTURE_COMBO,
+        {
+            "hardware_ids": ["2dc8:3106"],
+            "hardware_interfaces": interfaces,
+            "timeout_s": 2.0,
+        },
+    )
+
+    assert result == {"events": []}
+    capture_combo.assert_awaited_once_with(
+        daemon,
+        {"2dc8:3106"},
+        2.0,
+        {},
+        interfaces,
+    )
+
+
+def test_capture_manager_resolves_logical_combo_interfaces(monkeypatch):
+    class FakeDevice:
+        def __init__(self, path: str, *, phys: str) -> None:
+            self.path = path
+            self.name = "Bluetooth Pad"
+            self.phys = phys
+            self.info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+        def capabilities(self):
+            return {
+                evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_X],
+            }
+
+        def input_props(self):
+            return []
+
+    devices = {
+        "/dev/input/event2": FakeDevice("/dev/input/event2", phys="bluetooth/input1"),
+        "/dev/input/event9": FakeDevice("/dev/input/event9", phys="bluetooth/input0"),
+    }
+    monkeypatch.setattr(
+        capture_manager_module.evdev,
+        "list_devices",
+        lambda: list(devices),
+    )
+    monkeypatch.setattr(
+        capture_manager_module.evdev,
+        "InputDevice",
+        lambda path: devices[path],
+    )
+
+    manager = CaptureManager()
+    path_hardware_ids, path_sources = manager._hardware_interface_lookup(
+        {
+            "2dc8:3106": [
+                {
+                    "id": "gamepad",
+                    "path": "keymasq:2dc8:3106",
+                    "type": "gamepad",
+                    "phys": "bluetooth/input0",
+                    "capabilities": ["btn_south"],
+                }
+            ]
+        }
+    )
+
+    assert path_hardware_ids["/dev/input/event9"] == "2dc8:3106"
+    assert "/dev/input/event2" not in path_hardware_ids
+    assert path_sources["/dev/input/event9"] == "gamepad"
 
 
 @pytest.mark.asyncio

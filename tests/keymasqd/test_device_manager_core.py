@@ -317,6 +317,127 @@ class TestDeviceManager:
         create_global_uinputs.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_grab_device_waits_when_keymasq_path_is_unresolved(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=["keymasq:2dc8:3106"],
+            evdev_interfaces=[
+                {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+            ],
+            button_map={"btn_south": "btn_south"},
+        )
+
+        assert result == {
+            "grabbed": True,
+            "hardware_id": "2dc8:3106",
+            "grabbed_count": 0,
+            "skipped_count": 0,
+            "waiting_for_device": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_grab_device_resolves_keymasq_path_and_uses_configured_interface_id(
+        self,
+        manager,
+        virtual_mouse,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device_path = virtual_mouse.device.path
+        info = virtual_mouse.device.info
+        logical_path = f"keymasq:{info.vendor:04x}:{info.product:04x}"
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [device_path])
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "_is_keymasq_virtual_device",
+            lambda _d: False,
+        )
+
+        result = await manager.grab_device(
+            hardware_id=f"{info.vendor:04x}:{info.product:04x}",
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                {
+                    "id": "mouse",
+                    "path": logical_path,
+                    "type": "mouse",
+                    "capabilities": ["btn_left"],
+                }
+            ],
+            button_map={"btn_left": "btn_left"},
+        )
+
+        assert result["grabbed_count"] == 1
+        grabbed = manager.grabbed_devices[f"{info.vendor:04x}:{info.product:04x}"][0]
+        assert grabbed.path == device_path
+        assert grabbed.interface_id == "mouse"
+
+        await manager.release_device(f"{info.vendor:04x}:{info.product:04x}")
+
+    @pytest.mark.asyncio
+    async def test_grab_device_updates_existing_interface_id(
+        self,
+        manager,
+        virtual_mouse,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device_path = virtual_mouse.device.path
+        info = virtual_mouse.device.info
+        hardware_id = f"{info.vendor:04x}:{info.product:04x}"
+        logical_path = f"keymasq:{hardware_id}"
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [device_path])
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "_is_keymasq_virtual_device",
+            lambda _d: False,
+        )
+
+        await manager.grab_device(
+            hardware_id=hardware_id,
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                {"id": "mouse", "path": logical_path, "type": "mouse"},
+            ],
+            button_map={"btn_left": "btn_left"},
+        )
+        grabbed = manager.grabbed_devices[hardware_id][0]
+        assert grabbed.interface_id == "mouse"
+
+        result = await manager.grab_device(
+            hardware_id=hardware_id,
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                {"id": "pointer", "path": logical_path, "type": "mouse"},
+            ],
+            button_map={"btn_left": "btn_left"},
+            analog_inputs={
+                "stick": {
+                    "source": "pointer",
+                    "type": "stick",
+                    "axes": [
+                        {
+                            "role": "x",
+                            "evdev": "abs_x",
+                            "evdev_code": evdev.ecodes.ABS_X,
+                        }
+                    ],
+                }
+            },
+        )
+
+        assert result["grabbed_count"] == 1
+        assert manager.grabbed_devices[hardware_id][0] is grabbed
+        assert grabbed.interface_id == "pointer"
+        assert grabbed.analog_input_types["stick"] == "stick"
+
+        await manager.release_device(hardware_id)
+
+    @pytest.mark.asyncio
     async def test_grab_device_still_errors_when_present_interfaces_match_no_buttons(
         self,
         monkeypatch: pytest.MonkeyPatch,

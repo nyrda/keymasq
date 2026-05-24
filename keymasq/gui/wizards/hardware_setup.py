@@ -27,6 +27,7 @@ from keymasq.common.devices import (
     gamepad_button_label,
     get_interface_id,
     input_class_label,
+    is_by_id_path,
     is_low_res_wheel_evdev,
     normalize_input_classes,
     ordered_gamepad_button_names,
@@ -100,6 +101,41 @@ def _by_id_device_stem(stable_path: str) -> str:
 
 def _looks_like_by_id_path(stable_path: str) -> bool:
     return "/by-id/" in str(stable_path or "")
+
+
+def _fallback_interface_id_for_type(device_type: DeviceType) -> str:
+    if device_type == DeviceType.GAMEPAD:
+        return "gamepad"
+    if device_type == DeviceType.KEYBOARD:
+        return "kbd"
+    if device_type == DeviceType.MOUSE:
+        return "mouse"
+    return "input"
+
+
+def _dedupe_interface_id(base_id: str, used_ids: set[str]) -> str:
+    clean = re.sub(r"[^a-zA-Z0-9_]+", "_", str(base_id or "").strip().lower()).strip("_")
+    candidate = clean or "input"
+    if candidate not in used_ids:
+        used_ids.add(candidate)
+        return candidate
+    index = 2
+    while f"{candidate}_{index}" in used_ids:
+        index += 1
+    deduped = f"{candidate}_{index}"
+    used_ids.add(deduped)
+    return deduped
+
+
+def _interface_id_for_config(iface: dict, used_ids: set[str]) -> str:
+    stable_path = str(iface.get("stable_path", "") or "")
+    config_path = str(iface.get("config_path", "") or "")
+    if is_by_id_path(stable_path) or is_by_id_path(config_path):
+        return _dedupe_interface_id(get_interface_id(stable_path or config_path), used_ids)
+    return _dedupe_interface_id(
+        _fallback_interface_id_for_type(primary_input_class(iface.get("device_types"))),
+        used_ids,
+    )
 
 
 def _logical_hardware_identity_key(
@@ -1105,12 +1141,22 @@ class HardwareSetupDialog(Adw.Dialog):
             if not raw_path:
                 continue
             stable_path = str(iface.get("stable_path", "") or resolve_stable_path(raw_path))
+            default_config_path = (
+                stable_path
+                if self._show_raw_evdev_devices or is_by_id_path(stable_path)
+                else f"keymasq:{vid}:{pid}"
+            )
+            config_path = str(
+                stable_path
+                if self._show_raw_evdev_devices and not is_by_id_path(stable_path)
+                else iface.get("config_path") or default_config_path
+            )
             capability_names, raw_capabilities = self._read_interface_capabilities(raw_path)
             interfaces.append(
                 {
                     "path": raw_path,
                     "stable_path": stable_path,
-                    "id": get_interface_id(stable_path),
+                    "config_path": config_path,
                     "name": str(iface.get("name", "") or raw_path),
                     "phys": str(iface.get("phys", "") or ""),
                     "capabilities": capability_names,
@@ -1120,6 +1166,14 @@ class HardwareSetupDialog(Adw.Dialog):
 
         if not interfaces:
             interfaces = find_all_interfaces(vid, pid)
+            for iface in interfaces:
+                raw_path = str(iface.get("path", "") or "")
+                stable_path = str(iface.get("stable_path", "") or raw_path)
+                iface["config_path"] = (
+                    stable_path
+                    if self._show_raw_evdev_devices or is_by_id_path(stable_path)
+                    else f"keymasq:{vid}:{pid}"
+                )
         iface_info_by_path = {
             iface.get("path"): {
                 "device_type": iface.get("device_type", DeviceType.OTHER),
@@ -1127,8 +1181,16 @@ class HardwareSetupDialog(Adw.Dialog):
             }
             for iface in self.selected_device.get("interfaces", [])
         }
+        used_interface_ids: set[str] = set()
         for iface in interfaces:
-            raw_iface_id = str(iface.get("id", "") or "default")
+            merged_iface = {
+                **iface,
+                "device_types": iface_info_by_path.get(iface["path"], {}).get(
+                    "device_types",
+                    iface.get("device_types", ["other"]),
+                ),
+            }
+            raw_iface_id = _interface_id_for_config(merged_iface, used_interface_ids)
             iface_key = raw_iface_id
             duplicate_index = 2
             while iface_key in self.discovered_interfaces:
@@ -1138,6 +1200,7 @@ class HardwareSetupDialog(Adw.Dialog):
             self.discovered_interfaces[iface_key] = {
                 "id": raw_iface_id,
                 "stable_path": iface["stable_path"],
+                "config_path": str(iface.get("config_path") or iface["stable_path"]),
                 "path": iface["path"],
                 "name": iface["name"],
                 "phys": str(iface.get("phys", "") or ""),
@@ -1331,14 +1394,45 @@ class HardwareSetupDialog(Adw.Dialog):
         self._capture_remaining_ids = [
             btn["id"] for btn in self.button_definitions[self.current_button_index :]
         ]
+        capture_interfaces = [
+            iface
+            for iface in self.discovered_interfaces.values()
+            if str(
+                iface.get("config_path")
+                or iface.get("stable_path")
+                or iface.get("path")
+                or ""
+            )
+        ]
         session_request_async(
             {
                 "command": "begin_capture",
                 "hardware_id": self._capture_hardware_id,
                 "evdev_paths": [
-                    str(iface.get("stable_path") or iface.get("path") or "")
-                    for iface in self.discovered_interfaces.values()
-                    if str(iface.get("stable_path") or iface.get("path") or "")
+                    str(
+                        iface.get("config_path")
+                        or iface.get("stable_path")
+                        or iface.get("path")
+                        or ""
+                    )
+                    for iface in capture_interfaces
+                ],
+                "evdev_interfaces": [
+                    {
+                        "id": str(iface.get("id", "") or ""),
+                        "path": str(
+                            iface.get("config_path")
+                            or iface.get("stable_path")
+                            or iface.get("path")
+                            or ""
+                        ),
+                        "type": str(
+                            primary_input_class(iface.get("device_types")).value
+                        ),
+                        "phys": str(iface.get("phys", "") or ""),
+                        "capabilities": list(iface.get("capabilities", [])),
+                    }
+                    for iface in capture_interfaces
                 ],
             },
             self._on_capture_begin_response,
@@ -1501,9 +1595,16 @@ class HardwareSetupDialog(Adw.Dialog):
         source_to_interface = {}
         for btn_def in self.button_definitions:
             source = btn_def.get("source")
-            stable_path = btn_def.get("stable_path")
-            if source and stable_path:
-                source_to_interface[source] = stable_path
+            source_iface = self.discovered_interfaces.get(str(source or ""))
+            config_path = (
+                source_iface.get("config_path")
+                or source_iface.get("stable_path")
+                or source_iface.get("path")
+                if isinstance(source_iface, dict)
+                else btn_def.get("stable_path")
+            )
+            if source and config_path:
+                source_to_interface[source] = config_path
 
         discovered_by_source = {
             str(iface.get("id", "") or ""): iface for iface in self.discovered_interfaces.values()
@@ -1522,6 +1623,7 @@ class HardwareSetupDialog(Adw.Dialog):
                     device_type=device_type,
                     id=iface_id,
                     phys=str(iface_info.get("phys", "") or "") or None,
+                    capabilities=list(iface_info.get("capabilities", [])),
                 )
             )
 
@@ -1708,8 +1810,10 @@ class HardwareSetupDialog(Adw.Dialog):
         for interface_list in interface_lists:
             for iface in interface_list:
                 iface_id = str(iface.get("id", "") or "")
-                stable_path = str(iface.get("stable_path", "") or "")
-                key = (iface_id, stable_path)
+                config_path = str(
+                    iface.get("config_path", "") or iface.get("stable_path", "") or ""
+                )
+                key = (iface_id, config_path)
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
@@ -1734,13 +1838,13 @@ class HardwareSetupDialog(Adw.Dialog):
     def _build_evdev_devices(self, interfaces: list[dict]) -> list[EvdevDevice]:
         evdev_devices = []
         for iface in interfaces:
-            stable_path = str(iface.get("stable_path", "") or "")
+            config_path = str(iface.get("config_path", "") or iface.get("stable_path", "") or "")
             iface_id = str(iface.get("id", "") or "")
-            if not stable_path or not iface_id:
+            if not config_path or not iface_id:
                 continue
             evdev_devices.append(
                 EvdevDevice(
-                    path=stable_path,
+                    path=config_path,
                     device_type=primary_input_class(iface.get("device_types")),
                     id=iface_id,
                     phys=str(iface.get("phys", "") or "") or None,
@@ -1945,14 +2049,14 @@ class HardwareSetupDialog(Adw.Dialog):
 
         evdev_devices = []
         for iface in gamepad_interfaces:
-            stable_path = str(iface.get("stable_path", "") or "")
+            config_path = str(iface.get("config_path", "") or iface.get("stable_path", "") or "")
             iface_id = str(iface.get("id", "") or "")
-            if not stable_path or not iface_id:
+            if not config_path or not iface_id:
                 continue
             dev_type = primary_input_class(iface.get("device_types"))
             evdev_devices.append(
                 EvdevDevice(
-                    path=stable_path,
+                    path=config_path,
                     device_type=dev_type,
                     id=iface_id,
                     phys=str(iface.get("phys", "") or "") or None,

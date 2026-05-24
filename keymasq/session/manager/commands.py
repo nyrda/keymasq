@@ -772,11 +772,22 @@ async def _handle_capture_commands(
             for path in json_list(request.get("evdev_paths"))
             if str_value(path, "")
         ]
+        evdev_interfaces_raw = request.get("evdev_interfaces")
+        evdev_interfaces = (
+            [
+                cast(JsonObject, item)
+                for item in json_list(evdev_interfaces_raw)
+                if isinstance(item, dict)
+            ]
+            if evdev_interfaces_raw is not None
+            else None
+        )
         mode = str_value(request.get("mode"), "button")
         return await runtime_recording.capture_begin_for_paths(
             manager,
             hardware_id,
             evdev_paths,
+            evdev_interfaces=evdev_interfaces,
             mode=mode,
         )
 

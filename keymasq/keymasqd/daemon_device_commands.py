@@ -25,6 +25,7 @@ class _DeviceCommandManager(Protocol):
         button_values: dict[str, int] | None = None,
         analog_inputs: JsonObject | None = None,
         force_grab_unmapped: bool = False,
+        evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject: ...
 
     async def release_device(
@@ -103,6 +104,7 @@ async def handle_device_command(
             button_values=int_dict(data.get("button_values", {})),
             analog_inputs=json_object(data.get("analog_inputs", {})),
             force_grab_unmapped=bool(data.get("force_grab_unmapped", False)),
+            evdev_interfaces=json_object_list(data.get("evdev_interfaces", [])),
         )
 
     if command_type == CommandType.RELEASE_DEVICE:

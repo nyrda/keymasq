@@ -82,6 +82,45 @@ class TestHardwareSetupDialog:
         assert first_key == "uinput-model:1234:1001"
         assert other_model_key == "uinput-model:046d:c24f"
 
+    def test_interface_id_for_config_uses_type_without_by_id(self):
+        from keymasq.gui.wizards.hardware_setup import _interface_id_for_config
+
+        used_ids: set[str] = set()
+
+        first = _interface_id_for_config(
+            {
+                "stable_path": "/dev/input/event7",
+                "config_path": "keymasq:2dc8:3106",
+                "device_types": ["gamepad"],
+            },
+            used_ids,
+        )
+        second = _interface_id_for_config(
+            {
+                "stable_path": "/dev/input/event8",
+                "config_path": "keymasq:2dc8:3106",
+                "device_types": ["gamepad"],
+            },
+            used_ids,
+        )
+
+        assert first == "gamepad"
+        assert second == "gamepad_2"
+
+    def test_interface_id_for_config_uses_by_id_suffix(self):
+        from keymasq.gui.wizards.hardware_setup import _interface_id_for_config
+
+        iface_id = _interface_id_for_config(
+            {
+                "stable_path": "/dev/input/by-id/usb-Test-if02-event-joystick",
+                "config_path": "/dev/input/by-id/usb-Test-if02-event-joystick",
+                "device_types": ["gamepad"],
+            },
+            set(),
+        )
+
+        assert iface_id == "if02_joystick"
+
     def test_raw_evdev_mode_requests_other_devices_and_disables_grouping(
         self, monkeypatch
     ):
@@ -280,6 +319,64 @@ class TestHardwareSetupDialog:
         assert saved.evdev_devices[0].device_type == DeviceType.OTHER
         assert saved.buttons == []
         assert emitted == [("device-created", saved)]
+
+    def test_raw_evdev_discovery_preserves_raw_config_paths(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            HardwareSetupDialog,
+            "_read_interface_capabilities",
+            lambda self, _path: ([], {}),
+        )
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog._show_raw_evdev_devices = True
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "1002",
+            "interfaces": [
+                {
+                    "path": "/dev/input/event20",
+                    "stable_path": "/dev/input/event20",
+                    "name": "Raw Device",
+                    "device_type": DeviceType.OTHER,
+                    "device_types": ["other"],
+                }
+            ],
+        }
+
+        dialog._discover_interfaces()
+
+        raw_iface = next(iter(dialog.discovered_interfaces.values()))
+        assert raw_iface["config_path"] == "/dev/input/event20"
+
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "1002",
+            "interfaces": [],
+        }
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "find_all_interfaces",
+            lambda _vid, _pid: [
+                {
+                    "path": "/dev/input/event21",
+                    "stable_path": "/dev/input/event21",
+                    "name": "Raw Device Keyboard",
+                }
+            ],
+        )
+
+        dialog._discover_interfaces()
+
+        fallback_iface = next(iter(dialog.discovered_interfaces.values()))
+        assert fallback_iface["config_path"] == "/dev/input/event21"
 
     def test_raw_evdev_rows_hide_interface_expander(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -1526,6 +1623,7 @@ def test_hardware_setup_capture_flow_records_buttons_and_saves(monkeypatch):
             "id": "mouse",
             "stable_path": "/dev/input/by-id/test-mouse",
             "device_types": ["mouse"],
+            "capabilities": ["btn_left", "rel_x"],
         }
     }
     dialog._capture_hardware_id = "1234:5678"
@@ -1555,6 +1653,7 @@ def test_hardware_setup_capture_flow_records_buttons_and_saves(monkeypatch):
     saved = hardware_manager.saved[0]
     assert saved.id is None
     assert saved.evdev_devices[0].device_type == DeviceType.MOUSE
+    assert saved.evdev_devices[0].capabilities == ["btn_left", "rel_x"]
     assert saved.buttons[0].id == "btn_left"
     assert saved.buttons[0].evdev == "btn_left"
     assert requests == [
@@ -1562,7 +1661,16 @@ def test_hardware_setup_capture_flow_records_buttons_and_saves(monkeypatch):
             "command": "begin_capture",
             "hardware_id": "1234:5678",
             "evdev_paths": ["/dev/input/by-id/test-mouse"],
-        },
+            "evdev_interfaces": [
+                    {
+                        "id": "mouse",
+                        "path": "/dev/input/by-id/test-mouse",
+                        "type": "mouse",
+                        "phys": "",
+                        "capabilities": ["btn_left", "rel_x"],
+                    }
+                ],
+            },
         {"command": "capture_read", "hardware_id": "1234:5678"},
         {"command": "end_capture", "hardware_id": "1234:5678"},
     ]

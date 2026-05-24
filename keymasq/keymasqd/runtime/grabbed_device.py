@@ -207,11 +207,12 @@ class GrabbedDevice:
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
         analog_inputs: dict[str, object] | None = None,
+        interface_id: str | None = None,
     ) -> None:
         self.path = path
         self.hardware_id = hardware_id
         self.stable_path = resolve_stable_path(path)
-        self.interface_id = str(get_interface_id(self.stable_path) or "").lower()
+        self.interface_id = str(interface_id or get_interface_id(self.stable_path) or "").lower()
         self.button_map: dict[str, str] = {}
         self.evdev_to_button: dict[str, str] = {}
         self.event_binding_to_button: dict[tuple[int, int, int | None], str] = {}

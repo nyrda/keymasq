@@ -85,7 +85,9 @@ evdev_code = 2
 
 `[hardware.evdev].devices` entries:
 
-- `path`: stable `/dev/input/by-id/...` path
+- `path`: stable `/dev/input/by-id/...` path, explicit `/dev/input/by-path/...`
+  or `/dev/input/eventN` override, or Keymasq logical path
+  `keymasq:<vendor_id>:<product_id>` when Linux exposes no by-id link
 - `type`: `keyboard`, `mouse`, `gamepad`, or `other`
 - `id`: optional source interface ID used by buttons
 - `capabilities`: optional capability list

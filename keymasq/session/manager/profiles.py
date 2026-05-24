@@ -802,6 +802,30 @@ def all_configured_interfaces(hardware_config: HardwareConfig) -> dict[str, str]
     }
 
 
+def configured_interface_descriptors(
+    hardware_config: HardwareConfig,
+    selected_sources: set[str] | None,
+) -> list[JsonObject]:
+    descriptors: list[JsonObject] = []
+    for dev in hardware_config.evdev_devices:
+        interface_id = str(getattr(dev, "id", "") or "")
+        path = str(getattr(dev, "path", "") or "").strip()
+        if not interface_id or not path:
+            continue
+        if selected_sources is not None and interface_id not in selected_sources:
+            continue
+        descriptors.append(
+            {
+                "id": interface_id,
+                "path": path,
+                "type": getattr(getattr(dev, "device_type", None), "value", "other"),
+                "phys": str(getattr(dev, "phys", "") or ""),
+                "capabilities": list(getattr(dev, "capabilities", []) or []),
+            }
+        )
+    return descriptors
+
+
 def _device_inspector_active(manager: "SessionManager", hardware_id: str) -> bool:
     inspector_state = getattr(manager, "device_inspector_state", None)
     active_hardware_ids = (
@@ -825,9 +849,14 @@ def build_grab_device_payload(
     force_grab_unmapped: bool = False,
 ) -> JsonObject:
     analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
+    selected_sources = set(interfaces.keys())
     return {
         "hardware_id": hardware_id,
         "evdev_paths": list(interfaces.values()),
+        "evdev_interfaces": configured_interface_descriptors(
+            hardware_config,
+            selected_sources,
+        ),
         "button_map": {b.id: b.evdev for b in hardware_config.buttons},
         "button_codes": manager.resolved_button_codes(hardware_config.buttons),
         "button_values": {
@@ -880,6 +909,7 @@ def build_grab_device_payload(
 def grab_device_payload_signature(payload: JsonObject) -> str:
     signature_payload = {
         "evdev_paths": sorted(str(path) for path in _json_list(payload.get("evdev_paths"))),
+        "evdev_interfaces": payload.get("evdev_interfaces", []),
         "button_map": payload.get("button_map", {}),
         "button_codes": payload.get("button_codes", {}),
         "button_values": payload.get("button_values", {}),

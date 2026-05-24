@@ -109,6 +109,32 @@ def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:
     assert captured["evdev"] == "key_a"
 
 
+def test_capture_manager_resolves_keymasq_paths(monkeypatch) -> None:
+    key_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    fake = _FakeDevice("/dev/input/event7", 0x2DC8, 0x3106, [key_event])
+
+    monkeypatch.setattr(evdev, "list_devices", lambda: ["/dev/input/event7"])
+    monkeypatch.setattr(evdev, "InputDevice", lambda path: fake)
+
+    manager = CaptureManager()
+    begin = manager.begin(
+        "2dc8:3106",
+        evdev_interfaces=[
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "keyboard",
+                "capabilities": ["key_a"],
+            }
+        ],
+    )
+    token = str(begin["token"])
+
+    captured = cast(dict[str, object], manager.read(token)["captured"])
+    assert captured["evdev"] == "key_a"
+    assert captured["source"] == "gamepad"
+
+
 def test_capture_manager_analog_mode_reads_abs_events(monkeypatch) -> None:
     abs_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 12000)
     key_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)

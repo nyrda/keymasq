@@ -593,10 +593,16 @@ async def capture_begin_for_paths(
     hardware_id: str,
     evdev_paths: list[str],
     *,
+    evdev_interfaces: list[JsonObject] | None = None,
     mode: str = "button",
 ) -> JsonObject:
-    if not evdev_paths:
+    explicit_evdev_paths = bool(evdev_paths)
+    if not explicit_evdev_paths:
         evdev_paths = _hardware_evdev_paths(manager, hardware_id)
+    if evdev_interfaces is None and explicit_evdev_paths:
+        evdev_interfaces = _evdev_interfaces_for_paths(manager, hardware_id, evdev_paths)
+    elif evdev_interfaces is None:
+        evdev_interfaces = _hardware_evdev_interfaces(manager, hardware_id)
     if not evdev_paths and _requires_explicit_evdev_paths(hardware_id):
         return {
             "status": "error",
@@ -611,6 +617,11 @@ async def capture_begin_for_paths(
                     "hardware_id": hardware_id,
                     **({"mode": mode} if mode != "button" else {}),
                     **({"evdev_paths": evdev_paths} if evdev_paths else {}),
+                    **(
+                        {"evdev_interfaces": evdev_interfaces}
+                        if evdev_interfaces
+                        else {}
+                    ),
                 },
             )
         )
@@ -726,12 +737,18 @@ async def capture_combo(
             for hardware_id in hardware_ids
             if (paths := _hardware_evdev_paths(manager, hardware_id))
         }
+        hardware_interfaces = {
+            hardware_id: interfaces
+            for hardware_id in hardware_ids
+            if (interfaces := _hardware_evdev_interfaces(manager, hardware_id))
+        }
         result = await manager.client.send_command(
             Command(
                 command=CommandType.CAPTURE_COMBO,
                 data={
                     "hardware_ids": hardware_ids,
                     "hardware_paths": hardware_paths,
+                    "hardware_interfaces": hardware_interfaces,
                     "timeout_s": float(timeout_s),
                 },
             )
@@ -777,6 +794,55 @@ def _hardware_evdev_paths(manager: "SessionManager", hardware_id: str) -> list[s
         for device in getattr(hardware, "evdev_devices", [])
         if (path := str_value(getattr(device, "path", ""), ""))
     ]
+
+
+def _hardware_evdev_interfaces(
+    manager: "SessionManager", hardware_id: str
+) -> list[JsonObject]:
+    hardware = manager.hardware.get_hardware(hardware_id)
+    if hardware is None:
+        return []
+    interfaces: list[JsonObject] = []
+    for device in getattr(hardware, "evdev_devices", []):
+        device_id = str_value(getattr(device, "id", ""), "")
+        if not device_id:
+            continue
+        path = str_value(getattr(device, "path", ""), "")
+        if not path:
+            continue
+        interfaces.append(
+            {
+                "id": device_id,
+                "path": path,
+                "type": getattr(getattr(device, "device_type", None), "value", "other"),
+                "phys": str_value(getattr(device, "phys", ""), ""),
+                "capabilities": list(getattr(device, "capabilities", []) or []),
+            }
+        )
+    return interfaces
+
+
+def _evdev_interfaces_for_paths(
+    manager: "SessionManager",
+    hardware_id: str,
+    evdev_paths: list[str],
+) -> list[JsonObject]:
+    configured_by_path: dict[str, list[JsonObject]] = {}
+    for interface in _hardware_evdev_interfaces(manager, hardware_id):
+        path = str_value(interface.get("path"), "")
+        if not path:
+            continue
+        configured_by_path.setdefault(path, []).append(interface)
+
+    interfaces: list[JsonObject] = []
+    for path in evdev_paths:
+        normalized_path = str_value(path, "")
+        if not normalized_path:
+            continue
+        configured = configured_by_path.get(normalized_path, [])
+        if configured:
+            interfaces.append(configured.pop(0))
+    return interfaces
 
 
 def _requires_explicit_evdev_paths(hardware_id: str) -> bool:

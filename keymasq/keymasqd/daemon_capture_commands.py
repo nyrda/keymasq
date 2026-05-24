@@ -51,6 +51,7 @@ class _CaptureCommandCaptureManager(Protocol):
         self,
         hardware_id: str,
         evdev_paths: list[str] | None = None,
+        evdev_interfaces: JsonObjectList | None = None,
         mode: str = "button",
     ) -> JsonObject: ...
 
@@ -100,23 +101,23 @@ async def handle_capture_command(
     if command_type == CommandType.CAPTURE_BEGIN:
         hardware_id = str(data.get("hardware_id", ""))
         evdev_paths = str_list(data.get("evdev_paths", []))
+        evdev_interfaces = json_object_list(data.get("evdev_interfaces", []))
         mode = str(data.get("mode", "button") or "button")
-        if evdev_paths:
-            if mode == "button":
-                return await asyncio.to_thread(
-                    daemon.capture_manager.begin,
-                    hardware_id,
-                    evdev_paths,
-                )
+        if evdev_paths and not evdev_interfaces and mode == "button":
             return await asyncio.to_thread(
                 daemon.capture_manager.begin,
                 hardware_id,
                 evdev_paths,
-                mode,
             )
-        if mode == "button":
+        if not evdev_paths and not evdev_interfaces and mode == "button":
             return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id)
-        return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id, None, mode)
+        return await asyncio.to_thread(
+            daemon.capture_manager.begin,
+            hardware_id,
+            evdev_paths=evdev_paths or None,
+            evdev_interfaces=evdev_interfaces or None,
+            mode=mode,
+        )
 
     if command_type == CommandType.CAPTURE_READ:
         token = str(data.get("token", ""))
@@ -133,8 +134,15 @@ async def handle_capture_command(
             if str(hardware_id).strip()
         }
         hardware_paths = _hardware_paths(data.get("hardware_paths", {}))
+        hardware_interfaces = _hardware_interfaces(data.get("hardware_interfaces", {}))
         timeout_s = float_like(data.get("timeout_s", 15.0), 15.0)
-        return await capture_combo(daemon, hardware_ids, timeout_s, hardware_paths)
+        return await capture_combo(
+            daemon,
+            hardware_ids,
+            timeout_s,
+            hardware_paths,
+            hardware_interfaces,
+        )
 
     return None
 
@@ -161,6 +169,7 @@ async def capture_combo(
     hardware_ids: set[str],
     timeout_s: float,
     hardware_paths: dict[str, list[str]] | None = None,
+    hardware_interfaces: dict[str, JsonObjectList] | None = None,
 ) -> JsonObject:
     if not hardware_ids:
         raise ValueError("capture_combo requires at least one hardware_id")
@@ -185,6 +194,7 @@ async def capture_combo(
             hardware_ids,
             authorization=authorization,
             hardware_paths=hardware_paths or {},
+            hardware_interfaces=hardware_interfaces or {},
         )
         daemon.capture_manager.register_combo_notifier(token, loop, notify_event)
         warnings = str_list(capture_result.get("warnings", []))
@@ -275,6 +285,20 @@ def _hardware_paths(value: object) -> dict[str, list[str]]:
             path_values = str_list(paths)
         if path_values:
             result[normalized] = path_values
+    return result
+
+
+def _hardware_interfaces(value: object) -> dict[str, JsonObjectList]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, JsonObjectList] = {}
+    for hardware_id, interfaces in cast(dict[object, object], value).items():
+        normalized = str(hardware_id or "").lower()
+        if not normalized:
+            continue
+        interface_values = json_object_list(interfaces)
+        if interface_values:
+            result[normalized] = interface_values
     return result
 
 

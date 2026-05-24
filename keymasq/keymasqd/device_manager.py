@@ -89,6 +89,8 @@ class _ManagedInputDevice(Protocol):
 
     def capabilities(self) -> dict[int, Sequence[object]]: ...
 
+    def input_props(self) -> Sequence[int]: ...
+
     def async_read_loop(self) -> AsyncIterator[evdev.InputEvent]: ...
 
     def fileno(self) -> int: ...
@@ -609,6 +611,7 @@ class DeviceManager:
         button_values: dict[str, int] | None = None,
         analog_inputs: dict[str, object] | None = None,
         force_grab_unmapped: bool = False,
+        evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject:
         async with self._op_lock:
             result = await runtime_grab_lifecycle.grab_device_unlocked(
@@ -620,10 +623,14 @@ class DeviceManager:
                 button_values,
                 analog_inputs,
                 force_grab_unmapped,
+                evdev_interfaces=evdev_interfaces,
                 update_desired=True,
                 desired_grab_config_cls=DesiredGrabConfig,
                 clear_device_path_cache_fn=clear_device_path_cache,
                 resolve_stable_path_fn=resolve_stable_path,
+                device_paths_fn=_device_paths,
+                device_input_fn=_device_input,
+                detect_input_classes_fn=detect_input_classes,
                 primary_input_class_fn=primary_input_class,
                 grabbed_device_cls=GrabbedDevice,
                 get_interface_id_fn=get_interface_id,

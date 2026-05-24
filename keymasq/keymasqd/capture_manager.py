@@ -16,11 +16,14 @@ import evdev
 
 from keymasq.common.devices import (
     clear_device_path_cache,
+    detect_input_classes,
     get_interface_id,
     normalize_wheel_value,
+    primary_input_class,
     resolve_stable_path,
     wheel_button_id,
 )
+from keymasq.keymasqd.runtime import device_path_resolver
 
 log = logging.getLogger("keymasq.keymasqd.capture_manager")
 type JsonObject = dict[str, object]
@@ -49,6 +52,8 @@ class _CaptureInputDevice(Protocol):
 
     def capabilities(self) -> Mapping[int, Sequence[object]]: ...
 
+    def input_props(self) -> Iterable[int]: ...
+
     def absinfo(self, axis: int) -> object: ...
 
 
@@ -74,6 +79,7 @@ class CaptureSession:
     notify_loop: asyncio.AbstractEventLoop | None = None
     notify_event: asyncio.Event | None = None
     path_hardware_ids: dict[str, str] = field(default_factory=dict)
+    path_sources: dict[str, str] = field(default_factory=dict)
     mode: str = "button"
 
 
@@ -91,14 +97,17 @@ class CaptureManager:
         self,
         hardware_id: str,
         evdev_paths: list[str] | None = None,
+        evdev_interfaces: list[JsonObject] | None = None,
         mode: str = "button",
     ) -> JsonObject:
         mode = _capture_mode(mode)
-        matched = (
-            self._find_devices_by_paths(evdev_paths)
-            if evdev_paths
-            else self._find_devices(*self._parse_hardware_id(hardware_id))
-        )
+        path_sources: dict[str, str] = {}
+        if evdev_interfaces:
+            matched, path_sources = self._find_devices_by_interfaces(evdev_interfaces)
+        elif evdev_paths:
+            matched = self._find_devices_by_paths(evdev_paths)
+        else:
+            matched = self._find_devices(*self._parse_hardware_id(hardware_id))
         if not matched:
             raise ValueError(f"No devices found for {hardware_id}")
 
@@ -125,6 +134,7 @@ class CaptureManager:
             hardware_id=hardware_id,
             devices=grabbed,
             started_at=time.time(),
+            path_sources=path_sources,
             mode=mode,
         )
 
@@ -148,7 +158,7 @@ class CaptureManager:
             if event is None:
                 continue
 
-            parsed = self._parse_event(device, event, session.mode)
+            parsed = self._parse_event(device, event, session.mode, session.path_sources)
             if parsed is not None:
                 return {"captured": parsed}
 
@@ -161,12 +171,19 @@ class CaptureManager:
         allow_empty: bool = False,
         hardware_ids: set[str] | None = None,
         hardware_paths: Mapping[str, Sequence[str]] | None = None,
+        hardware_interfaces: Mapping[str, Sequence[JsonObject]] | None = None,
         authorization: _ComboCaptureAuthorization | None = None,
     ) -> JsonObject:
         if not self._consume_combo_capture_authorization(authorization):
             raise PermissionError("combo_capture_denied: missing authorization")
 
-        path_hardware_ids = _hardware_path_lookup(hardware_paths or {})
+        path_sources: dict[str, str] = {}
+        if hardware_interfaces:
+            path_hardware_ids, path_sources = self._hardware_interface_lookup(
+                hardware_interfaces
+            )
+        else:
+            path_hardware_ids = _hardware_path_lookup(hardware_paths or {})
         matched = self._find_combo_devices(
             exclude_paths=exclude_paths or set(),
             hardware_ids=hardware_ids or set(),
@@ -195,6 +212,7 @@ class CaptureManager:
             event_queue=queue.SimpleQueue(),
             stop_event=threading.Event(),
             path_hardware_ids=path_hardware_ids,
+            path_sources=path_sources,
         )
         self._sessions[token] = session
         self._start_combo_reader(session)
@@ -252,7 +270,7 @@ class CaptureManager:
             if event is None:
                 continue
 
-            parsed = self._parse_combo_event(device, event)
+            parsed = self._parse_combo_event(device, event, path_sources=session.path_sources)
             if parsed is not None:
                 return {"event": parsed}
 
@@ -343,6 +361,7 @@ class CaptureManager:
                             device,
                             event,
                             session.path_hardware_ids,
+                            session.path_sources,
                         )
                         if parsed is None:
                             continue
@@ -411,6 +430,63 @@ class CaptureManager:
                 continue
         return devices
 
+    def _find_devices_by_interfaces(
+        self,
+        evdev_interfaces: list[JsonObject],
+    ) -> tuple[list[_CaptureInputDevice], dict[str, str]]:
+        clear_device_path_cache()
+        list_devices = cast(Callable[[], list[str]], evdev.list_devices)
+        resolved = device_path_resolver.resolve_evdev_interfaces(
+            evdev_interfaces,
+            device_paths_fn=list_devices,
+            device_input_fn=lambda path: cast(
+                device_path_resolver.InputDeviceLike,
+                evdev.InputDevice(path),
+            ),
+            detect_input_classes_fn=detect_input_classes,
+            primary_input_class_fn=primary_input_class,
+        )
+        devices: list[_CaptureInputDevice] = []
+        path_sources: dict[str, str] = {}
+        for interface in resolved:
+            try:
+                device = cast(_CaptureInputDevice, evdev.InputDevice(interface.path))
+                devices.append(device)
+                if interface.interface_id:
+                    path_sources[device.path] = interface.interface_id
+            except Exception:
+                continue
+        return devices, path_sources
+
+    def _hardware_interface_lookup(
+        self,
+        hardware_interfaces: Mapping[str, Sequence[JsonObject]],
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        path_hardware_ids: dict[str, str] = {}
+        path_sources: dict[str, str] = {}
+        clear_device_path_cache()
+        list_devices = cast(Callable[[], list[str]], evdev.list_devices)
+        for hardware_id, interfaces in hardware_interfaces.items():
+            normalized_hardware_id = str(hardware_id or "").lower()
+            if not normalized_hardware_id:
+                continue
+            resolved = device_path_resolver.resolve_evdev_interfaces(
+                list(interfaces),
+                device_paths_fn=list_devices,
+                device_input_fn=lambda path: cast(
+                    device_path_resolver.InputDeviceLike,
+                    evdev.InputDevice(path),
+                ),
+                detect_input_classes_fn=detect_input_classes,
+                primary_input_class_fn=primary_input_class,
+            )
+            for interface in resolved:
+                for alias in _path_aliases(interface.path):
+                    path_hardware_ids[alias] = normalized_hardware_id
+                    if interface.interface_id:
+                        path_sources[alias] = interface.interface_id
+        return path_hardware_ids, path_sources
+
     def _find_combo_devices(
         self,
         exclude_paths: set[str],
@@ -464,6 +540,7 @@ class CaptureManager:
         device: _CaptureInputDevice,
         event: evdev.InputEvent,
         mode: str = "button",
+        path_sources: Mapping[str, str] | None = None,
     ) -> JsonObject | None:
         if mode == "analog":
             if event.type != evdev.ecodes.EV_ABS:
@@ -473,7 +550,7 @@ class CaptureManager:
                 "evdev": evdev_name,
                 "code": int(event.code),
                 "value": int(event.value),
-                "source": self._source_for_path(device.path),
+                "source": self._source_for_device(device, path_sources),
                 "stable_path": resolve_stable_path(device.path),
                 "device_path": device.path,
             }
@@ -487,7 +564,7 @@ class CaptureManager:
             return {
                 "evdev": evdev_name,
                 "code": int(event.code),
-                "source": self._source_for_path(device.path),
+                "source": self._source_for_device(device, path_sources),
                 "stable_path": resolve_stable_path(device.path),
                 "device_path": device.path,
             }
@@ -503,7 +580,7 @@ class CaptureManager:
                     "code": int(event.code),
                     "direction": direction,
                     "value": value,
-                    "source": self._source_for_path(device.path),
+                    "source": self._source_for_device(device, path_sources),
                     "stable_path": resolve_stable_path(device.path),
                     "device_path": device.path,
                 }
@@ -517,7 +594,7 @@ class CaptureManager:
                     "code": int(event.code),
                     "direction": direction,
                     "value": value,
-                    "source": self._source_for_path(device.path),
+                    "source": self._source_for_device(device, path_sources),
                     "stable_path": resolve_stable_path(device.path),
                     "device_path": device.path,
                 }
@@ -529,6 +606,7 @@ class CaptureManager:
         device: _CaptureInputDevice,
         event: evdev.InputEvent,
         path_hardware_ids: Mapping[str, str] | None = None,
+        path_sources: Mapping[str, str] | None = None,
     ) -> JsonObject | None:
         hardware_id = _hardware_id_for_device(device, path_hardware_ids or {})
         if event.type == evdev.ecodes.EV_REL:
@@ -547,7 +625,7 @@ class CaptureManager:
                 "code": int(event.code),
                 "value": 1,
                 "hardware_id": hardware_id,
-                "source": self._source_for_path(device.path),
+                "source": self._source_for_device(device, path_sources),
                 "stable_path": resolve_stable_path(device.path),
                 "device_path": device.path,
             }
@@ -563,10 +641,20 @@ class CaptureManager:
             "code": int(event.code),
             "value": int(event.value),
             "hardware_id": hardware_id,
-            "source": self._source_for_path(device.path),
+            "source": self._source_for_device(device, path_sources),
             "stable_path": resolve_stable_path(device.path),
             "device_path": device.path,
         }
+
+    def _source_for_device(
+        self,
+        device: _CaptureInputDevice,
+        path_sources: Mapping[str, str] | None,
+    ) -> str:
+        configured = str((path_sources or {}).get(device.path, "") or "")
+        if configured:
+            return configured
+        return self._source_for_path(device.path)
 
     def _source_for_path(self, device_path: str) -> str:
         stable_path = resolve_stable_path(device_path)

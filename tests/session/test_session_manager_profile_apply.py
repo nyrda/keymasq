@@ -154,11 +154,56 @@ async def test_apply_resolved_device_profile_force_grabs_all_interfaces_for_insp
     ]
     grab_data = sent[0].args[0].data
     assert grab_data["evdev_paths"] == ["/dev/input/event10", "/dev/input/event11"]
+    assert grab_data["evdev_interfaces"] == [
+        {
+            "id": "buttons",
+            "path": "/dev/input/event10",
+            "type": "gamepad",
+            "phys": "",
+            "capabilities": [],
+        },
+        {
+            "id": "axes",
+            "path": "/dev/input/event11",
+            "type": "gamepad",
+            "phys": "",
+            "capabilities": [],
+        },
+    ]
     assert grab_data["force_grab_unmapped"] is True
     assert manager.profile_state.grabbed_interfaces[hardware_id] == {
         "buttons": "/dev/input/event10",
         "axes": "/dev/input/event11",
     }
+
+
+def test_grab_device_payload_signature_includes_interface_descriptors() -> None:
+    payload = {
+        "evdev_paths": ["keymasq:2dc8:3106"],
+        "evdev_interfaces": [
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "capabilities": ["btn_south"],
+            }
+        ],
+    }
+    changed_payload = {
+        **payload,
+        "evdev_interfaces": [
+            {
+                "id": "gamepad_2",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "capabilities": ["btn_south"],
+            }
+        ],
+    }
+
+    assert session_profiles_module.grab_device_payload_signature(
+        payload
+    ) != session_profiles_module.grab_device_payload_signature(changed_payload)
 
 
 @pytest.mark.asyncio

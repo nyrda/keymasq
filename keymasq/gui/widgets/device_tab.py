@@ -1,3 +1,4 @@
+import logging
 import re
 import shlex
 from typing import cast
@@ -58,6 +59,7 @@ _ANALOG_LAYOUT_ORDER = {
     "right_stick": 3,
 }
 _TRAILING_NUMBER_RE = re.compile(r"^(?P<prefix>.*?)(?P<number>\d+)\s*$")
+log = logging.getLogger(__name__)
 
 
 def _make_capture_status_row(status_label: Gtk.Label) -> Gtk.Box:
@@ -553,6 +555,13 @@ class DeviceTab(ProfileManagedTab):
         message.set_halign(Gtk.Align.START)
         content.append(message)
 
+        error_label = Gtk.Label()
+        error_label.add_css_class("error")
+        error_label.set_halign(Gtk.Align.START)
+        error_label.set_wrap(True)
+        error_label.set_visible(False)
+        content.append(error_label)
+
         delete_profiles_check = Gtk.CheckButton(label="Remove device mappings from profiles")
         delete_profiles_check.set_active(True)
         content.append(delete_profiles_check)
@@ -572,6 +581,7 @@ class DeviceTab(ProfileManagedTab):
             self._on_confirm_delete_device,
             dialog,
             delete_profiles_check,
+            error_label,
         )
         btn_box.append(delete_btn)
 
@@ -581,24 +591,59 @@ class DeviceTab(ProfileManagedTab):
         dialog.present(self.get_root())
 
     def _on_confirm_delete_device(
-        self, button: Gtk.Button, dialog: Adw.Dialog, delete_profiles_check: Gtk.CheckButton
+        self,
+        button: Gtk.Button,
+        dialog: Adw.Dialog,
+        delete_profiles_check: Gtk.CheckButton,
+        error_label: Gtk.Label | None = None,
     ) -> None:
         delete_profiles = delete_profiles_check.get_active()
         hardware_id = self.device.hardware_id
 
         button.set_sensitive(False)
+        if error_label is not None:
+            error_label.set_visible(False)
         session_request_async(
             {
                 "command": "release_device",
                 "hardware_id": hardware_id,
                 "immediate": True,
             },
-            lambda _result: self._delete_device_after_release(
+            lambda result: self._on_delete_device_release_response(
+                result,
+                button,
                 hardware_id,
                 delete_profiles,
                 dialog,
+                error_label,
             ),
         )
+
+    def _on_delete_device_release_response(
+        self,
+        result: JsonDict | None,
+        button: Gtk.Button,
+        hardware_id: str,
+        delete_profiles: bool,
+        dialog: Adw.Dialog,
+        error_label: Gtk.Label | None,
+    ) -> bool:
+        if isinstance(result, dict) and result.get("status") == "ok":
+            return self._delete_device_after_release(
+                hardware_id,
+                delete_profiles,
+                dialog,
+            )
+
+        message = "No response from keymasq-session"
+        if isinstance(result, dict):
+            message = str(result.get("error") or result.get("message") or "release failed")
+        log.warning("Failed to release device %s before delete: %s", hardware_id, message)
+        button.set_sensitive(True)
+        if error_label is not None:
+            error_label.set_label(f"Failed to release device: {message}")
+            error_label.set_visible(True)
+        return False
 
     def _delete_device_after_release(
         self,

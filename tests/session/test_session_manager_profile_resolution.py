@@ -482,6 +482,38 @@ async def test_reevaluate_profiles_releases_removed_hardware_config() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reevaluate_profiles_keeps_stale_grab_state_when_release_fails() -> None:
+    manager = SessionManager()
+    hardware_id = "045e:02a1"
+    manager.hardware.list_hardware_ids = lambda: []  # type: ignore[assignment]
+    manager.profiles.resolve_active_profiles = lambda *_args, **_kwargs: ResolvedProfiles(  # type: ignore[assignment]
+        active_profiles=[],
+        devices={},
+        combos=[],
+    )
+    manager.profile_state.resolved_devices[hardware_id] = ResolvedDeviceProfile(
+        hardware_id=hardware_id
+    )
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.grabbed_interfaces[hardware_id] = {
+        "gamepad": "/dev/input/event20"
+    }
+    manager.profile_state.last_sent_grab_signatures[hardware_id] = "grab"
+    manager.profile_state.last_sent_mapping_signatures[hardware_id] = "mapping"
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="release failed")
+    )
+
+    await session_profiles_module.reevaluate_profiles(manager)
+
+    assert hardware_id in manager.profile_state.resolved_devices
+    assert hardware_id in manager.profile_state.grabbed_devices
+    assert hardware_id in manager.profile_state.grabbed_interfaces
+    assert hardware_id in manager.profile_state.last_sent_grab_signatures
+    assert hardware_id in manager.profile_state.last_sent_mapping_signatures
+
+
+@pytest.mark.asyncio
 async def test_reevaluate_profiles_releases_removed_hardware_without_resolved_cache() -> None:
     manager = SessionManager()
     hardware_id = "045e:02a1"

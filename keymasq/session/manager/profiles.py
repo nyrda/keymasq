@@ -421,9 +421,17 @@ async def _reevaluate_profiles(
         - active_hardware_ids
     )
     for hardware_id in stale_ids:
+        release_succeeded = True
         if hardware_id in manager.profile_state.grabbed_devices:
-            await deactivate_profile(manager, hardware_id, immediate=True, generation=generation)
+            release_succeeded = await deactivate_profile(
+                manager,
+                hardware_id,
+                immediate=True,
+                generation=generation,
+            )
             raise_if_stale_profile_apply(manager, generation)
+        if not release_succeeded:
+            continue
         manager.profile_state.resolved_devices.pop(hardware_id, None)
         clear_hardware_runtime_state(manager, hardware_id)
 
@@ -1113,12 +1121,12 @@ async def deactivate_profile(
     immediate: bool = False,
     *,
     generation: int | None = None,
-) -> None:
+) -> bool:
     raise_if_stale_profile_apply(manager, generation)
     cancel_grab_retry(manager, hardware_id)
     manager.profile_state.grab_waiting_devices.discard(hardware_id)
     if hardware_id not in manager.profile_state.grabbed_devices:
-        return
+        return True
 
     try:
         result = await manager.client.send_command(
@@ -1130,13 +1138,15 @@ async def deactivate_profile(
         raise_if_stale_profile_apply(manager, generation)
         if result.status != "ok":
             log.error("Failed to release device %s: %s", hardware_id, result.error)
-            return
+            return False
         clear_hardware_runtime_state(manager, hardware_id)
     except Exception as e:
         log.error("Failed to release device %s: %s", hardware_id, e)
+        return False
 
     runtime_payloads.clear_exec_refs(manager, hardware_id)
     log.info("Deactivated grabbed mapping for %s", hardware_id)
+    return True
 
 
 def maybe_notify_profile_activation(

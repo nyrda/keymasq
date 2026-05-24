@@ -657,6 +657,87 @@ class TestDeviceTabWidget:
         assert root.checked == 1
         assert closed == [True]
 
+    def test_device_tab_delete_keeps_config_when_release_fails(
+        self, temp_config_dir, monkeypatch
+    ):
+        from gi.repository import Adw, Gtk
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.deleted: list[str] = []
+
+            def delete_hardware(self, hardware_id: str) -> None:
+                self.deleted.append(hardware_id)
+
+        class _ProfileManager:
+            def __init__(self) -> None:
+                self.removed: list[str] = []
+
+            def list_profiles(self) -> list[object]:
+                return []
+
+            def remove_device_layers(self, hardware_id: str) -> None:
+                self.removed.append(hardware_id)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+
+        hardware_manager = _HardwareManager()
+        profile_manager = _ProfileManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=profile_manager,
+            hardware_manager=hardware_manager,
+            demo_mode=True,
+        )
+
+        requests: list[dict] = []
+
+        def fake_session_request_async(payload, callback):
+            requests.append(payload)
+            callback({"status": "error", "error": "release failed"})
+
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            fake_session_request_async,
+        )
+
+        dialog = Adw.Dialog()
+        closed: list[bool] = []
+        dialog.close = lambda: closed.append(True)  # type: ignore[method-assign]
+        delete_profiles_check = Gtk.CheckButton()
+        delete_profiles_check.set_active(True)
+        delete_button = Gtk.Button()
+        error_label = Gtk.Label()
+        error_label.set_visible(False)
+
+        tab._on_confirm_delete_device(
+            delete_button,
+            dialog,
+            delete_profiles_check,
+            error_label,
+        )
+
+        assert delete_button.get_sensitive() is True
+        assert error_label.get_visible() is True
+        assert "release failed" in error_label.get_label()
+        assert profile_manager.removed == []
+        assert hardware_manager.deleted == []
+        assert requests == [
+            {"command": "release_device", "hardware_id": "1234:5678", "immediate": True}
+        ]
+        assert closed == []
+
     def test_device_tab_rename_device_updates_hardware_runtime_and_header(
         self, temp_config_dir, monkeypatch
     ):

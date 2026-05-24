@@ -489,6 +489,8 @@ class CaptureManager:
             )
             for interface in resolved:
                 for alias in _path_aliases(interface.path):
+                    if alias in path_hardware_ids:
+                        continue
                     path_hardware_ids[alias] = normalized_hardware_id
                     if interface.interface_id:
                         path_sources[alias] = interface.interface_id

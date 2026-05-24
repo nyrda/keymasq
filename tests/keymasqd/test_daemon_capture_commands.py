@@ -353,6 +353,38 @@ def test_capture_manager_resolves_logical_combo_interfaces(monkeypatch):
         device_path_resolver.clear_cached_devices()
 
 
+def test_capture_manager_hardware_interface_lookup_keeps_first_alias_owner(monkeypatch):
+    manager = CaptureManager()
+    calls: list[str] = []
+
+    def fake_resolve_evdev_interfaces(_interfaces, **kwargs):
+        hardware_id = str(kwargs["hardware_id"])
+        calls.append(hardware_id)
+        return [
+            SimpleNamespace(
+                path="/dev/input/event9",
+                interface_id=f"{hardware_id}-source",
+            )
+        ]
+
+    monkeypatch.setattr(
+        capture_manager_module.device_path_resolver,
+        "resolve_evdev_interfaces",
+        fake_resolve_evdev_interfaces,
+    )
+
+    path_hardware_ids, path_sources = manager._hardware_interface_lookup(
+        {
+            "2dc8:3106": [{"path": "keymasq:2dc8:3106"}],
+            "2dc8:3106@2": [{"path": "keymasq:2dc8:3106"}],
+        }
+    )
+
+    assert calls == ["2dc8:3106", "2dc8:3106@2"]
+    assert path_hardware_ids["/dev/input/event9"] == "2dc8:3106"
+    assert path_sources["/dev/input/event9"] == "2dc8:3106-source"
+
+
 @pytest.mark.asyncio
 async def test_capture_combo_waits_on_event_not_sleep(daemon_testbed, monkeypatch):
     daemon, device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed

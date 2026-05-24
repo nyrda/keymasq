@@ -51,6 +51,7 @@ class _Candidate:
     device_type: DeviceType
     capabilities: set[str]
     score: tuple[int, int, int]
+    claimed: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,8 @@ def resolve_evdev_interfaces(
     interfaces: list[JsonObject],
     *,
     hardware_id: str | None = None,
+    excluded_paths: Iterable[str] | None = None,
+    resolve_stable_path_fn: Callable[[str], str] | None = None,
     device_paths_fn: Callable[[], list[str]],
     device_input_fn: Callable[[str], InputDeviceLike],
     detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
@@ -134,6 +137,9 @@ def resolve_evdev_interfaces(
 ) -> list[ResolvedInterface]:
     resolved: list[ResolvedInterface] = []
     selected_paths: set[str] = set()
+    normalized_excluded_paths = {
+        path for value in excluded_paths or [] if (path := str(value or "").strip())
+    }
 
     for descriptor in interfaces:
         configured_path = str(descriptor.get("path", "") or "").strip()
@@ -163,7 +169,9 @@ def resolve_evdev_interfaces(
             configured_phys=configured_phys,
             configured_caps=configured_caps,
             selected_paths=selected_paths,
+            excluded_paths=normalized_excluded_paths,
             hardware_id=hardware_id,
+            resolve_stable_path_fn=resolve_stable_path_fn,
             device_paths_fn=device_paths_fn,
             device_input_fn=device_input_fn,
             detect_input_classes_fn=detect_input_classes_fn,
@@ -192,7 +200,9 @@ def _resolve_keymasq_path(
     configured_phys: str,
     configured_caps: set[str],
     selected_paths: set[str],
+    excluded_paths: set[str],
     hardware_id: str | None,
+    resolve_stable_path_fn: Callable[[str], str] | None,
     device_paths_fn: Callable[[], list[str]],
     device_input_fn: Callable[[str], InputDeviceLike],
     detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
@@ -230,6 +240,11 @@ def _resolve_keymasq_path(
                 device_type=cached.device_type,
                 capabilities=cached.capabilities,
                 score=(type_score, phys_score, cap_score),
+                claimed=_is_excluded_path(
+                    path,
+                    excluded_paths,
+                    resolve_stable_path_fn=resolve_stable_path_fn,
+                ),
             )
         )
 
@@ -243,6 +258,16 @@ def _resolve_keymasq_path(
             candidate.path,
         )
     )
+    available_candidates = [
+        candidate for candidate in candidates if not candidate.claimed
+    ]
+    if not available_candidates:
+        log.info(
+            "No unclaimed %s match from candidates %s",
+            configured_path,
+            [candidate.path for candidate in candidates],
+        )
+        return None
     instance_index = _numbered_hardware_instance_index(
         hardware_id,
         vendor_id=vendor_id,
@@ -261,17 +286,43 @@ def _resolve_keymasq_path(
                 [candidate.path for candidate in matching_instances],
             )
             return None
-        return matching_instances[instance_index]
+        for candidate in matching_instances[instance_index:]:
+            if not candidate.claimed:
+                return candidate
+        log.info(
+            "No unclaimed %s instance %d match from candidates %s",
+            configured_path,
+            instance_index + 1,
+            [candidate.path for candidate in matching_instances],
+        )
+        return None
 
-    best = candidates[0]
-    if len(candidates) > 1 and candidates[1].score == best.score:
+    best = available_candidates[0]
+    if len(available_candidates) > 1 and available_candidates[1].score == best.score:
         log.warning(
             "Ambiguous %s match; using %s from candidates %s",
             configured_path,
             best.path,
-            [candidate.path for candidate in candidates],
+            [candidate.path for candidate in available_candidates],
         )
     return best
+
+
+def _is_excluded_path(
+    path: str,
+    excluded_paths: set[str],
+    *,
+    resolve_stable_path_fn: Callable[[str], str] | None,
+) -> bool:
+    if path in excluded_paths:
+        return True
+    if resolve_stable_path_fn is None:
+        return False
+    try:
+        stable_path = resolve_stable_path_fn(path)
+    except Exception:
+        return False
+    return stable_path in excluded_paths
 
 
 def _numbered_hardware_instance_index(

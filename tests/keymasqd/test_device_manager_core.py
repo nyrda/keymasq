@@ -350,6 +350,50 @@ class TestDeviceManager:
         )
 
     @pytest.mark.asyncio
+    async def test_grab_device_excludes_paths_grabbed_by_other_hardware(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.grabbed_devices["other"] = [
+            SimpleNamespace(
+                path="/dev/input/event2",
+                stable_path="/dev/input/by-id/claimed-pad",
+            )
+        ]
+        captured: dict[str, object] = {}
+
+        def fake_resolve_evdev_interfaces(interfaces, **kwargs):
+            captured["interfaces"] = interfaces
+            captured["excluded_paths"] = kwargs.get("excluded_paths")
+            captured["resolve_stable_path_fn"] = kwargs.get("resolve_stable_path_fn")
+            return []
+
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "resolve_evdev_interfaces",
+            fake_resolve_evdev_interfaces,
+        )
+        evdev_interfaces = [
+            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+        ]
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=["keymasq:2dc8:3106"],
+            evdev_interfaces=evdev_interfaces,
+            button_map={"btn_south": "btn_south"},
+        )
+
+        assert result["waiting_for_device"] is True
+        assert captured["interfaces"] == evdev_interfaces
+        assert captured["excluded_paths"] == {
+            "/dev/input/event2",
+            "/dev/input/by-id/claimed-pad",
+        }
+        assert captured["resolve_stable_path_fn"] is dm.resolve_stable_path
+
+    @pytest.mark.asyncio
     async def test_grab_device_resolves_keymasq_path_and_uses_configured_interface_id(
         self,
         manager,

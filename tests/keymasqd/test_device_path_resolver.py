@@ -41,7 +41,13 @@ class _FakeDevice:
         self.close_count += 1
 
 
-def _resolve(interfaces, devices, hardware_id: str | None = None):
+def _resolve(
+    interfaces,
+    devices,
+    hardware_id: str | None = None,
+    excluded_paths=None,
+    resolve_stable_path_fn=None,
+):
     refresh_cached_devices_sync(
         device_paths_fn=lambda: list(devices),
         device_input_fn=lambda path: devices[path],
@@ -51,6 +57,8 @@ def _resolve(interfaces, devices, hardware_id: str | None = None):
     return resolve_evdev_interfaces(
         interfaces,
         hardware_id=hardware_id,
+        excluded_paths=excluded_paths,
+        resolve_stable_path_fn=resolve_stable_path_fn,
         device_paths_fn=lambda: list(devices),
         device_input_fn=lambda path: devices[path],
         detect_input_classes_fn=detect_input_classes,
@@ -278,6 +286,41 @@ def test_equal_candidates_pick_deterministic_first_and_do_not_duplicate() -> Non
     ]
 
 
+def test_keymasq_path_skips_excluded_candidate() -> None:
+    devices = {
+        "/dev/input/event9": _FakeDevice("/dev/input/event9"),
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+
+    resolved = _resolve(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        devices,
+        excluded_paths={"/dev/input/event2"},
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+
+
+def test_keymasq_path_skips_excluded_stable_path_alias() -> None:
+    devices = {
+        "/dev/input/event9": _FakeDevice("/dev/input/event9"),
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+    stable_paths = {
+        "/dev/input/event2": "/dev/input/by-id/claimed-pad",
+        "/dev/input/event9": "/dev/input/event9",
+    }
+
+    resolved = _resolve(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        devices,
+        excluded_paths={"/dev/input/by-id/claimed-pad"},
+        resolve_stable_path_fn=lambda path: stable_paths[path],
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+
+
 def test_numbered_hardware_id_selects_matching_keymasq_instance() -> None:
     devices = {
         "/dev/input/event9": _FakeDevice("/dev/input/event9"),
@@ -288,6 +331,22 @@ def test_numbered_hardware_id_selects_matching_keymasq_instance() -> None:
         [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
         devices,
         hardware_id="2dc8:3106@2",
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+
+
+def test_numbered_hardware_id_counts_claimed_instances_but_returns_unclaimed() -> None:
+    devices = {
+        "/dev/input/event9": _FakeDevice("/dev/input/event9"),
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+
+    resolved = _resolve(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        devices,
+        hardware_id="2dc8:3106@2",
+        excluded_paths={"/dev/input/event2"},
     )
 
     assert [interface.path for interface in resolved] == ["/dev/input/event9"]

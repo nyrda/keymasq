@@ -104,9 +104,12 @@ async def grab_device_unlocked(
         if evdev_interfaces
         else device_path_resolver.interface_descriptors_from_paths(evdev_paths)
     )
+    excluded_paths = grabbed_paths_for_other_hardware(manager, hardware_id)
     resolved_interfaces = device_path_resolver.resolve_evdev_interfaces(
         raw_interfaces,
         hardware_id=hardware_id,
+        excluded_paths=excluded_paths,
+        resolve_stable_path_fn=resolve_stable_path_fn,
         device_paths_fn=device_paths_fn,
         device_input_fn=device_input_fn,
         detect_input_classes_fn=detect_input_classes_fn,
@@ -392,6 +395,20 @@ async def grab_device_unlocked(
         "skipped_count": skipped_count,
         "waiting_for_device": waiting_for_device,
     }
+
+
+def grabbed_paths_for_other_hardware(manager: _GrabManager, hardware_id: str) -> set[str]:
+    requested_hardware_id = str(hardware_id or "").strip().lower()
+    paths: set[str] = set()
+    for grabbed_hardware_id, devices in manager.grabbed_devices.items():
+        if str(grabbed_hardware_id or "").strip().lower() == requested_hardware_id:
+            continue
+        for device in devices:
+            for attr in ("path", "stable_path"):
+                path = str(getattr(device, attr, "") or "").strip()
+                if path:
+                    paths.add(path)
+    return paths
 
 
 async def grab_with_retry(

@@ -981,10 +981,20 @@ def grab_device_payload_signature(payload: JsonObject) -> str:
 
 
 def _signature_evdev_interfaces(value: object) -> list[object]:
-    interfaces: list[object] = [
-        dict(cast(JsonObject, item)) if isinstance(item, dict) else item
-        for item in _json_list(value)
-    ]
+    interfaces: list[object] = []
+    for item in _json_list(value):
+        if not isinstance(item, dict):
+            interfaces.append(item)
+            continue
+
+        iface = dict(cast(JsonObject, item))
+        capabilities = iface.get("capabilities")
+        if isinstance(capabilities, list):
+            iface["capabilities"] = sorted(
+                str(capability) for capability in cast(list[object], capabilities)
+            )
+        interfaces.append(iface)
+
     return sorted(
         interfaces,
         key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),

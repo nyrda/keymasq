@@ -973,6 +973,40 @@ class TestListDevices:
             deps=dm._topology_runtime_deps(),
         )
 
+    def test_topology_events_match_numbered_desired_hardware_id(self) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        snapshot = {
+            "/dev/input/by-id/test-pad": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-pad",
+                path="/dev/input/event10",
+                interface_id="gamepad",
+            )
+        }
+
+        events = tdm.build_topology_events(
+            manager,
+            {},
+            snapshot,
+            {"1234:5678@2"},
+        )
+
+        assert events == [
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/test-pad",
+                    "interface_id": "gamepad",
+                },
+            )
+        ]
+
 
 class TestMacroControlActions:
     @pytest.mark.asyncio

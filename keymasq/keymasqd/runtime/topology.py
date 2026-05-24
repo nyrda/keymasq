@@ -219,7 +219,7 @@ def build_topology_events(
 
     for stable_path in sorted(previous.keys() - current.keys()):
         info = previous[stable_path]
-        if info.hardware_id not in desired_hardware_ids:
+        if not hardware_id_matches_desired(info.hardware_id, desired_hardware_ids):
             continue
         events.append(
             (
@@ -230,7 +230,7 @@ def build_topology_events(
 
     for stable_path in sorted(current.keys() - previous.keys()):
         info = current[stable_path]
-        if info.hardware_id not in desired_hardware_ids:
+        if not hardware_id_matches_desired(info.hardware_id, desired_hardware_ids):
             continue
         events.append(
             (
@@ -240,6 +240,18 @@ def build_topology_events(
         )
 
     return events
+
+
+def hardware_id_matches_desired(hardware_id: str, desired_hardware_ids: set[str]) -> bool:
+    normalized = str(hardware_id or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized in desired_hardware_ids:
+        return True
+    return any(
+        str(desired or "").strip().lower().startswith(f"{normalized}@")
+        for desired in desired_hardware_ids
+    )
 
 
 def live_interface_payload(info: Any) -> JsonObject:

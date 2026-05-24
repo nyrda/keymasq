@@ -103,7 +103,10 @@ class CaptureManager:
         mode = _capture_mode(mode)
         path_sources: dict[str, str] = {}
         if evdev_interfaces:
-            matched, path_sources = self._find_devices_by_interfaces(evdev_interfaces)
+            matched, path_sources = self._find_devices_by_interfaces(
+                hardware_id,
+                evdev_interfaces,
+            )
         elif evdev_paths:
             matched = self._find_devices_by_paths(evdev_paths)
         else:
@@ -432,12 +435,14 @@ class CaptureManager:
 
     def _find_devices_by_interfaces(
         self,
+        hardware_id: str,
         evdev_interfaces: list[JsonObject],
     ) -> tuple[list[_CaptureInputDevice], dict[str, str]]:
         clear_device_path_cache()
         list_devices = cast(Callable[[], list[str]], evdev.list_devices)
         resolved = device_path_resolver.resolve_evdev_interfaces(
             evdev_interfaces,
+            hardware_id=hardware_id,
             device_paths_fn=list_devices,
             device_input_fn=lambda path: cast(
                 device_path_resolver.InputDeviceLike,
@@ -472,6 +477,7 @@ class CaptureManager:
                 continue
             resolved = device_path_resolver.resolve_evdev_interfaces(
                 list(interfaces),
+                hardware_id=normalized_hardware_id,
                 device_paths_fn=list_devices,
                 device_input_fn=lambda path: cast(
                     device_path_resolver.InputDeviceLike,

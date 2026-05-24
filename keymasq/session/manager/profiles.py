@@ -513,7 +513,6 @@ async def apply_resolved_device_profile(
 
     if not resolved.has_effective_mapping and not inspector_active:
         cancel_grab_retry(manager, hardware_id)
-        manager.profile_state.grab_waiting_devices.discard(hardware_id)
         if hardware_id in manager.profile_state.grabbed_devices:
             await deactivate_profile(
                 manager,
@@ -521,6 +520,8 @@ async def apply_resolved_device_profile(
                 immediate=True,
                 generation=generation,
             )
+        elif hardware_id not in manager.profile_state.last_sent_grab_signatures:
+            manager.profile_state.grab_waiting_devices.discard(hardware_id)
         return
 
     new_interfaces = (
@@ -538,6 +539,34 @@ async def apply_resolved_device_profile(
         force_grab_unmapped=inspector_active,
     )
     grab_signature = grab_device_payload_signature(grab_payload)
+    if not new_interfaces and not inspector_active:
+        if manager.profile_state.last_sent_grab_signatures.get(hardware_id) != grab_signature:
+            log.warning(
+                (
+                    "No configured interfaces selected for %s "
+                    "(mappings=%d combo_sources=%s configured_interfaces=%s); "
+                    "skipping daemon grab"
+                ),
+                hardware_id,
+                len(resolved.mappings),
+                sorted(resolved.combo_sources),
+                sorted(all_configured_interfaces(hardware_config)),
+            )
+            manager.profile_state.last_sent_grab_signatures[hardware_id] = grab_signature
+        return
+
+    if (
+        hardware_id in manager.profile_state.grab_waiting_devices
+        and hardware_id not in manager.profile_state.grabbed_devices
+    ):
+        log.debug("Skipping pending grab for unavailable device %s", hardware_id)
+        maybe_notify_profile_activation(
+            manager,
+            hardware_config.name,
+            old_profile_names,
+            resolved,
+        )
+        return
 
     if hardware_id in manager.profile_state.grabbed_devices:
         if set(current_interfaces.keys()) == set(new_interfaces.keys()):
@@ -664,7 +693,17 @@ async def apply_resolved_device_profile(
             else:
                 manager.profile_state.grabbed_devices.discard(hardware_id)
                 manager.profile_state.grabbed_interfaces.pop(hardware_id, None)
-                manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
+                waiting_for_device = bool(
+                    result_data is not None and result_data.get("waiting_for_device")
+                )
+                if waiting_for_device:
+                    manager.profile_state.grab_waiting_devices.add(hardware_id)
+                    manager.profile_state.last_sent_grab_signatures[hardware_id] = (
+                        grab_signature
+                    )
+                else:
+                    manager.profile_state.grab_waiting_devices.discard(hardware_id)
+                    manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
                 log.warning(
                     (
                         "keymasqd grab returned zero interfaces for %s "

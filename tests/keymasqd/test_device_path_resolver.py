@@ -40,9 +40,10 @@ class _FakeDevice:
         self.close_count += 1
 
 
-def _resolve(interfaces, devices):
+def _resolve(interfaces, devices, hardware_id: str | None = None):
     return resolve_evdev_interfaces(
         interfaces,
+        hardware_id=hardware_id,
         device_paths_fn=lambda: list(devices),
         device_input_fn=lambda path: devices[path],
         detect_input_classes_fn=detect_input_classes,
@@ -242,6 +243,35 @@ def test_equal_candidates_pick_deterministic_first_and_do_not_duplicate() -> Non
         "/dev/input/event2",
         "/dev/input/event9",
     ]
+
+
+def test_numbered_hardware_id_selects_matching_keymasq_instance() -> None:
+    devices = {
+        "/dev/input/event9": _FakeDevice("/dev/input/event9"),
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+
+    resolved = _resolve(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        devices,
+        hardware_id="2dc8:3106@2",
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+
+
+def test_numbered_hardware_id_out_of_range_does_not_fall_back_to_first() -> None:
+    devices = {
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+
+    resolved = _resolve(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        devices,
+        hardware_id="2dc8:3106@2",
+    )
+
+    assert resolved == []
 
 
 def test_unresolved_keymasq_path_returns_no_interface() -> None:

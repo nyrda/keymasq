@@ -106,6 +106,7 @@ async def grab_device_unlocked(
     )
     resolved_interfaces = device_path_resolver.resolve_evdev_interfaces(
         raw_interfaces,
+        hardware_id=hardware_id,
         device_paths_fn=device_paths_fn,
         device_input_fn=device_input_fn,
         detect_input_classes_fn=detect_input_classes_fn,

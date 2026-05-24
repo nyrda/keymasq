@@ -10,6 +10,10 @@ Hardware files live at:
 
 The hardware ID is `vendor_id:product_id`, for example `046d:c08b`.
 Profile mappings refer to these IDs under `[devices."<hardware_id>"]`.
+For duplicate devices with the same vendor/product IDs, use an explicit
+`hardware_id` such as `046d:c08b@2` in the hardware file. When an evdev entry
+uses `keymasq:<vendor_id>:<product_id>`, the suffix selects the Nth matching
+runtime interface instead of falling back to the first identical device.
 
 Only edit hardware config when adding or fixing physical button/key
 definitions. For normal remaps, edit profiles instead.
@@ -81,6 +85,8 @@ evdev_code = 2
 - `name`: display name
 - `vendor_id`: USB/vendor ID string
 - `product_id`: USB/product ID string
+- `hardware_id`: optional explicit ID, mainly for duplicate devices such as
+  `046d:c08b@2`; the vendor/product prefix must match
 - `image`: optional image filename
 
 `[hardware.evdev].devices` entries:

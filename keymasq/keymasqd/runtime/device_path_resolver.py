@@ -1,4 +1,5 @@
 import logging
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, cast
@@ -62,6 +63,7 @@ def interface_descriptors_from_paths(paths: list[str]) -> list[JsonObject]:
 def resolve_evdev_interfaces(
     interfaces: list[JsonObject],
     *,
+    hardware_id: str | None = None,
     device_paths_fn: Callable[[], list[str]],
     device_input_fn: Callable[[str], InputDeviceLike],
     detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
@@ -98,6 +100,7 @@ def resolve_evdev_interfaces(
             configured_phys=configured_phys,
             configured_caps=configured_caps,
             selected_paths=selected_paths,
+            hardware_id=hardware_id,
             device_paths_fn=device_paths_fn,
             device_input_fn=device_input_fn,
             detect_input_classes_fn=detect_input_classes_fn,
@@ -126,6 +129,7 @@ def _resolve_keymasq_path(
     configured_phys: str,
     configured_caps: set[str],
     selected_paths: set[str],
+    hardware_id: str | None,
     device_paths_fn: Callable[[], list[str]],
     device_input_fn: Callable[[str], InputDeviceLike],
     detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
@@ -187,6 +191,26 @@ def _resolve_keymasq_path(
             candidate.path,
         )
     )
+    instance_index = _numbered_hardware_instance_index(
+        hardware_id,
+        vendor_id=vendor_id,
+        product_id=product_id,
+    )
+    if instance_index is not None:
+        best_score = candidates[0].score
+        matching_instances = [
+            candidate for candidate in candidates if candidate.score == best_score
+        ]
+        if instance_index >= len(matching_instances):
+            log.info(
+                "No %s instance %d match from candidates %s",
+                configured_path,
+                instance_index + 1,
+                [candidate.path for candidate in matching_instances],
+            )
+            return None
+        return matching_instances[instance_index]
+
     best = candidates[0]
     if len(candidates) > 1 and candidates[1].score == best.score:
         log.warning(
@@ -196,6 +220,27 @@ def _resolve_keymasq_path(
             [candidate.path for candidate in candidates],
         )
     return best
+
+
+def _numbered_hardware_instance_index(
+    hardware_id: str | None,
+    *,
+    vendor_id: str,
+    product_id: str,
+) -> int | None:
+    normalized = str(hardware_id or "").strip().lower()
+    match = re.fullmatch(
+        r"([0-9a-f]{1,4}):([0-9a-f]{1,4})@([1-9][0-9]*)",
+        normalized,
+    )
+    if match is None:
+        return None
+
+    hardware_vendor, hardware_product, instance_text = match.groups()
+    if hardware_vendor.zfill(4) != vendor_id or hardware_product.zfill(4) != product_id:
+        return None
+
+    return int(instance_text) - 1
 
 
 def _close_device(device: object) -> None:

@@ -1,4 +1,6 @@
 # ruff: noqa: F403, F405, I001
+import logging
+
 from tests.session.profile_support import *
 
 @pytest.mark.asyncio
@@ -270,7 +272,185 @@ async def test_apply_resolved_device_profile_waits_when_daemon_reports_no_live_i
     manager.client.send_command.assert_awaited_once()
     assert hardware_id not in manager.profile_state.grabbed_devices
     assert hardware_id not in manager.profile_state.grabbed_interfaces
+    assert hardware_id in manager.profile_state.grab_waiting_devices
+    assert hardware_id in manager.profile_state.last_sent_grab_signatures
     assert manager.profile_state.last_sent_mapping_signatures == {}
+
+
+@pytest.mark.asyncio
+async def test_apply_resolved_device_profile_skips_unchanged_waiting_device() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678@2"
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={"btn_south": MappingAction(action_type=ActionType.KEYBOARD, target="key_f13")},
+    )
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        hardware_id=hardware_id,
+        name="Test Pad 2",
+        evdev_devices=[
+            SimpleNamespace(
+                id="gamepad",
+                path="keymasq:1234:5678",
+                device_type=SimpleNamespace(value="gamepad"),
+                phys="",
+                capabilities=[],
+            )
+        ],
+        buttons=[
+            SimpleNamespace(
+                id="btn_south",
+                evdev="btn_south",
+                source="gamepad",
+                evdev_value=None,
+            )
+        ],
+        analog_inputs=[],
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
+    )
+
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+
+    manager.client.send_command.assert_awaited_once()
+    assert hardware_id in manager.profile_state.grab_waiting_devices
+
+
+@pytest.mark.asyncio
+async def test_apply_resolved_device_profile_keeps_waiting_cache_across_inactive_window() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678@2"
+    mapped = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={"btn_south": MappingAction(action_type=ActionType.KEYBOARD, target="key_f13")},
+    )
+    inactive = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=[],
+    )
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        hardware_id=hardware_id,
+        name="Test Pad 2",
+        evdev_devices=[
+            SimpleNamespace(
+                id="gamepad",
+                path="keymasq:1234:5678",
+                device_type=SimpleNamespace(value="gamepad"),
+                phys="",
+                capabilities=[],
+            )
+        ],
+        buttons=[
+            SimpleNamespace(
+                id="btn_south",
+                evdev="btn_south",
+                source="gamepad",
+                evdev_value=None,
+            )
+        ],
+        analog_inputs=[],
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
+    )
+
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, mapped)
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, inactive)
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, mapped)
+
+    manager.client.send_command.assert_awaited_once()
+    assert hardware_id in manager.profile_state.grab_waiting_devices
+
+
+@pytest.mark.asyncio
+async def test_apply_resolved_device_profile_skips_waiting_device_when_payload_changes() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678@2"
+    mapped = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={"btn_south": MappingAction(action_type=ActionType.KEYBOARD, target="key_f13")},
+    )
+    changed = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Gaming"],
+        mappings={"btn_south": MappingAction(action_type=ActionType.MOUSE, target="btn_left")},
+        combo_event_count=1,
+        combo_sources={"gamepad"},
+    )
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        hardware_id=hardware_id,
+        name="Test Pad 2",
+        evdev_devices=[
+            SimpleNamespace(
+                id="gamepad",
+                path="keymasq:1234:5678",
+                device_type=SimpleNamespace(value="gamepad"),
+                phys="",
+                capabilities=[],
+            )
+        ],
+        buttons=[
+            SimpleNamespace(
+                id="btn_south",
+                evdev="btn_south",
+                source="gamepad",
+                evdev_value=None,
+            )
+        ],
+        analog_inputs=[],
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
+    )
+
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, mapped)
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, changed)
+
+    manager.client.send_command.assert_awaited_once()
+    assert hardware_id in manager.profile_state.grab_waiting_devices
+
+
+@pytest.mark.asyncio
+async def test_apply_resolved_device_profile_does_not_grab_empty_interface_selection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678@2"
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        combo_event_count=1,
+        combo_sources={"if02_joystick"},
+    )
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        hardware_id=hardware_id,
+        name="Test Pad 2",
+        evdev_devices=[
+            SimpleNamespace(
+                id="joystick",
+                path="keymasq:1234:5678",
+                device_type=SimpleNamespace(value="gamepad"),
+                phys="",
+                capabilities=[],
+            )
+        ],
+        buttons=[],
+        analog_inputs=[],
+    )
+    manager.client.send_command = AsyncMock()
+
+    with caplog.at_level(logging.WARNING, logger="keymasq-session"):
+        await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+        await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+
+    manager.client.send_command.assert_not_awaited()
+    assert "No configured interfaces selected for 1234:5678@2" in caplog.text
+    assert caplog.text.count("No configured interfaces selected for 1234:5678@2") == 1
 
 
 @pytest.mark.asyncio

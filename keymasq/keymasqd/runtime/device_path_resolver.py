@@ -251,6 +251,8 @@ def _resolve_keymasq_path(
         if path in selected_paths:
             continue
         cached = cached_devices.get(path)
+        if cached is None and not cached_devices:
+            cached = _probe_cached_device(path, deps)
         if cached is None or cached.is_virtual:
             continue
         if cached.vendor_id != vendor_id or cached.product_id != product_id:
@@ -345,6 +347,33 @@ def _resolve_keymasq_path(
             [candidate.path for candidate in available_candidates],
         )
     return best
+
+
+def _probe_cached_device(
+    path: str,
+    deps: DevicePathResolverDeps,
+) -> CachedDeviceInfo | None:
+    device: InputDeviceLike | None = None
+    try:
+        device = deps.device_input_fn(path)
+        info = device.info
+        caps = device.capabilities()
+        return CachedDeviceInfo(
+            path=path,
+            vendor_id=f"{info.vendor:04x}",
+            product_id=f"{info.product:04x}",
+            phys=str(getattr(device, "phys", "") or "").strip(),
+            device_type=deps.primary_input_class_fn(deps.detect_input_classes_fn(device)),
+            capabilities=_normalize_capability_names(
+                capability_names_from_capabilities(caps)
+            ),
+            is_virtual=_is_keymasq_virtual_device(device),
+        )
+    except Exception:
+        return None
+    finally:
+        if device is not None:
+            _close_device(device)
 
 
 def _is_excluded_path(

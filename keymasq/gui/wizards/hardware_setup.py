@@ -634,7 +634,8 @@ class HardwareSetupDialog(Adw.Dialog):
             if isinstance(iface, dict)
         )
 
-    def _device_in_use_summary(self, dev_info: dict) -> str:
+    @staticmethod
+    def _device_in_use_summary(dev_info: dict) -> str:
         for iface in dev_info.get("interfaces", []):
             if not isinstance(iface, dict):
                 continue
@@ -1747,13 +1748,15 @@ class HardwareSetupDialog(Adw.Dialog):
         for btn_def in self.button_definitions:
             source = btn_def.get("source")
             source_iface = self.discovered_interfaces.get(str(source or ""))
-            config_path = (
-                source_iface.get("config_path")
-                or source_iface.get("stable_path")
-                or source_iface.get("path")
-                if isinstance(source_iface, dict)
-                else btn_def.get("stable_path")
-            )
+            if isinstance(source_iface, dict):
+                config_path = (
+                    source_iface.get("config_path")
+                    or source_iface.get("stable_path")
+                    or source_iface.get("path")
+                    or btn_def.get("stable_path")
+                )
+            else:
+                config_path = btn_def.get("stable_path")
             if source and config_path:
                 source_to_interface[source] = config_path
 

@@ -208,6 +208,24 @@ def test_grab_device_payload_signature_includes_interface_descriptors() -> None:
     ) != session_profiles_module.grab_device_payload_signature(changed_payload)
 
 
+def test_grab_device_payload_signature_normalizes_interface_order() -> None:
+    first = {
+        "evdev_paths": ["keymasq:2dc8:3106"],
+        "evdev_interfaces": [
+            {"id": "buttons", "path": "keymasq:2dc8:3106", "type": "gamepad"},
+            {"id": "axes", "path": "keymasq:2dc8:3106", "type": "gamepad"},
+        ],
+    }
+    second = {
+        **first,
+        "evdev_interfaces": list(reversed(first["evdev_interfaces"])),
+    }
+
+    assert session_profiles_module.grab_device_payload_signature(
+        first
+    ) == session_profiles_module.grab_device_payload_signature(second)
+
+
 @pytest.mark.asyncio
 async def test_apply_resolved_device_profile_retries_after_grab_timeout() -> None:
     manager = SessionManager()

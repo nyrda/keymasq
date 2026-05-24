@@ -522,7 +522,6 @@ class TestHardwareSetupDialog:
         from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 
         summary = HardwareSetupDialog._device_in_use_summary(
-            None,
             {
                 "interfaces": [
                     "invalid",

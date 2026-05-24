@@ -127,6 +127,26 @@ def test_keymasq_path_uses_cached_probe_metadata() -> None:
     assert devices["/dev/input/event2"].close_count == 1
 
 
+def test_keymasq_path_probes_device_when_cache_misses() -> None:
+    devices = {
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+
+    resolved = resolve_evdev_interfaces(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        deps=DevicePathResolverDeps(
+            device_paths_fn=lambda: list(devices),
+            device_input_fn=lambda path: devices[path],
+            detect_input_classes_fn=detect_input_classes,
+            primary_input_class_fn=primary_input_class,
+            cache=DeviceCache(),
+        ),
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event2"]
+    assert devices["/dev/input/event2"].close_count == 1
+
+
 def test_keymasq_path_closes_devices_after_scan_errors() -> None:
     class _FailingDevice(_FakeDevice):
         def capabilities(self):

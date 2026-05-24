@@ -949,7 +949,9 @@ def build_grab_device_payload(
 def grab_device_payload_signature(payload: JsonObject) -> str:
     signature_payload = {
         "evdev_paths": sorted(str(path) for path in _json_list(payload.get("evdev_paths"))),
-        "evdev_interfaces": payload.get("evdev_interfaces", []),
+        "evdev_interfaces": _signature_evdev_interfaces(
+            payload.get("evdev_interfaces")
+        ),
         "button_map": payload.get("button_map", {}),
         "button_codes": payload.get("button_codes", {}),
         "button_values": payload.get("button_values", {}),
@@ -957,6 +959,17 @@ def grab_device_payload_signature(payload: JsonObject) -> str:
         "force_grab_unmapped": bool(payload.get("force_grab_unmapped", False)),
     }
     return json.dumps(signature_payload, sort_keys=True, separators=(",", ":"))
+
+
+def _signature_evdev_interfaces(value: object) -> list[object]:
+    interfaces: list[object] = [
+        dict(cast(JsonObject, item)) if isinstance(item, dict) else item
+        for item in _json_list(value)
+    ]
+    return sorted(
+        interfaces,
+        key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
+    )
 
 
 async def update_grab_device_payload(

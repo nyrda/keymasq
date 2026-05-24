@@ -3,8 +3,10 @@ from tests.keymasqd.daemon_support import *
 
 import evdev
 
+from keymasq.common.devices import detect_input_classes, primary_input_class
 from keymasq.keymasqd import capture_manager as capture_manager_module
 from keymasq.keymasqd.capture_manager import CaptureManager
+from keymasq.keymasqd.runtime import device_path_resolver
 
 @pytest.mark.asyncio
 async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemon_testbed):
@@ -320,6 +322,12 @@ def test_capture_manager_resolves_logical_combo_interfaces(monkeypatch):
         capture_manager_module.evdev,
         "InputDevice",
         lambda path: devices[path],
+    )
+    device_path_resolver.refresh_cached_devices_sync(
+        device_paths_fn=capture_manager_module.evdev.list_devices,
+        device_input_fn=capture_manager_module.evdev.InputDevice,
+        detect_input_classes_fn=detect_input_classes,
+        primary_input_class_fn=primary_input_class,
     )
 
     manager = CaptureManager()

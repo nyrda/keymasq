@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, cast
@@ -50,6 +51,63 @@ class _Candidate:
     device_type: DeviceType
     capabilities: set[str]
     score: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class CachedDeviceInfo:
+    path: str
+    vendor_id: str
+    product_id: str
+    phys: str
+    device_type: DeviceType
+    capabilities: set[str]
+    is_virtual: bool
+
+
+_CACHE_LOCK = threading.Lock()
+_CACHED_DEVICES: dict[str, CachedDeviceInfo] = {}
+
+
+def refresh_cached_devices_sync(
+    *,
+    device_paths_fn: Callable[[], list[str]],
+    device_input_fn: Callable[[str], InputDeviceLike],
+    detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
+    primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType],
+) -> dict[str, CachedDeviceInfo]:
+    devices: dict[str, CachedDeviceInfo] = {}
+    for path in sorted(device_paths_fn()):
+        device: InputDeviceLike | None = None
+        try:
+            device = device_input_fn(path)
+            info = device.info
+            caps = device.capabilities()
+            devices[path] = CachedDeviceInfo(
+                path=path,
+                vendor_id=f"{info.vendor:04x}",
+                product_id=f"{info.product:04x}",
+                phys=str(getattr(device, "phys", "") or "").strip(),
+                device_type=primary_input_class_fn(detect_input_classes_fn(device)),
+                capabilities=_normalize_capability_names(
+                    capability_names_from_capabilities(caps)
+                ),
+                is_virtual=_is_keymasq_virtual_device(device),
+            )
+        except Exception:
+            continue
+        finally:
+            if device is not None:
+                _close_device(device)
+
+    with _CACHE_LOCK:
+        _CACHED_DEVICES.clear()
+        _CACHED_DEVICES.update(devices)
+    return devices
+
+
+def cached_devices_snapshot() -> dict[str, CachedDeviceInfo]:
+    with _CACHE_LOCK:
+        return dict(_CACHED_DEVICES)
 
 
 def interface_descriptors_from_paths(paths: list[str]) -> list[JsonObject]:
@@ -140,46 +198,35 @@ def _resolve_keymasq_path(
         return None
     vendor_id, product_id = parsed
     candidates: list[_Candidate] = []
+    cached_devices = cached_devices_snapshot()
     for path in sorted(device_paths_fn()):
         if path in selected_paths:
             continue
-        device: InputDeviceLike | None = None
-        try:
-            device = device_input_fn(path)
-            if _is_keymasq_virtual_device(device):
-                continue
-            info = device.info
-            if f"{info.vendor:04x}" != vendor_id or f"{info.product:04x}" != product_id:
-                continue
-            caps = device.capabilities()
-            capability_names = _normalize_capability_names(capability_names_from_capabilities(caps))
-            detected_type = primary_input_class_fn(detect_input_classes_fn(device))
-            phys = str(getattr(device, "phys", "") or "").strip()
-            type_match = configured_type != DeviceType.OTHER and detected_type == configured_type
-            type_score = int(configured_type == DeviceType.OTHER or type_match)
-            phys_score = int(bool(configured_phys) and phys == configured_phys)
-            cap_score = len(configured_caps & capability_names)
-            has_selector = (
-                configured_type != DeviceType.OTHER
-                or bool(configured_phys)
-                or bool(configured_caps)
-            )
-            if has_selector and not (type_match or phys_score or cap_score):
-                continue
-            candidates.append(
-                _Candidate(
-                    path=path,
-                    phys=phys,
-                    device_type=detected_type,
-                    capabilities=capability_names,
-                    score=(type_score, phys_score, cap_score),
-                )
-            )
-        except Exception:
+        cached = cached_devices.get(path)
+        if cached is None or cached.is_virtual:
             continue
-        finally:
-            if device is not None:
-                _close_device(device)
+        if cached.vendor_id != vendor_id or cached.product_id != product_id:
+            continue
+        type_match = configured_type != DeviceType.OTHER and cached.device_type == configured_type
+        type_score = int(configured_type == DeviceType.OTHER or type_match)
+        phys_score = int(bool(configured_phys) and cached.phys == configured_phys)
+        cap_score = len(configured_caps & cached.capabilities)
+        has_selector = (
+            configured_type != DeviceType.OTHER
+            or bool(configured_phys)
+            or bool(configured_caps)
+        )
+        if has_selector and not (type_match or phys_score or cap_score):
+            continue
+        candidates.append(
+            _Candidate(
+                path=path,
+                phys=cached.phys,
+                device_type=cached.device_type,
+                capabilities=cached.capabilities,
+                score=(type_score, phys_score, cap_score),
+            )
+        )
 
     if not candidates:
         return None

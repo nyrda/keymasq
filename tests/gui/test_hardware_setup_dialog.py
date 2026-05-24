@@ -121,6 +121,20 @@ class TestHardwareSetupDialog:
 
         assert iface_id == "if02_joystick"
 
+    def test_interface_id_for_config_prefers_by_id_config_path(self):
+        from keymasq.gui.wizards.hardware_setup import _interface_id_for_config
+
+        iface_id = _interface_id_for_config(
+            {
+                "stable_path": "/dev/input/event20",
+                "config_path": "/dev/input/by-id/usb-Test-if03-event-kbd",
+                "device_types": ["keyboard"],
+            },
+            set(),
+        )
+
+        assert iface_id == "if03_kbd"
+
     def test_raw_evdev_mode_requests_other_devices_and_disables_grouping(
         self, monkeypatch
     ):

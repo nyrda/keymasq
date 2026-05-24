@@ -116,6 +116,12 @@ async def grab_device_unlocked(
         resolve_stable_path_fn(interface.path) for interface in resolved_interfaces
     ]
     requested_paths = set(requested_interface_paths)
+    raw_interface_paths = {
+        path
+        for descriptor in raw_interfaces
+        if (path := str(descriptor.get("path", "") or "").strip())
+    }
+    desired_paths = requested_paths | raw_interface_paths
     resolved_by_path = {
         resolve_stable_path_fn(interface.path): interface for interface in resolved_interfaces
     }
@@ -134,14 +140,15 @@ async def grab_device_unlocked(
     analog_bindings = analog_input_bindings(analog_inputs or {})
     mapped_bindings = button_mapped_bindings | analog_bindings
     if update_desired:
-        manager.grab_state.desired_paths[hardware_id] = set(requested_paths)
+        manager.grab_state.desired_paths[hardware_id] = set(desired_paths)
         manager.grab_state.desired_grabs[hardware_id] = desired_grab_config_cls(
-            paths=set(requested_paths),
+            paths=set(desired_paths),
             button_map=dict(button_map),
             button_codes=dict(resolved_button_codes),
             button_values=dict(resolved_button_values),
             analog_inputs=dict(analog_inputs or {}),
             force_grab_unmapped=bool(force_grab_unmapped),
+            evdev_interfaces=list(raw_interfaces) if evdev_interfaces is not None else [],
         )
     log.info(
         "Grab request for %s: paths=%d mapped_evdev_names=%d mapped_bindings=%d",

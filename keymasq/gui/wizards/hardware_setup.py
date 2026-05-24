@@ -131,7 +131,8 @@ def _interface_id_for_config(iface: dict, used_ids: set[str]) -> str:
     stable_path = str(iface.get("stable_path", "") or "")
     config_path = str(iface.get("config_path", "") or "")
     if is_by_id_path(stable_path) or is_by_id_path(config_path):
-        return _dedupe_interface_id(get_interface_id(stable_path or config_path), used_ids)
+        by_id_path = stable_path if is_by_id_path(stable_path) else config_path
+        return _dedupe_interface_id(get_interface_id(by_id_path), used_ids)
     return _dedupe_interface_id(
         _fallback_interface_id_for_type(primary_input_class(iface.get("device_types"))),
         used_ids,

@@ -4,7 +4,9 @@ from unittest.mock import Mock
 import evdev
 import pytest
 
+from keymasq.common.devices import detect_input_classes, primary_input_class
 from keymasq.keymasqd.capture_manager import CaptureManager
+from keymasq.keymasqd.runtime import device_path_resolver
 
 
 class _FakeInfo:
@@ -115,6 +117,12 @@ def test_capture_manager_resolves_keymasq_paths(monkeypatch) -> None:
 
     monkeypatch.setattr(evdev, "list_devices", lambda: ["/dev/input/event7"])
     monkeypatch.setattr(evdev, "InputDevice", lambda path: fake)
+    device_path_resolver.refresh_cached_devices_sync(
+        device_paths_fn=evdev.list_devices,
+        device_input_fn=evdev.InputDevice,
+        detect_input_classes_fn=detect_input_classes,
+        primary_input_class_fn=primary_input_class,
+    )
 
     manager = CaptureManager()
     begin = manager.begin(

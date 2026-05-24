@@ -323,13 +323,14 @@ class TestDeviceManager:
     ) -> None:
         manager = DeviceManager()
         monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
+        evdev_interfaces = [
+            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+        ]
 
         result = await manager.grab_device(
             hardware_id="2dc8:3106",
             evdev_paths=["keymasq:2dc8:3106"],
-            evdev_interfaces=[
-                {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-            ],
+            evdev_interfaces=evdev_interfaces,
             button_map={"btn_south": "btn_south"},
         )
 
@@ -340,6 +341,13 @@ class TestDeviceManager:
             "skipped_count": 0,
             "waiting_for_device": True,
         }
+        assert manager.grab_state.desired_paths["2dc8:3106"] == {"keymasq:2dc8:3106"}
+        assert manager.grab_state.desired_grabs["2dc8:3106"] == DesiredGrabConfig(
+            paths={"keymasq:2dc8:3106"},
+            button_map={"btn_south": "btn_south"},
+            force_grab_unmapped=False,
+            evdev_interfaces=evdev_interfaces,
+        )
 
     @pytest.mark.asyncio
     async def test_grab_device_resolves_keymasq_path_and_uses_configured_interface_id(
@@ -356,6 +364,12 @@ class TestDeviceManager:
             ldm.device_path_resolver,
             "_is_keymasq_virtual_device",
             lambda _d: False,
+        )
+        ldm.device_path_resolver.refresh_cached_devices_sync(
+            device_paths_fn=dm._device_paths,
+            device_input_fn=dm._device_input,
+            detect_input_classes_fn=dm.detect_input_classes,
+            primary_input_class_fn=dm.primary_input_class,
         )
 
         result = await manager.grab_device(
@@ -395,6 +409,12 @@ class TestDeviceManager:
             ldm.device_path_resolver,
             "_is_keymasq_virtual_device",
             lambda _d: False,
+        )
+        ldm.device_path_resolver.refresh_cached_devices_sync(
+            device_paths_fn=dm._device_paths,
+            device_input_fn=dm._device_input,
+            detect_input_classes_fn=dm.detect_input_classes,
+            primary_input_class_fn=dm.primary_input_class,
         )
 
         await manager.grab_device(

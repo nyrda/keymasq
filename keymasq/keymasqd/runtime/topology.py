@@ -7,6 +7,7 @@ from typing import Any
 
 from keymasq.common.ipc import CommandType
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
+from keymasq.keymasqd.runtime import device_path_resolver
 
 type JsonObject = dict[str, object]
 type Snapshot = dict[str, Any]
@@ -17,6 +18,8 @@ type DeviceInputFn = Callable[[str], Any]
 type ResolveStablePathFn = Callable[[str], str]
 type GetInterfaceIdFn = Callable[[str], str | None]
 type ReleaseInterfaceFn = Callable[[Any, str, str], Awaitable[None]]
+type DetectInputClassesFn = Callable[[Any], list[str]]
+type PrimaryInputClassFn = Callable[[Any], Any]
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,8 @@ class TopologyRuntimeDeps:
     clear_device_path_cache_fn: ClearDevicePathCacheFn
     device_paths_fn: DevicePathsFn
     device_input_fn: DeviceInputFn
+    detect_input_classes_fn: DetectInputClassesFn
+    primary_input_class_fn: PrimaryInputClassFn
     resolve_stable_path_fn: ResolveStablePathFn
     get_interface_id_fn: GetInterfaceIdFn
     release_interface_fn: ReleaseInterfaceFn
@@ -57,6 +62,8 @@ async def start_topology_watcher(
         clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
         device_paths_fn=deps.device_paths_fn,
         device_input_fn=deps.device_input_fn,
+        detect_input_classes_fn=deps.detect_input_classes_fn,
+        primary_input_class_fn=deps.primary_input_class_fn,
         resolve_stable_path_fn=deps.resolve_stable_path_fn,
         get_interface_id_fn=deps.get_interface_id_fn,
         log=log,
@@ -108,6 +115,8 @@ async def topology_watch_loop(
                     clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
                     device_paths_fn=deps.device_paths_fn,
                     device_input_fn=deps.device_input_fn,
+                    detect_input_classes_fn=deps.detect_input_classes_fn,
+                    primary_input_class_fn=deps.primary_input_class_fn,
                     resolve_stable_path_fn=deps.resolve_stable_path_fn,
                     get_interface_id_fn=deps.get_interface_id_fn,
                     log=log,
@@ -270,19 +279,25 @@ def scan_live_interfaces_sync(
     clear_device_path_cache_fn: ClearDevicePathCacheFn,
     device_paths_fn: DevicePathsFn,
     device_input_fn: DeviceInputFn,
+    detect_input_classes_fn: DetectInputClassesFn,
+    primary_input_class_fn: PrimaryInputClassFn,
     resolve_stable_path_fn: ResolveStablePathFn,
     get_interface_id_fn: GetInterfaceIdFn,
     log: logging.Logger,
 ) -> Snapshot:
     clear_device_path_cache_fn()
     snapshot: Snapshot = {}
+    cached_devices = device_path_resolver.refresh_cached_devices_sync(
+        device_paths_fn=device_paths_fn,
+        device_input_fn=device_input_fn,
+        detect_input_classes_fn=detect_input_classes_fn,
+        primary_input_class_fn=primary_input_class_fn,
+    )
 
-    for path in device_paths_fn():
+    for path, device_info in cached_devices.items():
         try:
-            device = device_input_fn(path)
-            info = device.info
-            vendor_id = f"{info.vendor:04x}"
-            product_id = f"{info.product:04x}"
+            vendor_id = device_info.vendor_id
+            product_id = device_info.product_id
             hardware_id = f"{vendor_id}:{product_id}"
             stable_path = resolve_stable_path_fn(path)
             snapshot[stable_path] = LiveInterfaceInfo(

@@ -5,6 +5,7 @@ import evdev
 from keymasq.common.devices import detect_input_classes, primary_input_class
 from keymasq.common.models import DeviceType
 from keymasq.keymasqd.runtime.device_path_resolver import (
+    refresh_cached_devices_sync,
     resolve_evdev_interfaces,
 )
 
@@ -41,6 +42,12 @@ class _FakeDevice:
 
 
 def _resolve(interfaces, devices, hardware_id: str | None = None):
+    refresh_cached_devices_sync(
+        device_paths_fn=lambda: list(devices),
+        device_input_fn=lambda path: devices[path],
+        detect_input_classes_fn=detect_input_classes,
+        primary_input_class_fn=primary_input_class,
+    )
     return resolve_evdev_interfaces(
         interfaces,
         hardware_id=hardware_id,
@@ -74,6 +81,32 @@ def test_keymasq_path_resolves_matching_vid_pid() -> None:
 
     assert [interface.path for interface in resolved] == ["/dev/input/event2"]
     assert devices["/dev/input/event1"].close_count == 1
+    assert devices["/dev/input/event2"].close_count == 1
+
+
+def test_keymasq_path_uses_cached_probe_metadata() -> None:
+    devices = {
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+    refresh_cached_devices_sync(
+        device_paths_fn=lambda: list(devices),
+        device_input_fn=lambda path: devices[path],
+        detect_input_classes_fn=detect_input_classes,
+        primary_input_class_fn=primary_input_class,
+    )
+
+    def fail_input_device(_path: str):
+        raise AssertionError("resolver must not probe devices on request path")
+
+    resolved = resolve_evdev_interfaces(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        device_paths_fn=lambda: list(devices),
+        device_input_fn=fail_input_device,
+        detect_input_classes_fn=detect_input_classes,
+        primary_input_class_fn=primary_input_class,
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event2"]
     assert devices["/dev/input/event2"].close_count == 1
 
 

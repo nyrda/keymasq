@@ -51,6 +51,7 @@ from keymasq.gui.session_client import (
     session_request,
     session_request_async,
 )
+from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches, install_listbox_fuzzy_filter
 from keymasq.session.hardware import HardwareManager
 
 DetectedDevice = dict[str, Any]
@@ -70,6 +71,39 @@ def _make_capture_status_row(status_label: Gtk.Label) -> tuple[Gtk.Box, Gtk.Widg
     row.append(dot)
     row.append(status_label)
     return row, dot
+
+
+def _device_search_text(hardware_id: str, dev_info: DetectedDevice) -> str:
+    interfaces = dev_info.get("interfaces", [])
+    interface_text: list[str] = []
+    if isinstance(interfaces, list):
+        for iface in interfaces:
+            if not isinstance(iface, dict):
+                continue
+            interface_text.extend(
+                str(iface.get(key, "") or "")
+                for key in (
+                    "path",
+                    "stable_path",
+                    "config_path",
+                    "phys",
+                    "interface_id",
+                    "device_type",
+                )
+            )
+            interface_text.extend(str(t) for t in iface.get("device_types", []) or [])
+    return " ".join(
+        [
+            hardware_id,
+            str(dev_info.get("name", "") or ""),
+            str(dev_info.get("display_name", "") or ""),
+            str(dev_info.get("model_id", "") or ""),
+            str(dev_info.get("vendor_id", "") or ""),
+            str(dev_info.get("product_id", "") or ""),
+            " ".join(str(t) for t in dev_info.get("device_types", []) or []),
+            " ".join(interface_text),
+        ]
+    )
 
 
 def _set_capture_status(
@@ -208,7 +242,7 @@ class HardwareSetupDialog(Adw.Dialog):
         super().__init__(
             title="Add New Device",
             content_width=500,
-            content_height=450,
+            content_height=520,
         )
         if hasattr(self, "set_modal"):
             self.set_modal(True)
@@ -246,6 +280,13 @@ class HardwareSetupDialog(Adw.Dialog):
         _keycode: int,
         _state: Gdk.ModifierType,
     ) -> bool:
+        if keyval in (Gdk.KEY_f, Gdk.KEY_F) and _state & Gdk.ModifierType.CONTROL_MASK:
+            self._show_device_search()
+            return True
+        if keyval == Gdk.KEY_Escape and getattr(self, "device_search_entry", None):
+            if self.device_search_entry.get_visible():
+                self._hide_device_search()
+                return True
         if keyval != Gdk.KEY_Escape:
             return False
         self.close()
@@ -298,16 +339,43 @@ class HardwareSetupDialog(Adw.Dialog):
         subtitle.add_css_class("dim-label")
         box.append(subtitle)
 
+        device_tools = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
         self.raw_evdev_check = Gtk.CheckButton(label="Show raw evdev devices")
         self.raw_evdev_check.set_tooltip_text(
             "Show each event node separately, including unknown device types."
         )
         self.raw_evdev_check.connect("toggled", self._on_raw_evdev_toggled)
-        box.append(self.raw_evdev_check)
+        device_tools.append(self.raw_evdev_check)
+
+        search_spacer = Gtk.Box()
+        search_spacer.set_hexpand(True)
+        device_tools.append(search_spacer)
+
+        self.device_search_button = Gtk.Button()
+        self.device_search_button.set_icon_name("system-search-symbolic")
+        self.device_search_button.set_tooltip_text("Search devices")
+        self.device_search_button.connect("clicked", self._on_device_search_clicked)
+        device_tools.append(self.device_search_button)
+        box.append(device_tools)
+
+        self.device_search_entry = Gtk.SearchEntry()
+        self.device_search_entry.set_placeholder_text("Search devices")
+        self.device_search_entry.set_tooltip_text(
+            "Filter devices by name, type, ID, or evdev path"
+        )
+        self.device_search_entry.set_visible(False)
+        self.device_search_entry.connect("stop-search", self._on_device_search_stop)
+        box.append(self.device_search_entry)
 
         self.device_list = Gtk.ListBox()
         self.device_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.device_list.connect("row-selected", self._on_device_selected)
+        install_listbox_fuzzy_filter(
+            self.device_list,
+            self.device_search_entry,
+            after_filter_changed=self._after_device_search_filter_changed,
+        )
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -319,6 +387,34 @@ class HardwareSetupDialog(Adw.Dialog):
         box.append(refresh_btn)
 
         self.stack.add_titled(box, "select", "Select Device")
+
+    def _show_device_search(self) -> None:
+        self.device_search_entry.set_visible(True)
+        self.device_search_entry.grab_focus()
+        self.device_search_entry.select_region(0, -1)
+
+    def _hide_device_search(self) -> None:
+        self.device_search_entry.set_text("")
+        self.device_search_entry.set_visible(False)
+
+    def _on_device_search_clicked(self, _button: Gtk.Button) -> None:
+        self._show_device_search()
+
+    def _on_device_search_stop(self, _entry: Gtk.SearchEntry) -> None:
+        self._hide_device_search()
+
+    def _after_device_search_filter_changed(self) -> None:
+        selected_row = self.device_list.get_selected_row()
+        if selected_row is None:
+            self._clear_device_selection()
+            return
+        if fuzzy_query_matches(
+            self.device_search_entry.get_text(),
+            getattr(selected_row, "_search_text", ""),
+        ):
+            return
+        self.device_list.unselect_row(selected_row)
+        self._clear_device_selection()
 
     def _setup_page_describe(self) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -568,6 +664,7 @@ class HardwareSetupDialog(Adw.Dialog):
 
             row.set_child(row_box)
             row.hardware_id = hardware_id
+            row._search_text = _device_search_text(hardware_id, dev_info)
             if expander is not None:
                 row._expander = expander
             self.device_list.append(row)
@@ -1104,6 +1201,9 @@ class HardwareSetupDialog(Adw.Dialog):
         return hardware_id if hardware_id != model_id else None
 
     def _on_device_selected(self, list_box, row) -> None:
+        if row is None:
+            self._clear_device_selection()
+            return
         if row:
             self.selected_device = self.detected_devices[row.hardware_id]
             if hasattr(row, "_expander"):
@@ -1121,6 +1221,10 @@ class HardwareSetupDialog(Adw.Dialog):
             self._discover_interfaces()
             self._refresh_configure_modes()
             self.next_btn.set_sensitive(not self._device_in_use(self.selected_device))
+
+    def _clear_device_selection(self) -> None:
+        self.selected_device = None
+        self.next_btn.set_sensitive(False)
 
     def _interface_device_types(self, iface: dict) -> list[str]:
         return normalize_input_classes(iface.get("device_types"), iface.get("device_type"))

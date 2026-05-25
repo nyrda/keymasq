@@ -42,6 +42,11 @@ from keymasq.gui.widgets.compositor_actions import (
     build_compositor_action_pages,
     compositor_action_tab_name,
 )
+from keymasq.gui.widgets.fuzzy_search import (
+    fuzzy_query_matches,
+    install_listbox_fuzzy_filter,
+    macro_search_text,
+)
 from keymasq.gui.widgets.input_picker_shared import (
     build_gamepad_tab as build_shared_gamepad_tab,
 )
@@ -1861,6 +1866,16 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         controls_spacer.set_size_request(-1, 6)
         outer.append(controls_spacer)
 
+        self._macro_search_entry = Gtk.SearchEntry()
+        self._macro_search_entry.set_placeholder_text("Search macros")
+        self._macro_search_entry.set_tooltip_text(
+            "Filter macros by name, device type, or event count"
+        )
+        self._macro_search_entry.set_margin_start(12)
+        self._macro_search_entry.set_margin_end(12)
+        self._macro_search_entry.set_margin_bottom(8)
+        outer.append(self._macro_search_entry)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
@@ -1872,6 +1887,11 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._macro_listbox.set_margin_start(12)
         self._macro_listbox.set_margin_end(12)
         self._macro_listbox.connect("row-selected", self._on_macro_row_selected)
+        install_listbox_fuzzy_filter(
+            self._macro_listbox,
+            self._macro_search_entry,
+            after_filter_changed=self._after_macro_search_filter_changed,
+        )
         scrolled.set_child(self._macro_listbox)
         outer.append(scrolled)
 
@@ -2585,6 +2605,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         for macro in self._macro_list:
             row = Gtk.ListBoxRow()
             row._macro_name = macro["name"]
+            row._search_text = macro_search_text(macro)
 
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             row_box.set_margin_top(8)
@@ -2606,25 +2627,53 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
             row.set_child(row_box)
             self._macro_listbox.append(row)
+        self._macro_listbox.invalidate_filter()
 
         if self._selected_macro:
             for i, macro in enumerate(self._macro_list):
                 if macro["name"] == self._selected_macro:
                     row = self._macro_listbox.get_row_at_index(i)
-                    if row:
+                    if row and fuzzy_query_matches(
+                        self._macro_search_entry.get_text(),
+                        getattr(row, "_search_text", ""),
+                    ):
                         self._macro_listbox.select_row(row)
+                    else:
+                        self._clear_macro_selection()
                     break
+            else:
+                self._clear_macro_selection()
+        if not self._selected_macro:
+            self._clear_macro_selection()
 
     def _on_macro_refresh(self, btn) -> None:
         self._load_macro_list()
+
+    def _after_macro_search_filter_changed(self) -> None:
+        selected_row = self._macro_listbox.get_selected_row()
+        if selected_row is None:
+            self._clear_macro_selection()
+            return
+        if fuzzy_query_matches(
+            self._macro_search_entry.get_text(),
+            getattr(selected_row, "_search_text", ""),
+        ):
+            return
+        self._macro_listbox.unselect_row(selected_row)
+        self._clear_macro_selection()
+
+    def _clear_macro_selection(self) -> None:
+        self._selected_macro = None
+        self._macro_options_box.set_visible(False)
+        if self.stack.get_visible_child_name() == "macro":
+            self.map_btn.set_sensitive(False)
 
     def _on_macro_row_selected(self, listbox, row) -> None:
         if row and hasattr(row, "_macro_name"):
             self._selected_macro = row._macro_name
             self._macro_options_box.set_visible(self._allow_macro_options)
         else:
-            self._selected_macro = None
-            self._macro_options_box.set_visible(False)
+            self._clear_macro_selection()
         self.map_btn.set_sensitive(self._selected_macro is not None)
 
     def _on_macro_movement_toggled(self, check) -> None:

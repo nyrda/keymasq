@@ -1,4 +1,30 @@
 /* Active mapping: green left indicator + subtle tint */
+.keymasq-main-header {
+  min-height: 46px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+/* stylelint-disable-next-line selector-type-no-unknown */
+.keymasq-main-header tabbar {
+  margin-right: 6px;
+}
+
+/* stylelint-disable-next-line selector-type-no-unknown */
+tabbar tab button.tab-close-button {
+  opacity: 0;
+}
+
+/* stylelint-disable-next-line selector-type-no-unknown */
+tabbar tab:hover button.tab-close-button {
+  opacity: 0.65;
+}
+
+button.keymasq-combo-tab-button {
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
 button.button-card-passthrough,
 button.button-card-mapped-active,
 button.button-card-mapped-inactive {

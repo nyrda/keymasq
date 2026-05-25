@@ -19,18 +19,29 @@ def _settings_path() -> Path:
     return paths.CONFIG_DIR / "gui_settings.toml"
 
 
-def load_appearance_mode() -> AppearanceMode:
+def _load_settings() -> dict[str, object]:
     settings_path = _settings_path()
     if not settings_path.exists():
-        return DEFAULT_APPEARANCE_MODE
+        return {}
 
     try:
         with settings_path.open("rb") as f:
             data = tomllib.load(f)
     except Exception:
         log.warning("Failed to load GUI settings: %s", settings_path, exc_info=True)
-        return DEFAULT_APPEARANCE_MODE
+        return {}
 
+    return dict(data)
+
+
+def _save_settings(data: dict[str, object]) -> None:
+    paths.ensure_config_dirs()
+    with _settings_path().open("wb") as f:
+        tomli_w.dump(data, f)
+
+
+def load_appearance_mode() -> AppearanceMode:
+    data = _load_settings()
     appearance = data.get("appearance")
     if isinstance(appearance, str) and appearance in VALID_APPEARANCE_MODES:
         return cast(AppearanceMode, appearance)
@@ -38,6 +49,28 @@ def load_appearance_mode() -> AppearanceMode:
 
 
 def save_appearance_mode(mode: AppearanceMode) -> None:
-    paths.ensure_config_dirs()
-    with _settings_path().open("wb") as f:
-        tomli_w.dump({"appearance": mode}, f)
+    data = _load_settings()
+    data["appearance"] = mode
+    _save_settings(data)
+
+
+def load_device_tab_order() -> list[str]:
+    data = _load_settings()
+    order = data.get("device_tab_order")
+    if not isinstance(order, list):
+        return []
+    return [str(hardware_id) for hardware_id in order if str(hardware_id).strip()]
+
+
+def save_device_tab_order(hardware_ids: list[str]) -> None:
+    data = _load_settings()
+    seen: set[str] = set()
+    device_tab_order: list[str] = []
+    for hardware_id in hardware_ids:
+        trimmed = hardware_id.strip()
+        if not trimmed or trimmed in seen:
+            continue
+        seen.add(trimmed)
+        device_tab_order.append(trimmed)
+    data["device_tab_order"] = device_tab_order
+    _save_settings(data)

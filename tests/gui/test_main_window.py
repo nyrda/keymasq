@@ -18,7 +18,7 @@ class TestMainWindow:
 
         window._add_device_tab(device)
 
-        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        tab = window._child_for_hardware_id(device.hardware_id)
 
         assert window.profile_manager.get_profile("Default") is not None
         assert tab._selected_profile is not None
@@ -78,15 +78,13 @@ class TestMainWindow:
         window._add_device_tab(device1)
         window._add_device_tab(device2)
 
-        tab1 = window.stack.get_page(
-            window.stack.get_child_by_name(device1.hardware_id)
-        ).get_child()
-        tab2 = window.stack.get_page(
-            window.stack.get_child_by_name(device2.hardware_id)
-        ).get_child()
+        tab1 = window._child_for_hardware_id(device1.hardware_id)
+        tab2 = window._child_for_hardware_id(device2.hardware_id)
 
         tab1.refresh_profiles(preferred_profile_name="Profile 2")
-        window.stack.set_visible_child(tab2)
+        page2 = window._page_for_hardware_id(device2.hardware_id)
+        assert page2 is not None
+        window.tab_view.set_selected_page(page2)
 
         assert tab2._selected_profile is not None
         assert tab2._selected_profile.config.name == "Profile 2"
@@ -322,12 +320,8 @@ class TestMainWindow:
         window._add_device_tab(device1)
         window._add_device_tab(device2)
 
-        tab1 = window.stack.get_page(
-            window.stack.get_child_by_name(device1.hardware_id)
-        ).get_child()
-        tab2 = window.stack.get_page(
-            window.stack.get_child_by_name(device2.hardware_id)
-        ).get_child()
+        tab1 = window._child_for_hardware_id(device1.hardware_id)
+        tab2 = window._child_for_hardware_id(device2.hardware_id)
 
         tab1.profile_dropdown.set_selected(tab1._profile_names.index("Desktop"))
 
@@ -366,9 +360,7 @@ class TestMainWindow:
             ProfileConfig(name="Gaming", enabled=True, is_permanent=True)
         )
 
-        tab = window.stack.get_page(
-            window.stack.get_child_by_name(device.hardware_id)
-        ).get_child()
+        tab = window._child_for_hardware_id(device.hardware_id)
 
         tab._on_profile_created(None, "Gaming")
 
@@ -395,14 +387,163 @@ class TestMainWindow:
         )
 
         window._add_device_tab(device)
-        child = window.stack.get_child_by_name(device.hardware_id)
-        assert child is not None
-        page = window.stack.get_page(child)
+        page = window._page_for_hardware_id(device.hardware_id)
+        assert page is not None
         assert page.get_title() == "Mouse One"
 
         window.update_device_display_name(device.hardware_id, "Desk Mouse")
 
         assert page.get_title() == "Desk Mouse"
+
+    def test_main_window_persists_user_device_tab_order(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.preferences import load_device_tab_order
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        devices = [
+            HardwareConfig(
+                vendor_id="1234",
+                product_id=product_id,
+                name=name,
+                evdev_devices=[],
+                buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+            )
+            for product_id, name in (
+                ("5678", "Mouse One"),
+                ("5679", "Mouse Two"),
+                ("5680", "Mouse Three"),
+            )
+        ]
+        for device in devices:
+            window._add_device_tab(device)
+
+        third_page = window._page_for_hardware_id(devices[2].hardware_id)
+        assert third_page is not None
+
+        window.tab_view.reorder_page(third_page, window.tab_view.get_n_pinned_pages())
+
+        assert window._current_device_tab_order() == [
+            devices[2].hardware_id,
+            devices[0].hardware_id,
+            devices[1].hardware_id,
+        ]
+        assert load_device_tab_order() == window._current_device_tab_order()
+
+    def test_main_window_applies_saved_device_tab_order_on_load(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.preferences import save_device_tab_order
+        from keymasq.gui.window import MainWindow
+
+        devices = [
+            HardwareConfig(
+                vendor_id="1234",
+                product_id=product_id,
+                name=name,
+                evdev_devices=[],
+                buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+            )
+            for product_id, name in (
+                ("5678", "Mouse One"),
+                ("5679", "Mouse Two"),
+                ("5680", "Mouse Three"),
+            )
+        ]
+        save_device_tab_order([devices[1].hardware_id, devices[0].hardware_id])
+
+        window = MainWindow(demo_mode=True)
+        window._apply_loaded_devices(devices)
+
+        assert window._current_device_tab_order() == [
+            devices[1].hardware_id,
+            devices[0].hardware_id,
+            devices[2].hardware_id,
+        ]
+
+        window._apply_loaded_devices(devices)
+
+        assert window._current_device_tab_order() == [
+            devices[1].hardware_id,
+            devices[0].hardware_id,
+            devices[2].hardware_id,
+        ]
+        assert window.tab_view.get_n_pages() == 3
+
+    def test_main_window_keeps_combo_tab_fixed_outside_reorderable_pages(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        devices = [
+            HardwareConfig(
+                vendor_id="1234",
+                product_id=product_id,
+                name=name,
+                evdev_devices=[],
+                buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+            )
+            for product_id, name in (
+                ("5678", "Mouse One"),
+                ("5679", "Mouse Two"),
+            )
+        ]
+        for device in devices:
+            window._add_device_tab(device)
+
+        assert window.combo_tab is not None
+        assert window._page_for_child(window.combo_tab) is None
+        assert window.tab_bar.get_start_action_widget() is not None
+        assert window.tab_bar.get_end_action_widget() is window.combo_tab_button
+        assert window.content_stack.get_visible_child() is window.tab_view
+        assert window.tab_view.get_n_pages() == 3
+
+        first_page = window._page_for_hardware_id(devices[0].hardware_id)
+        assert first_page is not None
+        window.tab_view.reorder_last(first_page)
+
+        assert window.tab_view.get_n_pages() == 3
+        assert window._current_device_tab_order() == [
+            devices[1].hardware_id,
+            devices[0].hardware_id,
+        ]
+
+        window.combo_tab_button.set_active(True)
+
+        assert window.content_stack.get_visible_child() is window.combo_tab
+
+        second_page = window._page_for_hardware_id(devices[1].hardware_id)
+        assert second_page is not None
+        window.tab_view.set_selected_page(second_page)
+
+        assert window.combo_tab_button.get_active() is False
+        assert window.content_stack.get_visible_child() is window.tab_view
+
+    def test_main_window_tab_close_requests_device_delete(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        window._add_device_tab(device)
+
+        tab = window._child_for_hardware_id(device.hardware_id)
+        page = window._page_for_hardware_id(device.hardware_id)
+        assert tab is not None
+        assert page is not None
+
+        delete_requests: list[bool] = []
+        tab.present_delete_device_dialog = lambda: delete_requests.append(True)  # type: ignore[attr-defined, method-assign]
+
+        window.tab_view.close_page(page)
+
+        assert delete_requests == [True]
+        assert window._page_for_hardware_id(device.hardware_id) is page
 
     def test_main_window_startup_probe_applies_compositor_state_and_devices(self, temp_config_dir):
         from keymasq.common.models import (
@@ -449,9 +590,7 @@ class TestMainWindow:
             )
         )
 
-        device_tab = window.stack.get_page(
-            window.stack.get_child_by_name(device.hardware_id)
-        ).get_child()
+        device_tab = window._child_for_hardware_id(device.hardware_id)
 
         assert finished is False
         assert window._startup_probe_done is True
@@ -502,7 +641,7 @@ class TestMainWindow:
         )
 
         window._add_device_tab(device)
-        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        tab = window._child_for_hardware_id(device.hardware_id)
         tab.profile_dropdown.set_selected(tab._profile_names.index("Gaming"))
 
         window._handle_session_event(
@@ -586,7 +725,7 @@ class TestMainWindow:
             }
         )
 
-        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        tab = window._child_for_hardware_id(device.hardware_id)
         assert "Gaming" in tab._profile_names
         assert window.combo_tab is not None
         assert "Gaming" in window.combo_tab._profile_names
@@ -656,7 +795,7 @@ class TestMainWindow:
         )
 
         window._add_device_tab(device)
-        tab = window.stack.get_page(window.stack.get_child_by_name(device.hardware_id)).get_child()
+        tab = window._child_for_hardware_id(device.hardware_id)
         tab.refresh_profiles(preferred_profile_name="Desktop")
         window._apply_profile_runtime_state(
             {
@@ -1152,10 +1291,14 @@ class TestMainWindow:
         assert window._placeholder_subtitle is not None
         assert window._placeholder_title.get_label() == "No devices configured"
         assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
-        placeholder_page = window.stack.get_page(window.placeholder)
-        assert placeholder_page.get_icon_name() == resolve_icon_name(*device_icon_names(False))
+        placeholder_page = window._page_for_child(window.placeholder)
+        assert placeholder_page is not None
+        icon = placeholder_page.get_icon()
+        assert icon is not None
+        assert icon.to_string() == resolve_icon_name(*device_icon_names(False))
 
-        window.stack.remove(window.placeholder)
+        window._close_tab_page(placeholder_page)
+        window._placeholder_page = None
         window._placeholder_title.set_label("Loading devices...")
         window._placeholder_subtitle.set_label(
             "Checking compositor support and loading saved hardware"
@@ -1163,18 +1306,16 @@ class TestMainWindow:
 
         window._check_empty_state()
 
-        assert window.placeholder in window.stack
+        assert window._page_for_child(window.placeholder) is not None
         assert window._placeholder_title.get_label() == "No devices configured"
         assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
 
         demo_window = MainWindow(demo_mode=True)
         demo_window._apply_loaded_devices([])
 
-        demo_tab = demo_window.stack.get_page(
-            demo_window.stack.get_child_by_name("1234:5678")
-        ).get_child()
+        demo_tab = demo_window._child_for_hardware_id("1234:5678")
 
-        assert demo_window.placeholder not in demo_window.stack
+        assert demo_window._page_for_child(demo_window.placeholder) is None
         assert demo_tab.device.name == "Demo Mouse"
 
     def test_main_window_status_response_updates_labels_for_all_status_paths(

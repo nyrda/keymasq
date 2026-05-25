@@ -663,7 +663,8 @@ class DeviceTab(ProfileManagedTab):
         scrolled.set_vexpand(True)
         scrolled.set_margin_top(12)
 
-        self._keyboard_layout_mode = self.is_keyboard_hardware()
+        kind = device_layout_kind(self.device)
+        self._keyboard_layout_mode = kind == "keyboard"
 
         if self._keyboard_layout_mode:
             content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -860,7 +861,7 @@ class DeviceTab(ProfileManagedTab):
                     r += 1
                 parent.append(grid)
 
-        if self.is_gamepad_hardware():
+        if kind == "gamepad":
             buttons_by_id = {b.id: b for b in self.device.buttons}
             for title, button_ids, max_cols in [
                 ("Shoulders", ["btn_tl", "btn_tr"], 2),

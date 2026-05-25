@@ -30,6 +30,7 @@ from keymasq.common.models import (
     profile_deactivation_policy_to_dict,
     resolve_rapidfire_fields,
 )
+from keymasq.session.config_errors import ConfigLoadError, ConfigLoadFailure
 
 log = logging.getLogger("keymasq-session.profiles")
 
@@ -128,28 +129,44 @@ class ProfileManager:
         self._load_all()
         self._ensure_default_profile_exists()
 
-    def _load_all(self) -> None:
-        self._profiles.clear()
+    def _load_all(self, *, strict: bool = False) -> None:
+        loaded_profiles: dict[str, ProfileInfo] = {}
+        failures: list[ConfigLoadFailure] = []
 
         if not paths.PROFILES_DIR.exists():
+            self._profiles = loaded_profiles
             return
 
         for profile_file in sorted(paths.PROFILES_DIR.glob("*.toml")):
             try:
                 config = self._load_profile(profile_file)
-                self._add_loaded_profile(ProfileInfo(path=profile_file, config=config))
+                self._add_loaded_profile(
+                    ProfileInfo(path=profile_file, config=config),
+                    loaded_profiles,
+                )
             except Exception as e:
                 log.error("Failed to load %s: %s", profile_file, e)
+                failures.append(ConfigLoadFailure(profile_file, str(e)))
 
-    def _add_loaded_profile(self, profile: ProfileInfo) -> None:
-        existing = self._profiles.get(profile.config.name)
+        if strict and failures:
+            raise ConfigLoadError("profile", failures)
+
+        self._profiles = loaded_profiles
+
+    def _add_loaded_profile(
+        self,
+        profile: ProfileInfo,
+        profiles: dict[str, ProfileInfo] | None = None,
+    ) -> None:
+        target_profiles = self._profiles if profiles is None else profiles
+        existing = target_profiles.get(profile.config.name)
         if existing is None:
-            self._profiles[profile.config.name] = profile
+            target_profiles[profile.config.name] = profile
             return
 
         selected = self._select_duplicate_profile(existing, profile)
         ignored = profile if selected is existing else existing
-        self._profiles[profile.config.name] = selected
+        target_profiles[profile.config.name] = selected
         log.warning(
             "Ignoring duplicate profile name '%s' from %s; using %s",
             profile.config.name,
@@ -174,7 +191,7 @@ class ProfileManager:
         return first
 
     def reload(self) -> None:
-        self._load_all()
+        self._load_all(strict=True)
         self._ensure_default_profile_exists()
 
     def _ensure_default_profile_exists(self) -> None:
@@ -632,6 +649,12 @@ class ProfileManager:
 
     def get_all_profiles(self) -> dict[str, ProfileInfo]:
         return self._profiles.copy()
+
+    def snapshot_profiles(self) -> dict[str, ProfileInfo]:
+        return self._profiles.copy()
+
+    def restore_profiles(self, profiles: dict[str, ProfileInfo]) -> None:
+        self._profiles = profiles.copy()
 
     def get_profile(self, profile_name: str) -> ProfileInfo | None:
         return self._profiles.get(profile_name)

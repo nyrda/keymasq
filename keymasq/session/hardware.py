@@ -16,6 +16,7 @@ from keymasq.common.models import (
     EvdevDevice,
     HardwareConfig,
 )
+from keymasq.session.config_errors import ConfigLoadError, ConfigLoadFailure
 
 log = logging.getLogger("keymasq-session.hardware")
 
@@ -35,20 +36,29 @@ class HardwareManager:
         self._cache: dict[str, HardwareConfig] = {}
         self._load_all()
 
-    def _load_all(self) -> None:
+    def _load_all(self, *, strict: bool = False) -> None:
+        loaded_cache: dict[str, HardwareConfig] = {}
+        failures: list[ConfigLoadFailure] = []
+
         if not paths.HARDWARE_DIR.exists():
+            self._cache = loaded_cache
             return
 
         for config_file in paths.HARDWARE_DIR.glob("*.toml"):
             try:
                 config = self._load_config(config_file)
-                self._cache[config.hardware_id] = config
+                loaded_cache[config.hardware_id] = config
             except Exception as e:
                 log.error(f"Failed to load {config_file}: {e}")
+                failures.append(ConfigLoadFailure(config_file, str(e)))
+
+        if strict and failures:
+            raise ConfigLoadError("hardware", failures)
+
+        self._cache = loaded_cache
 
     def reload(self) -> None:
-        self._cache.clear()
-        self._load_all()
+        self._load_all(strict=True)
 
     def _load_config(self, path: Path) -> HardwareConfig:
         with open(path, "rb") as f:
@@ -134,6 +144,12 @@ class HardwareManager:
 
     def get_hardware(self, hardware_id: str) -> HardwareConfig | None:
         return self._cache.get(hardware_id)
+
+    def snapshot_hardware(self) -> dict[str, HardwareConfig]:
+        return self._cache.copy()
+
+    def restore_hardware(self, hardware: dict[str, HardwareConfig]) -> None:
+        self._cache = hardware.copy()
 
     def list_hardware(self) -> list[HardwareConfig]:
         return list(self._cache.values())

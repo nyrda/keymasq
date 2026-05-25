@@ -26,7 +26,7 @@ def _settings_path() -> Path:
     return paths.CONFIG_DIR / "settings.toml"
 
 
-def load_global_settings() -> GlobalSettings:
+def load_global_settings(*, strict: bool = False) -> GlobalSettings:
     settings_path = _settings_path()
     if not settings_path.exists():
         return GlobalSettings()
@@ -35,6 +35,8 @@ def load_global_settings() -> GlobalSettings:
             data = cast(dict[str, object], tomllib.load(config_file))
         return global_settings_from_toml(data)
     except Exception as exc:
+        if strict:
+            raise
         log.warning(
             "Failed to load settings from %s: %s; using defaults",
             settings_path,

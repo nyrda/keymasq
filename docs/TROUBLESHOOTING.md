@@ -264,11 +264,14 @@ For multi-interface devices, update every relevant entry in the hardware file
 and keep the existing `id` values unchanged. Profile mappings refer to those
 `id` values and to the hardware ID, not to the path string.
 
-After editing, restart the user session service so Keymasq reloads the hardware
-configuration:
+After editing, `keymasq-session` should reload the hardware configuration
+automatically. If the edited TOML has a syntax or load error, Keymasq keeps the
+previous active configuration, logs the error, and shows a desktop notification.
+Fix the file and save it again to retry the reload. You can also force a reload
+without restarting services:
 
 ```bash
-systemctl --user restart keymasq-session
+systemctl --user kill --signal=HUP keymasq-session
 ```
 
 ### `keymasq-session` user service does not start

@@ -18,6 +18,7 @@ from keymasq.common.models import (
     superkey_action_to_mapping_action,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
+from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter
 from keymasq.session.profiles import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
 
@@ -35,6 +36,26 @@ def _docs_version() -> str:
 
 def _superkeys_docs_url() -> str:
     return f"https://keymasq.tools/docs/{_docs_version()}/SUPERKEYS/"
+
+
+def _superkey_search_text(config: SuperkeyConfig | None, name: str) -> str:
+    if config is None:
+        return name
+    return " ".join(
+        [
+            str(config.name or ""),
+            str(config.description or ""),
+            config.mode.value,
+            str(len(config.tap_actions)),
+            str(len(config.double_tap_actions)),
+            str(len(config.hold_actions)),
+            str(len(config.tap_hold_actions)),
+            str(len(config.overload_actions)),
+            str(len(config.overload_down_actions)),
+            str(len(config.overload_up_actions)),
+            "actions",
+        ]
+    )
 
 
 def _append_action_state_markers(label: str, action: object) -> str:
@@ -462,6 +483,12 @@ class SuperkeyDialog(Adw.Dialog):
         self.add_controller(key_controller)
 
     def _on_key_pressed(self, _controller, keyval, _keycode, _state) -> bool:
+        if keyval in (Gdk.KEY_f, Gdk.KEY_F) and _state & Gdk.ModifierType.CONTROL_MASK:
+            self._show_search()
+            return True
+        if keyval == Gdk.KEY_Escape and self.search_entry.get_visible():
+            self._hide_search()
+            return True
         if keyval == Gdk.KEY_Escape:
             self._request_close()
             return True
@@ -487,10 +514,30 @@ class SuperkeyDialog(Adw.Dialog):
         box.set_margin_end(12)
         box.set_size_request(220, -1)
 
+        header = Gtk.CenterBox()
+
+        self.search_button = Gtk.Button()
+        self.search_button.set_icon_name("system-search-symbolic")
+        self.search_button.set_tooltip_text("Search Super Keys")
+        self.search_button.connect("clicked", self._on_search_clicked)
+        header.set_start_widget(self.search_button)
+
         label = Gtk.Label(label="Super Keys")
         label.add_css_class("title-4")
         label.set_halign(Gtk.Align.CENTER)
-        box.append(label)
+        header.set_center_widget(label)
+
+        header_spacer = Gtk.Box()
+        header_spacer.set_size_request(34, -1)
+        header.set_end_widget(header_spacer)
+        box.append(header)
+
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("Search Super Keys")
+        self.search_entry.set_tooltip_text("Filter Super Keys by name, description, or mode")
+        self.search_entry.set_visible(False)
+        self.search_entry.connect("stop-search", self._on_search_stop)
+        box.append(self.search_entry)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -499,6 +546,12 @@ class SuperkeyDialog(Adw.Dialog):
         self.list_box = Gtk.ListBox()
         self.list_box.set_vexpand(True)
         self.list_box.connect("row-selected", self._on_superkey_selected)
+        install_listbox_fuzzy_filter(
+            self.list_box,
+            self.search_entry,
+            before_filter_changed=self._before_search_filter_changed,
+            after_filter_changed=self._after_search_filter_changed,
+        )
         scrolled.set_child(self.list_box)
 
         box.append(scrolled)
@@ -519,6 +572,30 @@ class SuperkeyDialog(Adw.Dialog):
 
         box.append(footer)
         return box
+
+    def _show_search(self) -> None:
+        self.search_entry.set_visible(True)
+        self.search_entry.grab_focus()
+        self.search_entry.select_region(0, -1)
+
+    def _hide_search(self) -> None:
+        self.search_entry.set_text("")
+        self.search_entry.set_visible(False)
+
+    def _on_search_clicked(self, _button: Gtk.Button) -> None:
+        self._show_search()
+
+    def _on_search_stop(self, _entry: Gtk.SearchEntry) -> None:
+        self._hide_search()
+
+    def _before_search_filter_changed(self) -> None:
+        self._suppress_selection_guard = True
+
+    def _after_search_filter_changed(self) -> None:
+        try:
+            self._restore_active_selection()
+        finally:
+            self._suppress_selection_guard = False
 
     def _build_right_panel(self) -> Gtk.Widget:
         self.right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -737,9 +814,14 @@ class SuperkeyDialog(Adw.Dialog):
         row.set_child(label)
         return row
 
-    def _build_saved_superkey_row(self, name: str) -> Gtk.ListBoxRow:
+    def _build_saved_superkey_row(
+        self,
+        name: str,
+        search_text: str | None = None,
+    ) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row._superkey_name = name
+        row._search_text = search_text or name
         label = Gtk.Label(label=name, xalign=0)
         label.set_margin_start(6)
         label.set_margin_end(6)
@@ -768,11 +850,18 @@ class SuperkeyDialog(Adw.Dialog):
             self.list_box.remove(row)
 
         names = self.manager.list_superkeys()
+        configs = self.manager.get_all_superkeys()
         for name in names:
-            self.list_box.append(self._build_saved_superkey_row(name))
+            self.list_box.append(
+                self._build_saved_superkey_row(
+                    name,
+                    _superkey_search_text(configs.get(name), name),
+                )
+            )
 
         self.new_superkey_row = self._build_new_superkey_row()
         self.list_box.append(self.new_superkey_row)
+        self.list_box.invalidate_filter()
 
         if names:
             self.list_box.select_row(self.list_box.get_row_at_index(0))

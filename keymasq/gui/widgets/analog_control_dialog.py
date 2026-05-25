@@ -22,12 +22,14 @@ from keymasq.common.models import (
     AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
     MappingAction,
+    analog_control_primary_mode,
 )
 from keymasq.common.slurp import get_slurp_capture
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.gui.widgets.analog_curve_graph import AnalogCurveGraph
+from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter
 from keymasq.gui.widgets.key_selector_dialog import (  # pyright: ignore[reportPrivateUsage]
     _gamepad_output_choice_matches,
     _gamepad_output_choices_for,
@@ -55,6 +57,32 @@ _STICK_MODE_LABELS = (
     "Digital Actions",
     "Analog Output",
 )
+
+
+def _analog_control_search_text(
+    config: AnalogControlConfig | None,
+    name: str,
+    group_title: str,
+) -> str:
+    if config is None:
+        return f"{name} {group_title}"
+    output_parts: list[str] = []
+    if config.mouse_motion.enabled:
+        output_parts.append("mouse")
+    if config.gamepad_output.enabled:
+        output_parts.append("gamepad output")
+    if config.thresholds:
+        output_parts.append(f"{len(config.thresholds)} ranges thresholds")
+    return " ".join(
+        [
+            str(config.name or ""),
+            str(config.description or ""),
+            group_title,
+            config.input_type,
+            analog_control_primary_mode(config),
+            " ".join(output_parts),
+        ]
+    )
 _AXIS_MODE_ITEMS = ("digital", "gamepad", "mouse")
 _AXIS_MODE_LABELS = ("Digital Actions", "Analog Output", "Mouse Movement")
 _INPUT_TYPE_ITEMS = ("stick", "axis")
@@ -215,6 +243,12 @@ class AnalogControlDialog(Adw.Dialog):
     def _on_key_pressed(self, _controller, keyval, _keycode, _state) -> bool:
         if keyval in _SPLIT_SPEED_DESYNC_KEYS:
             self._split_mouse_speed_modifier_active = True
+        if keyval in (Gdk.KEY_f, Gdk.KEY_F) and _state & Gdk.ModifierType.CONTROL_MASK:
+            self._show_search()
+            return True
+        if keyval == Gdk.KEY_Escape and self.search_entry.get_visible():
+            self._hide_search()
+            return True
         if keyval == Gdk.KEY_Escape:
             self._request_close()
             return True
@@ -242,10 +276,32 @@ class AnalogControlDialog(Adw.Dialog):
         box.set_margin_end(12)
         box.set_size_request(220, -1)
 
+        header = Gtk.CenterBox()
+
+        self.search_button = Gtk.Button()
+        self.search_button.set_icon_name("system-search-symbolic")
+        self.search_button.set_tooltip_text("Search Analog Controls")
+        self.search_button.connect("clicked", self._on_search_clicked)
+        header.set_start_widget(self.search_button)
+
         label = Gtk.Label(label="Analog Controls")
         label.add_css_class("title-4")
         label.set_halign(Gtk.Align.CENTER)
-        box.append(label)
+        header.set_center_widget(label)
+
+        header_spacer = Gtk.Box()
+        header_spacer.set_size_request(34, -1)
+        header.set_end_widget(header_spacer)
+        box.append(header)
+
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("Search Analog Controls")
+        self.search_entry.set_tooltip_text(
+            "Filter Analog Controls by name, description, input type, or output"
+        )
+        self.search_entry.set_visible(False)
+        self.search_entry.connect("stop-search", self._on_search_stop)
+        box.append(self.search_entry)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -254,6 +310,12 @@ class AnalogControlDialog(Adw.Dialog):
         self.list_box = Gtk.ListBox()
         self.list_box.set_vexpand(True)
         self.list_box.connect("row-selected", self._on_control_selected)
+        install_listbox_fuzzy_filter(
+            self.list_box,
+            self.search_entry,
+            before_filter_changed=self._before_search_filter_changed,
+            after_filter_changed=self._after_search_filter_changed,
+        )
         scrolled.set_child(self.list_box)
         box.append(scrolled)
 
@@ -278,6 +340,30 @@ class AnalogControlDialog(Adw.Dialog):
 
         box.append(footer)
         return box
+
+    def _show_search(self) -> None:
+        self.search_entry.set_visible(True)
+        self.search_entry.grab_focus()
+        self.search_entry.select_region(0, -1)
+
+    def _hide_search(self) -> None:
+        self.search_entry.set_text("")
+        self.search_entry.set_visible(False)
+
+    def _on_search_clicked(self, _button: Gtk.Button) -> None:
+        self._show_search()
+
+    def _on_search_stop(self, _entry: Gtk.SearchEntry) -> None:
+        self._hide_search()
+
+    def _before_search_filter_changed(self) -> None:
+        self._suppress_selection_guard = True
+
+    def _after_search_filter_changed(self) -> None:
+        try:
+            self._restore_active_selection()
+        finally:
+            self._suppress_selection_guard = False
 
     def _build_right_panel(self) -> Gtk.Widget:
         self.right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -897,6 +983,7 @@ class AnalogControlDialog(Adw.Dialog):
     def _build_new_control_row(self) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row._is_new_analog_control = True
+        row._search_text = "add new analog control"
         row.add_css_class("superkey-add-row")
         row.set_tooltip_text("Add a new Analog Control")
         label = Gtk.Label(label="+ Add", xalign=0)
@@ -908,6 +995,7 @@ class AnalogControlDialog(Adw.Dialog):
         row = Gtk.ListBoxRow()
         row.set_selectable(False)
         row.set_activatable(False)
+        row._search_text = title
         label = Gtk.Label(label=title, xalign=0)
         label.add_css_class("caption")
         label.add_css_class("dim-label")
@@ -918,9 +1006,14 @@ class AnalogControlDialog(Adw.Dialog):
         row.set_child(label)
         return row
 
-    def _build_saved_control_row(self, name: str) -> Gtk.ListBoxRow:
+    def _build_saved_control_row(
+        self,
+        name: str,
+        search_text: str | None = None,
+    ) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row._analog_control_name = name
+        row._search_text = search_text or name
         label = Gtk.Label(label=name, xalign=0)
         label.set_margin_start(6)
         label.set_margin_end(6)
@@ -1450,13 +1543,17 @@ class AnalogControlDialog(Adw.Dialog):
         for title, group_names in _group_analog_control_names(names, configs):
             self.list_box.append(self._build_control_group_row(title))
             for name in group_names:
-                row = self._build_saved_control_row(name)
+                row = self._build_saved_control_row(
+                    name,
+                    _analog_control_search_text(configs.get(name), name, title),
+                )
                 self.list_box.append(row)
                 if first_saved_row is None:
                     first_saved_row = row
 
         self.new_control_row = self._build_new_control_row()
         self.list_box.append(self.new_control_row)
+        self.list_box.invalidate_filter()
 
         if first_saved_row is not None:
             self.list_box.select_row(first_saved_row)

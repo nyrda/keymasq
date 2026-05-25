@@ -6,7 +6,7 @@ gi.require_version("Adw", "1")
 import logging
 from datetime import datetime
 
-from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq import __version__
 from keymasq.common.macro_compile import (
@@ -24,6 +24,7 @@ from keymasq.gui.session_client import (
     session_request_async,
     session_request_with_hooks,
 )
+from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter, macro_search_text
 
 log = logging.getLogger("keymasq.gui.widgets.macro_manager_dialog")
 
@@ -71,8 +72,12 @@ class MacroManagerDialog(Adw.Dialog):
         self._recording_active: bool = False
         self._recording_unlocked: bool = False
         self._record_btn: Gtk.Button | None = None
+        self._search_button: Gtk.Button | None = None
         self.macros_docs_btn: Gtk.Button | None = None
         self._build_ui()
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(key_controller)
         GLib.idle_add(self._load_initial_state)
 
         # Listen for events via the window's event handler system
@@ -139,6 +144,13 @@ class MacroManagerDialog(Adw.Dialog):
         toolbar_spacer.set_hexpand(True)
         toolbar.append(toolbar_spacer)
 
+        search_btn = Gtk.Button()
+        search_btn.set_icon_name("system-search-symbolic")
+        search_btn.set_tooltip_text("Search macros")
+        search_btn.connect("clicked", self._on_search_clicked)
+        toolbar.append(search_btn)
+        self._search_button = search_btn
+
         settings_btn = Gtk.Button()
         settings_btn.set_child(
             self._make_button_content("emblem-system-symbolic", "Settings")
@@ -149,6 +161,13 @@ class MacroManagerDialog(Adw.Dialog):
 
         content.append(toolbar)
 
+        self._search_entry = Gtk.SearchEntry()
+        self._search_entry.set_placeholder_text("Search macros")
+        self._search_entry.set_tooltip_text("Filter macros by name, device type, or event count")
+        self._search_entry.set_visible(False)
+        self._search_entry.connect("stop-search", self._on_search_stop)
+        content.append(self._search_entry)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_min_content_height(240)
@@ -158,6 +177,7 @@ class MacroManagerDialog(Adw.Dialog):
         self._listbox = Gtk.ListBox()
         self._listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         self._listbox.add_css_class("boxed-list")
+        install_listbox_fuzzy_filter(self._listbox, self._search_entry)
         scrolled.set_child(self._listbox)
         content.append(scrolled)
 
@@ -199,6 +219,27 @@ class MacroManagerDialog(Adw.Dialog):
         frame.set_child(inner)
         main_box.append(frame)
         self.set_child(main_box)
+
+    def _on_key_pressed(self, _controller, keyval, _keycode, state) -> bool:
+        if keyval in (Gdk.KEY_f, Gdk.KEY_F) and state & Gdk.ModifierType.CONTROL_MASK:
+            self._show_search()
+            return True
+        return False
+
+    def _show_search(self) -> None:
+        self._search_entry.set_visible(True)
+        self._search_entry.grab_focus()
+        self._search_entry.select_region(0, -1)
+
+    def _hide_search(self) -> None:
+        self._search_entry.set_text("")
+        self._search_entry.set_visible(False)
+
+    def _on_search_clicked(self, _button: Gtk.Button) -> None:
+        self._show_search()
+
+    def _on_search_stop(self, _entry: Gtk.SearchEntry) -> None:
+        self._hide_search()
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
         self.close()
@@ -267,10 +308,12 @@ class MacroManagerDialog(Adw.Dialog):
 
         for macro in self._macros:
             self._listbox.append(self._build_macro_row(macro))
+        self._listbox.invalidate_filter()
 
     def _build_macro_row(self, macro: JsonDict) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row.set_selectable(False)
+        row._search_text = macro_search_text(macro)
 
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row_box.set_margin_top(6)

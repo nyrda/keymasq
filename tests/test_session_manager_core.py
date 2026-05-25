@@ -267,24 +267,27 @@ def test_reload_config_from_disk_rolls_back_user_config_on_failure(
     old_superkey = SuperkeyConfig(name="OldSuper", mode=SuperkeyMode.PATTERN)
     manager.superkeys.restore_superkeys({"OldSuper": old_superkey})
     manager.virtual_gamepad_count = 2
+    reload_calls: list[str] = []
 
     def reload_superkeys() -> None:
+        reload_calls.append("superkeys")
         manager.superkeys.restore_superkeys(
             {"NewSuper": SuperkeyConfig(name="NewSuper", mode=SuperkeyMode.PATTERN)}
         )
 
+    def reload_profiles() -> None:
+        reload_calls.append("profiles")
+        raise ValueError("bad profile TOML")
+
     monkeypatch.setattr(manager.superkeys, "reload", reload_superkeys)
     monkeypatch.setattr(manager.analog_controls, "reload", lambda: None)
-    monkeypatch.setattr(
-        manager.profiles,
-        "reload",
-        lambda: (_ for _ in ()).throw(ValueError("bad profile TOML")),
-    )
+    monkeypatch.setattr(manager.profiles, "reload", reload_profiles)
     monkeypatch.setattr(manager.hardware, "reload", lambda: None)
 
     with pytest.raises(ValueError, match="bad profile TOML"):
         manager.reload_config_from_disk()
 
+    assert reload_calls == ["superkeys", "profiles"]
     assert manager.profiles.get_profile("Old") is not None
     assert manager.superkeys.get_superkey("OldSuper") is old_superkey
     assert manager.superkeys.get_superkey("NewSuper") is None

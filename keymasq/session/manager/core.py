@@ -710,6 +710,9 @@ class SessionManager:
         self.config_reload_timer = None
         if not self.running:
             return
+        if self.reload_task is not None and not self.reload_task.done():
+            log.debug("Config reload already running; skipping scheduled reload")
+            return
         log.info("Detected user config file change; reloading")
         self.reload_task = asyncio.create_task(self.reload_profiles())
 

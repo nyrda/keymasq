@@ -460,6 +460,15 @@ class TestMainWindow:
             devices[2].hardware_id,
         ]
 
+        window._apply_loaded_devices(devices)
+
+        assert window._current_device_tab_order() == [
+            devices[1].hardware_id,
+            devices[0].hardware_id,
+            devices[2].hardware_id,
+        ]
+        assert window.tab_view.get_n_pages() == 3
+
     def test_main_window_keeps_combo_tab_fixed_outside_reorderable_pages(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.window import MainWindow

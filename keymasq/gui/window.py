@@ -1121,6 +1121,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._suppress_tab_order_save = True
         try:
             for device in self._order_devices_for_tabs(devices):
+                if device.hardware_id in self._device_pages:
+                    continue
                 self._add_device_tab(device, persist_order=False)
         finally:
             self._suppress_tab_order_save = False
@@ -1152,7 +1154,8 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._close_tab_page(self._page_for_child(self.placeholder))
         self._placeholder_page = None
-        self._add_device_tab(demo_device, persist_order=False)
+        if demo_device.hardware_id not in self._device_pages:
+            self._add_device_tab(demo_device, persist_order=False)
 
     def _setup_combo_tab(self) -> None:
         self.combo_tab = ComboTab(
@@ -1628,7 +1631,8 @@ class MainWindow(Adw.ApplicationWindow):
             self._close_tab_page(self._page_for_child(self.placeholder))
             self._placeholder_page = None
 
-        self._add_device_tab(device)
+        if device.hardware_id not in self._device_pages:
+            self._add_device_tab(device)
         page = self._page_for_hardware_id(device.hardware_id)
         if page is not None:
             self.tab_view.set_selected_page(page)

@@ -65,9 +65,12 @@ def load_device_tab_order() -> list[str]:
 def save_device_tab_order(hardware_ids: list[str]) -> None:
     data = _load_settings()
     seen: set[str] = set()
-    data["device_tab_order"] = [
-        hardware_id
-        for hardware_id in hardware_ids
-        if hardware_id.strip() and not (hardware_id in seen or seen.add(hardware_id))
-    ]
+    device_tab_order: list[str] = []
+    for hardware_id in hardware_ids:
+        trimmed = hardware_id.strip()
+        if not trimmed or trimmed in seen:
+            continue
+        seen.add(trimmed)
+        device_tab_order.append(trimmed)
+    data["device_tab_order"] = device_tab_order
     _save_settings(data)

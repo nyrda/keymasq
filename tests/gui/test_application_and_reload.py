@@ -143,7 +143,7 @@ def test_gui_device_tab_order_preference_round_trips_with_appearance(temp_config
     assert load_device_tab_order() == []
 
     save_appearance_mode("dark")
-    save_device_tab_order(["2222:0002", "1111:0001", "2222:0002", ""])
+    save_device_tab_order([" 2222:0002 ", "1111:0001", "2222:0002", ""])
 
     assert load_appearance_mode() == "dark"
     assert load_device_tab_order() == ["2222:0002", "1111:0001"]

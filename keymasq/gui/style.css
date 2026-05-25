@@ -1,8 +1,10 @@
 /* Active mapping: green left indicator + subtle tint */
+/* stylelint-disable-next-line selector-type-no-unknown */
 tabbar tab button.tab-close-button {
   opacity: 0;
 }
 
+/* stylelint-disable-next-line selector-type-no-unknown */
 tabbar tab:hover button.tab-close-button {
   opacity: 0.65;
 }

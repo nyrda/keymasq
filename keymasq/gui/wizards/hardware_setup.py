@@ -242,7 +242,7 @@ class HardwareSetupDialog(Adw.Dialog):
         super().__init__(
             title="Add New Device",
             content_width=500,
-            content_height=450,
+            content_height=520,
         )
         if hasattr(self, "set_modal"):
             self.set_modal(True)
@@ -340,14 +340,17 @@ class HardwareSetupDialog(Adw.Dialog):
         box.append(subtitle)
 
         device_tools = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        device_tools.set_halign(Gtk.Align.START)
 
-        self.raw_evdev_check = Gtk.ToggleButton(label="Show raw evdev devices")
+        self.raw_evdev_check = Gtk.CheckButton(label="Show raw evdev devices")
         self.raw_evdev_check.set_tooltip_text(
             "Show each event node separately, including unknown device types."
         )
         self.raw_evdev_check.connect("toggled", self._on_raw_evdev_toggled)
         device_tools.append(self.raw_evdev_check)
+
+        search_spacer = Gtk.Box()
+        search_spacer.set_hexpand(True)
+        device_tools.append(search_spacer)
 
         self.device_search_button = Gtk.Button()
         self.device_search_button.set_icon_name("system-search-symbolic")
@@ -700,7 +703,7 @@ class HardwareSetupDialog(Adw.Dialog):
     def _on_refresh_clicked(self, _button: Gtk.Button) -> None:
         self._detect_devices()
 
-    def _on_raw_evdev_toggled(self, check: Gtk.ToggleButton) -> None:
+    def _on_raw_evdev_toggled(self, check: Gtk.CheckButton) -> None:
         self._show_raw_evdev_devices = check.get_active()
         self.selected_device = None
         self.next_btn.set_sensitive(False)

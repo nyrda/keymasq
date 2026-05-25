@@ -174,7 +174,7 @@ def test_hardware_setup_search_and_raw_toggle_controls(monkeypatch) -> None:
     monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
     dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
 
-    assert isinstance(dialog.raw_evdev_check, Gtk.ToggleButton)
+    assert isinstance(dialog.raw_evdev_check, Gtk.CheckButton)
     assert dialog.device_search_button.get_icon_name() == "system-search-symbolic"
     assert dialog.device_search_entry.get_visible() is False
 

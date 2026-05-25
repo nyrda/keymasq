@@ -99,10 +99,25 @@ button.button-card-mapped-inactive label {
   font-size: 0.85em;
   font-weight: 600;
 }
-.status-active  { background: alpha(@success_color, 0.15); color: @success_color; }
-.status-waiting { background: alpha(@warning_color, 0.15); color: @warning_color; }
-.status-inactive { background: alpha(@error_color, 0.15); color: @error_color; }
-.status-standby { background: alpha(@shade_color, 0.08); }
+
+.status-active {
+  background: alpha(@success_color, 0.15);
+  color: @success_color;
+}
+
+.status-waiting {
+  background: alpha(@warning_color, 0.15);
+  color: @warning_color;
+}
+
+.status-inactive {
+  background: alpha(@error_color, 0.15);
+  color: @error_color;
+}
+
+.status-standby {
+  background: alpha(@shade_color, 0.08);
+}
 
 .active-profiles-summary {
   margin-top: -4px;

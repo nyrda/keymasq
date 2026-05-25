@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/check.sh [--vm] [keymasqd|session|gui|full]
 
-Runs ruff, basedpyright, and the selected pytest category.
+Runs ruff, basedpyright, stylelint for GUI CSS, and the selected pytest category.
 Defaults to full.
 EOF
 }
@@ -224,6 +224,12 @@ fi
 
 if ! run_compact_check "basedpyright" "cd '$ROOT_DIR' && nix develop -c bash -lc 'basedpyright'"; then
   exit 1
+fi
+
+if [[ "$CATEGORY" == "gui" || "$CATEGORY" == "full" ]]; then
+  if ! run_compact_check "stylelint" "cd '$ROOT_DIR' && nix develop '.#ci-gui' -c bash -lc 'stylelint \"keymasq/gui/**/*.css\"'"; then
+    exit 1
+  fi
 fi
 
 if [[ "$BACKEND" == "vm" ]]; then

@@ -39,6 +39,7 @@ from keymasq.gui.session_client import (
     session_request_async,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.device_control_layout import device_layout_kind, group_pointer_controls
 from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.hardware import HardwareManager
@@ -150,11 +151,7 @@ def _grouped_analog_inputs(
         if matching:
             groups.append((title, matching))
 
-    other = [
-        analog
-        for analog in ordered
-        if str(analog.type).lower() not in {"axis", "stick"}
-    ]
+    other = [analog for analog in ordered if str(analog.type).lower() not in {"axis", "stick"}]
     if other:
         groups.append(("Other", other))
     return groups
@@ -265,10 +262,7 @@ class DeviceTab(ProfileManagedTab):
         return "No profiles are currently applied to this device."
 
     def _active_profiles_layer_tooltip(self) -> str:
-        return (
-            "Applied profiles. Layer order: "
-            + " -> ".join(self._active_profile_names)
-        )
+        return "Applied profiles. Layer order: " + " -> ".join(self._active_profile_names)
 
     def _after_profile_selection_applied(self) -> None:
         for button_id in self._button_widgets:
@@ -293,10 +287,7 @@ class DeviceTab(ProfileManagedTab):
     def _update_header_caption(self) -> None:
         mapped = self._count_mapped_buttons()
         total = len(self.device.buttons) + len(self.device.analog_inputs)
-        base = (
-            f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
-            f"{total} buttons"
-        )
+        base = f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, {total} buttons"
         if mapped > 0:
             caption = f"{base} · {mapped} mapped"
         else:
@@ -834,24 +825,10 @@ class DeviceTab(ProfileManagedTab):
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
-        main_ids = {"btn_left", "btn_right", "btn_middle"}
-        scroll_keywords = {"scroll", "wheel"}
-
-        main_buttons: list[ButtonDefinition] = []
-        scroll_buttons: list[ButtonDefinition] = []
-        other_buttons: list[ButtonDefinition] = []
-        extra_buttons: list[ButtonDefinition] = []
-
-        for button in self.device.buttons:
-            bid = button.id.lower()
-            if bid in main_ids:
-                main_buttons.append(button)
-            elif any(kw in bid for kw in scroll_keywords):
-                scroll_buttons.append(button)
-            elif bid in ("btn_side", "btn_extra", "btn_4", "btn_forward", "btn_back"):
-                other_buttons.append(button)
-            else:
-                extra_buttons.append(button)
+        main_buttons, scroll_buttons, other_buttons, extra_buttons = group_pointer_controls(
+            self.device.buttons,
+            id_for_control=lambda button: button.id,
+        )
 
         self.button_grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
@@ -1013,11 +990,7 @@ class DeviceTab(ProfileManagedTab):
         return any(is_gamepad_button_name(button.evdev) for button in self.device.buttons)
 
     def device_layout_kind(self) -> str:
-        if self.is_keyboard_hardware():
-            return "keyboard"
-        if self.is_gamepad_hardware():
-            return "gamepad"
-        return "mouse"
+        return device_layout_kind(self.device)
 
     def _append_keyboard_section(
         self,
@@ -2265,10 +2238,7 @@ class DeviceTab(ProfileManagedTab):
         box.set_margin_end(8)
 
         title = Gtk.Label(
-            label=(
-                f"{candidate.get('evdev')} "
-                f"[{candidate.get('source') or 'default'}]"
-            )
+            label=(f"{candidate.get('evdev')} [{candidate.get('source') or 'default'}]")
         )
         title.set_halign(Gtk.Align.START)
         box.append(title)
@@ -2586,6 +2556,7 @@ class DeviceTab(ProfileManagedTab):
             return True
 
         self._add_keys_poll_inflight = True
+
         def on_capture_read(result: JsonDict | None) -> bool:
             return self._on_add_keys_capture_read(
                 result,

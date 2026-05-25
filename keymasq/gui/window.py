@@ -795,6 +795,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.tab_bar.set_view(self.tab_view)
         self.tab_bar.set_autohide(False)
         self.tab_bar.set_expand_tabs(False)
+        self.tab_bar.set_hexpand(True)
+        self.tab_bar.set_halign(Gtk.Align.FILL)
 
         self.combo_tab_button = Gtk.ToggleButton()
         self.combo_tab_button.add_css_class("flat")
@@ -807,15 +809,20 @@ class MainWindow(Adw.ApplicationWindow):
         self.combo_tab_button.connect("toggled", self._on_combo_tab_button_toggled)
         self.tab_bar.set_end_action_widget(self.combo_tab_button)
 
-        header = Adw.HeaderBar()
+        add_device_button = Gtk.Button(icon_name="list-add-symbolic")
+        add_device_button.set_tooltip_text("Add device")
+        add_device_button.connect("clicked", self._on_add_device_clicked)
+        self.tab_bar.set_start_action_widget(add_device_button)
 
-        unlock_add_button = Gtk.Button(icon_name="list-add-symbolic")
-        unlock_add_button.set_tooltip_text("Add device")
-        unlock_add_button.connect("clicked", self._on_add_device_clicked)
-        header.pack_start(unlock_add_button)
+        header = Gtk.WindowHandle()
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        header_box.add_css_class("titlebar")
+        header_box.add_css_class("keymasq-main-header")
+        header_box.set_hexpand(True)
 
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
+        menu_button.add_css_class("flat")
 
         menu_popover = Gtk.Popover()
         menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -925,16 +932,20 @@ class MainWindow(Adw.ApplicationWindow):
         menu_popover.set_child(menu_box)
         menu_button.set_popover(menu_popover)
 
-        header.pack_end(menu_button)
-
         if self.demo_mode:
             demo_label = Gtk.Label(label="DEMO MODE")
             demo_label.add_css_class("error")
-            header.pack_start(demo_label)
+            header_box.append(demo_label)
+
+        header_box.append(self.tab_bar)
+        header_box.append(menu_button)
+
+        window_controls = Gtk.WindowControls(side=Gtk.PackType.END)
+        header_box.append(window_controls)
+        header.set_child(header_box)
 
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(header)
-        toolbar.add_top_bar(self.tab_bar)
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 

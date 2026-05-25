@@ -492,6 +492,7 @@ class TestMainWindow:
 
         assert window.combo_tab is not None
         assert window._page_for_child(window.combo_tab) is None
+        assert window.tab_bar.get_start_action_widget() is not None
         assert window.tab_bar.get_end_action_widget() is window.combo_tab_button
         assert window.content_stack.get_visible_child() is window.tab_view
         assert window.tab_view.get_n_pages() == 3

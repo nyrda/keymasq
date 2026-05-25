@@ -1,4 +1,14 @@
 /* Active mapping: green left indicator + subtle tint */
+.keymasq-main-header {
+  min-height: 46px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.keymasq-main-header tabbar {
+  margin-right: 6px;
+}
+
 /* stylelint-disable-next-line selector-type-no-unknown */
 tabbar tab button.tab-close-button {
   opacity: 0;

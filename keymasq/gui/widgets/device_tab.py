@@ -13,7 +13,6 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # pyright: ignore[reportAt
 from keymasq.common.devices import (
     canonical_gamepad_button_name,
     gamepad_button_label,
-    is_gamepad_button_name,
     is_low_res_wheel_evdev,
     normalize_wheel_value,
     resolve_evdev_code,
@@ -923,7 +922,7 @@ class DeviceTab(ProfileManagedTab):
         self.append(scrolled)
 
     def _learn_label_noun(self) -> str:
-        if self.is_keyboard_hardware():
+        if self.device_layout_kind() == "keyboard":
             return "Keys"
         return "Buttons"
 
@@ -980,15 +979,6 @@ class DeviceTab(ProfileManagedTab):
             device.device_type not in {DeviceType.MOUSE, DeviceType.KEYBOARD}
             for device in self.device.evdev_devices
         )
-
-    def is_keyboard_hardware(self) -> bool:
-        key_count = sum(1 for b in self.device.buttons if b.id.startswith("key_"))
-        return key_count >= 40
-
-    def is_gamepad_hardware(self) -> bool:
-        if any(dev.device_type == DeviceType.GAMEPAD for dev in self.device.evdev_devices):
-            return True
-        return any(is_gamepad_button_name(button.evdev) for button in self.device.buttons)
 
     def device_layout_kind(self) -> str:
         return device_layout_kind(self.device)
@@ -2923,7 +2913,7 @@ class DeviceTab(ProfileManagedTab):
         return token.replace("_", " ").strip().title()
 
     def _is_supported_added_input(self, evdev_name: str) -> bool:
-        if self.is_gamepad_hardware():
+        if self.device_layout_kind() == "gamepad":
             return evdev_name.startswith("btn_")
         return (
             evdev_name.startswith("key_")
@@ -3006,7 +2996,7 @@ class DeviceTab(ProfileManagedTab):
         )
 
     def _add_input_summary_text(self) -> str:
-        if self.is_gamepad_hardware():
+        if self.device_layout_kind() == "gamepad":
             return (
                 "Add additional digital gamepad buttons to this config.\n"
                 "Press each requested button when prompted."
@@ -3020,9 +3010,10 @@ class DeviceTab(ProfileManagedTab):
         return "Number of inputs:"
 
     def _capture_waiting_label(self) -> str:
-        if self.is_gamepad_hardware():
+        kind = self.device_layout_kind()
+        if kind == "gamepad":
             return "Recording button presses..."
-        if self.is_keyboard_hardware():
+        if kind == "keyboard":
             return "Recording keys..."
         return "Recording inputs..."
 
@@ -3052,7 +3043,7 @@ class DeviceTab(ProfileManagedTab):
 
         if evdev_name.startswith("key_"):
             return DeviceType.KEYBOARD
-        if self.is_gamepad_hardware():
+        if self.device_layout_kind() == "gamepad":
             return DeviceType.GAMEPAD
         if evdev_name.startswith("btn_") or evdev_name.startswith("rel_"):
             return DeviceType.MOUSE

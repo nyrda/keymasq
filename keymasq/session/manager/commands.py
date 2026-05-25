@@ -124,8 +124,12 @@ async def _handle_profile_commands(
         return await runtime_profiles.set_profile_enabled(manager, profile_name, enabled)
 
     if command == "reload":
-        await manager.reload_profiles()
-        return {"status": "ok"}
+        if await manager.reload_profiles():
+            return {"status": "ok"}
+        return {
+            "status": "error",
+            "message": "Failed to reload config; keeping previous active config",
+        }
 
     if command == "release_device":
         hardware_id = str_value(request.get("hardware_id"), "").strip()
@@ -154,7 +158,15 @@ async def _handle_profile_commands(
 
     if command in {"reevaluate_profiles", "reevaluate_hardware"}:
         log.info("Global profile reevaluate requested")
-        await asyncio.to_thread(manager.reload_config_from_disk)
+        try:
+            await asyncio.to_thread(manager.reload_config_from_disk)
+        except Exception as exc:
+            log.exception("Failed to reload user config from disk for reevaluate request")
+            manager.send_notification(
+                "Keymasq Config Error",
+                "Failed to reload config; keeping the previous active config. See logs.",
+            )
+            return {"status": "error", "message": str(exc)}
         runtime_profiles.invalidate_runtime_payload_signatures(manager)
         await runtime_profiles.reevaluate_profiles(manager, reason="session command reevaluate")
         return {"status": "ok"}

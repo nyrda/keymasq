@@ -22,6 +22,7 @@ from keymasq.common.models import (
     resolve_rapidfire_fields,
     superkey_action_to_mapping_action,
 )
+from keymasq.session.config_errors import ConfigLoadError, ConfigLoadFailure
 
 log = logging.getLogger("keymasq-session.superkeys")
 type TomlDict = dict[str, object]
@@ -70,19 +71,27 @@ class SuperkeyManager:
         self._superkeys: dict[str, SuperkeyConfig] = {}
         self._load_all()
 
-    def _load_all(self) -> None:
-        self._superkeys.clear()
+    def _load_all(self, *, strict: bool = False) -> None:
+        loaded_superkeys: dict[str, SuperkeyConfig] = {}
+        failures: list[ConfigLoadFailure] = []
 
         if not paths.SUPERKEYS_DIR.exists():
+            self._superkeys = loaded_superkeys
             return
 
         for superkey_file in paths.SUPERKEYS_DIR.glob("*.toml"):
             try:
                 config = self._load_superkey(superkey_file)
                 if config:
-                    self._superkeys[config.name] = config
+                    loaded_superkeys[config.name] = config
             except Exception as e:
                 log.error(f"Failed to load superkey {superkey_file}: {e}")
+                failures.append(ConfigLoadFailure(superkey_file, str(e)))
+
+        if strict and failures:
+            raise ConfigLoadError("superkey", failures)
+
+        self._superkeys = loaded_superkeys
 
     def _load_superkey(self, path: Path) -> SuperkeyConfig | None:
         with open(path, "rb") as f:
@@ -300,6 +309,12 @@ class SuperkeyManager:
 
     def get_all_superkeys(self) -> dict[str, SuperkeyConfig]:
         return self._superkeys.copy()
+
+    def snapshot_superkeys(self) -> dict[str, SuperkeyConfig]:
+        return self._superkeys.copy()
+
+    def restore_superkeys(self, superkeys: dict[str, SuperkeyConfig]) -> None:
+        self._superkeys = superkeys.copy()
 
     def save_superkey(self, config: SuperkeyConfig, *, replacing_name: str | None = None) -> None:
         paths.ensure_config_dirs()
@@ -544,5 +559,5 @@ class SuperkeyManager:
         )
 
     def reload(self) -> None:
-        self._load_all()
+        self._load_all(strict=True)
         log.info("Reloaded all superkeys")

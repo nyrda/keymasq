@@ -1,14 +1,16 @@
 import asyncio
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 import keymasq.session.manager.core as session_manager_core_module
 import keymasq.session.manager.events as session_events_module
 import keymasq.session.manager.profiles as session_profiles_module
+from keymasq.common.models import ProfileConfig, SuperkeyConfig, SuperkeyMode
 from keymasq.common.security import PeerCredentials
 from keymasq.session.manager import SessionManager
+from keymasq.session.profiles import ProfileInfo
 
 
 class _FakeKeymasqdClient:
@@ -221,6 +223,75 @@ async def test_reload_profiles_invalidates_runtime_payload_signatures(
     assert manager.profile_state.last_sent_mapping_signatures == {}
     assert manager.profile_state.last_sent_combo_signature == ""
     reevaluate_profiles.assert_awaited_once_with(manager, reason="config reload")
+
+
+@pytest.mark.asyncio
+async def test_reload_profiles_failure_keeps_previous_config_and_notifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    reevaluate_profiles = AsyncMock()
+
+    monkeypatch.setattr(
+        manager,
+        "reload_config_from_disk",
+        lambda: (_ for _ in ()).throw(ValueError("bad profile TOML")),
+    )
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    await manager.reload_profiles()
+
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq Config Error",
+        "Failed to reload config; keeping the previous active config. See logs.",
+    )
+    manager.broadcast_to_session_clients.assert_called_once()  # type: ignore[attr-defined]
+    reevaluate_profiles.assert_not_awaited()
+
+
+def test_reload_config_from_disk_rolls_back_user_config_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    old_profile = ProfileConfig(name="Old", enabled=True, is_permanent=True)
+    manager.profiles.restore_profiles(
+        {
+            "Old": ProfileInfo(
+                path=session_manager_core_module.CONFIG_DIR / "old.toml",
+                config=old_profile,
+            )
+        }
+    )
+    old_superkey = SuperkeyConfig(name="OldSuper", mode=SuperkeyMode.PATTERN)
+    manager.superkeys.restore_superkeys({"OldSuper": old_superkey})
+    manager.virtual_gamepad_count = 2
+    reload_calls: list[str] = []
+
+    def reload_superkeys() -> None:
+        reload_calls.append("superkeys")
+        manager.superkeys.restore_superkeys(
+            {"NewSuper": SuperkeyConfig(name="NewSuper", mode=SuperkeyMode.PATTERN)}
+        )
+
+    def reload_profiles() -> None:
+        reload_calls.append("profiles")
+        raise ValueError("bad profile TOML")
+
+    monkeypatch.setattr(manager.superkeys, "reload", reload_superkeys)
+    monkeypatch.setattr(manager.analog_controls, "reload", lambda: None)
+    monkeypatch.setattr(manager.profiles, "reload", reload_profiles)
+    monkeypatch.setattr(manager.hardware, "reload", lambda: None)
+
+    with pytest.raises(ValueError, match="bad profile TOML"):
+        manager.reload_config_from_disk()
+
+    assert reload_calls == ["superkeys", "profiles"]
+    assert manager.profiles.get_profile("Old") is not None
+    assert manager.superkeys.get_superkey("OldSuper") is old_superkey
+    assert manager.superkeys.get_superkey("NewSuper") is None
+    assert manager.virtual_gamepad_count == 2
 
 
 @pytest.mark.asyncio

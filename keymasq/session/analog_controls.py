@@ -22,6 +22,7 @@ from keymasq.common.models import (
     profile_deactivation_policy_to_dict,
     validate_analog_control_config,
 )
+from keymasq.session.config_errors import ConfigLoadError, ConfigLoadFailure
 
 log = logging.getLogger("keymasq-session.analog_controls")
 type TomlDict = dict[str, object]
@@ -56,17 +57,26 @@ class AnalogControlManager:
         self._analog_controls: dict[str, AnalogControlConfig] = {}
         self._load_all()
 
-    def _load_all(self) -> None:
-        self._analog_controls.clear()
+    def _load_all(self, *, strict: bool = False) -> None:
+        loaded_analog_controls: dict[str, AnalogControlConfig] = {}
+        failures: list[ConfigLoadFailure] = []
+
         if not paths.ANALOG_CONTROLS_DIR.exists():
+            self._analog_controls = loaded_analog_controls
             return
         for config_file in paths.ANALOG_CONTROLS_DIR.glob("*.toml"):
             try:
                 config = self._load_analog_control(config_file)
                 if config is not None:
-                    self._analog_controls[config.name] = config
+                    loaded_analog_controls[config.name] = config
             except Exception as exc:
                 log.error("Failed to load analog control %s: %s", config_file, exc)
+                failures.append(ConfigLoadFailure(config_file, str(exc)))
+
+        if strict and failures:
+            raise ConfigLoadError("analog control", failures)
+
+        self._analog_controls = loaded_analog_controls
 
     def _load_analog_control(self, path: Path) -> AnalogControlConfig | None:
         with open(path, "rb") as f:
@@ -278,6 +288,15 @@ class AnalogControlManager:
 
     def get_all_analog_controls(self) -> dict[str, AnalogControlConfig]:
         return self._analog_controls.copy()
+
+    def snapshot_analog_controls(self) -> dict[str, AnalogControlConfig]:
+        return self._analog_controls.copy()
+
+    def restore_analog_controls(
+        self,
+        analog_controls: dict[str, AnalogControlConfig],
+    ) -> None:
+        self._analog_controls = analog_controls.copy()
 
     def save_analog_control(
         self,
@@ -497,7 +516,7 @@ class AnalogControlManager:
         )
 
     def reload(self) -> None:
-        self._load_all()
+        self._load_all(strict=True)
         log.info("Reloaded all analog controls")
 
 

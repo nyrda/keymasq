@@ -335,6 +335,7 @@
               pkgs.adwaita-icon-theme
               pkgs.basedpyright
               pkgs.hicolor-icon-theme
+              pkgs.stylelint
               pkgs.xorgserver
             ];
           };
@@ -380,6 +381,7 @@
               pkgs.python312Packages.mypy
               pkgs.ruff
               pkgs.basedpyright
+              pkgs.stylelint
               pkgs.dpkg
               pkgs.nodejs
               pkgs.cloc

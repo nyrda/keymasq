@@ -17,6 +17,118 @@ def test_inspector_label_sort_key_orders_trailing_numbers_numerically() -> None:
     ]
 
 
+def test_inspector_keeps_many_keyboard_backed_mouse_buttons_in_mouse_layout() -> None:
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.gui.widgets.device_inspector_window import DeviceInspectorWindow
+
+    buttons = [
+        ButtonDefinition(
+            id="btn_left",
+            label="Left Click",
+            evdev="btn_left",
+            evdev_code=272,
+            source="mouse",
+        ),
+        ButtonDefinition(
+            id="btn_right",
+            label="Right Click",
+            evdev="btn_right",
+            evdev_code=273,
+            source="mouse",
+        ),
+        ButtonDefinition(
+            id="btn_middle",
+            label="Middle Click",
+            evdev="btn_middle",
+            evdev_code=274,
+            source="mouse",
+        ),
+        ButtonDefinition(
+            id="scroll_up",
+            label="Scroll Up",
+            evdev="rel_wheel",
+            evdev_code=8,
+            evdev_value=1,
+            source="mouse",
+        ),
+        ButtonDefinition(
+            id="btn_side",
+            label="Back",
+            evdev="btn_side",
+            evdev_code=275,
+            source="mouse",
+        ),
+    ]
+    buttons.extend(
+        ButtonDefinition(
+            id=f"key_extra_{index}",
+            label=f"Extra {index}",
+            evdev=f"key_{index}",
+            evdev_code=index,
+            source="keyboard",
+        )
+        for index in range(1, 15)
+    )
+    device = HardwareConfig(
+        vendor_id="1532",
+        product_id="00b4",
+        name="Razer Naga",
+        evdev_devices=[
+            EvdevDevice(
+                path="/dev/input/event10",
+                device_type=DeviceType.MOUSE,
+                id="mouse",
+            ),
+            EvdevDevice(
+                path="/dev/input/event11",
+                device_type=DeviceType.KEYBOARD,
+                id="keyboard",
+            ),
+        ],
+        buttons=buttons,
+    )
+    snapshot = {
+        "active_profiles": ["Default"],
+        "buttons": [
+            {
+                "id": button.id,
+                "label": button.label,
+                "kind": "button",
+                "evdev": button.evdev,
+                "evdev_code": button.evdev_code,
+                "evdev_value": button.evdev_value,
+                "source": button.source,
+                "action": None,
+            }
+            for button in buttons
+        ],
+    }
+
+    window = DeviceInspectorWindow.__new__(DeviceInspectorWindow)
+    window.device = device
+    window._device_kind = "mouse"
+    window._mapping_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    window._control_widgets = {}
+
+    window._render_mapping(snapshot)
+
+    section_titles: list[str] = []
+    child = window._mapping_box.get_first_child()
+    while child is not None:
+        if (
+            isinstance(child, Gtk.Label)
+            and child.has_css_class("button-section-title")
+            and child.get_text() != "Resolved Mapping"
+        ):
+            section_titles.append(child.get_text())
+        child = child.get_next_sibling()
+
+    assert section_titles == ["Extra Buttons", "Main Buttons", "Scroll", "Side Buttons"]
+    assert "key_extra_14" in window._control_widgets
+
+
 def _device():
     from keymasq.common.models import (
         AnalogAxisDefinition,
@@ -166,7 +278,7 @@ def _snapshot():
 def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     monkeypatch,
 ):
-    from gi.repository import Gtk
+    from gi.repository import Gdk, Gtk
 
     from keymasq.gui.widgets import device_inspector_window as inspector_module
     from keymasq.gui.widgets.device_inspector_window import DeviceInspectorWindow
@@ -280,9 +392,7 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     assert len(window._event_rows) == 1
     assert len(window._event_history_by_category["button"]) == 1
     assert window._copy_events_button.get_tooltip_text() == "Copy visible events"
-    assert window._visible_event_export_text() == (
-        "#1 btn_south ev_key value=1 source=pad"
-    )
+    assert window._visible_event_export_text() == ("#1 btn_south ev_key value=1 source=pad")
 
     for index in range(120):
         emit(
@@ -342,9 +452,7 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
 
     window._event_filter_buttons["syn"].set_active(True)
     assert len(window._event_rows) == 100
-    assert "#123 msc_scan ev_msc value=458792 source=pad" in (
-        window._visible_event_export_text()
-    )
+    assert "#123 msc_scan ev_msc value=458792 source=pad" in (window._visible_event_export_text())
 
     emit(
         {
@@ -380,6 +488,15 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     assert window._status_label.get_text() == "Inspector Pad - Output suppressed"
     assert window._status_label.has_css_class("inspector-header-suppressed") is True
     assert window._suppression_hint_label.get_visible() is True
+    assert window._on_key_pressed(Gtk.EventControllerKey(), Gdk.KEY_Escape, 0, 0) is True
+    assert requests[-1] == {
+        "command": "disable_device_inspector_suppression",
+        "hardware_id": "1234:5678",
+        "reason": "key_esc",
+    }
+    assert window._suppression_switch.get_active() is False
+
+    window._suppression_switch.set_active(True)
 
     callbacks["device_inspector_status"][0](
         {

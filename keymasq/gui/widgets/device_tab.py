@@ -13,7 +13,6 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # pyright: ignore[reportAt
 from keymasq.common.devices import (
     canonical_gamepad_button_name,
     gamepad_button_label,
-    is_gamepad_button_name,
     is_low_res_wheel_evdev,
     normalize_wheel_value,
     resolve_evdev_code,
@@ -39,6 +38,7 @@ from keymasq.gui.session_client import (
     session_request_async,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.device_control_layout import device_layout_kind, group_pointer_controls
 from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.hardware import HardwareManager
@@ -150,11 +150,7 @@ def _grouped_analog_inputs(
         if matching:
             groups.append((title, matching))
 
-    other = [
-        analog
-        for analog in ordered
-        if str(analog.type).lower() not in {"axis", "stick"}
-    ]
+    other = [analog for analog in ordered if str(analog.type).lower() not in {"axis", "stick"}]
     if other:
         groups.append(("Other", other))
     return groups
@@ -265,10 +261,7 @@ class DeviceTab(ProfileManagedTab):
         return "No profiles are currently applied to this device."
 
     def _active_profiles_layer_tooltip(self) -> str:
-        return (
-            "Applied profiles. Layer order: "
-            + " -> ".join(self._active_profile_names)
-        )
+        return "Applied profiles. Layer order: " + " -> ".join(self._active_profile_names)
 
     def _after_profile_selection_applied(self) -> None:
         for button_id in self._button_widgets:
@@ -293,10 +286,7 @@ class DeviceTab(ProfileManagedTab):
     def _update_header_caption(self) -> None:
         mapped = self._count_mapped_buttons()
         total = len(self.device.buttons) + len(self.device.analog_inputs)
-        base = (
-            f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
-            f"{total} buttons"
-        )
+        base = f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, {total} buttons"
         if mapped > 0:
             caption = f"{base} · {mapped} mapped"
         else:
@@ -672,7 +662,8 @@ class DeviceTab(ProfileManagedTab):
         scrolled.set_vexpand(True)
         scrolled.set_margin_top(12)
 
-        self._keyboard_layout_mode = self.is_keyboard_hardware()
+        kind = device_layout_kind(self.device)
+        self._keyboard_layout_mode = kind == "keyboard"
 
         if self._keyboard_layout_mode:
             content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -834,24 +825,10 @@ class DeviceTab(ProfileManagedTab):
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
-        main_ids = {"btn_left", "btn_right", "btn_middle"}
-        scroll_keywords = {"scroll", "wheel"}
-
-        main_buttons: list[ButtonDefinition] = []
-        scroll_buttons: list[ButtonDefinition] = []
-        other_buttons: list[ButtonDefinition] = []
-        extra_buttons: list[ButtonDefinition] = []
-
-        for button in self.device.buttons:
-            bid = button.id.lower()
-            if bid in main_ids:
-                main_buttons.append(button)
-            elif any(kw in bid for kw in scroll_keywords):
-                scroll_buttons.append(button)
-            elif bid in ("btn_side", "btn_extra", "btn_4", "btn_forward", "btn_back"):
-                other_buttons.append(button)
-            else:
-                extra_buttons.append(button)
+        main_buttons, scroll_buttons, other_buttons, extra_buttons = group_pointer_controls(
+            self.device.buttons,
+            id_for_control=lambda button: button.id,
+        )
 
         self.button_grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
@@ -883,7 +860,7 @@ class DeviceTab(ProfileManagedTab):
                     r += 1
                 parent.append(grid)
 
-        if self.is_gamepad_hardware():
+        if kind == "gamepad":
             buttons_by_id = {b.id: b for b in self.device.buttons}
             for title, button_ids, max_cols in [
                 ("Shoulders", ["btn_tl", "btn_tr"], 2),
@@ -945,7 +922,7 @@ class DeviceTab(ProfileManagedTab):
         self.append(scrolled)
 
     def _learn_label_noun(self) -> str:
-        if self.is_keyboard_hardware():
+        if self.device_layout_kind() == "keyboard":
             return "Keys"
         return "Buttons"
 
@@ -1003,21 +980,8 @@ class DeviceTab(ProfileManagedTab):
             for device in self.device.evdev_devices
         )
 
-    def is_keyboard_hardware(self) -> bool:
-        key_count = sum(1 for b in self.device.buttons if b.id.startswith("key_"))
-        return key_count >= 40
-
-    def is_gamepad_hardware(self) -> bool:
-        if any(dev.device_type == DeviceType.GAMEPAD for dev in self.device.evdev_devices):
-            return True
-        return any(is_gamepad_button_name(button.evdev) for button in self.device.buttons)
-
     def device_layout_kind(self) -> str:
-        if self.is_keyboard_hardware():
-            return "keyboard"
-        if self.is_gamepad_hardware():
-            return "gamepad"
-        return "mouse"
+        return device_layout_kind(self.device)
 
     def _append_keyboard_section(
         self,
@@ -2265,10 +2229,7 @@ class DeviceTab(ProfileManagedTab):
         box.set_margin_end(8)
 
         title = Gtk.Label(
-            label=(
-                f"{candidate.get('evdev')} "
-                f"[{candidate.get('source') or 'default'}]"
-            )
+            label=(f"{candidate.get('evdev')} [{candidate.get('source') or 'default'}]")
         )
         title.set_halign(Gtk.Align.START)
         box.append(title)
@@ -2586,6 +2547,7 @@ class DeviceTab(ProfileManagedTab):
             return True
 
         self._add_keys_poll_inflight = True
+
         def on_capture_read(result: JsonDict | None) -> bool:
             return self._on_add_keys_capture_read(
                 result,
@@ -2951,7 +2913,7 @@ class DeviceTab(ProfileManagedTab):
         return token.replace("_", " ").strip().title()
 
     def _is_supported_added_input(self, evdev_name: str) -> bool:
-        if self.is_gamepad_hardware():
+        if self.device_layout_kind() == "gamepad":
             return evdev_name.startswith("btn_")
         return (
             evdev_name.startswith("key_")
@@ -3034,7 +2996,7 @@ class DeviceTab(ProfileManagedTab):
         )
 
     def _add_input_summary_text(self) -> str:
-        if self.is_gamepad_hardware():
+        if self.device_layout_kind() == "gamepad":
             return (
                 "Add additional digital gamepad buttons to this config.\n"
                 "Press each requested button when prompted."
@@ -3048,9 +3010,10 @@ class DeviceTab(ProfileManagedTab):
         return "Number of inputs:"
 
     def _capture_waiting_label(self) -> str:
-        if self.is_gamepad_hardware():
+        kind = self.device_layout_kind()
+        if kind == "gamepad":
             return "Recording button presses..."
-        if self.is_keyboard_hardware():
+        if kind == "keyboard":
             return "Recording keys..."
         return "Recording inputs..."
 
@@ -3080,7 +3043,7 @@ class DeviceTab(ProfileManagedTab):
 
         if evdev_name.startswith("key_"):
             return DeviceType.KEYBOARD
-        if self.is_gamepad_hardware():
+        if self.device_layout_kind() == "gamepad":
             return DeviceType.GAMEPAD
         if evdev_name.startswith("btn_") or evdev_name.startswith("rel_"):
             return DeviceType.MOUSE

@@ -980,7 +980,7 @@ def test_device_tab_renders_analog_controls_for_keyboard_layout(temp_config_dir)
 
     tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
 
-    assert tab.is_keyboard_hardware() is True
+    assert tab.device_layout_kind() == "keyboard"
     assert "left_stick" in tab._button_widgets
     assert tab._button_widgets["left_stick"]._name_label.get_text() == "Left Stick"
 

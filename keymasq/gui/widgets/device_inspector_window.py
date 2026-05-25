@@ -9,8 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.devices import is_gamepad_button_name
-from keymasq.common.models import ActionType, DeviceType, HardwareConfig, MappingAction
+from keymasq.common.models import ActionType, HardwareConfig, MappingAction
 from keymasq.gui.icons import device_icon_names, image_from_icon_names
 from keymasq.gui.session_client import (
     JsonDict,
@@ -19,6 +18,10 @@ from keymasq.gui.session_client import (
     unregister_session_event_callback,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.device_control_layout import (
+    device_layout_kind,
+    group_pointer_controls,
+)
 
 EVENT_ROW_LIMIT = 100
 EVENT_RENDER_THROTTLE_MS = 33
@@ -178,9 +181,7 @@ def _mapping_action_from_payload(action: object) -> MappingAction | None:
     analog_control_names: list[str] = []
     raw_analog_control_names = action.get("analog_control_names", [])
     if isinstance(raw_analog_control_names, list):
-        analog_control_names = [
-            str(name) for name in raw_analog_control_names if str(name).strip()
-        ]
+        analog_control_names = [str(name) for name in raw_analog_control_names if str(name).strip()]
     keys: list[str] | None = None
     raw_keys = action.get("keys", [])
     if isinstance(raw_keys, list):
@@ -227,7 +228,7 @@ class DeviceInspectorWindow(Adw.Window):
         self._stop_sent = False
         self._syncing_suppression = False
         self._snapshot: JsonDict = {}
-        self._device_kind = _device_layout_kind(device)
+        self._device_kind = device_layout_kind(device)
         self._control_widgets: dict[str, Gtk.Widget] = {}
         self._event_history_by_category: dict[str, list[JsonDict]] = {
             filter_id: [] for filter_id, _label, _active in EVENT_FILTERS
@@ -266,7 +267,7 @@ class DeviceInspectorWindow(Adw.Window):
         header = Adw.HeaderBar()
 
         self._header_device_icon = image_from_icon_names(
-            *device_icon_names(device_kind=_device_layout_kind(self.device)),
+            *device_icon_names(device_kind=device_layout_kind(self.device)),
             pixel_size=24,
         )
         self._header_device_icon.set_valign(Gtk.Align.CENTER)
@@ -300,6 +301,9 @@ class DeviceInspectorWindow(Adw.Window):
         header.pack_end(switch_box)
 
         toolbar.add_top_bar(header)
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(key_controller)
 
         window_width, _window_height = _inspector_default_size(self._device_kind)
         live_panel_width = (
@@ -497,7 +501,7 @@ class DeviceInspectorWindow(Adw.Window):
         profile_label.set_halign(Gtk.Align.START)
         self._mapping_box.append(profile_label)
 
-        if self._is_keyboard_snapshot(buttons):
+        if self._device_kind == "keyboard":
             self._render_keyboard_buttons(buttons)
         else:
             self._render_pointer_buttons(buttons)
@@ -549,26 +553,15 @@ class DeviceInspectorWindow(Adw.Window):
             self._append_flow_section("Extra Keys", extras, is_keyboard=True)
 
     def _render_pointer_buttons(self, buttons: list[JsonDict]) -> None:
-        main_ids = {"btn_left", "btn_right", "btn_middle"}
-        main_buttons: list[JsonDict] = []
-        wheel_buttons: list[JsonDict] = []
-        thumb_buttons: list[JsonDict] = []
-        extra_buttons: list[JsonDict] = []
-        for button in buttons:
-            button_id = _text(button.get("id")).lower()
-            if button_id in main_ids:
-                main_buttons.append(button)
-            elif "scroll" in button_id or "wheel" in button_id:
-                wheel_buttons.append(button)
-            elif button_id in {"btn_side", "btn_extra", "btn_4", "btn_forward", "btn_back"}:
-                thumb_buttons.append(button)
-            else:
-                extra_buttons.append(button)
+        main_buttons, scroll_buttons, side_buttons, extra_buttons = group_pointer_controls(
+            buttons,
+            id_for_control=lambda button: _text(button.get("id")),
+        )
         for title, group in (
-            ("Main Buttons", main_buttons),
-            ("Wheel / Scroll", wheel_buttons),
-            ("Thumb Buttons", thumb_buttons),
             ("Extra Buttons", extra_buttons),
+            ("Main Buttons", main_buttons),
+            ("Scroll", scroll_buttons),
+            ("Side Buttons", side_buttons),
         ):
             if group:
                 self._append_flow_section(title, group, is_keyboard=False)
@@ -671,10 +664,7 @@ class DeviceInspectorWindow(Adw.Window):
             analog_id=analog_id,
             analog_type=analog_type,
             axes=axes,
-            normalized={
-                role: _normalize_axis(axis, 0, analog_type)
-                for role, axis in axes.items()
-            },
+            normalized={role: _normalize_axis(axis, 0, analog_type) for role, axis in axes.items()},
         )
 
         section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -719,9 +709,7 @@ class DeviceInspectorWindow(Adw.Window):
         values = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         values.set_halign(Gtk.Align.CENTER)
         for role in sorted(axes):
-            label = Gtk.Label(
-                label=_axis_value_label(role, 0, viewer.normalized.get(role, 0.0))
-            )
+            label = Gtk.Label(label=_axis_value_label(role, 0, viewer.normalized.get(role, 0.0)))
             label.add_css_class("caption")
             label.add_css_class("dim-label")
             label.add_css_class("inspector-axis-value")
@@ -955,6 +943,31 @@ class DeviceInspectorWindow(Adw.Window):
         switch.set_sensitive(False)
         session_request_async(payload, self._on_suppression_response, timeout=3.0)
 
+    def _on_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+    ) -> bool:
+        if (
+            keyval != Gdk.KEY_Escape
+            or self._closing
+            or not self._suppression_switch.get_active()
+        ):
+            return False
+        self._suppression_switch.set_sensitive(False)
+        session_request_async(
+            {
+                "command": "disable_device_inspector_suppression",
+                "hardware_id": self._hardware_id,
+                "reason": "key_esc",
+            },
+            self._on_suppression_response,
+            timeout=3.0,
+        )
+        return True
+
     def _on_suppression_response(self, result: JsonDict | None) -> bool:
         if self._closing:
             return False
@@ -1021,9 +1034,6 @@ class DeviceInspectorWindow(Adw.Window):
             lambda _result: False,
             timeout=1.5,
         )
-
-    def _is_keyboard_snapshot(self, buttons: list[JsonDict]) -> bool:
-        return sum(1 for button in buttons if _text(button.get("id")).startswith("key_")) >= 12
 
     def _action_label(self, action: object, control: JsonDict) -> str | None:
         mapping = _mapping_action_from_payload(action)
@@ -1157,17 +1167,6 @@ def _level_bar_value(analog_type: str, normalized: float) -> float:
 
 def _axis_value_label(role: str, raw_value: int, normalized: float) -> str:
     return f"{role}: raw {raw_value:6d} | norm {normalized:+.3f}"
-
-
-def _device_layout_kind(device: HardwareConfig) -> str:
-    key_count = sum(1 for button in device.buttons if button.id.startswith("key_"))
-    if key_count >= 40:
-        return "keyboard"
-    if any(evdev_device.device_type == DeviceType.GAMEPAD for evdev_device in device.evdev_devices):
-        return "gamepad"
-    if any(is_gamepad_button_name(button.evdev) for button in device.buttons):
-        return "gamepad"
-    return "mouse"
 
 
 def _inspector_default_size(device_kind: str) -> tuple[int, int]:

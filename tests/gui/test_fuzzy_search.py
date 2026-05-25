@@ -9,6 +9,9 @@ def test_fuzzy_query_matches_substrings_and_abbreviations() -> None:
     assert fuzzy_query_matches("ctc", "copy_ctrl_c keyboard 4 events")
     assert fuzzy_query_matches("kbd 4", "copy_ctrl_c keyboard kbd 4 events")
     assert fuzzy_query_matches("xbox", "Xbox 360 Wireless Receiver")
+    assert fuzzy_query_matches("café", "Café macro")
+    assert fuzzy_query_matches("клава", "Клава input")
+    assert fuzzy_query_matches("键盘", "外接键盘")
     assert not fuzzy_query_matches("gamepad", "copy_ctrl_c keyboard 4 events")
     assert not fuzzy_query_matches(
         "dygma",
@@ -120,6 +123,39 @@ def test_key_selector_macro_search_clears_hidden_selection(monkeypatch) -> None:
     ]
     dialog._selected_macro = "copy_ctrl_c"
     dialog._macro_search_entry.set_text("gamepad")
+    dialog.map_btn.set_sensitive(True)
+
+    dialog._populate_macro_listbox()
+
+    assert dialog._selected_macro is None
+    assert dialog.map_btn.get_sensitive() is False
+
+
+def test_key_selector_macro_refresh_clears_missing_selection(monkeypatch) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
+    monkeypatch.setattr(
+        key_selector_dialog_module,
+        "session_request_async",
+        lambda _payload, _callback: None,
+    )
+
+    dialog = KeySelectorDialog(Gtk.Window(), "Back")
+    dialog.stack.set_visible_child_name("macro")
+    dialog._macro_list = [
+        {
+            "name": "gamepad_combo",
+            "duration_us": 43_300_000,
+            "device_types": ["gamepad"],
+            "event_count": 407,
+        }
+    ]
+    dialog._selected_macro = "deleted_macro"
     dialog.map_btn.set_sensitive(True)
 
     dialog._populate_macro_listbox()

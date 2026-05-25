@@ -700,7 +700,7 @@ class HardwareSetupDialog(Adw.Dialog):
     def _on_refresh_clicked(self, _button: Gtk.Button) -> None:
         self._detect_devices()
 
-    def _on_raw_evdev_toggled(self, check: Gtk.CheckButton) -> None:
+    def _on_raw_evdev_toggled(self, check: Gtk.ToggleButton) -> None:
         self._show_raw_evdev_devices = check.get_active()
         self.selected_device = None
         self.next_btn.set_sensitive(False)

@@ -2641,6 +2641,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
                     else:
                         self._clear_macro_selection()
                     break
+            else:
+                self._clear_macro_selection()
         if not self._selected_macro:
             self._clear_macro_selection()
 

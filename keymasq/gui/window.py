@@ -286,19 +286,22 @@ class MainWindow(Adw.ApplicationWindow):
 
         child = page.get_child()
         if isinstance(child, ComboTab):
-            self._tab_order = self._current_tab_order()
-            self._hidden_tabs.add(_COMBO_TAB_ID)
-            save_tab_layout(self._tab_order, self._hidden_tabs)
-            self.tab_view.close_page_finish(page, True)
-            self._combo_page = None
-            self.combo_tab = None
-            self._check_empty_state()
+            self._hide_combo_tab(page)
             return True
 
         self.tab_view.close_page_finish(page, False)
         if isinstance(child, DeviceTab):
             child.present_delete_device_dialog()
         return True
+
+    def _hide_combo_tab(self, page: Adw.TabPage) -> None:
+        self._tab_order = self._current_tab_order()
+        self._hidden_tabs.add(_COMBO_TAB_ID)
+        save_tab_layout(self._tab_order, self._hidden_tabs)
+        self.tab_view.close_page_finish(page, True)
+        self._combo_page = None
+        self.combo_tab = None
+        self._check_empty_state()
 
     def _on_tab_page_reordered(
         self,

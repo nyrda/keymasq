@@ -790,6 +790,7 @@ class SessionManager:
         self.profile_state.last_sent_combo_signature = ""
         self.profile_state.active_profile_names.clear()
         self.profile_state.resolved_devices.clear()
+        self.profile_state.resolved_combos.clear()
         self.profile_state.runtime_profile_activations.clear()
         self.device_inspector_state.active_hardware_ids.clear()
         self.device_inspector_state.suppressed_hardware_ids.clear()

@@ -355,6 +355,106 @@ class TestComboTabWidget:
         assert tab._name_header_btn.get_label() == "Name ▾"
         assert opened == ["combo-c"]
 
+    def test_combo_tab_search_filters_rows(self, temp_config_dir):
+        from keymasq.common.models import (
+            ActionType,
+            ComboConfig,
+            ComboEvent,
+            ComboStep,
+            MappingAction,
+            ProfileConfig,
+        )
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
+
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(
+            ProfileConfig(
+                name="Desktop",
+                enabled=True,
+                is_permanent=True,
+                combos=[
+                    ComboConfig(
+                        id="combo-a",
+                        name="Alpha",
+                        steps=[
+                            ComboStep(
+                                events=[
+                                    ComboEvent(
+                                        evdev="key_a",
+                                        hardware_id="1234:5678",
+                                        source="kbd",
+                                    )
+                                ]
+                            )
+                        ],
+                        action=MappingAction(action_type=ActionType.KEYBOARD, target="key_1"),
+                    ),
+                    ComboConfig(
+                        id="combo-b",
+                        name="Bravo",
+                        steps=[
+                            ComboStep(
+                                events=[
+                                    ComboEvent(
+                                        evdev="btn_side",
+                                        hardware_id="abcd:ef01",
+                                        source="mouse",
+                                    )
+                                ]
+                            )
+                        ],
+                        action=MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
+                    ),
+                ],
+            )
+        )
+
+        tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
+        tab.refresh_profiles(preferred_profile_name="Desktop", publish_selection=False)
+
+        assert tab.search_entry.get_visible() is False
+        tab.search_button.emit("clicked")
+        assert tab.search_entry.get_visible() is True
+
+        tab.search_entry.set_text("mouse")
+        assert tab._visible_combo_count() == 1
+        assert tab.section_label.get_visible() is False
+
+        tab.search_entry.set_text("missing")
+        assert tab._visible_combo_count() == 0
+        assert tab.section_label.get_text() == "No matching combos."
+        assert tab.combo_listbox.get_visible() is False
+
+        tab._hide_search()
+        assert tab.search_entry.get_visible() is False
+        assert tab.section_label.get_visible() is False
+
+        tab.search_button.emit("clicked")
+        tab.search_entry.set_text("mouse")
+        tab._selected_profile = None
+        tab._render_combo_list()
+        assert tab.search_entry.get_visible() is False
+        assert tab.search_entry.get_text() == ""
+
+        tab._show_search()
+        assert tab.search_entry.get_visible() is False
+
+        tab.search_entry.set_visible(True)
+        tab.search_entry.set_text("stale")
+        tab._update_combo_list_state()
+        assert tab.search_entry.get_visible() is False
+        assert tab.search_entry.get_text() == ""
+
+    def test_combo_tab_toolbar_keeps_add_combo_and_search_left_bound(self):
+        from keymasq.gui.widgets.combo_tab import ComboTab
+
+        tab = ComboTab(profile_manager=None, demo_mode=True)
+        toolbar = tab.add_combo_button.get_parent()
+
+        assert toolbar.get_first_child() is tab.add_combo_button
+        assert tab.add_combo_button.get_next_sibling() is tab.search_button
+
     def test_combo_tab_add_combo_requires_selected_profile(self, temp_config_dir):
         from gi.repository import Gtk
 
@@ -366,6 +466,6 @@ class TestComboTabWidget:
 
         tab._on_add_combo_clicked(Gtk.Button())
 
-        assert tab.section_label.get_text() == "Combos"
+        assert tab.section_label.get_visible() is False
         assert tab._selected_profile is None
         assert opened == []

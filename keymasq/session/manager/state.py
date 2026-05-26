@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from keymasq.common.models import ProfileDeactivationPolicy
 from keymasq.session.listeners.base import WindowListener
-from keymasq.session.profiles import ResolvedDeviceProfile
+from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
 from .common import JsonObject
 
@@ -77,6 +77,7 @@ class ProfileRuntimeState:
     last_sent_combo_signature: str = ""
     active_profile_names: list[str] = field(default_factory=list)
     resolved_devices: dict[str, ResolvedDeviceProfile] = field(default_factory=dict)
+    resolved_combos: list[ResolvedCombo] = field(default_factory=list)
     runtime_profile_activations: dict[str, "RuntimeProfileActivation"] = field(
         default_factory=dict
     )

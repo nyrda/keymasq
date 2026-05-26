@@ -75,6 +75,7 @@ async def test_reevaluate_profiles_skips_unchanged_mapping_and_combos() -> None:
         CommandType.SET_MAPPING,
         CommandType.SET_COMBOS,
     ]
+    assert [combo.id for combo in manager.profile_state.resolved_combos] == ["combo-1"]
 
 
 @pytest.mark.asyncio

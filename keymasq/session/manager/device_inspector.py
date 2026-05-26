@@ -9,6 +9,7 @@ from keymasq.common.models import (
     AnalogInputDefinition,
     ButtonDefinition,
     MappingAction,
+    profile_deactivation_policy_to_dict,
 )
 from keymasq.common.security import PeerCredentials
 from keymasq.session.profiles import ResolvedDeviceProfile
@@ -460,6 +461,9 @@ def _serialize_action(action: MappingAction | None) -> JsonObject | None:
     ):
         action_data["profile_name"] = action.profile_name or ""
         action_data["target"] = action.profile_name or ""
+        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
+        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
+            action_data["deactivation"] = deactivation
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:
         _set_optional(action_data, "compositor", action.compositor_id)
         action_data["dispatcher"] = action.compositor_dispatcher or ""
@@ -472,6 +476,10 @@ def _serialize_action(action: MappingAction | None) -> JsonObject | None:
         action_data["tap_enabled"] = True
         action_data["tap_hold_ms"] = int(action.tap_hold_ms)
     return action_data
+
+
+def serialize_mapping_action(action: MappingAction | None) -> JsonObject | None:
+    return _serialize_action(action)
 
 
 def _set_optional(action_data: JsonObject, key: str, value: object) -> None:

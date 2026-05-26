@@ -192,6 +192,55 @@ class TestMainWindow:
             device.hardware_id,
         ]
 
+    def test_main_window_combo_inspector_reuses_open_window(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.gui.widgets import combo_inspector_window as inspector_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        present_calls: list[str] = []
+        close_callbacks = []
+        instances: list[object] = []
+
+        class FakeInspector:
+            def __init__(self, parent):
+                self.parent = parent
+                instances.append(self)
+
+            def connect(self, signal, callback):
+                if signal == "close-request":
+                    close_callbacks.append((self, callback))
+                return 1
+
+            def present(self):
+                present_calls.append("present")
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(inspector_module, "ComboInspectorWindow", FakeInspector)
+
+        window.open_combo_inspector()
+        window.open_combo_inspector()
+
+        assert present_calls == ["present", "present"]
+        assert len(instances) == 1
+        assert window._combo_inspector_window is instances[0]
+
+        inspector = window._combo_inspector_window
+        assert close_callbacks[-1][1](inspector) is False
+        assert window._combo_inspector_window is None
+
+        window.open_combo_inspector()
+
+        assert len(instances) == 2
+        assert window._combo_inspector_window is instances[1]
+        assert present_calls == ["present", "present", "present"]
+
     def test_main_window_menu_reflects_saved_appearance(self, temp_config_dir):
         from keymasq.gui.preferences import save_appearance_mode
         from keymasq.gui.window import MainWindow

@@ -407,6 +407,7 @@ class DeviceTab(ProfileManagedTab):
         if not self.demo_mode:
             inspect_btn = Gtk.Button(
                 icon_name=resolve_icon_name(
+                    "view-reveal-symbolic",
                     "edit-find-symbolic",
                     "system-search-symbolic",
                     "zoom-in-symbolic",

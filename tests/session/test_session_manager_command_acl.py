@@ -188,6 +188,50 @@ async def test_get_status_omits_acl_gated_profile_and_window_sections() -> None:
 
 
 @pytest.mark.asyncio
+async def test_combo_inspector_snapshot_requires_active_profile_permission() -> None:
+    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+    from keymasq.session.profiles import ResolvedCombo
+
+    manager = SessionManager()
+    manager.security_policy = SecurityPolicy(
+        session_command_acl={"client": ["!get_active_profiles"]},
+        daemon_command_acl={"session": []},
+    )
+    manager.profile_state.active_profile_names = ["Base", "Overlay"]
+    manager.profile_state.resolved_combos = [
+        ResolvedCombo(
+            id="combo-1",
+            name="Quick Save",
+            profile_name="Overlay",
+            steps=[
+                ComboStep(
+                    events=[
+                        ComboEvent(
+                            evdev="key_s",
+                            hardware_id="1234:5678",
+                            source="kbd",
+                        )
+                    ],
+                )
+            ],
+            action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+        )
+    ]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "get_combo_inspector_snapshot"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "error"
+    assert "get_active_profiles" in str(result["message"])
+    assert "combos" not in result
+
+
+@pytest.mark.asyncio
 async def test_handle_session_request_get_compositor_reports_compositor_dispatch_availability(
 ) -> None:
     manager = SessionManager()

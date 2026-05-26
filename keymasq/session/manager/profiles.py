@@ -221,6 +221,7 @@ def invalidate_grabbed_state(manager: "SessionManager") -> None:
     manager.profile_state.last_sent_grab_signatures.clear()
     manager.profile_state.last_sent_mapping_signatures.clear()
     manager.profile_state.last_sent_combo_signature = ""
+    manager.profile_state.resolved_combos.clear()
 
 
 def clear_hardware_runtime_state(manager: "SessionManager", hardware_id: str) -> None:
@@ -1058,7 +1059,14 @@ async def update_combos(
         log.debug("Skipping unchanged combo payload")
         return
     runtime_payloads.clear_combo_exec_refs(manager)
-    payload = runtime_payloads.resolved_combos_payload(manager, combos)
+    payload: list[JsonObject] = []
+    active_combos: list[ResolvedCombo] = []
+    for combo in combos:
+        combo_payload = runtime_payloads.resolved_combo_payload(manager, combo)
+        if combo_payload is None:
+            continue
+        payload.append(combo_payload)
+        active_combos.append(combo)
     try:
         raise_if_stale_profile_apply(manager, generation)
         result = await manager.client.send_command(
@@ -1072,6 +1080,7 @@ async def update_combos(
             log.error("Failed to update combos: %s", result.error)
             return
         manager.profile_state.last_sent_combo_signature = signature
+        manager.profile_state.resolved_combos = list(active_combos)
     except Exception as e:
         log.error("Exception updating combos: %s: %s", type(e).__name__, e)
 

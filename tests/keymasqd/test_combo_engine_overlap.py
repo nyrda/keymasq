@@ -156,11 +156,27 @@ def test_blank_hardware_id_matches_any_hardware_without_source_guessing():
         0.05,
     )
 
+    second_hardware = _handle(
+        engine,
+        _binding("key_a", hardware_id="5555:6666", source="kbd"),
+        1,
+        0.1,
+    )
+    assert second_hardware.consume_current_event is True
+    assert second_hardware.action_transition is not None
+    assert second_hardware.action_transition.combo_id == "combo-1"
+    _handle(
+        engine,
+        _binding("key_a", hardware_id="5555:6666", source="kbd"),
+        0,
+        0.15,
+    )
+
     wrong_source = _handle(
         engine,
         _binding("key_a", hardware_id="3333:4444", source="mouse"),
         1,
-        0.1,
+        0.2,
     )
     assert wrong_source.consume_current_event is False
     assert wrong_source.passthrough_current_event is False

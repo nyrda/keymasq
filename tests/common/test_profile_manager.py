@@ -324,6 +324,7 @@ class TestProfileManager:
 
         assert len(resolved.combos) == 1
         assert resolved.combos[0].steps[0].events[0].hardware_id == ""
+        assert resolved.combos[0].steps[0].events[0].source == "kbd"
         assert resolved.devices["1234:5678"].combo_event_count == 0
 
     def test_match_across_devices_preserves_storage_scope_but_strips_runtime_scope(

@@ -135,6 +135,53 @@ def test_exact_binding_matching_requires_hardware_and_source_match():
     assert wrong_source.passthrough_current_event is False
 
 
+def test_blank_hardware_id_matches_any_hardware_without_source_guessing():
+    engine = ComboEngine()
+    expected = _binding("key_a", hardware_id="", source="kbd")
+    engine.set_combos([_combo("combo-1", (expected,))])
+
+    first_hardware = _handle(
+        engine,
+        _binding("key_a", hardware_id="1111:2222", source="kbd"),
+        1,
+        0.0,
+    )
+    assert first_hardware.consume_current_event is True
+    assert first_hardware.action_transition is not None
+    assert first_hardware.action_transition.combo_id == "combo-1"
+    _handle(
+        engine,
+        _binding("key_a", hardware_id="1111:2222", source="kbd"),
+        0,
+        0.05,
+    )
+
+    second_hardware = _handle(
+        engine,
+        _binding("key_a", hardware_id="5555:6666", source="kbd"),
+        1,
+        0.1,
+    )
+    assert second_hardware.consume_current_event is True
+    assert second_hardware.action_transition is not None
+    assert second_hardware.action_transition.combo_id == "combo-1"
+    _handle(
+        engine,
+        _binding("key_a", hardware_id="5555:6666", source="kbd"),
+        0,
+        0.15,
+    )
+
+    wrong_source = _handle(
+        engine,
+        _binding("key_a", hardware_id="3333:4444", source="mouse"),
+        1,
+        0.2,
+    )
+    assert wrong_source.consume_current_event is False
+    assert wrong_source.passthrough_current_event is False
+
+
 def test_modifier_side_is_ignored_for_matching():
     engine = ComboEngine()
     generic_ctrl = _binding("ctrl")
@@ -176,3 +223,25 @@ def test_held_bindings_for_step_respects_source_specific_and_wildcard_matching()
     assert next(iter(wildcard_match)) in {held_aux, held_kbd}
 
 
+def test_held_bindings_for_step_respects_hardware_wildcard_matching():
+    engine = ComboEngine()
+    held_first = _binding("key_leftalt", hardware_id="1111:2222", source="kbd")
+    held_second = _binding("key_leftalt", hardware_id="3333:4444", source="kbd")
+    engine.prime_held_bindings({held_first, held_second})
+
+    source_specific = RuntimeComboStep(
+        bindings=(RuntimeComboBinding("", "key_leftalt", "kbd"),)
+    )
+    source_wildcard = RuntimeComboStep(
+        bindings=(RuntimeComboBinding("", "key_leftalt", ""),)
+    )
+
+    source_specific_match = engine._held_bindings_for_step(source_specific)
+    assert source_specific_match is not None
+    assert len(source_specific_match) == 1
+    assert next(iter(source_specific_match)) in {held_first, held_second}
+
+    source_wildcard_match = engine._held_bindings_for_step(source_wildcard)
+    assert source_wildcard_match is not None
+    assert len(source_wildcard_match) == 1
+    assert next(iter(source_wildcard_match)) in {held_first, held_second}

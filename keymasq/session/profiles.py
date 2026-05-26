@@ -602,7 +602,7 @@ class ProfileManager:
                                 continue
                             evdev = str(event_dict.get("evdev", "") or "")
                             hardware_id = str(event_dict.get("hardware_id", "") or "")
-                            if not evdev or not hardware_id:
+                            if not evdev:
                                 continue
                             source_raw = event_dict.get("source")
                             source = str(source_raw) if source_raw is not None else None
@@ -639,6 +639,9 @@ class ProfileManager:
                     recall_trigger_keys=bool(combo_dict.get("recall_trigger_keys", False)),
                     restore_trigger_keys=normalize_combo_restore_keys(
                         _as_toml_list(combo_dict.get("restore_trigger_keys", []))
+                    ),
+                    match_across_devices=bool(
+                        combo_dict.get("match_across_devices", False)
                     ),
                 )
             )
@@ -851,21 +854,28 @@ class ProfileManager:
                     if not step.events:
                         normalized_steps = []
                         break
+                    effective_step = copy.deepcopy(step)
+                    if combo.match_across_devices:
+                        for event in effective_step.events:
+                            event.hardware_id = ""
+                            event.source = None
                     normalized_events = sorted(
                         (
-                            event.hardware_id,
+                            event.hardware_id or "",
                             event.source or "",
                             normalize_combo_evdev(event.evdev),
                         )
-                        for event in step.events
-                        if event.hardware_id and event.evdev
+                        for event in effective_step.events
+                        if event.evdev
                     )
                     if not normalized_events:
                         normalized_steps = []
                         break
                     normalized_steps.append(tuple(normalized_events))
-                    combo_steps.append(copy.deepcopy(step))
+                    combo_steps.append(effective_step)
                     for hardware_id, _source, _evdev in normalized_events:
+                        if not hardware_id:
+                            continue
                         resolved = devices.setdefault(
                             hardware_id,
                             ResolvedDeviceProfile(hardware_id=hardware_id),
@@ -995,7 +1005,11 @@ class ProfileManager:
                             "events": [
                                 {
                                     "evdev": event.evdev,
-                                    "hardware_id": event.hardware_id,
+                                    **(
+                                        {"hardware_id": event.hardware_id}
+                                        if event.hardware_id
+                                        else {}
+                                    ),
                                     **({"source": event.source} if event.source else {}),
                                 }
                                 for event in step.events
@@ -1016,6 +1030,11 @@ class ProfileManager:
                             )
                         }
                         if combo.restore_trigger_keys
+                        else {}
+                    ),
+                    **(
+                        {"match_across_devices": True}
+                        if combo.match_across_devices
                         else {}
                     ),
                 }

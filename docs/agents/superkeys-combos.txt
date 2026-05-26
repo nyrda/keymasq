@@ -90,9 +90,24 @@ inputs together should trigger one action.
 
 Combo events store captured hardware identity and evdev input names:
 
-- `hardware_id`: device hardware ID such as `046d:c548`
-- `source`: optional evdev device source ID from the hardware file
+- `hardware_id`: optional device hardware ID such as `046d:c548`; omit or
+  leave empty to match any already-grabbed device without causing extra grabs
+- `source`: optional `id` of a specific evdev input event device configured in
+  the hardware file's `[[hardware.evdev.devices]]` entries; keeping it narrows
+  matching and grab selection to that configured event device, omitting it
+  matches any grabbed event device in scope
 - `evdev`: evdev input name such as `key_leftalt`, `key_r`, or `btn_side`
+
+Only `evdev` is required. Optional `hardware_id` and `source` are scope
+constraints, not extra-grab requests. If they are omitted, Keymasq only matches
+events from devices/interfaces that are already grabbed by the active runtime
+configuration.
+
+Use combo-level `match_across_devices = true` when a captured combo should work
+on any already-grabbed device while preserving the captured `hardware_id` and
+`source` values in storage. At runtime the session sends that combo to the
+daemon with empty hardware/source scope. Hand-edited combos may still omit either
+scope field directly.
 
 One-step chord example: press mouse back and forward together to play a macro.
 
@@ -143,8 +158,10 @@ Optional combo fields:
 ```toml
 recall_trigger_keys = true
 restore_trigger_keys = ["key_leftalt"]
+match_across_devices = true
 ```
 
 Prefer the GUI for creating combos when possible because it captures exact
 `hardware_id`, `source`, and `evdev` values. Agents should preserve existing
-combo IDs and unrelated profile mappings when editing profile TOML.
+combo IDs, captured hardware scope, portable matching flags, and unrelated
+profile mappings when editing profile TOML.

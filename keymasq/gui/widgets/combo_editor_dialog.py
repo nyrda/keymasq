@@ -99,16 +99,46 @@ def combo_event_sort_key(event: ComboEvent) -> str:
     return sort_combo_keys([event.evdev])[0]
 
 
-def combo_event_signature(event: ComboEvent) -> tuple[str, str, str]:
+def combo_event_signature(
+    event: ComboEvent,
+    *,
+    match_across_devices: bool = False,
+) -> tuple[str, str, str]:
     return (
-        str(event.hardware_id or "").lower(),
-        str(event.source or "").lower(),
+        "" if match_across_devices else str(event.hardware_id or "").lower(),
+        "" if match_across_devices else str(event.source or "").lower(),
         normalize_combo_evdev(str(event.evdev or "").lower()),
     )
 
 
-def combo_step_signature(step: ComboStep) -> tuple[tuple[str, str, str], ...]:
-    return tuple(sorted(combo_event_signature(event) for event in step.events))
+def combo_step_signature(
+    step: ComboStep,
+    *,
+    match_across_devices: bool = False,
+) -> tuple[tuple[str, str, str], ...]:
+    return tuple(
+        sorted(
+            combo_event_signature(
+                event,
+                match_across_devices=match_across_devices,
+            )
+            for event in step.events
+        )
+    )
+
+
+def combo_trigger_signature(
+    combo: ComboConfig,
+    *,
+    match_across_devices: bool = False,
+) -> list[tuple[tuple[str, str, str], ...]]:
+    return [
+        combo_step_signature(
+            step,
+            match_across_devices=match_across_devices,
+        )
+        for step in combo.steps
+    ]
 
 
 def combo_step_label(step: ComboStep) -> str:
@@ -135,6 +165,14 @@ def combo_is_single_critical_mouse_trigger(steps: list[ComboStep]) -> bool:
         len(steps) == 1
         and len(steps[0].events) == 1
         and normalize_combo_evdev(steps[0].events[0].evdev) in PROTECTED_BUTTONS
+    )
+
+
+def combo_steps_use_any_device(steps: list[ComboStep]) -> bool:
+    events = [event for step in steps for event in step.events]
+    return bool(events) and all(
+        not str(event.hardware_id or "").strip() and not str(event.source or "").strip()
+        for event in events
     )
 
 
@@ -406,6 +444,20 @@ class ComboEditorDialog(Adw.Dialog):
             self._on_recall_trigger_keys_changed,
         )
         trigger_state_group.add(self.recall_trigger_keys_row)
+
+        self.any_device_row = Adw.SwitchRow(
+            title="Match Across Devices",
+            subtitle="The trigger source can be any grabbed device.",
+        )
+        self.any_device_row.set_active(
+            self._draft.match_across_devices or combo_steps_use_any_device(self._draft.steps)
+        )
+        self.any_device_row.connect(
+            "notify::active",
+            self._on_any_device_changed,
+        )
+        trigger_state_group.add(self.any_device_row)
+
         content.append(trigger_state_group)
 
         self.restore_trigger_keys_group = Adw.PreferencesGroup(
@@ -482,7 +534,9 @@ class ComboEditorDialog(Adw.Dialog):
     def _save_draft(self) -> None:
         name = self.name_entry.get_text().strip()
         self._draft.name = name or combo_default_name(self._draft)
-        self.emit("combo-saved", deepcopy(self._draft))
+        saved = deepcopy(self._draft)
+        saved.match_across_devices = bool(self.any_device_row.get_active())
+        self.emit("combo-saved", saved)
         self.close()
 
     def _show_critical_mouse_combo_warning(self) -> None:
@@ -668,6 +722,14 @@ class ComboEditorDialog(Adw.Dialog):
         self._refresh_restore_trigger_keys()
         self._update_save_button()
 
+    def _on_any_device_changed(
+        self,
+        row: Adw.SwitchRow,
+        _pspec: GObject.ParamSpec,
+    ) -> None:
+        self._draft.match_across_devices = bool(row.get_active())
+        self._update_save_button()
+
     def _on_restore_trigger_key_toggled(
         self,
         button: Gtk.CheckButton,
@@ -714,13 +776,19 @@ class ComboEditorDialog(Adw.Dialog):
         return ""
 
     def _is_exact_duplicate_of_sibling(self) -> bool:
-        current_steps = [combo_step_signature(step) for step in self._draft.steps]
+        current_steps = combo_trigger_signature(
+            self._draft,
+            match_across_devices=bool(self.any_device_row.get_active()),
+        )
         if not current_steps:
             return False
         for combo in self._sibling_combos:
             if combo.id == self._draft.id:
                 continue
-            sibling_steps = [combo_step_signature(step) for step in combo.steps]
+            sibling_steps = combo_trigger_signature(
+                combo,
+                match_across_devices=bool(combo.match_across_devices),
+            )
             if sibling_steps == current_steps:
                 return True
         return False
@@ -802,7 +870,7 @@ class ComboEditorDialog(Adw.Dialog):
                 continue
             evdev = str(item.get("evdev", "") or "")
             hardware_id = str(item.get("hardware_id", "") or "")
-            if not evdev or not hardware_id:
+            if not evdev:
                 continue
             source_raw = item.get("source")
             source = str(source_raw) if source_raw is not None else None

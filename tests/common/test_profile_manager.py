@@ -280,6 +280,109 @@ class TestProfileManager:
         assert resolved.devices["1234:5678"].combo_event_count == 2
         assert resolved.devices["1234:5678"].combo_sources == {"mouse"}
 
+    def test_optional_combo_hardware_id_round_trips_without_grab_inference(
+        self,
+        temp_config_dir,
+    ):
+        manager = ProfileManager()
+        profile = ProfileConfig(
+            name="Portable Combo",
+            enabled=True,
+            is_permanent=True,
+            combos=[
+                ComboConfig(
+                    id="combo-any-kbd",
+                    name="Any Keyboard F13",
+                    steps=[
+                        ComboStep(
+                            events=[
+                                ComboEvent(
+                                    source="kbd",
+                                    evdev="key_f13",
+                                )
+                            ]
+                        )
+                    ],
+                    action=MappingAction(action_type=ActionType.SUPPRESS),
+                )
+            ],
+        )
+        manager.save_profile(profile)
+
+        text = (temp_config_dir / "profiles" / "Portable_Combo.toml").read_text(
+            encoding="utf-8"
+        )
+        assert "hardware_id" not in text
+
+        reloaded = ProfileManager()
+        loaded = reloaded.get_profile("Portable Combo")
+        assert loaded is not None
+        event = loaded.config.combos[0].steps[0].events[0]
+        assert event.hardware_id == ""
+
+        resolved = reloaded.resolve_active_profiles(hardware_ids=["1234:5678"])
+
+        assert len(resolved.combos) == 1
+        assert resolved.combos[0].steps[0].events[0].hardware_id == ""
+        assert resolved.combos[0].steps[0].events[0].source == "kbd"
+        assert resolved.devices["1234:5678"].combo_event_count == 0
+
+    def test_match_across_devices_preserves_storage_scope_but_strips_runtime_scope(
+        self,
+        temp_config_dir,
+    ):
+        manager = ProfileManager()
+        profile = ProfileConfig(
+            name="Portable Captured Combo",
+            enabled=True,
+            is_permanent=True,
+            combos=[
+                ComboConfig(
+                    id="combo-portable",
+                    name="Portable F13",
+                    match_across_devices=True,
+                    steps=[
+                        ComboStep(
+                            events=[
+                                ComboEvent(
+                                    hardware_id="1234:5678",
+                                    source="kbd",
+                                    evdev="key_f13",
+                                )
+                            ]
+                        )
+                    ],
+                    action=MappingAction(action_type=ActionType.SUPPRESS),
+                )
+            ],
+        )
+        manager.save_profile(profile)
+
+        text = (
+            temp_config_dir / "profiles" / "Portable_Captured_Combo.toml"
+        ).read_text(encoding="utf-8")
+        assert "match_across_devices = true" in text
+        assert 'hardware_id = "1234:5678"' in text
+        assert 'source = "kbd"' in text
+
+        reloaded = ProfileManager()
+        loaded = reloaded.get_profile("Portable Captured Combo")
+        assert loaded is not None
+        stored_combo = loaded.config.combos[0]
+        stored_event = stored_combo.steps[0].events[0]
+        assert stored_combo.match_across_devices is True
+        assert stored_event.hardware_id == "1234:5678"
+        assert stored_event.source == "kbd"
+
+        resolved = reloaded.resolve_active_profiles(hardware_ids=["1234:5678"])
+
+        assert len(resolved.combos) == 1
+        runtime_event = resolved.combos[0].steps[0].events[0]
+        assert runtime_event.hardware_id == ""
+        assert runtime_event.source is None
+        assert resolved.devices["1234:5678"].combo_event_count == 0
+        assert resolved.devices["1234:5678"].combo_sources == set()
+
     def test_combo_step_timeout_round_trips_in_profile_storage(self, temp_config_dir):
         manager = ProfileManager()
         profile = ProfileConfig(

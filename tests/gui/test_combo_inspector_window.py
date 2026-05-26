@@ -88,7 +88,7 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
     assert requests == [{"command": "get_combo_inspector_snapshot"}]
     assert window._status_label.get_text() == "Active Combos - 1 combo"
     assert window.active_profiles_label.get_text() == "Base, Overlay"
-    assert window.section_label.get_text() == "Active Combos"
+    assert window.section_label.get_visible() is False
     assert window.search_entry.get_visible() is False
     assert len(window._snapshots) == 1
     assert window.snapshot_dropdown.get_sensitive() is False
@@ -132,12 +132,93 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
 
     callbacks["keymasqd_status"][0]({"event": "keymasqd_status", "connected": False})
     assert window._status_label.get_text() == "Active Combos - Daemon disconnected"
-    assert window.section_label.get_text() == "Active Combos"
+    assert window.section_label.get_visible() is False
 
     window._finalize()
     assert callbacks["profiles_changed"] == []
     assert callbacks["runtime_reset"] == []
     assert callbacks["keymasqd_status"] == []
+
+
+def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import combo_inspector_window as inspector_module
+    from keymasq.gui.widgets.combo_inspector_window import ComboInspectorWindow
+
+    snapshot = {
+        "status": "ok",
+        "active_profiles": ["Base"],
+        "combos": [
+            {
+                "id": "combo-1",
+                "name": "Bravo",
+                "profile_name": "Base",
+                "order": 0,
+                "steps": [{"events": [{"evdev": "key_b"}]}],
+                "action": {"action": "keyboard", "target": "key_c"},
+            },
+            {
+                "id": "combo-2",
+                "name": "Alpha",
+                "profile_name": "Base",
+                "order": 1,
+                "steps": [{"events": [{"evdev": "key_c"}]}],
+                "action": {"action": "keyboard", "target": "key_b"},
+            },
+            {
+                "id": "combo-3",
+                "name": "Charlie",
+                "profile_name": "Base",
+                "order": 2,
+                "steps": [{"events": [{"evdev": "key_a"}]}],
+                "action": {"action": "keyboard", "target": "key_a"},
+            },
+        ],
+    }
+
+    def fake_request_async(_payload, callback, timeout=5.0):
+        callback(snapshot)
+
+    monkeypatch.setattr(inspector_module, "register_session_event_callback", lambda *_: None)
+    monkeypatch.setattr(inspector_module, "unregister_session_event_callback", lambda *_: None)
+    monkeypatch.setattr(inspector_module, "session_request_async", fake_request_async)
+
+    window = ComboInspectorWindow(Gtk.Window())
+
+    assert _combo_inspector_row_names(window) == ["Bravo", "Alpha", "Charlie"]
+    assert window._name_header_btn.get_label() == "Name"
+
+    window._name_header_btn.emit("clicked")
+    assert _combo_inspector_row_names(window) == ["Alpha", "Bravo", "Charlie"]
+    assert window._name_header_btn.get_label() == "Name \u25b4"
+
+    window._name_header_btn.emit("clicked")
+    assert _combo_inspector_row_names(window) == ["Charlie", "Bravo", "Alpha"]
+    assert window._name_header_btn.get_label() == "Name \u25be"
+
+    window._trigger_header_btn.emit("clicked")
+    assert _combo_inspector_row_names(window) == ["Charlie", "Bravo", "Alpha"]
+    assert window._trigger_header_btn.get_label() == "Trigger \u25b4"
+    assert window._name_header_btn.get_label() == "Name"
+
+    window._action_header_btn.emit("clicked")
+    assert _combo_inspector_row_names(window) == ["Charlie", "Alpha", "Bravo"]
+    assert window._action_header_btn.get_label() == "Action \u25b4"
+
+    window._finalize()
+
+
+def _combo_inspector_row_names(window) -> list[str]:
+    names: list[str] = []
+    row = window.combo_listbox.get_first_child()
+    while row is not None:
+        row_box = row.get_child()
+        name_box = row_box.get_first_child()
+        name_label = name_box.get_first_child()
+        names.append(name_label.get_label())
+        row = row.get_next_sibling()
+    return names
 
 
 def test_combo_inspector_mapping_action_payload_preserves_macro_loop_stop_behavior() -> None:

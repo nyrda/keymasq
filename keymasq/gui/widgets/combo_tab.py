@@ -76,6 +76,7 @@ class ComboTab(ProfileManagedTab):
         if not self.demo_mode:
             inspect_btn = Gtk.Button(
                 icon_name=resolve_icon_name(
+                    "view-reveal-symbolic",
                     "edit-find-symbolic",
                     "system-search-symbolic",
                     "zoom-in-symbolic",
@@ -104,11 +105,11 @@ class ComboTab(ProfileManagedTab):
         self.combo_frame.set_margin_top(12)
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.section_label = Gtk.Label(label="Combos")
-        self.section_label.add_css_class("heading")
-        self.section_label.set_hexpand(True)
-        self.section_label.set_halign(Gtk.Align.START)
-        toolbar.append(self.section_label)
+
+        self.add_combo_button = Gtk.Button(label="Add Combo")
+        self.add_combo_button.add_css_class("suggested-action")
+        self.add_combo_button.connect("clicked", self._on_add_combo_clicked)
+        toolbar.append(self.add_combo_button)
 
         self.search_button = Gtk.Button()
         self.search_button.set_icon_name("system-search-symbolic")
@@ -116,10 +117,6 @@ class ComboTab(ProfileManagedTab):
         self.search_button.connect("clicked", self._on_search_clicked)
         toolbar.append(self.search_button)
 
-        self.add_combo_button = Gtk.Button(label="Add Combo")
-        self.add_combo_button.add_css_class("suggested-action")
-        self.add_combo_button.connect("clicked", self._on_add_combo_clicked)
-        toolbar.append(self.add_combo_button)
         self.combo_frame.append(toolbar)
 
         self.search_entry = Gtk.SearchEntry()
@@ -130,6 +127,13 @@ class ComboTab(ProfileManagedTab):
         self.search_entry.set_visible(False)
         self.search_entry.connect("stop-search", self._on_search_stop)
         self.combo_frame.append(self.search_entry)
+
+        self.section_label = Gtk.Label(label="")
+        self.section_label.add_css_class("heading")
+        self.section_label.set_hexpand(True)
+        self.section_label.set_halign(Gtk.Align.START)
+        self.section_label.set_visible(False)
+        self.combo_frame.append(self.section_label)
 
         col_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         col_header.add_css_class("combo-column-header")
@@ -235,7 +239,7 @@ class ComboTab(ProfileManagedTab):
         combos = self._sorted_combos()
 
         if self._selected_profile is None:
-            self.section_label.set_text("Combos")
+            self.section_label.set_visible(False)
             self.combo_listbox.set_visible(False)
             self.column_header.set_visible(False)
             return
@@ -311,7 +315,7 @@ class ComboTab(ProfileManagedTab):
 
     def _update_combo_list_state(self, *, has_combos: bool | None = None) -> None:
         if self._selected_profile is None:
-            self.section_label.set_text("Combos")
+            self.section_label.set_visible(False)
             self.combo_listbox.set_visible(False)
             self.column_header.set_visible(False)
             return
@@ -322,11 +326,13 @@ class ComboTab(ProfileManagedTab):
         self.combo_listbox.set_visible(has_visible_rows)
         self.column_header.set_visible(has_visible_rows)
         if has_visible_rows:
-            self.section_label.set_text("Combos")
+            self.section_label.set_visible(False)
         elif has_combos and self.search_entry.get_text().strip():
             self.section_label.set_text("No matching combos.")
+            self.section_label.set_visible(True)
         else:
             self.section_label.set_text("No combos in this profile.")
+            self.section_label.set_visible(True)
 
     def _after_search_filter_changed(self) -> None:
         self._update_combo_list_state()

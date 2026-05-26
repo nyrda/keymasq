@@ -419,7 +419,7 @@ class TestComboTabWidget:
 
         tab.search_entry.set_text("mouse")
         assert tab._visible_combo_count() == 1
-        assert tab.section_label.get_text() == "Combos"
+        assert tab.section_label.get_visible() is False
 
         tab.search_entry.set_text("missing")
         assert tab._visible_combo_count() == 0
@@ -428,7 +428,16 @@ class TestComboTabWidget:
 
         tab._hide_search()
         assert tab.search_entry.get_visible() is False
-        assert tab.section_label.get_text() == "Combos"
+        assert tab.section_label.get_visible() is False
+
+    def test_combo_tab_toolbar_keeps_add_combo_and_search_left_bound(self):
+        from keymasq.gui.widgets.combo_tab import ComboTab
+
+        tab = ComboTab(profile_manager=None, demo_mode=True)
+        toolbar = tab.add_combo_button.get_parent()
+
+        assert toolbar.get_first_child() is tab.add_combo_button
+        assert tab.add_combo_button.get_next_sibling() is tab.search_button
 
     def test_combo_tab_add_combo_requires_selected_profile(self, temp_config_dir):
         from gi.repository import Gtk
@@ -441,6 +450,6 @@ class TestComboTabWidget:
 
         tab._on_add_combo_clicked(Gtk.Button())
 
-        assert tab.section_label.get_text() == "Combos"
+        assert tab.section_label.get_visible() is False
         assert tab._selected_profile is None
         assert opened == []

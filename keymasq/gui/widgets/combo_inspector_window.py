@@ -62,6 +62,14 @@ class ComboInspectorSnapshot:
 
 SNAPSHOT_HISTORY_LIMIT = 12
 
+_SORT_NONE = 0
+_SORT_NAME = 1
+_SORT_TRIGGER = 2
+_SORT_ACTION = 3
+
+_ARROW_UP = " \u25b4"
+_ARROW_DOWN = " \u25be"
+
 
 class ComboInspectorWindow(Adw.Window):
     def __init__(self, parent: Gtk.Window):
@@ -76,6 +84,8 @@ class ComboInspectorWindow(Adw.Window):
         self._selected_snapshot_signature = ""
         self._follow_latest_snapshot = True
         self._syncing_snapshot_selector = False
+        self._sort_column = _SORT_NONE
+        self._sort_ascending = True
 
         self.set_title("Inspect Active Combos")
         self.set_default_size(780, 520)
@@ -156,13 +166,12 @@ class ComboInspectorWindow(Adw.Window):
         self.search_entry.connect("stop-search", self._on_search_stop)
         content.append(self.search_entry)
 
-        toolbar_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.section_label = Gtk.Label(label="Active Combos")
+        self.section_label = Gtk.Label(label="")
         self.section_label.add_css_class("heading")
         self.section_label.set_hexpand(True)
         self.section_label.set_halign(Gtk.Align.START)
-        toolbar_row.append(self.section_label)
-        content.append(toolbar_row)
+        self.section_label.set_visible(False)
+        content.append(self.section_label)
 
         self.column_header = self._create_column_header()
         content.append(self.column_header)
@@ -189,22 +198,41 @@ class ComboInspectorWindow(Adw.Window):
         col_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         col_header.add_css_class("combo-column-header")
 
-        name_label = Gtk.Label(label="Name")
-        name_label.add_css_class("combo-col-btn")
-        name_label.set_hexpand(True)
-        name_label.set_halign(Gtk.Align.START)
-        col_header.append(name_label)
+        self._name_header_btn = Gtk.Button(label="Name")
+        self._name_header_btn.add_css_class("flat")
+        self._name_header_btn.add_css_class("combo-col-btn")
+        self._name_header_btn.set_hexpand(True)
+        self._name_header_btn.set_halign(Gtk.Align.START)
+        self._name_header_btn.connect(
+            "clicked",
+            self._on_column_header_clicked,
+            _SORT_NAME,
+        )
+        col_header.append(self._name_header_btn)
 
-        trigger_label = Gtk.Label(label="Trigger")
-        trigger_label.add_css_class("combo-col-btn")
-        trigger_label.set_halign(Gtk.Align.START)
-        col_header.append(trigger_label)
+        self._trigger_header_btn = Gtk.Button(label="Trigger")
+        self._trigger_header_btn.add_css_class("flat")
+        self._trigger_header_btn.add_css_class("combo-col-btn")
+        self._trigger_header_btn.set_halign(Gtk.Align.START)
+        self._trigger_header_btn.connect(
+            "clicked",
+            self._on_column_header_clicked,
+            _SORT_TRIGGER,
+        )
+        col_header.append(self._trigger_header_btn)
 
-        action_label = Gtk.Label(label="Action")
-        action_label.add_css_class("combo-col-btn")
-        action_label.set_size_request(180, -1)
-        action_label.set_halign(Gtk.Align.END)
-        col_header.append(action_label)
+        self._action_header_btn = Gtk.Button(label="Action")
+        self._action_header_btn.add_css_class("flat")
+        self._action_header_btn.add_css_class("combo-col-btn")
+        self._action_header_btn.set_size_request(180, -1)
+        self._action_header_btn.connect(
+            "clicked",
+            self._on_column_header_clicked,
+            _SORT_ACTION,
+        )
+        col_header.append(self._action_header_btn)
+
+        self._update_column_header_labels()
         return col_header
 
     def _request_snapshot(self) -> None:
@@ -355,9 +383,41 @@ class ComboInspectorWindow(Adw.Window):
         while row := self.combo_listbox.get_first_child():
             self.combo_listbox.remove(row)
 
-        for item in self._items:
+        for item in self._sorted_items():
             self.combo_listbox.append(self._create_combo_row(item))
         self._update_combo_list_state(has_combos=bool(self._items))
+
+    def _sorted_items(self) -> list[ComboInspectorItem]:
+        if self._sort_column == _SORT_NAME:
+            result = sorted(self._items, key=lambda item: item.name.casefold())
+        elif self._sort_column == _SORT_TRIGGER:
+            result = sorted(
+                self._items,
+                key=lambda item: combo_trigger_label(item.steps).casefold(),
+            )
+        elif self._sort_column == _SORT_ACTION:
+            result = sorted(
+                self._items,
+                key=lambda item: describe_mapping_action(item.action).casefold(),
+            )
+        else:
+            return list(self._items)
+        if not self._sort_ascending:
+            result.reverse()
+        return result
+
+    def _update_column_header_labels(self) -> None:
+        for col, btn in (
+            (_SORT_NAME, self._name_header_btn),
+            (_SORT_TRIGGER, self._trigger_header_btn),
+            (_SORT_ACTION, self._action_header_btn),
+        ):
+            base = {_SORT_NAME: "Name", _SORT_TRIGGER: "Trigger", _SORT_ACTION: "Action"}[col]
+            if self._sort_column == col:
+                arrow = _ARROW_UP if self._sort_ascending else _ARROW_DOWN
+                btn.set_label(f"{base}{arrow}")
+            else:
+                btn.set_label(base)
 
     def _create_combo_row(self, item: ComboInspectorItem) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
@@ -438,11 +498,13 @@ class ComboInspectorWindow(Adw.Window):
         self.combo_listbox.set_visible(has_visible_rows)
         self.column_header.set_visible(has_visible_rows)
         if has_visible_rows:
-            self.section_label.set_text("Active Combos")
+            self.section_label.set_visible(False)
         elif has_combos and self.search_entry.get_text().strip():
             self.section_label.set_text("No matching active combos.")
+            self.section_label.set_visible(True)
         else:
             self.section_label.set_text("No active combos.")
+            self.section_label.set_visible(True)
 
     def _after_search_filter_changed(self) -> None:
         self._update_combo_list_state()
@@ -461,6 +523,15 @@ class ComboInspectorWindow(Adw.Window):
 
     def _on_search_stop(self, _entry: Gtk.SearchEntry) -> None:
         self._hide_search()
+
+    def _on_column_header_clicked(self, _button: Gtk.Button, column: int) -> None:
+        if self._sort_column == column:
+            self._sort_ascending = not self._sort_ascending
+        else:
+            self._sort_column = column
+            self._sort_ascending = True
+        self._update_column_header_labels()
+        self._render_combo_list()
 
     def _on_key_pressed(
         self,

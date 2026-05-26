@@ -395,9 +395,9 @@ class TestMainWindow:
 
         assert page.get_title() == "Desk Mouse"
 
-    def test_main_window_persists_user_device_tab_order(self, temp_config_dir):
+    def test_main_window_persists_user_tab_order(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.preferences import load_device_tab_order
+        from keymasq.gui.preferences import load_tab_order
         from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
@@ -423,16 +423,18 @@ class TestMainWindow:
 
         window.tab_view.reorder_page(third_page, window.tab_view.get_n_pinned_pages())
 
-        assert window._current_device_tab_order() == [
-            devices[2].hardware_id,
-            devices[0].hardware_id,
-            devices[1].hardware_id,
+        expected_order = [
+            f"device:{devices[2].hardware_id}",
+            f"device:{devices[0].hardware_id}",
+            f"device:{devices[1].hardware_id}",
+            "combos",
         ]
-        assert load_device_tab_order() == window._current_device_tab_order()
+        assert window._current_tab_order() == expected_order
+        assert load_tab_order() == expected_order
 
-    def test_main_window_applies_saved_device_tab_order_on_load(self, temp_config_dir):
+    def test_main_window_applies_saved_tab_order_on_load(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.preferences import save_device_tab_order
+        from keymasq.gui.preferences import save_tab_layout
         from keymasq.gui.window import MainWindow
 
         devices = [
@@ -449,28 +451,27 @@ class TestMainWindow:
                 ("5680", "Mouse Three"),
             )
         ]
-        save_device_tab_order([devices[1].hardware_id, devices[0].hardware_id])
+        expected_order = [
+            f"device:{devices[1].hardware_id}",
+            "combos",
+            f"device:{devices[0].hardware_id}",
+            f"device:{devices[2].hardware_id}",
+        ]
+        save_tab_layout(expected_order[:-1], set())
 
         window = MainWindow(demo_mode=True)
         window._apply_loaded_devices(devices)
 
-        assert window._current_device_tab_order() == [
-            devices[1].hardware_id,
-            devices[0].hardware_id,
-            devices[2].hardware_id,
-        ]
+        assert window._current_tab_order() == expected_order
 
         window._apply_loaded_devices(devices)
 
-        assert window._current_device_tab_order() == [
-            devices[1].hardware_id,
-            devices[0].hardware_id,
-            devices[2].hardware_id,
-        ]
-        assert window.tab_view.get_n_pages() == 3
+        assert window._current_tab_order() == expected_order
+        assert window.tab_view.get_n_pages() == 4
 
-    def test_main_window_keeps_combo_tab_fixed_outside_reorderable_pages(self, temp_config_dir):
+    def test_main_window_hides_and_restores_combo_tab_from_menu(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.preferences import load_hidden_tabs, load_tab_order
         from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
@@ -491,32 +492,40 @@ class TestMainWindow:
             window._add_device_tab(device)
 
         assert window.combo_tab is not None
-        assert window._page_for_child(window.combo_tab) is None
+        combo_page = window._page_for_child(window.combo_tab)
+        assert combo_page is not None
         assert window.tab_bar.get_start_action_widget() is not None
-        assert window.tab_bar.get_end_action_widget() is window.combo_tab_button
-        assert window.content_stack.get_visible_child() is window.tab_view
         assert window.tab_view.get_n_pages() == 3
 
-        first_page = window._page_for_hardware_id(devices[0].hardware_id)
-        assert first_page is not None
-        window.tab_view.reorder_last(first_page)
-
-        assert window.tab_view.get_n_pages() == 3
-        assert window._current_device_tab_order() == [
-            devices[1].hardware_id,
-            devices[0].hardware_id,
+        window.tab_view.reorder_page(combo_page, window.tab_view.get_n_pinned_pages() + 1)
+        expected_order = [
+            f"device:{devices[0].hardware_id}",
+            "combos",
+            f"device:{devices[1].hardware_id}",
         ]
 
-        window.combo_tab_button.set_active(True)
+        assert window._current_tab_order() == expected_order
+        assert load_tab_order() == expected_order
 
-        assert window.content_stack.get_visible_child() is window.combo_tab
+        window.tab_view.close_page(combo_page)
 
-        second_page = window._page_for_hardware_id(devices[1].hardware_id)
-        assert second_page is not None
-        window.tab_view.set_selected_page(second_page)
+        assert window.combo_tab is None
+        assert window._current_tab_order() == [
+            f"device:{devices[0].hardware_id}",
+            f"device:{devices[1].hardware_id}",
+        ]
+        assert load_tab_order() == expected_order
+        assert load_hidden_tabs() == {"combos"}
 
-        assert window.combo_tab_button.get_active() is False
-        assert window.content_stack.get_visible_child() is window.tab_view
+        window.show_combo_tab()
+
+        assert window.combo_tab is not None
+        restored_page = window._page_for_child(window.combo_tab)
+        assert restored_page is not None
+        assert window.tab_view.get_selected_page() is restored_page
+        assert window._current_tab_order() == expected_order
+        assert load_tab_order() == expected_order
+        assert load_hidden_tabs() == set()
 
     def test_main_window_tab_close_requests_device_delete(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig

@@ -22,8 +22,9 @@ from keymasq.gui.icons import (
 from keymasq.gui.preferences import (
     AppearanceMode,
     load_appearance_mode,
-    load_device_tab_order,
-    save_device_tab_order,
+    load_hidden_tabs,
+    load_tab_order,
+    save_tab_layout,
 )
 from keymasq.gui.session_client import (
     GuiTaskResult,
@@ -49,6 +50,13 @@ from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileManager
 
 log = logging.getLogger("keymasq.gui.window")
+
+_COMBO_TAB_ID = "combos"
+_DEVICE_TAB_PREFIX = "device:"
+
+
+def _device_tab_id(hardware_id: str) -> str:
+    return f"{_DEVICE_TAB_PREFIX}{hardware_id}"
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -113,12 +121,13 @@ class MainWindow(Adw.ApplicationWindow):
         self._profile_reload_inflight = False
         self._profile_reload_pending = False
         self._destroyed = False
-        self._device_tab_order = load_device_tab_order()
+        self._tab_order = load_tab_order()
+        self._hidden_tabs = load_hidden_tabs()
         self._device_pages: dict[str, Adw.TabPage] = {}
+        self._combo_page: Adw.TabPage | None = None
         self._placeholder_page: Adw.TabPage | None = None
         self._allow_tab_page_close = False
-        self._suppress_tab_order_save = False
-        self._syncing_combo_tab_button = False
+        self._suppress_tab_layout_save = False
         self.combo_tab: ComboTab | None = None
         self._device_inspector_windows: dict[str, Gtk.Window] = {}
 
@@ -210,14 +219,14 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _iter_profile_tabs(self):
         yield from self._iter_tab_children()
-        if self.combo_tab is not None:
-            yield self.combo_tab
 
     def _page_for_child(self, widget: Gtk.Widget | None) -> Adw.TabPage | None:
         if widget is None:
             return None
         if widget is self.placeholder:
             return self._placeholder_page
+        if widget is self.combo_tab:
+            return self._combo_page
         for page in self._device_pages.values():
             if page.get_child() is widget:
                 return page
@@ -254,7 +263,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _sync_tab_close_tooltips(self) -> bool:
         for widget in self._walk_widget_tree(self.tab_bar):
             if "tab-close-button" in widget.get_css_classes():
-                widget.set_tooltip_text("Remove device")
+                widget.set_tooltip_text("Close tab")
         return False
 
     def _close_tab_page(self, page: Adw.TabPage | None) -> None:
@@ -268,14 +277,31 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_tab_close_page(self, _tab_view: Adw.TabView, page: Adw.TabPage) -> bool:
         if self._allow_tab_page_close:
+            child = page.get_child()
             self.tab_view.close_page_finish(page, True)
+            if isinstance(child, ComboTab):
+                self._combo_page = None
+                self.combo_tab = None
+            return True
+
+        child = page.get_child()
+        if isinstance(child, ComboTab):
+            self._hide_combo_tab(page)
             return True
 
         self.tab_view.close_page_finish(page, False)
-        child = page.get_child()
         if isinstance(child, DeviceTab):
             child.present_delete_device_dialog()
         return True
+
+    def _hide_combo_tab(self, page: Adw.TabPage) -> None:
+        self._tab_order = self._current_tab_order()
+        self._hidden_tabs.add(_COMBO_TAB_ID)
+        save_tab_layout(self._tab_order, self._hidden_tabs)
+        self.tab_view.close_page_finish(page, True)
+        self._combo_page = None
+        self.combo_tab = None
+        self._check_empty_state()
 
     def _on_tab_page_reordered(
         self,
@@ -283,15 +309,22 @@ class MainWindow(Adw.ApplicationWindow):
         _page: Adw.TabPage,
         _position: int,
     ) -> None:
-        if not self._suppress_tab_order_save:
-            self._save_device_tab_order()
+        if not self._suppress_tab_layout_save:
+            self._save_tab_layout()
 
-    def _current_device_tab_order(self) -> list[str]:
+    def _tab_id_for_child(self, child: Gtk.Widget | None) -> str | None:
+        if isinstance(child, DeviceTab):
+            return _device_tab_id(child.device.hardware_id)
+        if isinstance(child, ComboTab):
+            return _COMBO_TAB_ID
+        return None
+
+    def _current_tab_order(self) -> list[str]:
         order: list[str] = []
         for page in self._iter_tab_pages():
-            child = page.get_child()
-            if isinstance(child, DeviceTab):
-                order.append(child.device.hardware_id)
+            tab_id = self._tab_id_for_child(page.get_child())
+            if tab_id is not None:
+                order.append(tab_id)
         return order
 
     def list_device_tab_configs(self) -> list[HardwareConfig]:
@@ -302,13 +335,119 @@ class MainWindow(Adw.ApplicationWindow):
                 devices.append(child.device)
         return devices
 
-    def _save_device_tab_order(self) -> None:
-        self._device_tab_order = self._current_device_tab_order()
-        save_device_tab_order(self._device_tab_order)
+    def _merge_hidden_tabs_into_order(self, visible_order: list[str]) -> list[str]:
+        order = list(visible_order)
+        for hidden_tab_id in self._tab_order:
+            if hidden_tab_id not in self._hidden_tabs or hidden_tab_id in order:
+                continue
+
+            previous = next(
+                (
+                    tab_id
+                    for tab_id in reversed(self._tab_order[: self._tab_order.index(hidden_tab_id)])
+                    if tab_id in order
+                ),
+                None,
+            )
+            if previous is not None:
+                order.insert(order.index(previous) + 1, hidden_tab_id)
+                continue
+
+            following = next(
+                (
+                    tab_id
+                    for tab_id in self._tab_order[self._tab_order.index(hidden_tab_id) + 1 :]
+                    if tab_id in order
+                ),
+                None,
+            )
+            if following is not None:
+                order.insert(order.index(following), hidden_tab_id)
+                continue
+
+            order.append(hidden_tab_id)
+
+        for hidden_tab_id in sorted(self._hidden_tabs - set(order)):
+            order.append(hidden_tab_id)
+        return order
+
+    def _save_tab_layout(self) -> None:
+        self._tab_order = self._merge_hidden_tabs_into_order(self._current_tab_order())
+        save_tab_layout(self._tab_order, self._hidden_tabs)
+
+    def _page_for_tab_id(self, tab_id: str) -> Adw.TabPage | None:
+        if tab_id == _COMBO_TAB_ID:
+            return self._combo_page
+        if tab_id.startswith(_DEVICE_TAB_PREFIX):
+            hardware_id = tab_id.removeprefix(_DEVICE_TAB_PREFIX)
+            return self._device_pages.get(hardware_id)
+        return None
+
+    def _default_visible_tab_order(self) -> list[str]:
+        device_ids: list[str] = []
+        other_ids: list[str] = []
+        for tab_id in self._current_tab_order():
+            if tab_id.startswith(_DEVICE_TAB_PREFIX):
+                device_ids.append(tab_id)
+            else:
+                other_ids.append(tab_id)
+        return device_ids + other_ids
+
+    def _desired_visible_tab_order(self) -> list[str]:
+        current_order = self._current_tab_order()
+        if not self._tab_order:
+            return self._default_visible_tab_order()
+
+        visible_order = [
+            tab_id
+            for tab_id in self._tab_order
+            if tab_id not in self._hidden_tabs and tab_id in current_order
+        ]
+        missing_order = [tab_id for tab_id in current_order if tab_id not in visible_order]
+        missing_devices = [
+            tab_id for tab_id in missing_order if tab_id.startswith(_DEVICE_TAB_PREFIX)
+        ]
+        missing_other = [
+            tab_id for tab_id in missing_order if not tab_id.startswith(_DEVICE_TAB_PREFIX)
+        ]
+        if (
+            missing_devices
+            and visible_order
+            and visible_order[-1] == _COMBO_TAB_ID
+            and _COMBO_TAB_ID not in self._hidden_tabs
+        ):
+            visible_order[-1:-1] = missing_devices
+        else:
+            visible_order.extend(missing_devices)
+        visible_order.extend(missing_other)
+        return visible_order
+
+    def _reorder_visible_pages_to_saved_order(self) -> None:
+        desired_order = self._desired_visible_tab_order()
+        if not desired_order:
+            return
+
+        suppress_was = self._suppress_tab_layout_save
+        self._suppress_tab_layout_save = True
+        try:
+            position = self.tab_view.get_n_pinned_pages()
+            if self._placeholder_page is not None:
+                self.tab_view.reorder_page(self._placeholder_page, position)
+                position += 1
+            for tab_id in desired_order:
+                page = self._page_for_tab_id(tab_id)
+                if page is None:
+                    continue
+                self.tab_view.reorder_page(page, position)
+                position += 1
+        finally:
+            self._suppress_tab_layout_save = suppress_was
 
     def _order_devices_for_tabs(self, devices: list[HardwareConfig]) -> list[HardwareConfig]:
         order_index = {
-            hardware_id: index for index, hardware_id in enumerate(self._device_tab_order)
+            tab_id.removeprefix(_DEVICE_TAB_PREFIX): index
+            for index, tab_id in enumerate(self._tab_order)
+            if tab_id.startswith(_DEVICE_TAB_PREFIX)
         }
         fallback_offset = len(order_index)
         indexed_devices: list[tuple[int, HardwareConfig]] = list(enumerate(devices))
@@ -375,12 +514,6 @@ class MainWindow(Adw.ApplicationWindow):
             self._syncing_profile_selection = False
 
     def _on_selected_tab_changed(self, _tab_view, _pspec) -> None:
-        if hasattr(self, "content_stack"):
-            self.content_stack.set_visible_child(self.tab_view)
-        if hasattr(self, "combo_tab_button") and self.combo_tab_button.get_active():
-            self._syncing_combo_tab_button = True
-            self.combo_tab_button.set_active(False)
-            self._syncing_combo_tab_button = False
         page = self.tab_view.get_selected_page()
         child = page.get_child() if page is not None else None
         if isinstance(child, ProfileManagedTab):
@@ -388,18 +521,6 @@ class MainWindow(Adw.ApplicationWindow):
                 preferred_profile_name=self._selected_profile_name,
                 publish_selection=False,
             )
-
-    def _on_combo_tab_button_toggled(self, button: Gtk.ToggleButton) -> None:
-        if self._syncing_combo_tab_button or self.combo_tab is None:
-            return
-        if button.get_active():
-            self.content_stack.set_visible_child(self.combo_tab)
-            self.combo_tab.refresh_profiles(
-                preferred_profile_name=self._selected_profile_name,
-                publish_selection=False,
-            )
-            return
-        self.content_stack.set_visible_child(self.tab_view)
 
     def _on_session_event(self, event: dict) -> bool:
         self._handle_session_event(event)
@@ -798,17 +919,6 @@ class MainWindow(Adw.ApplicationWindow):
         self.tab_bar.set_hexpand(True)
         self.tab_bar.set_halign(Gtk.Align.FILL)
 
-        self.combo_tab_button = Gtk.ToggleButton()
-        self.combo_tab_button.add_css_class("flat")
-        self.combo_tab_button.add_css_class("keymasq-combo-tab-button")
-        self.combo_tab_button.set_tooltip_text("Combos")
-        combo_button_content = Adw.ButtonContent()
-        combo_button_content.set_icon_name(resolve_icon_name(*combo_icon_names()))
-        combo_button_content.set_label("Combos")
-        self.combo_tab_button.set_child(combo_button_content)
-        self.combo_tab_button.connect("toggled", self._on_combo_tab_button_toggled)
-        self.tab_bar.set_end_action_widget(self.combo_tab_button)
-
         add_device_button = Gtk.Button(icon_name="list-add-symbolic")
         add_device_button.set_tooltip_text("Add device")
         add_device_button.connect("clicked", self._on_add_device_clicked)
@@ -857,6 +967,11 @@ class MainWindow(Adw.ApplicationWindow):
         self._syncing_appearance = False
         menu_box.append(appearance_box)
         menu_box.append(self._create_menu_separator())
+
+        combos_btn = Gtk.Button(label="Combos")
+        self._configure_menu_button(combos_btn)
+        combos_btn.connect("clicked", self._on_combos_menu_clicked, menu_popover)
+        menu_box.append(combos_btn)
 
         superkeys_btn = Gtk.Button(label="Super Keys")
         self._configure_menu_button(superkeys_btn)
@@ -954,10 +1069,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.warning_banner.set_revealed(False)
         content_box.append(self.warning_banner)
 
-        self.content_stack = Gtk.Stack()
-        self.content_stack.set_vexpand(True)
-        self.content_stack.add_named(self.tab_view, "devices")
-        content_box.append(self.content_stack)
+        content_box.append(self.tab_view)
 
         from keymasq.gui.widgets.recording_overlay import RecordingOverlay
 
@@ -1064,6 +1176,10 @@ class MainWindow(Adw.ApplicationWindow):
             return
         app.activate_action(action_name, None)
 
+    def _on_combos_menu_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
+        popover.popdown()
+        self.show_combo_tab()
+
     def _on_menu_unlock_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         popover.popdown()
         self.present_unlock_dialog()
@@ -1129,14 +1245,15 @@ class MainWindow(Adw.ApplicationWindow):
         self._close_tab_page(self._page_for_child(self.placeholder))
         self._placeholder_page = None
 
-        self._suppress_tab_order_save = True
+        self._suppress_tab_layout_save = True
         try:
             for device in self._order_devices_for_tabs(devices):
                 if device.hardware_id in self._device_pages:
                     continue
                 self._add_device_tab(device, persist_order=False)
+            self._reorder_visible_pages_to_saved_order()
         finally:
-            self._suppress_tab_order_save = False
+            self._suppress_tab_layout_save = False
 
     def _load_demo_devices(self) -> None:
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
@@ -1167,24 +1284,50 @@ class MainWindow(Adw.ApplicationWindow):
         self._placeholder_page = None
         if demo_device.hardware_id not in self._device_pages:
             self._add_device_tab(demo_device, persist_order=False)
+        self._reorder_visible_pages_to_saved_order()
 
     def _setup_combo_tab(self) -> None:
+        if _COMBO_TAB_ID in self._hidden_tabs:
+            return
+        self._ensure_combo_tab_page()
+
+    def _ensure_combo_tab_page(self) -> Adw.TabPage | None:
+        if self._combo_page is not None:
+            return self._combo_page
+
         self.combo_tab = ComboTab(
             profile_manager=self.profile_manager,
             main_window=self,
             demo_mode=self.demo_mode,
             compositor_capabilities=self._compositor_capabilities,
         )
-        self.content_stack.add_named(self.combo_tab, "combos")
+        self._combo_page = self._append_tab_page(
+            self.combo_tab,
+            title="Combos",
+            icon_name=resolve_icon_name(*combo_icon_names()),
+        )
         if self._selected_profile_name:
             self.combo_tab.refresh_profiles(
                 preferred_profile_name=self._selected_profile_name,
                 publish_selection=False,
             )
         self._apply_profile_runtime_state_to_widget(self.combo_tab)
-        self.content_stack.set_visible_child(self.tab_view)
+        self._reorder_visible_pages_to_saved_order()
+        return self._combo_page
+
+    def show_combo_tab(self) -> None:
+        self._hidden_tabs.discard(_COMBO_TAB_ID)
+        page = self._ensure_combo_tab_page()
+        if page is None:
+            return
+        self._save_tab_layout()
+        self.tab_view.set_selected_page(page)
 
     def _add_device_tab(self, device: HardwareConfig, *, persist_order: bool = True) -> None:
+        if self._placeholder_page is not None:
+            self._close_tab_page(self._placeholder_page)
+            self._placeholder_page = None
+
         tab = DeviceTab(
             device=device,
             profile_manager=self.profile_manager,
@@ -1208,8 +1351,9 @@ class MainWindow(Adw.ApplicationWindow):
                 preferred_profile_name=self._selected_profile_name,
                 publish_selection=False,
             )
+        self._reorder_visible_pages_to_saved_order()
         if persist_order:
-            self._save_device_tab_order()
+            self._save_tab_layout()
 
     def update_device_display_name(self, hardware_id: str, name: str) -> None:
         page = self._page_for_hardware_id(hardware_id)
@@ -1262,7 +1406,7 @@ class MainWindow(Adw.ApplicationWindow):
     def remove_device_tab(self, hardware_id: str) -> None:
         page = self._device_pages.pop(hardware_id, None)
         self._close_tab_page(page)
-        self._save_device_tab_order()
+        self._save_tab_layout()
         self._check_empty_state()
 
     def _queue_profile_reload(self) -> None:

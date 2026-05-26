@@ -519,7 +519,8 @@ class ComboInspectorWindow(Adw.Window):
         self.search_entry.select_region(0, -1)
 
     def _hide_search(self) -> None:
-        self.search_entry.set_text("")
+        if self.search_entry.get_text():
+            self.search_entry.set_text("")
         self.search_entry.set_visible(False)
 
     def _on_search_clicked(self, _button: Gtk.Button) -> None:

@@ -17,6 +17,16 @@ macro, a shell command, or anything else Keymasq can map to.
 Combos are stored inside profiles. They can include events from multiple
 devices, so a combo can combine a keyboard key and a mouse button if needed.
 
+The Combos tab edits the combos stored in one selected profile. Use the inspect
+button in the Combos tab to open a read-only active combo inspector. The
+inspector shows the combos currently resolved from all active layered profiles,
+including the source profile for each combo. If two active profiles define the
+same trigger, only the later winning combo appears there. Prefix-overlap
+between different combo triggers remains valid and is not treated as a conflict.
+The inspector keeps a small in-window history of unique active-combo snapshots,
+so rule-based profiles can still be inspected after focus changes back to the
+Keymasq window.
+
 ## Quick Start: Your First Combo
 
 1. Open the Keymasq GUI and go to the **Combo** tab.

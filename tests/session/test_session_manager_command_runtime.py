@@ -219,6 +219,101 @@ async def test_get_active_profiles_does_not_include_window_state() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> None:
+    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+    from keymasq.session.profiles import ResolvedCombo
+
+    manager = SessionManager()
+    manager.profile_state.active_profile_names = ["Base", "Overlay"]
+    manager.profile_state.resolved_combos = [
+        ResolvedCombo(
+            id="combo-1",
+            name="Quick Save",
+            profile_name="Overlay",
+            steps=[
+                ComboStep(
+                    events=[
+                        ComboEvent(
+                            evdev="key_s",
+                            hardware_id="1234:5678",
+                            source="kbd",
+                        )
+                    ],
+                    timeout_ms=500,
+                )
+            ],
+            action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+            recall_trigger_keys=True,
+            restore_trigger_keys=["key_leftctrl"],
+        )
+    ]
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        name="Gaming Keyboard"
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "get_combo_inspector_snapshot"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert result["active_profiles"] == ["Base", "Overlay"]
+    combos = cast(list[dict[str, object]], result["combos"])
+    assert combos[0]["profile_name"] == "Overlay"
+    steps = cast(list[dict[str, object]], combos[0]["steps"])
+    assert steps[0]["timeout_ms"] == 500
+    events = cast(list[dict[str, object]], steps[0]["events"])
+    assert events[0]["device_name"] == "Gaming Keyboard"
+    action = cast(dict[str, object], combos[0]["action"])
+    assert action["action"] == "keyboard"
+    assert action["target"] == "key_f5"
+
+
+@pytest.mark.asyncio
+async def test_get_combo_inspector_snapshot_preserves_profile_deactivation() -> None:
+    from keymasq.common.models import (
+        ActionType,
+        ComboEvent,
+        ComboStep,
+        MappingAction,
+        ProfileDeactivationPolicy,
+    )
+    from keymasq.session.profiles import ResolvedCombo
+
+    manager = SessionManager()
+    manager.profile_state.resolved_combos = [
+        ResolvedCombo(
+            id="combo-1",
+            name="Hold Layer",
+            profile_name="Base",
+            steps=[ComboStep(events=[ComboEvent(evdev="key_space")])],
+            action=MappingAction(
+                action_type=ActionType.PROFILE_TOGGLE,
+                profile_name="Layer",
+                profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
+            ),
+        )
+    ]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "get_combo_inspector_snapshot"},
+        "client",
+        peer,
+        object(),
+    )
+
+    combos = cast(list[dict[str, object]], result["combos"])
+    action = cast(dict[str, object], combos[0]["action"])
+    assert action["action"] == "profile_toggle"
+    assert action["profile_name"] == "Layer"
+    assert action["deactivation"] == {"on_trigger_end": True}
+
+
+@pytest.mark.asyncio
 async def test_get_recording_settings_uses_unlock_and_owner_state_only() -> None:
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = True

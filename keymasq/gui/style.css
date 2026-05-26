@@ -203,6 +203,10 @@ button.button-card-mapped-inactive label {
   cursor: pointer;
 }
 
+.combo-row-readonly:hover {
+  cursor: default;
+}
+
 .combo-row:active {
   background: alpha(@accent_color, 0.14);
 }

@@ -385,52 +385,59 @@ def resolved_combos_payload(
 ) -> list[JsonObject]:
     payload: list[JsonObject] = []
     for combo in combos:
-        if combo.action is None:
-            continue
-        action_data = combo_action_to_payload(
-            manager,
-            combo.action,
-            step_count=len(combo.steps),
-        )
-        if action_data is None:
-            continue
-        steps: list[dict[str, object]] = []
-        for step in combo.steps:
-            events: list[dict[str, str]] = []
-            for event in step.events:
-                if not event.evdev:
-                    continue
-                event_data = {
-                    "evdev": event.evdev,
-                }
-                if event.hardware_id:
-                    event_data["hardware_id"] = event.hardware_id
-                if event.source:
-                    event_data["source"] = event.source
-                events.append(event_data)
-            if events:
-                step_payload: dict[str, object] = {"events": events}
-                if step.timeout_ms is not None:
-                    step_payload["timeout_ms"] = int(step.timeout_ms)
-                steps.append(step_payload)
-        if not steps:
-            continue
-        payload.append(
-            {
-                "id": combo.id,
-                "name": combo.name,
-                "profile_name": combo.profile_name,
-                "steps": steps,
-                "action": action_data,
-                **({"recall_trigger_keys": True} if combo.recall_trigger_keys else {}),
-                **(
-                    {"restore_trigger_keys": list(combo.restore_trigger_keys)}
-                    if combo.restore_trigger_keys
-                    else {}
-                ),
-            }
-        )
+        combo_payload = resolved_combo_payload(manager, combo)
+        if combo_payload is not None:
+            payload.append(combo_payload)
     return payload
+
+
+def resolved_combo_payload(
+    manager: "SessionManager",
+    combo: ResolvedCombo,
+) -> JsonObject | None:
+    if combo.action is None:
+        return None
+    action_data = combo_action_to_payload(
+        manager,
+        combo.action,
+        step_count=len(combo.steps),
+    )
+    if action_data is None:
+        return None
+    steps: list[dict[str, object]] = []
+    for step in combo.steps:
+        events: list[dict[str, str]] = []
+        for event in step.events:
+            if not event.evdev:
+                continue
+            event_data = {
+                "evdev": event.evdev,
+            }
+            if event.hardware_id:
+                event_data["hardware_id"] = event.hardware_id
+            if event.source:
+                event_data["source"] = event.source
+            events.append(event_data)
+        if events:
+            step_payload: dict[str, object] = {"events": events}
+            if step.timeout_ms is not None:
+                step_payload["timeout_ms"] = int(step.timeout_ms)
+            steps.append(step_payload)
+    if not steps:
+        return None
+    return {
+        "id": combo.id,
+        "name": combo.name,
+        "profile_name": combo.profile_name,
+        "steps": steps,
+        "action": action_data,
+        **({"recall_trigger_keys": True} if combo.recall_trigger_keys else {}),
+        **(
+            {"restore_trigger_keys": list(combo.restore_trigger_keys)}
+            if combo.restore_trigger_keys
+            else {}
+        ),
+    }
 
 
 def combo_action_to_payload(

@@ -4,11 +4,12 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import normalize_macro_loop_stop_behavior
-from keymasq.common.security import PeerCredentials, command_allowed
+from keymasq.common.security import PeerCredentials, SecurityPolicy, command_allowed
 from keymasq.common.settings import GlobalSettings
 from keymasq.common.virtual_devices import MAX_VIRTUAL_GAMEPADS, MIN_VIRTUAL_GAMEPADS
 from keymasq.session.settings import save_global_settings, save_virtual_gamepad_count
 
+from . import combo_inspector as runtime_combo_inspector
 from . import compositor as runtime_compositor
 from . import device_inspector as runtime_device_inspector
 from . import profiles as runtime_profiles
@@ -54,7 +55,7 @@ async def handle_session_request(
             "message": "Sensitive command denied: caller is not active GUI owner",
         }
 
-    result = await _handle_profile_commands(manager, command, request)
+    result = await _handle_profile_commands(manager, command, request, client_class, policy)
     if result is not None:
         return result
 
@@ -103,9 +104,26 @@ async def _handle_profile_commands(
     manager: "SessionManager",
     command: str,
     request: JsonObject,
+    client_class: str,
+    policy: SecurityPolicy,
 ) -> JsonObject | None:
     if command == "get_active_profiles":
         return runtime_profiles.build_active_profiles_payload(manager)
+
+    if command == "get_combo_inspector_snapshot":
+        if not command_allowed(
+            "get_active_profiles",
+            policy.session_command_acl,
+            client_class,
+        ):
+            return {
+                "status": "error",
+                "message": (
+                    f"{client_class} is not allowed to call "
+                    "'get_combo_inspector_snapshot' while 'get_active_profiles' is denied"
+                ),
+            }
+        return runtime_combo_inspector.build_combo_inspector_snapshot(manager)
 
     if command == "list_profiles":
         return runtime_profiles.build_profile_overview(manager)

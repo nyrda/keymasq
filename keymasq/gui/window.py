@@ -130,6 +130,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._suppress_tab_layout_save = False
         self.combo_tab: ComboTab | None = None
         self._device_inspector_windows: dict[str, Gtk.Window] = {}
+        self._combo_inspector_window: Gtk.Window | None = None
 
         self.set_title("Keymasq")
         self.set_default_size(760, 1000)
@@ -864,6 +865,9 @@ class MainWindow(Adw.ApplicationWindow):
         for inspector_window in list(self._device_inspector_windows.values()):
             inspector_window.close()
         self._device_inspector_windows.clear()
+        if self._combo_inspector_window is not None:
+            self._combo_inspector_window.close()
+            self._combo_inspector_window = None
 
         if self.demo_mode:
             return
@@ -1393,6 +1397,37 @@ class MainWindow(Adw.ApplicationWindow):
         def on_destroy(window: Gtk.Window) -> None:
             if self._device_inspector_windows.get(hardware_id) is window:
                 self._device_inspector_windows.pop(hardware_id, None)
+
+        inspector.connect("close-request", on_close_request)
+        inspector.connect("destroy", on_destroy)
+        inspector.present()
+
+    def open_combo_inspector(self) -> None:
+        existing = self._combo_inspector_window
+        if existing is not None:
+            if bool(getattr(existing, "_closing", False)):
+                self._combo_inspector_window = None
+            else:
+                existing.present()
+                return
+
+        if self.demo_mode:
+            self._show_demo_notification("Combo inspector is not available in demo mode")
+            return
+
+        from keymasq.gui.widgets.combo_inspector_window import ComboInspectorWindow
+
+        inspector = ComboInspectorWindow(self)
+        self._combo_inspector_window = inspector
+
+        def on_close_request(window: Gtk.Window) -> bool:
+            if self._combo_inspector_window is window:
+                self._combo_inspector_window = None
+            return False
+
+        def on_destroy(window: Gtk.Window) -> None:
+            if self._combo_inspector_window is window:
+                self._combo_inspector_window = None
 
         inspector.connect("close-request", on_close_request)
         inspector.connect("destroy", on_destroy)

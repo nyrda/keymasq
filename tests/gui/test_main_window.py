@@ -204,10 +204,12 @@ class TestMainWindow:
         window.demo_mode = False
         present_calls: list[str] = []
         close_callbacks = []
+        instances: list[object] = []
 
         class FakeInspector:
             def __init__(self, parent):
                 self.parent = parent
+                instances.append(self)
 
             def connect(self, signal, callback):
                 if signal == "close-request":
@@ -226,7 +228,8 @@ class TestMainWindow:
         window.open_combo_inspector()
 
         assert present_calls == ["present", "present"]
-        assert window._combo_inspector_window is not None
+        assert len(instances) == 1
+        assert window._combo_inspector_window is instances[0]
 
         inspector = window._combo_inspector_window
         assert close_callbacks[-1][1](inspector) is False
@@ -234,7 +237,8 @@ class TestMainWindow:
 
         window.open_combo_inspector()
 
-        assert window._combo_inspector_window is not None
+        assert len(instances) == 2
+        assert window._combo_inspector_window is instances[1]
         assert present_calls == ["present", "present", "present"]
 
     def test_main_window_menu_reflects_saved_appearance(self, temp_config_dir):

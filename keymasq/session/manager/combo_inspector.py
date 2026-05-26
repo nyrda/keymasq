@@ -49,11 +49,12 @@ def _serialize_combo(
                 ],
             }
             for step in combo.steps
-            if step.events
+            if any(event.evdev for event in step.events)
         ],
         "action": serialize_mapping_action(combo.action),
         "recall_trigger_keys": bool(combo.recall_trigger_keys),
         "restore_trigger_keys": list(combo.restore_trigger_keys),
+        "match_across_devices": bool(combo.match_across_devices),
     }
 
 

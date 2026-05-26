@@ -99,6 +99,7 @@ class ResolvedCombo:
     profile_name: str = ""
     recall_trigger_keys: bool = False
     restore_trigger_keys: list[str] = field(default_factory=list)
+    match_across_devices: bool = False
 
 
 @dataclass
@@ -907,6 +908,7 @@ class ProfileManager:
                     restore_trigger_keys=normalize_combo_restore_keys(
                         copy.deepcopy(combo.restore_trigger_keys)
                     ),
+                    match_across_devices=bool(combo.match_across_devices),
                 )
 
         return ResolvedProfiles(

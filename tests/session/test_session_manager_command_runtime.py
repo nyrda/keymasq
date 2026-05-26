@@ -231,6 +231,7 @@ async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> 
             name="Quick Save",
             profile_name="Overlay",
             steps=[
+                ComboStep(events=[ComboEvent(evdev="")], timeout_ms=250),
                 ComboStep(
                     events=[
                         ComboEvent(
@@ -245,6 +246,7 @@ async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> 
             action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
             recall_trigger_keys=True,
             restore_trigger_keys=["key_leftctrl"],
+            match_across_devices=True,
         )
     ]
     manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
@@ -263,7 +265,9 @@ async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> 
     assert result["active_profiles"] == ["Base", "Overlay"]
     combos = cast(list[dict[str, object]], result["combos"])
     assert combos[0]["profile_name"] == "Overlay"
+    assert combos[0]["match_across_devices"] is True
     steps = cast(list[dict[str, object]], combos[0]["steps"])
+    assert len(steps) == 1
     assert steps[0]["timeout_ms"] == 500
     events = cast(list[dict[str, object]], steps[0]["events"])
     assert events[0]["device_name"] == "Gaming Keyboard"

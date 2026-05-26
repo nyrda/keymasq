@@ -48,6 +48,7 @@ class ComboInspectorItem:
     order: int
     recall_trigger_keys: bool = False
     restore_trigger_keys: list[str] | None = None
+    match_across_devices: bool = False
     step_tooltips: list[str] | None = None
     search_text: str = ""
 
@@ -86,6 +87,7 @@ class ComboInspectorWindow(Adw.Window):
         self._syncing_snapshot_selector = False
         self._sort_column = _SORT_NONE
         self._sort_ascending = True
+        self._snapshot_request_counter = 0
 
         self.set_title("Inspect Active Combos")
         self.set_default_size(780, 520)
@@ -238,14 +240,16 @@ class ComboInspectorWindow(Adw.Window):
     def _request_snapshot(self) -> None:
         if self._closing:
             return
+        self._snapshot_request_counter += 1
+        request_id = self._snapshot_request_counter
         session_request_async(
             {"command": "get_combo_inspector_snapshot"},
-            self._on_snapshot_response,
+            lambda result: self._on_snapshot_response(result, request_id),
             timeout=3.0,
         )
 
-    def _on_snapshot_response(self, result: JsonDict | None) -> bool:
-        if self._closing:
+    def _on_snapshot_response(self, result: JsonDict | None, request_id: int) -> bool:
+        if self._closing or request_id != self._snapshot_request_counter:
             return False
         if not result or result.get("status") != "ok":
             message = _text((result or {}).get("message"), "Combo inspector unavailable")
@@ -632,6 +636,9 @@ def _snapshot_signature(snapshot: JsonDict) -> str:
                     )
                     if str(value or "").strip()
                 ],
+                "match_across_devices": bool(
+                    combo_payload.get("match_across_devices", False)
+                ),
             }
         )
     return json.dumps(
@@ -713,6 +720,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
         if str(value or "").strip()
     ]
     recall_trigger_keys = bool(payload.get("recall_trigger_keys", False))
+    match_across_devices = bool(payload.get("match_across_devices", False))
     search_config = _search_combo_config(
         combo_id,
         name,
@@ -720,6 +728,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
         action,
         recall_trigger_keys,
         restore_trigger_keys,
+        match_across_devices,
     )
     return ComboInspectorItem(
         combo_id=combo_id,
@@ -730,6 +739,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
         order=_int_value(payload.get("order"), 0),
         recall_trigger_keys=recall_trigger_keys,
         restore_trigger_keys=restore_trigger_keys,
+        match_across_devices=match_across_devices,
         step_tooltips=step_tooltips,
         search_text=" ".join(
             [
@@ -748,6 +758,7 @@ def _search_combo_config(
     action: MappingAction | None,
     recall_trigger_keys: bool,
     restore_trigger_keys: list[str],
+    match_across_devices: bool,
 ) -> ComboConfig:
     return ComboConfig(
         id=combo_id,
@@ -756,6 +767,7 @@ def _search_combo_config(
         action=action,
         recall_trigger_keys=recall_trigger_keys,
         restore_trigger_keys=restore_trigger_keys,
+        match_across_devices=match_across_devices,
     )
 
 

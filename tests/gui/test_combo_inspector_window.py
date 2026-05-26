@@ -37,6 +37,7 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
                 "action": {"action": "keyboard", "target": "key_f5"},
                 "recall_trigger_keys": True,
                 "restore_trigger_keys": ["key_leftctrl"],
+                "match_across_devices": True,
             }
         ],
     }
@@ -105,6 +106,9 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
     window.search_entry.set_text("gaming kbd")
     assert window._visible_combo_count() == 1
 
+    window.search_entry.set_text("across devices")
+    assert window._visible_combo_count() == 1
+
     window.search_entry.set_text("missing")
     assert window._visible_combo_count() == 0
     assert window.section_label.get_text() == "No matching active combos."
@@ -138,6 +142,71 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
     assert callbacks["profiles_changed"] == []
     assert callbacks["runtime_reset"] == []
     assert callbacks["keymasqd_status"] == []
+
+
+def test_combo_inspector_window_ignores_stale_snapshot_responses(monkeypatch) -> None:
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import combo_inspector_window as inspector_module
+    from keymasq.gui.widgets.combo_inspector_window import ComboInspectorWindow
+
+    old_snapshot = {
+        "status": "ok",
+        "active_profiles": ["Old"],
+        "combos": [
+            {
+                "id": "combo-old",
+                "name": "Old Combo",
+                "profile_name": "Old",
+                "steps": [{"events": [{"evdev": "key_o"}]}],
+                "action": {"action": "keyboard", "target": "key_o"},
+            }
+        ],
+    }
+    new_snapshot = {
+        "status": "ok",
+        "active_profiles": ["New"],
+        "combos": [
+            {
+                "id": "combo-new",
+                "name": "New Combo",
+                "profile_name": "New",
+                "steps": [{"events": [{"evdev": "key_n"}]}],
+                "action": {"action": "keyboard", "target": "key_n"},
+            }
+        ],
+    }
+    event_callbacks: dict[str, list[Callable[[dict[str, object]], object]]] = {}
+    response_callbacks: list[Callable[[dict[str, object]], object]] = []
+
+    def fake_register(event, callback):
+        event_callbacks.setdefault(event, []).append(callback)
+
+    def fake_unregister(event, callback):
+        event_callbacks[event].remove(callback)
+
+    def fake_request_async(_payload, callback, timeout=5.0):
+        response_callbacks.append(callback)
+
+    monkeypatch.setattr(inspector_module, "register_session_event_callback", fake_register)
+    monkeypatch.setattr(inspector_module, "unregister_session_event_callback", fake_unregister)
+    monkeypatch.setattr(inspector_module, "session_request_async", fake_request_async)
+
+    window = ComboInspectorWindow(Gtk.Window())
+    event_callbacks["profiles_changed"][0]({"event": "profiles_changed"})
+
+    assert len(response_callbacks) == 2
+
+    response_callbacks[1](new_snapshot)
+    assert window.active_profiles_label.get_text() == "New"
+    assert _combo_inspector_row_names(window) == ["New Combo"]
+
+    response_callbacks[0](old_snapshot)
+    assert window.active_profiles_label.get_text() == "New"
+    assert _combo_inspector_row_names(window) == ["New Combo"]
+    assert len(window._snapshots) == 1
+
+    window._finalize()
 
 
 def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
@@ -207,6 +276,27 @@ def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
     assert window._action_header_btn.get_label() == "Action \u25b4"
 
     window._finalize()
+
+
+def test_combo_inspector_snapshot_signature_includes_match_across_devices() -> None:
+    from keymasq.gui.widgets.combo_inspector_window import _snapshot_signature
+
+    base_combo = {
+        "id": "combo-1",
+        "name": "Across Devices",
+        "profile_name": "Base",
+        "steps": [{"events": [{"evdev": "key_a"}]}],
+        "action": {"action": "keyboard", "target": "key_b"},
+    }
+
+    scoped = {"status": "ok", "active_profiles": ["Base"], "combos": [base_combo]}
+    across = {
+        "status": "ok",
+        "active_profiles": ["Base"],
+        "combos": [{**base_combo, "match_across_devices": True}],
+    }
+
+    assert _snapshot_signature(scoped) != _snapshot_signature(across)
 
 
 def _combo_inspector_row_names(window) -> list[str]:

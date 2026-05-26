@@ -96,6 +96,7 @@ class ComboActionState:
     source_device: str | None = None
     source_button: str | None = None
     trigger_binding: RuntimeComboBinding | None = None
+    trigger_bindings: list[RuntimeComboBinding] = field(default_factory=list)
     child_combo_ids: list[str] = field(default_factory=list)
     machine: SuperkeyMachine | None = None
     recalled_bindings: list[RuntimeComboBinding] = field(default_factory=list)
@@ -110,6 +111,9 @@ class ComboRuntimeState:
     timeout_task: asyncio.Task[None] | None = None
     active_actions: dict[str, ComboActionState] = field(default_factory=dict)
     superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
+    superkey_machine_bindings: dict[str, tuple[RuntimeComboBinding, ...]] = field(
+        default_factory=dict
+    )
     held_output_keys: dict[str, set[int]] = field(
         default_factory=lambda: {
             "keyboard": set(),
@@ -638,26 +642,24 @@ def _combo_superkey_config(
     )
 
 
-def _combo_matches_binding_scope(
-    combo: RuntimeCombo,
+def _binding_matches_scope(
+    binding: RuntimeComboBinding | None,
     hardware_id: str,
     source: str | None,
 ) -> bool:
-    """Return whether a combo includes a binding for this already-normalized scope.
+    """Return whether a concrete runtime binding belongs to this normalized scope.
 
     ``hardware_id`` must already use the runtime's canonical casing, and ``source``
     must be pre-normalized the same way or left as ``None`` to match any source.
     This helper only coerces falsey values to ``""`` for comparison.
     """
+    if binding is None:
+        return False
     normalized_hardware_id = str(hardware_id or "")
     normalized_source = None if source is None else str(source or "")
-    for step in combo.steps:
-        for binding in step.bindings:
-            if binding.hardware_id != normalized_hardware_id:
-                continue
-            if normalized_source is None or binding.source == normalized_source:
-                return True
-    return False
+    if binding.hardware_id != normalized_hardware_id:
+        return False
+    return normalized_source is None or binding.source == normalized_source
 
 
 async def _combo_superkey_machine(
@@ -665,6 +667,7 @@ async def _combo_superkey_machine(
     combo_id: str,
     action: MappingAction,
     trigger_binding: RuntimeComboBinding,
+    trigger_bindings: Sequence[RuntimeComboBinding],
     *,
     deps: ComboRuntimeDeps,
 ) -> SuperkeyMachine | None:
@@ -673,12 +676,19 @@ async def _combo_superkey_machine(
         return None
 
     trigger_name = f"combo:{combo_id}"
+    machine_bindings = tuple(_ordered_unique_bindings(trigger_bindings or (trigger_binding,)))
     existing = manager.combo_state.superkey_machines.get(combo_id)
     if existing is not None:
-        if existing.config == config and existing.event_name == trigger_name:
+        existing_bindings = manager.combo_state.superkey_machine_bindings.get(combo_id)
+        if (
+            existing.config == config
+            and existing.event_name == trigger_name
+            and existing_bindings == machine_bindings
+        ):
             return existing
         await existing.stop()
         manager.combo_state.superkey_machines.pop(combo_id, None)
+        manager.combo_state.superkey_machine_bindings.pop(combo_id, None)
 
     async def combo_superkey_broadcast(data: dict[str, object]) -> None:
         payload = dict(data)
@@ -719,6 +729,7 @@ async def _combo_superkey_machine(
         ),
     )
     manager.combo_state.superkey_machines[combo_id] = machine
+    manager.combo_state.superkey_machine_bindings[combo_id] = machine_bindings
     return machine
 
 
@@ -905,6 +916,7 @@ async def start_combo_action(
                 combo_id,
                 action,
                 trigger_binding,
+                trigger_bindings,
                 deps=deps,
             )
             if superkey_machine is None:
@@ -1017,6 +1029,7 @@ async def start_combo_action(
             kind="superkey_pattern",
             machine=machine,
             trigger_binding=trigger_binding,
+            trigger_bindings=list(_ordered_unique_bindings(trigger_bindings)),
             source_button=trigger_name,
             recalled_bindings=recalled_bindings,
             restore_bindings=restore_bindings,
@@ -1554,6 +1567,7 @@ async def clear_combo_runtime(
     # machine state and cancel timers during combo runtime reset.
     machines = list(manager.combo_state.superkey_machines.values())
     manager.combo_state.superkey_machines.clear()
+    manager.combo_state.superkey_machine_bindings.clear()
     for machine in machines:
         await machine.stop()
     for held in manager.combo_state.held_output_keys.values():
@@ -1588,6 +1602,7 @@ async def clear_combo_runtime_except(
         if combo_id in preserved:
             continue
         manager.combo_state.superkey_machines.pop(combo_id, None)
+        manager.combo_state.superkey_machine_bindings.pop(combo_id, None)
         await machine.stop()
 
     active_output_roots = {
@@ -1626,14 +1641,22 @@ async def clear_combo_runtime_for_binding_scope(
             combo_id,
             deps=deps,
         )
-    matching_machine_ids = [
-        combo.id
-        for combo in manager.combo_state.active_combos
-        if combo.id in manager.combo_state.superkey_machines
-        and _combo_matches_binding_scope(combo, normalized_hardware_id, normalized_source)
-    ]
+    matching_machine_ids: list[str] = []
+    for combo_id in manager.combo_state.superkey_machines:
+        state = manager.combo_state.active_actions.get(combo_id)
+        bindings = (
+            tuple(state.trigger_bindings)
+            if state is not None and state.trigger_bindings
+            else manager.combo_state.superkey_machine_bindings.get(combo_id, ())
+        )
+        if any(
+            _binding_matches_scope(binding, normalized_hardware_id, normalized_source)
+            for binding in bindings
+        ):
+            matching_machine_ids.append(combo_id)
     for combo_id in matching_machine_ids:
         machine = manager.combo_state.superkey_machines.pop(combo_id, None)
+        manager.combo_state.superkey_machine_bindings.pop(combo_id, None)
         if machine is not None:
             await machine.stop()
     refresh_combo_timeout_watchdog(

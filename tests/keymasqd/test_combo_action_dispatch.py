@@ -679,6 +679,178 @@ class TestComboActionDispatch:
         await _runtime_clear_combo_scope(manager, "1234:5678", "kbd")
 
         assert manager.combo_state.superkey_machines == {}
+
+    @pytest.mark.asyncio
+    async def test_clear_combo_scope_keeps_wildcard_pattern_machine_for_other_device(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        configured = dm.RuntimeComboBinding(hardware_id="", source="", evdev="key_a")
+        trigger = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_a",
+        )
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-wildcard-scope",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+                double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-wildcard-scope",
+                name="combo-pattern-wildcard-scope",
+                steps=[dm.RuntimeComboStep(bindings=(configured,))],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(
+            manager,
+            "combo-pattern-wildcard-scope",
+            action,
+            trigger,
+        )
+
+        await _runtime_clear_combo_scope(manager, "9999:0001", "kbd")
+
+        assert "combo-pattern-wildcard-scope" in manager.combo_state.active_actions
+        assert "combo-pattern-wildcard-scope" in manager.combo_state.superkey_machines
+
+        await _runtime_stop_combo_action(manager, "combo-pattern-wildcard-scope")
+        assert "combo-pattern-wildcard-scope" in manager.combo_state.superkey_machines
+
+        await _runtime_clear_combo_scope(manager, "9999:0001", "kbd")
+        assert "combo-pattern-wildcard-scope" in manager.combo_state.superkey_machines
+
+        await _runtime_clear_combo_scope(manager, "1234:5678", "kbd")
+
+        assert manager.combo_state.superkey_machines == {}
+        assert manager.combo_state.superkey_machine_bindings == {}
+
+    @pytest.mark.asyncio
+    async def test_combo_pattern_superkey_recreates_cached_machine_for_new_trigger_device(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        configured = dm.RuntimeComboBinding(hardware_id="", source="", evdev="key_a")
+        trigger_a = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_a",
+        )
+        trigger_b = dm.RuntimeComboBinding(
+            hardware_id="9999:0001",
+            source="kbd",
+            evdev="key_a",
+        )
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-wildcard-reuse",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+                double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-wildcard-reuse",
+                name="combo-pattern-wildcard-reuse",
+                steps=[dm.RuntimeComboStep(bindings=(configured,))],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(
+            manager,
+            "combo-pattern-wildcard-reuse",
+            action,
+            trigger_a,
+        )
+        await _runtime_stop_combo_action(manager, "combo-pattern-wildcard-reuse")
+        first_machine = manager.combo_state.superkey_machines[
+            "combo-pattern-wildcard-reuse"
+        ]
+
+        await _runtime_start_combo_action(
+            manager,
+            "combo-pattern-wildcard-reuse",
+            action,
+            trigger_b,
+        )
+        second_machine = manager.combo_state.superkey_machines[
+            "combo-pattern-wildcard-reuse"
+        ]
+
+        assert second_machine is not first_machine
+        assert second_machine.source_device == "9999:0001"
+        assert (
+            manager.combo_state.superkey_machine_bindings["combo-pattern-wildcard-reuse"]
+            == (trigger_b,)
+        )
+
+    @pytest.mark.asyncio
+    async def test_clear_combo_scope_checks_all_cached_pattern_trigger_bindings(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        configured_a = dm.RuntimeComboBinding(hardware_id="", source="", evdev="key_a")
+        configured_b = dm.RuntimeComboBinding(hardware_id="", source="", evdev="key_b")
+        trigger_a = dm.RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_a",
+        )
+        trigger_b = dm.RuntimeComboBinding(
+            hardware_id="9999:0001",
+            source="kbd",
+            evdev="key_b",
+        )
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-pattern-multi-scope",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+                double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+            ),
+        )
+        manager.active_combos = [
+            dm.RuntimeCombo(
+                id="combo-pattern-multi-scope",
+                name="combo-pattern-multi-scope",
+                steps=[dm.RuntimeComboStep(bindings=(configured_a, configured_b))],
+                action=action,
+            )
+        ]
+
+        await _runtime_start_combo_action(
+            manager,
+            "combo-pattern-multi-scope",
+            action,
+            trigger_b,
+            trigger_bindings=(trigger_a, trigger_b),
+        )
+        await _runtime_stop_combo_action(manager, "combo-pattern-multi-scope")
+
+        assert (
+            manager.combo_state.superkey_machine_bindings["combo-pattern-multi-scope"]
+            == (trigger_a, trigger_b)
+        )
+
+        await _runtime_clear_combo_scope(manager, "1234:5678", "kbd")
+
+        assert manager.combo_state.superkey_machines == {}
+        assert manager.combo_state.superkey_machine_bindings == {}
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_replaces_stale_cached_machine_when_config_changes(
         self,

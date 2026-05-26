@@ -930,7 +930,7 @@ class DeviceManager:
                         hardware_id = _str_value(event_dict.get("hardware_id"), "").lower()
                         evdev_name = _str_value(event_dict.get("evdev"), "").lower()
                         source = _str_value(event_dict.get("source"), "").lower()
-                        if not hardware_id or not evdev_name:
+                        if not evdev_name:
                             continue
                         bindings.append(
                             RuntimeComboBinding(
@@ -1122,7 +1122,10 @@ class DeviceManager:
             return False
         if not is_emergency_cancel_combo_evdevs(binding.evdev for binding in step.bindings):
             return False
-        return all(binding.hardware_id in keyboard_hardware_ids for binding in step.bindings)
+        return all(
+            not binding.hardware_id or binding.hardware_id in keyboard_hardware_ids
+            for binding in step.bindings
+        )
 
     async def set_diagnostics(
         self,

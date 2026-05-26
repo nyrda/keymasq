@@ -122,6 +122,12 @@ class ComboEngine:
         self._held_binding_any_source_index: dict[
             tuple[str, str], set[RuntimeComboBinding]
         ] = {}
+        self._held_binding_any_hardware_index: dict[
+            tuple[str, str], set[RuntimeComboBinding]
+        ] = {}
+        self._held_binding_any_hardware_any_source_index: dict[
+            str, set[RuntimeComboBinding]
+        ] = {}
 
     def set_combos(
         self,
@@ -163,6 +169,8 @@ class ComboEngine:
         self._held_press_order.clear()
         self._held_binding_index.clear()
         self._held_binding_any_source_index.clear()
+        self._held_binding_any_hardware_index.clear()
+        self._held_binding_any_hardware_any_source_index.clear()
 
     def prime_held_bindings(self, held_bindings: set[RuntimeComboBinding]) -> None:
         for binding in sorted(
@@ -445,8 +453,11 @@ class ComboEngine:
                 kept[combo_id] = candidate
                 continue
 
-            matched_step_binding = True
             if int(event.value) == 0:
+                if event.binding not in candidate.pressed_bindings:
+                    kept[combo_id] = candidate
+                    continue
+                matched_step_binding = True
                 if candidate.action_active:
                     transitions.append(
                         ComboActionTransition(
@@ -568,7 +579,11 @@ class ComboEngine:
 
         for combo in first_step_combos:
             if combo.id in self._candidates:
-                matched_existing_or_activated = True
+                candidate = self._candidates[combo.id]
+                matched_existing_or_activated = (
+                    matched_existing_or_activated
+                    or event.binding in candidate.pressed_bindings
+                )
                 continue
             held_bindings = self._held_bindings_for_step(combo.steps[0], event.binding)
             if held_bindings is None:
@@ -694,7 +709,7 @@ class ComboEngine:
         )
         actual_hardware_id, actual_evdev, actual_source = _normalized_binding_parts(actual)
         return (
-            expected_hardware_id == actual_hardware_id
+            (not expected_hardware_id or expected_hardware_id == actual_hardware_id)
             and expected_evdev == actual_evdev
             and (not expected_source or expected_source == actual_source)
         )
@@ -705,7 +720,7 @@ class ComboEngine:
         binding: RuntimeComboBinding,
     ) -> bool:
         return any(
-            step_binding.hardware_id == binding.hardware_id
+            (not step_binding.hardware_id or step_binding.hardware_id == binding.hardware_id)
             and (not step_binding.source or step_binding.source == binding.source)
             for step_binding in step.bindings
         )
@@ -736,37 +751,31 @@ class ComboEngine:
         return combos
 
     def _binding_matches_any_first_step(self, binding: RuntimeComboBinding) -> bool:
-        hardware_id, normalized, source = _normalized_binding_parts(binding)
-        return bool(
-            self._first_step_binding_index.get((hardware_id, normalized, source))
-            or (
-                source
-                and self._first_step_binding_index.get((hardware_id, normalized, ""))
-            )
-        )
+        return bool(self._candidate_first_step_combo_ids(binding))
 
     def _candidate_first_step_combo_ids(
         self,
         binding: RuntimeComboBinding,
     ) -> list[str]:
         hardware_id, normalized, source = _normalized_binding_parts(binding)
-        specific = self._first_step_binding_index.get((hardware_id, normalized, source), [])
-        if not source:
-            return list(specific)
-
-        wildcard = self._first_step_binding_index.get((hardware_id, normalized, ""), [])
-        if not wildcard:
-            return list(specific)
-        if not specific:
-            return list(wildcard)
-
         seen: set[str] = set()
         combo_ids: list[str] = []
-        for combo_id in (*specific, *wildcard):
-            if combo_id in seen:
-                continue
-            seen.add(combo_id)
-            combo_ids.append(combo_id)
+        hardware_keys = [hardware_id]
+        if hardware_id:
+            hardware_keys.append("")
+        source_keys = [source]
+        if source:
+            source_keys.append("")
+        for hardware_key in hardware_keys:
+            for source_key in source_keys:
+                for combo_id in self._first_step_binding_index.get(
+                    (hardware_key, normalized, source_key),
+                    [],
+                ):
+                    if combo_id in seen:
+                        continue
+                    seen.add(combo_id)
+                    combo_ids.append(combo_id)
         return combo_ids
 
     def _held_bindings_for_step(
@@ -803,17 +812,38 @@ class ComboEngine:
         expected: RuntimeComboBinding,
     ) -> set[RuntimeComboBinding]:
         hardware_id, normalized, source = _normalized_binding_parts(expected)
-        if source:
+        if hardware_id and source:
             return self._held_binding_index.get((hardware_id, normalized, source), set())
-        return self._held_binding_any_source_index.get((hardware_id, normalized), set())
+        if hardware_id:
+            return self._held_binding_any_source_index.get((hardware_id, normalized), set())
+        if source:
+            return self._held_binding_any_hardware_index.get((normalized, source), set())
+        return self._held_binding_any_hardware_any_source_index.get(normalized, set())
 
     def _index_held_binding(self, binding: RuntimeComboBinding) -> None:
-        specific_key, generic_key = self._held_binding_index_keys(binding)
+        (
+            specific_key,
+            generic_key,
+            any_hardware_key,
+            any_hardware_any_source_key,
+        ) = self._held_binding_index_keys(binding)
         self._held_binding_index.setdefault(specific_key, set()).add(binding)
         self._held_binding_any_source_index.setdefault(generic_key, set()).add(binding)
+        self._held_binding_any_hardware_index.setdefault(any_hardware_key, set()).add(
+            binding
+        )
+        self._held_binding_any_hardware_any_source_index.setdefault(
+            any_hardware_any_source_key,
+            set(),
+        ).add(binding)
 
     def _deindex_held_binding(self, binding: RuntimeComboBinding) -> None:
-        specific_key, generic_key = self._held_binding_index_keys(binding)
+        (
+            specific_key,
+            generic_key,
+            any_hardware_key,
+            any_hardware_any_source_key,
+        ) = self._held_binding_index_keys(binding)
 
         specific_bucket = self._held_binding_index.get(specific_key)
         if specific_bucket is not None:
@@ -827,18 +857,44 @@ class ComboEngine:
             if not generic_bucket:
                 self._held_binding_any_source_index.pop(generic_key, None)
 
+        any_hardware_bucket = self._held_binding_any_hardware_index.get(any_hardware_key)
+        if any_hardware_bucket is not None:
+            any_hardware_bucket.discard(binding)
+            if not any_hardware_bucket:
+                self._held_binding_any_hardware_index.pop(any_hardware_key, None)
+
+        any_hardware_any_source_bucket = (
+            self._held_binding_any_hardware_any_source_index.get(
+                any_hardware_any_source_key
+            )
+        )
+        if any_hardware_any_source_bucket is not None:
+            any_hardware_any_source_bucket.discard(binding)
+            if not any_hardware_any_source_bucket:
+                self._held_binding_any_hardware_any_source_index.pop(
+                    any_hardware_any_source_key,
+                    None,
+                )
+
     def _rebuild_held_binding_indexes(self) -> None:
         self._held_binding_index.clear()
         self._held_binding_any_source_index.clear()
+        self._held_binding_any_hardware_index.clear()
+        self._held_binding_any_hardware_any_source_index.clear()
         for binding in self._held_bindings:
             self._index_held_binding(binding)
 
     def _held_binding_index_keys(
         self,
         binding: RuntimeComboBinding,
-    ) -> tuple[tuple[str, str, str], tuple[str, str]]:
+    ) -> tuple[tuple[str, str, str], tuple[str, str], tuple[str, str], str]:
         hardware_id, normalized, source = _normalized_binding_parts(binding)
-        return (hardware_id, normalized, source), (hardware_id, normalized)
+        return (
+            (hardware_id, normalized, source),
+            (hardware_id, normalized),
+            (normalized, source),
+            normalized,
+        )
 
     def _dedupe_recall_events(
         self,

@@ -124,10 +124,61 @@ output. This means:
   supported horizontal scroll directions. A wheel tick finishes the captured
   step immediately.
 - The captured trigger is stored with the exact device identity (`hardware_id`,
-  input source, and evdev code), so matching at runtime is precise.
+  input source, and evdev code), so matching at runtime is precise by default.
+- You can set a combo to match across devices. In that mode Keymasq keeps the
+  captured `hardware_id` and `source` in the profile, but ignores them when
+  sending the combo to the runtime. The same key or button can then match on any
+  event device that is already grabbed by your active configuration. This does
+  not cause extra devices to be grabbed.
+- `source` is also optional. Keeping it is useful because it narrows matching
+  and grabbing to one configured evdev interface, such as a keyboard interface
+  or a mouse interface. Omitting it makes the combo match the evdev code on any
+  grabbed interface in scope.
 
 Capture uses the same security model as macro recording — it observes original
 input and requires the recording unlock flow.
+
+## Trigger Scope
+
+Every combo event has one required field and two optional scope fields:
+
+- `evdev` is required. It is the key, button, or supported wheel direction.
+- `hardware_id` is optional. When present, the event only matches that hardware
+  config. When omitted or empty, it matches any already-grabbed hardware.
+- `source` is optional. It is the `id` of a specific evdev input event device
+  configured under the hardware config's `[[hardware.evdev.devices]]` entries,
+  such as `kbd`, `mouse`, or `media`. It is a Keymasq interface label, not a
+  kernel hardware identity. When present, the event only matches that
+  configured event device. This can reduce unnecessary interface grabs for
+  concrete combos and avoid ambiguity on hardware with multiple input event
+  devices. When omitted or empty, it matches any grabbed event device in the
+  hardware scope.
+
+This means the same trigger can be scoped differently:
+
+```toml
+# Any already-grabbed device/interface that emits key_f13.
+{ evdev = "key_f13" }
+
+# Any already-grabbed hardware, but only on interfaces labeled "kbd".
+{ source = "kbd", evdev = "key_f13" }
+
+# This hardware only, any already-grabbed interface.
+{ hardware_id = "abcd:ef01", evdev = "key_f13" }
+
+# This hardware and this configured interface.
+{ hardware_id = "abcd:ef01", source = "kbd", evdev = "key_f13" }
+```
+
+Optional scope never causes extra devices to be grabbed. If the relevant input
+is not already grabbed by mappings, force-grab, device inspector, or another
+active configuration path, the combo will not see it.
+
+The combo-level `match_across_devices = true` option is the reversible way to
+make a captured combo portable. The GUI uses this for **Match Across Devices**:
+it preserves captured event scope in storage, then the session sends the daemon
+a runtime combo with empty `hardware_id` and `source` fields. Hand-edited combos
+may also omit either field directly when that wildcard behavior is desired.
 
 ## Actions
 
@@ -253,6 +304,7 @@ macros or super keys.
 [[combos]]
 id = "combo_1"
 name = "Alt+R -> 1 -> Move 20,20"
+match_across_devices = true
 
 [[combos.steps]]
 events = [
@@ -272,9 +324,11 @@ x = 20
 y = 20
 ```
 
-Each step stores the exact `hardware_id`, input source, and evdev code that
-was captured. This is not a user interface — prefer the GUI for creating and
-editing combos.
+Each event stores the captured `evdev` code and may also store `hardware_id`
+and `source` for more precise scope. If `hardware_id` or `source` is omitted or
+empty, that part of the scope is treated as a wildcard over already-grabbed
+inputs. If `match_across_devices = true`, stored `hardware_id` and `source`
+values are preserved but ignored at runtime.
 
 ## Security Notes
 

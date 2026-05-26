@@ -871,7 +871,7 @@ class DeviceProfileLayer:
 @dataclass
 class ComboEvent:
     evdev: str
-    hardware_id: str
+    hardware_id: str = ""
     source: str | None = None
 
 
@@ -889,6 +889,7 @@ class ComboConfig:
     action: MappingAction | None = None
     recall_trigger_keys: bool = False
     restore_trigger_keys: list[str] = field(default_factory=list)
+    match_across_devices: bool = False
 
 
 @dataclass

@@ -93,6 +93,37 @@ class TestCombos:
         assert len(manager.active_combos) == 1
         assert manager.active_combos[0].action is not None
         assert manager.active_combos[0].action.profile_name == "Gaming"
+
+    @pytest.mark.asyncio
+    async def test_set_combos_allows_omitted_hardware_id_as_wildcard(self):
+        manager = DeviceManager()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-any-keyboard",
+                    "name": "Any Keyboard",
+                    "steps": [{"events": [{"source": "kbd", "evdev": "key_f13"}]}],
+                    "action": {"action": "suppress"},
+                }
+            ]
+        )
+
+        assert manager.active_combos[0].steps[0].bindings[0].hardware_id == ""
+
+        pressed = await _runtime_on_device_event(
+            manager,
+            "9999:0001",
+            "/dev/input/event-test",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.KEY_F13,
+            1,
+            source="kbd",
+        )
+
+        assert pressed is not None
+        assert pressed.consume_current_event is True
+
     @pytest.mark.asyncio
     async def test_set_combos_reseeds_held_bindings_after_mapping_reset(
         self,

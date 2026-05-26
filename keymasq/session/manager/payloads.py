@@ -95,7 +95,7 @@ def resolved_combos_signature(
                     "evdev": str(event.evdev or ""),
                 }
                 for event in step.events
-                if event.hardware_id and event.evdev
+                if event.evdev
             ]
             if not events:
                 continue
@@ -398,12 +398,13 @@ def resolved_combos_payload(
         for step in combo.steps:
             events: list[dict[str, str]] = []
             for event in step.events:
-                if not event.hardware_id or not event.evdev:
+                if not event.evdev:
                     continue
                 event_data = {
-                    "hardware_id": event.hardware_id,
                     "evdev": event.evdev,
                 }
+                if event.hardware_id:
+                    event_data["hardware_id"] = event.hardware_id
                 if event.source:
                     event_data["source"] = event.source
                 events.append(event_data)

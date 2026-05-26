@@ -333,7 +333,10 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
         "profile_name": "Default",
         "steps": [
             {
-                "events": [{"hardware_id": "kbd", "evdev": "key_a", "source": "main"}],
+                "events": [
+                    {"hardware_id": "kbd", "evdev": "key_a", "source": "main"},
+                    {"evdev": "key_b", "source": "ignored"},
+                ],
                 "timeout_ms": 250,
             }
         ],

@@ -52,6 +52,44 @@ class TestComboEditorDialog:
         assert dialog._draft.steps[0].timeout_ms is None
         assert dialog.capture_status.get_text() == "Added step: A"
 
+    def test_combo_editor_capture_response_accepts_missing_hardware_id(self):
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        parent = Gtk.Box()
+        dialog = ComboEditorDialog(parent, profile_name="Desktop")
+
+        dialog._on_capture_combo_response(
+            {
+                "status": "ok",
+                "events": [{"evdev": "key_a", "source": "kbd"}],
+            }
+        )
+
+        assert dialog._draft.steps[0].events[0].evdev == "key_a"
+        assert dialog._draft.steps[0].events[0].hardware_id == ""
+
+    def test_combo_editor_any_device_capture_preserves_device_scope(self):
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        parent = Gtk.Box()
+        dialog = ComboEditorDialog(parent, profile_name="Desktop")
+        dialog.any_device_row.set_active(True)
+
+        dialog._on_capture_combo_response(
+            {
+                "status": "ok",
+                "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}],
+            }
+        )
+
+        assert dialog._draft.match_across_devices is True
+        assert dialog._draft.steps[0].events[0].hardware_id == "1234:5678"
+        assert dialog._draft.steps[0].events[0].source == "kbd"
+
     def test_combo_editor_capture_request_uses_profile_name(self, monkeypatch):
         from gi.repository import Gtk
 
@@ -181,6 +219,39 @@ class TestComboEditorDialog:
             "key_leftctrl",
             "key_s",
         ]
+
+    def test_combo_editor_any_device_save_preserves_scope_and_sets_flag(self):
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        parent = Gtk.Box()
+        dialog = ComboEditorDialog(parent)
+        captured = []
+        dialog.connect("combo-saved", lambda _dialog, combo: captured.append(combo))
+
+        dialog._draft.steps.append(
+            ComboStep(
+                events=[
+                    ComboEvent(evdev="key_a", hardware_id="1234:5678", source="kbd"),
+                ]
+            )
+        )
+        dialog._refresh_trigger_display()
+        dialog._on_action_selected(
+            None,
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+        )
+        dialog.any_device_row.set_active(True)
+        assert dialog._draft.steps[0].events[0].hardware_id == "1234:5678"
+        assert dialog._draft.steps[0].events[0].source == "kbd"
+
+        dialog._on_save_clicked(None)
+
+        assert captured[0].match_across_devices is True
+        assert captured[0].steps[0].events[0].hardware_id == "1234:5678"
+        assert captured[0].steps[0].events[0].source == "kbd"
 
     def test_combo_editor_generates_default_name_when_name_is_empty(self):
         from gi.repository import Gtk
@@ -348,6 +419,59 @@ class TestComboEditorDialog:
                         ComboStep(
                             events=[
                                 ComboEvent(evdev="key_1", hardware_id="1234:5678", source="kbd")
+                            ]
+                        ),
+                    ],
+                    action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f6"),
+                )
+            ],
+        )
+
+        assert dialog.validation_label.get_visible() is True
+        assert "same trigger already exists" in dialog.validation_label.get_text().lower()
+        assert dialog.save_button.get_sensitive() is False
+
+    def test_combo_editor_portable_duplicate_uses_runtime_scope_for_validation(self):
+        from gi.repository import Gtk
+
+        from keymasq.common.models import (
+            ActionType,
+            ComboConfig,
+            ComboEvent,
+            ComboStep,
+            MappingAction,
+        )
+        from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+
+        parent = Gtk.Box()
+        dialog = ComboEditorDialog(
+            parent,
+            ComboConfig(
+                id="combo-2",
+                name="Portable B",
+                match_across_devices=True,
+                steps=[
+                    ComboStep(
+                        events=[
+                            ComboEvent(evdev="key_f13", hardware_id="3333:4444", source="kbd")
+                        ]
+                    ),
+                ],
+                action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+            ),
+            sibling_combos=[
+                ComboConfig(
+                    id="combo-1",
+                    name="Portable A",
+                    match_across_devices=True,
+                    steps=[
+                        ComboStep(
+                            events=[
+                                ComboEvent(
+                                    evdev="key_f13",
+                                    hardware_id="1234:5678",
+                                    source="kbd",
+                                )
                             ]
                         ),
                     ],

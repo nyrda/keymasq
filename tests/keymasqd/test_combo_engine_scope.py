@@ -187,3 +187,30 @@ def test_drop_candidates_for_binding_scope_can_target_specific_source():
     assert release_mouse.action_transition is not None
     assert release_mouse.action_transition.combo_id == "combo-mouse"
     assert release_mouse.action_transition.kind == "release"
+
+
+def test_wildcard_combo_release_from_other_device_does_not_stop_active_combo():
+    engine = ComboEngine()
+    expected = RuntimeComboBinding(hardware_id="", source="", evdev="key_f13")
+    key_a = _binding("key_f13", hardware_id="1111:2222", source="kbd")
+    key_b = _binding("key_f13", hardware_id="3333:4444", source="kbd")
+    engine.set_combos([_combo("combo-any", (expected,))])
+
+    press_a = _handle(engine, key_a, 1, 0.0)
+    assert press_a.consume_current_event is True
+    assert press_a.action_transition is not None
+    assert press_a.action_transition.kind == "press"
+
+    press_b = _handle(engine, key_b, 1, 0.1)
+    assert press_b.consume_current_event is False
+    assert press_b.action_transition is None
+
+    release_b = _handle(engine, key_b, 0, 0.2)
+    assert release_b.consume_current_event is False
+    assert release_b.action_transition is None
+
+    release_a = _handle(engine, key_a, 0, 0.3)
+    assert release_a.consume_current_event is True
+    assert release_a.action_transition is not None
+    assert release_a.action_transition.combo_id == "combo-any"
+    assert release_a.action_transition.kind == "release"

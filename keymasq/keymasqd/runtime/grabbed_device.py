@@ -40,6 +40,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceState,
     MacroPlayer,
     MappingGetter,
+    UInputWriter,
     identity_uinput_writer,
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
@@ -203,6 +204,7 @@ class GrabbedDevice:
         suppress_rel_getter: Callable[[], bool] | None = None,
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
         diagnostics_recorder: Callable[[str, float], None] | None = None,
+        uinput_writer: UInputWriter = _uinput_writer,
         runtime_cleanup_callback: Callable[[str, str | None], Awaitable[None]] | None = None,
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
@@ -254,6 +256,7 @@ class GrabbedDevice:
         self.suppress_rel_getter = suppress_rel_getter
         self.mouse_rel_suppression_start_callback = mouse_rel_suppression_start_callback
         self.diagnostics_recorder = diagnostics_recorder
+        self.uinput_writer = uinput_writer
         self.runtime_cleanup_callback = runtime_cleanup_callback
         self.task: asyncio.Task[None] | None = None
         self._running = False
@@ -356,7 +359,7 @@ class GrabbedDevice:
     ) -> None:
         await runtime_analog_controls.reset_analog_controls(
             self,
-            deps=runtime_events.build_action_execution_deps(),
+            deps=runtime_events.build_action_execution_deps(uinput_writer=self.uinput_writer),
             preserve_state_keys=preserve_state_keys,
         )
 
@@ -459,7 +462,7 @@ class GrabbedDevice:
         await self.reset_analog_controls()
         await self.reset_superkeys()
         runtime_events.observe_profile_trigger_end_for_held_sources(self)
-        runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
+        runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=self.uinput_writer)
         self.state.held_source_keys.clear()
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
@@ -496,7 +499,7 @@ class GrabbedDevice:
         log.info("Released %s", self.path)
 
     def release_tracked_outputs(self) -> None:
-        runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
+        runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=self.uinput_writer)
 
     def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None:
         if self._gamepad_output_resolver is None:
@@ -580,7 +583,7 @@ class GrabbedDevice:
             code,
             0,
             evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
+            uinput_writer=self.uinput_writer,
             bucket=bucket,
         )
 
@@ -595,7 +598,7 @@ class GrabbedDevice:
             code,
             1,
             evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
+            uinput_writer=self.uinput_writer,
             bucket=bucket,
         )
         if bucket == "passthrough":

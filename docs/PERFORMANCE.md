@@ -66,6 +66,13 @@ keymasq diagnostics on --include all --exclude internal
 The GTK app includes the same live view under **Diagnostics** in the main menu.
 It shows the latest snapshot from keymasqd without reading journal logs.
 
+The Diagnostics dialog also has an **Output** page for a read-only stream of
+uinput events written by keymasqd. It shows the output device and raw event,
+such as `keyboard: KEY_A=1`, `mouse: REL_X=5`, or
+`gamepad virtual-gamepad-1: BTN_SOUTH=1`. The default filter shows key/button
+events only. Repeat, relative pointer movement, absolute axis, sync, and other
+events are separate opt-in filters because they can produce high-volume logs.
+
 Disable when done:
 
 ```bash

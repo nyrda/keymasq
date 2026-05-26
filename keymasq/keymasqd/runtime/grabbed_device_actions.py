@@ -382,7 +382,7 @@ async def _execute_overload_superkey(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    config = action.superkey_config
+    config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
     if config is None:
         return
 

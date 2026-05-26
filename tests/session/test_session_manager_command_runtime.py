@@ -62,9 +62,7 @@ async def test_release_device_command_forwards_to_daemon_and_clears_runtime_stat
     manager = SessionManager()
     hardware_id = "045e:02a1"
     manager.profile_state.grabbed_devices.add(hardware_id)
-    manager.profile_state.grabbed_interfaces[hardware_id] = {
-        "gamepad": "/dev/input/event20"
-    }
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"gamepad": "/dev/input/event20"}
     manager.profile_state.grab_waiting_devices.add(hardware_id)
     manager.profile_state.last_sent_grab_signatures[hardware_id] = "grab"
     manager.profile_state.last_sent_mapping_signatures[hardware_id] = "mapping"
@@ -241,7 +239,7 @@ async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> 
                         )
                     ],
                     timeout_ms=500,
-                )
+                ),
             ],
             action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
             recall_trigger_keys=True,
@@ -713,6 +711,186 @@ async def test_diagnostics_snapshot_event_forwards_to_gui_clients() -> None:
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_output_stream_tracks_owner_and_forwards_events() -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            Response(status="ok", data={"enabled": True, "filters": ["button", "mousemove"]}),
+            Response(
+                status="ok",
+                data={"enabled": False, "filters": ["button"]},
+            ),
+        ]
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    class Writer:
+        def __init__(self) -> None:
+            self.writes: list[bytes] = []
+
+        def write(self, data: bytes) -> None:
+            self.writes.append(data)
+
+        async def drain(self) -> None:
+            return None
+
+    owner = Writer()
+    other = Writer()
+    manager.session_clients.update({owner, other})  # type: ignore[arg-type]
+    result = await manager._handle_session_request(
+        {
+            "command": "set_diagnostics_output_stream",
+            "enabled": True,
+            "filters": ["button", "mousemove"],
+        },
+        "client",
+        peer,
+        owner,  # type: ignore[arg-type]
+    )
+    sent = manager.client.send_command.await_args_list[0].args[0]
+
+    assert result == {
+        "status": "ok",
+        "data": {"enabled": True, "filters": ["button", "mousemove"]},
+    }
+    assert sent.command == CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM
+    assert sent.data == {"enabled": True, "filters": ["button", "mousemove"]}
+    assert manager.output_stream_state.owners_by_writer_id[id(owner)] == {
+        "button",
+        "mousemove",
+    }
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.DIAGNOSTICS_OUTPUT_EVENT,
+        {
+            "enabled": True,
+            "filters": ["button"],
+            "events": [
+                {"kind": "output", "category": "button"},
+            ],
+            "dropped": 0,
+        },
+    )
+
+    assert other.writes == []
+    assert len(owner.writes) == 1
+    assert json.loads(owner.writes[0]) == {
+        "event": "diagnostics_output_event",
+        "enabled": True,
+        "filters": ["button"],
+        "events": [
+            {"kind": "output", "category": "button"},
+        ],
+        "dropped": 0,
+    }
+    for task in list(manager.session_client_drain_tasks.values()):
+        await task
+
+    result = await manager._handle_session_request(
+        {"command": "set_diagnostics_output_stream", "enabled": False},
+        "client",
+        peer,
+        owner,  # type: ignore[arg-type]
+    )
+    sent = manager.client.send_command.await_args_list[1].args[0]
+
+    assert result == {
+        "status": "ok",
+        "data": {"enabled": False, "filters": ["button"]},
+    }
+    assert sent.command == CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM
+    assert sent.data == {"enabled": False, "filters": ["button"]}
+    assert id(owner) not in manager.output_stream_state.owners_by_writer_id
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_enable_is_sensitive_to_refresh_owner() -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = True
+    manager.client.send_command = AsyncMock()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    owner = object()
+    other = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(owner),
+        "lease_id": "lease-1",
+    }
+
+    result = await manager._handle_session_request(
+        {"command": "set_diagnostics", "enabled": True, "interval": 5.0},
+        "client",
+        peer,
+        other,  # type: ignore[arg-type]
+    )
+
+    assert result == {
+        "status": "error",
+        "error_code": "sensitive_command_denied",
+        "message": "Sensitive command denied: caller is not active GUI owner",
+    }
+    manager.client.send_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_disable_does_not_require_refresh_owner() -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = True
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"enabled": False, "categories": ["mainline"]})
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "set_diagnostics", "enabled": False, "interval": 5.0},
+        "client",
+        peer,
+        object(),  # type: ignore[arg-type]
+    )
+
+    assert result == {
+        "status": "ok",
+        "data": {"enabled": False, "categories": ["mainline"]},
+    }
+    manager.client.send_command.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_locked_error_notifies_gui() -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = True
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="error",
+            error="recording_locked: unlock required for capture/recording/diagnostics features",
+        )
+    )
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-1",
+    }
+
+    result = await manager._handle_session_request(
+        {"command": "set_diagnostics_output_stream", "enabled": True, "filters": ["button"]},
+        "client",
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "recording_locked"
+    manager.send_notification.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_device_inspector_disable_session_command_forwards_reason() -> None:
     manager = SessionManager()
     manager.client = SimpleNamespace(
@@ -956,9 +1134,7 @@ async def test_start_device_inspector_returns_snapshot_and_forces_profile_reeval
     manager.profile_state.resolved_devices[hardware_id] = ResolvedDeviceProfile(
         hardware_id=hardware_id,
         active_profile_names=["Desktop"],
-        mappings={
-            "btn_south": MappingAction(action_type=ActionType.KEYBOARD, target="key_space")
-        },
+        mappings={"btn_south": MappingAction(action_type=ActionType.KEYBOARD, target="key_space")},
         mapping_profile_names={"btn_south": "Desktop"},
     )
     manager.client.send_command = AsyncMock(

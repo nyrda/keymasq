@@ -16,6 +16,7 @@ from keymasq.common.models import (
 
 from . import compositor as runtime_compositor
 from . import device_inspector as runtime_device_inspector
+from . import output_stream as runtime_output_stream
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import JsonObject
@@ -181,6 +182,10 @@ async def handle_event(
 
     if event_type == CommandType.DIAGNOSTICS_SNAPSHOT:
         manager.broadcast_to_session_clients({"event": "diagnostics_snapshot", **data})
+        return
+
+    if event_type == CommandType.DIAGNOSTICS_OUTPUT_EVENT:
+        runtime_output_stream.broadcast_events_to_owners(manager, data)
         return
 
     if event_type == CommandType.DEVICE_INSPECTOR_EVENT:
@@ -597,6 +602,7 @@ def handle_macro_playback_cancelled_event(
 
 async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject) -> None:
     runtime_device_inspector.clear_all_device_inspector_state(manager)
+    runtime_output_stream.clear_all_output_stream_state(manager)
     manager.broadcast_to_session_clients({"event": "runtime_reset", **data})
     manager.send_notification(
         "Keymasq: Emergency Reset",

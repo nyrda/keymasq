@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.daemon_support import *
 
+
 @pytest.mark.asyncio
 async def test_set_diagnostics_forwards_with_type_conversion(daemon_testbed):
     daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
@@ -29,6 +30,97 @@ async def test_set_diagnostics_forwards_categories(daemon_testbed):
         3.25,
         ["mainline", "combo"],
     )
+
+
+@pytest.mark.asyncio
+async def test_set_diagnostics_output_stream_forwards_filters(daemon_testbed):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+
+    result = await daemon._handle_command(
+        CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
+        {"enabled": 1, "filters": ["button", "mousemove"]},
+    )
+
+    assert result == {"status": "ok"}
+    device_manager.set_diagnostics_output_stream.assert_awaited_once_with(  # type: ignore[attr-defined]
+        True,
+        ["button", "mousemove"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_enable_requires_recording_unlock(daemon_testbed, monkeypatch):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
+    with pytest.raises(PermissionError, match="recording_locked"):
+        await daemon._handle_command(
+            CommandType.SET_DIAGNOSTICS,
+            {"enabled": True, "interval": 5.0},
+            client=_client(),
+        )
+    with pytest.raises(PermissionError, match="recording_locked"):
+        await daemon._handle_command(
+            CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
+            {"enabled": True, "filters": ["button"]},
+            client=_client(),
+        )
+
+    device_manager.set_diagnostics.assert_not_awaited()
+    device_manager.set_diagnostics_output_stream.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_disable_does_not_require_recording_unlock(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
+    diagnostics = await daemon._handle_command(
+        CommandType.SET_DIAGNOSTICS,
+        {"enabled": False, "interval": 5.0},
+        client=_client(),
+    )
+    output_stream = await daemon._handle_command(
+        CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
+        {"enabled": False, "filters": ["button"]},
+        client=_client(),
+    )
+
+    assert diagnostics == {"status": "ok"}
+    assert output_stream == {"status": "ok"}
+    device_manager.set_diagnostics.assert_awaited_once_with(False, 5.0, None)
+    device_manager.set_diagnostics_output_stream.assert_awaited_once_with(False, ["button"])
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_enable_forwards_when_recording_unlocked(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (True, 0, "runtime"))
+
+    diagnostics = await daemon._handle_command(
+        CommandType.SET_DIAGNOSTICS,
+        {"enabled": True, "interval": 2.0},
+        client=_client(),
+    )
+    output_stream = await daemon._handle_command(
+        CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
+        {"enabled": True, "filters": ["button"]},
+        client=_client(),
+    )
+
+    assert diagnostics == {"status": "ok"}
+    assert output_stream == {"status": "ok"}
+    device_manager.set_diagnostics.assert_awaited_once_with(True, 2.0, None)
+    device_manager.set_diagnostics_output_stream.assert_awaited_once_with(True, ["button"])
 
 
 @pytest.mark.asyncio

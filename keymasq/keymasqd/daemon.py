@@ -135,6 +135,12 @@ class _DaemonDeviceManager(Protocol):
         categories: Sequence[object] | None = None,
     ) -> JsonObject: ...
 
+    async def set_diagnostics_output_stream(
+        self,
+        enabled: bool,
+        filters: Sequence[object] | None = None,
+    ) -> JsonObject: ...
+
     async def start_device_inspector(self, hardware_id: str) -> JsonObject: ...
 
     async def stop_device_inspector(self, hardware_id: str) -> JsonObject: ...
@@ -382,7 +388,7 @@ class Daemon:
                     f"{client.client_class} is not allowed to call {command_type.value}"
                 )
 
-            self._ensure_sensitive_command_allowed(command_type, client)
+            self._ensure_sensitive_command_allowed(command_type, client, data)
 
         if self.verbosity >= 1:
             log.debug(f"Command: {command_type.value} -> {self._log_view(data)}")
@@ -434,6 +440,7 @@ class Daemon:
         self,
         command_type: CommandType,
         client: ClientContext,
+        data: JsonObject,
     ) -> None:
         policy = self.security_policy
         if policy is None or not policy.recording_unlock_required:
@@ -448,6 +455,10 @@ class Daemon:
             CommandType.DEVICE_INSPECTOR_START,
             CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
         }
+        diagnostics_commands = {
+            CommandType.SET_DIAGNOSTICS,
+            CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
+        }
 
         tier2_commands = {
             CommandType.MACRO_GET,
@@ -457,6 +468,8 @@ class Daemon:
         }
 
         requires_unlock = command_type in tier1_commands
+        if not requires_unlock and command_type in diagnostics_commands:
+            requires_unlock = bool(data.get("enabled", False))
         if not requires_unlock and policy.macro_edit_requires_unlock:
             requires_unlock = command_type in tier2_commands
 
@@ -471,7 +484,7 @@ class Daemon:
 
         if source == "none":
             raise PermissionError(
-                "recording_locked: unlock required for capture/recording features"
+                "recording_locked: unlock required for capture/recording/diagnostics features"
             )
         raise PermissionError(f"recording_locked: unlock lease expired at {expires_at}")
 
@@ -531,6 +544,8 @@ class Daemon:
             CommandType.MACRO_UPDATE,
             CommandType.DEVICE_INSPECTOR_START,
             CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
+            CommandType.SET_DIAGNOSTICS,
+            CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
         }
         if command_type not in sensitive_commands:
             return

@@ -391,6 +391,7 @@ async def play_macro_task(
                 idx += 1
 
                 t_us = int_value_fn(ev.get("t_us"), 0)
+                action_type = str(ev.get("macro_action", "") or "")
                 deadline = (
                     iteration_anchor
                     + timeline_offset_s
@@ -403,7 +404,6 @@ async def play_macro_task(
                 if remaining >= 0.0005:
                     await asyncio_mod.sleep(remaining)
 
-                action_type = str(ev.get("macro_action", "") or "")
                 if action_type in {"mouse_move_abs", "mouse_move_rel"}:
                     if not replay_mouse_movement:
                         continue
@@ -891,14 +891,16 @@ async def run_macro_control_action(
         dispatcher = str_value_fn(ev.get("dispatcher"), "").strip()
         if not dispatcher:
             return 0.0
+        compositor = str_value_fn(ev.get("compositor"), "").strip()
+        args = str_value_fn(ev.get("args"), "").strip()
         if manager.broadcast_callback:
             await manager.broadcast_callback(
                 CommandType.ACTION_TRIGGER,
                 {
                     "action_type": "compositor_dispatch",
-                    "compositor": str_value_fn(ev.get("compositor"), "").strip(),
+                    "compositor": compositor,
                     "dispatcher": dispatcher,
-                    "args": str_value_fn(ev.get("args"), "").strip(),
+                    "args": args,
                 },
             )
         return 0.0

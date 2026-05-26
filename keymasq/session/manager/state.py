@@ -66,6 +66,13 @@ class DeviceInspectorRuntimeState:
 
 
 @dataclass
+class OutputStreamRuntimeState:
+    enabled: bool = False
+    filters: set[str] = field(default_factory=lambda: {"button"})
+    owners_by_writer_id: dict[int, set[str]] = field(default_factory=dict)
+
+
+@dataclass
 class ProfileRuntimeState:
     grabbed_devices: set[str] = field(default_factory=set)
     grabbed_interfaces: dict[str, dict[str, str]] = field(default_factory=dict)

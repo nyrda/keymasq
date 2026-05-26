@@ -39,12 +39,20 @@ MACRO_SAVE_PENDING_NOTIFICATION_COOLDOWN_S = 5.0
 def is_sensitive_session_command(
     manager: "SessionManager",
     command: str,
+    request: JsonObject | None = None,
     policy: SecurityPolicy | None = None,
 ) -> bool:
     if policy is None:
         policy = manager.security_policy
 
     if command == "lock_recording_unlock":
+        return True
+
+    if (
+        policy.recording_unlock_required
+        and command in {"set_diagnostics", "set_diagnostics_output_stream"}
+        and bool((request or {}).get("enabled", False))
+    ):
         return True
 
     if policy.recording_unlock_required and command in {

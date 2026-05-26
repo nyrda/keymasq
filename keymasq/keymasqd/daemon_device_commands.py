@@ -47,6 +47,12 @@ class _DeviceCommandManager(Protocol):
         categories: Sequence[object] | None = None,
     ) -> JsonObject: ...
 
+    async def set_diagnostics_output_stream(
+        self,
+        enabled: bool,
+        filters: Sequence[object] | None = None,
+    ) -> JsonObject: ...
+
     async def set_virtual_gamepads(self, count: object) -> JsonObject: ...
 
     async def track_profile_activation(
@@ -145,6 +151,16 @@ async def handle_device_command(
             else None
         )
         return await daemon.device_manager.set_diagnostics(enabled, interval, categories)
+
+    if command_type == CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM:
+        enabled = bool(data.get("enabled", False))
+        raw_filters = data.get("filters")
+        filters = (
+            [str_value(category) for category in cast(list[object], raw_filters)]
+            if isinstance(raw_filters, list)
+            else None
+        )
+        return await daemon.device_manager.set_diagnostics_output_stream(enabled, filters)
 
     if command_type == CommandType.SET_VIRTUAL_GAMEPADS:
         return await daemon.device_manager.set_virtual_gamepads(data.get("count"))

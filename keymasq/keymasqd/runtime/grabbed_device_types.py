@@ -235,9 +235,7 @@ class GrabbedDeviceState:
         str,
         tuple[tuple[int, MappingAction], ...],
     ] = field(default_factory=dict)
-    analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(
-        default_factory=dict
-    )
+    analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
     analog_threshold_abs_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
     analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
@@ -313,6 +311,9 @@ class GrabbedDeviceRuntime(Protocol):
     def inspector_suppression_disabler(
         self,
     ) -> DeviceInspectorSuppressionDisabler | None: ...
+
+    @property
+    def uinput_writer(self) -> UInputWriter: ...
 
     @property
     def profile_activation_recorder(self) -> ProfileActivationRecorder | None: ...

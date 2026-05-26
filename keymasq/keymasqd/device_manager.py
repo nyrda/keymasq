@@ -51,6 +51,7 @@ from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime import grab_lifecycle as runtime_grab_lifecycle
 from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
+from keymasq.keymasqd.runtime import output_stream as runtime_output_stream
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 from keymasq.keymasqd.runtime import topology as runtime_topology
 from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
@@ -60,6 +61,12 @@ log = logging.getLogger("keymasqd.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
 ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
+DIAGNOSTICS_OUTPUT_FILTERS = frozenset(
+    {"button", "axis", "mousemove", "syn", "other", "repeat"}
+)
+DEFAULT_DIAGNOSTICS_OUTPUT_FILTERS = frozenset({"button"})
+DIAGNOSTICS_OUTPUT_STREAM_INTERVAL_S = 0.1
+DIAGNOSTICS_OUTPUT_STREAM_MAX_PENDING = 2000
 EMERGENCY_CANCEL_COMBO_ID_PREFIX = "__keymasq_emergency_cancel:"
 EMERGENCY_CANCEL_COMBO_NAME = "Keymasq Emergency Cancel"
 EMERGENCY_CANCEL_COMBO_PROFILE = "__keymasq_internal"
@@ -191,11 +198,14 @@ def _device_path_resolver_deps() -> device_path_resolver.DevicePathResolverDeps:
     )
 
 
-def _macro_runtime_deps() -> runtime_macros.MacroRuntimeDeps:
+def _macro_runtime_deps(
+    *,
+    uinput_writer: runtime_adapters.UInputWriter = runtime_adapters.identity_uinput_writer,
+) -> runtime_macros.MacroRuntimeDeps:
     return runtime_macros.MacroRuntimeDeps(
         asyncio_mod=ASYNCIO_RUNTIME,
         evdev_mod=evdev,
-        uinput_writer=runtime_adapters.identity_uinput_writer,
+        uinput_writer=uinput_writer,
         log=log,
         int_value_fn=_int_value,
         str_value_fn=_str_value,
@@ -206,12 +216,14 @@ def _combo_runtime_deps(
     *,
     resolve_code_fn: runtime_combos.ResolveCodeFn = resolve_output_code,
     fire_and_observe_fn: runtime_combos.FireAndObserve = _fire_and_observe,
+    uinput_writer: runtime_adapters.UInputWriter = runtime_adapters.identity_uinput_writer,
+    emit_mouse_move_fn: Callable[..., None] = runtime_adapters.combo_emit_mouse_move,
 ) -> runtime_combos.ComboRuntimeDeps:
     return runtime_combos.ComboRuntimeDeps(
         asyncio_mod=ASYNCIO_RUNTIME,
         evdev_mod=runtime_adapters.COMBO_EVDEV_RUNTIME,
-        uinput_writer=runtime_adapters.identity_uinput_writer,
-        emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
+        uinput_writer=uinput_writer,
+        emit_mouse_move_fn=emit_mouse_move_fn,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )
@@ -343,6 +355,45 @@ class DiagnosticsState:
     samples: dict[str, deque[float]] = field(default_factory=dict)
 
 
+@dataclass
+class DiagnosticsOutputStreamState:
+    enabled: bool = False
+    filters: set[str] = field(default_factory=lambda: set(DEFAULT_DIAGNOSTICS_OUTPUT_FILTERS))
+    task: asyncio.Task[None] | None = None
+    pending: deque[JsonObject] = field(default_factory=deque)
+    sequence: int = 0
+    dropped: int = 0
+    interval: float = DIAGNOSTICS_OUTPUT_STREAM_INTERVAL_S
+
+
+class _ObservedUInputWriter:
+    def __init__(
+        self,
+        raw: runtime_adapters.WritableUInput,
+        recorder: Callable[[object, int, int, int], None],
+        uinput_dev: object,
+    ) -> None:
+        self._raw = raw
+        self._recorder = recorder
+        self._uinput_dev = uinput_dev
+
+    def write(self, event_type: int, code: int, value: int) -> None:
+        self._raw.write(event_type, code, value)
+        self._recorder(self._uinput_dev, int(event_type), int(code), int(value))
+
+    def syn(self) -> None:
+        self._raw.syn()
+        self._recorder(
+            self._uinput_dev,
+            int(evdev.ecodes.EV_SYN),
+            int(evdev.ecodes.SYN_REPORT),
+            0,
+        )
+
+    def close(self) -> None:
+        self._raw.close()
+
+
 DIAGNOSTICS_CATEGORIES = frozenset({"mainline", "combo", "internal"})
 DEFAULT_DIAGNOSTICS_CATEGORIES = frozenset({"mainline"})
 
@@ -360,6 +411,19 @@ def _normalize_diagnostics_categories(categories: Sequence[object] | None) -> se
         return set(DIAGNOSTICS_CATEGORIES)
     selected = normalized & DIAGNOSTICS_CATEGORIES
     return selected or set(DEFAULT_DIAGNOSTICS_CATEGORIES)
+
+
+def _normalize_output_stream_filters(filters: Sequence[object] | None) -> set[str]:
+    if not filters:
+        return set(DEFAULT_DIAGNOSTICS_OUTPUT_FILTERS)
+
+    normalized = {
+        str(category or "").strip().lower() for category in filters if str(category or "").strip()
+    }
+    if "all" in normalized:
+        return set(DIAGNOSTICS_OUTPUT_FILTERS)
+    selected = normalized & DIAGNOSTICS_OUTPUT_FILTERS
+    return selected or set(DEFAULT_DIAGNOSTICS_OUTPUT_FILTERS)
 
 
 def _diagnostics_label_enabled(label: str, categories: set[str]) -> bool:
@@ -454,6 +518,7 @@ class DeviceManager:
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
         self.diagnostics_state = DiagnosticsState()
+        self.diagnostics_output_stream_state = DiagnosticsOutputStreamState()
         self.grab_state = GrabRuntimeState(
             release_grace_s=max(0.01, float(release_grace_s)),
             held_release_retry_s=max(0.01, float(held_release_retry_s)),
@@ -495,7 +560,10 @@ class DeviceManager:
             cancelled_rapidfire_tasks: list[asyncio.Task[None]] = []
             await runtime_combos.clear_combo_runtime(
                 self,
-                deps=runtime_grab_lifecycle.combo_runtime_deps(),
+                deps=runtime_grab_lifecycle.combo_runtime_deps(
+                    uinput_writer=self.observed_uinput_writer,
+                    emit_mouse_move_fn=self.emit_diagnostics_output_mouse_move,
+                ),
             )
             for devices in self.grabbed_devices.values():
                 for device in devices:
@@ -999,14 +1067,20 @@ class DeviceManager:
         if preserve_combo_ids is None:
             await runtime_combos.clear_combo_runtime(
                 self,
-                deps=_combo_runtime_deps(),
+                deps=_combo_runtime_deps(
+                    uinput_writer=self.observed_uinput_writer,
+                    emit_mouse_move_fn=self.emit_diagnostics_output_mouse_move,
+                ),
             )
             self.combo_state.engine.set_combos(active_combos)
         else:
             await runtime_combos.clear_combo_runtime_except(
                 self,
                 preserve_combo_ids,
-                deps=_combo_runtime_deps(),
+                deps=_combo_runtime_deps(
+                    uinput_writer=self.observed_uinput_writer,
+                    emit_mouse_move_fn=self.emit_diagnostics_output_mouse_move,
+                ),
             )
             self.combo_state.engine.set_combos(
                 active_combos,
@@ -1017,7 +1091,10 @@ class DeviceManager:
         )
         runtime_combos.refresh_combo_timeout_watchdog(
             self,
-            deps=_combo_runtime_deps(),
+            deps=_combo_runtime_deps(
+                uinput_writer=self.observed_uinput_writer,
+                emit_mouse_move_fn=self.emit_diagnostics_output_mouse_move,
+            ),
         )
         return active_combos
 
@@ -1173,6 +1250,170 @@ class DeviceManager:
             return
         bucket = self.diagnostics_state.samples.setdefault(label, deque(maxlen=20000))
         bucket.append(float(duration_us))
+
+    async def set_diagnostics_output_stream(
+        self,
+        enabled: bool,
+        filters: Sequence[object] | None = None,
+    ) -> JsonObject:
+        state = self.diagnostics_output_stream_state
+        state.enabled = bool(enabled)
+        state.filters = _normalize_output_stream_filters(filters)
+        state.pending.clear()
+        state.dropped = 0
+
+        if not state.enabled:
+            if state.task:
+                state.task.cancel()
+                try:
+                    await state.task
+                except asyncio.CancelledError:
+                    pass
+                state.task = None
+            log.info("Diagnostics output stream disabled")
+            return {
+                "enabled": False,
+                "filters": sorted(state.filters),
+            }
+
+        if state.task is None or state.task.done():
+            state.task = asyncio.create_task(self._diagnostics_output_stream_loop())
+        log.info(
+            "Diagnostics output stream enabled (filters=%s)",
+            ",".join(sorted(state.filters)),
+        )
+        return {
+            "enabled": True,
+            "filters": sorted(state.filters),
+        }
+
+    def observed_uinput_writer(
+        self,
+        uinput_dev: object | None,
+    ) -> runtime_adapters.WritableUInput | None:
+        raw = runtime_adapters.identity_uinput_writer(uinput_dev)
+        if raw is None:
+            return None
+        if not self.diagnostics_output_stream_state.enabled:
+            return raw
+        return _ObservedUInputWriter(raw, self.record_diagnostics_output_write, uinput_dev)
+
+    def emit_diagnostics_output_mouse_move(
+        self,
+        uinput_dev: object | None,
+        move_x: int,
+        move_y: int,
+        *,
+        absolute: bool = False,
+    ) -> None:
+        emit_mouse_move(
+            self.observed_uinput_writer(uinput_dev),
+            int(move_x),
+            int(move_y),
+            absolute=absolute,
+        )
+
+    def record_diagnostics_output_write(
+        self,
+        uinput_dev: object,
+        event_type: int,
+        code: int,
+        value: int,
+    ) -> None:
+        if int(event_type) == int(evdev.ecodes.EV_SYN):
+            pass
+        is_repeat = int(event_type) == int(evdev.ecodes.EV_KEY) and int(value) == 2
+        if is_repeat and "repeat" not in self.diagnostics_output_stream_state.filters:
+            return
+        output_target = self._diagnostics_output_target(uinput_dev)
+        payload = runtime_output_stream.build_output_event(
+            output_target=output_target,
+            event_type=int(event_type),
+            code=int(code),
+            value=int(value),
+            evdev_mod=evdev,
+        )
+        if is_repeat:
+            payload["repeat"] = True
+        category = (
+            "repeat"
+            if is_repeat
+            else str(payload.get("filter_category", "other") or "other")
+        )
+        self._queue_diagnostics_output_event(
+            category,
+            payload,
+        )
+
+    def _queue_diagnostics_output_event(self, category: str, payload: JsonObject) -> None:
+        state = self.diagnostics_output_stream_state
+        if not state.enabled:
+            return
+        normalized_category = str(category or "").strip().lower()
+        if normalized_category not in state.filters:
+            return
+        state.sequence += 1
+        event_payload = dict(payload)
+        event_payload["sequence"] = state.sequence
+        event_payload["category"] = normalized_category
+        event_payload["time"] = time.time()
+        if len(state.pending) >= DIAGNOSTICS_OUTPUT_STREAM_MAX_PENDING:
+            state.pending.popleft()
+            state.dropped += 1
+        state.pending.append(event_payload)
+
+    def _diagnostics_output_target(self, uinput_dev: object) -> JsonObject:
+        output_state = self.output_state
+        if uinput_dev is output_state.keyboard_uinput:
+            return {"category": "virtual", "output": "keyboard", "output_id": "keyboard"}
+        if uinput_dev is output_state.mouse_uinput:
+            return {"category": "virtual", "output": "mouse", "output_id": "mouse"}
+        for output_id, gamepad_uinput in output_state.virtual_gamepad_uinputs.items():
+            if uinput_dev is gamepad_uinput:
+                return {
+                    "category": "virtual",
+                    "output": "gamepad",
+                    "output_id": str(output_id),
+                }
+
+        for hardware_id, devices in self.grabbed_devices.items():
+            for device in devices:
+                if uinput_dev is getattr(device, "uinput", None):
+                    return {
+                        "category": "passthrough",
+                        "output": "passthrough",
+                        "output_id": str(hardware_id),
+                        "hardware_id": str(hardware_id),
+                        "interface_id": str(getattr(device, "interface_id", "") or ""),
+                    }
+
+        return {"category": "virtual", "output": "unknown", "output_id": "unknown"}
+
+    async def _diagnostics_output_stream_loop(self) -> None:
+        try:
+            while self.diagnostics_output_stream_state.enabled:
+                await asyncio.sleep(self.diagnostics_output_stream_state.interval)
+                self._flush_diagnostics_output_events()
+        except asyncio.CancelledError:
+            raise
+
+    def _flush_diagnostics_output_events(self) -> None:
+        state = self.diagnostics_output_stream_state
+        if not state.pending and not state.dropped:
+            return
+        events = list(state.pending)
+        state.pending.clear()
+        dropped = state.dropped
+        state.dropped = 0
+        self._broadcast_runtime_event(
+            CommandType.DIAGNOSTICS_OUTPUT_EVENT,
+            {
+                "enabled": state.enabled,
+                "filters": sorted(state.filters),
+                "events": events,
+                "dropped": dropped,
+            },
+        )
 
     async def _diagnostics_loop(self) -> None:
         try:
@@ -1430,7 +1671,7 @@ class DeviceManager:
             source_device,
             source_button,
             trigger_value,
-            deps=_macro_runtime_deps(),
+            deps=_macro_runtime_deps(uinput_writer=self.observed_uinput_writer),
             macro_event_source=macro_event_source,
         )
 
@@ -1464,7 +1705,7 @@ class DeviceManager:
         if self.output_state.mouse_uinput is None:
             return {"status": "error", "message": "No mouse uinput device available"}
 
-        emit_mouse_move(
+        self.emit_diagnostics_output_mouse_move(
             self.output_state.mouse_uinput,
             int(x),
             int(y),
@@ -1475,7 +1716,7 @@ class DeviceManager:
     async def cancel_macro_playback(self) -> JsonObject:
         result = await runtime_macros.cancel_macro_playback(
             self,
-            deps=_macro_runtime_deps(),
+            deps=_macro_runtime_deps(uinput_writer=self.observed_uinput_writer),
         )
         if bool(result.get("cancelled", False)):
             self._broadcast_runtime_event(

@@ -1606,8 +1606,7 @@ async def clear_combo_runtime_except(
         await machine.stop()
 
     active_output_roots = {
-        combo_id.split("#", 1)[0]
-        for combo_id in manager.combo_state.active_actions
+        combo_id.split("#", 1)[0] for combo_id in manager.combo_state.active_actions
     }
     if not any(root in preserved for root in active_output_roots):
         for held in manager.combo_state.held_output_keys.values():

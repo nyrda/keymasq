@@ -51,6 +51,7 @@ from . import commands as session_commands
 from . import compositor as runtime_compositor
 from . import device_inspector as runtime_device_inspector
 from . import events as runtime_events
+from . import output_stream as runtime_output_stream
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import JsonObject
@@ -60,6 +61,7 @@ from .state import (
     DeviceInspectorRuntimeState,
     EventRuntimeState,
     ExecRuntimeState,
+    OutputStreamRuntimeState,
     ProfileRuntimeState,
     RecordingRuntimeState,
     UnlockRuntimeState,
@@ -149,6 +151,7 @@ class SessionManager:
         self.exec_state = ExecRuntimeState()
         self.event_state = EventRuntimeState()
         self.device_inspector_state = DeviceInspectorRuntimeState()
+        self.output_stream_state = OutputStreamRuntimeState()
         self.recording_state = RecordingRuntimeState()
         self.unlock_state = UnlockRuntimeState()
         runtime_recording.load_recording_settings_from_disk(self)
@@ -407,6 +410,8 @@ class SessionManager:
         finally:
             with contextlib.suppress(Exception):
                 await runtime_device_inspector.clear_device_inspectors_for_writer(self, writer)
+            with contextlib.suppress(Exception):
+                await runtime_output_stream.clear_output_stream_for_writer(self, writer)
             runtime_recording.clear_active_recording_owner_if_writer(self, writer)
             await runtime_recording.discard_pending_macro_save_if_writer(self, writer)
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
@@ -795,6 +800,7 @@ class SessionManager:
         self.device_inspector_state.active_hardware_ids.clear()
         self.device_inspector_state.suppressed_hardware_ids.clear()
         self.device_inspector_state.owners_by_hardware_id.clear()
+        runtime_output_stream.clear_all_output_stream_state(self)
         self.recording_state.devices_cache.clear()
         self.recording_state.selected_devices_cache.clear()
         self.recording_state.devices_cache_ready = False

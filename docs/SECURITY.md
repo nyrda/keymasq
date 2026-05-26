@@ -319,12 +319,19 @@ packages are already signed.
 
 ## Diagnostics Mode
 
-Keymasqd includes an optional diagnostics mode for internal latency measurement.
+Keymasqd includes optional diagnostics for internal latency measurement and a
+read-only output event stream in the GUI Diagnostics dialog.
 
 - Enable: `keymasq diagnostics on --interval 5`
 - Disable: `keymasq diagnostics off`
 
-When enabled, keymasqd logs periodic latency stats (`p50`, `p95`, `p99`, `max`) for internal event buckets.
+When enabled, keymasqd logs periodic latency stats (`p50`, `p95`, `p99`, `max`)
+for internal event buckets. The GUI output event stream can expose raw uinput
+events written by keymasqd output devices to the user session that enabled it.
+When recording unlock is required by policy, enabling diagnostics or the output
+event stream requires the same active GUI unlock owner as recording and
+inspection. Disabling diagnostics remains allowed so an existing stream can
+always be turned off.
 
 View logs with:
 

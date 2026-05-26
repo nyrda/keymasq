@@ -52,12 +52,14 @@ def combo_runtime_deps(
     *,
     resolve_code_fn: runtime_combos.ResolveCodeFn = resolve_output_code,
     fire_and_observe_fn: runtime_combos.FireAndObserve = _fire_and_forget,
+    uinput_writer: runtime_adapters.UInputWriter = runtime_adapters.identity_uinput_writer,
+    emit_mouse_move_fn: Callable[..., None] = runtime_adapters.combo_emit_mouse_move,
 ) -> runtime_combos.ComboRuntimeDeps:
     return runtime_combos.ComboRuntimeDeps(
         asyncio_mod=ASYNCIO_RUNTIME,
         evdev_mod=COMBO_EVDEV_RUNTIME,
-        uinput_writer=runtime_adapters.identity_uinput_writer,
-        emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
+        uinput_writer=uinput_writer,
+        emit_mouse_move_fn=emit_mouse_move_fn,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )
@@ -208,7 +210,11 @@ async def grab_device_unlocked(
             get_interface_id_fn=get_interface_id_fn,
             int_value_fn=int_value_fn,
             str_value_fn=str_value_fn,
-            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            deps=combo_runtime_deps(
+                fire_and_observe_fn=fire_and_observe_fn,
+                uinput_writer=manager.observed_uinput_writer,
+                emit_mouse_move_fn=manager.emit_diagnostics_output_mouse_move,
+            ),
         )
 
     async def runtime_cleanup_callback(
@@ -219,7 +225,11 @@ async def grab_device_unlocked(
             manager,
             cleanup_hardware_id,
             cleanup_source,
-            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            deps=combo_runtime_deps(
+                fire_and_observe_fn=fire_and_observe_fn,
+                uinput_writer=manager.observed_uinput_writer,
+                emit_mouse_move_fn=manager.emit_diagnostics_output_mouse_move,
+            ),
         )
 
     for path in sorted(requested_paths):
@@ -308,6 +318,7 @@ async def grab_device_unlocked(
                     suppress_rel_getter=lambda: manager.macro_state.mouse_rel_suppressed,
                     mouse_rel_suppression_start_callback=lambda: None,
                     diagnostics_recorder=diagnostics_recorder,
+                    uinput_writer=manager.observed_uinput_writer,
                     runtime_cleanup_callback=runtime_cleanup_callback,
                     interface_id=interface_id,
                 )
@@ -524,7 +535,10 @@ async def release_device_unlocked(
         manager,
         hardware_id,
         None,
-        deps=combo_runtime_deps(),
+        deps=combo_runtime_deps(
+            uinput_writer=manager.observed_uinput_writer,
+            emit_mouse_move_fn=manager.emit_diagnostics_output_mouse_move,
+        ),
     )
     manager.grab_state.desired_grabs.pop(hardware_id, None)
     devices = manager.grabbed_devices.pop(hardware_id, [])
@@ -701,7 +715,10 @@ async def release_interface_unlocked(
         manager,
         hardware_id,
         str(getattr(removed, "interface_id", "") or "").lower(),
-        deps=combo_runtime_deps(),
+        deps=combo_runtime_deps(
+            uinput_writer=manager.observed_uinput_writer,
+            emit_mouse_move_fn=manager.emit_diagnostics_output_mouse_move,
+        ),
     )
     removed.release_tracked_outputs()
     await removed.release()
@@ -724,7 +741,11 @@ async def release_all_devices(
         await manager.cancel_macro_playback()
         await runtime_combos.clear_combo_runtime(
             manager,
-            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            deps=combo_runtime_deps(
+                fire_and_observe_fn=fire_and_observe_fn,
+                uinput_writer=manager.observed_uinput_writer,
+                emit_mouse_move_fn=manager.emit_diagnostics_output_mouse_move,
+            ),
         )
         hardware_ids = set(manager.grabbed_devices) | set(manager.grab_state.desired_grabs)
         for hardware_id in list(hardware_ids):

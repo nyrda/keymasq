@@ -52,6 +52,8 @@ class CommandType(Enum):
     SET_DIAGNOSTICS = "set_diagnostics"
     SET_VIRTUAL_GAMEPADS = "set_virtual_gamepads"
     DIAGNOSTICS_SNAPSHOT = "diagnostics_snapshot"
+    SET_DIAGNOSTICS_OUTPUT_STREAM = "set_diagnostics_output_stream"
+    DIAGNOSTICS_OUTPUT_EVENT = "diagnostics_output_event"
     DEVICE_INSPECTOR_START = "device_inspector_start"
     DEVICE_INSPECTOR_STOP = "device_inspector_stop"
     DEVICE_INSPECTOR_ENABLE_SUPPRESSION = "device_inspector_enable_suppression"

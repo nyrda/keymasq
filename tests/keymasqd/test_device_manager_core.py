@@ -30,6 +30,200 @@ async def test_set_cursor_position_reports_missing_mouse_uinput() -> None:
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_output_stream_records_output_writes() -> None:
+    manager = DeviceManager()
+    keyboard = _FakeUInput()
+    manager.output_state.keyboard_uinput = keyboard  # type: ignore[assignment]
+    broadcasts: list[tuple[CommandType, dict[str, object]]] = []
+    manager._broadcast_runtime_event = lambda event_type, data: broadcasts.append(  # type: ignore[method-assign]
+        (event_type, data)
+    )
+
+    result = await manager.set_diagnostics_output_stream(True)
+    writer = manager.observed_uinput_writer(keyboard)
+    assert writer is not None
+    writer.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    writer.syn()
+    manager._flush_diagnostics_output_events()
+    await manager.set_diagnostics_output_stream(False)
+
+    assert result == {"enabled": True, "filters": ["button"]}
+    assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
+    assert len(broadcasts) == 1
+    event_type, data = broadcasts[0]
+    assert event_type == CommandType.DIAGNOSTICS_OUTPUT_EVENT
+    assert data["enabled"] is True
+    assert data["filters"] == ["button"]
+    events = cast(list[dict[str, object]], data["events"])
+    assert [event["kind"] for event in events] == ["output"]
+    assert events[0]["sequence"] == 1
+    assert events[0]["category"] == "button"
+    assert events[0]["output"] == "keyboard"
+    assert events[0]["code_name"] == "KEY_A"
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_output_stream_records_passthrough_output_as_buttons() -> None:
+    manager = DeviceManager()
+    passthrough = _FakeUInput()
+    manager.grabbed_devices["1234:5678"] = cast(
+        list[GrabbedDevice],
+        [SimpleNamespace(uinput=passthrough, interface_id="kbd")],
+    )
+    broadcasts: list[tuple[CommandType, dict[str, object]]] = []
+    manager._broadcast_runtime_event = lambda event_type, data: broadcasts.append(  # type: ignore[method-assign]
+        (event_type, data)
+    )
+
+    await manager.set_diagnostics_output_stream(True)
+    writer = manager.observed_uinput_writer(passthrough)
+    assert writer is not None
+    writer.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1)
+    manager._flush_diagnostics_output_events()
+    await manager.set_diagnostics_output_stream(False)
+
+    assert len(broadcasts) == 1
+    _event_type, data = broadcasts[0]
+    events = cast(list[dict[str, object]], data["events"])
+    assert len(events) == 1
+    assert events[0]["category"] == "button"
+    assert events[0]["output"] == "passthrough"
+    assert events[0]["hardware_id"] == "1234:5678"
+    assert events[0]["interface_id"] == "kbd"
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_output_stream_noisy_filters_are_opt_in() -> None:
+    manager = DeviceManager()
+    mouse = _FakeUInput()
+    manager.output_state.mouse_uinput = mouse  # type: ignore[assignment]
+    broadcasts: list[tuple[CommandType, dict[str, object]]] = []
+    manager._broadcast_runtime_event = lambda event_type, data: broadcasts.append(  # type: ignore[method-assign]
+        (event_type, data)
+    )
+
+    await manager.set_diagnostics_output_stream(True)
+    writer = manager.observed_uinput_writer(mouse)
+    assert writer is not None
+    writer.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 2)
+    writer.write(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 10)
+    writer.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 100)
+    writer.syn()
+    manager._flush_diagnostics_output_events()
+    assert broadcasts == []
+
+    await manager.set_diagnostics_output_stream(
+        True,
+        ["button", "repeat", "mousemove", "axis", "syn"],
+    )
+    writer = manager.observed_uinput_writer(mouse)
+    assert writer is not None
+    writer.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 2)
+    writer.write(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 10)
+    writer.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 100)
+    writer.syn()
+    manager._flush_diagnostics_output_events()
+    await manager.set_diagnostics_output_stream(False)
+
+    assert len(broadcasts) == 1
+    _event_type, data = broadcasts[0]
+    events = cast(list[dict[str, object]], data["events"])
+    assert [event["kind"] for event in events] == ["output", "output", "output", "output"]
+    assert events[0]["repeat"] is True
+    assert events[0]["category"] == "repeat"
+    assert events[1]["type_name"] == "EV_REL"
+    assert events[2]["type_name"] == "EV_ABS"
+    assert events[3]["type_name"] == "EV_SYN"
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_output_stream_records_macro_outputs_with_filters() -> None:
+    manager = DeviceManager()
+    keyboard = _FakeUInput()
+    mouse = _FakeUInput()
+    manager.output_state.keyboard_uinput = keyboard  # type: ignore[assignment]
+    manager.output_state.mouse_uinput = mouse  # type: ignore[assignment]
+    broadcasts: list[tuple[CommandType, dict[str, object]]] = []
+    manager._broadcast_runtime_event = lambda event_type, data: broadcasts.append(  # type: ignore[method-assign]
+        (event_type, data)
+    )
+    macro_events = [
+        {
+            "t_us": 0,
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 1,
+            "device_type": "keyboard",
+        },
+        {
+            "t_us": 0,
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 2,
+            "device_type": "keyboard",
+        },
+        {
+            "t_us": 0,
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 0,
+            "device_type": "keyboard",
+        },
+        {
+            "t_us": 0,
+            "type": evdev.ecodes.EV_REL,
+            "code": evdev.ecodes.REL_X,
+            "value": 10,
+            "device_type": "mouse",
+        },
+        {
+            "t_us": 0,
+            "type": evdev.ecodes.EV_ABS,
+            "code": evdev.ecodes.ABS_X,
+            "value": 100,
+            "device_type": "mouse",
+        },
+    ]
+
+    await manager.set_diagnostics_output_stream(True)
+    await manager.play_macro(macro_events=macro_events, macro_name="demo")
+    if manager.macro_state.tasks:
+        await asyncio.gather(*list(manager.macro_state.tasks.values()))
+    manager._flush_diagnostics_output_events()
+
+    assert len(broadcasts) == 1
+    _event_type, data = broadcasts.pop()
+    events = cast(list[dict[str, object]], data["events"])
+    assert [(event["type_name"], event["value"]) for event in events] == [
+        ("EV_KEY", 1),
+        ("EV_KEY", 0),
+    ]
+    assert {event["output"] for event in events} == {"keyboard"}
+
+    await manager.set_diagnostics_output_stream(
+        True,
+        ["button", "repeat", "mousemove", "axis"],
+    )
+    await manager.play_macro(macro_events=macro_events, macro_name="demo")
+    if manager.macro_state.tasks:
+        await asyncio.gather(*list(manager.macro_state.tasks.values()))
+    manager._flush_diagnostics_output_events()
+    await manager.set_diagnostics_output_stream(False)
+
+    assert len(broadcasts) == 1
+    _event_type, data = broadcasts[0]
+    events = cast(list[dict[str, object]], data["events"])
+    assert [(event["type_name"], event["value"]) for event in events] == [
+        ("EV_KEY", 1),
+        ("EV_KEY", 2),
+        ("EV_KEY", 0),
+        ("EV_REL", 10),
+        ("EV_ABS", 100),
+    ]
+    assert events[1]["repeat"] is True
+
+
+@pytest.mark.asyncio
 async def test_device_inspector_suppression_status_broadcasts() -> None:
     manager = DeviceManager()
     broadcasts: list[tuple[CommandType, dict[str, object]]] = []
@@ -323,9 +517,7 @@ class TestDeviceManager:
     ) -> None:
         manager = DeviceManager()
         monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
-        evdev_interfaces = [
-            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-        ]
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
 
         result = await manager.grab_device(
             hardware_id="2dc8:3106",
@@ -374,9 +566,7 @@ class TestDeviceManager:
             "resolve_evdev_interfaces",
             fake_resolve_evdev_interfaces,
         )
-        evdev_interfaces = [
-            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-        ]
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
 
         result = await manager.grab_device(
             hardware_id="2dc8:3106",
@@ -858,7 +1048,7 @@ class TestListDevices:
     async def test_diagnostics_loop_offloads_snapshot_to_thread(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        ) -> None:
+    ) -> None:
         manager = DeviceManager()
         manager.diagnostics_state.enabled = True
         manager.broadcast_callback = AsyncMock()
@@ -1101,9 +1291,7 @@ class TestMacroControlActions:
         assert result == pytest.approx(0.02)
 
     @pytest.mark.asyncio
-    async def test_run_macro_control_action_wait_renews_mouse_suppression(
-        self, monkeypatch
-    ):
+    async def test_run_macro_control_action_wait_renews_mouse_suppression(self, monkeypatch):
         manager = DeviceManager()
         clock = {"now": 10.0}
         begin_mouse_rel_suppression = Mock()
@@ -1130,9 +1318,7 @@ class TestMacroControlActions:
         assert result == pytest.approx(10.0)
 
     @pytest.mark.asyncio
-    async def test_mouse_suppression_watchdog_keeps_active_inhibit_count(
-        self, monkeypatch
-    ):
+    async def test_mouse_suppression_watchdog_keeps_active_inhibit_count(self, monkeypatch):
         manager = DeviceManager()
 
         async def fake_sleep(_duration: float) -> None:

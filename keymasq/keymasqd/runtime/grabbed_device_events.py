@@ -3,7 +3,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 import evdev
@@ -32,6 +32,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceRuntime,
     InputEventLike,
     TimeModule,
+    UInputWriter,
     identity_uinput_writer,
     runtime_is_running,
 )
@@ -58,13 +59,15 @@ def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[objec
 
 
 def build_action_execution_deps(
-    *, fire_and_observe_fn: FireAndObserve = _fire_and_observe
+    *,
+    fire_and_observe_fn: FireAndObserve = _fire_and_observe,
+    uinput_writer: UInputWriter = identity_uinput_writer,
 ) -> ActionExecutionDeps:
     return ActionExecutionDeps(
         asyncio_mod=cast(AsyncioModule, asyncio),
         fire_and_observe_fn=fire_and_observe_fn,
         evdev_mod=evdev,
-        uinput_writer=identity_uinput_writer,
+        uinput_writer=uinput_writer,
     )
 
 
@@ -301,7 +304,7 @@ async def cleanup_runtime_failure(
     runtime_outputs.release_all_keys(
         device_runtime,
         evdev_mod=evdev,
-        uinput_writer=identity_uinput_writer,
+        uinput_writer=device_runtime.uinput_writer,
     )
 
 
@@ -325,9 +328,7 @@ def observe_profile_trigger_end_for_held_sources(
 
 def get_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:
     try:
-        raw_code_name: object = evdev_mod.ecodes.bytype[event.type].get(
-            event.code, str(event.code)
-        )
+        raw_code_name: object = evdev_mod.ecodes.bytype[event.type].get(event.code, str(event.code))
         return _evdev_code_name(raw_code_name, int(event.code))
     except Exception:
         return str(event.code)
@@ -485,6 +486,12 @@ async def process_event(
 ) -> None:
     evdev_mod = deps.evdev_mod
     time_mod = deps.time_mod
+    uinput_writer = device_runtime.uinput_writer
+    action_deps = (
+        deps.action_deps
+        if deps.action_deps.uinput_writer is uinput_writer
+        else replace(deps.action_deps, uinput_writer=uinput_writer)
+    )
     started_ns = time_mod.perf_counter_ns()
     diag_label = "unknown"
     combo_consumed = False
@@ -613,17 +620,15 @@ async def process_event(
         syn_report = int(getattr(evdev_mod.ecodes, "SYN_REPORT", 0))
         syn_mt_report = int(getattr(evdev_mod.ecodes, "SYN_MT_REPORT", 0))
         if event_code == syn_report:
-            passthrough_frame_open = runtime_outputs.passthrough_frame_open(
-                device_runtime.uinput
-            )
+            passthrough_frame_open = runtime_outputs.passthrough_frame_open(device_runtime.uinput)
             runtime_outputs.flush_passthrough_frame(
                 device_runtime.uinput,
-                uinput_writer=identity_uinput_writer,
+                uinput_writer=uinput_writer,
             )
             if passthrough_frame_open:
                 diag_label = "passthrough_syn"
         elif event_code == syn_mt_report:
-            writer = identity_uinput_writer(device_runtime.uinput)
+            writer = uinput_writer(device_runtime.uinput)
             if writer is not None:
                 writer.write(evdev_mod.ecodes.EV_SYN, event_code, int(event.value))
                 runtime_outputs.mark_passthrough_frame_open(device_runtime.uinput)
@@ -632,17 +637,21 @@ async def process_event(
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
         return
 
-    if event.type == evdev_mod.ecodes.EV_ABS and (
-        int(event.type),
-        int(event.code),
-    ) in device_runtime.analog_axis_bindings:
+    if (
+        event.type == evdev_mod.ecodes.EV_ABS
+        and (
+            int(event.type),
+            int(event.code),
+        )
+        in device_runtime.analog_axis_bindings
+    ):
         mapping = device_runtime.mapping_getter()
         if await runtime_analog_controls.process_analog_event(
             device_runtime,
             event,
             event_name,
             mapping,
-            deps=deps.action_deps,
+            deps=action_deps,
         ):
             _record_diagnostics(
                 device_runtime,
@@ -657,7 +666,7 @@ async def process_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=identity_uinput_writer,
+            uinput_writer=uinput_writer,
             sync=False,
         )
         _record_diagnostics(device_runtime, "passthrough_other", started_ns, time_mod=time_mod)
@@ -671,7 +680,7 @@ async def process_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=identity_uinput_writer,
+            uinput_writer=uinput_writer,
             sync=False,
         )
         if int(event.value) == 0:
@@ -744,7 +753,7 @@ async def process_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=identity_uinput_writer,
+            uinput_writer=uinput_writer,
             sync=False,
         )
         _record_profile_input_if_countable(
@@ -795,7 +804,7 @@ async def process_event(
             action,
             event,
             event_name,
-            deps=deps.action_deps,
+            deps=action_deps,
         )
         diag_label = (
             f"combo_release_action_{action.action_type.value}"
@@ -813,7 +822,7 @@ async def process_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=identity_uinput_writer,
+            uinput_writer=uinput_writer,
             sync=False,
         )
         _record_profile_input_if_countable(
@@ -1010,7 +1019,7 @@ async def _process_wheel_pulse_event(
             device_runtime,
             event,
             evdev_mod=evdev_mod,
-            uinput_writer=identity_uinput_writer,
+            uinput_writer=device_runtime.uinput_writer,
             sync=False,
         )
         return "wheel_passthrough"
@@ -1038,7 +1047,7 @@ async def _process_wheel_pulse_event(
             action,
             event,
             pulse_event_name,
-            deps=deps.action_deps,
+            deps=replace(deps.action_deps, uinput_writer=device_runtime.uinput_writer),
         )
     return f"action_{action.action_type.value}"
 

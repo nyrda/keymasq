@@ -580,7 +580,6 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
         ]
-
     @pytest.mark.asyncio
     async def test_overload_superkey_refcounts_shared_outputs_across_two_inputs(
         self,

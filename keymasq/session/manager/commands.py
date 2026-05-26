@@ -12,6 +12,7 @@ from keymasq.session.settings import save_global_settings, save_virtual_gamepad_
 from . import combo_inspector as runtime_combo_inspector
 from . import compositor as runtime_compositor
 from . import device_inspector as runtime_device_inspector
+from . import output_stream as runtime_output_stream
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import (
@@ -47,7 +48,9 @@ async def handle_session_request(
 
     if runtime_recording.is_sensitive_session_command(
         manager,
-        command, policy
+        command,
+        request,
+        policy,
     ) and not runtime_recording.is_refresh_owner_request(manager, peer, writer):
         return {
             "status": "error",
@@ -91,7 +94,19 @@ async def handle_session_request(
         return result
 
     if command == "set_diagnostics":
-        return await _handle_set_diagnostics(manager, request)
+        result = await _handle_set_diagnostics(manager, request)
+        runtime_recording.notify_recording_unlock_required(manager, result)
+        return result
+
+    if command == "set_diagnostics_output_stream":
+        result = await runtime_output_stream.set_diagnostics_output_stream(
+            manager,
+            bool(request.get("enabled", False)),
+            request.get("filters"),
+            writer,
+        )
+        runtime_recording.notify_recording_unlock_required(manager, result)
+        return result
 
     result = await _handle_device_inspector_commands(manager, command, request, peer, writer)
     if result is not None:
@@ -891,4 +906,8 @@ async def _handle_set_diagnostics(
 
     if result.status == "ok":
         return {"status": "ok", "data": result.data or {}}
-    return {"status": "error", "message": result.error or "Failed to update diagnostics"}
+    message = result.error or "Failed to update diagnostics"
+    response: JsonObject = {"status": "error", "message": message}
+    if "recording_locked" in message.lower():
+        response["error_code"] = "recording_locked"
+    return response

@@ -132,21 +132,27 @@ def test_gui_appearance_preference_round_trips(temp_config_dir) -> None:
     )
 
 
-def test_gui_device_tab_order_preference_round_trips_with_appearance(temp_config_dir) -> None:
+def test_gui_tab_layout_preference_round_trips_with_appearance(temp_config_dir) -> None:
     from keymasq.gui.preferences import (
+        load_hidden_tabs,
         load_appearance_mode,
-        load_device_tab_order,
+        load_tab_order,
         save_appearance_mode,
-        save_device_tab_order,
+        save_tab_layout,
     )
 
-    assert load_device_tab_order() == []
+    assert load_tab_order() == []
+    assert load_hidden_tabs() == set()
 
     save_appearance_mode("dark")
-    save_device_tab_order([" 2222:0002 ", "1111:0001", "2222:0002", ""])
+    save_tab_layout(
+        [" device:2222:0002 ", "combos", "device:1111:0001", "combos", ""],
+        {"combos", " "},
+    )
 
     assert load_appearance_mode() == "dark"
-    assert load_device_tab_order() == ["2222:0002", "1111:0001"]
+    assert load_tab_order() == ["device:2222:0002", "combos", "device:1111:0001"]
+    assert load_hidden_tabs() == {"combos"}
 
 
 def test_session_reload_reports_sync_and_async_status(monkeypatch) -> None:

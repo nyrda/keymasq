@@ -54,23 +54,36 @@ def save_appearance_mode(mode: AppearanceMode) -> None:
     _save_settings(data)
 
 
-def load_device_tab_order() -> list[str]:
-    data = _load_settings()
-    order = data.get("device_tab_order")
-    if not isinstance(order, list):
+def _clean_string_list(values: object) -> list[str]:
+    if not isinstance(values, list):
         return []
-    return [str(hardware_id) for hardware_id in order if str(hardware_id).strip()]
-
-
-def save_device_tab_order(hardware_ids: list[str]) -> None:
-    data = _load_settings()
     seen: set[str] = set()
-    device_tab_order: list[str] = []
-    for hardware_id in hardware_ids:
-        trimmed = hardware_id.strip()
-        if not trimmed or trimmed in seen:
+    cleaned: list[str] = []
+    for value in values:
+        item = str(value).strip()
+        if not item or item in seen:
             continue
-        seen.add(trimmed)
-        device_tab_order.append(trimmed)
-    data["device_tab_order"] = device_tab_order
+        seen.add(item)
+        cleaned.append(item)
+    return cleaned
+
+
+def load_tab_order() -> list[str]:
+    data = _load_settings()
+    return _clean_string_list(data.get("tab_order"))
+
+
+def load_hidden_tabs() -> set[str]:
+    data = _load_settings()
+    return set(_clean_string_list(data.get("hidden_tabs")))
+
+
+def save_tab_layout(tab_order: list[str], hidden_tabs: set[str]) -> None:
+    data = _load_settings()
+    cleaned_order = _clean_string_list(tab_order)
+    hidden = set(_clean_string_list(list(hidden_tabs)))
+    hidden_tabs_ordered = [tab_id for tab_id in cleaned_order if tab_id in hidden]
+    hidden_tabs_ordered.extend(sorted(hidden - set(hidden_tabs_ordered)))
+    data["tab_order"] = cleaned_order
+    data["hidden_tabs"] = hidden_tabs_ordered
     _save_settings(data)

@@ -224,7 +224,7 @@ def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
                 "name": "Bravo",
                 "profile_name": "Base",
                 "order": 0,
-                "steps": [{"events": [{"evdev": "key_b"}]}],
+                "steps": [{"events": [{"evdev": "key_c"}]}],
                 "action": {"action": "keyboard", "target": "key_c"},
             },
             {
@@ -232,7 +232,7 @@ def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
                 "name": "Alpha",
                 "profile_name": "Base",
                 "order": 1,
-                "steps": [{"events": [{"evdev": "key_c"}]}],
+                "steps": [{"events": [{"evdev": "key_a"}]}],
                 "action": {"action": "keyboard", "target": "key_b"},
             },
             {
@@ -240,7 +240,7 @@ def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
                 "name": "Charlie",
                 "profile_name": "Base",
                 "order": 2,
-                "steps": [{"events": [{"evdev": "key_a"}]}],
+                "steps": [{"events": [{"evdev": "key_b"}]}],
                 "action": {"action": "keyboard", "target": "key_a"},
             },
         ],
@@ -267,7 +267,7 @@ def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
     assert window._name_header_btn.get_label() == "Name \u25be"
 
     window._trigger_header_btn.emit("clicked")
-    assert _combo_inspector_row_names(window) == ["Charlie", "Bravo", "Alpha"]
+    assert _combo_inspector_row_names(window) == ["Alpha", "Charlie", "Bravo"]
     assert window._trigger_header_btn.get_label() == "Trigger \u25b4"
     assert window._name_header_btn.get_label() == "Name"
 
@@ -326,6 +326,22 @@ def test_combo_inspector_mapping_action_payload_preserves_macro_loop_stop_behavi
     assert action is not None
     assert action.macro_loop_stop_behavior == "cancel_run"
     assert action.keys is None
+
+
+def test_combo_inspector_mapping_action_payload_keeps_unknown_actions_visible() -> None:
+    from keymasq.common.models import ActionType
+    from keymasq.gui.widgets.combo_inspector_window import _mapping_action_from_payload
+
+    action = _mapping_action_from_payload(
+        {
+            "action": "future_action",
+            "target": "future-target",
+        }
+    )
+
+    assert action is not None
+    assert action.action_type == ActionType.PASSTHROUGH
+    assert action.target == "future-target"
 
 
 def test_combo_inspector_mapping_action_payload_preserves_profile_deactivation() -> None:

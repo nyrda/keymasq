@@ -430,6 +430,22 @@ class TestComboTabWidget:
         assert tab.search_entry.get_visible() is False
         assert tab.section_label.get_visible() is False
 
+        tab.search_button.emit("clicked")
+        tab.search_entry.set_text("mouse")
+        tab._selected_profile = None
+        tab._render_combo_list()
+        assert tab.search_entry.get_visible() is False
+        assert tab.search_entry.get_text() == ""
+
+        tab._show_search()
+        assert tab.search_entry.get_visible() is False
+
+        tab.search_entry.set_visible(True)
+        tab.search_entry.set_text("stale")
+        tab._update_combo_list_state()
+        assert tab.search_entry.get_visible() is False
+        assert tab.search_entry.get_text() == ""
+
     def test_combo_tab_toolbar_keeps_add_combo_and_search_left_bound(self):
         from keymasq.gui.widgets.combo_tab import ComboTab
 

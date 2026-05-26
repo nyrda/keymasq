@@ -775,10 +775,11 @@ def _mapping_action_from_payload(value: object) -> MappingAction | None:
     if not isinstance(value, dict):
         return None
     action_data = cast(dict[str, object], value)
+    action_name = _text(action_data.get("action"), ActionType.PASSTHROUGH.value)
     try:
-        action_type = ActionType(_text(action_data.get("action"), ActionType.PASSTHROUGH.value))
+        action_type = ActionType(action_name)
     except ValueError:
-        return None
+        action_type = ActionType.PASSTHROUGH
 
     macro_name = _text(action_data.get("macro_name"))
     if action_type == ActionType.MACRO and not macro_name:

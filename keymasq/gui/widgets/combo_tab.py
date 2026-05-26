@@ -239,6 +239,7 @@ class ComboTab(ProfileManagedTab):
         combos = self._sorted_combos()
 
         if self._selected_profile is None:
+            self._hide_search()
             self.section_label.set_visible(False)
             self.combo_listbox.set_visible(False)
             self.column_header.set_visible(False)
@@ -315,6 +316,7 @@ class ComboTab(ProfileManagedTab):
 
     def _update_combo_list_state(self, *, has_combos: bool | None = None) -> None:
         if self._selected_profile is None:
+            self._hide_search()
             self.section_label.set_visible(False)
             self.combo_listbox.set_visible(False)
             self.column_header.set_visible(False)
@@ -338,12 +340,15 @@ class ComboTab(ProfileManagedTab):
         self._update_combo_list_state()
 
     def _show_search(self) -> None:
+        if self._selected_profile is None:
+            return
         self.search_entry.set_visible(True)
         self.search_entry.grab_focus()
         self.search_entry.select_region(0, -1)
 
     def _hide_search(self) -> None:
-        self.search_entry.set_text("")
+        if self.search_entry.get_text():
+            self.search_entry.set_text("")
         self.search_entry.set_visible(False)
 
     def _on_search_clicked(self, _button: Gtk.Button) -> None:

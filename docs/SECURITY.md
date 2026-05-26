@@ -326,12 +326,14 @@ read-only output event stream in the GUI Diagnostics dialog.
 - Disable: `keymasq diagnostics off`
 
 When enabled, keymasqd logs periodic latency stats (`p50`, `p95`, `p99`, `max`)
-for internal event buckets. The GUI output event stream can expose raw uinput
-events written by keymasqd output devices to the user session that enabled it.
-When recording unlock is required by policy, enabling diagnostics or the output
-event stream requires the same active GUI unlock owner as recording and
-inspection. Disabling diagnostics remains allowed so an existing stream can
-always be turned off.
+for internal event buckets. Latency diagnostics do not expose raw input or
+output events and are not gated by the recording unlock flow.
+
+The GUI output event stream can expose raw uinput events written by keymasqd
+output devices to the user session that enabled it. When recording unlock is
+required by policy, enabling the output event stream requires the same active
+GUI unlock owner as recording and inspection. Disabling diagnostics remains
+allowed so an existing stream can always be turned off.
 
 View logs with:
 

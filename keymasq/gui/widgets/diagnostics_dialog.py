@@ -184,6 +184,8 @@ class DiagnosticsDialog(Adw.Dialog):
         self._output_filter_checks: dict[str, Gtk.ToggleButton] = {}
         self._output_rows: list[Gtk.ListBoxRow] = []
         self._output_events: list[JsonDict] = []
+        self._output_unlock_status: Gtk.Label | None = None
+        self._output_unlock_button: Gtk.Button | None = None
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -333,7 +335,25 @@ class DiagnosticsDialog(Adw.Dialog):
         enable_label.set_hexpand(True)
         controls.append(enable_label)
 
+        output_unlock_status = Gtk.Label(label="")
+        output_unlock_status.add_css_class("caption")
+        output_unlock_status.add_css_class("dim-label")
+        output_unlock_status.set_halign(Gtk.Align.END)
+        self._output_unlock_status = output_unlock_status
+        controls.append(output_unlock_status)
+
+        output_unlock_button = Gtk.Button()
+        output_unlock_button.set_child(self._make_unlock_button_content("Unlock"))
+        output_unlock_button.set_tooltip_text(
+            "Authorize diagnostics output monitoring. Output events expose raw virtual input "
+            "written by keymasqd."
+        )
+        output_unlock_button.connect("clicked", self._on_output_unlock_clicked)
+        self._output_unlock_button = output_unlock_button
+        controls.append(output_unlock_button)
+
         content.append(controls)
+        self._update_output_unlock_controls()
 
         events_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         events_header.set_halign(Gtk.Align.FILL)
@@ -415,7 +435,16 @@ class DiagnosticsDialog(Adw.Dialog):
     def _on_output_enabled_changed(self, switch: Gtk.Switch, _param: object) -> None:
         if self._syncing_controls:
             return
-        self._output_enabled = switch.get_active()
+        active = switch.get_active()
+        if active == self._output_enabled:
+            return
+        if active and not self._output_unlock_ready():
+            self._output_enabled = False
+            self._sync_output_enabled_switch()
+            self._output_status_label.set_text("Unlock required before watching output events.")
+            self._update_output_unlock_controls()
+            return
+        self._output_enabled = active
         self._apply_output_stream_settings()
 
     def _on_output_filter_toggled(self, button: Gtk.ToggleButton) -> None:
@@ -534,6 +563,7 @@ class DiagnosticsDialog(Adw.Dialog):
             self._output_status_label.set_text("Waiting for output events...")
         else:
             self._output_status_label.set_text("Output event stream is off.")
+        self._update_output_unlock_controls()
         return False
 
     def _diagnostics_payload(self, enabled: bool) -> JsonDict:
@@ -555,7 +585,73 @@ class DiagnosticsDialog(Adw.Dialog):
         self._output_enable_switch.set_sensitive(sensitive)
         for check in self._output_filter_checks.values():
             check.set_sensitive(sensitive)
+        if self._output_unlock_button is not None:
+            self._output_unlock_button.set_sensitive(sensitive)
         self._update_reset_button_state()
+
+    def _make_unlock_button_content(self, label: str) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
+        box.append(icon)
+        lbl = Gtk.Label(label=label)
+        box.append(lbl)
+        return box
+
+    def _output_unlock_state(self) -> tuple[bool, bool, bool]:
+        root = self._parent
+        if not hasattr(root, "_recording_unlock_required"):
+            return False, True, True
+        unlock_required = bool(getattr(root, "_recording_unlock_required", True))
+        recording_unlocked = bool(getattr(root, "_recording_unlocked", False))
+        refresh_owner = bool(getattr(root, "_recording_refresh_owner", False))
+        return unlock_required, recording_unlocked, refresh_owner
+
+    def _output_unlock_ready(self) -> bool:
+        unlock_required, recording_unlocked, refresh_owner = self._output_unlock_state()
+        return not unlock_required or (recording_unlocked and refresh_owner)
+
+    def _update_output_unlock_controls(self) -> None:
+        if self._output_unlock_button is None or self._output_unlock_status is None:
+            return
+
+        unlock_required, recording_unlocked, refresh_owner = self._output_unlock_state()
+        can_watch = not unlock_required or (recording_unlocked and refresh_owner)
+        if not unlock_required:
+            self._output_unlock_button.set_visible(False)
+            self._output_unlock_status.set_label("")
+            return
+        if can_watch:
+            self._output_unlock_button.set_visible(False)
+            self._output_unlock_status.set_label("Output monitoring unlocked")
+            return
+
+        self._output_unlock_button.set_visible(True)
+        label = "Claim" if recording_unlocked else "Unlock"
+        self._output_unlock_button.set_child(self._make_unlock_button_content(label))
+        if recording_unlocked:
+            self._output_unlock_button.set_tooltip_text(
+                "Claim this GUI as the active owner before watching output events."
+            )
+            self._output_unlock_status.set_label("Unlock active in another session")
+        else:
+            self._output_unlock_button.set_tooltip_text(
+                "Authorize diagnostics output monitoring. Output events expose raw virtual input "
+                "written by keymasqd."
+            )
+            self._output_unlock_status.set_label("Output monitoring locked")
+
+    def _on_output_unlock_clicked(self, _button: Gtk.Button) -> None:
+        present_unlock = getattr(self._parent, "present_unlock_dialog", None)
+        if callable(present_unlock):
+            present_unlock(on_success=self._on_output_unlock_success)
+            return
+        self._output_status_label.set_text("Unlock is only available from the main window.")
+
+    def _on_output_unlock_success(self) -> None:
+        self._output_enabled = True
+        self._sync_output_enabled_switch()
+        self._update_output_unlock_controls()
+        self._apply_output_stream_settings()
 
     def _update_reset_button_state(self) -> None:
         page_name = self._stack.get_visible_child_name()

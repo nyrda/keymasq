@@ -821,7 +821,7 @@ async def test_diagnostics_enable_is_sensitive_to_refresh_owner() -> None:
     }
 
     result = await manager._handle_session_request(
-        {"command": "set_diagnostics", "enabled": True, "interval": 5.0},
+        {"command": "set_diagnostics_output_stream", "enabled": True, "filters": ["button"]},
         "client",
         peer,
         other,  # type: ignore[arg-type]
@@ -833,6 +833,29 @@ async def test_diagnostics_enable_is_sensitive_to_refresh_owner() -> None:
         "message": "Sensitive command denied: caller is not active GUI owner",
     }
     manager.client.send_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_latency_diagnostics_enable_is_not_sensitive_to_refresh_owner() -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = True
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"enabled": True, "categories": ["mainline"]})
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "set_diagnostics", "enabled": True, "interval": 5.0},
+        "client",
+        peer,
+        object(),  # type: ignore[arg-type]
+    )
+
+    assert result == {
+        "status": "ok",
+        "data": {"enabled": True, "categories": ["mainline"]},
+    }
+    manager.client.send_command.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -309,6 +309,73 @@ def test_diagnostics_dialog_output_stream_page(monkeypatch) -> None:
     ]
 
 
+def test_diagnostics_output_stream_unlock_starts_watching(monkeypatch) -> None:
+    import keymasq.gui.widgets.diagnostics_dialog as dialog_module
+    from keymasq.gui.widgets.diagnostics_dialog import DiagnosticsDialog
+
+    sent: list[dict[str, object]] = []
+    unlock_callbacks: list[object] = []
+
+    def fake_request_async(payload, callback, timeout=5.0):
+        sent.append(payload)
+        return callback(
+            {
+                "status": "ok",
+                "data": {
+                    "enabled": bool(payload["enabled"]),
+                    "filters": payload.get("filters", ["button"]),
+                },
+            }
+        )
+
+    parent = Gtk.Window()
+    parent._recording_unlock_required = True  # pyright: ignore[reportAttributeAccessIssue]
+    parent._recording_unlocked = False  # pyright: ignore[reportAttributeAccessIssue]
+    parent._recording_refresh_owner = False  # pyright: ignore[reportAttributeAccessIssue]
+
+    def present_unlock_dialog(on_success=None):
+        unlock_callbacks.append(on_success)
+
+    parent.present_unlock_dialog = present_unlock_dialog  # pyright: ignore[reportAttributeAccessIssue]
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_request_async)
+    monkeypatch.setattr(dialog_module, "register_session_event_callback", lambda *a: None)
+    monkeypatch.setattr(dialog_module, "unregister_session_event_callback", lambda *a: None)
+
+    dialog = DiagnosticsDialog(parent)
+    dialog._output_enable_switch.set_active(True)
+
+    assert sent == []
+    assert dialog._output_enable_switch.get_active() is False
+    assert dialog._output_unlock_button.get_visible() is True
+    assert (
+        dialog._output_status_label.get_text()
+        == "Unlock required before watching output events."
+    )
+
+    dialog._output_unlock_button.emit("clicked")
+    assert len(unlock_callbacks) == 1
+
+    parent._recording_unlocked = True  # pyright: ignore[reportAttributeAccessIssue]
+    parent._recording_refresh_owner = True  # pyright: ignore[reportAttributeAccessIssue]
+    callback = unlock_callbacks[0]
+    assert callable(callback)
+    callback()
+
+    assert sent == [
+        {
+            "command": "set_diagnostics_output_stream",
+            "enabled": True,
+            "filters": ["button"],
+        }
+    ]
+    assert dialog._output_enable_switch.get_active() is True
+    assert dialog._output_unlock_button.get_visible() is False
+    assert dialog._output_status_label.get_text() == "Waiting for output events..."
+
+    dialog._on_closed(dialog)
+
+
 def test_diagnostics_sort_by_priority(monkeypatch) -> None:
     import keymasq.gui.widgets.diagnostics_dialog as dialog_module
     from keymasq.gui.widgets.diagnostics_dialog import DiagnosticsDialog, _label_sort_key

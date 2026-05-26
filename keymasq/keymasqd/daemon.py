@@ -456,7 +456,6 @@ class Daemon:
             CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
         }
         diagnostics_commands = {
-            CommandType.SET_DIAGNOSTICS,
             CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
         }
 
@@ -544,7 +543,6 @@ class Daemon:
             CommandType.MACRO_UPDATE,
             CommandType.DEVICE_INSPECTOR_START,
             CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
-            CommandType.SET_DIAGNOSTICS,
             CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
         }
         if command_type not in sensitive_commands:

@@ -50,7 +50,7 @@ def is_sensitive_session_command(
 
     if (
         policy.recording_unlock_required
-        and command in {"set_diagnostics", "set_diagnostics_output_stream"}
+        and command == "set_diagnostics_output_stream"
         and bool((request or {}).get("enabled", False))
     ):
         return True

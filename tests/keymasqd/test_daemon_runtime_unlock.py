@@ -49,17 +49,11 @@ async def test_set_diagnostics_output_stream_forwards_filters(daemon_testbed):
 
 
 @pytest.mark.asyncio
-async def test_diagnostics_enable_requires_recording_unlock(daemon_testbed, monkeypatch):
+async def test_output_diagnostics_enable_requires_recording_unlock(daemon_testbed, monkeypatch):
     daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
     monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
 
-    with pytest.raises(PermissionError, match="recording_locked"):
-        await daemon._handle_command(
-            CommandType.SET_DIAGNOSTICS,
-            {"enabled": True, "interval": 5.0},
-            client=_client(),
-        )
     with pytest.raises(PermissionError, match="recording_locked"):
         await daemon._handle_command(
             CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
@@ -67,12 +61,11 @@ async def test_diagnostics_enable_requires_recording_unlock(daemon_testbed, monk
             client=_client(),
         )
 
-    device_manager.set_diagnostics.assert_not_awaited()
     device_manager.set_diagnostics_output_stream.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_diagnostics_disable_does_not_require_recording_unlock(
+async def test_latency_diagnostics_enable_does_not_require_recording_unlock(
     daemon_testbed,
     monkeypatch,
 ):
@@ -80,20 +73,32 @@ async def test_diagnostics_disable_does_not_require_recording_unlock(
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
     monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
 
-    diagnostics = await daemon._handle_command(
+    result = await daemon._handle_command(
         CommandType.SET_DIAGNOSTICS,
-        {"enabled": False, "interval": 5.0},
+        {"enabled": True, "interval": 5.0},
         client=_client(),
     )
+
+    assert result == {"status": "ok"}
+    device_manager.set_diagnostics.assert_awaited_once_with(True, 5.0, None)
+
+
+@pytest.mark.asyncio
+async def test_output_diagnostics_disable_does_not_require_recording_unlock(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
     output_stream = await daemon._handle_command(
         CommandType.SET_DIAGNOSTICS_OUTPUT_STREAM,
         {"enabled": False, "filters": ["button"]},
         client=_client(),
     )
 
-    assert diagnostics == {"status": "ok"}
     assert output_stream == {"status": "ok"}
-    device_manager.set_diagnostics.assert_awaited_once_with(False, 5.0, None)
     device_manager.set_diagnostics_output_stream.assert_awaited_once_with(False, ["button"])
 
 

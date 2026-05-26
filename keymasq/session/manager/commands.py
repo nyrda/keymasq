@@ -94,9 +94,7 @@ async def handle_session_request(
         return result
 
     if command == "set_diagnostics":
-        result = await _handle_set_diagnostics(manager, request)
-        runtime_recording.notify_recording_unlock_required(manager, result)
-        return result
+        return await _handle_set_diagnostics(manager, request)
 
     if command == "set_diagnostics_output_stream":
         result = await runtime_output_stream.set_diagnostics_output_stream(

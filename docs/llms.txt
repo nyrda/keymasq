@@ -64,6 +64,10 @@ Primary docs:
   how the user presses it.
 - Rapidfire: emit repeated output pulses while the physical source is held.
   Each pulse has a press/hold duration and a wait before the next pulse.
+- Repeat Last Action: replay the newest remembered action in selected
+  categories (`keyboard`, `mouse`, `gamepad`, `macro`, `special`). Mouse covers
+  buttons and wheel. Raw passthrough mouse movement and top-level superkeys are
+  not remembered.
 - Tap: send one short press/release pulse even if the physical source is held.
 
 ## Config locations

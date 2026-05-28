@@ -209,6 +209,8 @@ def combo_action_label(action: MappingAction | None) -> str:
         return "Suppress"
     if action.action_type == ActionType.MACRO:
         return action.macro_name or "Macro"
+    if action.action_type == ActionType.REPEAT:
+        return "Repeat Last"
     if action.action_type == ActionType.PROFILE_ENABLE:
         return f"Enable {action.profile_name or '?'}{_profile_lifetime_suffix(action)}"
     if action.action_type == ActionType.PROFILE_DISABLE:

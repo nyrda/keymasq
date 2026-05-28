@@ -22,6 +22,7 @@ from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
+from keymasq.keymasqd.runtime import repeat as runtime_repeat
 from keymasq.keymasqd.runtime.action_runner import source_trigger_id
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
@@ -674,6 +675,13 @@ async def process_event(
             uinput_writer=identity_uinput_writer,
             sync=False,
         )
+        runtime_repeat.remember_passthrough_event(
+            device_runtime.repeat_state,
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         if int(event.value) == 0:
             device_runtime.state.combo_passthrough_held.discard(event_name)
             _clear_released_source_action(
@@ -740,6 +748,13 @@ async def process_event(
             and int(event.value) == 1
         ):
             device_runtime.state.combo_passthrough_held.add(event_name)
+        runtime_repeat.remember_passthrough_event(
+            device_runtime.repeat_state,
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         runtime_outputs.passthrough(
             device_runtime,
             event,
@@ -809,6 +824,13 @@ async def process_event(
             and int(event.value) == 1
         ):
             device_runtime.state.combo_passthrough_held.add(event_name)
+        runtime_repeat.remember_passthrough_event(
+            device_runtime.repeat_state,
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         runtime_outputs.passthrough(
             device_runtime,
             event,

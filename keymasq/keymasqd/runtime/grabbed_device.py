@@ -49,6 +49,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     WritableUInput as _WritableUInput,
 )
 from keymasq.keymasqd.runtime.outputs import uinput_identity
+from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 
 log = logging.getLogger("keymasqd.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
@@ -204,6 +205,7 @@ class GrabbedDevice:
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
         diagnostics_recorder: Callable[[str, float], None] | None = None,
         runtime_cleanup_callback: Callable[[str, str | None], Awaitable[None]] | None = None,
+        repeat_state: RepeatRuntimeState | None = None,
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
         analog_inputs: dict[str, object] | None = None,
@@ -255,6 +257,13 @@ class GrabbedDevice:
         self.mouse_rel_suppression_start_callback = mouse_rel_suppression_start_callback
         self.diagnostics_recorder = diagnostics_recorder
         self.runtime_cleanup_callback = runtime_cleanup_callback
+        if repeat_state is None:
+            log.warning(
+                "GrabbedDevice %s created without shared RepeatRuntimeState; "
+                "using isolated test-only repeat state",
+                hardware_id,
+            )
+        self.repeat_state = repeat_state if repeat_state is not None else RepeatRuntimeState()
         self.task: asyncio.Task[None] | None = None
         self._running = False
         self.state = GrabbedDeviceState()

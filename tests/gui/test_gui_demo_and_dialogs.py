@@ -1013,6 +1013,7 @@ class TestDialogConstruction:
             "allow_clear_mapping": False,
             "allow_suppress": False,
             "allow_superkey": False,
+            "allow_repeat": False,
             "allow_rapidfire": True,
             "allow_tap": False,
             "allow_macro_options": True,

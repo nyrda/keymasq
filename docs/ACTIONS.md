@@ -39,6 +39,39 @@ profile does map the key, that lower-priority mapping still applies.
 Block the key entirely. Nothing is sent — the key press is silently consumed.
 Use this to disable a key you never want to fire.
 
+### Repeat Last Action
+
+Repeat the most recent repeatable action Keymasq handled. This can be a normal
+mapping action or original passthrough input. Choose **Repeat Last Action** in
+the Special tab, then use the category toggle buttons to choose what kinds of
+remembered actions it may replay:
+
+| Toggle | What Repeat can replay |
+|---|---|
+| **Keys** | Keyboard key actions and passthrough keyboard key presses. |
+| **Mouse** | Mouse button and wheel actions, including passthrough mouse clicks and wheel events. |
+| **Gamepad** | Gamepad button and axis actions, including passthrough gamepad buttons. |
+| **Macros** | Macro playback actions. |
+| **Other** | Configured mouse movement actions, command/compositor actions, macro control actions, and profile actions. |
+
+All five toggles are enabled by default. If every toggle is off, the dialog
+will not let you map the Repeat action.
+
+Repeat never records itself, passthrough mapping actions, suppress actions, or
+the emergency reset action. Original passthrough mouse movement is not recorded.
+Repeating a remembered action also refreshes Repeat's history, so pressing
+Repeat several times in a row keeps replaying the same resolved action until
+another repeatable action takes its place.
+
+Repeat has its own Rapidfire control, but rapidfire only applies when the
+remembered action is a keyboard key, mouse button, mouse wheel action, or
+gamepad button. Remembered configured mouse movement, macro, and other special
+actions run once.
+
+Top-level Super Key actions are not remembered as a single Repeat target.
+Overload super key child actions can still be remembered individually when they
+run, but pattern super key slots do not expose Repeat.
+
 ### Execute Shell Command
 
 Run a shell command when the key is pressed. The command runs inside your
@@ -415,9 +448,11 @@ options area below the action chooser tabs.
 Rapidfire and tap are **mutually exclusive** — enabling one disables the
 other.
 
-They are available for: Keyboard, Mouse, Navigation, Media, Gamepad, and Mouse Move
-actions. They are not available for: Special, Super Keys, Macro, Profile, or
-Compositor actions.
+They are available in the shared options area for: Keyboard, Mouse, Navigation,
+Media, Gamepad, and Mouse Move actions. Repeat has its own Rapidfire control in
+the Special tab, limited to remembered keyboard keys, mouse buttons, mouse wheel
+actions, and gamepad buttons. They are not available for other Special actions,
+Super Keys, Macro, Profile, or Compositor actions.
 
 ### Rapidfire
 

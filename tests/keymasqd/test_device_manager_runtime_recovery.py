@@ -296,6 +296,16 @@ class TestDeviceManagerHelpers:
                 "args": "2",
             },
         )
+        repeat_action = _runtime_parse_action(
+            manager,
+            {
+                "action": "repeat",
+                "repeat_categories": ["keyboard", "mouse_button", "mouse_wheel"],
+                "rapidfire_enabled": True,
+                "rapidfire_hold_ms": 30,
+                "rapidfire_wait_ms": 40,
+            },
+        )
 
         assert string_action.action_type == ActionType.KEYBOARD
         assert string_action.target == "key_a"
@@ -303,6 +313,96 @@ class TestDeviceManagerHelpers:
         assert dispatch_action.compositor_id == "hyprland"
         assert dispatch_action.compositor_dispatcher == "workspace"
         assert dispatch_action.compositor_args == "2"
+        assert repeat_action.action_type == ActionType.REPEAT
+        assert repeat_action.repeat_categories == ["keyboard", "mouse"]
+        assert repeat_action.rapidfire_enabled is True
+        assert repeat_action.rapidfire_hold_ms == 30
+        assert repeat_action.rapidfire_wait_ms == 40
+
+    @pytest.mark.asyncio
+    async def test_mapping_and_combo_updates_prune_stale_exec_repeat_history(self) -> None:
+        from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry
+
+        manager = DeviceManager()
+        manager.grabbed_devices["kbd"] = []
+        manager.repeat_state.history.extend(
+            [
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=1),
+                    source_device="kbd",
+                    source_button="key_f13",
+                ),
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=2),
+                    source_device="mouse",
+                    source_button="btn_side",
+                ),
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=3),
+                    source_device="mouse",
+                    source_button="combo:launch",
+                ),
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=4),
+                    source_device="kbd",
+                    source_button="combo:kbd-launch",
+                ),
+                RepeatHistoryEntry(
+                    category="keyboard",
+                    action=dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                    source_device="kbd",
+                    source_button="key_a",
+                ),
+            ]
+        )
+
+        await manager.set_mapping("kbd", {})
+
+        assert [entry.action.exec_ref for entry in manager.repeat_state.history] == [
+            2,
+            3,
+            4,
+            None,
+        ]
+
+        await manager.set_combos([])
+
+        assert [entry.action.exec_ref for entry in manager.repeat_state.history] == [
+            2,
+            None,
+        ]
+
+    def test_forget_exec_actions_without_filters_keeps_history(self) -> None:
+        from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry, forget_exec_actions
+
+        manager = DeviceManager()
+        manager.repeat_state.history.extend(
+            [
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=1),
+                    source_device="kbd",
+                    source_button="key_f13",
+                ),
+                RepeatHistoryEntry(
+                    category="keyboard",
+                    action=dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                    source_device="kbd",
+                    source_button="key_a",
+                ),
+            ]
+        )
+
+        forget_exec_actions(manager.repeat_state)
+
+        assert [entry.action.action_type for entry in manager.repeat_state.history] == [
+            ActionType.EXEC,
+            ActionType.KEYBOARD,
+        ]
 
     def test_parse_action_warns_and_strips_unsupported_rapidfire(
         self,

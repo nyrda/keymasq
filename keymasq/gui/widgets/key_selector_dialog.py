@@ -24,8 +24,14 @@ from keymasq.common.gamepad_axes import (
     gamepad_axis_value_from_percent,
 )
 from keymasq.common.models import (
+    DEFAULT_REPEAT_CATEGORIES,
     MIN_RAPIDFIRE_HOLD_MS,
     MIN_RAPIDFIRE_WAIT_MS,
+    REPEAT_CATEGORY_GAMEPAD,
+    REPEAT_CATEGORY_KEYBOARD,
+    REPEAT_CATEGORY_MACRO,
+    REPEAT_CATEGORY_MOUSE,
+    REPEAT_CATEGORY_SPECIAL,
     ActionType,
     AnalogControlConfig,
     MappingAction,
@@ -395,6 +401,25 @@ ACTION_DOC_LINKS = {
     "exec": ("execute-shell-command", "Command"),
 }
 
+REPEAT_RAPIDFIRE_TOOLTIP = (
+    "Rapidfire repeats only remembered keyboard keys, mouse buttons, mouse wheel actions, "
+    "and gamepad buttons. Other remembered actions run once."
+)
+DEFAULT_RAPIDFIRE_TOOLTIP = "Repeatedly send the mapped action while the button is held"
+REPEAT_CATEGORY_OPTIONS = (
+    (REPEAT_CATEGORY_KEYBOARD, "Keys", "Repeat remembered keyboard actions"),
+    (REPEAT_CATEGORY_MOUSE, "Mouse", "Repeat remembered mouse button and wheel actions"),
+    (REPEAT_CATEGORY_GAMEPAD, "Gamepad", "Repeat remembered gamepad actions"),
+    (REPEAT_CATEGORY_MACRO, "Macros", "Repeat remembered macro actions"),
+    (
+        REPEAT_CATEGORY_SPECIAL,
+        "Other",
+        "Repeat remembered Keymasq special actions that do not fit the other groups, "
+        "including mouse movement, shell commands, profile changes, and recording "
+        "or playback controls.",
+    ),
+)
+
 EVDEV_TO_KEY = {v: k for k, v in KEY_TO_EVDEV.items()}
 EVDEV_TO_GAMEPAD = {v[0]: k for k, v in GAMEPAD_BUTTONS.items()}
 
@@ -567,6 +592,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         allow_clear_mapping: bool = True,
         allow_suppress: bool = True,
         allow_superkey: bool = True,
+        allow_repeat: bool = True,
         allow_rapidfire: bool = True,
         allow_tap: bool = True,
         allow_macro_options: bool = True,
@@ -581,6 +607,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._allow_clear_mapping = allow_clear_mapping
         self._allow_suppress = allow_suppress
         self._allow_superkey = allow_superkey
+        self._allow_repeat = allow_repeat
         self._allow_rapidfire = allow_rapidfire
         self._allow_tap = allow_tap
         self._allow_macro_options = allow_macro_options
@@ -598,6 +625,11 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._rapidfire_wait = 20
         self._tap_enabled = False
         self._tap_hold = 50
+        self._repeat_categories: list[str] = list(DEFAULT_REPEAT_CATEGORIES)
+        self._repeat_toggle_buttons: dict[str, Gtk.ToggleButton] = {}
+        self._repeat_button: Gtk.ToggleButton | None = None
+        self._repeat_map_btn: Gtk.Button | None = None
+        self._repeat_options_box: Gtk.Widget | None = None
         self._macro_list: list[dict] = []
         self._selected_macro: str | None = None
         self._superkey_list: list[SuperkeyConfig] = []
@@ -672,6 +704,12 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
                 )
             elif current_action.action_type == ActionType.EXEC:
                 self._exec_cmd = current_action.cmd or ""
+            elif current_action.action_type == ActionType.REPEAT:
+                self._repeat_categories = list(
+                    current_action.repeat_categories
+                    if current_action.repeat_categories is not None
+                    else DEFAULT_REPEAT_CATEGORIES
+                )
             elif current_action.action_type in (
                 ActionType.PROFILE_ENABLE,
                 ActionType.PROFILE_DISABLE,
@@ -908,6 +946,23 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         if self._source_type == "analog":
             return box
 
+        if self._allow_repeat:
+            repeat_btn = Gtk.ToggleButton(label="Repeat Last Action")
+            repeat_btn.add_css_class("key-button")
+            repeat_btn.set_size_request(200, 50)
+            repeat_btn.set_active(
+                bool(
+                    self._current_action
+                    and self._current_action.action_type == ActionType.REPEAT
+                )
+            )
+            repeat_btn.connect("toggled", self._on_repeat_button_toggled)
+            repeat_btn.set_tooltip_text("Replay the last remembered mapped action")
+            self._repeat_button = repeat_btn
+            box.append(repeat_btn)
+            box.append(self._build_repeat_section())
+            special_buttons_added = True
+
         exec_label = Gtk.Label(label="Execute Shell Command")
         exec_label.add_css_class("dim-label")
         if special_buttons_added:
@@ -933,6 +988,106 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         box.append(exec_box)
 
         return box
+
+    def _build_repeat_section(self) -> Gtk.Widget:
+        section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        section.set_halign(Gtk.Align.CENTER)
+
+        self._repeat_options_box = section
+        section.set_visible(bool(self._repeat_button and self._repeat_button.get_active()))
+
+        section.append(self._build_repeat_rapidfire_row())
+
+        self._repeat_toggle_buttons = {}
+        categories_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        categories_box.add_css_class("linked")
+        categories_box.set_halign(Gtk.Align.CENTER)
+        categories_box.set_hexpand(True)
+        categories_box.set_homogeneous(True)
+        categories_box.set_size_request(355, -1)
+        categories_box.set_margin_top(4)
+        for category, label, tooltip in REPEAT_CATEGORY_OPTIONS:
+            toggle = Gtk.ToggleButton(label=label)
+            toggle.set_active(category in self._repeat_categories)
+            toggle.set_tooltip_text(tooltip)
+            toggle.set_hexpand(True)
+            toggle.connect("toggled", self._on_repeat_category_toggled, category)
+            categories_box.append(toggle)
+            self._repeat_toggle_buttons[category] = toggle
+
+        section.append(categories_box)
+
+        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        action_row.set_halign(Gtk.Align.CENTER)
+        action_row.set_margin_top(4)
+        repeat_map_btn = Gtk.Button(label="Map Repeat")
+        repeat_map_btn.add_css_class("suggested-action")
+        repeat_map_btn.connect("clicked", self._on_repeat_map_clicked)
+        self._repeat_map_btn = repeat_map_btn
+        action_row.append(repeat_map_btn)
+        section.append(action_row)
+        self._update_repeat_map_button()
+
+        return section
+
+    def _build_repeat_rapidfire_row(self) -> Gtk.Widget:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_halign(Gtk.Align.CENTER)
+
+        self.repeat_rapidfire_check = Gtk.CheckButton(label="Rapidfire")
+        self.repeat_rapidfire_check.set_active(self._allow_rapidfire and self._rapidfire_enabled)
+        self.repeat_rapidfire_check.set_tooltip_text(REPEAT_RAPIDFIRE_TOOLTIP)
+        self.repeat_rapidfire_check.connect("toggled", self._on_repeat_rapidfire_toggled)
+        row.append(self.repeat_rapidfire_check)
+
+        self.repeat_hold_label = Gtk.Label(label="Hold:")
+        row.append(self.repeat_hold_label)
+        self.repeat_hold_spin = Gtk.SpinButton()
+        self.repeat_hold_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._rapidfire_hold,
+                lower=MIN_RAPIDFIRE_HOLD_MS,
+                upper=1000,
+                step_increment=1,
+            )
+        )
+        row.append(self.repeat_hold_spin)
+        self.repeat_hold_ms_label = Gtk.Label(label="ms")
+        row.append(self.repeat_hold_ms_label)
+
+        self.repeat_wait_label = Gtk.Label(label="Wait:")
+        row.append(self.repeat_wait_label)
+        self.repeat_wait_spin = Gtk.SpinButton()
+        self.repeat_wait_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._rapidfire_wait,
+                lower=MIN_RAPIDFIRE_WAIT_MS,
+                upper=1000,
+                step_increment=1,
+            )
+        )
+        row.append(self.repeat_wait_spin)
+        self.repeat_wait_ms_label = Gtk.Label(label="ms")
+        row.append(self.repeat_wait_ms_label)
+
+        self._update_repeat_rapidfire_visibility()
+        return row
+
+    def _update_repeat_rapidfire_visibility(self) -> None:
+        self.repeat_rapidfire_check.set_visible(self._allow_rapidfire)
+        rf_active = self._allow_rapidfire and self.repeat_rapidfire_check.get_active()
+        for widget in (
+            self.repeat_hold_label,
+            self.repeat_hold_spin,
+            self.repeat_hold_ms_label,
+            self.repeat_wait_label,
+            self.repeat_wait_spin,
+            self.repeat_wait_ms_label,
+        ):
+            widget.set_visible(rf_active)
+
+    def _on_repeat_rapidfire_toggled(self, _check: Gtk.CheckButton) -> None:
+        self._update_repeat_rapidfire_visibility()
 
     def _build_superkey_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -1339,9 +1494,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
         self.rapidfire_check = Gtk.CheckButton(label="Rapidfire")
         self.rapidfire_check.set_active(self._rapidfire_enabled)
-        self.rapidfire_check.set_tooltip_text(
-            "Repeatedly send the mapped action while the button is held"
-        )
+        self.rapidfire_check.set_tooltip_text(DEFAULT_RAPIDFIRE_TOOLTIP)
         self.rapidfire_check.connect("toggled", self._on_rapidfire_toggled)
         row1.append(self.rapidfire_check)
 
@@ -1409,10 +1562,11 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
     def _update_options_visibility(self):
         rf_active = self._allow_rapidfire and self.rapidfire_check.get_active()
-        tap_active = self._allow_tap and self.tap_check.get_active()
+        tap_visible = self._allow_tap
+        tap_active = tap_visible and self.tap_check.get_active()
 
         self.rapidfire_check.set_visible(self._allow_rapidfire)
-        self.tap_check.set_visible(self._allow_tap)
+        self.tap_check.set_visible(tap_visible)
 
         self.hold_label.set_visible(rf_active)
         self.hold_spin.set_visible(rf_active)
@@ -1456,25 +1610,20 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         is_gamepad = child_name == "gamepad"
         is_compositor_action = child_name in self._compositor_action_page_ids
         has_options = self._allow_rapidfire or self._allow_tap
-        options_enabled = (
-            not is_special
-            and not is_superkey
-            and not is_analog_control
-            and not is_macro
-            and not is_profile
-            and not is_exec
-            and not is_compositor_action
+        # Repeat carries its own rapidfire controls in the Special tab, so the
+        # shared footer options only apply to the concrete-input tabs.
+        show_options = has_options and not (
+            is_special
+            or is_superkey
+            or is_analog_control
+            or is_macro
+            or is_profile
+            or is_exec
+            or is_compositor_action
         )
-        self.options_box.set_sensitive(options_enabled and has_options)
-        self.options_box.set_visible(
-            has_options
-            and not is_superkey
-            and not is_analog_control
-            and not is_macro
-            and not is_profile
-            and not is_exec
-            and not is_compositor_action
-        )
+        self.options_box.set_sensitive(show_options)
+        self.options_box.set_visible(show_options)
+        self._update_options_visibility()
         self.map_btn.set_visible(is_superkey or is_analog_control or is_macro or is_profile)
         if is_superkey:
             self.map_btn.set_sensitive(self._selected_superkey is not None)
@@ -1572,6 +1721,44 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self._warn_and_clear_unsupported_rapidfire(ActionType.CANCEL_MACRO_PLAYBACK)
             action = MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK)
             self.emit("key-selected", action)
+        self.close()
+
+    def _on_repeat_button_toggled(self, btn: Gtk.ToggleButton) -> None:
+        if self._repeat_options_box is not None:
+            self._repeat_options_box.set_visible(btn.get_active())
+
+    def _on_repeat_category_toggled(
+        self,
+        check: Gtk.ToggleButton,
+        category: str,
+    ) -> None:
+        if check.get_active():
+            if category not in self._repeat_categories:
+                self._repeat_categories.append(category)
+        else:
+            self._repeat_categories = [
+                existing for existing in self._repeat_categories if existing != category
+            ]
+        self._update_repeat_map_button()
+
+    def _update_repeat_map_button(self) -> None:
+        if self._repeat_map_btn is not None:
+            self._repeat_map_btn.set_sensitive(bool(self._repeat_categories))
+
+    def _on_repeat_map_clicked(self, _btn: Gtk.Button) -> None:
+        if not self._repeat_categories:
+            return
+        rapidfire_enabled = bool(
+            self._allow_rapidfire and self.repeat_rapidfire_check.get_active()
+        )
+        action = MappingAction(
+            action_type=ActionType.REPEAT,
+            repeat_categories=list(self._repeat_categories),
+            rapidfire_enabled=rapidfire_enabled,
+            rapidfire_hold_ms=int(self.repeat_hold_spin.get_value()),
+            rapidfire_wait_ms=int(self.repeat_wait_spin.get_value()),
+        )
+        self.emit("key-selected", action)
         self.close()
 
     def _on_exec_text_changed(self, entry: Gtk.Entry) -> None:
@@ -2818,6 +3005,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         tab_map = {
             ActionType.PASSTHROUGH: "special",
             ActionType.SUPPRESS: "special",
+            ActionType.REPEAT: "special",
             ActionType.SUPERKEY: "superkey",
             ActionType.ANALOG_CONTROL: "analog_control",
             ActionType.START_MACRO_RECORDING: "macro",

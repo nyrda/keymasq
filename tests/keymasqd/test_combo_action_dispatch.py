@@ -75,6 +75,53 @@ class TestComboActionDispatch:
         ]
 
     @pytest.mark.asyncio
+    async def test_combo_repeat_replays_last_combo_action_and_releases_child(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
+
+        await _runtime_start_combo_action(
+            manager,
+            "source",
+            dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            binding,
+        )
+        await _runtime_stop_combo_action(manager, "source")
+        await _runtime_start_combo_action(
+            manager,
+            "repeat",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        ]
+        assert "repeat" in manager.combo_state.active_actions
+        assert "repeat#repeat" in manager.combo_state.active_actions
+
+        await _runtime_stop_combo_action(manager, "repeat")
+        await _runtime_start_combo_action(
+            manager,
+            "repeat-again",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+        await _runtime_stop_combo_action(manager, "repeat-again")
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+        assert len(manager.repeat_state.history) == 3
+
+    @pytest.mark.asyncio
     async def test_combo_overload_superkey_profile_lifetime_follows_child_trigger(
         self,
     ) -> None:

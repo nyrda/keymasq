@@ -171,6 +171,7 @@ def parse_action(
         rapidfire_wait_ms=rapidfire_wait_ms,
         tap_enabled=bool(action_data.get("tap_enabled", False)),
         tap_hold_ms=int_value(action_data.get("tap_hold_ms"), 10),
+        repeat_categories=cast(list[str] | None, action_data.get("repeat_categories")),
     )
 
 

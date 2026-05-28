@@ -161,6 +161,7 @@ def _combo_action_runtime(
             if callable(emergency_resetter)
             else None
         ),
+        repeat_state=manager.repeat_state,
         gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
             output_id,
             context=context,
@@ -855,6 +856,7 @@ def _combo_action_needs_release(action: MappingAction) -> bool:
         ActionType.KEYBOARD,
         ActionType.GAMEPAD,
         ActionType.GAMEPAD_AXIS,
+        ActionType.REPEAT,
     }:
         return True
     if action.action_type == ActionType.MOUSE:
@@ -1188,7 +1190,7 @@ async def stop_combo_action(
         trigger_binding = state.trigger_binding
         config = cast(RuntimeSuperkeyConfig | None, action.superkey_config) if action else None
         if trigger_binding is not None and config is not None:
-            trigger_name = str(state.source_button or combo_id)
+            trigger_name = str(state.source_button or f"combo:{combo_id}")
             for index, child_action in enumerate(config.overload_up_actions):
                 if child_action.action_type == ActionType.SUPERKEY:
                     log.warning(

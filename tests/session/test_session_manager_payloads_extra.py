@@ -76,6 +76,13 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
                 action_type=ActionType.PROFILE_TOGGLE,
                 profile_name="Gaming",
             ),
+            "repeat": MappingAction(
+                action_type=ActionType.REPEAT,
+                repeat_categories=["keyboard", "mouse"],
+                rapidfire_enabled=True,
+                rapidfire_hold_ms=11,
+                rapidfire_wait_ms=13,
+            ),
             "super": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_name="launcher",
@@ -116,6 +123,13 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
     assert macro_mapping["macro_loop_count"] == 3
     assert macro_mapping["macro_block_mouse_movement"] is True
     assert mapping["profile"] == {"action": "profile_toggle", "profile_name": "Gaming"}
+    assert mapping["repeat"] == {
+        "action": "repeat",
+        "repeat_categories": ["keyboard", "mouse"],
+        "rapidfire_enabled": True,
+        "rapidfire_hold_ms": 11,
+        "rapidfire_wait_ms": 13,
+    }
     super_mapping = cast(dict[str, object], mapping["super"])
     superkey_payload = cast(dict[str, object], super_mapping["superkey"])
     overload_actions = cast(list[dict[str, object]], superkey_payload["overload_actions"])
@@ -169,6 +183,39 @@ def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:
     )
     routed_sig = payloads.resolved_mapping_signature(manager, resolved, "pad")
     assert default_sig != routed_sig
+
+
+def test_repeat_combo_payload_includes_categories_and_rapidfire() -> None:
+    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+    from keymasq.session.manager import payloads
+    from keymasq.session.profiles import ResolvedCombo
+
+    manager = _manager_with_superkeys()
+    combo_payload = payloads.resolved_combos_payload(
+        manager,
+        [
+            ResolvedCombo(
+                id="repeat-combo",
+                name="Repeat Combo",
+                steps=[ComboStep(events=[ComboEvent(hardware_id="kbd", evdev="key_f13")])],
+                action=MappingAction(
+                    action_type=ActionType.REPEAT,
+                    repeat_categories=["keyboard", "gamepad"],
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=15,
+                    rapidfire_wait_ms=25,
+                ),
+            )
+        ],
+    )
+
+    assert combo_payload[0]["action"] == {
+        "action": "repeat",
+        "repeat_categories": ["keyboard", "gamepad"],
+        "rapidfire_enabled": True,
+        "rapidfire_hold_ms": 15,
+        "rapidfire_wait_ms": 25,
+    }
 
 
 def test_profile_to_mapping_serializes_multiple_analog_controls() -> None:

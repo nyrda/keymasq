@@ -27,6 +27,14 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def _add_repeat_action_fields(data: dict[str, object], action: MappingAction) -> None:
+    data["repeat_categories"] = list(action.repeat_categories or [])
+    if action.rapidfire_enabled:
+        data["rapidfire_enabled"] = True
+        data["rapidfire_hold_ms"] = int(action.rapidfire_hold_ms)
+        data["rapidfire_wait_ms"] = int(action.rapidfire_wait_ms)
+
+
 def clear_exec_refs(manager: "SessionManager", hardware_id: str) -> None:
     refs = manager.exec_state.device_exec_refs.pop(hardware_id, set())
     for ref in refs:
@@ -163,6 +171,10 @@ def action_signature_payload(
         if action.tap_enabled:
             data["tap_enabled"] = True
             data["tap_hold_ms"] = int(action.tap_hold_ms)
+        return data
+
+    if action_type == "repeat":
+        _add_repeat_action_fields(data, action)
         return data
 
     if action_type == "exec":
@@ -322,6 +334,8 @@ def profile_to_mapping(
                 action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = action.compositor_dispatcher or ""
             action_data["args"] = action.compositor_args or ""
+        elif action.action_type.value == "repeat":
+            _add_repeat_action_fields(action_data, action)
         elif action.action_type.value in (
             "start_macro_recording",
             "stop_macro_recording",
@@ -474,6 +488,10 @@ def combo_action_to_payload(
         if action.tap_enabled:
             action_data["tap_enabled"] = True
             action_data["tap_hold_ms"] = action.tap_hold_ms
+        return action_data
+
+    if action_type == "repeat":
+        _add_repeat_action_fields(action_data, action)
         return action_data
 
     if action_type == "exec":
@@ -945,6 +963,10 @@ def serialize_overload_action(
         if action.tap_enabled:
             action_data["tap_enabled"] = True
             action_data["tap_hold_ms"] = action.tap_hold_ms
+        return action_data
+
+    if action_type == "repeat":
+        _add_repeat_action_fields(action_data, action)
         return action_data
 
     if action_type == "exec":

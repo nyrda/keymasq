@@ -948,7 +948,37 @@ class TestGrabbedDeviceHelpers:
         assert recorded_events == [
             ("mouse", evdev.ecodes.REL_WHEEL, 1),
         ]
+        assert list(device.repeat_state.history) == []
         assert passthrough.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1)]
+
+    @pytest.mark.asyncio
+    async def test_explicit_passthrough_mapping_does_not_update_repeat_history(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"key_a": "key_a"},
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+        device.mapping_getter = lambda: {  # type: ignore[method-assign]
+            "key_a": MappingAction(action_type=ActionType.PASSTHROUGH),
+        }
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.KEY_A,
+                1,
+            ),
+        )
+
+        assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
+        assert list(device.repeat_state.history) == []
 
     @pytest.mark.asyncio
     async def test_process_grabbed_high_res_wheel_passthrough_when_unmapped_or_explicit(
@@ -1541,6 +1571,589 @@ class TestGrabbedDeviceHelpers:
         await asyncio.sleep(0)
 
         callback.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_repeat_action_replays_last_keyboard_action(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        keyboard = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch, keyboard_uinput=keyboard)
+        source_press = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1
+        )
+        source_release = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0
+        )
+        repeat_press = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1
+        )
+        repeat_hold = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 2
+        )
+        repeat_release = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0
+        )
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            source_press,
+            "source",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            source_release,
+            "source",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_press,
+            "repeat_btn",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_hold,
+            "repeat_btn",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_release,
+            "repeat_btn",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_press,
+            "repeat_btn",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_release,
+            "repeat_btn",
+        )
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 2),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+        assert len(device.repeat_state.history) == 3
+
+    @pytest.mark.asyncio
+    async def test_repeat_exec_refresh_preserves_original_history_source(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry
+
+        device = _make_grabbed_device(monkeypatch)
+        device.repeat_state.history.append(
+            RepeatHistoryEntry(
+                category="special",
+                action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=7),
+                source_device="original-device",
+                source_button="original-button",
+            )
+        )
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            "repeat_btn",
+        )
+
+        latest = device.repeat_state.history[-1]
+        assert latest.action.action_type == ActionType.EXEC
+        assert latest.action.exec_ref == 7
+        assert latest.source_device == "original-device"
+        assert latest.source_button == "original-button"
+
+    @pytest.mark.asyncio
+    async def test_repeat_exec_refresh_checks_exec_ref_identity(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from keymasq.keymasqd.runtime.repeat import (
+            RepeatHistoryEntry,
+            refresh_repeated_exec_source,
+        )
+
+        device = _make_grabbed_device(monkeypatch)
+        selected_entry = RepeatHistoryEntry(
+            category="special",
+            action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=7),
+            source_device="original-device",
+            source_button="original-button",
+        )
+        device.repeat_state.history.append(
+            RepeatHistoryEntry(
+                category="special",
+                action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=8),
+                source_device="other-device",
+                source_button="other-button",
+            )
+        )
+
+        refresh_repeated_exec_source(device.repeat_state, selected_entry)
+
+        latest = device.repeat_state.history[-1]
+        assert latest.action.exec_ref == 8
+        assert latest.source_device == "other-device"
+        assert latest.source_button == "other-button"
+
+    @pytest.mark.asyncio
+    async def test_repeat_profile_action_uses_physical_trigger_lifetime(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry
+
+        events: list[tuple[CommandType, dict[str, object]]] = []
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            events.append((event_type, data))
+            if event_type == CommandType.ACTION_TRIGGER:
+                await manager.track_profile_activation(
+                    str(data["profile_name"]),
+                    "activation-1",
+                    str(data["trigger_id"]),
+                    data.get("deactivation"),
+                )
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"repeat": "key_f13"},
+            broadcast_callback=broadcast,
+            profile_activation_trigger_start_observer=manager.observe_profile_trigger_start,
+            profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+            repeat_state=manager.repeat_state,
+        )
+        device.mapping_getter = lambda: {  # type: ignore[method-assign]
+            "repeat": dm.MappingAction(action_type=ActionType.REPEAT),
+        }
+        manager.repeat_state.history.append(
+            RepeatHistoryEntry(
+                category="special",
+                action=dm.MappingAction(
+                    action_type=ActionType.PROFILE_ENABLE,
+                    profile_name="Nav",
+                    profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
+                ),
+            )
+        )
+        repeat_press = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1
+        )
+        repeat_release = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0
+        )
+
+        await _runtime_process_grabbed_event(device, repeat_press)
+        await asyncio.sleep(0)
+
+        assert (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        ) not in events
+
+        await _runtime_process_grabbed_event(device, repeat_release)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "trigger_end",
+            },
+        ) in events
+
+    @pytest.mark.asyncio
+    async def test_repeat_action_filters_history_categories(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        keyboard = _FakeUInput()
+        mouse = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            keyboard_uinput=keyboard,
+            mouse_uinput=mouse,
+        )
+        press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
+        release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
+            press,
+            "mouse",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
+            release,
+            "mouse",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            press,
+            "keyboard",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            release,
+            "keyboard",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(
+                action_type=ActionType.REPEAT,
+                repeat_categories=["mouse"],
+            ),
+            press,
+            "repeat_btn",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(
+                action_type=ActionType.REPEAT,
+                repeat_categories=["mouse"],
+            ),
+            release,
+            "repeat_btn",
+        )
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+        assert mouse.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_repeat_action_can_replay_passthrough_input(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        keyboard = _FakeUInput()
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch, keyboard_uinput=keyboard)
+        device.uinput = passthrough  # type: ignore[assignment]
+        source_press = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1
+        )
+        source_release = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0
+        )
+        repeat_press = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1
+        )
+        repeat_release = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0
+        )
+
+        await _runtime_process_grabbed_event(device, source_press)
+        await _runtime_process_grabbed_event(device, source_release)
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_press,
+            "repeat_btn",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_release,
+            "repeat_btn",
+        )
+
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+        ]
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_repeat_action_replays_passthrough_mouse_click_more_than_once(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        mouse = _FakeUInput()
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"left": "btn_left", "repeat": "key_f13"},
+            mouse_uinput=mouse,
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+        device.mapping_getter = lambda: {
+            "repeat": dm.MappingAction(action_type=ActionType.REPEAT)
+        }
+        left_press = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1
+        )
+        left_release = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0
+        )
+        repeat_press = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1
+        )
+        repeat_release = evdev.InputEvent(
+            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0
+        )
+
+        await _runtime_process_grabbed_event(device, left_press)
+        await _runtime_process_grabbed_event(device, left_release)
+        await _runtime_process_grabbed_event(device, repeat_press)
+        await _runtime_process_grabbed_event(device, repeat_release)
+        await _runtime_process_grabbed_event(device, repeat_press)
+        await _runtime_process_grabbed_event(device, repeat_release)
+
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
+        ]
+        assert mouse.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_repeat_passthrough_gamepad_button_reuses_source_hardware_output(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from keymasq.keymasqd.runtime.repeat import remember_passthrough_event
+
+        source_gamepad = _FakeUInput()
+        default_gamepad = _FakeUInput()
+        resolved_output_ids: list[str | None] = []
+        device = _make_grabbed_device(
+            monkeypatch,
+            device_type=DeviceType.GAMEPAD,
+            device_types=[DeviceType.GAMEPAD.value],
+            gamepad_uinput=default_gamepad,
+        )
+
+        def resolve_gamepad_output(output_id: str | None, _context: str) -> SimpleNamespace:
+            resolved_output_ids.append(output_id)
+            return SimpleNamespace(
+                output_id=output_id,
+                uinput=source_gamepad if output_id == "1234:5678" else default_gamepad,
+                bucket=f"gamepad:{output_id or 'virtual-gamepad-1'}",
+            )
+
+        device._gamepad_output_resolver = resolve_gamepad_output  # type: ignore[method-assign, reportPrivateUsage]
+        remember_passthrough_event(
+            device.repeat_state,
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1),
+            "btn_south",
+            evdev_mod=evdev,
+        )
+
+        remembered = device.repeat_state.history[-1].action
+        assert remembered.action_type == ActionType.GAMEPAD
+        assert remembered.output_id == "1234:5678"
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            "repeat_btn",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+            "repeat_btn",
+        )
+
+        assert resolved_output_ids == ["1234:5678", "1234:5678"]
+        assert source_gamepad.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0),
+        ]
+        assert default_gamepad.writes == []
+
+    @pytest.mark.asyncio
+    async def test_repeat_replays_passthrough_high_res_wheel_event(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)
+        if rel_wheel_hi_res is None:
+            pytest.skip("kernel headers do not expose REL_WHEEL_HI_RES")
+        mouse = _FakeUInput()
+        passthrough = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            button_map={"repeat": "key_f13"},
+            mouse_uinput=mouse,
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+        device.mapping_getter = lambda: {
+            "repeat": dm.MappingAction(action_type=ActionType.REPEAT)
+        }
+
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, int(rel_wheel_hi_res), -120),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+        )
+
+        assert passthrough.writes == [(evdev.ecodes.EV_REL, int(rel_wheel_hi_res), -120)]
+        assert mouse.writes == [
+            (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, -1),
+            (evdev.ecodes.EV_REL, int(rel_wheel_hi_res), -120),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_repeat_mouse_wheel_rapidfire_emits_relative_events(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        mouse = _FakeUInput()
+        device = _make_grabbed_device(
+            monkeypatch,
+            mouse_uinput=mouse,
+        )
+        device._running = True
+        wheel_source = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.MOUSE, target="rel_wheel:1"),
+            wheel_source,
+            "wheel",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(
+                action_type=ActionType.REPEAT,
+                rapidfire_enabled=True,
+                rapidfire_hold_ms=1,
+                rapidfire_wait_ms=1,
+            ),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            "repeat_btn",
+        )
+        await asyncio.sleep(0.01)
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(
+                action_type=ActionType.REPEAT,
+                rapidfire_enabled=True,
+                rapidfire_hold_ms=1,
+                rapidfire_wait_ms=1,
+            ),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+            "repeat_btn",
+        )
+
+        wheel_writes = [
+            write
+            for write in mouse.writes
+            if write[0:2] == (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL)
+        ]
+        assert len(wheel_writes) > 1
+
+    def test_repeat_rapidfire_is_limited_to_key_button_and_wheel_actions(self) -> None:
+        from keymasq.keymasqd.runtime.repeat import (
+            RepeatHistoryEntry,
+            RepeatRuntimeState,
+            remember_passthrough_event,
+            repeat_category_for_action,
+            repeat_execution_action,
+            select_repeated_action,
+        )
+
+        repeat_action = dm.MappingAction(
+            action_type=ActionType.REPEAT,
+            rapidfire_enabled=True,
+            rapidfire_hold_ms=5,
+            rapidfire_wait_ms=7,
+        )
+        key_action = repeat_execution_action(
+            repeat_action,
+            dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+        )
+        wheel_action = repeat_execution_action(
+            repeat_action,
+            dm.MappingAction(action_type=ActionType.MOUSE, target="rel_wheel:1"),
+        )
+        macro_action = repeat_execution_action(
+            repeat_action,
+            dm.MappingAction(action_type=ActionType.MACRO, macro_name="demo"),
+        )
+        repeat_state = RepeatRuntimeState()
+        remember_passthrough_event(
+            repeat_state,
+            SimpleNamespace(hardware_id="mouse", device_types=["mouse"]),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 10),
+            "rel_x",
+            evdev_mod=evdev,
+        )
+        repeat_state.history.append(
+            RepeatHistoryEntry(
+                category="keyboard",
+                action=dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+            )
+        )
+        repeat_state.history.append(
+            RepeatHistoryEntry(
+                category="special",
+                action=dm.MappingAction(action_type=ActionType.REPEAT),
+            )
+        )
+
+        assert key_action.rapidfire_enabled is True
+        assert key_action.rapidfire_hold_ms == 5
+        assert key_action.rapidfire_wait_ms == 7
+        assert wheel_action.rapidfire_enabled is True
+        assert macro_action.rapidfire_enabled is False
+        assert repeat_category_for_action(
+            dm.MappingAction(action_type=ActionType.MOUSE_MOVE_REL, move_x=5)
+        ) == "special"
+        selected_action = select_repeated_action(repeat_state, repeat_action)
+        assert selected_action is not None
+        assert selected_action.target == "key_b"
 
     @pytest.mark.asyncio
     async def test_routed_gamepad_axis_release_all_keys_zeros_target_output(

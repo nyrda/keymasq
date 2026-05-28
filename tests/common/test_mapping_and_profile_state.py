@@ -75,6 +75,67 @@ class TestMappingAction:
         assert roundtrip.axis_value == 12345
         assert roundtrip.output_id == "virtual-gamepad-2"
 
+    def test_repeat_action_normalizes_categories_and_supports_rapidfire(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        action = MappingAction(
+            action_type=ActionType.REPEAT,
+            repeat_categories=[
+                "keyboard",
+                "invalid",
+                "mouse_button",
+                "mouse_wheel",
+                "mouse",
+                "keyboard",
+            ],
+            rapidfire_enabled=True,
+            rapidfire_hold_ms=-1,
+            rapidfire_wait_ms=0,
+        )
+        default_action = MappingAction(action_type=ActionType.REPEAT)
+        with caplog.at_level("WARNING", logger="keymasq.common.models"):
+            invalid_action = MappingAction(
+                action_type=ActionType.REPEAT,
+                repeat_categories=["invalid"],
+            )
+        empty_action = MappingAction(
+            action_type=ActionType.REPEAT,
+            repeat_categories=[],
+        )
+        malformed_action = MappingAction(
+            action_type=ActionType.REPEAT,
+            repeat_categories=42,  # pyright: ignore[reportArgumentType]
+        )
+        unrelated = MappingAction(
+            action_type=ActionType.KEYBOARD,
+            target="key_a",
+            repeat_categories=["keyboard"],
+        )
+
+        assert action.repeat_categories == ["keyboard", "mouse"]
+        assert action.rapidfire_enabled is True
+        assert action.rapidfire_hold_ms == 0
+        assert action.rapidfire_wait_ms == 1
+        assert default_action.repeat_categories == [
+            "keyboard",
+            "mouse",
+            "gamepad",
+            "macro",
+            "special",
+        ]
+        assert invalid_action.repeat_categories == [
+            "keyboard",
+            "mouse",
+            "gamepad",
+            "macro",
+            "special",
+        ]
+        assert "Invalid repeat_categories" in caplog.text
+        assert empty_action.repeat_categories == []
+        assert malformed_action.repeat_categories == []
+        assert unrelated.repeat_categories is None
+
 
 class TestProfileState:
     def test_disabled_state(self):

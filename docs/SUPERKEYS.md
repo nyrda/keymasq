@@ -68,6 +68,8 @@ Overload actions use the same runtime rules as normal mappings:
 - Key and button outputs receive down, repeat, and up.
 - Exec, macro, profile, and compositor actions fire on press, just like
   ordinary mappings.
+- Child actions can be remembered by **Repeat Last Action** individually.
+  The top-level super key binding itself is not remembered as one Repeat target.
 - Nested superkeys are not allowed.
 
 ## Creating And Editing Super Keys
@@ -112,6 +114,8 @@ superkeys and mapping-only control actions are not available. Pattern slots can 
 | **Compositor Dispatch** | Send a compositor-specific command. |
 | **Macro Controls** | Toggle recording, stop recording, or cancel playback. |
 | **Profile Controls** | Enable, disable, or toggle a profile. |
+
+Pattern slots do not expose **Repeat Last Action**.
 
 ### Editing Overload Actions
 

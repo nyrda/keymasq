@@ -352,6 +352,7 @@ class ActionListDialog(Adw.Dialog):
                 allow_clear_mapping=False,
                 allow_suppress=False,
                 allow_superkey=False,
+                allow_repeat=False,
                 allow_rapidfire=allow_rapidfire,
                 allow_tap=False,
                 allow_macro_options=True,

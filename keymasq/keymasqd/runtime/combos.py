@@ -5,20 +5,20 @@ import queue
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 from keymasq.common.combos import is_combo_pulse_evdev, normalize_combo_evdev
 from keymasq.common.devices import (
     high_res_wheel_low_res_code,
     normalize_wheel_value,
+    resolve_evdev_code,
+    resolve_evdev_event_type,
     wheel_button_id,
 )
 from keymasq.common.models import (
     ActionType,
     MappingAction,
     SuperkeyMode,
-    clamp_rapidfire_hold_ms,
-    clamp_rapidfire_wait_ms,
     combo_effective_superkey_config,
 )
 from keymasq.keymasqd.combo_engine import (
@@ -30,22 +30,17 @@ from keymasq.keymasqd.combo_engine import (
     RuntimeCombo,
     RuntimeComboBinding,
 )
-from keymasq.keymasqd.output_helpers import resolve_gamepad_axis_code
+from keymasq.keymasqd.runtime import action_runner as shared_action_runner
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime.action_runner import (
-    build_action_trigger_payload,
-    build_macro_playback_request,
+    ActionExecutionHandle,
+    ActionRuntimeContext,
     dispatch_action_trigger,
     is_hold_macro_action,
     source_trigger_id,
 )
-from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
-from keymasq.keymasqd.runtime.mouse_actions import (
-    rapidfire_relative_pulses,
-    resolve_mouse_output_target,
-    tap_relative_pulse,
-    write_relative_pulse,
-)
+from keymasq.keymasqd.runtime.grabbed_device_types import ActionExecutionDeps, EvdevModule
+from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
 from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
@@ -64,17 +59,6 @@ type ComboCaptureQueueState = tuple[
 ]
 
 
-class _EmitMouseMoveFn(Protocol):
-    def __call__(
-        self,
-        uinput_dev: object | None,
-        move_x: int,
-        move_y: int,
-        *,
-        absolute: bool = False,
-    ) -> None: ...
-
-
 type _GrabbedComboDevice = Any
 type _ComboManager = Any
 
@@ -82,15 +66,6 @@ type _ComboManager = Any
 @dataclass
 class ComboActionState:
     kind: str
-    code: int | None = None
-    axis_code: int | None = None
-    axis_value: int = 0
-    axis_release_value: int = 0
-    uinput: object | None = None
-    bucket: str | None = None
-    output_id: str | None = None
-    active: bool = False
-    task: asyncio.Task[None] | None = None
     started: runtime_adapters.AsyncioEvent | None = None
     action: MappingAction | None = None
     source_device: str | None = None
@@ -101,6 +76,8 @@ class ComboActionState:
     machine: SuperkeyMachine | None = None
     recalled_bindings: list[RuntimeComboBinding] = field(default_factory=list)
     restore_bindings: list[RuntimeComboBinding] = field(default_factory=list)
+    action_runtime: ActionRuntimeContext | None = None
+    execution_handle: ActionExecutionHandle | None = None
 
 
 @dataclass
@@ -135,9 +112,79 @@ class ComboRuntimeDeps:
     asyncio_mod: runtime_adapters.AsyncioRuntimeAdapter
     evdev_mod: runtime_adapters.ComboEvdevAdapter
     uinput_writer: runtime_adapters.UInputWriter
-    emit_mouse_move_fn: _EmitMouseMoveFn
     resolve_code_fn: ResolveCodeFn
     fire_and_observe_fn: FireAndObserve
+
+
+def _action_execution_deps(deps: ComboRuntimeDeps) -> ActionExecutionDeps:
+    return ActionExecutionDeps(
+        asyncio_mod=deps.asyncio_mod,
+        fire_and_observe_fn=deps.fire_and_observe_fn,
+        evdev_mod=cast(EvdevModule, deps.evdev_mod),
+        uinput_writer=deps.uinput_writer,
+    )
+
+
+def _combo_action_runtime(
+    manager: _ComboManager,
+    combo_id: str,
+    action: MappingAction,
+    trigger_binding: RuntimeComboBinding,
+    *,
+    trigger_name: str,
+) -> ActionRuntimeContext:
+    cursor_position_setter = getattr(manager, "set_cursor_position", None)
+    macro_player = getattr(manager, "play_macro", None)
+    emergency_resetter = getattr(manager, "emergency_reset", None)
+    return ActionRuntimeContext(
+        path=f"combo:{combo_id}:{trigger_name}",
+        hardware_id=(
+            "combo" if action.action_type == ActionType.MACRO else trigger_binding.hardware_id
+        ),
+        uinput=None,
+        keyboard_uinput=manager.output_state.keyboard_uinput,
+        mouse_uinput=manager.output_state.mouse_uinput,
+        gamepad_uinput=manager.output_state.gamepad_uinput,
+        broadcast_callback=manager.broadcast_callback,
+        cursor_position_setter=(
+            cast(Callable[[int, int], Awaitable[dict[str, object]]], cursor_position_setter)
+            if callable(cursor_position_setter)
+            else None
+        ),
+        macro_player=(
+            cast(Callable[..., Awaitable[dict[str, object]]], macro_player)
+            if callable(macro_player)
+            else None
+        ),
+        emergency_resetter=(
+            cast(Callable[[], Awaitable[dict[str, object]]], emergency_resetter)
+            if callable(emergency_resetter)
+            else None
+        ),
+        gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
+            output_id,
+            context=context,
+        ),
+    )
+
+
+class _ComboSyntheticEvent:
+    def __init__(self, event_type: int | None, code: int | None, value: int) -> None:
+        self.type = int(event_type or 0)
+        self.code = int(code or 0)
+        self.value = int(value)
+
+
+def _combo_synthetic_event(
+    trigger_binding: RuntimeComboBinding | None,
+    value: int,
+) -> _ComboSyntheticEvent:
+    evdev_name = trigger_binding.evdev if trigger_binding is not None else None
+    return _ComboSyntheticEvent(
+        resolve_evdev_event_type(evdev_name),
+        resolve_evdev_code(evdev_name),
+        value,
+    )
 
 
 def _evdev_code_name(raw_name: object, fallback: int) -> str:
@@ -540,16 +587,6 @@ def _observe_combo_profile_trigger(
         observer(source_trigger_id(trigger_binding.hardware_id, trigger_name))
 
 
-def prune_combo_action_task(
-    manager: _ComboManager, combo_id: str, task: asyncio.Task[None] | None
-) -> None:
-    if task is None:
-        return
-    state = manager.combo_state.active_actions.get(combo_id)
-    if state is not None and state.task is task:
-        manager.combo_state.active_actions.pop(combo_id, None)
-
-
 async def wait_combo_action_started(manager: _ComboManager, combo_id: str) -> None:
     state = manager.combo_state.active_actions.get(combo_id)
     if state is None:
@@ -561,11 +598,6 @@ async def wait_combo_action_started(manager: _ComboManager, combo_id: str) -> No
     if state.started is None:
         return
     await state.started.wait()
-
-
-def mark_combo_action_started(started: runtime_adapters.AsyncioEvent | None) -> None:
-    if started is not None:
-        started.set()
 
 
 def track_combo_superkey_output(
@@ -727,6 +759,11 @@ async def _combo_superkey_machine(
             output_id,
             context=context,
         ),
+        macro_player=manager.play_macro,
+        emergency_resetter=manager.emergency_reset,
+        cancel_macro_playback=manager.cancel_macro_playback,
+        action_deps=_action_execution_deps(deps),
+        await_action_tasks=False,
     )
     manager.combo_state.superkey_machines[combo_id] = machine
     manager.combo_state.superkey_machine_bindings[combo_id] = machine_bindings
@@ -813,76 +850,45 @@ def _attach_combo_trigger_recall_state(
     return True
 
 
-async def combo_tap_key(
-    manager: _ComboManager,
-    combo_id: str,
-    uinput_dev: object | None,
-    code: int,
-    hold_ms: int,
-    started: runtime_adapters.AsyncioEvent | None = None,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    task = deps.asyncio_mod.current_task()
-    pressed = False
-    started_set = False
-
-    try:
-        write_combo_key(uinput_dev, code, 1, deps=deps)
-        mark_combo_action_started(started)
-        started_set = True
-        pressed = True
-        await deps.asyncio_mod.sleep(max(0.001, float(hold_ms) / 1000.0))
-    except deps.asyncio_mod.CancelledError:
-        raise
-    finally:
-        if pressed:
-            write_combo_key(uinput_dev, code, 0, deps=deps)
-        if not started_set:
-            mark_combo_action_started(started)
-        prune_combo_action_task(manager, combo_id, task)
-
-
-async def combo_tap_axis(
-    manager: _ComboManager,
-    combo_id: str,
-    axis_code: int,
-    hold_ms: int,
-    started: runtime_adapters.AsyncioEvent | None = None,
-    uinput_dev: object | None = None,
-    *,
-    deps: ComboRuntimeDeps,
-    active_value: int = 255,
-    release_value: int = 0,
-) -> None:
-    task = deps.asyncio_mod.current_task()
-    pressed = False
-    started_set = False
-
-    try:
-        write_combo_axis(
-            uinput_dev,
-            axis_code,
-            active_value,
-            deps=deps,
+def _combo_action_needs_release(action: MappingAction) -> bool:
+    if action.action_type in {
+        ActionType.KEYBOARD,
+        ActionType.GAMEPAD,
+        ActionType.GAMEPAD_AXIS,
+    }:
+        return True
+    if action.action_type == ActionType.MOUSE:
+        target = resolve_mouse_output_target(action.target)
+        return bool(
+            action.tap_enabled
+            or action.rapidfire_enabled
+            or (target is not None and not target.is_relative)
         )
-        mark_combo_action_started(started)
-        started_set = True
-        pressed = True
-        await deps.asyncio_mod.sleep(max(0.001, float(hold_ms) / 1000.0))
-    except deps.asyncio_mod.CancelledError:
-        raise
-    finally:
-        if pressed:
-            write_combo_axis(
-                uinput_dev,
-                axis_code,
-                release_value,
-                deps=deps,
-            )
-        if not started_set:
-            mark_combo_action_started(started)
-        prune_combo_action_task(manager, combo_id, task)
+    if action.action_type in {ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS}:
+        return bool(action.tap_enabled or action.rapidfire_enabled)
+    if action.action_type == ActionType.MACRO:
+        return is_hold_macro_action(action)
+    return action.action_type in {
+        ActionType.EXEC,
+        ActionType.COMPOSITOR_DISPATCH,
+        ActionType.START_MACRO_RECORDING,
+        ActionType.STOP_MACRO_RECORDING,
+        ActionType.PROFILE_ENABLE,
+        ActionType.PROFILE_DISABLE,
+        ActionType.PROFILE_TOGGLE,
+    }
+
+
+def _combo_action_uses_tap_task(action: MappingAction | None) -> bool:
+    return bool(action and action.tap_enabled)
+
+
+def _combo_profile_action_tracks_trigger(action: MappingAction) -> bool:
+    return (
+        action.action_type in {ActionType.PROFILE_ENABLE, ActionType.PROFILE_TOGGLE}
+        and action.profile_deactivation is not None
+        and action.profile_deactivation.on_trigger_end
+    )
 
 
 async def start_combo_action(
@@ -1077,190 +1083,54 @@ async def _start_combo_action_instance(
     if action is None or action.action_type == ActionType.SUPERKEY:
         return
 
-    if action.action_type == ActionType.KEYBOARD and action.target:
-        await start_combo_key_action(
-            manager,
-            combo_id,
-            action,
-            manager.output_state.keyboard_uinput,
-            deps=deps,
-        )
+    if action.action_type in {ActionType.PASSTHROUGH, ActionType.SUPPRESS}:
         return
 
-    if action.action_type == ActionType.MOUSE and action.target:
-        await start_combo_mouse_action(
-            manager,
-            combo_id,
-            action,
-            manager.output_state.mouse_uinput,
-            deps=deps,
-        )
-        return
-
-    if action.action_type == ActionType.GAMEPAD and action.target:
-        target = manager.resolve_gamepad_output(
-            action.output_id,
-            context=f"combo:{combo_id} -> {action.target}",
-        )
-        if target is None:
-            return
-        target_uinput = getattr(target, "uinput", None)
-        target_bucket = str(getattr(target, "bucket", "gamepad"))
-        await start_combo_key_action(
-            manager,
-            combo_id,
-            action,
-            target_uinput,
-            deps=deps,
-            bucket=target_bucket,
-        )
-        return
-
-    if action.action_type == ActionType.GAMEPAD_AXIS and action.target:
-        target = manager.resolve_gamepad_output(
-            action.output_id,
-            context=f"combo:{combo_id} -> {action.target}",
-        )
-        if target is None:
-            return
-        axis_code = resolve_gamepad_axis_code(action.target)
-        if axis_code is None:
-            return
-        target_uinput = getattr(target, "uinput", None)
-        target_bucket = str(getattr(target, "bucket", "gamepad"))
-        target_output_id = str(getattr(target, "output_id", action.output_id or ""))
-        active_value = int(action.axis_value)
-        release_value = 0
-        if action.tap_enabled:
-            started = deps.asyncio_mod.create_event()
-            task = deps.asyncio_mod.create_task(
-                combo_tap_axis(
-                    manager,
-                    combo_id,
-                    axis_code,
-                    action.tap_hold_ms,
-                    started,
-                    target_uinput,
-                    deps=deps,
-                    active_value=active_value,
-                    release_value=release_value,
-                )
-            )
-            manager.combo_state.active_actions[combo_id] = ComboActionState(
-                kind="tap_axis",
-                axis_code=axis_code,
-                axis_value=active_value,
-                axis_release_value=release_value,
-                uinput=target_uinput,
-                bucket=target_bucket,
-                output_id=target_output_id,
-                task=task,
-                started=started,
-            )
-            return
-        if action.rapidfire_enabled:
-            started = deps.asyncio_mod.create_event()
-            task = deps.asyncio_mod.create_task(
-                combo_rapidfire_axis(
-                    manager,
-                    combo_id,
-                    axis_code,
-                    action.rapidfire_hold_ms,
-                    action.rapidfire_wait_ms,
-                    started,
-                    target_uinput,
-                    deps=deps,
-                    active_value=active_value,
-                    release_value=release_value,
-                )
-            )
-            manager.combo_state.active_actions[combo_id] = ComboActionState(
-                kind="rapidfire_axis",
-                axis_code=axis_code,
-                axis_value=active_value,
-                axis_release_value=release_value,
-                uinput=target_uinput,
-                bucket=target_bucket,
-                output_id=target_output_id,
-                active=True,
-                task=task,
-                started=started,
-            )
-            return
-        write_combo_axis(target_uinput, axis_code, active_value, deps=deps)
-        manager.combo_state.active_actions[combo_id] = ComboActionState(
-            kind="axis",
-            axis_code=axis_code,
-            axis_value=active_value,
-            axis_release_value=release_value,
-            uinput=target_uinput,
-            bucket=target_bucket,
-            output_id=target_output_id,
-        )
-        return
-
-    if action.action_type == ActionType.MOUSE_MOVE_ABS:
-        await manager.set_cursor_position(int(action.move_x), int(action.move_y))
-        return
-
-    if action.action_type == ActionType.MOUSE_MOVE_REL:
-        emit_combo_mouse_move(manager, action, deps=deps)
-        return
-
-    if action.action_type == ActionType.MACRO:
-        macro_request = build_macro_playback_request(
-            action,
-            source_device="combo",
-            source_button=trigger_name,
-            trigger_value=1,
-        )
-        if macro_request is not None:
-            await manager.play_macro(**macro_request)
-            if is_hold_macro_action(action):
-                manager.combo_state.active_actions[combo_id] = ComboActionState(
-                    kind="macro_hold",
-                    action=action,
-                    source_device="combo",
-                    source_button=trigger_name,
-                )
-        return
-
-    if action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
-        await manager.cancel_macro_playback()
-        return
-
-    if action.action_type == ActionType.EMERGENCY_RESET:
-        deps.fire_and_observe_fn(
-            manager.emergency_reset(),
-            "combo emergency runtime reset",
-        )
-        return
-
-    action_payload = build_action_trigger_payload(
+    runtime = _combo_action_runtime(
+        manager,
+        combo_id,
         action,
-        source_device=trigger_binding.hardware_id,
-        source_button=trigger_name,
-        trigger_id=source_trigger_id(trigger_binding.hardware_id, trigger_name),
+        trigger_binding,
+        trigger_name=trigger_name,
     )
-    if action_payload is not None:
+    if _combo_profile_action_tracks_trigger(action):
         _observe_combo_profile_trigger(
             manager,
             trigger_binding,
             trigger_name,
             active=True,
         )
-        await broadcast_combo_action(
-            manager,
-            action_payload,
-            deps=deps,
-        )
+    started = deps.asyncio_mod.create_event()
+    handle = ActionExecutionHandle(started=started)
+    await shared_action_runner.execute_action(
+        runtime,
+        action,
+        _combo_synthetic_event(trigger_binding, 1),
+        trigger_name,
+        deps=_action_execution_deps(deps),
+        execution_handle=handle,
+        cancel_macro_playback=manager.cancel_macro_playback,
+        resolve_code_fn=deps.resolve_code_fn,
+    )
+    await started.wait()
+
+    if is_hold_macro_action(action):
+        await shared_action_runner.drain_action_tasks(handle)
+
+    if _combo_action_needs_release(action):
         manager.combo_state.active_actions[combo_id] = ComboActionState(
-            kind="trigger_only",
+            kind="executor",
             action=action,
             trigger_binding=trigger_binding,
+            source_device=runtime.hardware_id,
             source_button=trigger_name,
+            started=handle.started,
+            action_runtime=runtime,
+            execution_handle=handle,
         )
         return
+
+    await shared_action_runner.drain_action_tasks(handle)
 
 
 async def _pulse_combo_action_instance(
@@ -1282,150 +1152,6 @@ async def _pulse_combo_action_instance(
     )
     await wait_combo_action_started(manager, combo_id)
     await stop_combo_action(manager, combo_id, deps=deps)
-
-
-async def start_combo_key_action(
-    manager: _ComboManager,
-    combo_id: str,
-    action: MappingAction,
-    uinput_dev: object | None,
-    *,
-    deps: ComboRuntimeDeps,
-    bucket: str | None = None,
-) -> None:
-    target = str(action.target or "")
-    if not target:
-        return
-    code = deps.resolve_code_fn(target)
-    if code is None:
-        return
-    if action.tap_enabled:
-        started = deps.asyncio_mod.create_event()
-        task = deps.asyncio_mod.create_task(
-            combo_tap_key(
-                manager,
-                combo_id,
-                uinput_dev,
-                code,
-                action.tap_hold_ms,
-                started,
-                deps=deps,
-            )
-        )
-        manager.combo_state.active_actions[combo_id] = ComboActionState(
-            kind="tap_key",
-            uinput=uinput_dev,
-            code=code,
-            task=task,
-            started=started,
-            bucket=bucket,
-        )
-        return
-    if action.rapidfire_enabled:
-        started = deps.asyncio_mod.create_event()
-        task = deps.asyncio_mod.create_task(
-            combo_rapidfire_key(
-                manager,
-                combo_id,
-                uinput_dev,
-                code,
-                action.rapidfire_hold_ms,
-                action.rapidfire_wait_ms,
-                started,
-                deps=deps,
-            )
-        )
-        manager.combo_state.active_actions[combo_id] = ComboActionState(
-            kind="rapidfire_key",
-            uinput=uinput_dev,
-            code=code,
-            active=True,
-            task=task,
-            started=started,
-            bucket=bucket,
-        )
-        return
-    write_combo_key(uinput_dev, code, 1, deps=deps)
-    manager.combo_state.active_actions[combo_id] = ComboActionState(
-        kind="key",
-        uinput=uinput_dev,
-        code=code,
-        bucket=bucket,
-    )
-
-
-async def start_combo_mouse_action(
-    manager: _ComboManager,
-    combo_id: str,
-    action: MappingAction,
-    uinput_dev: object | None,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    target = resolve_mouse_output_target(action.target)
-    if target is None:
-        return
-    if not target.is_relative:
-        await start_combo_key_action(
-            manager,
-            combo_id,
-            action,
-            uinput_dev,
-            deps=deps,
-        )
-        return
-    if action.tap_enabled:
-        started = deps.asyncio_mod.create_event()
-        task = deps.asyncio_mod.create_task(
-            combo_tap_relative(
-                manager,
-                combo_id,
-                uinput_dev,
-                target.code,
-                target.relative_value,
-                action.tap_hold_ms,
-                started,
-                deps=deps,
-            )
-        )
-        manager.combo_state.active_actions[combo_id] = ComboActionState(
-            kind="tap_relative",
-            uinput=uinput_dev,
-            code=target.code,
-            task=task,
-            started=started,
-        )
-        return
-    if action.rapidfire_enabled:
-        started = deps.asyncio_mod.create_event()
-        task = deps.asyncio_mod.create_task(
-            combo_rapidfire_relative(
-                manager,
-                combo_id,
-                uinput_dev,
-                target.code,
-                target.relative_value,
-                action.rapidfire_hold_ms,
-                action.rapidfire_wait_ms,
-                started,
-                deps=deps,
-            )
-        )
-        manager.combo_state.active_actions[combo_id] = ComboActionState(
-            kind="rapidfire_relative",
-            uinput=uinput_dev,
-            code=target.code,
-            active=True,
-            task=task,
-            started=started,
-        )
-        return
-    write_combo_relative(
-        uinput_dev,
-        target.code,
-        target.relative_value,
-        deps=deps,
-    )
 
 
 async def stop_combo_action(
@@ -1494,57 +1220,26 @@ async def stop_combo_action(
             await machine.on_up()
         _restore_combo_trigger_bindings(manager, restore_bindings)
         return
-    if kind == "key":
-        uinput_dev = state.uinput
-        code = state.code
-        if code is not None:
-            write_combo_key(
-                uinput_dev,
-                code,
-                0,
-                deps=deps,
-            )
-        _restore_combo_trigger_bindings(manager, restore_bindings)
-        return
-    if kind == "axis":
-        axis_code = state.axis_code
-        if axis_code is not None:
-            write_combo_axis(
-                state.uinput,
-                axis_code,
-                state.axis_release_value,
-                deps=deps,
-            )
-        _restore_combo_trigger_bindings(manager, restore_bindings)
-        return
-    if kind in {
-        "tap_key",
-        "tap_axis",
-        "rapidfire_key",
-        "rapidfire_axis",
-        "tap_relative",
-        "rapidfire_relative",
-    }:
-        state.active = False
-        task = state.task
-        if task is not None and not task.done():
-            task.cancel()
-            with contextlib.suppress(deps.asyncio_mod.CancelledError):
-                await task
-        _restore_combo_trigger_bindings(manager, restore_bindings)
-        return
-    if kind == "macro_hold":
+    if kind == "executor":
+        runtime = state.action_runtime
         action = state.action
-        if action is not None:
-            macro_request = build_macro_playback_request(
+        handle = state.execution_handle
+        if runtime is not None and action is not None:
+            await shared_action_runner.execute_action(
+                runtime,
                 action,
-                source_device=str(state.source_device or ""),
-                source_button=str(state.source_button or ""),
-                trigger_value=0,
-                include_macro_events=False,
+                _combo_synthetic_event(trigger_binding, 0),
+                source_button,
+                deps=_action_execution_deps(deps),
+                execution_handle=handle,
+                cancel_macro_playback=manager.cancel_macro_playback,
+                resolve_code_fn=deps.resolve_code_fn,
             )
-            if macro_request is not None:
-                await manager.play_macro(**macro_request)
+            if _combo_action_uses_tap_task(action):
+                await shared_action_runner.cancel_action_tasks(handle)
+            else:
+                await shared_action_runner.drain_action_tasks(handle)
+            runtime.stop()
         _restore_combo_trigger_bindings(manager, restore_bindings)
         return
     _restore_combo_trigger_bindings(manager, restore_bindings)
@@ -1705,223 +1400,6 @@ async def combo_timeout_watchdog(
             manager,
             deps=deps,
         )
-
-
-async def combo_rapidfire_key(
-    manager: _ComboManager,
-    combo_id: str,
-    uinput_dev: object | None,
-    code: int,
-    hold_ms: int,
-    wait_ms: int,
-    started: runtime_adapters.AsyncioEvent | None = None,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    started_set = False
-
-    try:
-        while _combo_action_active(manager, combo_id):
-            write_combo_key(uinput_dev, code, 1, deps=deps)
-            if not started_set:
-                mark_combo_action_started(started)
-                started_set = True
-            await deps.asyncio_mod.sleep(clamp_rapidfire_hold_ms(hold_ms) / 1000.0)
-            if not _combo_action_active(manager, combo_id):
-                break
-            write_combo_key(uinput_dev, code, 0, deps=deps)
-            await deps.asyncio_mod.sleep(clamp_rapidfire_wait_ms(wait_ms) / 1000.0)
-    except deps.asyncio_mod.CancelledError:
-        raise
-    finally:
-        write_combo_key(uinput_dev, code, 0, deps=deps)
-        if not started_set:
-            mark_combo_action_started(started)
-
-
-async def combo_tap_relative(
-    manager: _ComboManager,
-    combo_id: str,
-    uinput_dev: object | None,
-    code: int,
-    value: int,
-    hold_ms: int,
-    started: runtime_adapters.AsyncioEvent | None = None,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    task = deps.asyncio_mod.current_task()
-    started_set = False
-
-    def emit_started_pulse() -> None:
-        nonlocal started_set
-        write_combo_relative(
-            uinput_dev,
-            code,
-            value,
-            deps=deps,
-        )
-        if not started_set:
-            mark_combo_action_started(started)
-            started_set = True
-
-    try:
-        await tap_relative_pulse(
-            emit_pulse=emit_started_pulse,
-            hold_s=max(0.001, float(hold_ms) / 1000.0),
-            asyncio_mod=deps.asyncio_mod,
-        )
-    except deps.asyncio_mod.CancelledError:
-        raise
-    finally:
-        if not started_set:
-            mark_combo_action_started(started)
-        prune_combo_action_task(manager, combo_id, task)
-
-
-async def combo_rapidfire_relative(
-    manager: _ComboManager,
-    combo_id: str,
-    uinput_dev: object | None,
-    code: int,
-    value: int,
-    hold_ms: int,
-    wait_ms: int,
-    started: runtime_adapters.AsyncioEvent | None = None,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    started_set = False
-
-    def emit_started_pulse() -> None:
-        nonlocal started_set
-        write_combo_relative(
-            uinput_dev,
-            code,
-            value,
-            deps=deps,
-        )
-        if not started_set:
-            mark_combo_action_started(started)
-            started_set = True
-
-    try:
-        await rapidfire_relative_pulses(
-            emit_pulse=emit_started_pulse,
-            is_active=lambda: _combo_action_active(manager, combo_id),
-            hold_s=clamp_rapidfire_hold_ms(hold_ms) / 1000.0,
-            wait_s=clamp_rapidfire_wait_ms(wait_ms) / 1000.0,
-            asyncio_mod=deps.asyncio_mod,
-        )
-    except deps.asyncio_mod.CancelledError:
-        raise
-    finally:
-        if not started_set:
-            mark_combo_action_started(started)
-
-
-async def combo_rapidfire_axis(
-    manager: _ComboManager,
-    combo_id: str,
-    axis_code: int,
-    hold_ms: int,
-    wait_ms: int,
-    started: runtime_adapters.AsyncioEvent | None = None,
-    uinput_dev: object | None = None,
-    *,
-    deps: ComboRuntimeDeps,
-    active_value: int = 255,
-    release_value: int = 0,
-) -> None:
-    started_set = False
-
-    try:
-        while _combo_action_active(manager, combo_id):
-            write_combo_axis(
-                uinput_dev,
-                axis_code,
-                active_value,
-                deps=deps,
-            )
-            if not started_set:
-                mark_combo_action_started(started)
-                started_set = True
-            await deps.asyncio_mod.sleep(clamp_rapidfire_hold_ms(hold_ms) / 1000.0)
-            if not _combo_action_active(manager, combo_id):
-                break
-            write_combo_axis(
-                uinput_dev,
-                axis_code,
-                release_value,
-                deps=deps,
-            )
-            await deps.asyncio_mod.sleep(clamp_rapidfire_wait_ms(wait_ms) / 1000.0)
-    except deps.asyncio_mod.CancelledError:
-        raise
-    finally:
-        write_combo_axis(uinput_dev, axis_code, release_value, deps=deps)
-        if not started_set:
-            mark_combo_action_started(started)
-
-
-def write_combo_key(
-    uinput_dev: object | None,
-    code: int,
-    value: int,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    writer = deps.uinput_writer(uinput_dev)
-    if writer is None:
-        return
-    writer.write(deps.evdev_mod.ecodes.EV_KEY, int(code), int(value))
-    syn_if_passthrough_frame_closed(uinput_dev, writer)
-
-
-def write_combo_relative(
-    uinput_dev: object | None,
-    code: int,
-    value: int,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    write_relative_pulse(
-        uinput_dev,
-        code,
-        value,
-        ev_rel_code=deps.evdev_mod.ecodes.EV_REL,
-        uinput_writer=deps.uinput_writer,
-    )
-
-
-def write_combo_axis(
-    uinput_dev: object | None,
-    axis_code: int,
-    value: int,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    writer = deps.uinput_writer(uinput_dev)
-    if writer is None:
-        return
-    writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
-    syn_if_passthrough_frame_closed(uinput_dev, writer)
-
-
-def emit_combo_mouse_move(
-    manager: _ComboManager, action: MappingAction, *, deps: ComboRuntimeDeps
-) -> None:
-    deps.emit_mouse_move_fn(
-        manager.output_state.mouse_uinput,
-        int(action.move_x),
-        int(action.move_y),
-        absolute=bool(action.action_type.value == "mouse_move_abs"),
-    )
-
-
-def _combo_action_active(manager: _ComboManager, combo_id: str) -> bool:
-    state = manager.combo_state.active_actions.get(combo_id)
-    return state.active if state is not None else False
 
 
 def begin_combo_capture(

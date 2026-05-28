@@ -211,7 +211,6 @@ def _combo_runtime_deps(
         asyncio_mod=ASYNCIO_RUNTIME,
         evdev_mod=runtime_adapters.COMBO_EVDEV_RUNTIME,
         uinput_writer=runtime_adapters.identity_uinput_writer,
-        emit_mouse_move_fn=runtime_adapters.combo_emit_mouse_move,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )

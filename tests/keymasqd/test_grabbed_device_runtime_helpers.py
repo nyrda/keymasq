@@ -1346,7 +1346,7 @@ class TestGrabbedDeviceHelpers:
             ),
         )
         monkeypatch.setattr(
-            gda,
+            gda.shared_action_runner,
             "passthrough",
             lambda _device, event, **_kwargs: passthrough_calls.append(
                 (event.type, event.code, event.value)
@@ -1520,6 +1520,27 @@ class TestGrabbedDeviceHelpers:
         emergency_resetter.assert_awaited_once_with()
         assert macro_player.await_args_list[0].kwargs["trigger_value"] == 1
         assert macro_player.await_args_list[1].kwargs["trigger_value"] == 0
+
+    @pytest.mark.asyncio
+    async def test_emergency_reset_action_without_resetter_does_not_broadcast(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        callback = AsyncMock()
+        device = _make_grabbed_device(
+            monkeypatch,
+            broadcast_callback=callback,
+        )
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.EMERGENCY_RESET),
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=1, value=1),
+            "emergency_reset",
+        )
+        await asyncio.sleep(0)
+
+        callback.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_routed_gamepad_axis_release_all_keys_zeros_target_output(
@@ -1769,6 +1790,7 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         cursor_position_setter = AsyncMock(return_value={"status": "ok"})
+        cancel_macro_playback = AsyncMock(return_value={"status": "ok"})
         device = _make_grabbed_device(
             monkeypatch,
             cursor_position_setter=cursor_position_setter,
@@ -1777,6 +1799,7 @@ class TestGrabbedDeviceHelpers:
         fake_machine = SimpleNamespace(on_down=AsyncMock(), on_up=AsyncMock())
         created_configs: list[SuperkeyConfig] = []
         created_setters: list[object] = []
+        created_cancelers: list[object] = []
 
         monkeypatch.setattr(
             gda,
@@ -1784,6 +1807,7 @@ class TestGrabbedDeviceHelpers:
             lambda **kwargs: (
                 created_configs.append(kwargs["config"]),
                 created_setters.append(kwargs.get("cursor_position_setter")),
+                created_cancelers.append(kwargs.get("cancel_macro_playback")),
                 fake_machine,
             )[-1],
         )
@@ -1793,7 +1817,7 @@ class TestGrabbedDeviceHelpers:
             lambda coro, _label: asyncio.create_task(coro),
         )
         monkeypatch.setattr(
-            gda,
+            gda.shared_action_runner,
             "tap_move",
             AsyncMock(
                 side_effect=lambda _device, action, event_name, hold_ms, **_kwargs: (
@@ -1817,8 +1841,13 @@ class TestGrabbedDeviceHelpers:
             tap_hold_ms=33,
         )
 
-        await _runtime_execute_grabbed_action(
-            device, superkey_action, SimpleNamespace(value=1), "super_btn"
+        await gda.execute_action(
+            device,
+            superkey_action,
+            SimpleNamespace(value=1),
+            "super_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+            cancel_macro_playback=cancel_macro_playback,
         )
         await _runtime_execute_grabbed_action(
             device, superkey_action, SimpleNamespace(value=0), "super_btn"
@@ -1830,6 +1859,7 @@ class TestGrabbedDeviceHelpers:
 
         assert created_configs and created_configs[0].name == "super"
         assert created_setters == [cursor_position_setter]
+        assert created_cancelers == [cancel_macro_playback]
         fake_machine.on_down.assert_awaited_once()
         fake_machine.on_up.assert_awaited_once()
         assert move_calls == [("move_btn", 33)]

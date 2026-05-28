@@ -128,6 +128,7 @@ class TestComboActionDispatch:
 
         await _runtime_start_combo_action(manager, "combo-overload-profile", action, binding)
         await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
+        await asyncio.sleep(0)
 
         assert action_triggers == [
             {
@@ -219,6 +220,46 @@ class TestComboActionDispatch:
         assert starts == []
         assert ends == []
         assert "combo-invalid-superkey" not in manager.combo_state.active_actions
+
+    @pytest.mark.asyncio
+    async def test_combo_hold_macro_waits_for_press_registration_before_active(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        press_started = asyncio.Event()
+        press_registered = asyncio.Event()
+        press_continue = asyncio.Event()
+
+        async def play_macro(**kwargs: object) -> dict[str, object]:
+            if kwargs["trigger_value"] == 1:
+                press_started.set()
+                await press_continue.wait()
+                press_registered.set()
+            else:
+                assert press_registered.is_set()
+            return {"status": "ok"}
+
+        manager.play_macro = play_macro  # type: ignore[method-assign]
+        action = dm.MappingAction(
+            action_type=ActionType.MACRO,
+            macro_name="hold",
+            macro_loop_mode="hold",
+        )
+
+        start_task = asyncio.create_task(
+            _runtime_start_combo_action(manager, "macro-hold", action, binding)
+        )
+        await asyncio.wait_for(press_started.wait(), timeout=1.0)
+        await asyncio.sleep(0)
+
+        assert not start_task.done()
+
+        press_continue.set()
+        await start_task
+        await _runtime_stop_combo_action(manager, "macro-hold")
+
+        assert press_registered.is_set()
 
     @pytest.mark.asyncio
     async def test_combo_overload_restore_runs_after_child_release_for_overlapping_key(
@@ -910,16 +951,7 @@ class TestComboActionDispatch:
         manager.output_state.mouse_uinput = _FakeUInput()
         manager.output_state.gamepad_uinput = _FakeUInput()
         manager.play_macro = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
-        broadcast_combo_action = AsyncMock()
-        emit_combo_mouse_move = Mock()
         resolve_code = Mock(return_value=evdev.ecodes.BTN_SOUTH)
-        combo_tap_axis = AsyncMock()
-        combo_rapidfire_axis = AsyncMock()
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr(cdm, "broadcast_combo_action", broadcast_combo_action)
-        monkeypatch.setattr(cdm, "emit_combo_mouse_move", emit_combo_mouse_move)
-        monkeypatch.setattr(cdm, "combo_tap_axis", combo_tap_axis)
-        monkeypatch.setattr(cdm, "combo_rapidfire_axis", combo_rapidfire_axis)
 
         binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="mouse", evdev="btn_side")
 
@@ -1042,16 +1074,24 @@ class TestComboActionDispatch:
         await _runtime_stop_combo_action(manager, "rapid-axis")
         await _runtime_stop_combo_action(manager, "macro")
 
-        emit_combo_mouse_move.assert_called_once()
         assert manager.play_macro.await_count == 2
         assert manager.play_macro.await_args_list[0].kwargs["trigger_value"] == 1
         assert manager.play_macro.await_args_list[1].kwargs["trigger_value"] == 0
-        assert broadcast_combo_action.await_count == 4
         assert manager.output_state.mouse_uinput.writes[0] == (
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_X,
+            3,
+        )
+        assert manager.output_state.mouse_uinput.writes[1] == (
+            evdev.ecodes.EV_REL,
+            evdev.ecodes.REL_Y,
+            -1,
+        )
+        assert (
             evdev.ecodes.EV_REL,
             evdev.ecodes.REL_WHEEL,
             1,
-        )
+        ) in manager.output_state.mouse_uinput.writes
         assert (
             evdev.ecodes.EV_REL,
             evdev.ecodes.REL_WHEEL,
@@ -1062,17 +1102,13 @@ class TestComboActionDispatch:
             evdev.ecodes.REL_HWHEEL,
             1,
         ) in manager.output_state.mouse_uinput.writes
-        monkeypatch.undo()
 
     @pytest.mark.asyncio
     async def test_start_combo_action_mouse_move_abs_uses_cursor_position_setter(self) -> None:
         manager = DeviceManager()
         manager.output_state.mouse_uinput = _FakeUInput()
         manager.set_cursor_position = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
-        emit_combo_mouse_move = Mock()
         binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="mouse", evdev="btn_side")
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr(cdm, "emit_combo_mouse_move", emit_combo_mouse_move)
 
         await _runtime_start_combo_action(
             manager,
@@ -1082,9 +1118,7 @@ class TestComboActionDispatch:
         )
 
         manager.set_cursor_position.assert_awaited_once_with(33, 44)
-        emit_combo_mouse_move.assert_not_called()
         assert manager.output_state.mouse_uinput.writes == []
-        monkeypatch.undo()
 
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_passes_cursor_position_setter(self, monkeypatch) -> None:

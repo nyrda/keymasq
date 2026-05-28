@@ -10,7 +10,7 @@ from collections.abc import (
     Sequence,
 )
 from dataclasses import dataclass, field
-from typing import Final, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Final, Protocol, TypeVar, cast
 
 import evdev
 
@@ -18,7 +18,9 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.models import MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
-from keymasq.keymasqd.superkey_state import SuperkeyMachine
+
+if TYPE_CHECKING:
+    from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
 type BroadcastCallback = Callable[[CommandType, dict[str, object]], Awaitable[None]]
 type CursorPositionSetter = Callable[[int, int], Awaitable[dict[str, object]]]
@@ -35,6 +37,7 @@ type ProfileActivationRecorder = Callable[[str | None, str | None], None]
 type ProfileActivationTriggerObserver = Callable[[str | None], None]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
+type OutputTracker = Callable[[str, int, int], bool]
 _T = TypeVar("_T")
 
 
@@ -184,6 +187,8 @@ class RapidfireOutputState:
     axis_code: int | None = None
     axis_release_value: int = 0
     bucket: str | None = None
+    output_tracker: OutputTracker | None = None
+    pressed: bool = False
 
 
 @dataclass
@@ -198,7 +203,7 @@ class GrabbedDeviceState:
     rapidfire_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     rapidfire_outputs: dict[str, RapidfireOutputState] = field(default_factory=dict)
     tap_active: dict[str, bool] = field(default_factory=dict)
-    superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
+    superkey_machines: dict[str, "SuperkeyMachine"] = field(default_factory=dict)
     held_source_keys: set[str] = field(default_factory=set)
     combo_passthrough_held: set[str] = field(default_factory=set)
     combo_recalled_bindings: set[str] = field(default_factory=set)
@@ -246,27 +251,12 @@ class GrabbedDeviceState:
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
 
 
-class GrabbedDeviceRuntime(Protocol):
+class ActionRuntime(Protocol):
     @property
     def path(self) -> str: ...
 
     @property
     def hardware_id(self) -> str: ...
-
-    @property
-    def stable_path(self) -> str: ...
-
-    @property
-    def interface_id(self) -> str: ...
-
-    @property
-    def device_types(self) -> list[str]: ...
-
-    @property
-    def verbosity(self) -> int: ...
-
-    @property
-    def device(self) -> ManagedInputDevice | None: ...
 
     @property
     def uinput(self) -> object | None: ...
@@ -287,13 +277,41 @@ class GrabbedDeviceRuntime(Protocol):
     def cursor_position_setter(self) -> CursorPositionSetter | None: ...
 
     @property
-    def recording_manager(self) -> RecordingManager | None: ...
-
-    @property
     def macro_player(self) -> MacroPlayer | None: ...
 
     @property
     def emergency_resetter(self) -> EmergencyResetter | None: ...
+
+    @property
+    def suppress_rel_getter(self) -> Callable[[], bool] | None: ...
+
+    @property
+    def state(self) -> GrabbedDeviceState: ...
+
+    @property
+    def _running(self) -> bool: ...
+
+    def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None: ...
+
+
+class GrabbedDeviceRuntime(ActionRuntime, Protocol):
+    @property
+    def stable_path(self) -> str: ...
+
+    @property
+    def interface_id(self) -> str: ...
+
+    @property
+    def device_types(self) -> list[str]: ...
+
+    @property
+    def verbosity(self) -> int: ...
+
+    @property
+    def device(self) -> ManagedInputDevice | None: ...
+
+    @property
+    def recording_manager(self) -> RecordingManager | None: ...
 
     @property
     def inspector_event_callback(self) -> DeviceInspectorEventCallback | None: ...
@@ -326,9 +344,6 @@ class GrabbedDeviceRuntime(Protocol):
     def profile_activation_trigger_end_observer(
         self,
     ) -> ProfileActivationTriggerObserver | None: ...
-
-    @property
-    def suppress_rel_getter(self) -> Callable[[], bool] | None: ...
 
     @property
     def diagnostics_recorder(self) -> Callable[[str, float], None] | None: ...
@@ -366,18 +381,10 @@ class GrabbedDeviceRuntime(Protocol):
     @property
     def analog_axis_calibrations(self) -> dict[tuple[str, str], dict[str, object]]: ...
 
-    @property
-    def state(self) -> GrabbedDeviceState: ...
-
-    @property
-    def _running(self) -> bool: ...
-
     async def reset_superkeys(self) -> None: ...
 
     async def reset_analog_controls(self) -> None: ...
 
-    def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None: ...
 
-
-def runtime_is_running(device_runtime: GrabbedDeviceRuntime) -> bool:
+def runtime_is_running(device_runtime: ActionRuntime) -> bool:
     return device_runtime._running  # pyright: ignore[reportPrivateUsage]

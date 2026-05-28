@@ -4,11 +4,12 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import evdev
 
 from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
+from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
     ActionType,
     MappingAction,
@@ -19,31 +20,16 @@ from keymasq.common.models import (
     normalize_profile_deactivation_policy,
     superkey_action_shared_kwargs,
 )
-from keymasq.keymasqd.output_helpers import (
-    emit_mouse_move,
-    resolve_gamepad_axis_code,
-    resolve_output_code,
-)
-from keymasq.keymasqd.runtime.action_runner import (
-    build_action_trigger_payload,
-    build_macro_playback_request,
-    source_trigger_id,
-)
 from keymasq.keymasqd.runtime.mouse_actions import (
     emit_relative_pulse,
     rapidfire_relative_pulses,
     resolve_mouse_output_target,
 )
 
+if TYPE_CHECKING:
+    from keymasq.keymasqd.runtime.grabbed_device_types import ActionExecutionDeps
+
 log = logging.getLogger("keymasqd.superkey")
-
-
-def _syn_if_passthrough_frame_closed(uinput: object) -> None:
-    from keymasq.keymasqd.runtime.grabbed_device_outputs import (
-        syn_if_passthrough_frame_closed,
-    )
-
-    syn_if_passthrough_frame_closed(uinput, cast(Any, uinput))
 
 
 class SuperkeyState(Enum):
@@ -143,7 +129,28 @@ class _WritableUInput(Protocol):
     def syn(self) -> None: ...
 
 
-type CursorPositionSetter = Callable[[int, int], Awaitable[object]]
+type CursorPositionSetter = Callable[[int, int], Awaitable[dict[str, object]]]
+type CancelMacroPlayback = Callable[[], Awaitable[dict[str, object]]]
+type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
+type EmergencyResetter = Callable[[], Awaitable[dict[str, object]]]
+
+
+def _fire_and_observe(coro: Awaitable[object], _label: str) -> asyncio.Task[object]:
+    return asyncio.ensure_future(coro)
+
+
+def _default_action_deps() -> "ActionExecutionDeps":
+    from keymasq.keymasqd.runtime.grabbed_device_types import (
+        ActionExecutionDeps,
+        identity_uinput_writer,
+    )
+
+    return ActionExecutionDeps(
+        asyncio_mod=cast(Any, asyncio),
+        fire_and_observe_fn=_fire_and_observe,
+        evdev_mod=cast(Any, evdev),
+        uinput_writer=identity_uinput_writer,
+    )
 
 
 class SuperkeyMachine:
@@ -160,6 +167,11 @@ class SuperkeyMachine:
         key_event_tracker: Callable[[str, int, int], bool] | None = None,
         axis_event_tracker: Callable[[str, int, int], bool] | None = None,
         gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None,
+        macro_player: MacroPlayer | None = None,
+        emergency_resetter: EmergencyResetter | None = None,
+        cancel_macro_playback: CancelMacroPlayback | None = None,
+        action_deps: "ActionExecutionDeps | None" = None,
+        await_action_tasks: bool = True,
     ) -> None:
         self.config = config
         self.event_name = event_name
@@ -172,6 +184,11 @@ class SuperkeyMachine:
         self.key_event_tracker = key_event_tracker
         self.axis_event_tracker = axis_event_tracker
         self.gamepad_output_resolver = gamepad_output_resolver
+        self.macro_player = macro_player
+        self.emergency_resetter = emergency_resetter
+        self.cancel_macro_playback = cancel_macro_playback
+        self.action_deps = action_deps or _default_action_deps()
+        self.await_action_tasks = await_action_tasks
 
         self.state = SuperkeyState.IDLE
         self._hold_task: asyncio.Task[None] | None = None
@@ -179,9 +196,24 @@ class SuperkeyMachine:
         self._rapidfire_tasks: list[asyncio.Task[None]] = []
         self._rapidfire_active = False
         self._running = True
+        from keymasq.keymasqd.runtime.action_runner import ActionRuntimeContext
+
+        self._action_runtime = ActionRuntimeContext(
+            path=f"superkey:{event_name}",
+            hardware_id=source_device,
+            keyboard_uinput=keyboard_uinput,
+            mouse_uinput=mouse_uinput,
+            gamepad_uinput=gamepad_uinput,
+            broadcast_callback=self._broadcast_action_trigger,
+            cursor_position_setter=cursor_position_setter,
+            macro_player=macro_player,
+            emergency_resetter=emergency_resetter,
+            gamepad_output_resolver=gamepad_output_resolver,
+        )
 
     async def stop(self) -> None:
         self._running = False
+        self._action_runtime.stop()
         self._rapidfire_active = False
         if self._hold_task:
             self._hold_task.cancel()
@@ -388,176 +420,90 @@ class SuperkeyMachine:
                 await task
 
     async def _execute_actions_tap(self, actions: list[SuperkeyActionData]) -> None:
-        for action in actions:
-            await self._execute_action_down(action)
+        indexed_actions = list(enumerate(actions))
+        for index, action in indexed_actions:
+            await self._execute_action_down(
+                action,
+                action_event_name=self._child_event_name(action, index),
+            )
         await asyncio.sleep(0.01)
-        for action in reversed(actions):
-            await self._execute_action_up(action)
+        for index, action in reversed(indexed_actions):
+            await self._execute_action_up(
+                action,
+                action_event_name=self._child_event_name(action, index),
+            )
 
     async def _execute_actions_down(self, actions: list[SuperkeyActionData]) -> None:
-        self._rapidfire_active = any(action.rapidfire_enabled for action in actions)
-
-        for action in actions:
-            if action.rapidfire_enabled:
-                task = asyncio.create_task(self._rapidfire_loop(action))
-                self._rapidfire_tasks.append(task)
-            else:
-                await self._execute_action_down(action)
+        for index, action in enumerate(actions):
+            await self._execute_action_down(
+                action,
+                action_event_name=self._child_event_name(action, index),
+            )
 
     async def _execute_actions_up(self, actions: list[SuperkeyActionData]) -> None:
-        for action in reversed(actions):
-            if action.rapidfire_enabled:
-                continue
-            await self._execute_action_up(action)
-
-    async def _execute_action_down(self, action: SuperkeyActionData) -> None:
-        if action.action_type == "exec":
-            trigger_payload = build_action_trigger_payload(
-                self._mapping_action(action),
-                source_device=self.source_device,
-                source_button=self.event_name,
+        indexed_actions = list(enumerate(actions))
+        for index, action in reversed(indexed_actions):
+            await self._execute_action_up(
+                action,
+                action_event_name=self._child_event_name(action, index),
             )
-            if trigger_payload is not None and self.broadcast_callback:
-                await self.broadcast_callback(trigger_payload)
+
+    async def _execute_action_down(
+        self,
+        action: SuperkeyActionData,
+        *,
+        action_event_name: str | None = None,
+    ) -> None:
+        await self._execute_mapping_action(action, 1, action_event_name=action_event_name)
+
+    async def _execute_action_up(
+        self,
+        action: SuperkeyActionData,
+        *,
+        action_event_name: str | None = None,
+    ) -> None:
+        await self._execute_mapping_action(action, 0, action_event_name=action_event_name)
+
+    async def _execute_mapping_action(
+        self,
+        action: SuperkeyActionData,
+        value: int,
+        *,
+        action_event_name: str | None = None,
+    ) -> None:
+        from keymasq.keymasqd.runtime import action_runner
+
+        event_name = action_event_name or self.event_name
+        started = asyncio.Event()
+        handle = action_runner.ActionExecutionHandle(started=started)
+        await action_runner.execute_action(
+            self._action_runtime,
+            self._mapping_action(action),
+            _SyntheticInputEvent(evdev.ecodes.EV_KEY, 0, value),
+            event_name,
+            deps=self.action_deps,
+            shared_output_tracker=self.key_event_tracker,
+            shared_abs_output_tracker=self.axis_event_tracker,
+            execution_handle=handle,
+            cancel_macro_playback=self.cancel_macro_playback,
+        )
+        await started.wait()
+        if self.await_action_tasks:
+            await action_runner.drain_action_tasks(handle)
+
+    def _child_event_name(self, action: SuperkeyActionData, index: int) -> str:
+        if not action.rapidfire_enabled:
+            return self.event_name
+        return f"{self.event_name}#{index}"
+
+    async def _broadcast_action_trigger(
+        self,
+        event_type: CommandType,
+        data: dict[str, object],
+    ) -> None:
+        if event_type != CommandType.ACTION_TRIGGER or self.broadcast_callback is None:
             return
-
-        if action.action_type == "macro":
-            trigger_payload = self._macro_trigger_payload(action, trigger_value=1)
-            if trigger_payload is not None and self.broadcast_callback:
-                await self.broadcast_callback(trigger_payload)
-            return
-
-        if action.action_type == "mouse_move_abs":
-            if self.cursor_position_setter is not None:
-                await self.cursor_position_setter(int(action.move_x), int(action.move_y))
-                return
-            emit_mouse_move(
-                self.mouse_uinput,
-                int(action.move_x),
-                int(action.move_y),
-                absolute=True,
-            )
-            return
-
-        if action.action_type == "mouse_move_rel":
-            emit_mouse_move(
-                self.mouse_uinput,
-                int(action.move_x),
-                int(action.move_y),
-                absolute=False,
-            )
-            return
-
-        trigger_action = self._broadcast_action(action)
-        if trigger_action is not None and self.broadcast_callback:
-            await self.broadcast_callback(trigger_action)
-            return
-
-        if action.action_type == "gamepad_axis":
-            axis_code = resolve_gamepad_axis_code(action.target)
-            if axis_code is None:
-                return
-            uinput, bucket = self._get_action_output(action)
-            if uinput is None:
-                return
-            should_emit = True
-            if self.axis_event_tracker:
-                should_emit = self.axis_event_tracker(
-                    bucket,
-                    int(axis_code),
-                    int(action.axis_value),
-                )
-            if should_emit:
-                uinput.write(evdev.ecodes.EV_ABS, axis_code, int(action.axis_value))
-                _syn_if_passthrough_frame_closed(uinput)
-            return
-
-        if action.action_type in ("keyboard", "mouse", "gamepad"):
-            code = self._resolve_code(action.target)
-            if code is None:
-                return
-
-            uinput, bucket = self._get_action_output(action)
-            if uinput is None:
-                return
-
-            mouse_target = (
-                self._resolve_mouse_target(action.target) if action.action_type == "mouse" else None
-            )
-            if mouse_target is not None and mouse_target.is_relative:
-                emit_relative_pulse(
-                    uinput,
-                    mouse_target.code,
-                    mouse_target.relative_value,
-                    ev_rel_code=evdev.ecodes.EV_REL,
-                )
-                return
-
-            should_emit = True
-            if self.key_event_tracker:
-                should_emit = self.key_event_tracker(bucket, int(code), 1)
-            if should_emit:
-                uinput.write(evdev.ecodes.EV_KEY, code, 1)
-                _syn_if_passthrough_frame_closed(uinput)
-
-    async def _execute_action_up(self, action: SuperkeyActionData) -> None:
-        if action.action_type in (
-            "exec",
-            "mouse_move_rel",
-            "mouse_move_abs",
-            "compositor_dispatch",
-            "start_macro_recording",
-            "stop_macro_recording",
-            "cancel_macro_playback",
-            "emergency_reset",
-            "profile_enable",
-            "profile_disable",
-            "profile_toggle",
-        ):
-            return
-
-        if action.action_type == "macro":
-            trigger_payload = self._macro_trigger_payload(action, trigger_value=0)
-            if trigger_payload is not None and self.broadcast_callback:
-                await self.broadcast_callback(trigger_payload)
-            return
-
-        if action.action_type == "gamepad_axis":
-            axis_code = resolve_gamepad_axis_code(action.target)
-            if axis_code is None:
-                return
-            uinput, bucket = self._get_action_output(action)
-            if uinput is None:
-                return
-            should_emit = True
-            if self.axis_event_tracker:
-                should_emit = self.axis_event_tracker(bucket, int(axis_code), 0)
-            if should_emit:
-                uinput.write(evdev.ecodes.EV_ABS, axis_code, 0)
-                _syn_if_passthrough_frame_closed(uinput)
-            return
-
-        if action.action_type in ("keyboard", "mouse", "gamepad"):
-            code = self._resolve_code(action.target)
-            if code is None:
-                return
-
-            uinput, bucket = self._get_action_output(action)
-            if uinput is None:
-                return
-
-            mouse_target = (
-                self._resolve_mouse_target(action.target) if action.action_type == "mouse" else None
-            )
-            if mouse_target is not None and mouse_target.is_relative:
-                return
-
-            should_emit = True
-            if self.key_event_tracker:
-                should_emit = self.key_event_tracker(bucket, int(code), 0)
-            if should_emit:
-                uinput.write(evdev.ecodes.EV_KEY, code, 0)
-                _syn_if_passthrough_frame_closed(uinput)
+        await self.broadcast_callback(data)
 
     def _get_uinput(self, action_type: str) -> _WritableUInput | None:
         if action_type == "keyboard":
@@ -568,69 +514,22 @@ class SuperkeyMachine:
             return self.gamepad_uinput
         return None
 
-    def _get_action_output(self, action: SuperkeyActionData) -> tuple[_WritableUInput | None, str]:
-        if action.action_type not in ("gamepad", "gamepad_axis"):
-            return self._get_uinput(action.action_type), action.action_type
-        if self.gamepad_output_resolver is not None:
-            target = self.gamepad_output_resolver(
-                action.output_id,
-                f"{self.event_name} -> {action.target or ''}",
-            )
-            if target is None:
-                return None, "gamepad"
-            return cast(_WritableUInput | None, getattr(target, "uinput", None)), str(
-                getattr(target, "bucket", "gamepad")
-            )
-        return self.gamepad_uinput, "gamepad"
-
-    def _resolve_code(self, target: str | None) -> int | None:
-        return resolve_output_code(target)
-
     def _resolve_mouse_target(self, target: str | None):
         return resolve_mouse_output_target(target)
 
     def _mapping_action(self, action: SuperkeyActionData) -> MappingAction:
+        action_kwargs = superkey_action_shared_kwargs(action)
+        action_kwargs["rapidfire_enabled"] = action.rapidfire_enabled
+        action_kwargs["rapidfire_hold_ms"] = action.rapidfire_hold_ms
+        action_kwargs["rapidfire_wait_ms"] = action.rapidfire_wait_ms
         return MappingAction(
             action_type=ActionType(action.action_type),
-            **superkey_action_shared_kwargs(action),
+            **action_kwargs,
         )
 
-    def _broadcast_action(self, action: SuperkeyActionData) -> dict[str, object] | None:
-        action_type = action.action_type
-        if action_type not in {
-            "compositor_dispatch",
-            "start_macro_recording",
-            "stop_macro_recording",
-            "cancel_macro_playback",
-            "emergency_reset",
-            "profile_enable",
-            "profile_disable",
-            "profile_toggle",
-        }:
-            return None
-        return build_action_trigger_payload(
-            self._mapping_action(action),
-            source_device=self.source_device,
-            source_button=self.event_name,
-            trigger_id=source_trigger_id(self.source_device, self.event_name),
-        )
 
-    def _macro_trigger_payload(
-        self,
-        action: SuperkeyActionData,
-        *,
-        trigger_value: int,
-    ) -> dict[str, object] | None:
-        payload = build_macro_playback_request(
-            self._mapping_action(action),
-            source_device=self.source_device,
-            source_button=self.event_name,
-            trigger_value=trigger_value,
-            include_macro_events=False,
-        )
-        if payload is None:
-            return None
-        return {
-            "action_type": "macro",
-            **payload,
-        }
+class _SyntheticInputEvent:
+    def __init__(self, event_type: int, code: int, value: int) -> None:
+        self.type = int(event_type)
+        self.code = int(code)
+        self.value = int(value)

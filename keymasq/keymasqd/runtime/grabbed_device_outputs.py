@@ -6,8 +6,8 @@ import evdev
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.output_helpers import emit_mouse_move
 from keymasq.keymasqd.runtime.grabbed_device_types import (
+    ActionRuntime,
     EvdevModule,
-    GrabbedDeviceRuntime,
     InputEventLike,
     UInputWriter,
     WritableUInput,
@@ -76,7 +76,7 @@ def flush_passthrough_frame(
 
 
 def bucket_for_uinput(
-    device_runtime: GrabbedDeviceRuntime, uinput_dev: object | None
+    device_runtime: ActionRuntime, uinput_dev: object | None
 ) -> str | None:
     if uinput_dev is None:
         return None
@@ -92,7 +92,7 @@ def bucket_for_uinput(
 
 
 def track_key_state(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     uinput_dev: object | None,
     code: int,
     value: int,
@@ -110,7 +110,7 @@ def track_key_state(
 
 
 def track_abs_state(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     axis_code: int,
     value: int,
     *,
@@ -126,7 +126,7 @@ def track_abs_state(
 
 
 def write_abs_axis(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     uinput_dev: object | None,
     axis_code: int,
     value: int,
@@ -148,7 +148,7 @@ def write_abs_axis(
 
 
 def write_key(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     uinput_dev: object | None,
     code: int,
     value: int,
@@ -172,7 +172,7 @@ def write_key(
 
 
 def track_superkey_output(
-    device_runtime: GrabbedDeviceRuntime, action_type: str, code: int, value: int
+    device_runtime: ActionRuntime, action_type: str, code: int, value: int
 ) -> bool:
     bucket = action_type
     if bucket not in device_runtime.state.superkey_output_refcounts:
@@ -200,7 +200,7 @@ def track_superkey_output(
 
 
 def track_superkey_abs_output(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     bucket: str,
     axis_code: int,
     value: int,
@@ -229,7 +229,7 @@ def track_superkey_abs_output(
 
 
 def passthrough(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     event: InputEventLike,
     *,
     evdev_mod: EvdevModule,
@@ -269,7 +269,7 @@ def passthrough(
 
 
 def ensure_abs_axis_released(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     axis_code: int,
     *,
     evdev_mod: EvdevModule,
@@ -299,7 +299,7 @@ def ensure_abs_axis_released(
 
 
 def ensure_key_released(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     code: int,
     uinput_dev: object | None,
     *,
@@ -328,7 +328,7 @@ def ensure_key_released(
 
 
 def emit_configured_mouse_move(
-    device_runtime: GrabbedDeviceRuntime, action: MappingAction
+    device_runtime: ActionRuntime, action: MappingAction
 ) -> None:
     emit_mouse_move(
         cast(WritableUInput | None, device_runtime.mouse_uinput),
@@ -339,7 +339,7 @@ def emit_configured_mouse_move(
 
 
 def release_all_keys(
-    device_runtime: GrabbedDeviceRuntime,
+    device_runtime: ActionRuntime,
     *,
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,

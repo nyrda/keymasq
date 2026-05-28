@@ -1,10 +1,8 @@
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from typing import Final, Protocol, TypeVar, cast
 
 import evdev
-
-from keymasq.keymasqd.output_helpers import emit_mouse_move
 
 _T = TypeVar("_T")
 
@@ -79,20 +77,28 @@ def identity_uinput_writer(device: object | None) -> WritableUInput | None:
     return cast(WritableUInput | None, device)
 
 
-class _ComboEcodesByType:
-    def get(self, key: int, default: dict[int, object] | None = None) -> dict[int, object]:
-        value = evdev.ecodes.bytype.get(key)
-        if isinstance(value, dict):
-            return cast(dict[int, object], value)
-        return {} if default is None else default
+class _ComboEcodesByType(Mapping[int, Mapping[int, object]]):
+    def __getitem__(self, key: int) -> Mapping[int, object]:
+        return cast(Mapping[int, object], evdev.ecodes.bytype[int(key)])
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(evdev.ecodes.bytype)
+
+    def __len__(self) -> int:
+        return len(evdev.ecodes.bytype)
 
 
 class _ComboEcodes:
     EV_KEY: Final[int] = evdev.ecodes.EV_KEY
     EV_REL: Final[int] = evdev.ecodes.EV_REL
+    EV_SYN: Final[int] = evdev.ecodes.EV_SYN
     EV_ABS: Final[int] = evdev.ecodes.EV_ABS
+    REL_X: Final[int] = evdev.ecodes.REL_X
+    REL_Y: Final[int] = evdev.ecodes.REL_Y
     REL_WHEEL: Final[int] = evdev.ecodes.REL_WHEEL
     REL_HWHEEL: Final[int] = evdev.ecodes.REL_HWHEEL
+    ABS_Z: Final[int] = evdev.ecodes.ABS_Z
+    ABS_RZ: Final[int] = evdev.ecodes.ABS_RZ
     bytype: Final[_ComboEcodesByType] = _ComboEcodesByType()
 
 
@@ -101,13 +107,3 @@ class ComboEvdevAdapter:
 
 
 COMBO_EVDEV_RUNTIME: Final[ComboEvdevAdapter] = ComboEvdevAdapter()
-
-
-def combo_emit_mouse_move(
-    uinput_dev: object | None,
-    move_x: int,
-    move_y: int,
-    *,
-    absolute: bool = False,
-) -> None:
-    emit_mouse_move(identity_uinput_writer(uinput_dev), move_x, move_y, absolute=absolute)

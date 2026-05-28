@@ -515,6 +515,169 @@ async def test_rapidfire_hold_release_emits_single_key_up() -> None:
 
 
 @pytest.mark.asyncio
+async def test_superkey_rapidfire_respects_shared_key_refcounts() -> None:
+    keyboard_uinput = MagicMock()
+    keyboard_uinput.write = MagicMock()
+    keyboard_uinput.syn = MagicMock()
+    refcounts: dict[tuple[str, int], int] = {}
+
+    def track_output(bucket: str, code: int, value: int) -> bool:
+        key = (bucket, code)
+        current = refcounts.get(key, 0)
+        if value == 1:
+            refcounts[key] = current + 1
+            return current == 0
+        if current <= 1:
+            refcounts.pop(key, None)
+            return current == 1
+        refcounts[key] = current - 1
+        return False
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="rapidfire_refcount_test",
+            hold_actions=[
+                SuperkeyActionData(action_type="keyboard", target="key_e"),
+                SuperkeyActionData(
+                    action_type="keyboard",
+                    target="key_e",
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=1,
+                    rapidfire_wait_ms=1,
+                ),
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        key_event_tracker=track_output,
+    )
+
+    await machine._start_holding()
+    await asyncio.sleep(0.01)
+
+    assert [tuple(call.args) for call in keyboard_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 1),
+    ]
+
+    await machine.on_up()
+
+    assert [tuple(call.args) for call in keyboard_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_superkey_rapidfire_respects_shared_axis_refcounts() -> None:
+    gamepad_uinput = MagicMock()
+    gamepad_uinput.write = MagicMock()
+    gamepad_uinput.syn = MagicMock()
+    refcounts: dict[tuple[str, int], int] = {}
+
+    def track_output(bucket: str, code: int, value: int) -> bool:
+        key = (bucket, code)
+        current = refcounts.get(key, 0)
+        if value != 0:
+            refcounts[key] = current + 1
+            return current == 0
+        if current <= 1:
+            refcounts.pop(key, None)
+            return current == 1
+        refcounts[key] = current - 1
+        return False
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="rapidfire_axis_refcount_test",
+            hold_actions=[
+                SuperkeyActionData(
+                    action_type="gamepad_axis",
+                    target="abs_z",
+                    axis_value=255,
+                ),
+                SuperkeyActionData(
+                    action_type="gamepad_axis",
+                    target="abs_z",
+                    axis_value=255,
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=1,
+                    rapidfire_wait_ms=1,
+                ),
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=gamepad_uinput,
+        axis_event_tracker=track_output,
+    )
+
+    await machine._start_holding()
+    await asyncio.sleep(0.01)
+
+    assert [tuple(call.args) for call in gamepad_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
+    ]
+
+    await machine.on_up()
+
+    assert [tuple(call.args) for call in gamepad_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_multiple_superkey_rapidfire_actions_run_independently() -> None:
+    keyboard_uinput = MagicMock()
+    keyboard_uinput.write = MagicMock()
+    keyboard_uinput.syn = MagicMock()
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="multi_rapidfire_test",
+            hold_actions=[
+                SuperkeyActionData(
+                    action_type="keyboard",
+                    target="key_a",
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=100,
+                    rapidfire_wait_ms=100,
+                ),
+                SuperkeyActionData(
+                    action_type="keyboard",
+                    target="key_b",
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=100,
+                    rapidfire_wait_ms=100,
+                ),
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine._start_holding()
+    await asyncio.sleep(0)
+
+    assert set(machine._action_runtime.state.rapidfire_tasks) == {"btn_side#0", "btn_side#1"}
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1) in [
+        tuple(call.args) for call in keyboard_uinput.write.call_args_list
+    ]
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1) in [
+        tuple(call.args) for call in keyboard_uinput.write.call_args_list
+    ]
+
+    await machine.on_up()
+
+    assert machine._action_runtime.state.rapidfire_tasks == {}
+
+
+@pytest.mark.asyncio
 async def test_mouse_wheel_rapidfire_repeats_without_key_up() -> None:
     mouse_uinput = MagicMock()
     mouse_uinput.write = MagicMock()

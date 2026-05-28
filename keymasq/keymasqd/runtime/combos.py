@@ -35,11 +35,16 @@ from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime.action_runner import (
     ActionExecutionHandle,
     ActionRuntimeContext,
+    CancelMacroPlayback,
     dispatch_action_trigger,
     is_hold_macro_action,
     source_trigger_id,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import ActionExecutionDeps, EvdevModule
+from keymasq.keymasqd.runtime.grabbed_device_types import (
+    ActionExecutionDeps,
+    ActionRuntime,
+    EvdevModule,
+)
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_OVERLOAD,
@@ -1250,21 +1255,26 @@ async def _start_combo_action_instance(
         )
     started = deps.asyncio_mod.create_event()
     handle = ActionExecutionHandle(started=started)
+    combo_deps = deps
 
     async def repeat_superkey_executor(
-        _runtime: ActionRuntimeContext,
+        device_runtime: ActionRuntime,
         repeated_entry: RepeatHistoryEntry,
-        repeat_event_name: str,
-        **_kwargs: object,
+        event_name: str,
+        *,
+        deps: ActionExecutionDeps,
+        execution_handle: ActionExecutionHandle | None = None,
+        cancel_macro_playback: CancelMacroPlayback | None = None,
+        resolve_code_fn: ResolveCodeFn | None = None,
     ) -> None:
-        del _runtime, _kwargs
-        repeat_combo_id = repeat_event_name.removeprefix("combo:")
+        del device_runtime, deps, execution_handle, cancel_macro_playback, resolve_code_fn
+        repeat_combo_id = event_name.removeprefix("combo:")
         await _start_combo_superkey_repeat_path(
             manager,
             repeat_combo_id,
             repeated_entry,
             trigger_binding,
-            deps=deps,
+            deps=combo_deps,
         )
 
     await shared_action_runner.execute_action(
@@ -1284,7 +1294,10 @@ async def _start_combo_action_instance(
     if is_hold_macro_action(action):
         await shared_action_runner.drain_action_tasks(handle)
 
-    if _combo_action_needs_release(action):
+    needs_release = _combo_action_needs_release(action)
+    if action.action_type == ActionType.REPEAT and not runtime.state.repeat_active_actions:
+        needs_release = False
+    if needs_release:
         manager.combo_state.active_actions[combo_id] = ComboActionState(
             kind="executor",
             action=action,

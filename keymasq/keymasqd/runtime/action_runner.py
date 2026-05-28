@@ -333,7 +333,7 @@ async def execute_action(
         and action.action_type not in {ActionType.PASSTHROUGH, ActionType.SUPERKEY}
     ):
         remember_action(
-            device_runtime.repeat_state,
+            getattr(device_runtime, "repeat_state", None),
             action,
             source_device=device_runtime.hardware_id,
             source_button=event_name,
@@ -652,7 +652,7 @@ async def _execute_repeat_action(
     record_repeat: bool = True,
 ) -> None:
     repeat_event_name = f"{event_name}#repeat"
-    repeat_state = device_runtime.repeat_state
+    repeat_state = getattr(device_runtime, "repeat_state", None)
     active_actions = device_runtime.state.repeat_active_actions
     profile_action_types = {
         ActionType.PROFILE_ENABLE,

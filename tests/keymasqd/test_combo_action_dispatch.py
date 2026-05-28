@@ -100,7 +100,9 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
         ]
         assert "repeat" in manager.combo_state.active_actions
-        assert "repeat#repeat" in manager.combo_state.active_actions
+        state = manager.combo_state.active_actions["repeat"]
+        assert state.action_runtime is not None
+        assert "combo:repeat#repeat" in state.action_runtime.state.repeat_active_actions
 
         await _runtime_stop_combo_action(manager, "repeat")
         await _runtime_start_combo_action(

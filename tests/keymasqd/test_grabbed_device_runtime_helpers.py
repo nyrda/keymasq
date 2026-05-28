@@ -1650,6 +1650,45 @@ class TestGrabbedDeviceHelpers:
         assert len(device.repeat_state.history) == 3
 
     @pytest.mark.asyncio
+    async def test_repeat_action_replays_mapped_gamepad_axis_action(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        gamepad = _FakeUInput()
+        device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        source_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
+        source_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
+        repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
+        repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0)
+        axis_action = dm.MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="abs_z",
+            axis_value=255,
+        )
+
+        await _runtime_execute_grabbed_action(device, axis_action, source_press, "source")
+        await _runtime_execute_grabbed_action(device, axis_action, source_release, "source")
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_press,
+            "repeat_btn",
+        )
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            repeat_release,
+            "repeat_btn",
+        )
+
+        assert gamepad.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
+        ]
+
+    @pytest.mark.asyncio
     async def test_repeat_exec_refresh_preserves_original_history_source(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -2006,7 +2045,7 @@ class TestGrabbedDeviceHelpers:
         assert default_gamepad.writes == []
 
     @pytest.mark.asyncio
-    async def test_repeat_passthrough_gamepad_trigger_replays_axis_output(
+    async def test_repeat_passthrough_gamepad_trigger_button_remains_digital(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -2040,9 +2079,8 @@ class TestGrabbedDeviceHelpers:
         )
 
         remembered = device.repeat_state.history[-1].action
-        assert remembered.action_type == ActionType.GAMEPAD_AXIS
-        assert remembered.target == "abs_z"
-        assert remembered.axis_value == 255
+        assert remembered.action_type == ActionType.GAMEPAD
+        assert remembered.target == "btn_tl2"
         assert remembered.output_id == "1234:5678"
 
         await _runtime_execute_grabbed_action(
@@ -2060,8 +2098,8 @@ class TestGrabbedDeviceHelpers:
 
         assert resolved_output_ids == ["1234:5678", "1234:5678"]
         assert source_gamepad.writes == [
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_TL2, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_TL2, 0),
         ]
         assert default_gamepad.writes == []
 

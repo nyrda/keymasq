@@ -48,10 +48,6 @@ _SPECIAL_REPEAT_ACTION_TYPES = frozenset(
         ActionType.PROFILE_TOGGLE,
     }
 )
-_GAMEPAD_TRIGGER_BUTTON_AXES = {
-    "btn_tl2": "abs_z",
-    "btn_tr2": "abs_rz",
-}
 
 
 @dataclass(frozen=True)
@@ -286,20 +282,11 @@ def remember_passthrough_event(
         elif normalized_name.startswith("btn_"):
             if _device_is_gamepad(device_runtime):
                 output_id = str(getattr(device_runtime, "hardware_id", "") or "") or None
-                axis_target = _GAMEPAD_TRIGGER_BUTTON_AXES.get(normalized_name)
-                if axis_target is not None:
-                    action = MappingAction(
-                        action_type=ActionType.GAMEPAD_AXIS,
-                        target=axis_target,
-                        axis_value=255,
-                        output_id=output_id,
-                    )
-                else:
-                    action = MappingAction(
-                        action_type=ActionType.GAMEPAD,
-                        target=normalized_name,
-                        output_id=output_id,
-                    )
+                action = MappingAction(
+                    action_type=ActionType.GAMEPAD,
+                    target=normalized_name,
+                    output_id=output_id,
+                )
             else:
                 action = MappingAction(action_type=ActionType.MOUSE, target=normalized_name)
         else:

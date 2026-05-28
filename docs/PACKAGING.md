@@ -525,9 +525,11 @@ Run the standard source checks first:
 ```
 
 This wrapper runs `ruff`, `basedpyright`, and the selected pytest scope in the
-Nix dev shell. Use `./scripts/check.sh keymasqd`, `./scripts/check.sh session`,
-or `./scripts/check.sh gui` for focused local validation, and keep `full` for
-packaging work, shared-code changes, and broad refactors.
+Nix dev shell. `./scripts/check.sh` defaults to auto-selection from pending and
+untracked source changes. Use `./scripts/check.sh keymasqd`,
+`./scripts/check.sh session`, or `./scripts/check.sh gui` for focused local
+validation, and keep `full` for packaging work, shared-code changes, and broad
+refactors.
 
 When the host does not have usable `uinput` access, the same entrypoint can use
 the VM backend:

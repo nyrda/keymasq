@@ -25,6 +25,12 @@ from keymasq.keymasqd.runtime.mouse_actions import (
     rapidfire_relative_pulses,
     resolve_mouse_output_target,
 )
+from keymasq.keymasqd.runtime.repeat import (
+    SUPERKEY_SLOT_DOUBLE_TAP,
+    SUPERKEY_SLOT_HOLD,
+    SUPERKEY_SLOT_TAP,
+    SUPERKEY_SLOT_TAP_HOLD,
+)
 
 if TYPE_CHECKING:
     from keymasq.keymasqd.runtime.grabbed_device_types import ActionExecutionDeps
@@ -172,6 +178,7 @@ class SuperkeyMachine:
         cancel_macro_playback: CancelMacroPlayback | None = None,
         action_deps: "ActionExecutionDeps | None" = None,
         await_action_tasks: bool = True,
+        repeat_path_recorder: Callable[[str], None] | None = None,
     ) -> None:
         self.config = config
         self.event_name = event_name
@@ -189,6 +196,7 @@ class SuperkeyMachine:
         self.cancel_macro_playback = cancel_macro_playback
         self.action_deps = action_deps or _default_action_deps()
         self.await_action_tasks = await_action_tasks
+        self.repeat_path_recorder = repeat_path_recorder
 
         self.state = SuperkeyState.IDLE
         self._hold_task: asyncio.Task[None] | None = None
@@ -343,14 +351,17 @@ class SuperkeyMachine:
 
     async def _emit_tap(self) -> None:
         if self.config.tap_actions:
+            self._record_repeat_path(SUPERKEY_SLOT_TAP)
             await self._execute_actions_tap(self.config.tap_actions)
 
     async def _emit_double_tap(self) -> None:
         if self.config.double_tap_actions:
+            self._record_repeat_path(SUPERKEY_SLOT_DOUBLE_TAP)
             await self._execute_actions_tap(self.config.double_tap_actions)
 
     async def _emit_hold_down(self) -> None:
         if self.config.hold_actions:
+            self._record_repeat_path(SUPERKEY_SLOT_HOLD)
             await self._execute_actions_down(self.config.hold_actions)
 
     async def _emit_hold_up(self) -> None:
@@ -359,11 +370,33 @@ class SuperkeyMachine:
 
     async def _emit_tap_hold_down(self) -> None:
         if self.config.tap_hold_actions:
+            self._record_repeat_path(SUPERKEY_SLOT_TAP_HOLD)
             await self._execute_actions_down(self.config.tap_hold_actions)
 
     async def _emit_tap_hold_up(self) -> None:
         if self.config.tap_hold_actions:
             await self._execute_actions_up(self.config.tap_hold_actions)
+
+    async def execute_repeat_slot(self, slot: str) -> None:
+        if slot == SUPERKEY_SLOT_TAP:
+            await self._emit_tap()
+            return
+        if slot == SUPERKEY_SLOT_DOUBLE_TAP:
+            await self._emit_double_tap()
+            return
+        if slot == SUPERKEY_SLOT_HOLD:
+            if self.config.hold_actions:
+                self._record_repeat_path(SUPERKEY_SLOT_HOLD)
+                await self._execute_actions_tap(self.config.hold_actions)
+            return
+        if slot == SUPERKEY_SLOT_TAP_HOLD:
+            if self.config.tap_hold_actions:
+                self._record_repeat_path(SUPERKEY_SLOT_TAP_HOLD)
+                await self._execute_actions_tap(self.config.tap_hold_actions)
+
+    def _record_repeat_path(self, slot: str) -> None:
+        if self.repeat_path_recorder is not None:
+            self.repeat_path_recorder(slot)
 
     async def _rapidfire_loop(self, action: SuperkeyActionData) -> None:
         hold = clamp_rapidfire_hold_ms(action.rapidfire_hold_ms) / 1000.0

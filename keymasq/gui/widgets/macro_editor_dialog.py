@@ -3577,7 +3577,12 @@ class MacroEditorDialog(Adw.Dialog):
                 output_id=ev.output_id,
             )
 
-        dialog = KeySelectorDialog(self._parent, _get_key_name(ev.code), current_action)
+        dialog = KeySelectorDialog(
+            self._parent,
+            _get_key_name(ev.code),
+            current_action,
+            allow_repeat=False,
+        )
         dialog.connect("key-selected", self._on_key_selected_for_edit)
         dialog.present(self._parent)
 
@@ -4130,6 +4135,7 @@ class MacroEditorDialog(Adw.Dialog):
             self._parent,
             "Add Keystroke",
             MappingAction(action_type=ActionType.KEYBOARD),
+            allow_repeat=False,
         )
         dialog.connect(
             "key-selected",

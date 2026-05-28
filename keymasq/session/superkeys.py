@@ -261,6 +261,15 @@ class SuperkeyManager:
                 compositor_args=str(action_data.get("args", "") or ""),
             )
 
+        if action_type == ActionType.REPEAT:
+            return MappingAction(
+                action_type=action_type,
+                repeat_categories=cast(list[str] | None, action_data.get("repeat_categories")),
+                rapidfire_enabled=rapidfire_enabled,
+                rapidfire_hold_ms=rapidfire_hold_ms,
+                rapidfire_wait_ms=rapidfire_wait_ms,
+            )
+
         if action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
             return MappingAction(
                 action_type=action_type,
@@ -300,6 +309,8 @@ class SuperkeyManager:
             raise ValueError("nested superkeys are not allowed inside superkeys")
         if action.action_type == ActionType.PASSTHROUGH:
             raise ValueError("passthrough is not allowed inside overload superkeys")
+        if action.action_type == ActionType.REPEAT:
+            raise ValueError("repeat is not allowed inside overload superkeys")
 
     def get_superkey(self, name: str) -> SuperkeyConfig | None:
         return self._superkeys.get(name)
@@ -457,6 +468,8 @@ class SuperkeyManager:
                 action_data["compositor"] = action.compositor_id
             action_data["dispatcher"] = action.compositor_dispatcher or ""
             action_data["args"] = action.compositor_args or ""
+        if action.action_type == ActionType.REPEAT:
+            action_data["repeat_categories"] = list(action.repeat_categories or [])
         (
             rapidfire_enabled,
             rapidfire_hold_ms,

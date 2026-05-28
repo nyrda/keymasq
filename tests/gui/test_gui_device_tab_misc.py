@@ -1059,6 +1059,106 @@ def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough
     assert "Passthrough" not in button_labels
 
 
+def test_key_selector_dialog_repeat_uses_special_toggle_buttons_and_inline_rapidfire():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import (
+        REPEAT_CATEGORY_MOUSE,
+        REPEAT_CATEGORY_SPECIAL,
+        ActionType,
+        MappingAction,
+    )
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    def collect_buttons(widget):
+        buttons = []
+        child = widget.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Button):
+                buttons.append(child)
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    results: list[MappingAction] = []
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog.stack.set_visible_child_name("special")
+    # Repeat carries its own rapidfire controls, so the shared footer stays hidden.
+    assert dialog.options_box.get_visible() is False
+    assert "keyboard keys, mouse buttons, mouse wheel actions" in (
+        dialog.repeat_rapidfire_check.get_tooltip_text() or ""
+    )
+
+    special_tab = dialog._build_special_tab()
+    buttons_by_label = {button.get_label(): button for button in collect_buttons(special_tab)}
+    assert "Repeat Last Action" in buttons_by_label
+    assert "Map Repeat" in buttons_by_label
+    assert dialog._repeat_options_box is not None
+    assert dialog._repeat_options_box.get_visible() is False
+    assert dialog._repeat_button is not None
+    assert dialog._repeat_button.get_active() is False
+
+    dialog._repeat_button.emit("clicked")
+    assert dialog._repeat_options_box.get_visible() is True
+    assert dialog._repeat_button.get_active() is True
+
+    dialog._repeat_button.emit("clicked")
+    assert dialog._repeat_options_box.get_visible() is False
+    assert dialog._repeat_button.get_active() is False
+
+    dialog._repeat_button.emit("clicked")
+    assert dialog._repeat_options_box.get_visible() is True
+
+    toggles = dialog._repeat_toggle_buttons
+    toggle_labels = {toggle.get_label() for toggle in toggles.values()}
+    assert toggle_labels == {"Keys", "Mouse", "Gamepad", "Macros", "Other"}
+    assert all(toggle.get_hexpand() for toggle in toggles.values())
+
+    mouse_toggle = toggles[REPEAT_CATEGORY_MOUSE]
+    other_toggle = toggles[REPEAT_CATEGORY_SPECIAL]
+    assert isinstance(mouse_toggle, Gtk.ToggleButton)
+    assert isinstance(other_toggle, Gtk.ToggleButton)
+    assert "Keymasq special actions" in (other_toggle.get_tooltip_text() or "")
+
+    dialog.repeat_rapidfire_check.set_active(True)
+    dialog.repeat_hold_spin.set_value(35)
+    dialog.repeat_wait_spin.set_value(45)
+    other_toggle.set_active(False)
+    buttons_by_label["Map Repeat"].emit("clicked")
+
+    assert len(results) == 1
+    action = results[0]
+    assert action.action_type == ActionType.REPEAT
+    assert "mouse" in (action.repeat_categories or [])
+    assert "mouse_move" not in (action.repeat_categories or [])
+    assert "special" not in (action.repeat_categories or [])
+    assert action.rapidfire_enabled is True
+    assert action.rapidfire_hold_ms == 35
+    assert action.rapidfire_wait_ms == 45
+
+
+def test_key_selector_dialog_repeat_preserves_empty_categories():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(action_type=ActionType.REPEAT, repeat_categories=[]),
+    )
+
+    assert dialog.stack.get_visible_child_name() == "special"
+    assert dialog._repeat_button is not None
+    assert dialog._repeat_button.get_active() is True
+    assert dialog._repeat_map_btn is not None
+    assert dialog._repeat_map_btn.get_sensitive() is False
+    assert all(not toggle.get_active() for toggle in dialog._repeat_toggle_buttons.values())
+
+
 def test_key_selector_dialog_uses_dedicated_superkey_tab(temp_config_dir, monkeypatch):
     from gi.repository import Gtk
 

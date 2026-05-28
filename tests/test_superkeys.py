@@ -688,6 +688,25 @@ def test_superkey_runtime_payload_rejects_nested_overload_superkey() -> None:
         )
 
 
+def test_superkey_runtime_payload_rejects_repeat_overload_superkey() -> None:
+    with pytest.raises(ValueError, match="repeat is not allowed inside overload superkeys"):
+        parse_superkey_config(
+            _parse_manager(),
+            {
+                "name": "bad_overload_repeat",
+                "mode": "overload",
+                "overload_actions": [{"action": "repeat"}],
+            },
+            json_object=lambda value: value if isinstance(value, dict) else None,
+            str_value=lambda value, default="": default if value is None else str(value),
+            optional_str=lambda value: None if value is None else str(value),
+            int_value=lambda value, default=0: default if value is None else int(value),
+            int_or_none=lambda value: None if value is None else int(value),
+            float_value=lambda value, default=0.0: default if value is None else float(value),
+            parse_superkey_action=lambda *_args, **_kwargs: None,
+        )
+
+
 def test_superkey_manager_rejects_nested_overload_superkeys(
     temp_config_dir,
     monkeypatch: pytest.MonkeyPatch,
@@ -706,6 +725,24 @@ def test_superkey_manager_rejects_nested_overload_superkeys(
         )
 
 
+def test_superkey_manager_rejects_repeat_overload_superkeys(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    with pytest.raises(ValueError, match="repeat is not allowed inside overload superkeys"):
+        SuperkeyConfig(
+            name="bad_overload",
+            mode=SuperkeyMode.OVERLOAD,
+            overload_actions=[
+                MappingAction(action_type=ActionType.REPEAT),
+            ],
+        )
+
+
 def test_superkey_payload_serializer_rejects_nested_overload_superkeys() -> None:
     manager = SimpleNamespace(
         exec_state=ExecRuntimeState(),
@@ -717,6 +754,20 @@ def test_superkey_payload_serializer_rejects_nested_overload_superkeys() -> None
     ]
 
     with pytest.raises(ValueError, match="nested superkeys are not allowed"):
+        serialize_superkey(manager, config, "1234:5678")
+
+
+def test_superkey_payload_serializer_rejects_repeat_overload_superkeys() -> None:
+    manager = SimpleNamespace(
+        exec_state=ExecRuntimeState(),
+        superkeys=SimpleNamespace(get_superkey=lambda _name: None),
+    )
+    config = SuperkeyConfig(name="bad_payload_repeat", mode=SuperkeyMode.OVERLOAD)
+    config.overload_actions = [
+        MappingAction(action_type=ActionType.REPEAT),
+    ]
+
+    with pytest.raises(ValueError, match="repeat is not allowed inside overload superkeys"):
         serialize_superkey(manager, config, "1234:5678")
 
 

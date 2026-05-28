@@ -35,12 +35,22 @@ from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime.action_runner import (
     ActionExecutionHandle,
     ActionRuntimeContext,
+    CancelMacroPlayback,
     dispatch_action_trigger,
     is_hold_macro_action,
     source_trigger_id,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import ActionExecutionDeps, EvdevModule
+from keymasq.keymasqd.runtime.grabbed_device_types import (
+    ActionExecutionDeps,
+    ActionRuntime,
+    EvdevModule,
+)
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
+from keymasq.keymasqd.runtime.repeat import (
+    SUPERKEY_SLOT_OVERLOAD,
+    RepeatHistoryEntry,
+    remember_superkey_path,
+)
 from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
@@ -161,6 +171,7 @@ def _combo_action_runtime(
             if callable(emergency_resetter)
             else None
         ),
+        repeat_state=manager.repeat_state,
         gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
             output_id,
             context=context,
@@ -745,6 +756,15 @@ async def _combo_superkey_machine(
     def combo_superkey_output_tracker(action_type: str, code: int, value: int) -> bool:
         return track_combo_superkey_output(manager, action_type, code, value)
 
+    def repeat_path_recorder(slot: str) -> None:
+        remember_superkey_path(
+            manager.repeat_state,
+            action,
+            slot,
+            source_device=trigger_binding.hardware_id,
+            source_button=trigger_name,
+        )
+
     machine = SuperkeyMachine(
         config=config,
         event_name=trigger_name,
@@ -764,6 +784,7 @@ async def _combo_superkey_machine(
         cancel_macro_playback=manager.cancel_macro_playback,
         action_deps=_action_execution_deps(deps),
         await_action_tasks=False,
+        repeat_path_recorder=repeat_path_recorder,
     )
     manager.combo_state.superkey_machines[combo_id] = machine
     manager.combo_state.superkey_machine_bindings[combo_id] = machine_bindings
@@ -855,6 +876,7 @@ def _combo_action_needs_release(action: MappingAction) -> bool:
         ActionType.KEYBOARD,
         ActionType.GAMEPAD,
         ActionType.GAMEPAD_AXIS,
+        ActionType.REPEAT,
     }:
         return True
     if action.action_type == ActionType.MOUSE:
@@ -899,6 +921,7 @@ async def start_combo_action(
     trigger_bindings: Sequence[RuntimeComboBinding],
     *,
     deps: ComboRuntimeDeps,
+    record_repeat: bool = True,
 ) -> None:
     if action is None:
         return
@@ -946,87 +969,17 @@ async def start_combo_action(
     if action.action_type == ActionType.SUPERKEY:
         config = cast(RuntimeSuperkeyConfig, superkey_config)
         if config.mode == SuperkeyMode.OVERLOAD:
-            if config.overload_down_actions or config.overload_up_actions:
-                split_child_combo_ids: list[str] = []
-                for index, child_action in enumerate(config.overload_actions):
-                    if child_action.action_type == ActionType.SUPERKEY:
-                        log.warning(
-                            "Skipping nested superkey child %s in combo overload %s (%s)",
-                            child_action.superkey_name or "<unnamed>",
-                            combo_id,
-                            config.name,
-                        )
-                        continue
-                    child_combo_id = f"{combo_id}#overload#{index}"
-                    await _start_combo_action_instance(
-                        manager,
-                        child_combo_id,
-                        child_action,
-                        trigger_binding,
-                        trigger_name=f"{trigger_name}#overload#{index}",
-                        deps=deps,
-                    )
-                    if child_combo_id in manager.combo_state.active_actions:
-                        split_child_combo_ids.append(child_combo_id)
-                for index, child_action in enumerate(config.overload_down_actions):
-                    if child_action.action_type == ActionType.SUPERKEY:
-                        log.warning(
-                            "Skipping nested superkey child %s in combo overload %s (%s)",
-                            child_action.superkey_name or "<unnamed>",
-                            combo_id,
-                            config.name,
-                        )
-                        continue
-                    child_combo_id = f"{combo_id}#overload_down#{index}"
-                    await _pulse_combo_action_instance(
-                        manager,
-                        child_combo_id,
-                        child_action,
-                        trigger_binding,
-                        trigger_name=f"{trigger_name}#overload_down#{index}",
-                        deps=deps,
-                    )
-                manager.combo_state.active_actions[combo_id] = ComboActionState(
-                    kind="superkey_overload_split",
-                    child_combo_ids=split_child_combo_ids,
-                    action=action,
-                    trigger_binding=trigger_binding,
-                    source_button=trigger_name,
-                    recalled_bindings=recalled_bindings,
-                    restore_bindings=restore_bindings,
-                )
-                return
-
-            child_combo_ids: list[str] = []
-            for index, child_action in enumerate(config.overload_actions):
-                if child_action.action_type == ActionType.SUPERKEY:
-                    # Combo-triggered overloads intentionally stop at one superkey layer
-                    # so a saved superkey cannot recursively expand into more superkeys.
-                    log.warning(
-                        "Skipping nested superkey child %s in combo overload %s (%s)",
-                        child_action.superkey_name or "<unnamed>",
-                        combo_id,
-                        config.name,
-                    )
-                    continue
-                child_combo_id = f"{combo_id}#overload#{index}"
-                await _start_combo_action_instance(
-                    manager,
-                    child_combo_id,
-                    child_action,
-                    trigger_binding,
-                    trigger_name=f"{trigger_name}#overload#{index}",
-                    deps=deps,
-                )
-                if child_combo_id in manager.combo_state.active_actions:
-                    child_combo_ids.append(child_combo_id)
-            manager.combo_state.active_actions[combo_id] = ComboActionState(
-                kind="superkey_overload",
-                child_combo_ids=child_combo_ids,
-                trigger_binding=trigger_binding,
-                source_button=trigger_name,
-                recalled_bindings=recalled_bindings,
-                restore_bindings=restore_bindings,
+            await _start_combo_overload_superkey(
+                manager,
+                combo_id,
+                action,
+                config,
+                trigger_binding,
+                trigger_name,
+                recalled_bindings,
+                restore_bindings,
+                deps=deps,
+                record_repeat=record_repeat,
             )
             return
 
@@ -1071,6 +1024,182 @@ async def start_combo_action(
         _restore_combo_trigger_bindings(manager, restore_bindings)
 
 
+async def _start_combo_overload_superkey(
+    manager: _ComboManager,
+    combo_id: str,
+    action: MappingAction,
+    config: RuntimeSuperkeyConfig,
+    trigger_binding: RuntimeComboBinding,
+    trigger_name: str,
+    recalled_bindings: Sequence[RuntimeComboBinding],
+    restore_bindings: Sequence[RuntimeComboBinding],
+    *,
+    deps: ComboRuntimeDeps,
+    record_repeat: bool,
+) -> None:
+    if record_repeat:
+        remember_superkey_path(
+            manager.repeat_state,
+            action,
+            SUPERKEY_SLOT_OVERLOAD,
+            source_device=trigger_binding.hardware_id,
+            source_button=trigger_name,
+        )
+    if config.overload_down_actions or config.overload_up_actions:
+        split_child_combo_ids: list[str] = []
+        for index, child_action in enumerate(config.overload_actions):
+            if child_action.action_type == ActionType.SUPERKEY:
+                log.warning(
+                    "Skipping nested superkey child %s in combo overload %s (%s)",
+                    child_action.superkey_name or "<unnamed>",
+                    combo_id,
+                    config.name,
+                )
+                continue
+            child_combo_id = f"{combo_id}#overload#{index}"
+            await _start_combo_action_instance(
+                manager,
+                child_combo_id,
+                child_action,
+                trigger_binding,
+                trigger_name=f"{trigger_name}#overload#{index}",
+                deps=deps,
+                record_repeat=False,
+            )
+            if child_combo_id in manager.combo_state.active_actions:
+                split_child_combo_ids.append(child_combo_id)
+        for index, child_action in enumerate(config.overload_down_actions):
+            if child_action.action_type == ActionType.SUPERKEY:
+                log.warning(
+                    "Skipping nested superkey child %s in combo overload %s (%s)",
+                    child_action.superkey_name or "<unnamed>",
+                    combo_id,
+                    config.name,
+                )
+                continue
+            child_combo_id = f"{combo_id}#overload_down#{index}"
+            await _pulse_combo_action_instance(
+                manager,
+                child_combo_id,
+                child_action,
+                trigger_binding,
+                trigger_name=f"{trigger_name}#overload_down#{index}",
+                deps=deps,
+                record_repeat=False,
+            )
+        manager.combo_state.active_actions[combo_id] = ComboActionState(
+            kind="superkey_overload_split",
+            child_combo_ids=split_child_combo_ids,
+            action=action,
+            trigger_binding=trigger_binding,
+            source_button=trigger_name,
+            recalled_bindings=list(recalled_bindings),
+            restore_bindings=list(restore_bindings),
+        )
+        return
+
+    child_combo_ids: list[str] = []
+    for index, child_action in enumerate(config.overload_actions):
+        if child_action.action_type == ActionType.SUPERKEY:
+            log.warning(
+                "Skipping nested superkey child %s in combo overload %s (%s)",
+                child_action.superkey_name or "<unnamed>",
+                combo_id,
+                config.name,
+            )
+            continue
+        child_combo_id = f"{combo_id}#overload#{index}"
+        await _start_combo_action_instance(
+            manager,
+            child_combo_id,
+            child_action,
+            trigger_binding,
+            trigger_name=f"{trigger_name}#overload#{index}",
+            deps=deps,
+            record_repeat=False,
+        )
+        if child_combo_id in manager.combo_state.active_actions:
+            child_combo_ids.append(child_combo_id)
+    manager.combo_state.active_actions[combo_id] = ComboActionState(
+        kind="superkey_overload",
+        child_combo_ids=child_combo_ids,
+        trigger_binding=trigger_binding,
+        source_button=trigger_name,
+        recalled_bindings=list(recalled_bindings),
+        restore_bindings=list(restore_bindings),
+    )
+
+
+async def _start_combo_superkey_repeat_path(
+    manager: _ComboManager,
+    combo_id: str,
+    repeated_entry: RepeatHistoryEntry,
+    trigger_binding: RuntimeComboBinding,
+    *,
+    deps: ComboRuntimeDeps,
+) -> None:
+    action = repeated_entry.action
+    slot = repeated_entry.superkey_slot
+    if slot is None or action.action_type != ActionType.SUPERKEY:
+        return
+    config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
+    if config is None:
+        return
+    if slot == SUPERKEY_SLOT_OVERLOAD:
+        trigger_name = f"combo:{combo_id}"
+        await _start_combo_overload_superkey(
+            manager,
+            combo_id,
+            action,
+            config,
+            trigger_binding,
+            trigger_name,
+            (),
+            (),
+            deps=deps,
+            record_repeat=False,
+        )
+        await stop_combo_action(manager, combo_id, deps=deps)
+        return
+    await _repeat_combo_pattern_slot_once(
+        manager,
+        combo_id,
+        action,
+        config,
+        slot,
+        trigger_binding,
+        deps=deps,
+    )
+
+
+async def _repeat_combo_pattern_slot_once(
+    manager: _ComboManager,
+    combo_id: str,
+    action: MappingAction,
+    config: RuntimeSuperkeyConfig,
+    slot: str,
+    trigger_binding: RuntimeComboBinding,
+    *,
+    deps: ComboRuntimeDeps,
+) -> None:
+    if config.mode == SuperkeyMode.OVERLOAD:
+        return
+    machine = await _combo_superkey_machine(
+        manager,
+        combo_id,
+        action,
+        trigger_binding,
+        [trigger_binding],
+        deps=deps,
+    )
+    if machine is None:
+        return
+    await machine.execute_repeat_slot(slot)
+    await machine.stop()
+    manager.combo_state.superkey_machines.pop(combo_id, None)
+    manager.combo_state.superkey_machine_bindings.pop(combo_id, None)
+
+
 async def _start_combo_action_instance(
     manager: _ComboManager,
     combo_id: str,
@@ -1079,6 +1208,7 @@ async def _start_combo_action_instance(
     *,
     trigger_name: str,
     deps: ComboRuntimeDeps,
+    record_repeat: bool = True,
 ) -> None:
     if action is None or action.action_type == ActionType.SUPERKEY:
         return
@@ -1102,6 +1232,28 @@ async def _start_combo_action_instance(
         )
     started = deps.asyncio_mod.create_event()
     handle = ActionExecutionHandle(started=started)
+    combo_deps = deps
+
+    async def repeat_superkey_executor(
+        device_runtime: ActionRuntime,
+        repeated_entry: RepeatHistoryEntry,
+        event_name: str,
+        *,
+        deps: ActionExecutionDeps,
+        execution_handle: ActionExecutionHandle | None = None,
+        cancel_macro_playback: CancelMacroPlayback | None = None,
+        resolve_code_fn: ResolveCodeFn | None = None,
+    ) -> None:
+        del device_runtime, deps, execution_handle, cancel_macro_playback, resolve_code_fn
+        repeat_combo_id = event_name.removeprefix("combo:")
+        await _start_combo_superkey_repeat_path(
+            manager,
+            repeat_combo_id,
+            repeated_entry,
+            trigger_binding,
+            deps=combo_deps,
+        )
+
     await shared_action_runner.execute_action(
         runtime,
         action,
@@ -1110,14 +1262,19 @@ async def _start_combo_action_instance(
         deps=_action_execution_deps(deps),
         execution_handle=handle,
         cancel_macro_playback=manager.cancel_macro_playback,
+        repeat_superkey_executor=repeat_superkey_executor,
         resolve_code_fn=deps.resolve_code_fn,
+        record_repeat=record_repeat,
     )
     await started.wait()
 
     if is_hold_macro_action(action):
         await shared_action_runner.drain_action_tasks(handle)
 
-    if _combo_action_needs_release(action):
+    needs_release = _combo_action_needs_release(action)
+    if action.action_type == ActionType.REPEAT and not runtime.state.repeat_active_actions:
+        needs_release = False
+    if needs_release:
         manager.combo_state.active_actions[combo_id] = ComboActionState(
             kind="executor",
             action=action,
@@ -1141,6 +1298,7 @@ async def _pulse_combo_action_instance(
     *,
     trigger_name: str,
     deps: ComboRuntimeDeps,
+    record_repeat: bool = True,
 ) -> None:
     await _start_combo_action_instance(
         manager,
@@ -1149,6 +1307,7 @@ async def _pulse_combo_action_instance(
         trigger_binding,
         trigger_name=trigger_name,
         deps=deps,
+        record_repeat=record_repeat,
     )
     await wait_combo_action_started(manager, combo_id)
     await stop_combo_action(manager, combo_id, deps=deps)
@@ -1188,7 +1347,7 @@ async def stop_combo_action(
         trigger_binding = state.trigger_binding
         config = cast(RuntimeSuperkeyConfig | None, action.superkey_config) if action else None
         if trigger_binding is not None and config is not None:
-            trigger_name = str(state.source_button or combo_id)
+            trigger_name = str(state.source_button or f"combo:{combo_id}")
             for index, child_action in enumerate(config.overload_up_actions):
                 if child_action.action_type == ActionType.SUPERKEY:
                     log.warning(
@@ -1205,6 +1364,7 @@ async def stop_combo_action(
                     trigger_binding,
                     trigger_name=f"{trigger_name}#overload_up#{index}",
                     deps=deps,
+                    record_repeat=False,
                 )
         for child_combo_id in reversed(state.child_combo_ids):
             await stop_combo_action(
@@ -1301,8 +1461,7 @@ async def clear_combo_runtime_except(
         await machine.stop()
 
     active_output_roots = {
-        combo_id.split("#", 1)[0]
-        for combo_id in manager.combo_state.active_actions
+        combo_id.split("#", 1)[0] for combo_id in manager.combo_state.active_actions
     }
     if not any(root in preserved for root in active_output_roots):
         for held in manager.combo_state.held_output_keys.values():

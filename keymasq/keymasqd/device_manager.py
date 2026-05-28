@@ -52,6 +52,7 @@ from keymasq.keymasqd.runtime import grab_lifecycle as runtime_grab_lifecycle
 from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
+from keymasq.keymasqd.runtime import repeat as runtime_repeat
 from keymasq.keymasqd.runtime import topology as runtime_topology
 from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
@@ -458,6 +459,7 @@ class DeviceManager:
             held_release_retry_s=max(0.01, float(held_release_retry_s)),
         )
         self.combo_state = runtime_combos.ComboRuntimeState()
+        self.repeat_state = runtime_repeat.RepeatRuntimeState()
         self.profile_activation_tracker = ProfileActivationTracker(
             broadcast_deactivate_request=self._broadcast_profile_deactivate_requested,
         )
@@ -680,6 +682,7 @@ class DeviceManager:
 
     async def release_all_devices(self) -> None:
         self.profile_activation_tracker.reset()
+        self.repeat_state.history.clear()
         await runtime_grab_lifecycle.release_all_devices(
             self,
             fire_and_observe_fn=_fire_and_observe,
@@ -880,7 +883,7 @@ class DeviceManager:
         hardware_id: str,
         mapping: JsonObject,
     ) -> JsonObject:
-        return await runtime_grab_lifecycle.set_mapping(
+        result = await runtime_grab_lifecycle.set_mapping(
             self,
             hardware_id,
             mapping,
@@ -892,6 +895,12 @@ class DeviceManager:
             float_value_fn=_float_value,
             log=log,
         )
+        runtime_repeat.forget_exec_actions(
+            self.repeat_state,
+            source_device=hardware_id,
+            exclude_source_button_prefix="combo:",
+        )
+        return result
 
     async def set_combos(self, combos: Sequence[object]) -> JsonObject:
         async with self._op_lock:
@@ -977,6 +986,10 @@ class DeviceManager:
             new_active_combos = self._with_emergency_cancel_combos(parsed)
             unchanged_ids = unchanged_combo_ids(old_active_signatures, new_active_combos)
             preserve_combo_ids = unchanged_ids if unchanged_ids else None
+            runtime_repeat.forget_exec_actions(
+                self.repeat_state,
+                source_button_prefix="combo:",
+            )
             self._configured_combos = parsed
             active_combos = await self._refresh_combo_runtime_unlocked(
                 preserve_combo_ids=preserve_combo_ids,

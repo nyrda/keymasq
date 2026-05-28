@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -9,6 +10,7 @@ from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_game
 if TYPE_CHECKING:
     from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 
+log = logging.getLogger("keymasq.common.models")
 PROTECTED_BUTTONS = frozenset({"btn_left", "btn_right"})
 
 
@@ -33,6 +35,35 @@ class ActionType(Enum):
     PROFILE_ENABLE = "profile_enable"
     PROFILE_DISABLE = "profile_disable"
     PROFILE_TOGGLE = "profile_toggle"
+    REPEAT = "repeat"
+
+
+REPEAT_CATEGORY_KEYBOARD = "keyboard"
+REPEAT_CATEGORY_MOUSE = "mouse"
+REPEAT_CATEGORY_GAMEPAD = "gamepad"
+REPEAT_CATEGORY_MACRO = "macro"
+REPEAT_CATEGORY_SPECIAL = "special"
+
+REPEAT_CATEGORIES = frozenset(
+    {
+        REPEAT_CATEGORY_KEYBOARD,
+        REPEAT_CATEGORY_MOUSE,
+        REPEAT_CATEGORY_GAMEPAD,
+        REPEAT_CATEGORY_MACRO,
+        REPEAT_CATEGORY_SPECIAL,
+    }
+)
+DEFAULT_REPEAT_CATEGORIES = (
+    REPEAT_CATEGORY_KEYBOARD,
+    REPEAT_CATEGORY_MOUSE,
+    REPEAT_CATEGORY_GAMEPAD,
+    REPEAT_CATEGORY_MACRO,
+    REPEAT_CATEGORY_SPECIAL,
+)
+_LEGACY_REPEAT_CATEGORY_ALIASES = {
+    "mouse_button": REPEAT_CATEGORY_MOUSE,
+    "mouse_wheel": REPEAT_CATEGORY_MOUSE,
+}
 
 
 class SuperkeyMode(Enum):
@@ -69,6 +100,7 @@ RAPIDFIRE_ACTION_TYPES = frozenset(
         ActionType.GAMEPAD_AXIS,
         ActionType.MOUSE_MOVE_REL,
         ActionType.MOUSE_MOVE_ABS,
+        ActionType.REPEAT,
     }
 )
 
@@ -191,6 +223,40 @@ def normalize_output_id(output_id: object) -> str | None:
         return None
     normalized = str(output_id).strip()
     return normalized or None
+
+
+def normalize_repeat_categories(categories: object) -> list[str]:
+    if categories is None:
+        return list(DEFAULT_REPEAT_CATEGORIES)
+    if isinstance(categories, str):
+        raw_values: list[object] = [categories]
+    elif isinstance(categories, (list, tuple, set, frozenset)):
+        raw_values = list(categories)
+    else:
+        log.warning(
+            "Invalid repeat_categories %r; using default repeat categories",
+            categories,
+        )
+        return list(DEFAULT_REPEAT_CATEGORIES)
+    if not raw_values:
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        category = str(value or "").strip().lower()
+        category = _LEGACY_REPEAT_CATEGORY_ALIASES.get(category, category)
+        if category not in REPEAT_CATEGORIES or category in seen:
+            continue
+        normalized.append(category)
+        seen.add(category)
+    if not normalized:
+        log.warning(
+            "Invalid repeat_categories %r; using default repeat categories",
+            categories,
+        )
+        return list(DEFAULT_REPEAT_CATEGORIES)
+    return normalized
 
 
 @dataclass
@@ -377,6 +443,7 @@ class MappingAction:
     tap_hold_ms: int = 10
     profile_deactivation: ProfileDeactivationPolicy | None = None
     source_profile_name: str | None = None
+    repeat_categories: list[str] | None = None
 
     def __post_init__(self) -> None:
         self.source_profile_name = (
@@ -411,6 +478,10 @@ class MappingAction:
             self.action_type,
             self.profile_deactivation,
         )
+        if self.action_type == ActionType.REPEAT:
+            self.repeat_categories = normalize_repeat_categories(self.repeat_categories)
+        else:
+            self.repeat_categories = None
 
 
 ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
@@ -806,6 +877,8 @@ class SuperkeyConfig:
         ):
             if action.action_type == ActionType.SUPERKEY:
                 raise ValueError("nested superkeys are not allowed inside superkeys")
+            if action.action_type == ActionType.REPEAT:
+                raise ValueError("repeat is not allowed inside overload superkeys")
 
     def has_overload_actions(self) -> bool:
         return bool(

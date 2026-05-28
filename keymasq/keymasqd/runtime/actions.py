@@ -503,8 +503,11 @@ def parse_overload_action_bundle(
         payload = json_object(item) if json_object is not None else cast(JsonObject | None, item)
         if payload is None:
             raise TypeError("overload action must be an object")
-        if str_value(payload.get("action"), "passthrough") == "superkey":
+        action_type = str_value(payload.get("action"), "passthrough")
+        if action_type == "superkey":
             raise ValueError("nested superkeys are not allowed inside superkeys")
+        if action_type == "repeat":
+            raise ValueError("repeat is not allowed inside overload superkeys")
         actions.append(
             parse_action(
                 manager,

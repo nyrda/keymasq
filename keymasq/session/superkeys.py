@@ -309,6 +309,8 @@ class SuperkeyManager:
             raise ValueError("nested superkeys are not allowed inside superkeys")
         if action.action_type == ActionType.PASSTHROUGH:
             raise ValueError("passthrough is not allowed inside overload superkeys")
+        if action.action_type == ActionType.REPEAT:
+            raise ValueError("repeat is not allowed inside overload superkeys")
 
     def get_superkey(self, name: str) -> SuperkeyConfig | None:
         return self._superkeys.get(name)

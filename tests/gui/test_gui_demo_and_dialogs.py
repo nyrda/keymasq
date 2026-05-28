@@ -1019,6 +1019,55 @@ class TestDialogConstruction:
             "allow_macro_options": True,
         }
 
+    def test_overload_superkey_actions_disable_repeat_selector(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ActionType, MappingAction
+        import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
+        from keymasq.gui.widgets.superkey_dialog import ActionListDialog
+
+        captured: dict[str, object] = {}
+        parent = Gtk.Window()
+
+        class DummyDialog:
+            def __init__(self, _parent, _label, current_action=None, **kwargs):
+                captured["parent"] = _parent
+                captured["current_action"] = current_action
+                captured["kwargs"] = kwargs
+
+            def connect(self, signal_name, callback, index):
+                captured["signal_name"] = signal_name
+                captured["callback"] = callback
+                captured["index"] = index
+
+            def present(self, parent):
+                captured["presented"] = True
+                captured["present_parent"] = parent
+
+        monkeypatch.setattr(key_selector_dialog_module, "KeySelectorDialog", DummyDialog)
+
+        dialog = ActionListDialog(parent, "Overload Actions", "overload")
+        dialog._open_child_editor(
+            MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            1,
+        )
+
+        assert captured["signal_name"] == "key-selected"
+        assert captured["presented"] is True
+        assert captured["parent"] is parent
+        assert captured["present_parent"] is parent
+        current_action = captured["current_action"]
+        assert isinstance(current_action, MappingAction)
+        assert current_action.action_type == ActionType.KEYBOARD
+        assert captured["kwargs"] == {
+            "allow_passthrough": False,
+            "allow_clear_mapping": False,
+            "allow_suppress": False,
+            "allow_superkey": False,
+            "allow_repeat": False,
+        }
+
     def test_overload_pulse_action_editors_describe_down_and_up_timing(self, temp_config_dir):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

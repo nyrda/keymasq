@@ -877,6 +877,8 @@ class SuperkeyConfig:
         ):
             if action.action_type == ActionType.SUPERKEY:
                 raise ValueError("nested superkeys are not allowed inside superkeys")
+            if action.action_type == ActionType.REPEAT:
+                raise ValueError("repeat is not allowed inside overload superkeys")
 
     def has_overload_actions(self) -> bool:
         return bool(

@@ -664,7 +664,7 @@ def serialize_superkey(
             ]
     elif config.overload_actions:
         data["overload_actions"] = [
-            serialize_overload_action(
+            serialize_superkey_overload_action(
                 manager,
                 action,
                 hardware_id,
@@ -675,7 +675,7 @@ def serialize_superkey(
     if config.mode == SuperkeyMode.OVERLOAD:
         if config.overload_down_actions:
             data["overload_down_actions"] = [
-                serialize_overload_action(
+                serialize_superkey_overload_action(
                     manager,
                     action,
                     hardware_id,
@@ -685,7 +685,7 @@ def serialize_superkey(
             ]
         if config.overload_up_actions:
             data["overload_up_actions"] = [
-                serialize_overload_action(
+                serialize_superkey_overload_action(
                     manager,
                     action,
                     hardware_id,
@@ -907,6 +907,23 @@ def serialize_superkey_action(
     return serialize_overload_action(
         manager,
         superkey_action_to_mapping_action(action),
+        hardware_id,
+        track_combo_refs=track_combo_refs,
+    )
+
+
+def serialize_superkey_overload_action(
+    manager: "SessionManager",
+    action: MappingAction,
+    hardware_id: str,
+    *,
+    track_combo_refs: bool = False,
+) -> JsonObject:
+    if action.action_type == ActionType.REPEAT:
+        raise ValueError("repeat is not allowed inside overload superkeys")
+    return serialize_overload_action(
+        manager,
+        action,
         hardware_id,
         track_combo_refs=track_combo_refs,
     )

@@ -371,6 +371,7 @@ class ActionListDialog(Adw.Dialog):
             allow_clear_mapping=False,
             allow_suppress=False,
             allow_superkey=False,
+            allow_repeat=False,
         )
         dialog.connect("key-selected", self._on_mapping_action_selected, index)
         dialog.present(self._parent)

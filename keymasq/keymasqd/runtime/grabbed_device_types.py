@@ -242,10 +242,7 @@ class GrabbedDeviceState:
         str,
         tuple[tuple[int, MappingAction], ...],
     ] = field(default_factory=dict)
-    analog_repeat_superkey_profile_triggers: set[str] = field(default_factory=set)
-    analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(
-        default_factory=dict
-    )
+    analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
     analog_threshold_abs_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
     analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)

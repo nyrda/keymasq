@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.device_manager_support import *
 
+
 class TestComboActionDispatch:
     @pytest.mark.asyncio
     async def test_profile_activation_trigger_end_follows_combo_lifecycle(self) -> None:
@@ -124,29 +125,12 @@ class TestComboActionDispatch:
         assert len(manager.repeat_state.history) == 3
 
     @pytest.mark.asyncio
-    async def test_combo_repeat_profile_action_uses_combo_trigger_lifetime(self) -> None:
-        events: list[tuple[CommandType, dict[str, object]]] = []
+    async def test_combo_repeat_skips_profile_actions(self) -> None:
         action_triggers: list[dict[str, object]] = []
-        source_deactivate = asyncio.Event()
-        repeat_deactivate = asyncio.Event()
 
         async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
             if event_type == CommandType.ACTION_TRIGGER:
                 action_triggers.append(data)
-                await manager.track_profile_activation(
-                    str(data["profile_name"]),
-                    f"activation-{len(action_triggers)}",
-                    str(data["trigger_id"]),
-                    data["deactivation"],
-                )
-                return
-            event = (event_type, data)
-            events.append(event)
-            if event_type == CommandType.PROFILE_DEACTIVATE_REQUESTED:
-                if data.get("activation_id") == "activation-1":
-                    source_deactivate.set()
-                if data.get("activation_id") == "activation-2":
-                    repeat_deactivate.set()
 
         manager = DeviceManager(broadcast_callback=broadcast)
         binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
@@ -159,7 +143,9 @@ class TestComboActionDispatch:
         await _runtime_start_combo_action(manager, "source-profile", profile_action, binding)
         await asyncio.sleep(0)
         await _runtime_stop_combo_action(manager, "source-profile")
-        await asyncio.wait_for(source_deactivate.wait(), timeout=1.0)
+
+        assert len(action_triggers) == 1
+        assert list(manager.repeat_state.history) == []
 
         await _runtime_start_combo_action(
             manager,
@@ -169,105 +155,8 @@ class TestComboActionDispatch:
         )
         await asyncio.sleep(0)
 
-        assert action_triggers[-1]["trigger_id"] == "1234:5678:combo:repeat-profile"
-        assert [
-            event
-            for event in events
-            if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-            and event[1].get("activation_id") == "activation-2"
-        ] == []
-
-        await _runtime_stop_combo_action(manager, "repeat-profile")
-        await asyncio.wait_for(repeat_deactivate.wait(), timeout=1.0)
-
-        assert (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-2",
-                "reason": "trigger_end",
-            },
-        ) in events
-
-    @pytest.mark.asyncio
-    async def test_combo_repeat_superkey_profile_action_keeps_combo_trigger_lifetime(
-        self,
-    ) -> None:
-        events: list[tuple[CommandType, dict[str, object]]] = []
-        action_triggers: list[dict[str, object]] = []
-        source_deactivate = asyncio.Event()
-        repeat_deactivate = asyncio.Event()
-
-        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
-            if event_type == CommandType.ACTION_TRIGGER:
-                action_triggers.append(data)
-                await manager.track_profile_activation(
-                    str(data["profile_name"]),
-                    f"activation-{len(action_triggers)}",
-                    str(data["trigger_id"]),
-                    data["deactivation"],
-                )
-                return
-            event = (event_type, data)
-            events.append(event)
-            if event_type == CommandType.PROFILE_DEACTIVATE_REQUESTED:
-                if data.get("activation_id") == "activation-1":
-                    source_deactivate.set()
-                if data.get("activation_id") == "activation-2":
-                    repeat_deactivate.set()
-
-        manager = DeviceManager(broadcast_callback=broadcast)
-        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
-        action = dm.MappingAction(
-            action_type=ActionType.SUPERKEY,
-            superkey_config=SuperkeyConfig(
-                name="combo-repeat-superkey-profile",
-                mode=SuperkeyMode.PATTERN,
-                hold_threshold_ms=1,
-                hold_actions=[
-                    SuperkeyActionData(
-                        action_type="profile_enable",
-                        profile_name="Nav",
-                        profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
-                    ),
-                ],
-            ),
-        )
-
-        await _runtime_start_combo_action(manager, "source-superkey-profile", action, binding)
-        await asyncio.sleep(0.01)
-        await _runtime_stop_combo_action(manager, "source-superkey-profile")
-        await asyncio.wait_for(source_deactivate.wait(), timeout=1.0)
-
-        await _runtime_start_combo_action(
-            manager,
-            "repeat-superkey-profile",
-            dm.MappingAction(action_type=ActionType.REPEAT),
-            binding,
-        )
-        await asyncio.sleep(0.01)
-
-        assert action_triggers[-1]["trigger_id"] == (
-            "1234:5678:combo:repeat-superkey-profile"
-        )
-        assert [
-            event
-            for event in events
-            if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-            and event[1].get("activation_id") == "activation-2"
-        ] == []
-
-        await _runtime_stop_combo_action(manager, "repeat-superkey-profile")
-        await asyncio.wait_for(repeat_deactivate.wait(), timeout=1.0)
-
-        assert (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-2",
-                "reason": "trigger_end",
-            },
-        ) in events
+        assert len(action_triggers) == 1
+        assert "repeat-profile" not in manager.combo_state.active_actions
 
     @pytest.mark.asyncio
     async def test_combo_repeat_replays_overload_superkey_path(self) -> None:
@@ -411,9 +300,7 @@ class TestComboActionDispatch:
                     dm.MappingAction(
                         action_type=ActionType.PROFILE_ENABLE,
                         profile_name="Nav",
-                        profile_deactivation=ProfileDeactivationPolicy(
-                            on_trigger_end=True
-                        ),
+                        profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
                     ),
                 ],
             ),
@@ -645,6 +532,7 @@ class TestComboActionDispatch:
         assert fake_device.presses == ["key_leftmeta"]
         assert fake_device.active == {"key_leftmeta"}
         assert fake_device.recalled == {"key_c"}
+
     @pytest.mark.asyncio
     async def test_combo_recall_trigger_keys_restores_selected_keys_on_immediate_action_completion(
         self,
@@ -719,6 +607,7 @@ class TestComboActionDispatch:
         assert fake_device.presses == ["key_leftmeta"]
         assert fake_device.active == {"key_leftmeta"}
         assert fake_device.recalled == {"key_c"}
+
     @pytest.mark.asyncio
     async def test_combo_recall_trigger_keys_restores_selected_keys_after_action_stop(
         self,
@@ -806,6 +695,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_single_step_supports_double_tap(self) -> None:
         manager = DeviceManager()
@@ -839,6 +729,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_single_step_supports_tap_hold(self) -> None:
         manager = DeviceManager()
@@ -876,6 +767,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_multistep_ignores_double_tap_slots(self) -> None:
         manager = DeviceManager()
@@ -911,6 +803,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_multistep_supports_hold_only(self) -> None:
         manager = DeviceManager()
@@ -949,6 +842,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_clear_combo_runtime_releases_active_pattern_superkey_hold(self) -> None:
         manager = DeviceManager()
@@ -982,6 +876,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_clear_combo_scope_stops_pending_pattern_superkey_machine(self) -> None:
         manager = DeviceManager()
@@ -1109,9 +1004,7 @@ class TestComboActionDispatch:
             trigger_a,
         )
         await _runtime_stop_combo_action(manager, "combo-pattern-wildcard-reuse")
-        first_machine = manager.combo_state.superkey_machines[
-            "combo-pattern-wildcard-reuse"
-        ]
+        first_machine = manager.combo_state.superkey_machines["combo-pattern-wildcard-reuse"]
 
         await _runtime_start_combo_action(
             manager,
@@ -1119,15 +1012,12 @@ class TestComboActionDispatch:
             action,
             trigger_b,
         )
-        second_machine = manager.combo_state.superkey_machines[
-            "combo-pattern-wildcard-reuse"
-        ]
+        second_machine = manager.combo_state.superkey_machines["combo-pattern-wildcard-reuse"]
 
         assert second_machine is not first_machine
         assert second_machine.source_device == "9999:0001"
-        assert (
-            manager.combo_state.superkey_machine_bindings["combo-pattern-wildcard-reuse"]
-            == (trigger_b,)
+        assert manager.combo_state.superkey_machine_bindings["combo-pattern-wildcard-reuse"] == (
+            trigger_b,
         )
 
     @pytest.mark.asyncio
@@ -1175,9 +1065,9 @@ class TestComboActionDispatch:
         )
         await _runtime_stop_combo_action(manager, "combo-pattern-multi-scope")
 
-        assert (
-            manager.combo_state.superkey_machine_bindings["combo-pattern-multi-scope"]
-            == (trigger_a, trigger_b)
+        assert manager.combo_state.superkey_machine_bindings["combo-pattern-multi-scope"] == (
+            trigger_a,
+            trigger_b,
         )
 
         await _runtime_clear_combo_scope(manager, "1234:5678", "kbd")
@@ -1238,6 +1128,7 @@ class TestComboActionDispatch:
         old_machine.stop.assert_awaited_once()
         assert len(created) == 1
         assert manager.combo_state.superkey_machines["combo-pattern-stale"] is created[0]
+
     @pytest.mark.asyncio
     async def test_start_and_stop_combo_action_cover_additional_synthetic_paths(self) -> None:
         manager = DeviceManager()

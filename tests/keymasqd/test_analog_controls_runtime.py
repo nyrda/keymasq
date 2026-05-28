@@ -14,7 +14,6 @@ from keymasq.common.models import (
     AnalogMouseMotionConfig,
     MappingAction,
     ProfileDeactivationPolicy,
-    SuperkeyMode,
 )
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime.analog_controls import (
@@ -32,12 +31,6 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceState,
     identity_uinput_writer,
 )
-from keymasq.keymasqd.runtime.repeat import (
-    SUPERKEY_SLOT_HOLD,
-    RepeatHistoryEntry,
-    RepeatRuntimeState,
-)
-from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 
 class FakeUInput:
@@ -189,9 +182,7 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
                             MappingAction(
                                 action_type=ActionType.PROFILE_ENABLE,
                                 profile_name="Nav",
-                                profile_deactivation=ProfileDeactivationPolicy(
-                                    on_trigger_end=True
-                                ),
+                                profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
                             )
                         ],
                     )
@@ -201,9 +192,7 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
     }
     runtime = _runtime(mapping, keyboard)
     runtime.broadcast_callback = broadcast
-    runtime.profile_activation_trigger_start_observer = (
-        manager.observe_profile_trigger_start
-    )
+    runtime.profile_activation_trigger_start_observer = manager.observe_profile_trigger_start
     runtime.profile_activation_trigger_end_observer = manager.observe_profile_trigger_end
 
     assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
@@ -221,216 +210,7 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
             },
         }
     ]
-    assert [
-        event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-    ] == []
-
-    assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
-    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
-
-    assert expected_deactivate in events
-
-
-@pytest.mark.asyncio
-async def test_threshold_repeat_profile_trigger_end_lifetime_follows_threshold_lifecycle() -> None:
-    events: list[tuple[CommandType, dict[str, object]]] = []
-    action_triggers: list[dict[str, object]] = []
-    action_trigger_event = asyncio.Event()
-    deactivate_event = asyncio.Event()
-    expected_deactivate = (
-        CommandType.PROFILE_DEACTIVATE_REQUESTED,
-        {
-            "profile_name": "Nav",
-            "activation_id": "activation-1",
-            "reason": "trigger_end",
-        },
-    )
-
-    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
-        if event_type == CommandType.ACTION_TRIGGER:
-            action_triggers.append(data)
-            await manager.track_profile_activation(
-                str(data["profile_name"]),
-                "activation-1",
-                str(data["trigger_id"]),
-                data["deactivation"],
-            )
-            action_trigger_event.set()
-            return
-        event = (event_type, data)
-        events.append(event)
-        if event == expected_deactivate:
-            deactivate_event.set()
-
-    manager = DeviceManager(broadcast_callback=broadcast)
-    keyboard = FakeUInput()
-    mapping = {
-        "left_stick": MappingAction(
-            action_type=ActionType.ANALOG_CONTROL,
-            analog_control_config=AnalogControlConfig(
-                name="Test",
-                thresholds=[
-                    AnalogActionThreshold(
-                        axis="x",
-                        trigger_min=0.65,
-                        trigger_max=1.0,
-                        release_min=0.55,
-                        release_max=1.0,
-                        actions=[MappingAction(action_type=ActionType.REPEAT)],
-                    )
-                ],
-            ),
-        )
-    }
-    runtime = _runtime(mapping, keyboard)
-    runtime.broadcast_callback = broadcast
-    runtime.profile_activation_trigger_start_observer = (
-        manager.observe_profile_trigger_start
-    )
-    runtime.profile_activation_trigger_end_observer = manager.observe_profile_trigger_end
-    runtime.repeat_state = RepeatRuntimeState()
-    runtime.repeat_state.history.append(
-        RepeatHistoryEntry(
-            category="special",
-            action=MappingAction(
-                action_type=ActionType.PROFILE_ENABLE,
-                profile_name="Nav",
-                profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
-            ),
-        )
-    )
-
-    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
-    await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
-
-    assert action_triggers == [
-        {
-            "action_type": "profile_enable",
-            "profile_name": "Nav",
-            "source_device": "1234:5678",
-            "source_button": "left_stick#analog_threshold#0#0",
-            "trigger_id": "1234:5678:left_stick#analog_threshold#0#0",
-            "deactivation": {
-                "on_trigger_end": True,
-            },
-        }
-    ]
-    assert [
-        event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-    ] == []
-
-    runtime.repeat_state.history.append(
-        RepeatHistoryEntry(
-            category="keyboard",
-            action=MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
-        )
-    )
-
-    assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
-    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
-
-    assert expected_deactivate in events
-
-
-@pytest.mark.asyncio
-async def test_threshold_repeat_superkey_profile_lifetime_follows_threshold() -> None:
-    events: list[tuple[CommandType, dict[str, object]]] = []
-    action_triggers: list[dict[str, object]] = []
-    action_trigger_event = asyncio.Event()
-    deactivate_event = asyncio.Event()
-    expected_deactivate = (
-        CommandType.PROFILE_DEACTIVATE_REQUESTED,
-        {
-            "profile_name": "Nav",
-            "activation_id": "activation-1",
-            "reason": "trigger_end",
-        },
-    )
-
-    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
-        if event_type == CommandType.ACTION_TRIGGER:
-            action_triggers.append(data)
-            await manager.track_profile_activation(
-                str(data["profile_name"]),
-                "activation-1",
-                str(data["trigger_id"]),
-                data["deactivation"],
-            )
-            action_trigger_event.set()
-            return
-        event = (event_type, data)
-        events.append(event)
-        if event == expected_deactivate:
-            deactivate_event.set()
-
-    manager = DeviceManager(broadcast_callback=broadcast)
-    keyboard = FakeUInput()
-    mapping = {
-        "left_stick": MappingAction(
-            action_type=ActionType.ANALOG_CONTROL,
-            analog_control_config=AnalogControlConfig(
-                name="Test",
-                thresholds=[
-                    AnalogActionThreshold(
-                        axis="x",
-                        trigger_min=0.65,
-                        trigger_max=1.0,
-                        release_min=0.55,
-                        release_max=1.0,
-                        actions=[MappingAction(action_type=ActionType.REPEAT)],
-                    )
-                ],
-            ),
-        )
-    }
-    runtime = _runtime(mapping, keyboard)
-    runtime.broadcast_callback = broadcast
-    runtime.profile_activation_trigger_start_observer = (
-        manager.observe_profile_trigger_start
-    )
-    runtime.profile_activation_trigger_end_observer = manager.observe_profile_trigger_end
-    runtime.repeat_state = RepeatRuntimeState()
-    runtime.repeat_state.history.append(
-        RepeatHistoryEntry(
-            category="special",
-            action=MappingAction(
-                action_type=ActionType.SUPERKEY,
-                superkey_config=SuperkeyConfig(
-                    name="analog-repeat-superkey-profile",
-                    mode=SuperkeyMode.PATTERN,
-                    hold_actions=[
-                        SuperkeyActionData(
-                            action_type="profile_enable",
-                            profile_name="Nav",
-                            profile_deactivation=ProfileDeactivationPolicy(
-                                on_trigger_end=True
-                            ),
-                        )
-                    ],
-                ),
-            ),
-            superkey_slot=SUPERKEY_SLOT_HOLD,
-        )
-    )
-
-    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
-    await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
-
-    assert action_triggers == [
-        {
-            "action_type": "profile_enable",
-            "profile_name": "Nav",
-            "source_device": "1234:5678",
-            "source_button": "left_stick#analog_threshold#0#0",
-            "trigger_id": "1234:5678:left_stick#analog_threshold#0#0",
-            "deactivation": {
-                "on_trigger_end": True,
-            },
-        }
-    ]
-    assert [
-        event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-    ] == []
+    assert [event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED] == []
 
     assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
     await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
@@ -700,9 +480,7 @@ async def test_axis_mouse_motion_uses_direction_and_response_curve() -> None:
 
     mouse_events = runtime.mouse_uinput.events
     assert any(
-        event_type == evdev.ecodes.EV_REL
-        and code == evdev.ecodes.REL_Y
-        and value < 0
+        event_type == evdev.ecodes.EV_REL and code == evdev.ecodes.REL_Y and value < 0
         for event_type, code, value in mouse_events
     )
     assert not any(code == evdev.ecodes.REL_X for _event_type, code, _value in mouse_events)
@@ -901,9 +679,7 @@ async def test_stick_mouse_area_can_jump_to_start_on_activation() -> None:
     assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
 
     assert starts == [(300, 400)]
-    assert runtime.mouse_uinput.events == [
-        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)
-    ]
+    assert runtime.mouse_uinput.events == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
 
 
 @pytest.mark.asyncio
@@ -1230,9 +1006,7 @@ async def test_axis_gamepad_output_both_directions_routes_signed_range() -> None
         )
     }
     runtime = _runtime(mapping, keyboard)
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("wheel_axis", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("wheel_axis", "x")}
     runtime.analog_axis_ranges = {("wheel_axis", "x"): (-32768, 32767)}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
         uinput=gamepad,
@@ -1358,9 +1132,7 @@ async def test_trigger_gamepad_output_same_uses_learned_logical_trigger_label() 
     }
     runtime = _runtime(mapping, keyboard)
     runtime.analog_inputs = {"axis_1": {"label": "Left Trigger", "type": "axis"}}
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS): ("axis_1", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS): ("axis_1", "x")}
     runtime.analog_axis_output_codes = {("axis_1", "x"): evdev.ecodes.ABS_GAS}
     runtime.analog_axis_ranges = {("axis_1", "x"): (0, 255)}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
@@ -1391,9 +1163,7 @@ async def test_trigger_gamepad_output_same_uses_standard_source_axis_code() -> N
     }
     runtime = _runtime(mapping, keyboard)
     runtime.analog_inputs = {"axis_1": {"label": "Axis 1", "type": "axis"}}
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ): ("axis_1", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ): ("axis_1", "x")}
     runtime.analog_axis_output_codes = {("axis_1", "x"): evdev.ecodes.ABS_RZ}
     runtime.analog_axis_ranges = {("axis_1", "x"): (0, 255)}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
@@ -1424,9 +1194,7 @@ async def test_generic_axis_gamepad_output_same_uses_learned_axis_code() -> None
     }
     runtime = _runtime(mapping, keyboard)
     runtime.analog_inputs = {"axis_1": {"label": "Axis 1", "type": "axis"}}
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS): ("axis_1", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS): ("axis_1", "x")}
     runtime.analog_axis_output_codes = {("axis_1", "x"): evdev.ecodes.ABS_GAS}
     runtime.analog_axis_ranges = {("axis_1", "x"): (0, 255)}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
@@ -1916,9 +1684,7 @@ async def test_reset_analog_controls_releases_threshold_after_mapping_removed() 
                         trigger_max=1.0,
                         release_min=0.55,
                         release_max=1.0,
-                        actions=[
-                            MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
-                        ],
+                        actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_a")],
                     )
                 ],
             ),

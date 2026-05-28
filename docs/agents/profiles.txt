@@ -175,12 +175,14 @@ values are normalized to `mouse`.
 `mouse` covers mouse buttons and wheel directions. Configured
 `mouse_move_rel` and `mouse_move_abs` actions are `special`; raw passthrough
 mouse movement is not recorded. Repeat does not remember Repeat, passthrough
-mapping actions, suppress actions, emergency reset, or unresolved top-level
-superkey bindings. For superkeys, the top-level binding itself is not stored
+mapping actions, suppress actions, profile actions, emergency reset, or
+unresolved top-level superkey bindings. For superkeys, the top-level binding
+itself is not stored
 verbatim; Repeat stores the resolved slot/overload path (not the original
 top-level superkey binding), so repeated Repeat invocations replay the resolved
 action. Repeating an action refreshes the Repeat history with the resolved
 action, so repeated presses of Repeat continue replaying it.
+Superkey paths that contain profile actions are not stored.
 
 ## Common snippets
 

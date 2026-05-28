@@ -28,7 +28,6 @@ from keymasq.keymasqd.runtime.mouse_actions import (
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_DOUBLE_TAP,
     SUPERKEY_SLOT_HOLD,
-    SUPERKEY_SLOT_OVERLOAD,
     SUPERKEY_SLOT_TAP,
     SUPERKEY_SLOT_TAP_HOLD,
 )
@@ -128,43 +127,6 @@ class SuperkeyConfig:
         ):
             if action.action_type == ActionType.SUPERKEY:
                 raise ValueError("nested superkeys are not allowed inside superkeys")
-
-
-def superkey_slot_uses_trigger_lifetime_profile(
-    config: SuperkeyConfig,
-    slot: str | None,
-) -> bool:
-    if slot == SUPERKEY_SLOT_OVERLOAD:
-        return any(
-            _mapping_action_uses_trigger_lifetime_profile(action)
-            for action in config.overload_actions
-        )
-    action_slots = {
-        SUPERKEY_SLOT_TAP: config.tap_actions,
-        SUPERKEY_SLOT_DOUBLE_TAP: config.double_tap_actions,
-        SUPERKEY_SLOT_HOLD: config.hold_actions,
-        SUPERKEY_SLOT_TAP_HOLD: config.tap_hold_actions,
-    }
-    return any(
-        _superkey_action_uses_trigger_lifetime_profile(action)
-        for action in action_slots.get(str(slot or ""), [])
-    )
-
-
-def _superkey_action_uses_trigger_lifetime_profile(action: SuperkeyActionData) -> bool:
-    return (
-        ActionType(action.action_type) in {ActionType.PROFILE_ENABLE, ActionType.PROFILE_TOGGLE}
-        and action.profile_deactivation is not None
-        and action.profile_deactivation.on_trigger_end
-    )
-
-
-def _mapping_action_uses_trigger_lifetime_profile(action: MappingAction) -> bool:
-    return (
-        action.action_type in {ActionType.PROFILE_ENABLE, ActionType.PROFILE_TOGGLE}
-        and action.profile_deactivation is not None
-        and action.profile_deactivation.on_trigger_end
-    )
 
 
 class _WritableUInput(Protocol):

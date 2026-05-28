@@ -27,9 +27,6 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceRuntime,
     InputEventLike,
 )
-from keymasq.keymasqd.runtime.repeat import select_repeated_entry
-from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
-from keymasq.keymasqd.superkey_state import superkey_slot_uses_trigger_lifetime_profile
 
 log = logging.getLogger("keymasqd.runtime.analog_controls")
 DEFAULT_STICK_MIN = -32768
@@ -156,8 +153,7 @@ def _control_state_key(source_id: str, index: int, total: int) -> str:
 def analog_state_keys_for_action(source_id: str, action: MappingAction | None) -> set[str]:
     configs = _action_analog_control_configs(action)
     return {
-        _control_state_key(source_id, index, len(configs))
-        for index, _config in enumerate(configs)
+        _control_state_key(source_id, index, len(configs)) for index, _config in enumerate(configs)
     }
 
 
@@ -344,11 +340,6 @@ async def reset_analog_controls(
     for threshold_key in list(device_runtime.state.analog_active_threshold_actions):
         if _threshold_source_key(threshold_key) not in preserved:
             device_runtime.state.analog_active_threshold_actions.pop(threshold_key, None)
-    device_runtime.state.analog_repeat_superkey_profile_triggers = {
-        child_event_name
-        for child_event_name in device_runtime.state.analog_repeat_superkey_profile_triggers
-        if _threshold_source_key(child_event_name) in preserved
-    }
     _discard_unpreserved_keys(device_runtime.state.analog_mouse_tasks, preserved)
     _discard_unpreserved_keys(device_runtime.state.analog_mouse_accumulators, preserved)
     _discard_unpreserved_keys(device_runtime.state.analog_mouse_area_offsets, preserved)
@@ -436,26 +427,9 @@ async def _activate_threshold_actions(
             )
             recorded_profile_action = True
         child_event_name = _child_event_name(source_id, index, action_index)
-        lifecycle_action = _threshold_profile_lifecycle_action(
-            device_runtime,
-            action,
-            child_event_name,
-        )
-        if _threshold_repeat_superkey_uses_trigger_lifetime_profile(
-            device_runtime,
-            action,
-        ):
-            _observe_threshold_trigger_name(
-                device_runtime,
-                child_event_name,
-                active=True,
-            )
-            device_runtime.state.analog_repeat_superkey_profile_triggers.add(
-                child_event_name
-            )
         _observe_threshold_profile_trigger(
             device_runtime,
-            lifecycle_action,
+            action,
             child_event_name,
             active=True,
         )
@@ -478,9 +452,7 @@ async def _activate_threshold_actions(
                 value,
             ),
         )
-    device_runtime.state.analog_active_threshold_actions[threshold_key] = tuple(
-        executable_actions
-    )
+    device_runtime.state.analog_active_threshold_actions[threshold_key] = tuple(executable_actions)
 
 
 async def _release_threshold_actions(
@@ -498,7 +470,9 @@ async def _release_threshold_actions(
     action_entries = (
         actions
         if actions is not None
-        else tuple(enumerate(threshold.actions)) if threshold is not None else ()
+        else tuple(enumerate(threshold.actions))
+        if threshold is not None
+        else ()
     )
     for action_index, action in action_entries:
         if action.action_type in {
@@ -508,14 +482,6 @@ async def _release_threshold_actions(
         }:
             continue
         child_event_name = _child_event_name(source_id, index, action_index)
-        lifecycle_action = _threshold_profile_lifecycle_action(
-            device_runtime,
-            action,
-            child_event_name,
-        )
-        repeat_superkey_uses_trigger_lifetime = child_event_name in (
-            device_runtime.state.analog_repeat_superkey_profile_triggers
-        )
         await runtime_actions.execute_action(
             device_runtime,
             action,
@@ -537,60 +503,10 @@ async def _release_threshold_actions(
         )
         _observe_threshold_profile_trigger(
             device_runtime,
-            lifecycle_action,
+            action,
             child_event_name,
             active=False,
         )
-        if repeat_superkey_uses_trigger_lifetime:
-            _observe_threshold_trigger_name(
-                device_runtime,
-                child_event_name,
-                active=False,
-            )
-            device_runtime.state.analog_repeat_superkey_profile_triggers.discard(
-                child_event_name
-            )
-
-
-def _threshold_profile_lifecycle_action(
-    device_runtime: GrabbedDeviceRuntime,
-    action: MappingAction,
-    child_event_name: str,
-) -> MappingAction:
-    if action.action_type != ActionType.REPEAT:
-        return action
-    active_action = device_runtime.state.repeat_active_actions.get(
-        f"{child_event_name}#repeat"
-    )
-    if active_action is not None:
-        return active_action
-    repeated_entry = select_repeated_entry(
-        getattr(device_runtime, "repeat_state", None),
-        action,
-    )
-    return repeated_entry.action if repeated_entry is not None else action
-
-
-def _threshold_repeat_superkey_uses_trigger_lifetime_profile(
-    device_runtime: GrabbedDeviceRuntime,
-    action: MappingAction,
-) -> bool:
-    if action.action_type != ActionType.REPEAT:
-        return False
-    repeated_entry = select_repeated_entry(
-        getattr(device_runtime, "repeat_state", None),
-        action,
-    )
-    if repeated_entry is None or repeated_entry.superkey_slot is None:
-        return False
-    config = cast(RuntimeSuperkeyConfig | None, repeated_entry.action.superkey_config)
-    return bool(
-        config is not None
-        and superkey_slot_uses_trigger_lifetime_profile(
-            config,
-            repeated_entry.superkey_slot,
-        )
-    )
 
 
 def _observe_threshold_profile_trigger(
@@ -617,22 +533,6 @@ def _observe_threshold_profile_trigger(
         observer(source_trigger_id(device_runtime.hardware_id, child_event_name))
 
 
-def _observe_threshold_trigger_name(
-    device_runtime: GrabbedDeviceRuntime,
-    child_event_name: str,
-    *,
-    active: bool,
-) -> None:
-    observer_name = (
-        "profile_activation_trigger_start_observer"
-        if active
-        else "profile_activation_trigger_end_observer"
-    )
-    observer = getattr(device_runtime, observer_name, None)
-    if observer is not None:
-        observer(source_trigger_id(device_runtime.hardware_id, child_event_name))
-
-
 def _record_threshold_profile_action(
     device_runtime: GrabbedDeviceRuntime,
     source_profile_name: str | None,
@@ -640,11 +540,7 @@ def _record_threshold_profile_action(
 ) -> None:
     recorder = getattr(device_runtime, "profile_activation_recorder", None)
     if recorder is not None:
-        trigger_id = (
-            source_trigger_id(device_runtime.hardware_id, source_id)
-            if source_id
-            else None
-        )
+        trigger_id = source_trigger_id(device_runtime.hardware_id, source_id) if source_id else None
         recorder(source_profile_name, trigger_id)
 
 
@@ -1312,8 +1208,7 @@ def _reset_analog_gamepad_output(
                     axis_code,
                     config.gamepad_output.output_rest
                     if config.gamepad_output.output_rest is not None
-                    else _axis_int(axis, "rest")
-                    or DEFAULT_TRIGGER_MIN,
+                    else _axis_int(axis, "rest") or DEFAULT_TRIGGER_MIN,
                 )
             )
         else:
@@ -1605,19 +1500,9 @@ def _same_trigger_output_id(
         label_value = input_metadata.get("label")
         label = str(label_value or "")
     text = f"{source_id} {label}".lower().replace("-", "_").replace(" ", "_")
-    if (
-        "left_trigger" in text
-        or text.endswith("_lt")
-        or "_lt_" in text
-        or "l2" in text
-    ):
+    if "left_trigger" in text or text.endswith("_lt") or "_lt_" in text or "l2" in text:
         return "left_trigger"
-    if (
-        "right_trigger" in text
-        or text.endswith("_rt")
-        or "_rt_" in text
-        or "r2" in text
-    ):
+    if "right_trigger" in text or text.endswith("_rt") or "_rt_" in text or "r2" in text:
         return "right_trigger"
     return None
 

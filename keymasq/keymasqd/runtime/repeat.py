@@ -43,6 +43,11 @@ _SPECIAL_REPEAT_ACTION_TYPES = frozenset(
         ActionType.START_MACRO_RECORDING,
         ActionType.STOP_MACRO_RECORDING,
         ActionType.CANCEL_MACRO_PLAYBACK,
+    }
+)
+
+_PROFILE_ACTION_TYPES = frozenset(
+    {
         ActionType.PROFILE_ENABLE,
         ActionType.PROFILE_DISABLE,
         ActionType.PROFILE_TOGGLE,
@@ -160,6 +165,8 @@ def remember_superkey_path(
             return
     elif action.superkey_config.mode == SuperkeyMode.OVERLOAD:
         return
+    if _superkey_slot_contains_profile_action(action, normalized_slot):
+        return
     repeat_state.history.append(
         RepeatHistoryEntry(
             category=REPEAT_CATEGORY_SPECIAL,
@@ -195,6 +202,8 @@ def select_repeated_entry(
     for entry in reversed(repeat_state.history):
         if entry.action.action_type == ActionType.REPEAT:
             continue
+        if _repeat_entry_contains_profile_action(entry):
+            continue
         if entry.category in allowed:
             return replace(entry, action=repeat_execution_action(repeat_action, entry.action))
     return None
@@ -229,9 +238,7 @@ def _superkey_action_contains_exec(action: MappingAction) -> bool:
         config.tap_hold_actions,
     )
     if any(
-        _is_exec_action_type(child.action_type)
-        for actions in pattern_slots
-        for child in actions
+        _is_exec_action_type(child.action_type) for actions in pattern_slots for child in actions
     ):
         return True
     overload_slots = (
@@ -240,9 +247,40 @@ def _superkey_action_contains_exec(action: MappingAction) -> bool:
         config.overload_up_actions,
     )
     return any(
-        _is_exec_action_type(child.action_type)
-        for actions in overload_slots
-        for child in actions
+        _is_exec_action_type(child.action_type) for actions in overload_slots for child in actions
+    )
+
+
+def _superkey_slot_contains_profile_action(action: MappingAction, slot: str | None) -> bool:
+    config = action.superkey_config
+    if action.action_type != ActionType.SUPERKEY or config is None:
+        return False
+    if slot == SUPERKEY_SLOT_OVERLOAD:
+        return any(
+            _is_profile_action_type(child.action_type)
+            for actions in (
+                config.overload_actions,
+                config.overload_down_actions,
+                config.overload_up_actions,
+            )
+            for child in actions
+        )
+    pattern_slots = {
+        SUPERKEY_SLOT_TAP: config.tap_actions,
+        SUPERKEY_SLOT_DOUBLE_TAP: config.double_tap_actions,
+        SUPERKEY_SLOT_HOLD: config.hold_actions,
+        SUPERKEY_SLOT_TAP_HOLD: config.tap_hold_actions,
+    }
+    return any(
+        _is_profile_action_type(child.action_type)
+        for child in pattern_slots.get(str(slot or ""), [])
+    )
+
+
+def _repeat_entry_contains_profile_action(entry: RepeatHistoryEntry) -> bool:
+    return (
+        entry.action.action_type in _PROFILE_ACTION_TYPES
+        or _superkey_slot_contains_profile_action(entry.action, entry.superkey_slot)
     )
 
 
@@ -252,10 +290,15 @@ def _is_exec_action_type(action_type: object) -> bool:
     return str(action_type) == ActionType.EXEC.value
 
 
+def _is_profile_action_type(action_type: object) -> bool:
+    if isinstance(action_type, ActionType):
+        return action_type in _PROFILE_ACTION_TYPES
+    return str(action_type) in {profile_type.value for profile_type in _PROFILE_ACTION_TYPES}
+
+
 def _repeat_entry_contains_exec_action(entry: RepeatHistoryEntry) -> bool:
-    return (
-        entry.action.action_type == ActionType.EXEC
-        or _superkey_action_contains_exec(entry.action)
+    return entry.action.action_type == ActionType.EXEC or _superkey_action_contains_exec(
+        entry.action
     )
 
 

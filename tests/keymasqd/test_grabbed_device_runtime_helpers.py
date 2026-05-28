@@ -462,9 +462,7 @@ class TestGrabbedDeviceHelpers:
             deps=gde.build_action_execution_deps(),
         )
 
-        assert target_uinput.writes == [
-            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 32767)
-        ]
+        assert target_uinput.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 32767)]
         assert target_uinput.syn_count == 0
 
         gdo.flush_passthrough_frame(
@@ -474,6 +472,7 @@ class TestGrabbedDeviceHelpers:
 
         assert target_uinput.syn_count == 1
         assert not gdo.passthrough_frame_open(target_uinput)
+
     def test_device_has_mapped_buttons_matches_by_code_when_names_differ(self) -> None:
         caps = {
             evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
@@ -484,6 +483,7 @@ class TestGrabbedDeviceHelpers:
             {"btn_south"},
             {(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH)},
         )
+
     def test_device_has_mapped_buttons_ignores_cross_type_code_collision(self) -> None:
         caps = {
             evdev.ecodes.EV_REL: [evdev.ecodes.REL_WHEEL],
@@ -621,6 +621,7 @@ class TestGrabbedDeviceHelpers:
         )
 
         assert _runtime_find_grabbed_action_for_event(device, event, mapping) is None
+
     def test_find_grabbed_action_for_event_distinguishes_wheel_direction(self, monkeypatch) -> None:
         device = _make_grabbed_device(
             monkeypatch,
@@ -652,11 +653,14 @@ class TestGrabbedDeviceHelpers:
             1,
         )
 
-        assert _runtime_find_grabbed_action_for_event(
-            device,
-            down_event,
-            mapping,
-        ) == mapping["wheel_down"]
+        assert (
+            _runtime_find_grabbed_action_for_event(
+                device,
+                down_event,
+                mapping,
+            )
+            == mapping["wheel_down"]
+        )
         assert _runtime_find_grabbed_action_for_event(device, up_event, mapping) is None
 
     @pytest.mark.asyncio
@@ -859,8 +863,7 @@ class TestGrabbedDeviceHelpers:
         await _runtime_process_grabbed_event(device, down_event)
 
         recorded_events = [
-            (device_type, event.code, event.value)
-            for device_type, event in recorder.calls
+            (device_type, event.code, event.value) for device_type, event in recorder.calls
         ]
         assert recorded_events == [
             ("mouse", evdev.ecodes.REL_WHEEL, 1),
@@ -903,8 +906,7 @@ class TestGrabbedDeviceHelpers:
         )
 
         assert [
-            (device_type, event.code, event.value)
-            for device_type, event in recorder.calls
+            (device_type, event.code, event.value) for device_type, event in recorder.calls
         ] == [
             ("mouse", evdev.ecodes.REL_WHEEL_HI_RES, -120),
         ]
@@ -942,8 +944,7 @@ class TestGrabbedDeviceHelpers:
         )
 
         recorded_events = [
-            (device_type, event.code, event.value)
-            for device_type, event in recorder.calls
+            (device_type, event.code, event.value) for device_type, event in recorder.calls
         ]
         assert recorded_events == [
             ("mouse", evdev.ecodes.REL_WHEEL, 1),
@@ -1041,6 +1042,7 @@ class TestGrabbedDeviceHelpers:
         device.keyboard_uinput = keyboard  # type: ignore[assignment]
         device.mouse_uinput = mouse  # type: ignore[assignment]
         device.gamepad_uinput = gamepad  # type: ignore[assignment]
+
         def resolve_gamepad_output(output_id, context):
             output = second_gamepad if output_id == "virtual-gamepad-2" else gamepad
             return SimpleNamespace(
@@ -1103,6 +1105,7 @@ class TestGrabbedDeviceHelpers:
         assert device.state.tap_active == {}
         assert device.state.combo_recalled_bindings == set()
         assert device.state.held_source_actions == {}
+
     def test_release_helpers_log_failed_uinput_releases(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1125,6 +1128,7 @@ class TestGrabbedDeviceHelpers:
 
         assert "Failed to release output key" in caplog.text
         assert "Failed to release gamepad ABS axis" in caplog.text
+
     def test_release_all_keys_keeps_tracking_after_failed_release(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1144,10 +1148,9 @@ class TestGrabbedDeviceHelpers:
             )
 
         assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
-        assert device.state.superkey_output_refcounts["keyboard"] == {
-            evdev.ecodes.KEY_A: 1
-        }
+        assert device.state.superkey_output_refcounts["keyboard"] == {evdev.ecodes.KEY_A: 1}
         assert "Failed to release held output keys" in caplog.text
+
     @pytest.mark.asyncio
     async def test_wait_for_active_key_activity_handles_timeouts_and_drain_errors(
         self,
@@ -1200,6 +1203,7 @@ class TestGrabbedDeviceHelpers:
             assert await _runtime_wait_for_grabbed_active_key_activity(device, 0.1) is True
 
         assert "failed to drain pending events before grab" in caplog.text
+
     @pytest.mark.asyncio
     async def test_broadcast_grab_status_and_startup_held_actions(
         self,
@@ -1247,6 +1251,7 @@ class TestGrabbedDeviceHelpers:
         assert device.state.held_source_actions["key_b"] == mapping_state["right"]
         assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Z, 0)]
         assert mouse.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)]
+
     def test_seed_startup_held_actions_matches_gamepad_alias_by_code(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1270,6 +1275,7 @@ class TestGrabbedDeviceHelpers:
         gdg.seed_startup_held_actions(device)
 
         assert device.state.held_source_actions["btn_a"] == mapping_state["south"]
+
     def test_reconcile_startup_held_action_releases_gamepad_output(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1284,19 +1290,18 @@ class TestGrabbedDeviceHelpers:
                 action_type=ActionType.GAMEPAD_AXIS,
                 target="abs_z",
                 axis_value=255,
-            )
-            ,
+            ),
         )
         gdg.reconcile_startup_held_action(
             device,
-            dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_south")
-            ,
+            dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_south"),
         )
 
         assert gamepad.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_tap_helpers_and_emit_combo_release_cover_cleanup_paths(
         self,
@@ -1339,6 +1344,7 @@ class TestGrabbedDeviceHelpers:
         ]
         assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)]
         assert device.state.tap_active == {}
+
     def test_emit_combo_press_reestablishes_passthrough_hold_tracking(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1352,6 +1358,7 @@ class TestGrabbedDeviceHelpers:
         assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1)]
         assert device.state.combo_passthrough_held == {"key_b"}
         assert device.state.held_output_keys["passthrough"] == {evdev.ecodes.KEY_B}
+
     @pytest.mark.asyncio
     async def test_execute_action_covers_synthetic_non_keyboard_branches(
         self,
@@ -1584,21 +1591,11 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         keyboard = _FakeUInput()
         device = _make_grabbed_device(monkeypatch, keyboard_uinput=keyboard)
-        source_press = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1
-        )
-        source_release = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0
-        )
-        repeat_press = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1
-        )
-        repeat_hold = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 2
-        )
-        repeat_release = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0
-        )
+        source_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
+        source_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
+        repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
+        repeat_hold = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 2)
+        repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0)
 
         await _runtime_execute_grabbed_action(
             device,
@@ -1799,7 +1796,7 @@ class TestGrabbedDeviceHelpers:
         assert latest.source_button == "original-button"
 
     @pytest.mark.asyncio
-    async def test_repeat_profile_action_uses_physical_trigger_lifetime(
+    async def test_repeat_profile_action_is_ignored(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -1839,37 +1836,19 @@ class TestGrabbedDeviceHelpers:
                 ),
             )
         )
-        repeat_press = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1
-        )
-        repeat_release = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0
-        )
+        repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
+        repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
 
         await _runtime_process_grabbed_event(device, repeat_press)
         await asyncio.sleep(0)
 
-        assert (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-1",
-                "reason": "trigger_end",
-            },
-        ) not in events
+        assert events == []
 
         await _runtime_process_grabbed_event(device, repeat_release)
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
-        assert (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-1",
-                "reason": "trigger_end",
-            },
-        ) in events
+        assert events == []
 
     @pytest.mark.asyncio
     async def test_repeat_action_filters_history_categories(
@@ -1949,18 +1928,10 @@ class TestGrabbedDeviceHelpers:
         passthrough = _FakeUInput()
         device = _make_grabbed_device(monkeypatch, keyboard_uinput=keyboard)
         device.uinput = passthrough  # type: ignore[assignment]
-        source_press = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1
-        )
-        source_release = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0
-        )
-        repeat_press = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1
-        )
-        repeat_release = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0
-        )
+        source_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1)
+        source_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)
+        repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
+        repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0)
 
         await _runtime_process_grabbed_event(device, source_press)
         await _runtime_process_grabbed_event(device, source_release)
@@ -1999,21 +1970,11 @@ class TestGrabbedDeviceHelpers:
             mouse_uinput=mouse,
         )
         device.uinput = passthrough  # type: ignore[assignment]
-        device.mapping_getter = lambda: {
-            "repeat": dm.MappingAction(action_type=ActionType.REPEAT)
-        }
-        left_press = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1
-        )
-        left_release = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0
-        )
-        repeat_press = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1
-        )
-        repeat_release = evdev.InputEvent(
-            0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0
-        )
+        device.mapping_getter = lambda: {"repeat": dm.MappingAction(action_type=ActionType.REPEAT)}
+        left_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1)
+        left_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)
+        repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
+        repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
 
         await _runtime_process_grabbed_event(device, left_press)
         await _runtime_process_grabbed_event(device, left_release)
@@ -2166,9 +2127,7 @@ class TestGrabbedDeviceHelpers:
             mouse_uinput=mouse,
         )
         device.uinput = passthrough  # type: ignore[assignment]
-        device.mapping_getter = lambda: {
-            "repeat": dm.MappingAction(action_type=ActionType.REPEAT)
-        }
+        device.mapping_getter = lambda: {"repeat": dm.MappingAction(action_type=ActionType.REPEAT)}
 
         await _runtime_process_grabbed_event(
             device,
@@ -2293,9 +2252,12 @@ class TestGrabbedDeviceHelpers:
         assert key_action.rapidfire_wait_ms == 7
         assert wheel_action.rapidfire_enabled is True
         assert macro_action.rapidfire_enabled is False
-        assert repeat_category_for_action(
-            dm.MappingAction(action_type=ActionType.MOUSE_MOVE_REL, move_x=5)
-        ) == "special"
+        assert (
+            repeat_category_for_action(
+                dm.MappingAction(action_type=ActionType.MOUSE_MOVE_REL, move_x=5)
+            )
+            == "special"
+        )
         selected_action = select_repeated_action(repeat_state, repeat_action)
         assert selected_action is not None
         assert selected_action.target == "key_b"
@@ -2330,9 +2292,7 @@ class TestGrabbedDeviceHelpers:
         )
 
         assert second_gamepad.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255)]
-        assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == {
-            evdev.ecodes.ABS_Z
-        }
+        assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == {evdev.ecodes.ABS_Z}
 
         gdo.release_all_keys(
             device,
@@ -2370,7 +2330,7 @@ class TestGrabbedDeviceHelpers:
     async def test_gamepad_axis_tap_uses_configured_value(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        ) -> None:
+    ) -> None:
         gamepad = _FakeUInput()
         device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
         press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
@@ -2413,18 +2373,14 @@ class TestGrabbedDeviceHelpers:
             target="btn_south",
             output_id="virtual-gamepad-2",
         )
-        device.state.held_output_keys["gamepad:virtual-gamepad-2"] = {
-            evdev.ecodes.BTN_SOUTH
-        }
+        device.state.held_output_keys["gamepad:virtual-gamepad-2"] = {evdev.ecodes.BTN_SOUTH}
 
         assert device.combo_passthrough_binding_active("key_x") is True
 
         device.emit_combo_release("key_x")
 
         assert default_gamepad.writes == []
-        assert second_gamepad.writes == [
-            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0)
-        ]
+        assert second_gamepad.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0)]
         assert device.state.held_output_keys["gamepad:virtual-gamepad-2"] == set()
 
         device.emit_combo_press("key_x")
@@ -2444,9 +2400,7 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         device = _make_grabbed_device(monkeypatch)
         device._gamepad_output_resolver = lambda output_id, context: None  # type: ignore[method-assign, reportPrivateUsage]
-        device.state.held_output_abs["gamepad:virtual-gamepad-2"] = {
-            evdev.ecodes.ABS_Z
-        }
+        device.state.held_output_abs["gamepad:virtual-gamepad-2"] = {evdev.ecodes.ABS_Z}
         device.state.held_output_keys.pop("gamepad:virtual-gamepad-2", None)
 
         gdo.release_all_keys(
@@ -2661,8 +2615,7 @@ class TestGrabbedDeviceHelpers:
         )
 
         assert any(
-            write == (evdev.ecodes.EV_REL, evdev.ecodes.REL_HWHEEL, -1)
-            for write in mouse.writes
+            write == (evdev.ecodes.EV_REL, evdev.ecodes.REL_HWHEEL, -1) for write in mouse.writes
         )
 
     @pytest.mark.asyncio

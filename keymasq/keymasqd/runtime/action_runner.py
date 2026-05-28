@@ -497,11 +497,7 @@ async def execute_action(
             source_button=event_name,
             trigger_value=int(event.value),
         )
-        if (
-            int(event.value) in (0, 1)
-            and macro_request is not None
-            and device_runtime.macro_player
-        ):
+        if int(event.value) in (0, 1) and macro_request is not None and device_runtime.macro_player:
             task = deps.fire_and_observe_fn(
                 device_runtime.macro_player(**macro_request),
                 f"macro action {event_name}",
@@ -654,16 +650,6 @@ async def _execute_repeat_action(
     repeat_event_name = f"{event_name}#repeat"
     repeat_state = getattr(device_runtime, "repeat_state", None)
     active_actions = device_runtime.state.repeat_active_actions
-    profile_action_types = {
-        ActionType.PROFILE_ENABLE,
-        ActionType.PROFILE_DISABLE,
-        ActionType.PROFILE_TOGGLE,
-    }
-
-    def child_event_name_for(repeated_action: MappingAction) -> str:
-        if repeated_action.action_type in profile_action_types:
-            return event_name
-        return repeat_event_name
 
     if int(event.value) == 1:
         repeated_entry = select_repeated_entry(repeat_state, action)
@@ -690,7 +676,7 @@ async def _execute_repeat_action(
             device_runtime,
             repeated_action,
             event,
-            child_event_name_for(repeated_action),
+            repeat_event_name,
             deps=deps,
             shared_output_tracker=shared_output_tracker,
             shared_abs_output_tracker=shared_abs_output_tracker,
@@ -720,7 +706,7 @@ async def _execute_repeat_action(
         device_runtime,
         repeated_action,
         event,
-        child_event_name_for(repeated_action),
+        repeat_event_name,
         deps=deps,
         shared_output_tracker=shared_output_tracker,
         shared_abs_output_tracker=shared_abs_output_tracker,

@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.device_manager_support import *
 
+
 class TestSuperkeys:
     @pytest.mark.asyncio
     async def test_mapping_reset_clears_combo_passthrough_hold_but_preserves_passthrough_release(
@@ -66,6 +67,7 @@ class TestSuperkeys:
         ]
         assert mapped_uinput.writes == []
         assert "key_1" not in device.state.held_source_actions
+
     @pytest.mark.asyncio
     async def test_mapping_reset_clears_combo_recalled_suppression_state(
         self,
@@ -79,6 +81,7 @@ class TestSuperkeys:
 
         assert device.state.combo_passthrough_held == set()
         assert device.state.combo_recalled_bindings == set()
+
     @pytest.mark.asyncio
     async def test_combo_recalled_repeat_is_suppressed_until_restore_or_new_press(
         self,
@@ -109,6 +112,7 @@ class TestSuperkeys:
         assert passthrough.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 2),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_recalled_modifier_uses_normalized_name_for_suppression(
         self,
@@ -138,6 +142,7 @@ class TestSuperkeys:
         assert passthrough.writes == []
         assert device.state.combo_recalled_bindings == set()
         assert device.state.combo_passthrough_held == set()
+
     @pytest.mark.asyncio
     async def test_combo_recalled_release_clears_suppression_without_passthrough(
         self,
@@ -166,6 +171,7 @@ class TestSuperkeys:
         assert device.state.combo_passthrough_held == set()
         assert device.state.combo_recalled_bindings == set()
         assert "key_x" not in device.state.held_source_actions
+
     @pytest.mark.asyncio
     async def test_combo_recalled_press_becomes_fresh_press_again(
         self,
@@ -201,6 +207,7 @@ class TestSuperkeys:
         ]
         assert device.state.combo_recalled_bindings == set()
         assert device.state.combo_passthrough_held == {"key_x"}
+
     @pytest.mark.asyncio
     async def test_vvv_logs_raw_hardware_events_but_skips_mouse_motion(
         self,
@@ -231,6 +238,7 @@ class TestSuperkeys:
         assert "[hw 1234:5678 kbd] type=1 code=45 name=key_x value=2" in caplog.text
         assert "REL_X" not in caplog.text
         assert "type=2 code=0" not in caplog.text
+
     @pytest.mark.asyncio
     async def test_superkey_release_after_reset_does_not_recreate_stale_machine(
         self,
@@ -368,6 +376,7 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
         assert device.state.held_output_keys["keyboard"] == set()
+
     @pytest.mark.asyncio
     async def test_overload_superkey_fans_out_press_repeat_and_release(
         self,
@@ -630,14 +639,13 @@ class TestSuperkeys:
         assert device.repeat_state.history[-1].superkey_slot == SUPERKEY_SLOT_DOUBLE_TAP
 
     @pytest.mark.asyncio
-    async def test_repeat_superkey_profile_action_uses_physical_trigger_lifetime(
+    async def test_repeat_skips_superkey_profile_paths(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
 
-        events: list[tuple[CommandType, dict[str, object]]] = []
         action_triggers: list[dict[str, object]] = []
 
         async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
@@ -650,7 +658,6 @@ class TestSuperkeys:
                     data["deactivation"],
                 )
                 return
-            events.append((event_type, data))
 
         manager = DeviceManager(broadcast_callback=broadcast)
         mapping_state = {
@@ -664,9 +671,7 @@ class TestSuperkeys:
                         SuperkeyActionData(
                             action_type="profile_enable",
                             profile_name="Nav",
-                            profile_deactivation=ProfileDeactivationPolicy(
-                                on_trigger_end=True
-                            ),
+                            profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
                         ),
                     ],
                 ),
@@ -698,7 +703,9 @@ class TestSuperkeys:
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
         )
         await asyncio.sleep(0.01)
-        events.clear()
+
+        assert len(action_triggers) == 1
+        assert list(device.repeat_state.history) == []
 
         await _runtime_process_grabbed_event(
             device,
@@ -706,10 +713,7 @@ class TestSuperkeys:
         )
         await asyncio.sleep(0.01)
 
-        assert action_triggers[-1]["trigger_id"] == "1234:5678:key_f14"
-        assert [
-            event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-        ] == []
+        assert len(action_triggers) == 1
 
         await _runtime_process_grabbed_event(
             device,
@@ -717,14 +721,7 @@ class TestSuperkeys:
         )
         await asyncio.sleep(0.01)
 
-        assert (
-            CommandType.PROFILE_DEACTIVATE_REQUESTED,
-            {
-                "profile_name": "Nav",
-                "activation_id": "activation-2",
-                "reason": "trigger_end",
-            },
-        ) in events
+        assert len(action_triggers) == 1
 
     @pytest.mark.asyncio
     async def test_overload_superkey_profile_lifetime_follows_child_trigger(
@@ -760,9 +757,7 @@ class TestSuperkeys:
                         dm.MappingAction(
                             action_type=ActionType.PROFILE_ENABLE,
                             profile_name="Nav",
-                            profile_deactivation=ProfileDeactivationPolicy(
-                                on_trigger_end=True
-                            ),
+                            profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
                         ),
                     ],
                 ),
@@ -1111,6 +1106,7 @@ class TestSuperkeys:
         assert device.keyboard_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_superkey_broadcast_does_not_block_hot_path(
         self,
@@ -1158,9 +1154,7 @@ class TestSuperkeys:
         )
 
         await asyncio.wait_for(_runtime_process_grabbed_event(device, press_event), timeout=0.05)
-        await asyncio.wait_for(
-            _runtime_process_grabbed_event(device, release_event), timeout=0.05
-        )
+        await asyncio.wait_for(_runtime_process_grabbed_event(device, release_event), timeout=0.05)
 
         blocker.set()
         await asyncio.sleep(0)

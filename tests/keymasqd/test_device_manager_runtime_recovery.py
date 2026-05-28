@@ -404,6 +404,95 @@ class TestDeviceManagerHelpers:
             ActionType.KEYBOARD,
         ]
 
+    def test_forget_exec_actions_prunes_superkey_history_with_nested_exec_refs(
+        self,
+    ) -> None:
+        from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry, forget_exec_actions
+
+        manager = DeviceManager()
+        manager.repeat_state.history.extend(
+            [
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(
+                        action_type=ActionType.SUPERKEY,
+                        superkey_config=SuperkeyConfig(
+                            name="pattern-exec",
+                            tap_actions=[
+                                SuperkeyActionData(action_type="exec", exec_ref=10),
+                            ],
+                        ),
+                    ),
+                    source_device="kbd",
+                    source_button="key_f13",
+                ),
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(
+                        action_type=ActionType.SUPERKEY,
+                        superkey_config=SuperkeyConfig(
+                            name="other-device-pattern-exec",
+                            tap_actions=[
+                                SuperkeyActionData(action_type="exec", exec_ref=11),
+                            ],
+                        ),
+                    ),
+                    source_device="mouse",
+                    source_button="btn_side",
+                ),
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(
+                        action_type=ActionType.SUPERKEY,
+                        superkey_config=SuperkeyConfig(
+                            name="combo-overload-exec",
+                            mode=SuperkeyMode.OVERLOAD,
+                            overload_actions=[
+                                dm.MappingAction(action_type=ActionType.EXEC, exec_ref=12),
+                            ],
+                        ),
+                    ),
+                    source_device="kbd",
+                    source_button="combo:launch",
+                ),
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(
+                        action_type=ActionType.SUPERKEY,
+                        superkey_config=SuperkeyConfig(
+                            name="pattern-key",
+                            tap_actions=[
+                                SuperkeyActionData(
+                                    action_type="keyboard",
+                                    target="key_a",
+                                ),
+                            ],
+                        ),
+                    ),
+                    source_device="kbd",
+                    source_button="key_f14",
+                ),
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=13),
+                    source_device="kbd",
+                    source_button="key_f15",
+                ),
+            ]
+        )
+
+        forget_exec_actions(
+            manager.repeat_state,
+            source_device="kbd",
+            exclude_source_button_prefix="combo:",
+        )
+
+        assert [entry.source_button for entry in manager.repeat_state.history] == [
+            "btn_side",
+            "combo:launch",
+            "key_f14",
+        ]
+
     def test_parse_action_warns_and_strips_unsupported_rapidfire(
         self,
         caplog: pytest.LogCaptureFixture,

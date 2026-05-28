@@ -219,6 +219,41 @@ def refresh_repeated_exec_source(
     )
 
 
+def _superkey_action_contains_exec(action: MappingAction) -> bool:
+    config = action.superkey_config
+    if action.action_type != ActionType.SUPERKEY or config is None:
+        return False
+    pattern_slots = (
+        config.tap_actions,
+        config.double_tap_actions,
+        config.hold_actions,
+        config.tap_hold_actions,
+    )
+    if any(
+        child.action_type == ActionType.EXEC.value
+        for actions in pattern_slots
+        for child in actions
+    ):
+        return True
+    overload_slots = (
+        config.overload_actions,
+        config.overload_down_actions,
+        config.overload_up_actions,
+    )
+    return any(
+        child.action_type == ActionType.EXEC
+        for actions in overload_slots
+        for child in actions
+    )
+
+
+def _repeat_entry_contains_exec_action(entry: RepeatHistoryEntry) -> bool:
+    return (
+        entry.action.action_type == ActionType.EXEC
+        or _superkey_action_contains_exec(entry.action)
+    )
+
+
 def forget_exec_actions(
     repeat_state: RepeatRuntimeState | None,
     *,
@@ -239,9 +274,6 @@ def forget_exec_actions(
         return
     retained: list[RepeatHistoryEntry] = []
     for entry in repeat_state.history:
-        if entry.action.action_type != ActionType.EXEC:
-            retained.append(entry)
-            continue
         if normalized_exclude_source_button_prefix and entry.source_button.startswith(
             normalized_exclude_source_button_prefix
         ):
@@ -255,6 +287,8 @@ def forget_exec_actions(
         ):
             retained.append(entry)
             continue
+        if not _repeat_entry_contains_exec_action(entry):
+            retained.append(entry)
     repeat_state.history.clear()
     repeat_state.history.extend(retained)
 

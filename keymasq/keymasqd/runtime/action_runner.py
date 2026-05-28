@@ -675,7 +675,7 @@ async def _execute_repeat_action(
                 await repeat_superkey_executor(
                     device_runtime,
                     repeated_entry,
-                    repeat_event_name,
+                    event_name,
                     deps=deps,
                     execution_handle=execution_handle,
                     cancel_macro_playback=cancel_macro_playback,

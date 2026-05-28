@@ -403,37 +403,11 @@ async def _execute_overload_slot_once(
     config = action.superkey_config
     if config is None:
         return
-    remember_superkey_path(
-        getattr(device_runtime, "repeat_state", None),
-        action,
-        SUPERKEY_SLOT_OVERLOAD,
-        source_device=device_runtime.hardware_id,
-        source_button=event_name,
-    )
-
-    def overload_output_tracker(action_type: str, code: int, value: int) -> bool:
-        return track_superkey_output(device_runtime, action_type, code, value)
-
-    def overload_abs_output_tracker(bucket: str, axis_code: int, value: int) -> bool:
-        return track_superkey_abs_output(device_runtime, bucket, axis_code, value)
-
     for value in (1, 0):
-        synthetic_event = _SyntheticInputEvent(0, 0, value)
-        for index, child_action in enumerate(config.overload_actions):
-            if child_action.action_type == ActionType.SUPERKEY:
-                log.warning(
-                    "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
-                    config.name,
-                    index,
-                )
-                continue
-            await execute_action(
-                device_runtime,
-                child_action,
-                synthetic_event,
-                f"{event_name}#overload#{index}",
-                deps=deps,
-                shared_output_tracker=overload_output_tracker,
-                shared_abs_output_tracker=overload_abs_output_tracker,
-                record_repeat=False,
-            )
+        await _execute_overload_superkey(
+            device_runtime,
+            action,
+            _SyntheticInputEvent(0, 0, value),
+            event_name,
+            deps=deps,
+        )

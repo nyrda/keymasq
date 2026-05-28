@@ -14,6 +14,7 @@ from keymasq.common.models import (
     AnalogMouseMotionConfig,
     MappingAction,
     ProfileDeactivationPolicy,
+    SuperkeyMode,
 )
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime.analog_controls import (
@@ -31,7 +32,12 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceState,
     identity_uinput_writer,
 )
-from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry, RepeatRuntimeState
+from keymasq.keymasqd.runtime.repeat import (
+    SUPERKEY_SLOT_HOLD,
+    RepeatHistoryEntry,
+    RepeatRuntimeState,
+)
+from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 
 class FakeUInput:
@@ -291,6 +297,112 @@ async def test_threshold_repeat_profile_trigger_end_lifetime_follows_threshold_l
                 profile_name="Nav",
                 profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
             ),
+        )
+    )
+
+    assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    await asyncio.wait_for(action_trigger_event.wait(), timeout=1.0)
+
+    assert action_triggers == [
+        {
+            "action_type": "profile_enable",
+            "profile_name": "Nav",
+            "source_device": "1234:5678",
+            "source_button": "left_stick#analog_threshold#0#0",
+            "trigger_id": "1234:5678:left_stick#analog_threshold#0#0",
+            "deactivation": {
+                "on_trigger_end": True,
+            },
+        }
+    ]
+    assert [
+        event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
+    ] == []
+
+    assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
+    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+
+    assert expected_deactivate in events
+
+
+@pytest.mark.asyncio
+async def test_threshold_repeat_superkey_profile_trigger_end_lifetime_follows_threshold_lifecycle() -> None:
+    events: list[tuple[CommandType, dict[str, object]]] = []
+    action_triggers: list[dict[str, object]] = []
+    action_trigger_event = asyncio.Event()
+    deactivate_event = asyncio.Event()
+    expected_deactivate = (
+        CommandType.PROFILE_DEACTIVATE_REQUESTED,
+        {
+            "profile_name": "Nav",
+            "activation_id": "activation-1",
+            "reason": "trigger_end",
+        },
+    )
+
+    async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+        if event_type == CommandType.ACTION_TRIGGER:
+            action_triggers.append(data)
+            await manager.track_profile_activation(
+                str(data["profile_name"]),
+                "activation-1",
+                str(data["trigger_id"]),
+                data["deactivation"],
+            )
+            action_trigger_event.set()
+            return
+        event = (event_type, data)
+        events.append(event)
+        if event == expected_deactivate:
+            deactivate_event.set()
+
+    manager = DeviceManager(broadcast_callback=broadcast)
+    keyboard = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Test",
+                thresholds=[
+                    AnalogActionThreshold(
+                        axis="x",
+                        trigger_min=0.65,
+                        trigger_max=1.0,
+                        release_min=0.55,
+                        release_max=1.0,
+                        actions=[MappingAction(action_type=ActionType.REPEAT)],
+                    )
+                ],
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.broadcast_callback = broadcast
+    runtime.profile_activation_trigger_start_observer = (
+        manager.observe_profile_trigger_start
+    )
+    runtime.profile_activation_trigger_end_observer = manager.observe_profile_trigger_end
+    runtime.repeat_state = RepeatRuntimeState()
+    runtime.repeat_state.history.append(
+        RepeatHistoryEntry(
+            category="special",
+            action=MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=SuperkeyConfig(
+                    name="analog-repeat-superkey-profile",
+                    mode=SuperkeyMode.PATTERN,
+                    hold_actions=[
+                        SuperkeyActionData(
+                            action_type="profile_enable",
+                            profile_name="Nav",
+                            profile_deactivation=ProfileDeactivationPolicy(
+                                on_trigger_end=True
+                            ),
+                        )
+                    ],
+                ),
+            ),
+            superkey_slot=SUPERKEY_SLOT_HOLD,
         )
     )
 

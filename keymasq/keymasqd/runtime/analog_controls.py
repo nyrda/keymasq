@@ -28,6 +28,8 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     InputEventLike,
 )
 from keymasq.keymasqd.runtime.repeat import select_repeated_entry
+from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
+from keymasq.keymasqd.superkey_state import superkey_slot_uses_trigger_lifetime_profile
 
 log = logging.getLogger("keymasqd.runtime.analog_controls")
 DEFAULT_STICK_MIN = -32768
@@ -434,6 +436,15 @@ async def _activate_threshold_actions(
             action,
             child_event_name,
         )
+        if _threshold_repeat_superkey_uses_trigger_lifetime_profile(
+            device_runtime,
+            action,
+        ):
+            _observe_threshold_trigger_name(
+                device_runtime,
+                child_event_name,
+                active=True,
+            )
         _observe_threshold_profile_trigger(
             device_runtime,
             lifecycle_action,
@@ -494,6 +505,12 @@ async def _release_threshold_actions(
             action,
             child_event_name,
         )
+        repeat_superkey_uses_trigger_lifetime = (
+            _threshold_repeat_superkey_uses_trigger_lifetime_profile(
+                device_runtime,
+                action,
+            )
+        )
         await runtime_actions.execute_action(
             device_runtime,
             action,
@@ -519,6 +536,12 @@ async def _release_threshold_actions(
             child_event_name,
             active=False,
         )
+        if repeat_superkey_uses_trigger_lifetime:
+            _observe_threshold_trigger_name(
+                device_runtime,
+                child_event_name,
+                active=False,
+            )
 
 
 def _threshold_profile_lifecycle_action(
@@ -540,6 +563,28 @@ def _threshold_profile_lifecycle_action(
     return repeated_entry.action if repeated_entry is not None else action
 
 
+def _threshold_repeat_superkey_uses_trigger_lifetime_profile(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+) -> bool:
+    if action.action_type != ActionType.REPEAT:
+        return False
+    repeated_entry = select_repeated_entry(
+        getattr(device_runtime, "repeat_state", None),
+        action,
+    )
+    if repeated_entry is None or repeated_entry.superkey_slot is None:
+        return False
+    config = cast(RuntimeSuperkeyConfig | None, repeated_entry.action.superkey_config)
+    return bool(
+        config is not None
+        and superkey_slot_uses_trigger_lifetime_profile(
+            config,
+            repeated_entry.superkey_slot,
+        )
+    )
+
+
 def _observe_threshold_profile_trigger(
     device_runtime: GrabbedDeviceRuntime,
     action: MappingAction,
@@ -554,6 +599,22 @@ def _observe_threshold_profile_trigger(
         or not policy.on_trigger_end
     ):
         return
+    observer_name = (
+        "profile_activation_trigger_start_observer"
+        if active
+        else "profile_activation_trigger_end_observer"
+    )
+    observer = getattr(device_runtime, observer_name, None)
+    if observer is not None:
+        observer(source_trigger_id(device_runtime.hardware_id, child_event_name))
+
+
+def _observe_threshold_trigger_name(
+    device_runtime: GrabbedDeviceRuntime,
+    child_event_name: str,
+    *,
+    active: bool,
+) -> None:
     observer_name = (
         "profile_activation_trigger_start_observer"
         if active

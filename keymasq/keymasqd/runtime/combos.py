@@ -53,6 +53,7 @@ from keymasq.keymasqd.runtime.repeat import (
 )
 from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
 from keymasq.keymasqd.superkey_state import SuperkeyMachine
+from keymasq.keymasqd.superkey_state import superkey_slot_uses_trigger_lifetime_profile
 
 log = logging.getLogger("keymasqd.runtime.combos")
 
@@ -1279,6 +1280,7 @@ async def _start_combo_action_instance(
     started = deps.asyncio_mod.create_event()
     handle = ActionExecutionHandle(started=started)
     combo_deps = deps
+    repeat_superkey_needs_release = False
 
     async def repeat_superkey_executor(
         device_runtime: ActionRuntime,
@@ -1290,7 +1292,16 @@ async def _start_combo_action_instance(
         cancel_macro_playback: CancelMacroPlayback | None = None,
         resolve_code_fn: ResolveCodeFn | None = None,
     ) -> None:
+        nonlocal repeat_superkey_needs_release
         del device_runtime, deps, execution_handle, cancel_macro_playback, resolve_code_fn
+        config = cast(RuntimeSuperkeyConfig | None, repeated_entry.action.superkey_config)
+        repeat_superkey_needs_release = bool(
+            config is not None
+            and superkey_slot_uses_trigger_lifetime_profile(
+                config,
+                repeated_entry.superkey_slot,
+            )
+        )
         repeat_combo_id = event_name.removeprefix("combo:")
         await _start_combo_superkey_repeat_path(
             manager,
@@ -1318,7 +1329,11 @@ async def _start_combo_action_instance(
         await shared_action_runner.drain_action_tasks(handle)
 
     needs_release = _combo_action_needs_release(action)
-    if action.action_type == ActionType.REPEAT and not runtime.state.repeat_active_actions:
+    if (
+        action.action_type == ActionType.REPEAT
+        and not runtime.state.repeat_active_actions
+        and not repeat_superkey_needs_release
+    ):
         needs_release = False
     if needs_release:
         manager.combo_state.active_actions[combo_id] = ComboActionState(

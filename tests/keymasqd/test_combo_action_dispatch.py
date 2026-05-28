@@ -190,6 +190,86 @@ class TestComboActionDispatch:
         ) in events
 
     @pytest.mark.asyncio
+    async def test_combo_repeat_superkey_profile_action_keeps_combo_trigger_lifetime(
+        self,
+    ) -> None:
+        events: list[tuple[CommandType, dict[str, object]]] = []
+        action_triggers: list[dict[str, object]] = []
+        source_deactivate = asyncio.Event()
+        repeat_deactivate = asyncio.Event()
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            if event_type == CommandType.ACTION_TRIGGER:
+                action_triggers.append(data)
+                await manager.track_profile_activation(
+                    str(data["profile_name"]),
+                    f"activation-{len(action_triggers)}",
+                    str(data["trigger_id"]),
+                    data["deactivation"],
+                )
+                return
+            event = (event_type, data)
+            events.append(event)
+            if event_type == CommandType.PROFILE_DEACTIVATE_REQUESTED:
+                if data.get("activation_id") == "activation-1":
+                    source_deactivate.set()
+                if data.get("activation_id") == "activation-2":
+                    repeat_deactivate.set()
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-repeat-superkey-profile",
+                mode=SuperkeyMode.PATTERN,
+                hold_threshold_ms=1,
+                hold_actions=[
+                    SuperkeyActionData(
+                        action_type="profile_enable",
+                        profile_name="Nav",
+                        profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
+                    ),
+                ],
+            ),
+        )
+
+        await _runtime_start_combo_action(manager, "source-superkey-profile", action, binding)
+        await asyncio.sleep(0.01)
+        await _runtime_stop_combo_action(manager, "source-superkey-profile")
+        await asyncio.wait_for(source_deactivate.wait(), timeout=1.0)
+
+        await _runtime_start_combo_action(
+            manager,
+            "repeat-superkey-profile",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+        await asyncio.sleep(0.01)
+
+        assert action_triggers[-1]["trigger_id"] == (
+            "1234:5678:combo:repeat-superkey-profile"
+        )
+        assert [
+            event
+            for event in events
+            if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
+            and event[1].get("activation_id") == "activation-2"
+        ] == []
+
+        await _runtime_stop_combo_action(manager, "repeat-superkey-profile")
+        await asyncio.wait_for(repeat_deactivate.wait(), timeout=1.0)
+
+        assert (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-2",
+                "reason": "trigger_end",
+            },
+        ) in events
+
+    @pytest.mark.asyncio
     async def test_combo_repeat_replays_overload_superkey_path(self) -> None:
         from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_OVERLOAD
 

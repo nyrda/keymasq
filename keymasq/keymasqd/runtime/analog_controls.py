@@ -344,6 +344,11 @@ async def reset_analog_controls(
     for threshold_key in list(device_runtime.state.analog_active_threshold_actions):
         if _threshold_source_key(threshold_key) not in preserved:
             device_runtime.state.analog_active_threshold_actions.pop(threshold_key, None)
+    device_runtime.state.analog_repeat_superkey_profile_triggers = {
+        child_event_name
+        for child_event_name in device_runtime.state.analog_repeat_superkey_profile_triggers
+        if _threshold_source_key(child_event_name) in preserved
+    }
     _discard_unpreserved_keys(device_runtime.state.analog_mouse_tasks, preserved)
     _discard_unpreserved_keys(device_runtime.state.analog_mouse_accumulators, preserved)
     _discard_unpreserved_keys(device_runtime.state.analog_mouse_area_offsets, preserved)
@@ -445,6 +450,9 @@ async def _activate_threshold_actions(
                 child_event_name,
                 active=True,
             )
+            device_runtime.state.analog_repeat_superkey_profile_triggers.add(
+                child_event_name
+            )
         _observe_threshold_profile_trigger(
             device_runtime,
             lifecycle_action,
@@ -505,11 +513,8 @@ async def _release_threshold_actions(
             action,
             child_event_name,
         )
-        repeat_superkey_uses_trigger_lifetime = (
-            _threshold_repeat_superkey_uses_trigger_lifetime_profile(
-                device_runtime,
-                action,
-            )
+        repeat_superkey_uses_trigger_lifetime = child_event_name in (
+            device_runtime.state.analog_repeat_superkey_profile_triggers
         )
         await runtime_actions.execute_action(
             device_runtime,
@@ -541,6 +546,9 @@ async def _release_threshold_actions(
                 device_runtime,
                 child_event_name,
                 active=False,
+            )
+            device_runtime.state.analog_repeat_superkey_profile_triggers.discard(
+                child_event_name
             )
 
 

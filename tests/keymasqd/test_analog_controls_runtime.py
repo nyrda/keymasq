@@ -319,6 +319,13 @@ async def test_threshold_repeat_profile_trigger_end_lifetime_follows_threshold_l
         event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
     ] == []
 
+    runtime.repeat_state.history.append(
+        RepeatHistoryEntry(
+            category="keyboard",
+            action=MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+        )
+    )
+
     assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
     await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 

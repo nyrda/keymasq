@@ -242,6 +242,7 @@ class GrabbedDeviceState:
         str,
         tuple[tuple[int, MappingAction], ...],
     ] = field(default_factory=dict)
+    analog_repeat_superkey_profile_triggers: set[str] = field(default_factory=set)
     analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(
         default_factory=dict
     )

@@ -27,6 +27,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceRuntime,
     InputEventLike,
 )
+from keymasq.keymasqd.runtime.repeat import select_repeated_entry
 
 log = logging.getLogger("keymasqd.runtime.analog_controls")
 DEFAULT_STICK_MIN = -32768
@@ -428,9 +429,14 @@ async def _activate_threshold_actions(
             )
             recorded_profile_action = True
         child_event_name = _child_event_name(source_id, index, action_index)
-        _observe_threshold_profile_trigger(
+        lifecycle_action = _threshold_profile_lifecycle_action(
             device_runtime,
             action,
+            child_event_name,
+        )
+        _observe_threshold_profile_trigger(
+            device_runtime,
+            lifecycle_action,
             child_event_name,
             active=True,
         )
@@ -483,6 +489,11 @@ async def _release_threshold_actions(
         }:
             continue
         child_event_name = _child_event_name(source_id, index, action_index)
+        lifecycle_action = _threshold_profile_lifecycle_action(
+            device_runtime,
+            action,
+            child_event_name,
+        )
         await runtime_actions.execute_action(
             device_runtime,
             action,
@@ -504,10 +515,29 @@ async def _release_threshold_actions(
         )
         _observe_threshold_profile_trigger(
             device_runtime,
-            action,
+            lifecycle_action,
             child_event_name,
             active=False,
         )
+
+
+def _threshold_profile_lifecycle_action(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    child_event_name: str,
+) -> MappingAction:
+    if action.action_type != ActionType.REPEAT:
+        return action
+    active_action = device_runtime.state.repeat_active_actions.get(
+        f"{child_event_name}#repeat"
+    )
+    if active_action is not None:
+        return active_action
+    repeated_entry = select_repeated_entry(
+        getattr(device_runtime, "repeat_state", None),
+        action,
+    )
+    return repeated_entry.action if repeated_entry is not None else action
 
 
 def _observe_threshold_profile_trigger(

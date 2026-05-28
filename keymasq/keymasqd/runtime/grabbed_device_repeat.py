@@ -65,7 +65,6 @@ def start_rapidfire_task(
     task = task_factory()
     device_runtime.state.rapidfire_active[event_name] = True
     device_runtime.state.rapidfire_tasks[event_name] = task
-    from keymasq.keymasqd.runtime.grabbed_device_types import RapidfireOutputState
 
     state = RapidfireOutputState(kind=kind)
     if code is not None:

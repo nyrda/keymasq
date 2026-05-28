@@ -52,8 +52,10 @@ from keymasq.keymasqd.runtime.repeat import (
     remember_superkey_path,
 )
 from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
-from keymasq.keymasqd.superkey_state import SuperkeyMachine
-from keymasq.keymasqd.superkey_state import superkey_slot_uses_trigger_lifetime_profile
+from keymasq.keymasqd.superkey_state import (
+    SuperkeyMachine,
+    superkey_slot_uses_trigger_lifetime_profile,
+)
 
 log = logging.getLogger("keymasqd.runtime.combos")
 

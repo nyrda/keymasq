@@ -28,9 +28,9 @@ from keymasq.keymasqd.runtime.mouse_actions import (
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_DOUBLE_TAP,
     SUPERKEY_SLOT_HOLD,
+    SUPERKEY_SLOT_OVERLOAD,
     SUPERKEY_SLOT_TAP,
     SUPERKEY_SLOT_TAP_HOLD,
-    SUPERKEY_SLOT_OVERLOAD,
 )
 
 if TYPE_CHECKING:

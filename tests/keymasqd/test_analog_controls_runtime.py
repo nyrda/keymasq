@@ -333,7 +333,7 @@ async def test_threshold_repeat_profile_trigger_end_lifetime_follows_threshold_l
 
 
 @pytest.mark.asyncio
-async def test_threshold_repeat_superkey_profile_trigger_end_lifetime_follows_threshold_lifecycle() -> None:
+async def test_threshold_repeat_superkey_profile_lifetime_follows_threshold() -> None:
     events: list[tuple[CommandType, dict[str, object]]] = []
     action_triggers: list[dict[str, object]] = []
     action_trigger_event = asyncio.Event()

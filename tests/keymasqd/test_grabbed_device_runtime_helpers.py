@@ -1004,6 +1004,9 @@ class TestGrabbedDeviceHelpers:
                 -120,
             ),
         )
+        assert len(device.repeat_state.history) == 1
+        device.repeat_state.history.clear()
+
         device.mapping_getter = lambda: {  # type: ignore[method-assign]
             "wheel_down": MappingAction(action_type=ActionType.PASSTHROUGH),
         }
@@ -1022,6 +1025,8 @@ class TestGrabbedDeviceHelpers:
             (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL_HI_RES, -120),
             (evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL_HI_RES, -120),
         ]
+        assert list(device.repeat_state.history) == []
+
     def test_bucket_tracking_and_release_all_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         device = _make_grabbed_device(monkeypatch)
         passthrough = _FakeUInput()

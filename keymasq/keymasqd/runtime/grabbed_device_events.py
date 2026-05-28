@@ -709,6 +709,30 @@ async def process_event(
         )
         if (
             high_res_wheel_action is not None
+            and high_res_wheel_action.action_type == ActionType.PASSTHROUGH
+        ):
+            _record_grabbed_event_if_allowed(
+                device_runtime,
+                event,
+                recording_manager=recording_manager,
+                deps=deps,
+            )
+            runtime_outputs.passthrough(
+                device_runtime,
+                event,
+                evdev_mod=evdev_mod,
+                uinput_writer=identity_uinput_writer,
+                sync=False,
+            )
+            _record_diagnostics(
+                device_runtime,
+                "wheel_passthrough",
+                started_ns,
+                time_mod=time_mod,
+            )
+            return
+        if (
+            high_res_wheel_action is not None
             and high_res_wheel_action.action_type != ActionType.PASSTHROUGH
         ):
             if not _is_recording_control_action(high_res_wheel_action):

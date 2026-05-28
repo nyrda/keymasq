@@ -426,6 +426,144 @@ class TestSuperkeys:
         ]
 
     @pytest.mark.asyncio
+    async def test_repeat_replays_overload_superkey_path(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_OVERLOAD
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        mapping_state = {
+            "key_f13": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=SuperkeyConfig(
+                    name="bigA",
+                    mode=SuperkeyMode.OVERLOAD,
+                    overload_actions=[
+                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_leftshift"),
+                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                    ],
+                ),
+            ),
+            "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
+        }
+
+        keyboard_uinput = _FakeUInput()
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={"key_f13": "key_f13", "key_f14": "key_f14"},
+            mapping_getter=lambda: mapping_state,
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+        )
+        device._running = True
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+        )
+
+        latest = device.repeat_state.history[-1]
+        assert latest.action.action_type == ActionType.SUPERKEY
+        assert latest.action.superkey_config is mapping_state["key_f13"].superkey_config
+        assert latest.superkey_slot == SUPERKEY_SLOT_OVERLOAD
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=0),
+        )
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTSHIFT, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTSHIFT, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTSHIFT, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTSHIFT, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+        assert device.repeat_state.history[-1].superkey_slot == SUPERKEY_SLOT_OVERLOAD
+
+    @pytest.mark.asyncio
+    async def test_repeat_replays_pattern_superkey_resolved_slot(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_DOUBLE_TAP
+
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        mapping_state = {
+            "key_f13": dm.MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=SuperkeyConfig(
+                    name="wpctl_volume_rocker",
+                    mode=SuperkeyMode.PATTERN,
+                    double_tap_window_ms=250,
+                    hold_threshold_ms=250,
+                    double_tap_actions=[
+                        SuperkeyActionData(action_type="keyboard", target="key_b"),
+                    ],
+                ),
+            ),
+            "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
+        }
+
+        keyboard_uinput = _FakeUInput()
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={"key_f13": "key_f13", "key_f14": "key_f14"},
+            mapping_getter=lambda: mapping_state,
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+        )
+        device._running = True
+
+        for value in (1, 0, 1, 0):
+            await _runtime_process_grabbed_event(
+                device,
+                SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=value),
+            )
+
+        latest = device.repeat_state.history[-1]
+        assert latest.action.action_type == ActionType.SUPERKEY
+        assert latest.action.superkey_config is mapping_state["key_f13"].superkey_config
+        assert latest.superkey_slot == SUPERKEY_SLOT_DOUBLE_TAP
+
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=1),
+        )
+        await _runtime_process_grabbed_event(
+            device,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=0),
+        )
+
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+        ]
+        assert device.repeat_state.history[-1].superkey_slot == SUPERKEY_SLOT_DOUBLE_TAP
+
+    @pytest.mark.asyncio
     async def test_overload_superkey_profile_lifetime_follows_child_trigger(
         self,
         monkeypatch: pytest.MonkeyPatch,

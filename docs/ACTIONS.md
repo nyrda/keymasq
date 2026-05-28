@@ -52,7 +52,7 @@ remembered actions it may replay:
 | **Mouse** | Mouse button and wheel actions, including passthrough mouse clicks and wheel events. |
 | **Gamepad** | Gamepad button and axis actions, including passthrough gamepad buttons. |
 | **Macros** | Macro playback actions. |
-| **Other** | Configured mouse movement actions, command/compositor actions, macro control actions, and profile actions. |
+| **Other** | Configured mouse movement actions, command/compositor actions, macro control actions, profile actions, and resolved Super Key paths. |
 
 All five toggles are enabled by default. If every toggle is off, the dialog
 will not let you map the Repeat action.
@@ -68,9 +68,11 @@ remembered action is a keyboard key, mouse button, mouse wheel action, or
 gamepad button. Remembered configured mouse movement, macro, and other special
 actions run once.
 
-Top-level Super Key actions are not remembered as a single Repeat target.
-Overload super key child actions can still be remembered individually when they
-run, but pattern super key slots do not expose Repeat.
+Super Key actions are remembered by the path they resolved to. For example, a
+pattern super key that fired its double-tap slot is remembered as that super key's
+double-tap path, and an overload super key is remembered as its overload path.
+Repeating it runs that saved path once instead of replaying only the last child
+action.
 
 ### Execute Shell Command
 

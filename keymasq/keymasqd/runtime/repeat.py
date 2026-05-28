@@ -15,11 +15,26 @@ from keymasq.common.models import (
     REPEAT_CATEGORY_SPECIAL,
     ActionType,
     MappingAction,
+    SuperkeyMode,
     normalize_repeat_categories,
 )
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
 
 REPEAT_HISTORY_LIMIT = 32
+SUPERKEY_SLOT_TAP = "tap"
+SUPERKEY_SLOT_DOUBLE_TAP = "double_tap"
+SUPERKEY_SLOT_HOLD = "hold"
+SUPERKEY_SLOT_TAP_HOLD = "tap_hold"
+SUPERKEY_SLOT_OVERLOAD = "overload"
+SUPERKEY_REPEAT_SLOTS = frozenset(
+    {
+        SUPERKEY_SLOT_TAP,
+        SUPERKEY_SLOT_DOUBLE_TAP,
+        SUPERKEY_SLOT_HOLD,
+        SUPERKEY_SLOT_TAP_HOLD,
+        SUPERKEY_SLOT_OVERLOAD,
+    }
+)
 
 _SPECIAL_REPEAT_ACTION_TYPES = frozenset(
     {
@@ -41,6 +56,7 @@ class RepeatHistoryEntry:
     action: MappingAction
     source_device: str = ""
     source_button: str = ""
+    superkey_slot: str | None = None
 
 
 @dataclass
@@ -120,6 +136,41 @@ def remember_action(
             ),
             source_device=str(source_device or ""),
             source_button=str(source_button or ""),
+        )
+    )
+
+
+def remember_superkey_path(
+    repeat_state: RepeatRuntimeState | None,
+    action: MappingAction,
+    slot: str,
+    *,
+    source_device: str = "",
+    source_button: str = "",
+) -> None:
+    if repeat_state is None:
+        return
+    if action.action_type != ActionType.SUPERKEY or action.superkey_config is None:
+        return
+    normalized_slot = str(slot or "").strip()
+    if normalized_slot not in SUPERKEY_REPEAT_SLOTS:
+        return
+    if normalized_slot == SUPERKEY_SLOT_OVERLOAD:
+        if action.superkey_config.mode != SuperkeyMode.OVERLOAD:
+            return
+    elif action.superkey_config.mode == SuperkeyMode.OVERLOAD:
+        return
+    repeat_state.history.append(
+        RepeatHistoryEntry(
+            category=REPEAT_CATEGORY_SPECIAL,
+            action=replace(
+                action,
+                rapidfire_enabled=False,
+                tap_enabled=False,
+            ),
+            source_device=str(source_device or ""),
+            source_button=str(source_button or ""),
+            superkey_slot=normalized_slot,
         )
     )
 

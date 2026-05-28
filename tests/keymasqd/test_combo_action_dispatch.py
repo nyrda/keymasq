@@ -122,6 +122,54 @@ class TestComboActionDispatch:
         assert len(manager.repeat_state.history) == 3
 
     @pytest.mark.asyncio
+    async def test_combo_repeat_replays_overload_superkey_path(self) -> None:
+        from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_OVERLOAD
+
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-overload-repeat",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                ],
+            ),
+        )
+
+        await _runtime_start_combo_action(manager, "source", action, binding)
+        await _runtime_stop_combo_action(manager, "source")
+
+        latest = manager.repeat_state.history[-1]
+        assert latest.action.action_type == ActionType.SUPERKEY
+        assert latest.action.superkey_config is action.superkey_config
+        assert latest.superkey_slot == SUPERKEY_SLOT_OVERLOAD
+
+        await _runtime_start_combo_action(
+            manager,
+            "repeat",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+        assert "repeat" not in manager.combo_state.active_actions
+        assert "repeat#repeat" not in manager.combo_state.active_actions
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+        assert manager.repeat_state.history[-1].superkey_slot == SUPERKEY_SLOT_OVERLOAD
+
+    @pytest.mark.asyncio
     async def test_combo_overload_superkey_profile_lifetime_follows_child_trigger(
         self,
     ) -> None:

@@ -48,6 +48,7 @@ from keymasq.keymasqd.runtime.mouse_actions import (
     write_relative_pulse,
 )
 from keymasq.keymasqd.runtime.repeat import (
+    RepeatHistoryEntry,
     RepeatRuntimeState,
     refresh_repeated_exec_source,
     remember_action,
@@ -73,6 +74,20 @@ class SuperkeyExecutor(Protocol):
         deps: ActionExecutionDeps,
         shared_output_tracker: OutputTracker | None = None,
         shared_abs_output_tracker: OutputTracker | None = None,
+        execution_handle: "ActionExecutionHandle | None" = None,
+        cancel_macro_playback: CancelMacroPlayback | None = None,
+        resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    ) -> None: ...
+
+
+class RepeatSuperkeyExecutor(Protocol):
+    async def __call__(
+        self,
+        device_runtime: ActionRuntime,
+        repeated_entry: RepeatHistoryEntry,
+        event_name: str,
+        *,
+        deps: ActionExecutionDeps,
         execution_handle: "ActionExecutionHandle | None" = None,
         cancel_macro_playback: CancelMacroPlayback | None = None,
         resolve_code_fn: ResolveCodeFn = resolve_output_code,
@@ -308,9 +323,15 @@ async def execute_action(
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
     superkey_executor: SuperkeyExecutor | None = None,
+    repeat_superkey_executor: RepeatSuperkeyExecutor | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    record_repeat: bool = True,
 ) -> None:
-    if int(event.value) == 1 and action.action_type != ActionType.PASSTHROUGH:
+    if (
+        record_repeat
+        and int(event.value) == 1
+        and action.action_type not in {ActionType.PASSTHROUGH, ActionType.SUPERKEY}
+    ):
         remember_action(
             device_runtime.repeat_state,
             action,
@@ -345,7 +366,9 @@ async def execute_action(
             execution_handle=execution_handle,
             cancel_macro_playback=cancel_macro_playback,
             superkey_executor=superkey_executor,
+            repeat_superkey_executor=repeat_superkey_executor,
             resolve_code_fn=resolve_code_fn,
+            record_repeat=record_repeat,
         )
         return
 
@@ -544,7 +567,9 @@ async def execute_action_pulse(
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
     superkey_executor: SuperkeyExecutor | None = None,
+    repeat_superkey_executor: RepeatSuperkeyExecutor | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    record_repeat: bool = True,
 ) -> None:
     await execute_action(
         device_runtime,
@@ -557,7 +582,9 @@ async def execute_action_pulse(
         execution_handle=execution_handle,
         cancel_macro_playback=cancel_macro_playback,
         superkey_executor=superkey_executor,
+        repeat_superkey_executor=repeat_superkey_executor,
         resolve_code_fn=resolve_code_fn,
+        record_repeat=record_repeat,
     )
     await execute_action(
         device_runtime,
@@ -570,7 +597,9 @@ async def execute_action_pulse(
         execution_handle=execution_handle,
         cancel_macro_playback=cancel_macro_playback,
         superkey_executor=superkey_executor,
+        repeat_superkey_executor=repeat_superkey_executor,
         resolve_code_fn=resolve_code_fn,
+        record_repeat=record_repeat,
     )
 
 
@@ -618,7 +647,9 @@ async def _execute_repeat_action(
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
     superkey_executor: SuperkeyExecutor | None = None,
+    repeat_superkey_executor: RepeatSuperkeyExecutor | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    record_repeat: bool = True,
 ) -> None:
     repeat_event_name = f"{event_name}#repeat"
     repeat_state = device_runtime.repeat_state
@@ -639,6 +670,19 @@ async def _execute_repeat_action(
         if repeated_entry is None:
             mark_action_started(execution_handle)
             return
+        if repeated_entry.superkey_slot is not None:
+            if repeat_superkey_executor is not None:
+                await repeat_superkey_executor(
+                    device_runtime,
+                    repeated_entry,
+                    repeat_event_name,
+                    deps=deps,
+                    execution_handle=execution_handle,
+                    cancel_macro_playback=cancel_macro_playback,
+                    resolve_code_fn=resolve_code_fn,
+                )
+            mark_action_started(execution_handle)
+            return
         repeated_action = repeated_entry.action
         active_actions[repeat_event_name] = repeated_action
         await execute_action(
@@ -652,7 +696,9 @@ async def _execute_repeat_action(
             execution_handle=execution_handle,
             cancel_macro_playback=cancel_macro_playback,
             superkey_executor=superkey_executor,
+            repeat_superkey_executor=repeat_superkey_executor,
             resolve_code_fn=resolve_code_fn,
+            record_repeat=record_repeat,
         )
         refresh_repeated_exec_source(repeat_state, repeated_entry)
         return
@@ -680,7 +726,9 @@ async def _execute_repeat_action(
         execution_handle=execution_handle,
         cancel_macro_playback=cancel_macro_playback,
         superkey_executor=superkey_executor,
+        repeat_superkey_executor=repeat_superkey_executor,
         resolve_code_fn=resolve_code_fn,
+        record_repeat=record_repeat,
     )
 
 

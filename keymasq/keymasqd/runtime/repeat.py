@@ -204,13 +204,12 @@ def refresh_repeated_exec_source(
     repeat_state: RepeatRuntimeState | None,
     repeated_entry: RepeatHistoryEntry,
 ) -> None:
-    if repeat_state is None or repeated_entry.action.action_type != ActionType.EXEC:
+    if repeat_state is None or not _repeat_entry_contains_exec_action(repeated_entry):
         return
-    repeated_exec_ref = repeated_entry.action.exec_ref
     if not repeat_state.history:
         return
     latest = repeat_state.history[-1]
-    if latest.action.action_type != ActionType.EXEC or latest.action.exec_ref != repeated_exec_ref:
+    if not _same_repeated_exec_action(latest, repeated_entry):
         return
     repeat_state.history[-1] = replace(
         latest,
@@ -230,7 +229,7 @@ def _superkey_action_contains_exec(action: MappingAction) -> bool:
         config.tap_hold_actions,
     )
     if any(
-        child.action_type == ActionType.EXEC.value
+        _is_exec_action_type(child.action_type)
         for actions in pattern_slots
         for child in actions
     ):
@@ -241,10 +240,16 @@ def _superkey_action_contains_exec(action: MappingAction) -> bool:
         config.overload_up_actions,
     )
     return any(
-        child.action_type == ActionType.EXEC
+        _is_exec_action_type(child.action_type)
         for actions in overload_slots
         for child in actions
     )
+
+
+def _is_exec_action_type(action_type: object) -> bool:
+    if isinstance(action_type, ActionType):
+        return action_type == ActionType.EXEC
+    return str(action_type) == ActionType.EXEC.value
 
 
 def _repeat_entry_contains_exec_action(entry: RepeatHistoryEntry) -> bool:
@@ -252,6 +257,24 @@ def _repeat_entry_contains_exec_action(entry: RepeatHistoryEntry) -> bool:
         entry.action.action_type == ActionType.EXEC
         or _superkey_action_contains_exec(entry.action)
     )
+
+
+def _same_repeated_exec_action(
+    latest: RepeatHistoryEntry,
+    repeated_entry: RepeatHistoryEntry,
+) -> bool:
+    if repeated_entry.action.action_type == ActionType.EXEC:
+        return (
+            latest.action.action_type == ActionType.EXEC
+            and latest.action.exec_ref == repeated_entry.action.exec_ref
+        )
+    if repeated_entry.action.action_type == ActionType.SUPERKEY:
+        return (
+            latest.action.action_type == ActionType.SUPERKEY
+            and latest.superkey_slot == repeated_entry.superkey_slot
+            and latest.action.superkey_config is repeated_entry.action.superkey_config
+        )
+    return False
 
 
 def forget_exec_actions(

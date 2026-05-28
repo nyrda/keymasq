@@ -1757,6 +1757,48 @@ class TestGrabbedDeviceHelpers:
         assert latest.source_button == "other-button"
 
     @pytest.mark.asyncio
+    async def test_repeat_superkey_exec_refresh_preserves_original_history_source(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from keymasq.keymasqd.runtime.repeat import (
+            SUPERKEY_SLOT_TAP,
+            RepeatHistoryEntry,
+        )
+
+        device = _make_grabbed_device(monkeypatch)
+        superkey_config = SuperkeyConfig(
+            name="exec-superkey",
+            tap_actions=[SuperkeyActionData(action_type="exec", exec_ref=7)],
+        )
+        device.repeat_state.history.append(
+            RepeatHistoryEntry(
+                category="special",
+                action=dm.MappingAction(
+                    action_type=ActionType.SUPERKEY,
+                    superkey_config=superkey_config,
+                ),
+                source_device="original-device",
+                source_button="original-button",
+                superkey_slot=SUPERKEY_SLOT_TAP,
+            )
+        )
+
+        await _runtime_execute_grabbed_action(
+            device,
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+            "repeat_btn",
+        )
+
+        latest = device.repeat_state.history[-1]
+        assert latest.action.action_type == ActionType.SUPERKEY
+        assert latest.action.superkey_config is superkey_config
+        assert latest.superkey_slot == SUPERKEY_SLOT_TAP
+        assert latest.source_device == "original-device"
+        assert latest.source_button == "original-button"
+
+    @pytest.mark.asyncio
     async def test_repeat_profile_action_uses_physical_trigger_lifetime(
         self,
         monkeypatch: pytest.MonkeyPatch,

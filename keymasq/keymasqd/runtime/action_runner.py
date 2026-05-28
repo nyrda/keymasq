@@ -681,6 +681,7 @@ async def _execute_repeat_action(
                     cancel_macro_playback=cancel_macro_playback,
                     resolve_code_fn=resolve_code_fn,
                 )
+                refresh_repeated_exec_source(repeat_state, repeated_entry)
             mark_action_started(execution_handle)
             return
         repeated_action = repeated_entry.action

@@ -1152,29 +1152,42 @@ async def _repeat_combo_overload_slot_once(
         source_button=trigger_name,
     )
     child_combo_ids: list[str] = []
-    for index, child_action in enumerate(config.overload_actions):
-        if child_action.action_type == ActionType.SUPERKEY:
-            log.warning(
-                "Skipping nested superkey child %s in combo overload %s (%s)",
-                child_action.superkey_name or "<unnamed>",
-                combo_id,
-                config.name,
+
+    async def start_child_actions(
+        actions: Sequence[MappingAction],
+        suffix: str,
+    ) -> None:
+        for index, child_action in enumerate(actions):
+            if child_action.action_type == ActionType.SUPERKEY:
+                log.warning(
+                    "Skipping nested superkey child %s in combo overload %s (%s)",
+                    child_action.superkey_name or "<unnamed>",
+                    combo_id,
+                    config.name,
+                )
+                continue
+            child_combo_id = f"{combo_id}#{suffix}#{index}"
+            await _start_combo_action_instance(
+                manager,
+                child_combo_id,
+                child_action,
+                trigger_binding,
+                trigger_name=f"{trigger_name}#{suffix}#{index}",
+                deps=deps,
+                record_repeat=False,
             )
-            continue
-        child_combo_id = f"{combo_id}#overload#{index}"
-        await _start_combo_action_instance(
-            manager,
-            child_combo_id,
-            child_action,
-            trigger_binding,
-            trigger_name=f"{trigger_name}#overload#{index}",
-            deps=deps,
-            record_repeat=False,
-        )
-        if child_combo_id in manager.combo_state.active_actions:
-            child_combo_ids.append(child_combo_id)
-    for child_combo_id in reversed(child_combo_ids):
-        await stop_combo_action(manager, child_combo_id, deps=deps)
+            if child_combo_id in manager.combo_state.active_actions:
+                child_combo_ids.append(child_combo_id)
+
+    try:
+        await start_child_actions(config.overload_down_actions, "overload-down")
+        await start_child_actions(config.overload_actions, "overload")
+    finally:
+        try:
+            await start_child_actions(config.overload_up_actions, "overload-up")
+        finally:
+            for child_combo_id in reversed(child_combo_ids):
+                await stop_combo_action(manager, child_combo_id, deps=deps)
 
 
 async def _repeat_combo_pattern_slot_once(

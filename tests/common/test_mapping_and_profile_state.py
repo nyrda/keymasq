@@ -133,7 +133,13 @@ class TestMappingAction:
         ]
         assert "Invalid repeat_categories" in caplog.text
         assert empty_action.repeat_categories == []
-        assert malformed_action.repeat_categories == []
+        assert malformed_action.repeat_categories == [
+            "keyboard",
+            "mouse",
+            "gamepad",
+            "macro",
+            "special",
+        ]
         assert unrelated.repeat_categories is None
 
 

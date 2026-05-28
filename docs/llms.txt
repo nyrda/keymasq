@@ -66,8 +66,11 @@ Primary docs:
   Each pulse has a press/hold duration and a wait before the next pulse.
 - Repeat Last Action: replay the newest remembered action in selected
   categories (`keyboard`, `mouse`, `gamepad`, `macro`, `special`). Mouse covers
-  buttons and wheel. Raw passthrough mouse movement and top-level superkeys are
-  not remembered.
+  buttons and wheel. Raw passthrough mouse movement is not remembered.
+  Unresolved top-level superkey bindings are not remembered; however, when a
+  superkey sequence resolves to a concrete action (a resolved superkey path),
+  that action is stored and can be replayed. This lets readers distinguish
+  top-level superkeys from resolved superkey paths.
 - Tap: send one short press/release pulse even if the physical source is held.
 
 ## Config locations

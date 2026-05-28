@@ -233,7 +233,11 @@ def normalize_repeat_categories(categories: object) -> list[str]:
     elif isinstance(categories, (list, tuple, set, frozenset)):
         raw_values = list(categories)
     else:
-        return []
+        log.warning(
+            "Invalid repeat_categories %r; using default repeat categories",
+            categories,
+        )
+        return list(DEFAULT_REPEAT_CATEGORIES)
     if not raw_values:
         return []
 

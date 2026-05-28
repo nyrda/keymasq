@@ -71,6 +71,23 @@ The shared desktop harness includes the cursor-position check for GNOME, KDE, Hy
 
 ## Running A Desktop VM Test
 
+Use the integration helper from the repository root:
+
+```bash
+./scripts/integration.sh cosmic
+./scripts/integration.sh gnome
+./scripts/integration.sh listeners
+```
+
+List every shortcut with:
+
+```bash
+./scripts/integration.sh --help
+```
+
+The shortcuts map to the same Nix check targets shown below. `listeners` runs
+the full listener VM matrix.
+
 ```bash
 nix build 'path:.#checks.x86_64-linux.listener-vm-gnome-bridge'
 nix build 'path:.#checks.x86_64-linux.listener-vm-gnome'

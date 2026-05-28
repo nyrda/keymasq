@@ -3,10 +3,11 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/check.sh [--vm] [keymasqd|session|gui|full]
+Usage: ./scripts/check.sh [--vm] [auto|keymasqd|session|gui|full]
 
 Runs ruff, basedpyright, stylelint for GUI CSS, and the selected pytest category.
-Defaults to full.
+Defaults to auto, which selects the category from pending and untracked changes
+under keymasq/ and tests/.
 EOF
 }
 
@@ -14,14 +15,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 BACKEND="host"
-CATEGORY="full"
+CATEGORY="auto"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --vm)
       BACKEND="vm"
       ;;
-    keymasqd|session|keymasq-session|gui|full)
+    auto|keymasqd|session|keymasq-session|gui|full)
       CATEGORY="$1"
       ;;
     -h|--help)
@@ -36,6 +37,66 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+resolve_auto_category() {
+  local path
+  local selected=""
+  local -a changed_paths=()
+  local -a untracked_paths=()
+
+  mapfile -t changed_paths < <(git diff --name-only HEAD -- keymasq tests)
+  mapfile -t untracked_paths < <(git ls-files --others --exclude-standard -- keymasq tests)
+
+  for path in "${changed_paths[@]}" "${untracked_paths[@]}"; do
+    [[ -n "$path" ]] || continue
+
+    case "$path" in
+      keymasq/keymasqd/*|tests/keymasqd/*)
+        if [[ -z "$selected" ]]; then
+          selected="keymasqd"
+        elif [[ "$selected" != "keymasqd" ]]; then
+          selected="full"
+        fi
+        ;;
+      keymasq/session/*|tests/session/*)
+        if [[ -z "$selected" ]]; then
+          selected="session"
+        elif [[ "$selected" != "session" ]]; then
+          selected="full"
+        fi
+        ;;
+      keymasq/gui/*|tests/gui/*)
+        if [[ -z "$selected" ]]; then
+          selected="gui"
+        elif [[ "$selected" != "gui" ]]; then
+          selected="full"
+        fi
+        ;;
+      keymasq/*|tests/*)
+        selected="full"
+        ;;
+    esac
+
+    if [[ "$selected" == "full" ]]; then
+      break
+    fi
+  done
+
+  if [[ -z "$selected" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$selected"
+}
+
+if [[ "$CATEGORY" == "auto" ]]; then
+  if CATEGORY="$(resolve_auto_category)"; then
+    echo "auto: selected ${CATEGORY}"
+  else
+    echo "auto: no pending or untracked changes under keymasq/ or tests/; nothing to run"
+    exit 0
+  fi
+fi
 
 case "$CATEGORY" in
   keymasqd)

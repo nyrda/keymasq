@@ -58,24 +58,28 @@ wrapper behavior, not as the fastest GUI iteration loop.
 
 ## Running Checks
 
-Run the full standard validation with:
+Run the standard validation with:
 
 ```bash
-./scripts/check.sh full
+./scripts/check.sh
 ```
 
-For fast local validation, run the narrowest category that matches the code you
-changed:
+By default, `check.sh` runs in `auto` mode and selects the narrowest safe
+category from pending and untracked changes under `keymasq/` and `tests/`.
+It falls back to `full` for shared, mixed, or broad changes.
+
+You can also run a category explicitly:
 
 ```bash
 ./scripts/check.sh keymasqd
 ./scripts/check.sh session
 ./scripts/check.sh gui
+./scripts/check.sh full
 ```
 
 `./scripts/check.sh` runs `ruff`, `basedpyright`, and the selected pytest
-subset from the dev shell. Use `full` for multi-area changes, shared code, or
-before handing off a broad refactor.
+subset from the dev shell when `auto` finds relevant code changes. Use `full`
+for multi-area changes, shared code, or before handing off a broad refactor.
 
 If the host does not have usable `uinput` access, or if you want the selected
 pytest category to run in the VM backend instead of the host backend, add
@@ -92,6 +96,35 @@ Run individual tools from the dev shell when needed:
 nix develop -c ruff check keymasq tests
 nix develop -c basedpyright
 ```
+
+## Running Integration Tests
+
+Keymasq has two NixOS VM integration suites:
+
+- listener VM tests for compositor/window tracking under GNOME, KDE, Hyprland,
+  Niri, XFCE/X11, COSMIC, and Sway
+- the daemon/session runtime suite, which starts `keymasqd` and
+  `keymasq-session`, drives virtual input devices, and checks remapped output
+
+Use the integration helper from the repository root:
+
+```bash
+./scripts/integration.sh cosmic
+./scripts/integration.sh daemon-session
+```
+
+List the available shortcuts with:
+
+```bash
+./scripts/integration.sh --help
+```
+
+The helper runs `nix build` against `path:.#checks.x86_64-linux...` targets so
+new or uncommitted VM files are included during local development. These tests
+are VM-heavy; a Linux host with KVM acceleration is strongly recommended.
+
+For detailed behavior and debugging notes, see `docs/LISTENER_VM_TESTS.md` and
+`docs/DAEMON_SESSION_INTEGRATION_TEST.md`.
 
 ## Local Test Input Suppression
 

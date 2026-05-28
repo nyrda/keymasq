@@ -59,6 +59,12 @@ Fixtures are rendered through `support.py` by loading template files from
 Run the VM check from the repository root:
 
 ```bash
+./scripts/integration.sh daemon-session
+```
+
+This is equivalent to running the Nix check directly:
+
+```bash
 nix build 'path:.#checks.x86_64-linux.daemon-session-integration-test'
 ```
 

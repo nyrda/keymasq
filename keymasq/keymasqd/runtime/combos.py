@@ -1158,7 +1158,7 @@ async def _repeat_combo_overload_slot_once(
     )
     child_combo_ids: list[str] = []
 
-    async def start_child_actions(
+    async def start_held_actions(
         actions: Sequence[MappingAction],
         suffix: str,
     ) -> None:
@@ -1184,12 +1184,35 @@ async def _repeat_combo_overload_slot_once(
             if child_combo_id in manager.combo_state.active_actions:
                 child_combo_ids.append(child_combo_id)
 
+    async def pulse_child_actions(
+        actions: Sequence[MappingAction],
+        suffix: str,
+    ) -> None:
+        for index, child_action in enumerate(actions):
+            if child_action.action_type == ActionType.SUPERKEY:
+                log.warning(
+                    "Skipping nested superkey child %s in combo overload %s (%s)",
+                    child_action.superkey_name or "<unnamed>",
+                    combo_id,
+                    config.name,
+                )
+                continue
+            await _pulse_combo_action_instance(
+                manager,
+                f"{combo_id}#{suffix}#{index}",
+                child_action,
+                trigger_binding,
+                trigger_name=f"{trigger_name}#{suffix}#{index}",
+                deps=deps,
+                record_repeat=False,
+            )
+
     try:
-        await start_child_actions(config.overload_down_actions, "overload-down")
-        await start_child_actions(config.overload_actions, "overload")
+        await start_held_actions(config.overload_actions, "overload")
+        await pulse_child_actions(config.overload_down_actions, "overload_down")
     finally:
         try:
-            await start_child_actions(config.overload_up_actions, "overload-up")
+            await pulse_child_actions(config.overload_up_actions, "overload_up")
         finally:
             for child_combo_id in reversed(child_combo_ids):
                 await stop_combo_action(manager, child_combo_id, deps=deps)

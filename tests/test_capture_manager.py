@@ -25,6 +25,7 @@ class _FakeDevice:
         self._events = list(events)
         self.grabbed = False
         self.closed = False
+        self.close_count = 0
         self.fd = hash(path) & 0xFFFF
         self._absinfo = {
             evdev.ecodes.ABS_X: evdev.AbsInfo(0, -32768, 32767, 0, 0, 0),
@@ -39,6 +40,7 @@ class _FakeDevice:
 
     def close(self) -> None:
         self.closed = True
+        self.close_count += 1
 
     def capabilities(self):
         return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A, evdev.ecodes.KEY_LEFTCTRL]}
@@ -283,6 +285,59 @@ def test_capture_manager_begin_reports_grab_warnings(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="No readable/grabbable interfaces found"):
         manager.begin("1234:5678")
 
+    assert busy.closed is True
+    assert denied.closed is True
+    assert busy.close_count == 1
+    assert denied.close_count == 1
+
+
+def test_capture_manager_begin_closes_failed_grab_devices_with_partial_success(
+    monkeypatch,
+) -> None:
+    grabbed = _FakeDevice("/dev/input/event1", 0x1234, 0x5678, [])
+    busy = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [])
+
+    def _grab_busy() -> None:
+        raise OSError(16, "busy")
+
+    busy.grab = _grab_busy
+
+    devices = {
+        grabbed.path: grabbed,
+        busy.path: busy,
+    }
+    monkeypatch.setattr(evdev, "list_devices", lambda: list(devices))
+    monkeypatch.setattr(evdev, "InputDevice", lambda path: devices[path])
+
+    manager = CaptureManager()
+    begin = manager.begin("1234:5678")
+
+    assert begin["warnings"] == ["/dev/input/event2: busy"]
+    assert grabbed.closed is False
+    assert busy.closed is True
+    assert busy.close_count == 1
+
+    manager.end(str(begin["token"]))
+    assert grabbed.closed is True
+
+
+def test_capture_manager_find_devices_closes_nonmatching_devices(monkeypatch) -> None:
+    wanted = _FakeDevice("/dev/input/event1", 0x1234, 0x5678, [])
+    other = _FakeDevice("/dev/input/event2", 0x0001, 0x0002, [])
+    devices = {
+        wanted.path: wanted,
+        other.path: other,
+    }
+    monkeypatch.setattr(evdev, "list_devices", lambda: list(devices))
+    monkeypatch.setattr(evdev, "InputDevice", lambda path: devices[path])
+
+    matched = CaptureManager()._find_devices("1234", "5678")
+
+    assert matched == [wanted]
+    assert wanted.closed is False
+    assert other.closed is True
+    assert other.close_count == 1
+
 
 def test_capture_manager_begin_combo_allow_empty_and_read_nowait(monkeypatch) -> None:
     monkeypatch.setattr(evdev, "list_devices", lambda: [])
@@ -427,6 +482,14 @@ def test_capture_manager_find_combo_devices_filters_inputs(monkeypatch) -> None:
     )
 
     assert matched == [good]
+    assert excluded.closed is False
+    assert virtual.closed is True
+    assert wrong_hwid.closed is True
+    assert no_keys.closed is True
+    assert good.closed is False
+    assert virtual.close_count == 1
+    assert wrong_hwid.close_count == 1
+    assert no_keys.close_count == 1
 
     matched_by_path = manager._find_combo_devices(
         exclude_paths=set(),

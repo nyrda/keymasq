@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -129,3 +130,40 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
     assert manager.compositor_state.compositor_id == "x11"
     assert manager.compositor_state.window_listener is None
     assert "x11" in manager.compositor_state.listener_retry_after
+
+
+@pytest.mark.asyncio
+async def test_switch_compositor_times_out_gnome_support_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    monkeypatch.setattr(session_compositor_module, "SUPPORT_DETAILS_TIMEOUT_S", 0.01)
+
+    async def hanging_support_details(
+        _compositor_id: str | None,
+        _dbus=None,
+    ) -> dict[str, bool | str]:
+        await asyncio.Event().wait()
+        return {"supported": True}
+
+    start_listener = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module,
+        "get_compositor_support_details",
+        hanging_support_details,
+    )
+    monkeypatch.setattr(session_compositor_module, "start_window_listener", start_listener)
+
+    await session_compositor_module.switch_compositor(manager, "gnome")
+
+    assert manager.compositor_state.compositor_id == "gnome"
+    assert manager.compositor_state.window_listener is None
+    assert manager.compositor_state.support_details_cache == {
+        "supported": False,
+        "warning": "Compositor support status query timed out.",
+    }
+    assert manager.compositor_state.listener_last_error["gnome"] == (
+        "Compositor support status query timed out."
+    )
+    assert "gnome" in manager.compositor_state.listener_retry_after
+    start_listener.assert_not_awaited()

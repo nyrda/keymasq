@@ -10,6 +10,7 @@ from keymasq.common.recording_guard import (
     parse_unlock_expires_at,
     resolve_unlock_status,
     runtime_unlock_path,
+    write_unlock_expires_at,
 )
 
 
@@ -28,16 +29,22 @@ def _require_privileged_caller() -> None:
 
 
 def _write_lease(path: Path, expires_at: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{int(expires_at)}\n", encoding="utf-8")
-
+    owner_uid = None
+    owner_gid = None
     try:
         keymasq_user = pwd.getpwnam("keymasq")
-        os.chown(path, keymasq_user.pw_uid, keymasq_user.pw_gid)
+        owner_uid = keymasq_user.pw_uid
+        owner_gid = keymasq_user.pw_gid
     except Exception:
         pass
 
-    os.chmod(path, 0o644)
+    write_unlock_expires_at(
+        path,
+        expires_at,
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+        mode=0o644,
+    )
 
 
 def _remove_lease(path: Path) -> None:

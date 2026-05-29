@@ -37,10 +37,10 @@ def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     calls: list[tuple[int, int]] = []
 
-    def _chown(path: Path, uid: int, gid: int) -> None:
+    def _chown(fd: int, uid: int, gid: int) -> None:
         calls.append((uid, gid))
 
-    monkeypatch.setattr(record.os, "chown", _chown)
+    monkeypatch.setattr(record.os, "fchown", _chown)
 
     record._write_lease(lease, 42)
     assert lease.read_text(encoding="utf-8") == "42\n"
@@ -48,6 +48,27 @@ def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     record._remove_lease(lease)
     assert lease.exists() is False
+
+
+def test_write_lease_rejects_preexisting_symlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    target = tmp_path / "target"
+    target.write_text("keep\n", encoding="utf-8")
+    lease = tmp_path / "lease"
+    lease.symlink_to(target)
+
+    monkeypatch.setattr(
+        record.pwd,
+        "getpwnam",
+        lambda _: SimpleNamespace(pw_uid=1000, pw_gid=1000),
+    )
+
+    with pytest.raises(PermissionError, match="symlink"):
+        record._write_lease(lease, 42)
+
+    assert target.read_text(encoding="utf-8") == "keep\n"
+    assert lease.is_symlink()
 
 
 def test_main_status_prints_json(

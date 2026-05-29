@@ -77,10 +77,10 @@ def test_write_unlock_expires_at_handles_chown_failure(
 ) -> None:
     lease = tmp_path / "nested" / "lease"
 
-    def _raise_chown(path: str, uid: int, gid: int) -> None:
+    def _raise_chown(fd: int, uid: int, gid: int) -> None:
         raise OSError("nope")
 
-    monkeypatch.setattr(recording_guard.os, "chown", _raise_chown)
+    monkeypatch.setattr(recording_guard.os, "fchown", _raise_chown)
 
     caplog.set_level(logging.WARNING, logger=recording_guard.__name__)
     recording_guard.write_unlock_expires_at(lease, 123, owner_uid=1, owner_gid=1)

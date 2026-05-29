@@ -103,7 +103,6 @@ def _client(*, uid: int = 1000, pid: int = 4321, connection_id: int = 77) -> Cli
 
 
 __all__ = [
-    "annotations",
     "asyncio",
     "Enum",
     "Path",

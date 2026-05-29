@@ -7,8 +7,7 @@ import socket
 import stat
 import sys
 import time
-from collections.abc import Sequence
-from typing import Protocol, cast
+from typing import cast
 
 from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.common.ipc import CommandType
@@ -39,7 +38,6 @@ from keymasq.keymasqd import (
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.daemon_helpers import (
     JsonObject,
-    JsonObjectList,
     int_like,
 )
 from keymasq.keymasqd.device_manager import DeviceManager
@@ -49,165 +47,6 @@ from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 from keymasq.keymasqd.timer_precision import set_timer_slack_ns
 
 log = logging.getLogger("keymasqd")
-
-
-class _GrabbedDeviceRef(Protocol):
-    path: str
-
-
-class _DaemonDeviceManager(Protocol):
-    broadcast_callback: object | None
-    recording_manager: object | None
-    macro_store: object | None
-    macro_exec_timeout_max_ms: int
-    emergency_cancel_combo_enabled: bool
-    grabbed_devices: dict[str, list[_GrabbedDeviceRef]]
-
-    def initialize_output_devices(self) -> None: ...
-
-    def shutdown_output_devices(self) -> None: ...
-
-    async def start_topology_watcher(self) -> None: ...
-
-    async def stop_topology_watcher(self) -> None: ...
-
-    async def cancel_macro_playback(self) -> JsonObject: ...
-
-    async def emergency_reset(self) -> JsonObject: ...
-
-    async def release_all_devices(self) -> None: ...
-
-    async def grab_device(
-        self,
-        hardware_id: str,
-        evdev_paths: list[str],
-        button_map: dict[str, str],
-        button_codes: dict[str, int] | None = None,
-        button_values: dict[str, int] | None = None,
-        analog_inputs: JsonObject | None = None,
-        force_grab_unmapped: bool = False,
-        evdev_interfaces: list[JsonObject] | None = None,
-    ) -> JsonObject: ...
-
-    async def release_device(
-        self, hardware_id: str, immediate: bool = False, grace_s: float | None = None
-    ) -> JsonObject: ...
-
-    async def set_mapping(self, hardware_id: str, mapping: JsonObject) -> JsonObject: ...
-
-    async def set_combos(self, combos: Sequence[object]) -> JsonObject: ...
-
-    async def set_cursor_position(self, x: int, y: int) -> JsonObject: ...
-
-    async def list_devices(self) -> JsonObject: ...
-
-    async def play_macro(
-        self,
-        macro_events: JsonObjectList,
-        macro_name: str = "",
-        replay_mouse_movement: bool = True,
-        replay_mouse_clicks: bool = True,
-        speed: float = 1.0,
-        loop_mode: str = "none",
-        loop_count: int = 1,
-        loop_stop_behavior: str = "finish_run",
-        move_to_start: bool = False,
-        start_x: int = 0,
-        start_y: int = 0,
-        block_mouse_movement: bool = False,
-        source_device: str = "",
-        source_button: str = "",
-        trigger_value: int = 1,
-    ) -> JsonObject: ...
-
-    def begin_combo_capture(
-        self, token: str, hardware_ids: set[str], notify_event: asyncio.Event
-    ) -> None: ...
-
-    def end_combo_capture(self, token: str) -> None: ...
-
-    def read_combo_capture(self, token: str) -> JsonObject: ...
-
-    async def set_diagnostics(
-        self,
-        enabled: bool,
-        interval: float,
-        categories: Sequence[object] | None = None,
-    ) -> JsonObject: ...
-
-    async def start_device_inspector(self, hardware_id: str) -> JsonObject: ...
-
-    async def stop_device_inspector(self, hardware_id: str) -> JsonObject: ...
-
-    async def enable_device_inspector_suppression(self, hardware_id: str) -> JsonObject: ...
-
-    async def disable_device_inspector_suppression(
-        self,
-        hardware_id: str,
-        reason: str = "manual",
-    ) -> JsonObject: ...
-
-    def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject: ...
-
-
-class _DaemonRecordingManager(Protocol):
-    broadcast_callback: object | None
-
-    async def start(
-        self,
-        devices: JsonObjectList,
-        include_mouse_movement: bool = False,
-        include_mouse_clicks: bool = False,
-    ) -> JsonObject: ...
-
-    async def stop(self) -> JsonObject: ...
-
-    async def discard_all_pending_recordings(self) -> None: ...
-
-    def cleanup_spool_dir(self, *, older_than_s: float | None = None) -> None: ...
-
-
-class _DaemonMacroStore(Protocol):
-    def ensure(self) -> None: ...
-
-    def register_internal(self, name: str, events: JsonObjectList, **extra: object) -> None: ...
-
-    def get(self, name: str) -> JsonObject: ...
-
-    def list_meta(self) -> JsonObjectList: ...
-
-    def create(self, payload: JsonObject) -> JsonObject: ...
-
-    def update(
-        self, name: str, payload: JsonObject, expected_revision: int | None
-    ) -> JsonObject: ...
-
-    def rename(self, old_name: str, new_name: str, expected_revision: int | None) -> JsonObject: ...
-
-    def delete(self, name: str, expected_revision: int | None) -> None: ...
-
-
-class _DaemonCaptureManager(Protocol):
-    def begin(
-        self,
-        hardware_id: str,
-        evdev_paths: list[str] | None = None,
-        mode: str = "button",
-    ) -> JsonObject: ...
-
-    def read(self, token: str) -> JsonObject: ...
-
-    def begin_combo(self, *args: object, **kwargs: object) -> JsonObject: ...
-
-    def authorize_combo_capture(self) -> object: ...
-
-    def register_combo_notifier(
-        self, token: str, loop: asyncio.AbstractEventLoop, notify_event: asyncio.Event
-    ) -> None: ...
-
-    def read_combo_nowait(self, token: str) -> JsonObject: ...
-
-    def end(self, token: str) -> JsonObject: ...
 
 
 def sd_notify(state: str) -> None:
@@ -225,10 +64,10 @@ def sd_notify(state: str) -> None:
 
 class Daemon:
     def __init__(self, verbosity: int = 0) -> None:
-        self.device_manager = cast(_DaemonDeviceManager, DeviceManager(verbosity=verbosity))
-        self.recording_manager = cast(_DaemonRecordingManager, RecordingManager())
-        self.macro_store = cast(_DaemonMacroStore, MacroStore(STATE_DIR / "macros"))
-        self.capture_manager = cast(_DaemonCaptureManager, CaptureManager())
+        self.device_manager = DeviceManager(verbosity=verbosity)
+        self.recording_manager = RecordingManager()
+        self.macro_store = MacroStore(STATE_DIR / "macros")
+        self.capture_manager = CaptureManager()
         self.socket_server: SocketServer | None = None
         self.running = False
         self._shutdown_event = asyncio.Event()
@@ -356,15 +195,6 @@ class Daemon:
         log.info("Received shutdown signal")
         self._shutdown_event.set()
 
-    def _device_command_daemon(self) -> daemon_device_commands.DeviceCommandDaemon:
-        return cast(daemon_device_commands.DeviceCommandDaemon, self)
-
-    def _macro_command_daemon(self) -> daemon_macro_commands.MacroCommandDaemon:
-        return cast(daemon_macro_commands.MacroCommandDaemon, self)
-
-    def _capture_command_daemon(self) -> daemon_capture_commands.CaptureCommandDaemon:
-        return cast(daemon_capture_commands.CaptureCommandDaemon, self)
-
     async def _handle_command(
         self,
         command_type: CommandType,
@@ -387,7 +217,7 @@ class Daemon:
             log.debug(f"Command: {command_type.value} -> {self._log_view(data)}")
 
         device_result = await daemon_device_commands.handle_device_command(
-            self._device_command_daemon(),
+            cast(daemon_device_commands.DeviceCommandDaemon, self),
             command_type,
             data,
         )
@@ -398,7 +228,7 @@ class Daemon:
             return {"pong": True}
 
         macro_result = await daemon_macro_commands.handle_macro_command(
-            self._macro_command_daemon(),
+            cast(daemon_macro_commands.MacroCommandDaemon, self),
             command_type,
             data,
         )
@@ -406,7 +236,7 @@ class Daemon:
             return macro_result
 
         capture_result = await daemon_capture_commands.handle_capture_command(
-            self._capture_command_daemon(),
+            cast(daemon_capture_commands.CaptureCommandDaemon, self),
             command_type,
             data,
         )

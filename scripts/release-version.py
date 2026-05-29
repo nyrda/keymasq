@@ -36,8 +36,9 @@ def _release_date() -> str:
     return datetime.now(tz=UTC).date().isoformat()
 
 
-def _debian_timestamp() -> str:
-    return datetime.now(tz=UTC).strftime("%a, %d %b %Y %H:%M:%S +0000")
+def _debian_timestamp(release_date: str) -> str:
+    timestamp = datetime.strptime(release_date, "%Y-%m-%d").replace(tzinfo=UTC)
+    return timestamp.strftime("%a, %d %b %Y 00:00:00 +0000")
 
 
 def _current_version(root: Path) -> str:
@@ -84,7 +85,7 @@ def _build_rules(
             RewriteRule(
                 root / "debian/changelog",
                 re.compile(r"(?m)^ -- nyrda <nyrda@keymasq.tools>  .+$"),
-                f" -- nyrda <nyrda@keymasq.tools>  {_debian_timestamp()}",
+                f" -- nyrda <nyrda@keymasq.tools>  {_debian_timestamp(release_date)}",
             )
         )
     return rules

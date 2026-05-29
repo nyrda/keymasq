@@ -42,6 +42,15 @@ from keymasq.keymasqd.combo_engine import (
     RuntimeComboBinding,
     RuntimeComboStep,
 )
+from keymasq.keymasqd.daemon_helpers import (
+    float_like as _float_value,
+)
+from keymasq.keymasqd.daemon_helpers import (
+    int_like as _int_value,
+)
+from keymasq.keymasqd.daemon_helpers import (
+    str_value as _str_value,
+)
 from keymasq.keymasqd.output_helpers import emit_mouse_move, resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import actions as runtime_actions
@@ -115,24 +124,12 @@ def _json_list(value: object) -> list[object]:
     return cast(list[object], value) if isinstance(value, list) else []
 
 
-def _str_value(value: object, default: str = "") -> str:
-    return default if value is None else str(value)
-
-
 def _optional_str(value: object) -> str | None:
     return None if value is None else str(value)
 
 
-def _int_value(value: object, default: int = 0) -> int:
-    return default if value is None else int(cast(int | float | str, value))
-
-
 def _int_or_none(value: object) -> int | None:
     return None if value is None else _int_value(value)
-
-
-def _float_value(value: object, default: float = 0.0) -> float:
-    return default if value is None else float(cast(int | float | str, value))
 
 
 def _device_input(path: str) -> _ManagedInputDevice:

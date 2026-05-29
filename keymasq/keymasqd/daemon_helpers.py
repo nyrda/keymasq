@@ -4,11 +4,11 @@ type JsonObject = dict[str, object]
 type JsonObjectList = list[JsonObject]
 
 
-def int_like(value: object, default: int) -> int:
+def int_like(value: object, default: int = 0) -> int:
     return default if value in {None, ""} else int(cast(int | float | str, value))
 
 
-def float_like(value: object, default: float) -> float:
+def float_like(value: object, default: float = 0.0) -> float:
     return default if value in {None, ""} else float(cast(int | float | str, value))
 
 

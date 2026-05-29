@@ -22,6 +22,7 @@ from keymasq.common.models import (
     SuperkeyMode,
 )
 from keymasq.keymasqd import device_manager as dm
+from keymasq.keymasqd import daemon_helpers
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
 from keymasq.keymasqd.runtime import actions as adm
@@ -119,8 +120,8 @@ async def _runtime_on_device_event(
         source,
         resolve_stable_path_fn=dm.resolve_stable_path,
         get_interface_id_fn=dm.get_interface_id,
-        int_value_fn=dm._int_value,
-        str_value_fn=dm._str_value,
+        int_value_fn=daemon_helpers.int_like,
+        str_value_fn=daemon_helpers.str_value,
         deps=_combo_runtime_deps(),
     )
 
@@ -317,11 +318,11 @@ def _runtime_parse_action(manager: DeviceManager, action: object) -> MappingActi
     return adm.parse_action(
         manager,
         action,
-        str_value=dm._str_value,
+        str_value=daemon_helpers.str_value,
         optional_str=dm._optional_str,
-        int_value=dm._int_value,
+        int_value=daemon_helpers.int_like,
         int_or_none=dm._int_or_none,
-        float_value=dm._float_value,
+        float_value=daemon_helpers.float_like,
     )
 
 

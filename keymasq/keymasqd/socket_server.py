@@ -108,6 +108,9 @@ class SocketServer:
             await self.server.wait_closed()
 
         self.clients.clear()
+        self._buffer.clear()
+        self._client_context.clear()
+        self._owner_context = None
 
     async def _handle_client(
         self,

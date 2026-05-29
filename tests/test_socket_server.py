@@ -577,3 +577,47 @@ class TestSocketServer:
         _reader, _writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
 
         await asyncio.wait_for(server.stop(), timeout=1.0)
+
+    async def test_server_stop_clears_single_owner_state_for_restart(self, temp_socket_dir):
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            _ok_handler,
+            single_owner=True,
+        )
+        await server.start()
+
+        reader1, writer1 = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        writer1.write(encode_command(Command(command=CommandType.PING, data={})))
+        await writer1.drain()
+
+        response_data = await reader1.read(1024)
+        response, _ = decode_response(response_data)
+        assert response is not None
+        assert response.status == "ok"
+        assert server._owner_context is not None
+
+        await asyncio.wait_for(server.stop(), timeout=1.0)
+
+        assert not server.clients
+        assert not server._buffer
+        assert not server._client_context
+        assert server._owner_context is None
+
+        await server.start()
+        reader2, writer2 = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        writer2.write(encode_command(Command(command=CommandType.PING, data={})))
+        await writer2.drain()
+
+        response_data = await reader2.read(1024)
+        response, _ = decode_response(response_data)
+        assert response is not None
+        assert response.status == "ok"
+
+        writer1.close()
+        writer2.close()
+        await asyncio.gather(
+            writer1.wait_closed(),
+            writer2.wait_closed(),
+            return_exceptions=True,
+        )
+        await server.stop()

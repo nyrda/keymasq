@@ -82,6 +82,39 @@ async def test_device_inspector_start_requires_recording_unlock(daemon_testbed, 
 
 
 @pytest.mark.asyncio
+async def test_capture_end_allows_owner_after_recording_unlock_expires(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    client = _client(uid=2000, pid=111, connection_id=10)
+    unlocked = True
+
+    def fake_recording_unlocked_for_uid(_uid: int):
+        return (unlocked, 0, "runtime" if unlocked else "runtime")
+
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", fake_recording_unlocked_for_uid)
+
+    begin = await daemon._handle_command(
+        CommandType.CAPTURE_BEGIN,
+        {"hardware_id": "1234:5678"},
+        client=client,
+    )
+    assert begin == {"token": "cap-token"}
+
+    unlocked = False
+    end = await daemon._handle_command(
+        CommandType.CAPTURE_END,
+        {"token": "cap-token"},
+        client=client,
+    )
+
+    assert end == {"ended": True}
+    capture_manager.end.assert_called_once_with("cap-token")
+
+
+@pytest.mark.asyncio
 async def test_macro_exec_complete_forwards_wait_id_and_returncode(daemon_testbed):
     daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
 

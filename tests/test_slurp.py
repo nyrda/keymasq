@@ -210,6 +210,7 @@ def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(monke
         def __init__(self) -> None:
             self.terminated = False
             self.killed = False
+            self.wait_calls = 0
 
         async def communicate(self) -> tuple[bytes, bytes]:
             return b"", b""
@@ -220,8 +221,13 @@ def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(monke
         def kill(self) -> None:
             self.killed = True
 
-        async def wait(self) -> None:
-            return None
+        def wait(self) -> Awaitable[None]:
+            self.wait_calls += 1
+
+            async def _wait() -> None:
+                return None
+
+            return _wait()
 
     process = _FakeProcess()
 
@@ -239,6 +245,7 @@ def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(monke
     assert result is None
     assert process.terminated is True
     assert process.killed is True
+    assert process.wait_calls == 2
     assert capture._process is None
 
 
@@ -317,4 +324,51 @@ def test_cancel_async_terminates_process() -> None:
 
     assert process.terminated is True
     assert process.waited is True
+    assert capture._process is None
+
+
+def test_cancel_async_kills_and_waits_again_when_terminate_wait_times_out(
+    monkeypatch,
+) -> None:
+    capture = SlurpCapture()
+
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.terminated = False
+            self.killed = False
+            self.wait_calls = 0
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def wait(self) -> Awaitable[None]:
+            self.wait_calls += 1
+
+            async def _wait() -> None:
+                return None
+
+            return _wait()
+
+    process = _FakeProcess()
+    capture._process = process  # type: ignore[assignment]
+    wait_for_calls = 0
+
+    async def _wait_for(awaitable: Awaitable[object], timeout: float) -> object:
+        nonlocal wait_for_calls
+        wait_for_calls += 1
+        awaitable.close()
+        if wait_for_calls == 1:
+            raise TimeoutError
+        return None
+
+    monkeypatch.setattr(asyncio, "wait_for", _wait_for)
+
+    asyncio.run(capture.cancel_async())
+
+    assert process.terminated is True
+    assert process.killed is True
+    assert process.wait_calls == 2
     assert capture._process is None

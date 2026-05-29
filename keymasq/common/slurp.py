@@ -161,19 +161,11 @@ class SlurpCapture:
         except TimeoutError:
             log.warning("slurp capture timed out after %.1fs", timeout)
             if self._process:
-                self._process.terminate()
-                try:
-                    await asyncio.wait_for(self._process.wait(), timeout=1.0)
-                except TimeoutError:
-                    self._process.kill()
+                await self._terminate_process_async(self._process)
             return None
         except asyncio.CancelledError:
             if self._process:
-                self._process.terminate()
-                try:
-                    await asyncio.wait_for(self._process.wait(), timeout=1.0)
-                except TimeoutError:
-                    self._process.kill()
+                await self._terminate_process_async(self._process)
             raise
         except Exception:
             log.exception("slurp capture failed")
@@ -183,12 +175,21 @@ class SlurpCapture:
 
     async def cancel_async(self) -> None:
         if self._process:
-            try:
-                self._process.terminate()
-                await asyncio.wait_for(self._process.wait(), timeout=1.0)
-            except Exception:
-                pass
+            await self._terminate_process_async(self._process)
             self._process = None
+
+    async def _terminate_process_async(self, process: asyncio.subprocess.Process) -> None:
+        try:
+            process.terminate()
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+        except TimeoutError:
+            try:
+                process.kill()
+                await asyncio.wait_for(process.wait(), timeout=1.0)
+            except Exception:
+                log.debug("slurp process did not exit after kill", exc_info=True)
+        except Exception:
+            log.debug("failed to terminate slurp process", exc_info=True)
 
     def _parse_output(self, output: str) -> SlurpResult | None:
         parts = output.split(",")

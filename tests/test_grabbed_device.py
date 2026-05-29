@@ -124,6 +124,53 @@ async def test_grab_failure_closes_opened_input_device(monkeypatch):
     assert grabbed.uinput is None
 
 
+@pytest.mark.asyncio
+async def test_grab_failure_closes_input_device_when_passthrough_creation_fails(
+    monkeypatch,
+):
+    fake_device = SimpleNamespace(
+        name="fake input",
+        info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
+        capabilities=MagicMock(
+            return_value={
+                evdev.ecodes.EV_SYN: [],
+                evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_LEFT],
+            }
+        ),
+        close=MagicMock(),
+        grab=MagicMock(),
+    )
+    wait_for_active_keys_to_clear = AsyncMock()
+
+    def fail_uinput_creation(**kwargs):
+        raise RuntimeError("passthrough creation failed")
+
+    monkeypatch.setattr(gdm, "_device_input", lambda path: fake_device)
+    monkeypatch.setattr(gdm.evdev, "UInput", fail_uinput_creation)
+    monkeypatch.setattr(
+        gdm.runtime_grab,
+        "wait_for_active_keys_to_clear",
+        wait_for_active_keys_to_clear,
+    )
+
+    grabbed = GrabbedDevice(
+        path="/dev/input/event-test",
+        hardware_id="test:device",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="passthrough creation failed"):
+        await grabbed.grab()
+
+    fake_device.close.assert_called_once_with()
+    fake_device.grab.assert_not_called()
+    wait_for_active_keys_to_clear.assert_not_awaited()
+    assert grabbed.device is None
+    assert grabbed.uinput is None
+
+
 class TestActionExecution:
     def test_resolve_code_btn_left(self):
         code = resolve_output_code("btn_left")

@@ -371,74 +371,99 @@ class GrabbedDevice:
             preserve_state_keys=preserve_state_keys,
         )
 
+    def _cleanup_failed_grab(self) -> None:
+        uinput = self.uinput
+        if uinput is not None:
+            try:
+                uinput.close()
+            except Exception:
+                pass
+            try:
+                runtime_outputs.unregister_passthrough_frame_output(uinput)
+            except Exception:
+                pass
+        self.uinput = None
+
+        device = self.device
+        if device is not None:
+            try:
+                device.close()
+            except Exception:
+                pass
+        self.device = None
+
     async def grab(self) -> None:
         self.resolved_event_path = os.path.realpath(self.path)
         self.device = _device_input(self.path)
-        self._refresh_analog_axis_ranges()
-        caps = self.device.capabilities()
-        caps.pop(evdev.ecodes.EV_SYN, None)
-        is_gamepad_passthrough = _is_gamepad_passthrough(self.device_type, self.device_types)
 
-        passthrough_name, passthrough_vendor, passthrough_product = uinput_identity(
-            _passthrough_name(
-                self.device,
-                self.hardware_id,
-                self.interface_id,
-                is_gamepad=is_gamepad_passthrough,
-            ),
-            "passthrough",
-            test_name=f"passthrough-{self.hardware_id}",
-        )
-        passthrough_version: int | None = None
-        passthrough_bustype: int | None = None
-        passthrough_input_props = None
-        if (
-            is_gamepad_passthrough
-            and passthrough_vendor is None
-            and passthrough_product is None
-        ):
-            (
-                passthrough_vendor,
-                passthrough_product,
-                passthrough_version,
-                passthrough_bustype,
-            ) = _passthrough_input_id(self.device, self.hardware_id)
-            passthrough_input_props = _passthrough_input_props(self.device)
-
-        if passthrough_vendor is None or passthrough_product is None:
-            self.uinput = evdev.UInput(
-                events=cast(dict[int, Sequence[int]], caps),
-                name=passthrough_name,
+        try:
+            self._refresh_analog_axis_ranges()
+            caps = self.device.capabilities()
+            caps.pop(evdev.ecodes.EV_SYN, None)
+            is_gamepad_passthrough = _is_gamepad_passthrough(
+                self.device_type,
+                self.device_types,
             )
-        elif passthrough_version is not None and passthrough_bustype is not None:
-            if passthrough_input_props is None:
+
+            passthrough_name, passthrough_vendor, passthrough_product = uinput_identity(
+                _passthrough_name(
+                    self.device,
+                    self.hardware_id,
+                    self.interface_id,
+                    is_gamepad=is_gamepad_passthrough,
+                ),
+                "passthrough",
+                test_name=f"passthrough-{self.hardware_id}",
+            )
+            passthrough_version: int | None = None
+            passthrough_bustype: int | None = None
+            passthrough_input_props = None
+            if (
+                is_gamepad_passthrough
+                and passthrough_vendor is None
+                and passthrough_product is None
+            ):
+                (
+                    passthrough_vendor,
+                    passthrough_product,
+                    passthrough_version,
+                    passthrough_bustype,
+                ) = _passthrough_input_id(self.device, self.hardware_id)
+                passthrough_input_props = _passthrough_input_props(self.device)
+
+            if passthrough_vendor is None or passthrough_product is None:
                 self.uinput = evdev.UInput(
                     events=cast(dict[int, Sequence[int]], caps),
                     name=passthrough_name,
-                    vendor=passthrough_vendor,
-                    product=passthrough_product,
-                    version=passthrough_version,
-                    bustype=passthrough_bustype,
                 )
+            elif passthrough_version is not None and passthrough_bustype is not None:
+                if passthrough_input_props is None:
+                    self.uinput = evdev.UInput(
+                        events=cast(dict[int, Sequence[int]], caps),
+                        name=passthrough_name,
+                        vendor=passthrough_vendor,
+                        product=passthrough_product,
+                        version=passthrough_version,
+                        bustype=passthrough_bustype,
+                    )
+                else:
+                    self.uinput = evdev.UInput(
+                        events=cast(dict[int, Sequence[int]], caps),
+                        name=passthrough_name,
+                        vendor=passthrough_vendor,
+                        product=passthrough_product,
+                        version=passthrough_version,
+                        bustype=passthrough_bustype,
+                        input_props=passthrough_input_props,
+                    )
             else:
                 self.uinput = evdev.UInput(
                     events=cast(dict[int, Sequence[int]], caps),
                     name=passthrough_name,
                     vendor=passthrough_vendor,
                     product=passthrough_product,
-                    version=passthrough_version,
-                    bustype=passthrough_bustype,
-                    input_props=passthrough_input_props,
                 )
-        else:
-            self.uinput = evdev.UInput(
-                events=cast(dict[int, Sequence[int]], caps),
-                name=passthrough_name,
-                vendor=passthrough_vendor,
-                product=passthrough_product,
-            )
 
-        try:
             await runtime_grab.wait_for_active_keys_to_clear(
                 self,
                 asyncio_mod=ASYNCIO_RUNTIME,
@@ -449,23 +474,7 @@ class GrabbedDevice:
             )
             self.device.grab()
         except Exception:
-            uinput = self.uinput
-            try:
-                uinput.close()
-            except Exception:
-                pass
-            try:
-                runtime_outputs.unregister_passthrough_frame_output(uinput)
-            except Exception:
-                pass
-            self.uinput = None
-
-            device = self.device
-            try:
-                device.close()
-            except Exception:
-                pass
-            self.device = None
+            self._cleanup_failed_grab()
             raise
 
         self._running = True

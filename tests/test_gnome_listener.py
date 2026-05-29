@@ -10,12 +10,24 @@ from keymasq.session.listeners.gnome import GnomeListener
 class _FakeWriter:
     def __init__(self) -> None:
         self.payloads: list[dict] = []
+        self.closed = False
 
     def write(self, data: bytes) -> None:
         self.payloads.append(gnome_module.json.loads(data.decode("utf-8")))
 
     async def drain(self) -> None:
         return None
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        return None
+
+
+class _EofReader:
+    async def readline(self) -> bytes:
+        return b""
 
 
 def test_gnome_probe_requires_shell_owner(monkeypatch, tmp_path) -> None:
@@ -405,6 +417,27 @@ async def test_gnome_hello_marks_bridge_protocol_compatible() -> None:
 
     assert listener.compositor_dispatch_available is True
     assert listener.runtime_support_details()["warning"] == ""
+
+
+@pytest.mark.asyncio
+async def test_gnome_stale_bridge_reader_does_not_clear_new_connection() -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener.running = True
+    stale_writer = _FakeWriter()
+    active_writer = _FakeWriter()
+    listener._writer = active_writer
+    listener._bridge_connected = True
+    listener._bridge_protocol = 1
+    listener._bridge_protocol_compatible = True
+
+    await listener._bridge_read_loop(_EofReader(), stale_writer)
+
+    assert listener._writer is active_writer
+    assert stale_writer.closed is True
+    assert listener._bridge_connected is True
+    assert listener._bridge_protocol == 1
+    assert listener._bridge_protocol_compatible is True
+    assert listener.compositor_dispatch_available is True
 
 
 @pytest.mark.asyncio

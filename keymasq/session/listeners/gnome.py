@@ -565,12 +565,12 @@ class GnomeListener(WindowListener):
         finally:
             if self._writer is writer:
                 self._writer = None
-            if self._bridge_connected:
-                self._bridge_connected = False
-                if self.running:
-                    log.warning("GNOME bridge disconnected; waiting for extension reconnect")
-            self._bridge_protocol = None
-            self._bridge_protocol_compatible = False
+                if self._bridge_connected:
+                    self._bridge_connected = False
+                    if self.running:
+                        log.warning("GNOME bridge disconnected; waiting for extension reconnect")
+                self._bridge_protocol = None
+                self._bridge_protocol_compatible = False
             try:
                 writer.close()
                 await writer.wait_closed()

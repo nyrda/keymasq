@@ -141,6 +141,7 @@ class CaptureManager:
                     warnings.append(f"{device.path}: permission denied")
                 else:
                     warnings.append(f"{device.path}: {e}")
+                _close_device(device)
 
         if not grabbed:
             raise RuntimeError("No readable/grabbable interfaces found")
@@ -430,6 +431,8 @@ class CaptureManager:
                 and f"{device.info.product:04x}" == product_id
             ):
                 devices.append(device)
+            else:
+                _close_device(device)
         return devices
 
     def _find_devices_by_paths(self, evdev_paths: list[str]) -> list[_CaptureInputDevice]:
@@ -509,39 +512,45 @@ class CaptureManager:
         for path in list_devices():
             if path in exclude_paths:
                 continue
+            keep_device = False
             try:
                 device = cast(_CaptureInputDevice, evdev.InputDevice(path))
             except Exception:
                 continue
 
-            if device.name.startswith("keymasq-"):
-                continue
-            if path_hardware_ids:
-                if not _hardware_id_for_path(device.path, path_hardware_ids):
-                    continue
-            elif hardware_ids:
-                device_hardware_id = (
-                    f"{device.info.vendor:04x}:{device.info.product:04x}"
-                ).lower()
-                if device_hardware_id not in hardware_ids:
-                    continue
-
             try:
-                key_codes = device.capabilities().get(evdev.ecodes.EV_KEY, [])
-            except Exception:
-                key_codes = []
-
-            has_supported_key = False
-            for code in cast(list[object], key_codes):
-                if not isinstance(code, int):
+                if device.name.startswith("keymasq-"):
                     continue
-                code_name = _event_code_name(evdev.ecodes.EV_KEY, int(code)).upper()
-                if code_name.startswith(("KEY_", "BTN_")):
-                    has_supported_key = True
-                    break
+                if path_hardware_ids:
+                    if not _hardware_id_for_path(device.path, path_hardware_ids):
+                        continue
+                elif hardware_ids:
+                    device_hardware_id = (
+                        f"{device.info.vendor:04x}:{device.info.product:04x}"
+                    ).lower()
+                    if device_hardware_id not in hardware_ids:
+                        continue
 
-            if has_supported_key:
-                devices.append(device)
+                try:
+                    key_codes = device.capabilities().get(evdev.ecodes.EV_KEY, [])
+                except Exception:
+                    key_codes = []
+
+                has_supported_key = False
+                for code in cast(list[object], key_codes):
+                    if not isinstance(code, int):
+                        continue
+                    code_name = _event_code_name(evdev.ecodes.EV_KEY, int(code)).upper()
+                    if code_name.startswith(("KEY_", "BTN_")):
+                        has_supported_key = True
+                        break
+
+                if has_supported_key:
+                    devices.append(device)
+                    keep_device = True
+            finally:
+                if not keep_device:
+                    _close_device(device)
         return devices
 
     def _parse_event(
@@ -714,6 +723,11 @@ def _capture_mode(mode: str) -> str:
     if normalized not in {"button", "analog"}:
         raise ValueError(f"unsupported capture mode: {mode}")
     return normalized
+
+
+def _close_device(device: _CaptureInputDevice) -> None:
+    with contextlib.suppress(Exception):
+        device.close()
 
 
 def _abs_info_payload(device: _CaptureInputDevice, code: int) -> JsonObject:

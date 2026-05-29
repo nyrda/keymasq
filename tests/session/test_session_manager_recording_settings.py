@@ -1,5 +1,6 @@
 # ruff: noqa: F403, F405, I001
 import logging
+import threading
 import tomllib
 from typing import cast
 
@@ -15,41 +16,72 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last() -> 
     }
     persisted: dict[str, bool] = {}
     writes: list[dict[str, bool]] = []
+    writes_lock = threading.Lock()
+    stale_started = threading.Event()
+    stale_finished = threading.Event()
+    latest_finished = threading.Event()
+    release_stale = threading.Event()
 
     def fake_save(_manager, settings: dict | None = None) -> None:
         state = dict(settings or {})
         if state.get("include_mouse_movement", False):
-            time.sleep(0.05)
+            stale_started.set()
+            if not release_stale.wait(timeout=1.0):
+                return
+        with writes_lock:
+            persisted.clear()
+            persisted.update(state)
+            writes.append(state)
+        if state.get("include_mouse_movement", False):
+            stale_finished.set()
         else:
-            time.sleep(0.005)
-        persisted.clear()
-        persisted.update(state)
-        writes.append(state)
+            latest_finished.set()
+
+    async def wait_for_event(event: threading.Event, message: str) -> None:
+        if not await asyncio.to_thread(event.wait, 1.0):
+            pytest.fail(message)
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(session_recording_module, "save_recording_settings_to_disk", fake_save)
 
-    session_recording_module.update_recording_settings(manager, {"include_mouse_movement": True})
-    session_recording_module.update_recording_settings(
-        manager,
-        {"include_mouse_movement": False, "include_mouse_clicks": True},
-    )
+    try:
+        session_recording_module.update_recording_settings(
+            manager,
+            {"include_mouse_movement": True},
+        )
+        first_save_task = cast(
+            asyncio.Task[None] | None,
+            manager.recording_state.settings_save_task,
+        )
+        assert first_save_task is not None
+        await wait_for_event(stale_started, "stale settings save did not start")
 
-    for _ in range(100):
-        save_task = manager.recording_state.settings_save_task
-        if save_task is None or save_task.done():
-            break
-        await asyncio.sleep(0.01)
-    else:
-        pytest.fail("recording settings save task did not complete")
+        session_recording_module.update_recording_settings(
+            manager,
+            {"include_mouse_movement": False, "include_mouse_clicks": True},
+        )
 
-    assert writes
-    assert persisted == {
-        "include_mouse_movement": False,
-        "include_mouse_clicks": True,
-        "record_start_position": False,
-    }
-    monkeypatch.undo()
+        current_save_task = cast(
+            asyncio.Task[None] | None,
+            manager.recording_state.settings_save_task,
+        )
+        if current_save_task is not first_save_task:
+            await wait_for_event(latest_finished, "latest settings save did not finish")
+        release_stale.set()
+        await wait_for_event(stale_finished, "stale settings save did not finish")
+
+        if current_save_task is not None:
+            await asyncio.wait_for(current_save_task, timeout=1.0)
+        await wait_for_event(latest_finished, "latest settings save did not finish")
+
+        assert writes
+        assert persisted == {
+            "include_mouse_movement": False,
+            "include_mouse_clicks": True,
+            "record_start_position": False,
+        }
+    finally:
+        monkeypatch.undo()
 
 
 def test_recording_settings_save_load_toml_uses_recording_ids(tmp_path) -> None:

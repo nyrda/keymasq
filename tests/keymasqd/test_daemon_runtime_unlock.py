@@ -203,19 +203,21 @@ def test_expired_unlocked_cache_entry_is_re_resolved(daemon_testbed, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_client_disconnect_clears_owned_and_unowned_runtime_unlocks(
+async def test_client_disconnect_clears_owned_runtime_unlock_only(
     daemon_testbed,
     monkeypatch,
     tmp_path: Path,
 ):
     daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
     owned_uid = 5555
-    stray_uid = 7777
+    unrelated_uid = 7777
+    client = _client(uid=owned_uid, pid=600, connection_id=9)
     runtime_dir = tmp_path / "runtime-unlocks"
     runtime_dir.mkdir()
     (runtime_dir / f"recording-unlock-{owned_uid}").write_text("10\n", encoding="utf-8")
-    (runtime_dir / f"recording-unlock-{stray_uid}").write_text("20\n", encoding="utf-8")
+    (runtime_dir / f"recording-unlock-{unrelated_uid}").write_text("20\n", encoding="utf-8")
     daemon._recording_refresh_owners[owned_uid] = (600, 9)
+    daemon._recording_refresh_owners[unrelated_uid] = (700, 10)
 
     monkeypatch.setattr(daemon_module, "RECORDING_UNLOCK_RUNTIME_DIR", runtime_dir)
     monkeypatch.setattr(
@@ -225,13 +227,13 @@ async def test_client_disconnect_clears_owned_and_unowned_runtime_unlocks(
     )
     monkeypatch.setattr(daemon_module.time, "monotonic", lambda: 500.0)
 
-    await daemon._on_client_disconnect()
+    await daemon._on_client_disconnect(client)
 
-    assert daemon._recording_refresh_owners == {}
+    assert daemon._recording_refresh_owners == {unrelated_uid: (700, 10)}
     assert daemon._unlock_cache[owned_uid] == (500.0, False, 0, "none")
-    assert daemon._unlock_cache[stray_uid] == (500.0, False, 0, "none")
+    assert unrelated_uid not in daemon._unlock_cache
     assert not (runtime_dir / f"recording-unlock-{owned_uid}").exists()
-    assert not (runtime_dir / f"recording-unlock-{stray_uid}").exists()
+    assert (runtime_dir / f"recording-unlock-{unrelated_uid}").exists()
     recording_manager.discard_all_pending_recordings.assert_awaited_once()
     device_manager.release_all_devices.assert_awaited_once()
 

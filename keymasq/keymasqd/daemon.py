@@ -151,6 +151,13 @@ class Daemon:
             "release all devices",
             self.device_manager.release_all_devices,
         )
+        await self._run_async_cleanup(
+            "clear runtime unlocks",
+            lambda: asyncio.to_thread(
+                self._clear_all_runtime_unlocks,
+                reason="daemon_stop",
+            ),
+        )
         self._run_sync_cleanup(
             "shut down output devices",
             self.device_manager.shutdown_output_devices,
@@ -522,6 +529,27 @@ class Daemon:
 
         self._recording_refresh_owners.clear()
 
+    def _clear_runtime_unlock_for_client(
+        self,
+        client: ClientContext,
+        *,
+        reason: str,
+    ) -> None:
+        uid = int(client.uid)
+        owner = self._recording_refresh_owners.get(uid)
+        if owner != (int(client.pid), int(client.connection_id)):
+            return
+
+        try:
+            self._clear_runtime_unlock(uid, reason=reason)
+        except OSError as exc:
+            log.warning(
+                "Failed to clear runtime unlock uid=%s during %s: %s",
+                uid,
+                reason,
+                exc,
+            )
+
     def _lock_runtime_unlock(
         self,
         uid: int,
@@ -583,15 +611,20 @@ class Daemon:
             view[key] = sanitize(value)
         return view
 
-    async def _on_client_disconnect(self) -> None:
-        log.info("Client disconnected, clearing runtime unlocks and releasing all devices")
-        await self._run_async_cleanup(
-            "clear runtime unlocks",
-            lambda: asyncio.to_thread(
-                self._clear_all_runtime_unlocks,
-                reason="session_disconnect",
-            ),
-        )
+    async def _on_client_disconnect(self, client: ClientContext | None = None) -> None:
+        if client is None and self.socket_server is not None:
+            client = self.socket_server.owner_context
+
+        log.info("Client disconnected, releasing all devices")
+        if client is not None:
+            await self._run_async_cleanup(
+                "clear runtime unlock for client",
+                lambda: asyncio.to_thread(
+                    self._clear_runtime_unlock_for_client,
+                    client,
+                    reason="session_disconnect",
+                ),
+            )
         await self._run_async_cleanup(
             "discard pending recordings",
             self.recording_manager.discard_all_pending_recordings,

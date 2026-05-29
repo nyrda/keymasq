@@ -70,6 +70,10 @@ class SocketServer:
         self._next_connection_id = 1
         self._owner_context: ClientContext | None = None
 
+    @property
+    def owner_context(self) -> ClientContext | None:
+        return self._owner_context
+
     async def start(self) -> None:
         self.server = await asyncio.start_unix_server(
             self._handle_client,

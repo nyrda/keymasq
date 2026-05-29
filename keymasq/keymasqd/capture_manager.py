@@ -253,9 +253,6 @@ class CaptureManager:
         self._combo_capture_authorizations.add(token)
         return _ComboCaptureAuthorization(token=token)
 
-    def _authorize_combo_capture(self) -> _ComboCaptureAuthorization:
-        return self.authorize_combo_capture()
-
     def _consume_combo_capture_authorization(
         self,
         authorization: _ComboCaptureAuthorization | None,

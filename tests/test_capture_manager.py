@@ -223,7 +223,7 @@ def test_capture_manager_combo_begin_read_end(monkeypatch) -> None:
     monkeypatch.setattr(CaptureManager, "_start_combo_reader", fake_start_combo_reader)
 
     manager = CaptureManager()
-    begin = manager.begin_combo(authorization=manager._authorize_combo_capture())
+    begin = manager.begin_combo(authorization=manager.authorize_combo_capture())
     token = begin["token"]
 
     first = manager.read_combo(token)
@@ -253,7 +253,7 @@ def test_capture_manager_read_combo_queued_session_does_not_read_device(
     monkeypatch.setattr(CaptureManager, "_start_combo_reader", fake_start_combo_reader)
 
     manager = CaptureManager()
-    begin = manager.begin_combo(authorization=manager._authorize_combo_capture())
+    begin = manager.begin_combo(authorization=manager.authorize_combo_capture())
     token = str(begin["token"])
 
     assert manager.read_combo(token) == {"event": None}
@@ -272,7 +272,7 @@ def test_capture_manager_combo_reader_notifies_async_waiter(monkeypatch) -> None
     monkeypatch.setattr(CaptureManager, "_start_combo_reader", lambda self, session: None)
 
     manager = CaptureManager()
-    begin = manager.begin_combo(authorization=manager._authorize_combo_capture())
+    begin = manager.begin_combo(authorization=manager.authorize_combo_capture())
     token = begin["token"]
     session = manager._sessions[token]
     session.notify_loop = Mock()
@@ -372,7 +372,7 @@ def test_capture_manager_begin_combo_allow_empty_and_read_nowait(monkeypatch) ->
     manager = CaptureManager()
     begin = manager.begin_combo(
         allow_empty=True,
-        authorization=manager._authorize_combo_capture(),
+        authorization=manager.authorize_combo_capture(),
     )
 
     assert begin["warnings"] == []
@@ -395,14 +395,14 @@ def test_capture_manager_begin_combo_rejects_duplicate_token(monkeypatch) -> Non
     manager.begin_combo(
         token="same",
         allow_empty=True,
-        authorization=manager._authorize_combo_capture(),
+        authorization=manager.authorize_combo_capture(),
     )
 
     with pytest.raises(ValueError, match="Capture token already active"):
         manager.begin_combo(
             token="same",
             allow_empty=True,
-            authorization=manager._authorize_combo_capture(),
+            authorization=manager.authorize_combo_capture(),
         )
 
     assert manager.end("same") == {"status": "ok", "ended": True}
@@ -422,13 +422,13 @@ def test_capture_manager_begin_combo_closes_devices_on_duplicate_token(monkeypat
     manager = CaptureManager()
     manager.begin_combo(
         token="same",
-        authorization=manager._authorize_combo_capture(),
+        authorization=manager.authorize_combo_capture(),
     )
 
     with pytest.raises(ValueError, match="Capture token already active"):
         manager.begin_combo(
             token="same",
-            authorization=manager._authorize_combo_capture(),
+            authorization=manager.authorize_combo_capture(),
         )
 
     assert len(opened) == 2

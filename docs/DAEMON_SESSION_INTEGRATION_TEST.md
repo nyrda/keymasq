@@ -13,6 +13,7 @@ coverage. It verifies that the core runtime classes still work together:
 - simple keyboard remap
 - suppress
 - tap-enabled remap
+- repeat last action across direct mappings, passthrough input, combos, and superkeys
 - rapidfire
 - macro playback and cancellation
 - macro create/update/rename/delete plus loop count

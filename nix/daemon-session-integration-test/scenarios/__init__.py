@@ -35,6 +35,9 @@ from .profile_lifetime_toggle import run as profile_lifetime_toggle
 from .profile_toggle import run as profile_toggle
 from .rapidfire_keyboard import run as rapidfire_keyboard
 from .recording_capture import run as recording_capture
+from .repeat_combo_superkey import run as repeat_combo_superkey
+from .repeat_direct_actions import run as repeat_direct_actions
+from .repeat_passthrough import run as repeat_passthrough
 from .restart_recovery import run as restart_recovery
 from .simple_remap import run as simple_remap
 from .superkey_overload_multi_action import run as superkey_overload_multi_action
@@ -43,6 +46,9 @@ from .suppress import run as suppress
 from .tap_enabled import run as tap_enabled
 
 SCENARIOS = [
+    ScenarioCase("repeat direct mapped actions", repeat_direct_actions),
+    ScenarioCase("repeat original passthrough input", repeat_passthrough),
+    ScenarioCase("repeat combos and superkeys", repeat_combo_superkey),
     ScenarioCase("simple 1->1 remap", simple_remap),
     ScenarioCase("suppress", suppress),
     ScenarioCase("tap-enabled keyboard action", tap_enabled),

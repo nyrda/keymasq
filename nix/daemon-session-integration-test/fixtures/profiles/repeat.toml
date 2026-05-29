@@ -1,0 +1,74 @@
+[profile]
+name = "$REPEAT_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 400
+notify_on_activation = false
+created_at = "2026-05-12T00:00:04"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = true
+
+[devices."$HARDWARE_ID".mapping.key_f13]
+action = "repeat"
+
+[devices."$HARDWARE_ID".mapping.key_f14]
+action = "repeat"
+repeat_categories = ["keyboard"]
+
+[devices."$HARDWARE_ID".mapping.key_f15]
+action = "repeat"
+repeat_categories = ["mouse"]
+
+[devices."$HARDWARE_ID".mapping.key_f16]
+action = "repeat"
+repeat_categories = ["gamepad"]
+
+[devices."$HARDWARE_ID".mapping.key_f17]
+action = "repeat"
+repeat_categories = ["macro"]
+
+[devices."$HARDWARE_ID".mapping.key_f18]
+action = "repeat"
+repeat_categories = ["special"]
+
+[devices."$HARDWARE_ID".mapping.key_f19]
+action = "keyboard"
+target = "key_a"
+
+[devices."$HARDWARE_ID".mapping.key_f20]
+action = "mouse"
+target = "btn_middle"
+
+[devices."$HARDWARE_ID".mapping.key_f21]
+action = "gamepad"
+target = "btn_north"
+
+[devices."$HARDWARE_ID".mapping.key_f22]
+action = "macro"
+target = "$MACRO_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_f23]
+action = "mouse_move_rel"
+x = 9
+y = -4
+
+[devices."$SECOND_HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$SECOND_HARDWARE_ID".mapping.key_f13]
+action = "suppress"
+
+[devices."$SECOND_HARDWARE_ID".mapping.key_f14]
+action = "suppress"
+
+[[combos]]
+id = "integration-repeat-combo"
+name = "Integration repeat combo"
+steps = [
+  { events = [
+    { evdev = "key_f13", hardware_id = "$SECOND_HARDWARE_ID" },
+    { evdev = "key_f14", hardware_id = "$SECOND_HARDWARE_ID" },
+  ] },
+]
+action = { action = "repeat" }

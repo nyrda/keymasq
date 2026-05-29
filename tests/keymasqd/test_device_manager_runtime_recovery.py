@@ -376,7 +376,7 @@ class TestDeviceManagerHelpers:
             None,
         ]
 
-    def test_forget_exec_actions_without_filters_keeps_history(self) -> None:
+    def test_forget_exec_actions_without_filters_prunes_global_exec_history(self) -> None:
         from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry, forget_exec_actions
 
         manager = DeviceManager()
@@ -400,7 +400,6 @@ class TestDeviceManagerHelpers:
         forget_exec_actions(manager.repeat_state)
 
         assert [entry.action.action_type for entry in manager.repeat_state.history] == [
-            ActionType.EXEC,
             ActionType.KEYBOARD,
         ]
 

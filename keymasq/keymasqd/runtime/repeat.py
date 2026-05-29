@@ -363,12 +363,6 @@ def forget_exec_actions(
     normalized_source_device = str(source_device or "").strip()
     normalized_source_button_prefix = str(source_button_prefix or "").strip()
     normalized_exclude_source_button_prefix = str(exclude_source_button_prefix or "").strip()
-    if not (
-        normalized_source_device
-        or normalized_source_button_prefix
-        or normalized_exclude_source_button_prefix
-    ):
-        return
     retained: list[RepeatHistoryEntry] = []
     for entry in repeat_state.history:
         if normalized_exclude_source_button_prefix and entry.source_button.startswith(

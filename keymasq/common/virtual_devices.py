@@ -12,6 +12,8 @@ def clamp_virtual_gamepad_count(value: object) -> int:
 
 
 def virtual_gamepad_output_id(index: int) -> str:
+    if not 1 <= index <= MAX_VIRTUAL_GAMEPADS:
+        raise ValueError(f"virtual gamepad index must be 1..{MAX_VIRTUAL_GAMEPADS}")
     return f"virtual-gamepad-{index}"
 
 

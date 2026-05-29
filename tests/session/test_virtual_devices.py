@@ -1,5 +1,7 @@
 import logging
 
+import pytest
+
 
 def test_global_settings_defaults_clamps_and_persists(tmp_path, monkeypatch) -> None:
     from keymasq.common import paths
@@ -44,3 +46,20 @@ def test_global_settings_malformed_defaults(tmp_path, monkeypatch, caplog) -> No
     with caplog.at_level(logging.WARNING, logger="keymasq-session.settings"):
         assert settings.load_global_settings().virtual_gamepad_count == 1
     assert "Failed to load settings" in caplog.text
+
+
+def test_virtual_gamepad_output_ids_match_validator_contract() -> None:
+    from keymasq.common.virtual_devices import (
+        MAX_VIRTUAL_GAMEPADS,
+        is_virtual_gamepad_output_id,
+        virtual_gamepad_output_id,
+    )
+
+    for index in range(1, MAX_VIRTUAL_GAMEPADS + 1):
+        output_id = virtual_gamepad_output_id(index)
+        assert output_id == f"virtual-gamepad-{index}"
+        assert is_virtual_gamepad_output_id(output_id)
+
+    with pytest.raises(ValueError):
+        virtual_gamepad_output_id(0)
+    assert not is_virtual_gamepad_output_id("virtual-gamepad-0")

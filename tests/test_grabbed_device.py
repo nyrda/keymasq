@@ -1,5 +1,6 @@
 import asyncio
 import os
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import evdev
@@ -81,6 +82,46 @@ class TestGrabbedDevice:
         await grabbed.release()
 
         assert event_callback.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_grab_failure_closes_opened_input_device(monkeypatch):
+    fake_device = SimpleNamespace(
+        name="fake input",
+        info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
+        capabilities=MagicMock(
+            return_value={
+                evdev.ecodes.EV_SYN: [],
+                evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_LEFT],
+            }
+        ),
+        close=MagicMock(),
+        grab=MagicMock(),
+    )
+    passthrough_uinput = MagicMock()
+
+    async def fail_wait(*args, **kwargs):
+        raise RuntimeError("grab preflight failed")
+
+    monkeypatch.setattr(gdm, "_device_input", lambda path: fake_device)
+    monkeypatch.setattr(gdm.evdev, "UInput", lambda **kwargs: passthrough_uinput)
+    monkeypatch.setattr(gdm.runtime_grab, "wait_for_active_keys_to_clear", fail_wait)
+
+    grabbed = GrabbedDevice(
+        path="/dev/input/event-test",
+        hardware_id="test:device",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="grab preflight failed"):
+        await grabbed.grab()
+
+    fake_device.close.assert_called_once_with()
+    passthrough_uinput.close.assert_called_once_with()
+    assert grabbed.device is None
+    assert grabbed.uinput is None
 
 
 class TestActionExecution:

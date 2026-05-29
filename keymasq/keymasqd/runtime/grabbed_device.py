@@ -449,14 +449,23 @@ class GrabbedDevice:
             )
             self.device.grab()
         except Exception:
-            if self.uinput:
-                try:
-                    self.uinput.close()
-                except Exception:
-                    pass
-                finally:
-                    runtime_outputs.unregister_passthrough_frame_output(self.uinput)
-                self.uinput = None
+            uinput = self.uinput
+            try:
+                uinput.close()
+            except Exception:
+                pass
+            try:
+                runtime_outputs.unregister_passthrough_frame_output(uinput)
+            except Exception:
+                pass
+            self.uinput = None
+
+            device = self.device
+            try:
+                device.close()
+            except Exception:
+                pass
+            self.device = None
             raise
 
         self._running = True

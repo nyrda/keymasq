@@ -84,3 +84,4 @@ class TestProfileActions:
         assert ActionType.EXEC.value == "exec"
         assert ActionType.COMPOSITOR_DISPATCH.value == "compositor_dispatch"
         assert ActionType.SUPPRESS.value == "suppress"
+        assert ActionType.REPEAT.value == "repeat"

@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.device_manager_support import *
 
+
 class TestComboActionDispatch:
     @pytest.mark.asyncio
     async def test_profile_activation_trigger_end_follows_combo_lifecycle(self) -> None:
@@ -75,6 +76,187 @@ class TestComboActionDispatch:
         ]
 
     @pytest.mark.asyncio
+    async def test_combo_repeat_replays_last_combo_action_and_releases_child(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
+
+        await _runtime_start_combo_action(
+            manager,
+            "source",
+            dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+            binding,
+        )
+        await _runtime_stop_combo_action(manager, "source")
+        await _runtime_start_combo_action(
+            manager,
+            "repeat",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        ]
+        assert "repeat" in manager.combo_state.active_actions
+        state = manager.combo_state.active_actions["repeat"]
+        assert state.action_runtime is not None
+        assert "combo:repeat#repeat" in state.action_runtime.state.repeat_active_actions
+
+        await _runtime_stop_combo_action(manager, "repeat")
+        await _runtime_start_combo_action(
+            manager,
+            "repeat-again",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+        await _runtime_stop_combo_action(manager, "repeat-again")
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+        assert len(manager.repeat_state.history) == 3
+
+    @pytest.mark.asyncio
+    async def test_combo_repeat_skips_profile_actions(self) -> None:
+        action_triggers: list[dict[str, object]] = []
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            if event_type == CommandType.ACTION_TRIGGER:
+                action_triggers.append(data)
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
+        profile_action = dm.MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Nav",
+            profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
+        )
+
+        await _runtime_start_combo_action(manager, "source-profile", profile_action, binding)
+        await asyncio.sleep(0)
+        await _runtime_stop_combo_action(manager, "source-profile")
+
+        assert len(action_triggers) == 1
+        assert list(manager.repeat_state.history) == []
+
+        await _runtime_start_combo_action(
+            manager,
+            "repeat-profile",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+        await asyncio.sleep(0)
+
+        assert len(action_triggers) == 1
+        assert "repeat-profile" not in manager.combo_state.active_actions
+
+    @pytest.mark.asyncio
+    async def test_combo_repeat_replays_overload_superkey_path(self) -> None:
+        from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_OVERLOAD
+
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-overload-repeat",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                ],
+            ),
+        )
+
+        await _runtime_start_combo_action(manager, "source", action, binding)
+        await _runtime_stop_combo_action(manager, "source")
+
+        latest = manager.repeat_state.history[-1]
+        assert latest.action.action_type == ActionType.SUPERKEY
+        assert latest.action.superkey_config is action.superkey_config
+        assert latest.superkey_slot == SUPERKEY_SLOT_OVERLOAD
+
+        await _runtime_start_combo_action(
+            manager,
+            "repeat",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+        assert "repeat" not in manager.combo_state.active_actions
+        assert "repeat#repeat" not in manager.combo_state.active_actions
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+        assert manager.repeat_state.history[-1].superkey_slot == SUPERKEY_SLOT_OVERLOAD
+
+    @pytest.mark.asyncio
+    async def test_combo_repeat_replays_split_overload_superkey_path(self) -> None:
+        from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_OVERLOAD
+
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = _FakeUInput()
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_f13")
+        action = dm.MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-split-overload-repeat",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
+                ],
+                overload_down_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                ],
+                overload_up_actions=[
+                    dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                ],
+            ),
+        )
+
+        await _runtime_start_combo_action(manager, "source", action, binding)
+        await _runtime_stop_combo_action(manager, "source")
+        await _runtime_start_combo_action(
+            manager,
+            "repeat",
+            dm.MappingAction(action_type=ActionType.REPEAT),
+            binding,
+        )
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
+        ]
+        assert "repeat" not in manager.combo_state.active_actions
+        assert manager.repeat_state.history[-1].superkey_slot == SUPERKEY_SLOT_OVERLOAD
+
+    @pytest.mark.asyncio
     async def test_combo_overload_superkey_profile_lifetime_follows_child_trigger(
         self,
     ) -> None:
@@ -118,9 +300,7 @@ class TestComboActionDispatch:
                     dm.MappingAction(
                         action_type=ActionType.PROFILE_ENABLE,
                         profile_name="Nav",
-                        profile_deactivation=ProfileDeactivationPolicy(
-                            on_trigger_end=True
-                        ),
+                        profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
                     ),
                 ],
             ),
@@ -352,6 +532,7 @@ class TestComboActionDispatch:
         assert fake_device.presses == ["key_leftmeta"]
         assert fake_device.active == {"key_leftmeta"}
         assert fake_device.recalled == {"key_c"}
+
     @pytest.mark.asyncio
     async def test_combo_recall_trigger_keys_restores_selected_keys_on_immediate_action_completion(
         self,
@@ -426,6 +607,7 @@ class TestComboActionDispatch:
         assert fake_device.presses == ["key_leftmeta"]
         assert fake_device.active == {"key_leftmeta"}
         assert fake_device.recalled == {"key_c"}
+
     @pytest.mark.asyncio
     async def test_combo_recall_trigger_keys_restores_selected_keys_after_action_stop(
         self,
@@ -513,6 +695,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F5, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_single_step_supports_double_tap(self) -> None:
         manager = DeviceManager()
@@ -546,6 +729,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_single_step_supports_tap_hold(self) -> None:
         manager = DeviceManager()
@@ -583,6 +767,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_multistep_ignores_double_tap_slots(self) -> None:
         manager = DeviceManager()
@@ -618,6 +803,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_pattern_superkey_multistep_supports_hold_only(self) -> None:
         manager = DeviceManager()
@@ -656,6 +842,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_E, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_clear_combo_runtime_releases_active_pattern_superkey_hold(self) -> None:
         manager = DeviceManager()
@@ -689,6 +876,7 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_clear_combo_scope_stops_pending_pattern_superkey_machine(self) -> None:
         manager = DeviceManager()
@@ -816,9 +1004,7 @@ class TestComboActionDispatch:
             trigger_a,
         )
         await _runtime_stop_combo_action(manager, "combo-pattern-wildcard-reuse")
-        first_machine = manager.combo_state.superkey_machines[
-            "combo-pattern-wildcard-reuse"
-        ]
+        first_machine = manager.combo_state.superkey_machines["combo-pattern-wildcard-reuse"]
 
         await _runtime_start_combo_action(
             manager,
@@ -826,15 +1012,12 @@ class TestComboActionDispatch:
             action,
             trigger_b,
         )
-        second_machine = manager.combo_state.superkey_machines[
-            "combo-pattern-wildcard-reuse"
-        ]
+        second_machine = manager.combo_state.superkey_machines["combo-pattern-wildcard-reuse"]
 
         assert second_machine is not first_machine
         assert second_machine.source_device == "9999:0001"
-        assert (
-            manager.combo_state.superkey_machine_bindings["combo-pattern-wildcard-reuse"]
-            == (trigger_b,)
+        assert manager.combo_state.superkey_machine_bindings["combo-pattern-wildcard-reuse"] == (
+            trigger_b,
         )
 
     @pytest.mark.asyncio
@@ -882,9 +1065,9 @@ class TestComboActionDispatch:
         )
         await _runtime_stop_combo_action(manager, "combo-pattern-multi-scope")
 
-        assert (
-            manager.combo_state.superkey_machine_bindings["combo-pattern-multi-scope"]
-            == (trigger_a, trigger_b)
+        assert manager.combo_state.superkey_machine_bindings["combo-pattern-multi-scope"] == (
+            trigger_a,
+            trigger_b,
         )
 
         await _runtime_clear_combo_scope(manager, "1234:5678", "kbd")
@@ -945,6 +1128,7 @@ class TestComboActionDispatch:
         old_machine.stop.assert_awaited_once()
         assert len(created) == 1
         assert manager.combo_state.superkey_machines["combo-pattern-stale"] is created[0]
+
     @pytest.mark.asyncio
     async def test_start_and_stop_combo_action_cover_additional_synthetic_paths(self) -> None:
         manager = DeviceManager()

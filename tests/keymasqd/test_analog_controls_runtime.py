@@ -182,9 +182,7 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
                             MappingAction(
                                 action_type=ActionType.PROFILE_ENABLE,
                                 profile_name="Nav",
-                                profile_deactivation=ProfileDeactivationPolicy(
-                                    on_trigger_end=True
-                                ),
+                                profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
                             )
                         ],
                     )
@@ -194,9 +192,7 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
     }
     runtime = _runtime(mapping, keyboard)
     runtime.broadcast_callback = broadcast
-    runtime.profile_activation_trigger_start_observer = (
-        manager.observe_profile_trigger_start
-    )
+    runtime.profile_activation_trigger_start_observer = manager.observe_profile_trigger_start
     runtime.profile_activation_trigger_end_observer = manager.observe_profile_trigger_end
 
     assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
@@ -214,9 +210,7 @@ async def test_threshold_profile_trigger_end_lifetime_follows_threshold_lifecycl
             },
         }
     ]
-    assert [
-        event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
-    ] == []
+    assert [event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED] == []
 
     assert await process_analog_event(runtime, FakeEvent(0), "abs_x", mapping, deps=_deps())
     await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
@@ -486,9 +480,7 @@ async def test_axis_mouse_motion_uses_direction_and_response_curve() -> None:
 
     mouse_events = runtime.mouse_uinput.events
     assert any(
-        event_type == evdev.ecodes.EV_REL
-        and code == evdev.ecodes.REL_Y
-        and value < 0
+        event_type == evdev.ecodes.EV_REL and code == evdev.ecodes.REL_Y and value < 0
         for event_type, code, value in mouse_events
     )
     assert not any(code == evdev.ecodes.REL_X for _event_type, code, _value in mouse_events)
@@ -687,9 +679,7 @@ async def test_stick_mouse_area_can_jump_to_start_on_activation() -> None:
     assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
 
     assert starts == [(300, 400)]
-    assert runtime.mouse_uinput.events == [
-        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)
-    ]
+    assert runtime.mouse_uinput.events == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
 
 
 @pytest.mark.asyncio
@@ -1016,9 +1006,7 @@ async def test_axis_gamepad_output_both_directions_routes_signed_range() -> None
         )
     }
     runtime = _runtime(mapping, keyboard)
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("wheel_axis", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("wheel_axis", "x")}
     runtime.analog_axis_ranges = {("wheel_axis", "x"): (-32768, 32767)}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
         uinput=gamepad,
@@ -1144,9 +1132,7 @@ async def test_trigger_gamepad_output_same_uses_learned_logical_trigger_label() 
     }
     runtime = _runtime(mapping, keyboard)
     runtime.analog_inputs = {"axis_1": {"label": "Left Trigger", "type": "axis"}}
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS): ("axis_1", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS): ("axis_1", "x")}
     runtime.analog_axis_output_codes = {("axis_1", "x"): evdev.ecodes.ABS_GAS}
     runtime.analog_axis_ranges = {("axis_1", "x"): (0, 255)}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
@@ -1177,9 +1163,7 @@ async def test_trigger_gamepad_output_same_uses_standard_source_axis_code() -> N
     }
     runtime = _runtime(mapping, keyboard)
     runtime.analog_inputs = {"axis_1": {"label": "Axis 1", "type": "axis"}}
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ): ("axis_1", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ): ("axis_1", "x")}
     runtime.analog_axis_output_codes = {("axis_1", "x"): evdev.ecodes.ABS_RZ}
     runtime.analog_axis_ranges = {("axis_1", "x"): (0, 255)}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
@@ -1210,9 +1194,7 @@ async def test_generic_axis_gamepad_output_same_uses_learned_axis_code() -> None
     }
     runtime = _runtime(mapping, keyboard)
     runtime.analog_inputs = {"axis_1": {"label": "Axis 1", "type": "axis"}}
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS): ("axis_1", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS): ("axis_1", "x")}
     runtime.analog_axis_output_codes = {("axis_1", "x"): evdev.ecodes.ABS_GAS}
     runtime.analog_axis_ranges = {("axis_1", "x"): (0, 255)}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
@@ -1702,9 +1684,7 @@ async def test_reset_analog_controls_releases_threshold_after_mapping_removed() 
                         trigger_max=1.0,
                         release_min=0.55,
                         release_max=1.0,
-                        actions=[
-                            MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
-                        ],
+                        actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_a")],
                     )
                 ],
             ),

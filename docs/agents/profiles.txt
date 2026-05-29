@@ -75,6 +75,11 @@ action = "passthrough"
 # block input
 action = "suppress"
 
+# repeat the last remembered action
+action = "repeat"
+# optional; defaults to all categories:
+repeat_categories = ["keyboard", "mouse", "gamepad", "macro", "special"]
+
 # output keyboard key
 action = "keyboard"
 target = "key_space"
@@ -141,7 +146,9 @@ action = "cancel_macro_playback"
 
 Rapidfire emits repeated output pulses while the physical source is held.
 Supported by `keyboard`, `mouse`, `gamepad`, `mouse_move_rel`, and
-`mouse_move_abs`.
+`mouse_move_abs`. Repeat actions also store rapidfire fields, but Repeat only
+applies them when the remembered action is a keyboard key, mouse button, mouse
+wheel action, or gamepad button.
 
 ```toml
 rapidfire_enabled = true
@@ -157,6 +164,25 @@ tap_hold_ms = 10
 ```
 
 Rapidfire and tap are mutually exclusive.
+
+## Repeat action
+
+`action = "repeat"` replays the newest remembered action whose category is
+enabled by `repeat_categories`. Valid categories are `keyboard`, `mouse`,
+`gamepad`, `macro`, and `special`. Legacy `mouse_button` and `mouse_wheel`
+values are normalized to `mouse`.
+
+`mouse` covers mouse buttons and wheel directions. Configured
+`mouse_move_rel` and `mouse_move_abs` actions are `special`; raw passthrough
+mouse movement is not recorded. Repeat does not remember Repeat, passthrough
+mapping actions, suppress actions, profile actions, emergency reset, or
+unresolved top-level superkey bindings. For superkeys, the top-level binding
+itself is not stored
+verbatim; Repeat stores the resolved slot/overload path (not the original
+top-level superkey binding), so repeated Repeat invocations replay the resolved
+action. Repeating an action refreshes the Repeat history with the resolved
+action, so repeated presses of Repeat continue replaying it.
+Superkey paths that contain profile actions are not stored.
 
 ## Common snippets
 

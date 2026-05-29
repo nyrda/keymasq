@@ -57,6 +57,8 @@ def describe_mapping_action_compact(
         parts.append(f"🕹️ {label}")
     elif action.action_type == ActionType.MACRO:
         parts.append(f"🎬 {action.macro_name or '?'}")
+    elif action.action_type == ActionType.REPEAT:
+        parts.append("↻ repeat")
     elif action.action_type == ActionType.START_MACRO_RECORDING:
         parts.append("⏺ toggle recording")
     elif action.action_type == ActionType.STOP_MACRO_RECORDING:
@@ -85,6 +87,7 @@ def describe_mapping_action_compact(
         ActionType.MOUSE_MOVE_ABS,
         ActionType.GAMEPAD,
         ActionType.GAMEPAD_AXIS,
+        ActionType.REPEAT,
     }:
         if action.rapidfire_enabled:
             parts.append("⚡")
@@ -130,6 +133,8 @@ def describe_mapping_action_verbose(
         return f"Macro → {action.macro_name or '?'}"
     if action.action_type == ActionType.EXEC:
         return f"Exec → {action.cmd or '?'}"
+    if action.action_type == ActionType.REPEAT:
+        return "Repeat Last Action"
 
     compositor_action = describe_compositor_action(action)
     if compositor_action is not None:

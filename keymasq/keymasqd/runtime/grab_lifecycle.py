@@ -308,6 +308,7 @@ async def grab_device_unlocked(
                     mouse_rel_suppression_start_callback=lambda: None,
                     diagnostics_recorder=diagnostics_recorder,
                     runtime_cleanup_callback=runtime_cleanup_callback,
+                    repeat_state=manager.repeat_state,
                     interface_id=interface_id,
                 )
                 await grab_with_retry(

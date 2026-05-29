@@ -47,6 +47,13 @@ from keymasq.keymasqd.runtime.mouse_actions import (
     resolve_mouse_output_target,
     write_relative_pulse,
 )
+from keymasq.keymasqd.runtime.repeat import (
+    RepeatHistoryEntry,
+    RepeatRuntimeState,
+    refresh_repeated_exec_source,
+    remember_action,
+    select_repeated_entry,
+)
 
 type JsonObject = dict[str, object]
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
@@ -67,6 +74,20 @@ class SuperkeyExecutor(Protocol):
         deps: ActionExecutionDeps,
         shared_output_tracker: OutputTracker | None = None,
         shared_abs_output_tracker: OutputTracker | None = None,
+        execution_handle: "ActionExecutionHandle | None" = None,
+        cancel_macro_playback: CancelMacroPlayback | None = None,
+        resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    ) -> None: ...
+
+
+class RepeatSuperkeyExecutor(Protocol):
+    async def __call__(
+        self,
+        device_runtime: ActionRuntime,
+        repeated_entry: RepeatHistoryEntry,
+        event_name: str,
+        *,
+        deps: ActionExecutionDeps,
         execution_handle: "ActionExecutionHandle | None" = None,
         cancel_macro_playback: CancelMacroPlayback | None = None,
         resolve_code_fn: ResolveCodeFn = resolve_output_code,
@@ -111,6 +132,7 @@ class ActionRuntimeContext:
     cursor_position_setter: CursorPositionSetter | None = None
     macro_player: MacroPlayer | None = None
     emergency_resetter: EmergencyResetter | None = None
+    repeat_state: RepeatRuntimeState | None = None
     suppress_rel_getter: Callable[[], bool] | None = None
     gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None
     running: bool = True
@@ -301,8 +323,22 @@ async def execute_action(
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
     superkey_executor: SuperkeyExecutor | None = None,
+    repeat_superkey_executor: RepeatSuperkeyExecutor | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    record_repeat: bool = True,
 ) -> None:
+    if (
+        record_repeat
+        and int(event.value) == 1
+        and action.action_type not in {ActionType.PASSTHROUGH, ActionType.SUPERKEY}
+    ):
+        remember_action(
+            getattr(device_runtime, "repeat_state", None),
+            action,
+            source_device=device_runtime.hardware_id,
+            source_button=event_name,
+        )
+
     if action.action_type == ActionType.PASSTHROUGH:
         passthrough(
             device_runtime,
@@ -316,6 +352,24 @@ async def execute_action(
 
     if action.action_type == ActionType.SUPPRESS:
         mark_action_started(execution_handle)
+        return
+
+    if action.action_type == ActionType.REPEAT:
+        await _execute_repeat_action(
+            device_runtime,
+            action,
+            event,
+            event_name,
+            deps=deps,
+            shared_output_tracker=shared_output_tracker,
+            shared_abs_output_tracker=shared_abs_output_tracker,
+            execution_handle=execution_handle,
+            cancel_macro_playback=cancel_macro_playback,
+            superkey_executor=superkey_executor,
+            repeat_superkey_executor=repeat_superkey_executor,
+            resolve_code_fn=resolve_code_fn,
+            record_repeat=record_repeat,
+        )
         return
 
     if action.action_type == ActionType.KEYBOARD:
@@ -443,11 +497,7 @@ async def execute_action(
             source_button=event_name,
             trigger_value=int(event.value),
         )
-        if (
-            int(event.value) in (0, 1)
-            and macro_request is not None
-            and device_runtime.macro_player
-        ):
+        if int(event.value) in (0, 1) and macro_request is not None and device_runtime.macro_player:
             task = deps.fire_and_observe_fn(
                 device_runtime.macro_player(**macro_request),
                 f"macro action {event_name}",
@@ -513,7 +563,9 @@ async def execute_action_pulse(
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
     superkey_executor: SuperkeyExecutor | None = None,
+    repeat_superkey_executor: RepeatSuperkeyExecutor | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    record_repeat: bool = True,
 ) -> None:
     await execute_action(
         device_runtime,
@@ -526,7 +578,9 @@ async def execute_action_pulse(
         execution_handle=execution_handle,
         cancel_macro_playback=cancel_macro_playback,
         superkey_executor=superkey_executor,
+        repeat_superkey_executor=repeat_superkey_executor,
         resolve_code_fn=resolve_code_fn,
+        record_repeat=record_repeat,
     )
     await execute_action(
         device_runtime,
@@ -539,7 +593,9 @@ async def execute_action_pulse(
         execution_handle=execution_handle,
         cancel_macro_playback=cancel_macro_playback,
         superkey_executor=superkey_executor,
+        repeat_superkey_executor=repeat_superkey_executor,
         resolve_code_fn=resolve_code_fn,
+        record_repeat=record_repeat,
     )
 
 
@@ -573,6 +629,94 @@ class _SyntheticInputEvent:
         self.type = int(event_type)
         self.code = int(code)
         self.value = int(value)
+
+
+async def _execute_repeat_action(
+    device_runtime: ActionRuntime,
+    action: MappingAction,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    deps: ActionExecutionDeps,
+    shared_output_tracker: OutputTracker | None = None,
+    shared_abs_output_tracker: OutputTracker | None = None,
+    execution_handle: ActionExecutionHandle | None = None,
+    cancel_macro_playback: CancelMacroPlayback | None = None,
+    superkey_executor: SuperkeyExecutor | None = None,
+    repeat_superkey_executor: RepeatSuperkeyExecutor | None = None,
+    resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    record_repeat: bool = True,
+) -> None:
+    repeat_event_name = f"{event_name}#repeat"
+    repeat_state = getattr(device_runtime, "repeat_state", None)
+    active_actions = device_runtime.state.repeat_active_actions
+
+    if int(event.value) == 1:
+        repeated_entry = select_repeated_entry(repeat_state, action)
+        if repeated_entry is None:
+            mark_action_started(execution_handle)
+            return
+        if repeated_entry.superkey_slot is not None:
+            if repeat_superkey_executor is not None:
+                await repeat_superkey_executor(
+                    device_runtime,
+                    repeated_entry,
+                    event_name,
+                    deps=deps,
+                    execution_handle=execution_handle,
+                    cancel_macro_playback=cancel_macro_playback,
+                    resolve_code_fn=resolve_code_fn,
+                )
+                refresh_repeated_exec_source(repeat_state, repeated_entry)
+            mark_action_started(execution_handle)
+            return
+        repeated_action = repeated_entry.action
+        active_actions[repeat_event_name] = repeated_action
+        await execute_action(
+            device_runtime,
+            repeated_action,
+            event,
+            repeat_event_name,
+            deps=deps,
+            shared_output_tracker=shared_output_tracker,
+            shared_abs_output_tracker=shared_abs_output_tracker,
+            execution_handle=execution_handle,
+            cancel_macro_playback=cancel_macro_playback,
+            superkey_executor=superkey_executor,
+            repeat_superkey_executor=repeat_superkey_executor,
+            resolve_code_fn=resolve_code_fn,
+            record_repeat=record_repeat,
+        )
+        refresh_repeated_exec_source(repeat_state, repeated_entry)
+        return
+
+    if int(event.value) not in {0, 2}:
+        mark_action_started(execution_handle)
+        return
+
+    repeated_action = (
+        active_actions.get(repeat_event_name)
+        if int(event.value) == 2
+        else active_actions.pop(repeat_event_name, None)
+    )
+    if repeated_action is None:
+        mark_action_started(execution_handle)
+        return
+    await execute_action(
+        device_runtime,
+        repeated_action,
+        event,
+        repeat_event_name,
+        deps=deps,
+        shared_output_tracker=shared_output_tracker,
+        shared_abs_output_tracker=shared_abs_output_tracker,
+        execution_handle=execution_handle,
+        cancel_macro_playback=cancel_macro_playback,
+        superkey_executor=superkey_executor,
+        repeat_superkey_executor=repeat_superkey_executor,
+        resolve_code_fn=resolve_code_fn,
+        record_repeat=record_repeat,
+    )
 
 
 async def _execute_gamepad_axis_action(

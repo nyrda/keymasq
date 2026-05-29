@@ -80,7 +80,11 @@ superkey_name = "copy_or_paste"
 
 Nested superkeys are not allowed. Pattern superkeys can use normal action
 types such as keyboard, mouse, gamepad, macro, exec, profile, and compositor
-actions.
+actions. Pattern superkeys expose Repeat after a superkey binding resolves:
+Repeat remembers and replays the resolved superkey path as a single Repeat
+target. The unresolved top-level superkey binding itself is not remembered, and
+the resolved superkey path is captured and replayed as one action rather than
+only remembering individual overload children.
 
 ## Combos
 

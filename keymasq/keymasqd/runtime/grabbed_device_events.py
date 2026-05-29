@@ -22,6 +22,7 @@ from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
+from keymasq.keymasqd.runtime import repeat as runtime_repeat
 from keymasq.keymasqd.runtime.action_runner import source_trigger_id
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
@@ -674,6 +675,13 @@ async def process_event(
             uinput_writer=identity_uinput_writer,
             sync=False,
         )
+        runtime_repeat.remember_passthrough_event(
+            device_runtime.repeat_state,
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         if int(event.value) == 0:
             device_runtime.state.combo_passthrough_held.discard(event_name)
             _clear_released_source_action(
@@ -699,6 +707,30 @@ async def process_event(
             mapping,
             evdev_mod=evdev_mod,
         )
+        if (
+            high_res_wheel_action is not None
+            and high_res_wheel_action.action_type == ActionType.PASSTHROUGH
+        ):
+            _record_grabbed_event_if_allowed(
+                device_runtime,
+                event,
+                recording_manager=recording_manager,
+                deps=deps,
+            )
+            runtime_outputs.passthrough(
+                device_runtime,
+                event,
+                evdev_mod=evdev_mod,
+                uinput_writer=identity_uinput_writer,
+                sync=False,
+            )
+            _record_diagnostics(
+                device_runtime,
+                "wheel_passthrough",
+                started_ns,
+                time_mod=time_mod,
+            )
+            return
         if (
             high_res_wheel_action is not None
             and high_res_wheel_action.action_type != ActionType.PASSTHROUGH
@@ -740,6 +772,13 @@ async def process_event(
             and int(event.value) == 1
         ):
             device_runtime.state.combo_passthrough_held.add(event_name)
+        runtime_repeat.remember_passthrough_event(
+            device_runtime.repeat_state,
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         runtime_outputs.passthrough(
             device_runtime,
             event,
@@ -809,6 +848,13 @@ async def process_event(
             and int(event.value) == 1
         ):
             device_runtime.state.combo_passthrough_held.add(event_name)
+        runtime_repeat.remember_passthrough_event(
+            device_runtime.repeat_state,
+            device_runtime,
+            event,
+            event_name,
+            evdev_mod=evdev_mod,
+        )
         runtime_outputs.passthrough(
             device_runtime,
             event,

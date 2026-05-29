@@ -89,6 +89,13 @@ class TestProfileTOML:
                             action_type=ActionType.ANALOG_CONTROL,
                             analog_control_name="FPS Mouse",
                         ),
+                        "btn_repeat": MappingAction(
+                            action_type=ActionType.REPEAT,
+                            repeat_categories=["keyboard", "mouse"],
+                            rapidfire_enabled=True,
+                            rapidfire_hold_ms=40,
+                            rapidfire_wait_ms=60,
+                        ),
                     },
                 )
             },
@@ -113,6 +120,11 @@ class TestProfileTOML:
         assert layer.mappings["btn_forward"].rapidfire_hold_ms == 50
         assert layer.mappings["left_stick"].action_type == ActionType.ANALOG_CONTROL
         assert layer.mappings["left_stick"].analog_control_name == "FPS Mouse"
+        assert layer.mappings["btn_repeat"].action_type == ActionType.REPEAT
+        assert layer.mappings["btn_repeat"].repeat_categories == ["keyboard", "mouse"]
+        assert layer.mappings["btn_repeat"].rapidfire_enabled is True
+        assert layer.mappings["btn_repeat"].rapidfire_hold_ms == 40
+        assert layer.mappings["btn_repeat"].rapidfire_wait_ms == 60
 
     def test_profile_analog_control_names_roundtrip(self, temp_config_dir):
         original = ProfileConfig(

@@ -18,6 +18,7 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.models import MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
+from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 
 if TYPE_CHECKING:
     from keymasq.keymasqd.superkey_state import SuperkeyMachine
@@ -204,6 +205,7 @@ class GrabbedDeviceState:
     rapidfire_outputs: dict[str, RapidfireOutputState] = field(default_factory=dict)
     tap_active: dict[str, bool] = field(default_factory=dict)
     superkey_machines: dict[str, "SuperkeyMachine"] = field(default_factory=dict)
+    repeat_active_actions: dict[str, MappingAction] = field(default_factory=dict)
     held_source_keys: set[str] = field(default_factory=set)
     combo_passthrough_held: set[str] = field(default_factory=set)
     combo_recalled_bindings: set[str] = field(default_factory=set)
@@ -240,9 +242,7 @@ class GrabbedDeviceState:
         str,
         tuple[tuple[int, MappingAction], ...],
     ] = field(default_factory=dict)
-    analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(
-        default_factory=dict
-    )
+    analog_threshold_output_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
     analog_threshold_abs_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
     analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
@@ -287,6 +287,9 @@ class ActionRuntime(Protocol):
 
     @property
     def state(self) -> GrabbedDeviceState: ...
+
+    @property
+    def repeat_state(self) -> RepeatRuntimeState | None: ...
 
     @property
     def _running(self) -> bool: ...

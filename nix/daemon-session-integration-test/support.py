@@ -24,6 +24,7 @@ SECOND_PROFILE_NAME = "Integration Priority Override"
 LOWER_PROFILE_NAME = "Integration Lower Fallback"
 PASSTHROUGH_PROFILE_NAME = "Integration Passthrough Override"
 TEMP_PROFILE_NAME = "Integration Temporary Layer"
+REPEAT_PROFILE_NAME = "Integration Repeat"
 MACRO_NAME = "integration-macro"
 LONG_MACRO_NAME = "integration-hold-macro"
 SUPERKEY_NAME = "integration-tap-superkey"
@@ -77,6 +78,7 @@ class ScenarioContext:
                 "Integration Analog Signed Axis Threshold",
                 "Integration Analog Signed Axis Mouse",
                 "Integration Analog Gamepad",
+                REPEAT_PROFILE_NAME,
             ):
                 self.request({"command": "disable_profile", "profile_name": profile_name}, ok=False)
             self.request(
@@ -167,10 +169,8 @@ class ScenarioContext:
         source_keys = [
             getattr(evdev.ecodes, f"KEY_{letter}") for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         ]
-        if product == 0x0001:
-            source_keys.extend(
-                getattr(evdev.ecodes, f"KEY_F{index}") for index in range(1, 13)
-            )
+        source_keys.append(evdev.ecodes.KEY_SPACE)
+        source_keys.extend(getattr(evdev.ecodes, f"KEY_F{index}") for index in range(1, 25))
         device = evdev.UInput(
             events={
                 evdev.ecodes.EV_KEY: source_keys,
@@ -252,6 +252,11 @@ class ScenarioContext:
             "profiles/temporary-layer.toml",
             values,
         )
+        self.write_fixture(
+            profiles_dir / "integration-repeat.toml",
+            "profiles/repeat.toml",
+            values,
+        )
         for fixture_name in (
             "analog-stick-gamepad.toml",
             "analog-trigger-deadzone.toml",
@@ -302,21 +307,22 @@ class ScenarioContext:
         primary_source_path: str,
         secondary_source_path: str,
     ) -> dict[str, str]:
-        primary_buttons = list("abcdefghijklmnopqrstuvwxyz") + [
-            f"f{index}" for index in range(1, 13)
+        primary_buttons = list("abcdefghijklmnopqrstuvwxyz") + ["space"] + [
+            f"f{index}" for index in range(1, 25)
         ]
+        secondary_buttons = list("abcdefghijklmnopqrstuvwxyz") + ["f13", "f14"]
         return {
             "HARDWARE_ID": HARDWARE_ID,
             "SECOND_HARDWARE_ID": SECOND_HARDWARE_ID,
             "PRIMARY_SOURCE_PATH": primary_source_path,
             "SECONDARY_SOURCE_PATH": secondary_source_path,
             "PRIMARY_BUTTONS": self.button_blocks(primary_buttons),
-            "SECONDARY_BUTTONS": self.button_blocks("abcdefghijklmnopqrstuvwxyz"),
             "PROFILE_NAME": PROFILE_NAME,
             "SECOND_PROFILE_NAME": SECOND_PROFILE_NAME,
             "LOWER_PROFILE_NAME": LOWER_PROFILE_NAME,
             "PASSTHROUGH_PROFILE_NAME": PASSTHROUGH_PROFILE_NAME,
             "TEMP_PROFILE_NAME": TEMP_PROFILE_NAME,
+            "REPEAT_PROFILE_NAME": REPEAT_PROFILE_NAME,
             "MACRO_NAME": MACRO_NAME,
             "LONG_MACRO_NAME": LONG_MACRO_NAME,
             "SUPERKEY_NAME": SUPERKEY_NAME,
@@ -328,6 +334,7 @@ class ScenarioContext:
             "PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME": (
                 PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME
             ),
+            "SECONDARY_BUTTONS": self.button_blocks(secondary_buttons),
         }
 
     def button_blocks(self, keys: list[str] | str) -> str:

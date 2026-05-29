@@ -5,12 +5,17 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, cast
 
+import evdev
+
 from keymasq.common.devices import (
     canonical_gamepad_button_name,
     capability_names_from_capabilities,
+    detect_input_classes,
     is_gamepad_button_name,
     is_keymasq_device_path,
     parse_keymasq_device_path,
+    primary_input_class,
+    resolve_stable_path,
 )
 from keymasq.common.models import DeviceType
 
@@ -136,6 +141,21 @@ class DevicePathResolverDeps:
 
 
 _DEFAULT_CACHE = DeviceCache()
+
+
+def evdev_device_path_resolver_deps(
+    device_input_fn: Callable[[str], InputDeviceLike],
+) -> DevicePathResolverDeps:
+    return DevicePathResolverDeps(
+        device_paths_fn=cast(Callable[[], list[str]], evdev.list_devices),
+        device_input_fn=device_input_fn,
+        detect_input_classes_fn=cast(
+            Callable[[InputDeviceLike], list[str]],
+            detect_input_classes,
+        ),
+        primary_input_class_fn=primary_input_class,
+        resolve_stable_path_fn=resolve_stable_path,
+    )
 
 
 def refresh_cached_devices_sync(

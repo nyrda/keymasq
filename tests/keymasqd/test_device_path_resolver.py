@@ -7,6 +7,7 @@ from keymasq.common.models import DeviceType
 from keymasq.keymasqd.runtime.device_path_resolver import (
     DeviceCache,
     DevicePathResolverDeps,
+    evdev_device_path_resolver_deps,
     resolve_evdev_interfaces,
 )
 
@@ -79,6 +80,23 @@ def test_literal_path_resolves_unchanged() -> None:
 
     assert resolved[0].path == "/dev/input/by-id/test"
     assert resolved[0].interface_id == "gamepad"
+
+
+def test_evdev_device_path_resolver_deps_wires_shared_helpers(monkeypatch) -> None:
+    def device_input(path: str) -> _FakeDevice:
+        return _FakeDevice(path)
+
+    monkeypatch.setattr(evdev, "list_devices", lambda: ["/dev/input/event1"])
+
+    deps = evdev_device_path_resolver_deps(device_input)
+
+    assert deps.device_paths_fn() == ["/dev/input/event1"]
+    assert deps.device_input_fn is device_input
+    assert deps.detect_input_classes_fn(_FakeDevice("/dev/input/event1")) == [
+        "gamepad"
+    ]
+    assert deps.primary_input_class_fn(["keyboard"]) == DeviceType.KEYBOARD
+    assert deps.resolve_stable_path_fn is not None
 
 
 def test_keymasq_path_resolves_matching_vid_pid() -> None:

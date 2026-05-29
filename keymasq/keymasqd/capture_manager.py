@@ -16,10 +16,8 @@ import evdev
 
 from keymasq.common.devices import (
     clear_device_path_cache,
-    detect_input_classes,
     get_interface_id,
     normalize_wheel_value,
-    primary_input_class,
     resolve_stable_path,
     wheel_button_id,
 )
@@ -58,16 +56,8 @@ class _CaptureInputDevice(Protocol):
 
 
 def _device_path_resolver_deps() -> device_path_resolver.DevicePathResolverDeps:
-    list_devices = cast(Callable[[], list[str]], evdev.list_devices)
-    return device_path_resolver.DevicePathResolverDeps(
-        device_paths_fn=list_devices,
-        device_input_fn=lambda path: cast(
-            device_path_resolver.InputDeviceLike,
-            evdev.InputDevice(path),
-        ),
-        detect_input_classes_fn=detect_input_classes,
-        primary_input_class_fn=primary_input_class,
-        resolve_stable_path_fn=resolve_stable_path,
+    return device_path_resolver.evdev_device_path_resolver_deps(
+        lambda path: cast(device_path_resolver.InputDeviceLike, evdev.InputDevice(path)),
     )
 
 

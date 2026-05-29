@@ -183,13 +183,7 @@ def _topology_runtime_deps() -> runtime_topology.TopologyRuntimeDeps:
 
 
 def _device_path_resolver_deps() -> device_path_resolver.DevicePathResolverDeps:
-    return device_path_resolver.DevicePathResolverDeps(
-        device_paths_fn=_device_paths,
-        device_input_fn=_device_input,
-        detect_input_classes_fn=detect_input_classes,
-        primary_input_class_fn=primary_input_class,
-        resolve_stable_path_fn=resolve_stable_path,
-    )
+    return device_path_resolver.evdev_device_path_resolver_deps(_device_input)
 
 
 def _macro_runtime_deps() -> runtime_macros.MacroRuntimeDeps:

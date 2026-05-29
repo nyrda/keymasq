@@ -133,6 +133,36 @@ def test_settings_dialog_loads_string_virtual_gamepad_count_from_session(
     assert dialog._count_label.get_text() == "2"
 
 
+def test_settings_dialog_ignores_stale_initial_load_after_save(
+    monkeypatch,
+    temp_config_dir,
+) -> None:
+    from keymasq.gui.widgets import settings_dialog as dialog_module
+    from keymasq.gui.widgets.settings_dialog import SettingsDialog
+
+    callbacks = []
+
+    def fake_session_request_async(payload, callback, timeout=5.0):
+        callbacks.append((payload, callback))
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+
+    dialog = SettingsDialog()
+    load_callback = callbacks[0][1]
+
+    dialog._on_increment_gamepads_clicked(dialog._plus_button)
+    assert callbacks[-1][0] == {
+        "command": "set_settings",
+        "virtual_gamepad_count": 2,
+    }
+
+    callbacks[-1][1]({"status": "ok", "virtual_gamepad_count": 2})
+    load_callback({"status": "ok", "virtual_gamepad_count": 1})
+
+    assert dialog._gamepad_count == 2
+    assert dialog._count_label.get_text() == "2"
+
+
 def test_settings_dialog_plus_minus_auto_applies(monkeypatch, temp_config_dir) -> None:
     from keymasq.gui.widgets import settings_dialog as dialog_module
     from keymasq.gui.widgets.settings_dialog import SettingsDialog

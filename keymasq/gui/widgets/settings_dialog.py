@@ -89,6 +89,8 @@ class SettingsDialog(Adw.Dialog):
         self.close()
 
     def _on_loaded(self, response: dict[str, object] | None) -> bool:
+        if self._save_seq > 0:
+            return False
         if isinstance(response, dict) and response.get("status") == "ok":
             self._syncing_controls = True
             try:

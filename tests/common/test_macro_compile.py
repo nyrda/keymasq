@@ -246,6 +246,29 @@ def test_type_macro_builder_reports_unsupported_character_position() -> None:
         build_type_macro_events("aé", 10, 0)
 
 
+def test_type_macro_builder_unicode_input_holds_modifiers_until_confirmed() -> None:
+    events = build_type_macro_events("é", 10, 0, use_unicode_input=True)
+
+    assert [
+        (event["code"], event["value"])
+        for event in events
+        if event["type"] == evdev.ecodes.EV_KEY
+    ] == [
+        (evdev.ecodes.KEY_LEFTCTRL, 1),
+        (evdev.ecodes.KEY_LEFTSHIFT, 1),
+        (evdev.ecodes.KEY_U, 1),
+        (evdev.ecodes.KEY_U, 0),
+        (evdev.ecodes.KEY_E, 1),
+        (evdev.ecodes.KEY_E, 0),
+        (evdev.ecodes.KEY_9, 1),
+        (evdev.ecodes.KEY_9, 0),
+        (evdev.ecodes.KEY_ENTER, 1),
+        (evdev.ecodes.KEY_ENTER, 0),
+        (evdev.ecodes.KEY_LEFTSHIFT, 0),
+        (evdev.ecodes.KEY_LEFTCTRL, 0),
+    ]
+
+
 def test_parse_macro_json_accepts_event_list_and_macro_object() -> None:
     events_json = json.dumps([{"t_us": 0}])
     macro_json = json.dumps({"name": "demo", "events": [{"t_us": 1}]})

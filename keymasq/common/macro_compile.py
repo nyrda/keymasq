@@ -443,11 +443,6 @@ def _append_unicode_char_events(
     _append_key_event(events, "keyboard", evdev.ecodes.KEY_U, 1, t_us)
     t_us += down_ms * 1000
     _append_key_event(events, "keyboard", evdev.ecodes.KEY_U, 0, t_us)
-
-    t_us += modifier_settle_us
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
-    t_us += modifier_settle_us
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTCTRL, 0, t_us)
     t_us += modifier_settle_us
 
     for hex_digit in f"{ord(ch):x}":
@@ -462,7 +457,7 @@ def _append_unicode_char_events(
         )
 
     code, needs_shift = char_to_key("\n")
-    return _append_direct_key_events(
+    t_us = _append_direct_key_events(
         events,
         code,
         needs_shift,
@@ -470,6 +465,11 @@ def _append_unicode_char_events(
         down_ms,
         modifier_settle_us,
     )
+    t_us += modifier_settle_us
+    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
+    t_us += modifier_settle_us
+    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTCTRL, 0, t_us)
+    return t_us
 
 
 def _append_wait_event(events: list[JsonObject], args: list[str], t_us: int) -> None:

@@ -159,6 +159,58 @@ async def test_resolve_mapping_macros_traverses_all_nested_action_containers(
 
 
 @pytest.mark.asyncio
+async def test_mapping_and_combo_macro_resolution_match_for_nested_actions(daemon_testbed):
+    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    macro_store.get_meta.return_value = {
+        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        "loop_mode": "count",
+        "loop_count": 6,
+        "loop_stop_behavior": "cancel_run",
+        "move_to_start": True,
+        "start_x": 11,
+        "start_y": 12,
+        "block_mouse_movement": True,
+    }
+
+    def nested_action():
+        return {
+            "action": "analog_control",
+            "analog_control": {
+                "thresholds": [
+                    {
+                        "actions": [
+                            {
+                                "action": "macro",
+                                "macro_name": "combo",
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+
+    mapping_resolved = await daemon_macro_commands.resolve_mapping_macros(
+        daemon.macro_store,
+        {"left_stick": nested_action()},
+    )
+    combo_resolved = await daemon_macro_commands.resolve_combo_macros(
+        daemon.macro_store,
+        [{"id": "combo-1", "name": "Combo", "steps": [], "action": nested_action()}],
+    )
+
+    mapping_action = cast(dict[str, object], mapping_resolved["left_stick"])
+    combo_action = cast(dict[str, object], combo_resolved[0]["action"])
+    assert mapping_action == combo_action
+
+    analog_control = cast(dict[str, object], mapping_action["analog_control"])
+    threshold = cast(dict[str, object], cast(list[object], analog_control["thresholds"])[0])
+    threshold_action = cast(dict[str, object], cast(list[object], threshold["actions"])[0])
+    assert threshold_action["macro_loop_mode"] == "count"
+    assert threshold_action["macro_loop_count"] == 6
+    assert threshold_action["macro_loop_stop_behavior"] == "cancel_run"
+
+
+@pytest.mark.asyncio
 async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 

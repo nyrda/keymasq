@@ -512,47 +512,45 @@ def _transform_analog_control_actions(
     return updated
 
 
-async def resolve_mapping_macros(
+async def _macro_action_value_resolver(
     macro_store: _MacroDefinitionStore,
-    mapping: JsonObject,
-) -> JsonObject:
+    action_values: Iterable[object],
+) -> Callable[[object], object]:
     macro_names: set[str] = set()
-    for action_raw in mapping.values():
+    for action_raw in action_values:
         if isinstance(action_raw, dict):
             _collect_macro_names_from_action(cast(JsonObject, action_raw), macro_names)
     macros = await load_macro_definitions(macro_store, macro_names)
 
-    resolved: JsonObject = {}
-    for button_id, action_data in mapping.items():
-        if not isinstance(action_data, dict):
-            resolved[button_id] = action_data
-            continue
+    def resolve(action_raw: object) -> object:
+        if not isinstance(action_raw, dict):
+            return action_raw
+        return _resolve_action_macros(cast(JsonObject, action_raw), macros)
 
-        resolved[button_id] = _resolve_action_macros(cast(JsonObject, action_data), macros)
+    return resolve
 
-    return resolved
+
+async def resolve_mapping_macros(
+    macro_store: _MacroDefinitionStore,
+    mapping: JsonObject,
+) -> JsonObject:
+    resolve_action = await _macro_action_value_resolver(macro_store, mapping.values())
+    return {button_id: resolve_action(action_data) for button_id, action_data in mapping.items()}
 
 
 async def resolve_combo_macros(
     macro_store: _MacroDefinitionStore,
     combos: JsonObjectList,
 ) -> JsonObjectList:
-    macro_names: set[str] = set()
-    for combo in combos:
-        action_raw = combo.get("action")
-        if isinstance(action_raw, dict):
-            _collect_macro_names_from_action(cast(JsonObject, action_raw), macro_names)
-    macros = await load_macro_definitions(macro_store, macro_names)
-
+    resolve_action = await _macro_action_value_resolver(
+        macro_store,
+        (combo.get("action") for combo in combos),
+    )
     resolved: JsonObjectList = []
     for combo in combos:
         updated: JsonObject = dict(combo)
-        action_data = updated.get("action")
-        if not isinstance(action_data, dict):
-            resolved.append(updated)
-            continue
-
-        updated["action"] = _resolve_action_macros(cast(JsonObject, action_data), macros)
+        if "action" in updated:
+            updated["action"] = resolve_action(updated["action"])
         resolved.append(updated)
 
     return resolved

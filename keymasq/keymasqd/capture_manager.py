@@ -278,6 +278,8 @@ class CaptureManager:
         queued = self._read_combo_nowait(session)
         if queued is not None:
             return {"event": queued}
+        if session.event_queue is not None:
+            return {"event": None}
 
         for device in session.devices:
             try:

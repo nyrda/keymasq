@@ -210,13 +210,8 @@ class CaptureManager:
         if not matched and not allow_empty:
             raise ValueError("No keyboard devices found for combo capture")
 
-        devices: list[_CaptureInputDevice] = []
+        devices = list(matched)
         warnings: list[str] = []
-        for device in matched:
-            try:
-                devices.append(device)
-            except Exception as e:
-                warnings.append(f"{device.path}: {e}")
 
         if not devices and not allow_empty:
             raise RuntimeError("No readable keyboard interfaces found")

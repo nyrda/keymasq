@@ -5,7 +5,7 @@ from tests.keymasqd.daemon_support import *
 async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get.return_value = {
+    macro_store.get_meta.return_value = {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": 3,
@@ -41,7 +41,7 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
 async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get.return_value = {
+    macro_store.get_meta.return_value = {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": 3,
@@ -83,7 +83,7 @@ async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(dae
 async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get.side_effect = lambda name: {
+    macro_store.get_meta.side_effect = lambda name: {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": 3 if name == "combo" else 2,
@@ -108,14 +108,14 @@ async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_test
     assert side["macro_loop_count"] == 3
     assert extra["macro_loop_count"] == 3
     assert middle["macro_loop_count"] == 2
-    assert macro_store.get.call_count == 2
+    assert macro_store.get_meta.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_resolve_mapping_macros_ignores_malformed_stored_macro_values(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get.return_value = {
+    macro_store.get_meta.return_value = {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": "",
@@ -141,7 +141,7 @@ async def test_resolve_mapping_macros_ignores_malformed_stored_macro_values(daem
 async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
-    macro_store.get.return_value = {
+    macro_store.get_meta.return_value = {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": 2,
@@ -173,7 +173,7 @@ async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
 async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
-    macro_store.get.return_value = {
+    macro_store.get_meta.return_value = {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": 4,
@@ -218,7 +218,7 @@ async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
 async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
-    macro_store.get.return_value = {
+    macro_store.get_meta.return_value = {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "hold",
         "loop_count": 5,
@@ -278,7 +278,7 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
 async def test_resolve_combo_macros_deduplicates_macro_store_reads(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get.side_effect = lambda name: {
+    macro_store.get_meta.side_effect = lambda name: {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": 4 if name == "combo" else 1,
@@ -318,14 +318,14 @@ async def test_resolve_combo_macros_deduplicates_macro_store_reads(daemon_testbe
     assert first["macro_loop_count"] == 4
     assert second["macro_loop_count"] == 4
     assert third["macro_loop_count"] == 1
-    assert macro_store.get.call_count == 2
+    assert macro_store.get_meta.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_resolve_combo_macros_ignores_malformed_stored_macro_values(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get.return_value = {
+    macro_store.get_meta.return_value = {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
         "loop_count": "",

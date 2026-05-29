@@ -1,7 +1,9 @@
 import io
 import json
 import lzma
+import os
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -116,11 +118,10 @@ def write_macro(path: Path, meta: MacroFileMeta, events: Iterable[MacroEvent]) -
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     try:
-        with _open_text(tmp_path, "wb") as f:
+        with _open_private_text(tmp_path) as f:
             f.write(_json_line(meta.to_record()))
             for event in events:
                 f.write(_json_line(event))
-        tmp_path.chmod(0o600)
         tmp_path.replace(path)
         path.chmod(0o600)
     except Exception:
@@ -155,6 +156,26 @@ def macro_payload_from_events(
 def _open_text(path: Path, mode: str) -> io.TextIOWrapper:
     raw = lzma.LZMAFile(path, mode)
     return io.TextIOWrapper(raw, encoding="utf-8", newline="\n")
+
+
+@contextmanager
+def _open_private_text(path: Path) -> Iterator[io.TextIOWrapper]:
+    flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    fd = os.open(path, flags, 0o600)
+    fileobj: io.BufferedWriter | None = None
+    try:
+        os.fchmod(fd, 0o600)
+        fileobj = os.fdopen(fd, "wb")
+        with lzma.LZMAFile(fileobj, "wb") as raw:
+            with io.TextIOWrapper(raw, encoding="utf-8", newline="\n") as text:
+                yield text
+    finally:
+        if fileobj is None:
+            os.close(fd)
+        else:
+            fileobj.close()
 
 
 def _json_line(value: JsonObject) -> str:

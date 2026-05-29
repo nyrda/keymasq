@@ -8,19 +8,23 @@ from keymasq.keymasqd import capture_manager as capture_manager_module
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.runtime import device_path_resolver
 
+
+MACRO_RUNTIME_META = {
+    "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+    "loop_mode": "count",
+    "loop_count": 3,
+    "loop_stop_behavior": "cancel_run",
+    "move_to_start": True,
+    "start_x": 111,
+    "start_y": 222,
+    "block_mouse_movement": True,
+}
+
+
 @pytest.mark.asyncio
 async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-    macro_store.get.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": 3,
-        "loop_stop_behavior": "cancel_run",
-        "move_to_start": True,
-        "start_x": 111,
-        "start_y": 222,
-        "block_mouse_movement": True,
-    }
+    macro_store.get_meta.return_value = MACRO_RUNTIME_META
 
     result = await daemon._handle_command(
         CommandType.MACRO_PLAY_BY_NAME,
@@ -33,7 +37,8 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
     )
 
     assert result == {"played": True}
-    macro_store.get.assert_called_once_with("combo")
+    macro_store.get_meta.assert_called_once_with("combo")
+    macro_store.get.assert_not_called()
     device_manager.play_macro.assert_awaited_once_with(
         macro_events=[],
         macro_name="combo",
@@ -47,6 +52,49 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
         start_x=111,
         start_y=222,
         block_mouse_movement=True,
+        source_device="",
+        source_button="",
+        trigger_value=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemon_testbed):
+    daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    macro_store.get_meta.return_value = MACRO_RUNTIME_META
+
+    result = await daemon._handle_command(
+        CommandType.PLAY_MACRO,
+        {
+            "macro_name": "combo",
+            "speed": "2.5",
+            "replay_mouse_movement": False,
+            "replay_mouse_clicks": True,
+            "source_device": "kbd",
+            "source_button": "a",
+            "trigger_value": "0",
+        },
+    )
+
+    assert result == {"played": True}
+    macro_store.get_meta.assert_called_once_with("combo")
+    macro_store.get.assert_not_called()
+    device_manager.play_macro.assert_awaited_once_with(
+        macro_events=[],
+        macro_name="combo",
+        replay_mouse_movement=False,
+        replay_mouse_clicks=True,
+        speed=2.5,
+        loop_mode="count",
+        loop_count=3,
+        loop_stop_behavior="cancel_run",
+        move_to_start=True,
+        start_x=111,
+        start_y=222,
+        block_mouse_movement=True,
+        source_device="kbd",
+        source_button="a",
+        trigger_value=0,
     )
 
 
@@ -136,7 +184,12 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
             CommandType.CAPTURE_BEGIN,
             {"hardware_id": 1234},
             "begin",
-            "1234",
+            {
+                "hardware_id": "1234",
+                "evdev_paths": None,
+                "evdev_interfaces": None,
+                "mode": "button",
+            },
             {"token": "cap-token"},
         ),
         (
@@ -188,7 +241,9 @@ async def test_capture_commands_forward_to_capture_manager(
         monkeypatch.undo()
         return
     assert result == expected_result
-    if expected_call is None:
+    if isinstance(expected_call, dict):
+        getattr(capture_manager, manager_method).assert_called_once_with(**expected_call)
+    elif expected_call is None:
         getattr(capture_manager, manager_method).assert_called_once_with()
     else:
         getattr(capture_manager, manager_method).assert_called_once_with(expected_call)
@@ -205,7 +260,12 @@ async def test_capture_begin_forwards_explicit_evdev_paths(daemon_testbed):
     )
 
     assert result == {"token": "cap-token"}
-    capture_manager.begin.assert_called_once_with("1234:5678@slot2", ["/dev/input/event2"])
+    capture_manager.begin.assert_called_once_with(
+        hardware_id="1234:5678@slot2",
+        evdev_paths=["/dev/input/event2"],
+        evdev_interfaces=None,
+        mode="button",
+    )
 
 
 @pytest.mark.asyncio
@@ -224,7 +284,7 @@ async def test_capture_begin_forwards_evdev_interfaces(daemon_testbed):
 
     assert result == {"token": "cap-token"}
     capture_manager.begin.assert_called_once_with(
-        "2dc8:3106",
+        hardware_id="2dc8:3106",
         evdev_paths=["keymasq:2dc8:3106"],
         evdev_interfaces=interfaces,
         mode="button",

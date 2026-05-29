@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -35,6 +36,12 @@ SUPERKEY_REPEAT_SLOTS = frozenset(
         SUPERKEY_SLOT_OVERLOAD,
     }
 )
+
+type RepeatedSuperkeyOverloadExecutor = Callable[[MappingAction, str], Awaitable[None]]
+type RepeatedSuperkeyPatternSlotExecutor = Callable[
+    [MappingAction, str, str],
+    Awaitable[None],
+]
 
 _SPECIAL_REPEAT_ACTION_TYPES = frozenset(
     {
@@ -207,6 +214,30 @@ def select_repeated_entry(
         if entry.category in allowed:
             return replace(entry, action=repeat_execution_action(repeat_action, entry.action))
     return None
+
+
+async def execute_repeated_superkey_path(
+    repeated_entry: RepeatHistoryEntry,
+    event_name: str,
+    *,
+    execute_overload_once: RepeatedSuperkeyOverloadExecutor,
+    execute_pattern_slot_once: RepeatedSuperkeyPatternSlotExecutor,
+) -> bool:
+    action = repeated_entry.action
+    slot = repeated_entry.superkey_slot
+    if slot is None or action.action_type != ActionType.SUPERKEY:
+        return False
+    if action.superkey_config is None or slot not in SUPERKEY_REPEAT_SLOTS:
+        return False
+    if slot == SUPERKEY_SLOT_OVERLOAD:
+        if action.superkey_config.mode != SuperkeyMode.OVERLOAD:
+            return False
+        await execute_overload_once(action, event_name)
+        return True
+    if action.superkey_config.mode == SuperkeyMode.OVERLOAD:
+        return False
+    await execute_pattern_slot_once(action, slot, event_name)
+    return True
 
 
 def refresh_repeated_exec_source(

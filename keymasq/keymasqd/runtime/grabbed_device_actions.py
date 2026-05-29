@@ -26,6 +26,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_OVERLOAD,
     RepeatHistoryEntry,
+    execute_repeated_superkey_path,
     remember_superkey_path,
 )
 from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
@@ -369,28 +370,35 @@ async def _execute_repeated_superkey_path(
 ) -> None:
     del execution_handle, cancel_macro_playback, resolve_code_fn
     device_runtime = cast(GrabbedDeviceRuntime, device_runtime)
-    action = repeated_entry.action
-    slot = repeated_entry.superkey_slot
-    if slot is None or action.action_type != ActionType.SUPERKEY or action.superkey_config is None:
-        return
-    if slot == SUPERKEY_SLOT_OVERLOAD:
+
+    async def execute_overload_once(action: MappingAction, repeat_event_name: str) -> None:
         await _execute_overload_slot_once(
             device_runtime,
             action,
-            event_name,
+            repeat_event_name,
             deps=deps,
         )
-        return
-    if action.superkey_config.mode == SuperkeyMode.OVERLOAD:
-        return
-    machine = _build_superkey_machine(
-        device_runtime,
-        action,
+
+    async def execute_pattern_slot_once(
+        action: MappingAction,
+        slot: str,
+        repeat_event_name: str,
+    ) -> None:
+        machine = _build_superkey_machine(
+            device_runtime,
+            action,
+            repeat_event_name,
+            deps=deps,
+        )
+        await machine.execute_repeat_slot(slot)
+        await machine.stop()
+
+    await execute_repeated_superkey_path(
+        repeated_entry,
         event_name,
-        deps=deps,
+        execute_overload_once=execute_overload_once,
+        execute_pattern_slot_once=execute_pattern_slot_once,
     )
-    await machine.execute_repeat_slot(slot)
-    await machine.stop()
 
 
 async def _execute_overload_slot_once(

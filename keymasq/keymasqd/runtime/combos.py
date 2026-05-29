@@ -49,6 +49,7 @@ from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_OVERLOAD,
     RepeatHistoryEntry,
+    execute_repeated_superkey_path,
     remember_superkey_path,
 )
 from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
@@ -1138,66 +1139,48 @@ async def _start_combo_superkey_repeat_path(
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
-    action = repeated_entry.action
-    slot = repeated_entry.superkey_slot
-    if slot is None or action.action_type != ActionType.SUPERKEY:
-        return
-    config = cast(RuntimeSuperkeyConfig | None, action.superkey_config)
-    if config is None:
-        return
-    if slot == SUPERKEY_SLOT_OVERLOAD:
-        trigger_name = f"combo:{combo_id}"
+    async def execute_overload_once(action: MappingAction, repeat_event_name: str) -> None:
+        config = cast(RuntimeSuperkeyConfig, action.superkey_config)
         await _start_combo_overload_superkey(
             manager,
             combo_id,
             action,
             config,
             trigger_binding,
-            trigger_name,
+            repeat_event_name,
             (),
             (),
             deps=deps,
             record_repeat=False,
         )
         await stop_combo_action(manager, combo_id, deps=deps)
-        return
-    await _repeat_combo_pattern_slot_once(
-        manager,
-        combo_id,
-        action,
-        config,
-        slot,
-        trigger_binding,
-        deps=deps,
-    )
 
+    async def execute_pattern_slot_once(
+        action: MappingAction,
+        slot: str,
+        _repeat_event_name: str,
+    ) -> None:
+        machine = await _combo_superkey_machine(
+            manager,
+            combo_id,
+            action,
+            trigger_binding,
+            [trigger_binding],
+            deps=deps,
+        )
+        if machine is None:
+            return
+        await machine.execute_repeat_slot(slot)
+        await machine.stop()
+        manager.combo_state.superkey_machines.pop(combo_id, None)
+        manager.combo_state.superkey_machine_bindings.pop(combo_id, None)
 
-async def _repeat_combo_pattern_slot_once(
-    manager: _ComboManager,
-    combo_id: str,
-    action: MappingAction,
-    config: RuntimeSuperkeyConfig,
-    slot: str,
-    trigger_binding: RuntimeComboBinding,
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    if config.mode == SuperkeyMode.OVERLOAD:
-        return
-    machine = await _combo_superkey_machine(
-        manager,
-        combo_id,
-        action,
-        trigger_binding,
-        [trigger_binding],
-        deps=deps,
+    await execute_repeated_superkey_path(
+        repeated_entry,
+        f"combo:{combo_id}",
+        execute_overload_once=execute_overload_once,
+        execute_pattern_slot_once=execute_pattern_slot_once,
     )
-    if machine is None:
-        return
-    await machine.execute_repeat_slot(slot)
-    await machine.stop()
-    manager.combo_state.superkey_machines.pop(combo_id, None)
-    manager.combo_state.superkey_machine_bindings.pop(combo_id, None)
 
 
 async def _start_combo_action_instance(

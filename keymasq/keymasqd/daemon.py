@@ -463,7 +463,14 @@ class Daemon:
         if not requires_unlock:
             return
 
-        self._ensure_sensitive_owner(command_type, client)
+        self._ensure_sensitive_owner(
+            command_type,
+            client,
+            claim_if_missing=command_type != CommandType.CAPTURE_END,
+        )
+
+        if command_type == CommandType.CAPTURE_END:
+            return
 
         unlocked, expires_at, source = self._recording_unlocked_for_uid(client.uid)
         if unlocked:
@@ -519,7 +526,13 @@ class Daemon:
             str(reason),
         )
 
-    def _ensure_sensitive_owner(self, command_type: CommandType, client: ClientContext) -> None:
+    def _ensure_sensitive_owner(
+        self,
+        command_type: CommandType,
+        client: ClientContext,
+        *,
+        claim_if_missing: bool = True,
+    ) -> None:
         sensitive_commands = {
             CommandType.START_RECORDING,
             CommandType.CAPTURE_BEGIN,
@@ -537,6 +550,10 @@ class Daemon:
 
         owner = self._recording_refresh_owners.get(int(client.uid))
         if owner is None:
+            if not claim_if_missing:
+                raise PermissionError(
+                    "sensitive_command_denied: caller is not active session owner"
+                )
             self._recording_refresh_owners[int(client.uid)] = (
                 int(client.pid),
                 int(client.connection_id),

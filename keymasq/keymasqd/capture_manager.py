@@ -222,6 +222,9 @@ class CaptureManager:
             raise RuntimeError("No readable keyboard interfaces found")
 
         token = token or str(uuid.uuid4())
+        if token in self._sessions:
+            raise ValueError("Capture token already active")
+
         session = CaptureSession(
             token=token,
             hardware_id="__combo__",

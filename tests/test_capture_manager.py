@@ -361,6 +361,26 @@ def test_capture_manager_begin_combo_requires_authorization(monkeypatch) -> None
         manager.begin_combo(allow_empty=True)
 
 
+def test_capture_manager_begin_combo_rejects_duplicate_token(monkeypatch) -> None:
+    monkeypatch.setattr(evdev, "list_devices", lambda: [])
+
+    manager = CaptureManager()
+    manager.begin_combo(
+        token="same",
+        allow_empty=True,
+        authorization=manager._authorize_combo_capture(),
+    )
+
+    with pytest.raises(ValueError, match="Capture token already active"):
+        manager.begin_combo(
+            token="same",
+            allow_empty=True,
+            authorization=manager._authorize_combo_capture(),
+        )
+
+    assert manager.end("same") == {"status": "ok", "ended": True}
+
+
 def test_capture_manager_register_notifier_invalid_token() -> None:
     manager = CaptureManager()
 

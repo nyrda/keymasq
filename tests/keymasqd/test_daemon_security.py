@@ -2,6 +2,7 @@
 from tests.keymasqd.daemon_support import *
 
 import uuid
+import tempfile
 
 @pytest.mark.asyncio
 async def test_refresh_and_lock_commands_require_client_context(daemon_testbed):
@@ -106,19 +107,20 @@ def test_cleanup_socket_path_unlinks_existing_path(daemon_testbed, monkeypatch, 
     assert socket_path.exists() is False
 
 
-def test_sd_notify_sends_to_pathname_socket(monkeypatch, tmp_path: Path):
-    notify_path = tmp_path / "notify.sock"
-    with daemon_module.socket.socket(
-        daemon_module.socket.AF_UNIX,
-        daemon_module.socket.SOCK_DGRAM,
-    ) as listener:
-        listener.bind(str(notify_path))
-        listener.settimeout(1.0)
-        monkeypatch.setenv("NOTIFY_SOCKET", str(notify_path))
+def test_sd_notify_sends_to_pathname_socket(monkeypatch):
+    with tempfile.TemporaryDirectory(prefix="kmq-", dir="/tmp") as temp_dir:
+        notify_path = Path(temp_dir) / "notify.sock"
+        with daemon_module.socket.socket(
+            daemon_module.socket.AF_UNIX,
+            daemon_module.socket.SOCK_DGRAM,
+        ) as listener:
+            listener.bind(str(notify_path))
+            listener.settimeout(1.0)
+            monkeypatch.setenv("NOTIFY_SOCKET", str(notify_path))
 
-        daemon_module.sd_notify("READY=1")
+            daemon_module.sd_notify("READY=1")
 
-        assert listener.recv(1024) == b"READY=1\n"
+            assert listener.recv(1024) == b"READY=1\n"
 
 
 def test_sd_notify_sends_to_abstract_socket(monkeypatch):

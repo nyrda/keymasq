@@ -125,6 +125,22 @@ def test_create_macro_cli_sends_create_payload(monkeypatch: pytest.MonkeyPatch) 
     assert macro["events"] == [{"device_type": "keyboard", "t_us": 0}]
 
 
+def test_create_macro_cli_rejects_non_object_event(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(commands, "_session_request", lambda payload: pytest.fail("sent request"))
+
+    with pytest.raises(SystemExit) as excinfo:
+        commands.create_macro_cli(
+            "stored",
+            ['{"events":[{"device_type":"keyboard","t_us":0},"bad",{"t_us":1}]}'],
+        )
+
+    assert excinfo.value.code == 1
+    assert "Error: macro JSON events[1] must be an object" in capsys.readouterr().out
+
+
 def test_create_macro_cli_force_sends_update_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[dict[str, object]] = []
 
@@ -333,6 +349,22 @@ def test_play_adhoc_cli_reads_json_payload(monkeypatch: pytest.MonkeyPatch) -> N
     assert payload["macro_events"] == [
         {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}
     ]
+
+
+def test_play_adhoc_cli_rejects_non_object_json_event(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(commands, "_session_request", lambda payload: pytest.fail("sent request"))
+
+    with pytest.raises(SystemExit) as excinfo:
+        commands.play_adhoc_cli(
+            ['{"events":[{"device_type":"keyboard","t_us":0},false,{"t_us":1}]}'],
+            input_json=True,
+        )
+
+    assert excinfo.value.code == 1
+    assert "Error: macro JSON events[1] must be an object" in capsys.readouterr().out
 
 
 def test_play_adhoc_cli_print_json_does_not_send(

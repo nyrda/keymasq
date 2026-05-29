@@ -266,7 +266,7 @@ def play_adhoc_cli(
             raw_events = macro_data.get("events", [])
             if not isinstance(raw_events, list):
                 raise ValueError("macro JSON events must be a list")
-            events = [cast(JsonObject, event) for event in raw_events if isinstance(event, dict)]
+            events = _macro_events_from_json(raw_events)
             payload = build_macro_payload(
                 events,
                 name=str(macro_data.get("name", "") or ""),
@@ -361,7 +361,7 @@ def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonO
     raw_events = macro_data.get("events", [])
     if not isinstance(raw_events, list):
         raise ValueError("macro JSON events must be a list")
-    events = [cast(JsonObject, event) for event in raw_events if isinstance(event, dict)]
+    events = _macro_events_from_json(raw_events)
     macro = macro_definition_from_events(
         events,
         name=name,
@@ -387,6 +387,15 @@ def _macro_device_types(macro_data: JsonObject) -> list[str] | None:
     if not isinstance(raw_device_types, list):
         return None
     return [str(device_type) for device_type in raw_device_types if str(device_type)]
+
+
+def _macro_events_from_json(raw_events: list[object]) -> list[JsonObject]:
+    events: list[JsonObject] = []
+    for index, event in enumerate(raw_events):
+        if not isinstance(event, dict):
+            raise ValueError(f"macro JSON events[{index}] must be an object")
+        events.append(cast(JsonObject, event))
+    return events
 
 
 def set_diagnostics_cli(

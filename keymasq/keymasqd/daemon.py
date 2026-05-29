@@ -240,8 +240,6 @@ class Daemon:
         self._recording_refresh_owners: dict[int, tuple[int, int]] = {}
 
     async def start(self) -> None:
-        self.running = True
-
         RUN_DIR.mkdir(parents=True, exist_ok=True)
         self._secure_run_dir()
         self.security_policy = load_security_policy(SECURITY_POLICY_PATH)
@@ -279,13 +277,14 @@ class Daemon:
 
         log.info(f"Starting keymasqd (socket: {SOCKET_PATH})")
 
-        self.device_manager.initialize_output_devices()
-        await self.socket_server.start()
-        await self.device_manager.start_topology_watcher()
-
-        sd_notify("READY=1")
-
+        self.running = True
         try:
+            self.device_manager.initialize_output_devices()
+            await self.socket_server.start()
+            await self.device_manager.start_topology_watcher()
+
+            sd_notify("READY=1")
+
             await self._shutdown_event.wait()
         finally:
             await self.stop()

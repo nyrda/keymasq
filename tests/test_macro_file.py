@@ -6,6 +6,10 @@ from pathlib import Path
 from keymasq.keymasqd.macro_file import MacroFileMeta, write_macro
 
 
+def _open_fd_count() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
 def test_write_macro_temp_file_is_private_before_events_are_written(tmp_path: Path) -> None:
     path = tmp_path / "macro.kmacro.xz"
     old_tmp_pathname = path.with_suffix(path.suffix + ".tmp")
@@ -29,3 +33,15 @@ def test_write_macro_temp_file_is_private_before_events_are_written(tmp_path: Pa
     assert observed_tmp_names
     assert not old_tmp_pathname.exists()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_write_macro_closes_temp_file_descriptor(tmp_path: Path) -> None:
+    baseline = _open_fd_count()
+
+    for index in range(10):
+        write_macro(
+            tmp_path / f"macro-{index}.kmacro.xz",
+            MacroFileMeta(name=f"macro-{index}", event_count=1),
+            [{"type": 1, "code": 30, "value": 1, "t_us": index}],
+        )
+        assert _open_fd_count() == baseline

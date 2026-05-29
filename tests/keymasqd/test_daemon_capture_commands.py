@@ -617,6 +617,74 @@ async def test_start_offloads_macro_store_prep_to_thread(
 
 
 @pytest.mark.asyncio
+async def test_start_cleans_up_resources_when_socket_start_fails(
+    daemon_testbed,
+    monkeypatch,
+    tmp_path: Path,
+):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    fake_socket_server = SimpleNamespace(
+        start=AsyncMock(side_effect=RuntimeError("socket start failed")),
+        stop=AsyncMock(),
+        broadcast_event=AsyncMock(),
+    )
+
+    monkeypatch.setattr(daemon_module, "SocketServer", lambda *args, **kwargs: fake_socket_server)
+    monkeypatch.setattr(daemon_module, "RUN_DIR", tmp_path / "run")
+    monkeypatch.setattr(daemon_module, "SOCKET_PATH", tmp_path / "daemon.sock")
+    monkeypatch.setattr(daemon_module, "load_security_policy", lambda _path: SecurityPolicy())
+    monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
+    monkeypatch.setattr(daemon, "_secure_run_dir", Mock())
+
+    with pytest.raises(RuntimeError, match="socket start failed"):
+        await daemon.start()
+
+    assert daemon.running is False
+    device_manager.initialize_output_devices.assert_called_once()
+    device_manager.shutdown_output_devices.assert_called_once()
+    fake_socket_server.stop.assert_awaited_once()
+    device_manager.start_topology_watcher.assert_not_awaited()
+    device_manager.stop_topology_watcher.assert_awaited_once()
+    device_manager.cancel_macro_playback.assert_awaited_once()
+    device_manager.release_all_devices.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_start_cleans_up_resources_when_topology_start_fails(
+    daemon_testbed,
+    monkeypatch,
+    tmp_path: Path,
+):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    fake_socket_server = SimpleNamespace(
+        start=AsyncMock(),
+        stop=AsyncMock(),
+        broadcast_event=AsyncMock(),
+    )
+    device_manager.start_topology_watcher.side_effect = RuntimeError("topology start failed")
+
+    monkeypatch.setattr(daemon_module, "SocketServer", lambda *args, **kwargs: fake_socket_server)
+    monkeypatch.setattr(daemon_module, "RUN_DIR", tmp_path / "run")
+    monkeypatch.setattr(daemon_module, "SOCKET_PATH", tmp_path / "daemon.sock")
+    monkeypatch.setattr(daemon_module, "load_security_policy", lambda _path: SecurityPolicy())
+    monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
+    monkeypatch.setattr(daemon, "_secure_run_dir", Mock())
+
+    with pytest.raises(RuntimeError, match="topology start failed"):
+        await daemon.start()
+
+    assert daemon.running is False
+    device_manager.initialize_output_devices.assert_called_once()
+    fake_socket_server.start.assert_awaited_once()
+    device_manager.start_topology_watcher.assert_awaited_once()
+    device_manager.shutdown_output_devices.assert_called_once()
+    fake_socket_server.stop.assert_awaited_once()
+    device_manager.stop_topology_watcher.assert_awaited_once()
+    device_manager.cancel_macro_playback.assert_awaited_once()
+    device_manager.release_all_devices.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_read_capture_combo_event_drains_sources_once_before_waiting(
     daemon_testbed,
     monkeypatch,

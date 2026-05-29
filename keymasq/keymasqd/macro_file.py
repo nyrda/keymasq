@@ -119,7 +119,7 @@ def write_macro(path: Path, meta: MacroFileMeta, events: Iterable[MacroEvent]) -
     fd, tmp_path = _open_private_temp(path)
     fileobj: io.BufferedWriter | None = None
     try:
-        fileobj = os.fdopen(fd, "wb", closefd=False)
+        fileobj = os.fdopen(fd, "wb")
         with lzma.LZMAFile(fileobj, "wb") as raw:
             with io.TextIOWrapper(raw, encoding="utf-8", newline="\n") as f:
                 f.write(_json_line(meta.to_record()))

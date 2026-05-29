@@ -80,6 +80,85 @@ async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(dae
 
 
 @pytest.mark.asyncio
+async def test_resolve_mapping_macros_traverses_all_nested_action_containers(
+    daemon_testbed,
+):
+    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    superkey_action_keys = (
+        "tap_actions",
+        "double_tap_actions",
+        "hold_actions",
+        "tap_hold_actions",
+        "overload_actions",
+        "overload_down_actions",
+        "overload_up_actions",
+    )
+    macro_names = [f"superkey_{key}" for key in superkey_action_keys] + [
+        "analog_threshold"
+    ]
+    loop_counts = {name: index + 1 for index, name in enumerate(macro_names)}
+
+    macro_store.get_meta.side_effect = lambda name: {
+        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        "loop_mode": "count",
+        "loop_count": loop_counts[str(name)],
+        "move_to_start": False,
+        "start_x": 0,
+        "start_y": 0,
+        "block_mouse_movement": False,
+    }
+
+    resolved = await daemon_macro_commands.resolve_mapping_macros(
+        daemon.macro_store,
+        {
+            "btn_side": {
+                "action": "superkey",
+                "superkey": {
+                    key: [
+                        {
+                            "action": "macro",
+                            "macro_name": f"superkey_{key}",
+                        }
+                    ]
+                    for key in superkey_action_keys
+                },
+            },
+            "left_stick": {
+                "action": "analog_control",
+                "analog_control": {
+                    "thresholds": [
+                        {
+                            "actions": [
+                                {
+                                    "action": "macro",
+                                    "macro_name": "analog_threshold",
+                                }
+                            ]
+                        }
+                    ]
+                },
+            },
+        },
+    )
+
+    loaded_names = [call.args[0] for call in macro_store.get_meta.call_args_list]
+    assert loaded_names == sorted(macro_names)
+
+    action = cast(dict[str, object], resolved["btn_side"])
+    superkey = cast(dict[str, object], action["superkey"])
+    for key in superkey_action_keys:
+        actions = cast(list[object], superkey[key])
+        nested = cast(dict[str, object], actions[0])
+        assert nested["macro_loop_count"] == loop_counts[f"superkey_{key}"]
+
+    analog_action = cast(dict[str, object], resolved["left_stick"])
+    analog_control = cast(dict[str, object], analog_action["analog_control"])
+    threshold = cast(dict[str, object], cast(list[object], analog_control["thresholds"])[0])
+    threshold_action = cast(dict[str, object], cast(list[object], threshold["actions"])[0])
+    assert threshold_action["macro_loop_count"] == loop_counts["analog_threshold"]
+
+
+@pytest.mark.asyncio
 async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 

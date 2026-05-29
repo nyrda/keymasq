@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, cast
@@ -18,6 +18,17 @@ from keymasq.keymasqd.daemon_helpers import (
 )
 
 type MacroEvent = dict[str, object]
+type ActionTransform = Callable[[JsonObject], JsonObject]
+
+SUPERKEY_ACTION_KEYS = (
+    "tap_actions",
+    "double_tap_actions",
+    "hold_actions",
+    "tap_hold_actions",
+    "overload_actions",
+    "overload_down_actions",
+    "overload_up_actions",
+)
 
 
 @dataclass(frozen=True)
@@ -397,88 +408,48 @@ def apply_macro_definition(action_data: JsonObject, macro: JsonObject) -> JsonOb
     return updated
 
 
-def _collect_macro_names_from_action(action_data: JsonObject, macro_names: set[str]) -> None:
-    action_type = str(action_data.get("action", "") or "")
+def _unresolved_macro_name(action_data: JsonObject) -> str:
+    if str(action_data.get("action", "") or "") != "macro":
+        return ""
     macro_name = str(action_data.get("macro_name", "") or "")
-    if action_type == "macro" and macro_name and not action_data.get("macro_events"):
-        macro_names.add(macro_name)
-        return
-
-    if action_type == "analog_control":
-        analog_control = action_data.get("analog_control")
-        if isinstance(analog_control, dict):
-            _collect_macro_names_from_analog_control(
-                cast(JsonObject, analog_control),
-                macro_names,
-            )
-        return
-
-    if action_type != "superkey":
-        return
-
-    superkey = action_data.get("superkey")
-    if isinstance(superkey, dict):
-        _collect_macro_names_from_superkey(cast(JsonObject, superkey), macro_names)
+    if macro_name and not action_data.get("macro_events"):
+        return macro_name
+    return ""
 
 
-def _collect_macro_names_from_superkey(superkey: JsonObject, macro_names: set[str]) -> None:
-    for key in (
-        "tap_actions",
-        "double_tap_actions",
-        "hold_actions",
-        "tap_hold_actions",
-        "overload_actions",
-        "overload_down_actions",
-        "overload_up_actions",
-    ):
-        bundle = superkey.get(key)
-        if not isinstance(bundle, list):
-            continue
-        for item in cast(list[object], bundle):
-            if isinstance(item, dict):
-                _collect_macro_names_from_action(cast(JsonObject, item), macro_names)
+def _collect_macro_names_from_action(action_data: JsonObject, macro_names: set[str]) -> None:
+    def collect(action: JsonObject) -> JsonObject:
+        macro_name = _unresolved_macro_name(action)
+        if macro_name:
+            macro_names.add(macro_name)
+        return action
 
-
-def _collect_macro_names_from_analog_control(
-    analog_control: JsonObject,
-    macro_names: set[str],
-) -> None:
-    thresholds = analog_control.get("thresholds")
-    if not isinstance(thresholds, list):
-        return
-    for threshold in cast(list[object], thresholds):
-        if not isinstance(threshold, dict):
-            continue
-        actions = cast(JsonObject, threshold).get("actions")
-        if not isinstance(actions, list):
-            continue
-        for item in cast(list[object], actions):
-            if isinstance(item, dict):
-                _collect_macro_names_from_action(cast(JsonObject, item), macro_names)
+    _transform_action_tree(action_data, collect)
 
 
 def _resolve_action_macros(action_data: JsonObject, macros: dict[str, JsonObject]) -> JsonObject:
-    updated: JsonObject = dict(action_data)
-    action_type = str(updated.get("action", "") or "")
-    macro_name = str(updated.get("macro_name", "") or "")
-
-    if (
-        action_type == "macro"
-        and macro_name
-        and not updated.get("macro_events")
-        and macro_name in macros
-    ):
+    def resolve(action: JsonObject) -> JsonObject:
+        macro_name = _unresolved_macro_name(action)
+        if macro_name not in macros:
+            return action
         try:
-            return apply_macro_definition(updated, macros[macro_name])
+            return apply_macro_definition(action, macros[macro_name])
         except (TypeError, ValueError):
-            return updated
+            return action
+
+    return _transform_action_tree(action_data, resolve)
+
+
+def _transform_action_tree(action_data: JsonObject, transform: ActionTransform) -> JsonObject:
+    updated = transform(dict(action_data))
+    action_type = str(updated.get("action", "") or "")
 
     if action_type == "analog_control":
         analog_control = updated.get("analog_control")
         if isinstance(analog_control, dict):
-            updated["analog_control"] = _resolve_analog_control_macros(
+            updated["analog_control"] = _transform_analog_control_actions(
                 cast(JsonObject, analog_control),
-                macros,
+                transform,
             )
         return updated
 
@@ -486,30 +457,23 @@ def _resolve_action_macros(action_data: JsonObject, macros: dict[str, JsonObject
         return updated
 
     superkey = updated.get("superkey")
-    if not isinstance(superkey, dict):
-        return updated
-
-    updated["superkey"] = _resolve_superkey_macros(cast(JsonObject, superkey), macros)
+    if isinstance(superkey, dict):
+        updated["superkey"] = _transform_superkey_actions(
+            cast(JsonObject, superkey),
+            transform,
+        )
     return updated
 
 
-def _resolve_superkey_macros(superkey: JsonObject, macros: dict[str, JsonObject]) -> JsonObject:
+def _transform_superkey_actions(superkey: JsonObject, transform: ActionTransform) -> JsonObject:
     updated: JsonObject = dict(superkey)
-    for key in (
-        "tap_actions",
-        "double_tap_actions",
-        "hold_actions",
-        "tap_hold_actions",
-        "overload_actions",
-        "overload_down_actions",
-        "overload_up_actions",
-    ):
+    for key in SUPERKEY_ACTION_KEYS:
         bundle = updated.get(key)
         if not isinstance(bundle, list):
             continue
         updated[key] = [
             (
-                _resolve_action_macros(cast(JsonObject, item), macros)
+                _transform_action_tree(cast(JsonObject, item), transform)
                 if isinstance(item, dict)
                 else item
             )
@@ -518,9 +482,9 @@ def _resolve_superkey_macros(superkey: JsonObject, macros: dict[str, JsonObject]
     return updated
 
 
-def _resolve_analog_control_macros(
+def _transform_analog_control_actions(
     analog_control: JsonObject,
-    macros: dict[str, JsonObject],
+    transform: ActionTransform,
 ) -> JsonObject:
     updated: JsonObject = dict(analog_control)
     thresholds = updated.get("thresholds")
@@ -537,7 +501,7 @@ def _resolve_analog_control_macros(
         if isinstance(actions, list):
             threshold_data["actions"] = [
                 (
-                    _resolve_action_macros(cast(JsonObject, item), macros)
+                    _transform_action_tree(cast(JsonObject, item), transform)
                     if isinstance(item, dict)
                     else item
                 )

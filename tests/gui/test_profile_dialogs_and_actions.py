@@ -73,6 +73,64 @@ class TestProfileManagedTab:
         assert requests == [{"command": "list_macros"}, {"command": "list_macros"}]
         assert tab._profile_lifecycle_macro_options == ["", "new_macro"]
 
+    def test_rename_updates_copy_name_collision_cache(self, monkeypatch):
+        from pathlib import Path
+
+        from keymasq.common.models import ProfileConfig
+        from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module
+        from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
+        from keymasq.session.profiles import ProfileInfo
+
+        old_profile = ProfileInfo(Path("old.toml"), ProfileConfig(name="Old"))
+        other_profile = ProfileInfo(Path("project.toml"), ProfileConfig(name="Project"))
+        renamed_profile = ProfileInfo(
+            Path("project_1.toml"),
+            ProfileConfig(name="Project_1"),
+        )
+
+        class ProfileManagerStub:
+            def __init__(self):
+                self.profiles = [old_profile, other_profile]
+
+            def list_profiles(self):
+                return list(self.profiles)
+
+            def rename_profile(self, old_name, new_name):
+                assert old_name == "Old"
+                assert new_name == "Project_1"
+                self.profiles[0] = renamed_profile
+                return renamed_profile
+
+            def get_next_priority(self):
+                return 1
+
+        class EntryStub:
+            def get_text(self):
+                return "Project_1"
+
+        monkeypatch.setattr(
+            profile_managed_tab_module,
+            "notify_session_reload_async",
+            lambda: None,
+        )
+
+        tab = ProfileManagedTab(ProfileManagerStub())
+        tab._selected_profile = old_profile
+        tab._profile_names = ["__passthrough__", "Old", "Project"]
+        tab._profile_items = [None, old_profile, other_profile]
+        tab._refresh_profile_dropdown_states = lambda: None
+        tab._refresh_other_profile_tabs = lambda preferred_profile_name=None: None
+
+        tab._on_name_changed(EntryStub())
+        tab._selected_profile = other_profile
+
+        copy_config = tab._build_profile_copy_config()
+
+        assert [profile.config.name for profile in tab.profiles] == ["Project_1", "Project"]
+        assert tab._profile_items[1] is renamed_profile
+        assert copy_config is not None
+        assert copy_config.name == "Project_2"
+
 
 class TestProfileActions:
     def test_action_types(self):

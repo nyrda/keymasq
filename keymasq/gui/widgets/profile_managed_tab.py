@@ -322,7 +322,8 @@ class ProfileManagedTab(Gtk.Box):
         if not new_name or new_name == self._selected_profile.config.name:
             return
 
-        old_name = self._selected_profile.config.name
+        old_profile = self._selected_profile
+        old_name = old_profile.config.name
         try:
             renamed = self.profile_manager.rename_profile(old_name, new_name)
         except ValueError as exc:
@@ -330,8 +331,15 @@ class ProfileManagedTab(Gtk.Box):
             return
 
         self._selected_profile = renamed
+        for index, profile in enumerate(self.profiles):
+            if profile is old_profile or profile.config.name == old_name:
+                self.profiles[index] = renamed
+                break
         if old_name in self._profile_names:
-            self._profile_names[self._profile_names.index(old_name)] = new_name
+            profile_index = self._profile_names.index(old_name)
+            self._profile_names[profile_index] = new_name
+            if profile_index < len(self._profile_items):
+                self._profile_items[profile_index] = renamed
 
         self._refresh_profile_dropdown_states()
         self._refresh_other_profile_tabs(preferred_profile_name=new_name)

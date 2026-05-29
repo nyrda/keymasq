@@ -269,7 +269,11 @@ class CosmicToplevelInfoWaylandClient:
             return
 
         if interface_name == COSMIC_TOPLEVEL_INFO_INTERFACE and self._cosmic_info_id is None:
-            bind_version = max(2, min(int(version), 3))
+            advertised_version = int(version)
+            if advertised_version < 2:
+                return
+
+            bind_version = min(advertised_version, 3)
             cosmic_id = self._allocate_object_id(COSMIC_TOPLEVEL_INFO_INTERFACE)
             bind_payload = (
                 _pack_uint(global_name)

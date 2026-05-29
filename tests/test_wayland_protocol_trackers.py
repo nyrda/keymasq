@@ -67,6 +67,13 @@ def _registry_payload(global_name: int, interface: str, version: int) -> bytes:
     return struct.pack("<I", global_name) + _encode_string(interface) + struct.pack("<I", version)
 
 
+def _bind_request_version(message: bytes) -> int:
+    payload = message[8:]
+    (string_size,) = struct.unpack_from("<I", payload, 4)
+    padded_string_size = (string_size + 3) & ~3
+    return struct.unpack_from("<I", payload, 8 + padded_string_size)[0]
+
+
 def _truncated_registry_payload(global_name: int, interface: str) -> bytes:
     raw = interface.encode("utf-8")
     return struct.pack("<II", global_name, len(raw) + 32) + raw
@@ -439,6 +446,48 @@ def test_cosmic_wayland_client_links_ext_handles_to_cosmic_state() -> None:
     assert cosmic_handle not in client._cosmic_handles
     asyncio.run(client.stop())
     assert fake_socket.closed is True
+
+
+def test_cosmic_wayland_client_skips_unsupported_registry_version() -> None:
+    tracker = ExtForeignToplevelListTracker()
+    client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
+    fake_socket = _FakeWaylandSocket()
+    client._socket = fake_socket
+    client._send_request = _fake_send_request_recorder(fake_socket)
+    client._registry_id = 2
+    client._objects[2] = client._objects[1].__class__("wl_registry")
+
+    asyncio.run(
+        client._handle_registry_event(
+            2,
+            0,
+            _registry_payload(5, cosmic_client_module.COSMIC_TOPLEVEL_INFO_INTERFACE, 1),
+        )
+    )
+
+    assert client._cosmic_info_id is None
+    assert fake_socket.sent == []
+
+
+def test_cosmic_wayland_client_binds_supported_registry_version() -> None:
+    tracker = ExtForeignToplevelListTracker()
+    client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
+    fake_socket = _FakeWaylandSocket()
+    client._socket = fake_socket
+    client._send_request = _fake_send_request_recorder(fake_socket)
+    client._registry_id = 2
+    client._objects[2] = client._objects[1].__class__("wl_registry")
+
+    asyncio.run(
+        client._handle_registry_event(
+            2,
+            0,
+            _registry_payload(5, cosmic_client_module.COSMIC_TOPLEVEL_INFO_INTERFACE, 3),
+        )
+    )
+
+    assert client._cosmic_info_id is not None
+    assert _bind_request_version(fake_socket.sent[0]) == 3
 
 
 def test_wayland_clients_require_display_environment(monkeypatch) -> None:

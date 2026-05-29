@@ -99,6 +99,7 @@ def _run_probe_sync[ProbeResult](
         ensure_uvloop()
         return asyncio.run(coro)
     log.debug("Synchronous compositor probe called in running loop")
+    coro.close()
     return None
 
 

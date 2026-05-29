@@ -1,4 +1,8 @@
 import asyncio
+import gc
+import warnings
+
+import pytest
 
 from keymasq.session.compositor import (
     detect_compositor_sync,
@@ -97,6 +101,21 @@ def test_gnome_support_details_uses_single_detailed_probe(monkeypatch) -> None:
 
     assert result == {"supported": False, "warning": "bridge disabled"}
     assert calls == ["details"]
+
+
+@pytest.mark.asyncio
+async def test_sync_probe_called_in_running_loop_closes_coroutine() -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", RuntimeWarning)
+
+        assert detect_compositor_sync() is None
+        gc.collect()
+
+    assert not [
+        warning
+        for warning in caught
+        if "coroutine" in str(warning.message) and "was never awaited" in str(warning.message)
+    ]
 
 
 def test_detect_priority_niri_over_kde_and_wayland(monkeypatch) -> None:

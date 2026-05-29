@@ -205,13 +205,20 @@ async def reconcile_topology(
 async def reconcile_topology_unlocked(
     manager: _TopologyManager, snapshot: Snapshot, *, deps: TopologyRuntimeDeps
 ) -> None:
-    live_paths = set(snapshot)
     removed: list[tuple[str, str]] = []
 
     for hardware_id, devices in manager.grabbed_devices.items():
         for device in devices:
             stable_path = str(getattr(device, "stable_path", "") or device.path)
-            if stable_path not in live_paths:
+            live_info = snapshot.get(stable_path)
+            if live_info is None:
+                removed.append((hardware_id, device.path))
+                continue
+
+            live_path = str(getattr(live_info, "path", "") or "")
+            live_interface_id = str(getattr(live_info, "interface_id", "") or "").lower()
+            grabbed_interface_id = str(getattr(device, "interface_id", "") or "").lower()
+            if live_path != device.path or live_interface_id != grabbed_interface_id:
                 removed.append((hardware_id, device.path))
 
     for hardware_id, path in removed:

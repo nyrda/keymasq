@@ -1,6 +1,8 @@
 # ruff: noqa: F403, F405, I001
 from tests.keymasqd.daemon_support import *
 
+import uuid
+
 @pytest.mark.asyncio
 async def test_refresh_and_lock_commands_require_client_context(daemon_testbed):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
@@ -102,6 +104,36 @@ def test_cleanup_socket_path_unlinks_existing_path(daemon_testbed, monkeypatch, 
     daemon._cleanup_socket_path()
 
     assert socket_path.exists() is False
+
+
+def test_sd_notify_sends_to_pathname_socket(monkeypatch, tmp_path: Path):
+    notify_path = tmp_path / "notify.sock"
+    with daemon_module.socket.socket(
+        daemon_module.socket.AF_UNIX,
+        daemon_module.socket.SOCK_DGRAM,
+    ) as listener:
+        listener.bind(str(notify_path))
+        listener.settimeout(1.0)
+        monkeypatch.setenv("NOTIFY_SOCKET", str(notify_path))
+
+        daemon_module.sd_notify("READY=1")
+
+        assert listener.recv(1024) == b"READY=1\n"
+
+
+def test_sd_notify_sends_to_abstract_socket(monkeypatch):
+    notify_name = f"keymasq-notify-{uuid.uuid4().hex}"
+    with daemon_module.socket.socket(
+        daemon_module.socket.AF_UNIX,
+        daemon_module.socket.SOCK_DGRAM,
+    ) as listener:
+        listener.bind(f"\0{notify_name}")
+        listener.settimeout(1.0)
+        monkeypatch.setenv("NOTIFY_SOCKET", f"@{notify_name}")
+
+        daemon_module.sd_notify("READY=1")
+
+        assert listener.recv(1024) == b"READY=1\n"
 
 
 @pytest.mark.parametrize("fail_at", ["connect", "sendall"])

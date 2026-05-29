@@ -53,13 +53,15 @@ def sd_notify(state: str) -> None:
     notify_socket = os.environ.get("NOTIFY_SOCKET")
     if not notify_socket:
         return
+    if notify_socket.startswith("@"):
+        notify_socket = "\0" + notify_socket[1:]
 
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
             sock.connect(notify_socket)
             sock.sendall(f"{state}\n".encode())
     except Exception:
-        pass
+        log.debug("Failed to send sd_notify state", exc_info=True)
 
 
 class Daemon:

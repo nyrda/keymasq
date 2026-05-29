@@ -7,6 +7,7 @@ import socket
 import stat
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from typing import cast
 
 from keymasq.common.asyncio_runtime import ensure_uvloop
@@ -138,18 +139,46 @@ class Daemon:
         log.info("Stopping keymasqd")
         self.running = False
 
-        await self.device_manager.stop_topology_watcher()
-        await self.device_manager.cancel_macro_playback()
-        await self.device_manager.release_all_devices()
-        self.device_manager.shutdown_output_devices()
+        await self._run_async_cleanup(
+            "stop topology watcher",
+            self.device_manager.stop_topology_watcher,
+        )
+        await self._run_async_cleanup(
+            "cancel macro playback",
+            self.device_manager.cancel_macro_playback,
+        )
+        await self._run_async_cleanup(
+            "release all devices",
+            self.device_manager.release_all_devices,
+        )
+        self._run_sync_cleanup(
+            "shut down output devices",
+            self.device_manager.shutdown_output_devices,
+        )
 
         if self.socket_server:
-            await self.socket_server.stop()
+            await self._run_async_cleanup("stop socket server", self.socket_server.stop)
 
         try:
             self._cleanup_socket_path()
         except RuntimeError as exc:
             log.warning("Failed to remove daemon socket path %s: %s", SOCKET_PATH, exc)
+
+    async def _run_async_cleanup(
+        self,
+        label: str,
+        cleanup: Callable[[], Awaitable[object]],
+    ) -> None:
+        try:
+            await cleanup()
+        except Exception as exc:
+            log.warning("Failed to %s during daemon cleanup: %s", label, exc, exc_info=True)
+
+    def _run_sync_cleanup(self, label: str, cleanup: Callable[[], object]) -> None:
+        try:
+            cleanup()
+        except Exception as exc:
+            log.warning("Failed to %s during daemon cleanup: %s", label, exc, exc_info=True)
 
     def _prepare_macro_store(self) -> None:
         self.macro_store.ensure()
@@ -556,9 +585,21 @@ class Daemon:
 
     async def _on_client_disconnect(self) -> None:
         log.info("Client disconnected, clearing runtime unlocks and releasing all devices")
-        await asyncio.to_thread(self._clear_all_runtime_unlocks, reason="session_disconnect")
-        await self.recording_manager.discard_all_pending_recordings()
-        await self.device_manager.release_all_devices()
+        await self._run_async_cleanup(
+            "clear runtime unlocks",
+            lambda: asyncio.to_thread(
+                self._clear_all_runtime_unlocks,
+                reason="session_disconnect",
+            ),
+        )
+        await self._run_async_cleanup(
+            "discard pending recordings",
+            self.recording_manager.discard_all_pending_recordings,
+        )
+        await self._run_async_cleanup(
+            "release all devices after client disconnect",
+            self.device_manager.release_all_devices,
+        )
 
     def _secure_run_dir(self) -> None:
         try:

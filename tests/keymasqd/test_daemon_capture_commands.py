@@ -685,6 +685,26 @@ async def test_start_cleans_up_resources_when_topology_start_fails(
 
 
 @pytest.mark.asyncio
+async def test_stop_continues_cleanup_after_topology_stop_fails(daemon_testbed, monkeypatch):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    fake_socket_server = SimpleNamespace(stop=AsyncMock())
+    device_manager.stop_topology_watcher.side_effect = RuntimeError("topology stop failed")
+    daemon.socket_server = fake_socket_server
+    daemon.running = True
+
+    monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
+
+    await daemon.stop()
+
+    assert daemon.running is False
+    device_manager.stop_topology_watcher.assert_awaited_once()
+    device_manager.cancel_macro_playback.assert_awaited_once()
+    device_manager.release_all_devices.assert_awaited_once()
+    device_manager.shutdown_output_devices.assert_called_once()
+    fake_socket_server.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_read_capture_combo_event_drains_sources_once_before_waiting(
     daemon_testbed,
     monkeypatch,

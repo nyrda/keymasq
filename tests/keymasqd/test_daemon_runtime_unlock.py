@@ -234,3 +234,16 @@ async def test_client_disconnect_clears_owned_and_unowned_runtime_unlocks(
     assert not (runtime_dir / f"recording-unlock-{stray_uid}").exists()
     recording_manager.discard_all_pending_recordings.assert_awaited_once()
     device_manager.release_all_devices.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_releases_devices_after_recording_discard_fails(daemon_testbed):
+    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    recording_manager.discard_all_pending_recordings.side_effect = RuntimeError(
+        "discard failed"
+    )
+
+    await daemon._on_client_disconnect()
+
+    recording_manager.discard_all_pending_recordings.assert_awaited_once()
+    device_manager.release_all_devices.assert_awaited_once()

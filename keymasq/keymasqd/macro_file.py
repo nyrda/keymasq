@@ -2,8 +2,8 @@ import io
 import json
 import lzma
 import os
+import secrets
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -116,17 +116,27 @@ def load_macro(path: Path) -> JsonObject:
 
 def write_macro(path: Path, meta: MacroFileMeta, events: Iterable[MacroEvent]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    fd, tmp_path = _open_private_temp(path)
+    fileobj: io.BufferedWriter | None = None
     try:
-        with _open_private_text(tmp_path) as f:
-            f.write(_json_line(meta.to_record()))
-            for event in events:
-                f.write(_json_line(event))
-        tmp_path.replace(path)
+        fileobj = os.fdopen(fd, "wb", closefd=False)
+        with lzma.LZMAFile(fileobj, "wb") as raw:
+            with io.TextIOWrapper(raw, encoding="utf-8", newline="\n") as f:
+                f.write(_json_line(meta.to_record()))
+                for event in events:
+                    f.write(_json_line(event))
+        fileobj.flush()
+        os.fsync(fd)
+        os.replace(tmp_path, path)
         path.chmod(0o600)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
+    finally:
+        if fileobj is None:
+            os.close(fd)
+        else:
+            fileobj.close()
 
 
 def macro_payload_from_events(
@@ -158,24 +168,22 @@ def _open_text(path: Path, mode: str) -> io.TextIOWrapper:
     return io.TextIOWrapper(raw, encoding="utf-8", newline="\n")
 
 
-@contextmanager
-def _open_private_text(path: Path) -> Iterator[io.TextIOWrapper]:
-    flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+def _open_private_temp(path: Path) -> tuple[int, Path]:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
-    fd = os.open(path, flags, 0o600)
-    fileobj: io.BufferedWriter | None = None
-    try:
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    for _ in range(100):
+        tmp_path = path.with_name(f".{path.name}.{secrets.token_hex(16)}.tmp")
+        try:
+            fd = os.open(tmp_path, flags, 0o600)
+        except FileExistsError:
+            continue
         os.fchmod(fd, 0o600)
-        fileobj = os.fdopen(fd, "wb")
-        with lzma.LZMAFile(fileobj, "wb") as raw:
-            with io.TextIOWrapper(raw, encoding="utf-8", newline="\n") as text:
-                yield text
-    finally:
-        if fileobj is None:
-            os.close(fd)
-        else:
-            fileobj.close()
+        return fd, tmp_path
+    raise FileExistsError(f"Could not create temporary macro file for {path}")
 
 
 def _json_line(value: JsonObject) -> str:

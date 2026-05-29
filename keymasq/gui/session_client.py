@@ -56,10 +56,11 @@ class _PersistentSessionConnection:
                 self._response_queue = response_queue
 
             try:
+                encoded_payload = (json.dumps(payload) + "\n").encode()
                 with self._state_lock:
                     if self._sock is None:
                         return None
-                    self._sock.send((json.dumps(payload) + "\n").encode())
+                    self._sock.sendall(encoded_payload)
 
                 try:
                     response = response_queue.get(timeout=timeout)

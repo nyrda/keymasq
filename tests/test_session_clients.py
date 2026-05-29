@@ -113,8 +113,10 @@ class _RequestOnlySocket:
         self.closed = False
 
     def send(self, data: bytes) -> int:
+        raise AssertionError("partial-write-prone send() must not be used")
+
+    def sendall(self, data: bytes) -> None:
         self.sent += data
-        return len(data)
 
     def close(self) -> None:
         self.closed = True
@@ -221,6 +223,7 @@ def test_persistent_session_request_timeout_closes_connection() -> None:
     response = connection.request({"command": "get_status"}, timeout=0.01)
 
     assert response is None
+    assert sock.sent == b'{"command": "get_status"}\n'
     assert sock.closed is True
     assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
 

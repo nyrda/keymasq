@@ -48,6 +48,23 @@ def test_parse_reconstruct_preserves_abs_and_repeat_events() -> None:
     assert any(e["type"] == evdev.ecodes.EV_KEY and e["value"] == 2 for e in rebuilt)
 
 
+def test_describe_passthrough_abs_event_uses_event_type_name() -> None:
+    title, detail = _describe_passthrough_event(
+        {
+            "device_type": "gamepad",
+            "type": evdev.ecodes.EV_ABS,
+            "code": evdev.ecodes.ABS_X,
+            "value": 123,
+            "t_us": 10,
+        }
+    )
+
+    assert title == "EV_ABS"
+    assert "Raw gamepad EV_ABS ABS_X value 123 (code 0)" == detail
+    assert "SYN_" not in title
+    assert "SYN_" not in detail
+
+
 def test_parse_handles_overlapping_same_key_presses() -> None:
     raw = [
         {

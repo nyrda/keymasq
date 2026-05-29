@@ -58,6 +58,11 @@ def _get_event_name(event_type: int, code: int) -> str:
     return str(name)
 
 
+def _get_event_type_name(event_type: int) -> str:
+    """Return a human-readable name for an evdev event type."""
+    return str(evdev.ecodes.EV.get(int(event_type), str(event_type)))
+
+
 def _passthrough_track(ev: MacroEvent) -> str:
     """Map a passthrough event to the track where it should be visualized."""
     ev_type = int(ev.get("type", -1))
@@ -88,7 +93,7 @@ def _describe_passthrough_event(ev: MacroEvent) -> tuple[str, str]:
             detail += " without a matching pair"
         return name, detail
 
-    type_name = _get_event_name(0, ev_type)
+    type_name = _get_event_type_name(ev_type)
     name = _get_event_name(ev_type, code)
     return type_name, f"Raw {device_type} {type_name} {name} value {value} (code {code})"
 

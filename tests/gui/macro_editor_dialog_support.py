@@ -17,6 +17,7 @@ from keymasq.gui.widgets.macro_editor_dialog import EditableControl  # noqa: E40
 from keymasq.gui.widgets.macro_editor_dialog import EditableEvent  # noqa: E402
 from keymasq.gui.widgets.macro_editor_dialog import EditableMove  # noqa: E402
 from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog  # noqa: E402
+from keymasq.gui.widgets.macro_editor_dialog import _describe_passthrough_event  # noqa: E402
 from keymasq.gui.widgets.macro_editor_dialog import _passthrough_track  # noqa: E402
 from keymasq.gui.widgets.macro_editor_dialog import parse_events  # noqa: E402
 from keymasq.gui.widgets.macro_editor_dialog import reconstruct_events  # noqa: E402
@@ -62,6 +63,7 @@ __all__ = [
     'EditableEvent',
     'EditableMove',
     'MacroEditorDialog',
+    '_describe_passthrough_event',
     '_passthrough_track',
     'parse_events',
     'reconstruct_events',

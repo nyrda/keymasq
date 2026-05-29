@@ -793,6 +793,40 @@ class TestDeviceTabWidget:
         assert tab._rename_device("   ") is False
         assert reload_requests == [{"command": "reload"}]
 
+    def test_device_tab_rename_without_hardware_manager_does_not_mutate(
+        self, monkeypatch
+    ):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: requests.append(payload),
+        )
+
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=None,
+            demo_mode=False,
+        )
+
+        assert tab.device_name_label.get_tooltip_text() is None
+        assert tab._rename_device("Work Mouse") is False
+        assert device.name == "Test Mouse"
+        assert tab.device_name_label.get_text() == "Test Mouse"
+        assert requests == []
+
     def test_device_tab_delete_button_updates_hardware_profiles_and_ui(
         self, temp_config_dir, monkeypatch
     ):

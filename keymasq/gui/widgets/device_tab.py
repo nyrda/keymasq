@@ -396,7 +396,7 @@ class DeviceTab(ProfileManagedTab):
         self.device_name_label.add_css_class("title-2")
         self.device_name_label.set_halign(Gtk.Align.START)
         self.device_name_label.set_ellipsize(Pango.EllipsizeMode.END)
-        if not self.demo_mode:
+        if not self.demo_mode and self.hardware_manager is not None:
             self.device_name_label.set_tooltip_text("Right-click to rename device")
             name_right_click = Gtk.GestureClick()
             name_right_click.set_button(Gdk.BUTTON_SECONDARY)
@@ -473,11 +473,14 @@ class DeviceTab(ProfileManagedTab):
             opener(self.device)
 
     def _on_device_name_right_clicked(self, click, n_press, x, y) -> None:
-        if n_press != 1 or self.demo_mode:
+        if n_press != 1 or self.demo_mode or self.hardware_manager is None:
             return
         self._show_device_rename_dialog()
 
     def _show_device_rename_dialog(self) -> None:
+        if self.hardware_manager is None:
+            return
+
         dialog = Adw.Dialog(title="Rename Device", content_width=420, content_height=-1)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_top(16)
@@ -523,8 +526,14 @@ class DeviceTab(ProfileManagedTab):
         if new_name == self.device.name:
             return True
 
+        if self.hardware_manager is None:
+            log.warning(
+                "Cannot rename device %s without a hardware manager",
+                self.device.hardware_id,
+            )
+            return False
+
         self.device.name = new_name
-        assert self.hardware_manager is not None
         self.hardware_manager.save_hardware(self.device)
         session_request_async({"command": "reload"}, lambda _result: False)
         self._update_device_name_display()

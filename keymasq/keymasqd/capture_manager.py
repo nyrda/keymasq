@@ -223,6 +223,8 @@ class CaptureManager:
 
         token = token or str(uuid.uuid4())
         if token in self._sessions:
+            for device in devices:
+                _close_device(device)
             raise ValueError("Capture token already active")
 
         session = CaptureSession(

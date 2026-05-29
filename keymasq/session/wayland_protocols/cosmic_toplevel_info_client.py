@@ -91,9 +91,9 @@ class CosmicToplevelInfoWaylandClient:
         await self._loop.sock_connect(self._socket, self._socket_path)
 
         self._registry_id = self._allocate_object_id("wl_registry")
-        self._send_request(WL_DISPLAY_OBJECT_ID, 1, _pack_uint(self._registry_id))
+        await self._send_request(WL_DISPLAY_OBJECT_ID, 1, _pack_uint(self._registry_id))
 
-        sync_id = self._request_sync()
+        sync_id = await self._request_sync()
         await self._pump_until_sync(sync_id)
 
         if self._list_id is None:
@@ -101,7 +101,7 @@ class CosmicToplevelInfoWaylandClient:
         if self._cosmic_info_id is None:
             raise RuntimeError("zcosmic_toplevel_info_v1 is unavailable on this compositor")
 
-        post_bind_sync = self._request_sync()
+        post_bind_sync = await self._request_sync()
         await self._pump_until_sync(post_bind_sync)
         self._tracker.mark_done()
 
@@ -115,7 +115,7 @@ class CosmicToplevelInfoWaylandClient:
             if not data:
                 break
             self._buffer.extend(data)
-            self._drain_messages()
+            await self._drain_messages()
 
     async def stop(self) -> None:
         self._running = False
@@ -125,7 +125,7 @@ class CosmicToplevelInfoWaylandClient:
         if self._cosmic_info_id is not None:
             for cosmic_id in list(self._cosmic_handles):
                 try:
-                    self._send_request(cosmic_id, 0, b"")
+                    await self._send_request(cosmic_id, 0, b"")
                 except Exception:
                     pass
                 self._objects.pop(cosmic_id, None)
@@ -138,17 +138,17 @@ class CosmicToplevelInfoWaylandClient:
         if self._list_id is not None:
             for handle_id in list(self._toplevel_handles):
                 try:
-                    self._send_request(handle_id, 0, b"")
+                    await self._send_request(handle_id, 0, b"")
                 except Exception:
                     pass
                 self._objects.pop(handle_id, None)
                 self._toplevel_handles.discard(handle_id)
             try:
-                self._send_request(self._list_id, 0, b"")
+                await self._send_request(self._list_id, 0, b"")
             except Exception:
                 pass
             try:
-                self._send_request(self._list_id, 1, b"")
+                await self._send_request(self._list_id, 1, b"")
             except Exception:
                 pass
             self._objects.pop(self._list_id, None)
@@ -163,10 +163,10 @@ class CosmicToplevelInfoWaylandClient:
         self._objects[object_id] = _WaylandObject(interface)
         return object_id
 
-    def _request_sync(self) -> int:
+    async def _request_sync(self) -> int:
         callback_id = self._allocate_object_id("wl_callback")
         self._sync_waiters.add(callback_id)
-        self._send_request(WL_DISPLAY_OBJECT_ID, 0, _pack_uint(callback_id))
+        await self._send_request(WL_DISPLAY_OBJECT_ID, 0, _pack_uint(callback_id))
         return callback_id
 
     async def _pump_until_sync(self, callback_id: int, timeout: float = 2.0) -> None:
@@ -185,17 +185,17 @@ class CosmicToplevelInfoWaylandClient:
             if not data:
                 raise RuntimeError("Wayland socket closed during sync")
             self._buffer.extend(data)
-            self._drain_messages()
+            await self._drain_messages()
 
-    def _send_request(self, object_id: int, opcode: int, payload: bytes) -> None:
-        if self._socket is None:
+    async def _send_request(self, object_id: int, opcode: int, payload: bytes) -> None:
+        if self._socket is None or self._loop is None:
             raise RuntimeError("wayland socket is not open")
 
         size = 8 + len(payload)
         header = struct.pack("<II", int(object_id), ((size & 0xFFFF) << 16) | (opcode & 0xFFFF))
-        self._socket.sendall(header + payload)
+        await self._loop.sock_sendall(self._socket, header + payload)
 
-    def _drain_messages(self) -> None:
+    async def _drain_messages(self) -> None:
         while len(self._buffer) >= 8:
             object_id, size_opcode = struct.unpack_from("<II", self._buffer, 0)
             size = size_opcode >> 16
@@ -207,9 +207,9 @@ class CosmicToplevelInfoWaylandClient:
 
             payload = bytes(self._buffer[8:size])
             del self._buffer[:size]
-            self._dispatch_event(object_id, opcode, payload)
+            await self._dispatch_event(object_id, opcode, payload)
 
-    def _dispatch_event(self, object_id: int, opcode: int, payload: bytes) -> None:
+    async def _dispatch_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         wayland_object = self._objects.get(object_id)
         if wayland_object is None:
             return
@@ -219,13 +219,13 @@ class CosmicToplevelInfoWaylandClient:
             self._handle_display_event(opcode, payload)
             return
         if interface == "wl_registry":
-            self._handle_registry_event(object_id, opcode, payload)
+            await self._handle_registry_event(object_id, opcode, payload)
             return
         if interface == "wl_callback":
             self._handle_callback_event(object_id, opcode)
             return
         if interface == EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE:
-            self._handle_list_event(object_id, opcode, payload)
+            await self._handle_list_event(object_id, opcode, payload)
             return
         if interface == COSMIC_TOPLEVEL_INFO_INTERFACE:
             self._handle_cosmic_info_event(opcode)
@@ -247,7 +247,7 @@ class CosmicToplevelInfoWaylandClient:
             self._cosmic_to_ext.pop(cosmic_id, None)
             self._cosmic_handles.discard(cosmic_id)
 
-    def _handle_registry_event(self, object_id: int, opcode: int, payload: bytes) -> None:
+    async def _handle_registry_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         if object_id != self._registry_id or opcode != 0:
             return
 
@@ -264,7 +264,7 @@ class CosmicToplevelInfoWaylandClient:
                 + _pack_uint(bind_version)
                 + _pack_uint(list_id)
             )
-            self._send_request(object_id, 0, bind_payload)
+            await self._send_request(object_id, 0, bind_payload)
             self._list_id = list_id
             return
 
@@ -277,7 +277,7 @@ class CosmicToplevelInfoWaylandClient:
                 + _pack_uint(bind_version)
                 + _pack_uint(cosmic_id)
             )
-            self._send_request(object_id, 0, bind_payload)
+            await self._send_request(object_id, 0, bind_payload)
             self._cosmic_info_id = cosmic_id
 
     def _handle_callback_event(self, object_id: int, opcode: int) -> None:
@@ -285,7 +285,7 @@ class CosmicToplevelInfoWaylandClient:
             return
         self._sync_waiters.discard(object_id)
 
-    def _handle_list_event(self, object_id: int, opcode: int, payload: bytes) -> None:
+    async def _handle_list_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         if object_id != self._list_id:
             return
 
@@ -298,7 +298,7 @@ class CosmicToplevelInfoWaylandClient:
             if self._cosmic_info_id is not None:
                 cosmic_handle_id = self._allocate_object_id("zcosmic_toplevel_handle_v1")
                 request_payload = _pack_uint(cosmic_handle_id) + _pack_uint(handle_object_id)
-                self._send_request(self._cosmic_info_id, 1, request_payload)
+                await self._send_request(self._cosmic_info_id, 1, request_payload)
                 self._cosmic_handles.add(cosmic_handle_id)
                 self._ext_to_cosmic[handle_object_id] = cosmic_handle_id
                 self._cosmic_to_ext[cosmic_handle_id] = handle_object_id

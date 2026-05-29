@@ -216,9 +216,10 @@ async def reconcile_topology_unlocked(
                 continue
 
             live_path = str(getattr(live_info, "path", "") or "")
-            live_interface_id = str(getattr(live_info, "interface_id", "") or "").lower()
-            grabbed_interface_id = str(getattr(device, "interface_id", "") or "").lower()
-            if live_path != device.path or live_interface_id != grabbed_interface_id:
+            grabbed_path = str(
+                getattr(device, "resolved_event_path", "") or device.path
+            )
+            if live_path != grabbed_path:
                 removed.append((hardware_id, device.path))
 
     for hardware_id, path in removed:

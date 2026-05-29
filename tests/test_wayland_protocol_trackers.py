@@ -4,6 +4,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, cast
 
 from keymasq.session.wayland_protocols import cosmic_toplevel_info_client as cosmic_client_module
 from keymasq.session.wayland_protocols import registry_probe
@@ -33,9 +34,33 @@ class _FakeWaylandSocket:
         self.closed = True
 
 
+class _SendallFailsSocket:
+    def __init__(self) -> None:
+        self.sendall_called = False
+
+    def sendall(self, _data: bytes) -> None:
+        self.sendall_called = True
+        raise BlockingIOError
+
+
+class _FakeSockSendallLoop:
+    def __init__(self) -> None:
+        self.sent: list[tuple[object, bytes]] = []
+
+    async def sock_sendall(self, sock: object, data: bytes) -> None:
+        self.sent.append((sock, data))
+
+
 def _wl_message(object_id: int, opcode: int, payload: bytes = b"") -> bytes:
     size = 8 + len(payload)
     return struct.pack("<II", object_id, ((size & 0xFFFF) << 16) | (opcode & 0xFFFF)) + payload
+
+
+def _fake_send_request_recorder(fake_socket: _FakeWaylandSocket) -> Any:
+    async def send_request(object_id: int, opcode: int, payload: bytes) -> None:
+        fake_socket.sendall(_wl_message(object_id, opcode, payload))
+
+    return send_request
 
 
 def _registry_payload(global_name: int, interface: str, version: int) -> bytes:
@@ -278,18 +303,46 @@ def test_registry_probe_ignores_truncated_global_interface_async() -> None:
     assert asyncio.run(run_probe()) == {EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE}
 
 
+def test_wayland_clients_send_requests_with_loop_sock_sendall() -> None:
+    async def send_requests() -> None:
+        clients = (
+            ExtForeignToplevelListWaylandClient(ExtForeignToplevelListTracker()),
+            wlr_client_module.WlrForeignToplevelWaylandClient(
+                WlrForeignToplevelManagerTracker()
+            ),
+            cosmic_client_module.CosmicToplevelInfoWaylandClient(
+                ExtForeignToplevelListTracker()
+            ),
+        )
+        for client in clients:
+            fake_socket = _SendallFailsSocket()
+            fake_loop = _FakeSockSendallLoop()
+            client._socket = cast(Any, fake_socket)
+            client._loop = cast(Any, fake_loop)
+
+            await client._send_request(11, 7, b"payload")
+
+            assert fake_socket.sendall_called is False
+            assert fake_loop.sent == [(fake_socket, _wl_message(11, 7, b"payload"))]
+
+    asyncio.run(send_requests())
+
+
 def test_ext_wayland_client_dispatches_registry_and_toplevel_events() -> None:
     tracker = ExtForeignToplevelListTracker()
     client = ExtForeignToplevelListWaylandClient(tracker)
     fake_socket = _FakeWaylandSocket()
     client._socket = fake_socket
+    client._send_request = _fake_send_request_recorder(fake_socket)
     client._registry_id = 2
     client._objects[2] = client._objects[1].__class__("wl_registry")
 
-    client._handle_registry_event(
-        2,
-        0,
-        _registry_payload(12, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 9),
+    asyncio.run(
+        client._handle_registry_event(
+            2,
+            0,
+            _registry_payload(12, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 9),
+        )
     )
     assert client._list_id is not None
     assert fake_socket.sent
@@ -317,13 +370,16 @@ def test_wlr_wayland_client_dispatches_manager_and_toplevel_events() -> None:
     client = wlr_client_module.WlrForeignToplevelWaylandClient(tracker)
     fake_socket = _FakeWaylandSocket()
     client._socket = fake_socket
+    client._send_request = _fake_send_request_recorder(fake_socket)
     client._registry_id = 2
     client._objects[2] = client._objects[1].__class__("wl_registry")
 
-    client._handle_registry_event(
-        2,
-        0,
-        _registry_payload(3, wlr_client_module.WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE, 6),
+    asyncio.run(
+        client._handle_registry_event(
+            2,
+            0,
+            _registry_payload(3, wlr_client_module.WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE, 6),
+        )
     )
     assert client._manager_id is not None
 
@@ -344,23 +400,28 @@ def test_cosmic_wayland_client_links_ext_handles_to_cosmic_state() -> None:
     client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
     fake_socket = _FakeWaylandSocket()
     client._socket = fake_socket
+    client._send_request = _fake_send_request_recorder(fake_socket)
     client._registry_id = 2
     client._objects[2] = client._objects[1].__class__("wl_registry")
 
-    client._handle_registry_event(
-        2,
-        0,
-        _registry_payload(4, cosmic_client_module.EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1),
+    asyncio.run(
+        client._handle_registry_event(
+            2,
+            0,
+            _registry_payload(4, cosmic_client_module.EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1),
+        )
     )
-    client._handle_registry_event(
-        2,
-        0,
-        _registry_payload(5, cosmic_client_module.COSMIC_TOPLEVEL_INFO_INTERFACE, 99),
+    asyncio.run(
+        client._handle_registry_event(
+            2,
+            0,
+            _registry_payload(5, cosmic_client_module.COSMIC_TOPLEVEL_INFO_INTERFACE, 99),
+        )
     )
     assert client._list_id is not None
     assert client._cosmic_info_id is not None
 
-    client._handle_list_event(client._list_id, 0, struct.pack("<I", 70))
+    asyncio.run(client._handle_list_event(client._list_id, 0, struct.pack("<I", 70)))
     cosmic_handle = client._ext_to_cosmic[70]
     client._handle_toplevel_event(70, 2, _encode_string("Settings"))
     client._handle_toplevel_event(70, 3, _encode_string("com.system76.Settings"))

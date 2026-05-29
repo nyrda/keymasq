@@ -1110,6 +1110,73 @@ class TestListDevices:
             "/dev/input/event5",
         )
 
+    @pytest.mark.asyncio
+    async def test_reconcile_topology_keeps_grab_when_configured_source_id_differs(
+        self,
+    ) -> None:
+        stable_path = "/dev/input/event5"
+        manager = SimpleNamespace(
+            grabbed_devices={
+                "1234:5678": [
+                    SimpleNamespace(
+                        path="/dev/input/event5",
+                        stable_path=stable_path,
+                        interface_id="kbd",
+                    )
+                ]
+            }
+        )
+        snapshot = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event5",
+                interface_id="event5",
+            )
+        }
+        release_interface = AsyncMock()
+        deps = SimpleNamespace(release_interface_fn=release_interface)
+
+        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+
+        release_interface.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reconcile_topology_keeps_by_id_grab_for_matching_event_path(
+        self,
+    ) -> None:
+        stable_path = "/dev/input/by-id/test-kbd"
+        manager = SimpleNamespace(
+            grabbed_devices={
+                "1234:5678": [
+                    SimpleNamespace(
+                        path=stable_path,
+                        stable_path=stable_path,
+                        resolved_event_path="/dev/input/event5",
+                        interface_id="kbd",
+                    )
+                ]
+            }
+        )
+        snapshot = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event5",
+                interface_id="kbd",
+            )
+        }
+        release_interface = AsyncMock()
+        deps = SimpleNamespace(release_interface_fn=release_interface)
+
+        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+
+        release_interface.assert_not_awaited()
+
 
 class TestMacroControlActions:
     @pytest.mark.asyncio

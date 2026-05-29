@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from types import SimpleNamespace
@@ -212,6 +213,7 @@ class GrabbedDevice:
         interface_id: str | None = None,
     ) -> None:
         self.path = path
+        self.resolved_event_path = os.path.realpath(path)
         self.hardware_id = hardware_id
         self.stable_path = resolve_stable_path(path)
         self.interface_id = str(interface_id or get_interface_id(self.stable_path) or "").lower()
@@ -370,6 +372,7 @@ class GrabbedDevice:
         )
 
     async def grab(self) -> None:
+        self.resolved_event_path = os.path.realpath(self.path)
         self.device = _device_input(self.path)
         self._refresh_analog_axis_ranges()
         caps = self.device.capabilities()

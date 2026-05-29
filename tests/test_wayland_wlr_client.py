@@ -1,3 +1,5 @@
+import asyncio
+
 from keymasq.session.wayland_protocols import WlrForeignToplevelManagerTracker
 from keymasq.session.wayland_protocols.wlr_foreign_toplevel_client import (
     WlrForeignToplevelWaylandClient,
@@ -15,7 +17,11 @@ def _encode_array(value: bytes) -> bytes:
 def test_wlr_wayland_client_tracks_active_toplevel() -> None:
     tracker = WlrForeignToplevelManagerTracker()
     client = WlrForeignToplevelWaylandClient(tracker, socket_path="/tmp/nonexistent")
-    client._send_request = lambda _obj, _opcode, _payload: None  # type: ignore[method-assign]
+
+    async def ignore_send(_obj: int, _opcode: int, _payload: bytes) -> None:
+        pass
+
+    client._send_request = ignore_send  # type: ignore[method-assign]
 
     registry_id = client._allocate_object_id("wl_registry")
     client._registry_id = registry_id
@@ -23,7 +29,7 @@ def test_wlr_wayland_client_tracks_active_toplevel() -> None:
     registry_payload = (
         _pack_uint(9) + _encode_string("zwlr_foreign_toplevel_manager_v1") + _pack_uint(3)
     )
-    client._handle_registry_event(registry_id, 0, registry_payload)
+    asyncio.run(client._handle_registry_event(registry_id, 0, registry_payload))
 
     manager_id = client._manager_id
     assert manager_id is not None

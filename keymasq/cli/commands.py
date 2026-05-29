@@ -19,21 +19,20 @@ def _session_request(payload: JsonObject, timeout: float = 5.0) -> JsonObject | 
         return None
 
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect(str(SESSION_SOCKET_PATH))
-        sock.send((json.dumps(payload) + "\n").encode())
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect(str(SESSION_SOCKET_PATH))
+            sock.sendall((json.dumps(payload) + "\n").encode())
 
-        buffer = b""
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            buffer += chunk
-            if b"\n" in buffer:
-                break
+            buffer = b""
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+                if b"\n" in buffer:
+                    break
 
-        sock.close()
         if not buffer:
             return None
         line = buffer.split(b"\n", 1)[0]

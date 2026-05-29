@@ -1,4 +1,7 @@
 import json
+import socket
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -10,6 +13,61 @@ def test_profile_kind_variants() -> None:
     assert commands._profile_kind({"is_permanent": True, "window_rule_count": 0}) == "permanent"
     assert commands._profile_kind({"window_rule_count": 2}) == "conditional"
     assert commands._profile_kind({}) == "standard"
+
+
+def test_session_request_sends_complete_json_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class FakeSocket:
+        def __init__(self, *_args: Any) -> None:
+            self.timeout: float | None = None
+            self.connected_to = ""
+            self.sent = b""
+            self.closed = False
+            self.recv_chunks = [b'{"status":"ok"}\n']
+
+        def __enter__(self) -> "FakeSocket":
+            return self
+
+        def __exit__(self, *_args: Any) -> None:
+            self.close()
+
+        def settimeout(self, timeout: float) -> None:
+            self.timeout = timeout
+
+        def connect(self, path: str) -> None:
+            self.connected_to = path
+
+        def sendall(self, data: bytes) -> None:
+            self.sent += data
+
+        def send(self, _data: bytes) -> int:
+            raise AssertionError("partial-write-prone send() must not be used")
+
+        def recv(self, _size: int) -> bytes:
+            if not self.recv_chunks:
+                return b""
+            return self.recv_chunks.pop(0)
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_socket = FakeSocket()
+    socket_path = tmp_path / "session.sock"
+    socket_path.touch()
+    monkeypatch.setattr(commands, "SESSION_SOCKET_PATH", socket_path)
+    monkeypatch.setattr(socket, "socket", lambda *_args: fake_socket)
+
+    result = commands._session_request({"command": "create_macro", "events": ["x" * 8192]})
+
+    assert result == {"status": "ok"}
+    assert fake_socket.connected_to == str(socket_path)
+    assert fake_socket.closed is True
+    assert fake_socket.sent.endswith(b"\n")
+    assert json.loads(fake_socket.sent.decode()) == {
+        "command": "create_macro",
+        "events": ["x" * 8192],
+    }
 
 
 def test_list_macros_cli_prints_macros(

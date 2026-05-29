@@ -1,5 +1,7 @@
 import logging
 import os
+import stat
+import tempfile
 import time
 from pathlib import Path
 
@@ -73,6 +75,33 @@ def resolve_unlock_status(uid: int, now: int | None = None) -> UnlockStatus:
     }
 
 
+def _validate_unlock_parent(path: Path) -> None:
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        parent_stat = parent.stat(follow_symlinks=False)
+    except FileNotFoundError as exc:
+        raise PermissionError(f"Recording unlock directory is unavailable: {parent}") from exc
+
+    if not stat.S_ISDIR(parent_stat.st_mode):
+        raise PermissionError(f"Recording unlock parent is not a directory: {parent}")
+
+    if parent_stat.st_uid not in {0, os.geteuid()}:
+        raise PermissionError(f"Recording unlock directory has untrusted owner: {parent}")
+
+    if parent_stat.st_mode & stat.S_IWOTH:
+        raise PermissionError(f"Recording unlock directory is world-writable: {parent}")
+
+    try:
+        path_stat = path.lstat()
+    except FileNotFoundError:
+        return
+
+    if stat.S_ISLNK(path_stat.st_mode):
+        raise PermissionError(f"Recording unlock path is a symlink: {path}")
+
+
 def write_unlock_expires_at(
     path: Path,
     expires_at: int,
@@ -80,21 +109,33 @@ def write_unlock_expires_at(
     owner_gid: int | None = None,
     mode: int = 0o644,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}")
-    tmp_path.write_text(f"{int(expires_at)}\n", encoding="utf-8")
+    _validate_unlock_parent(path)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
+    tmp_path = Path(tmp_name)
 
-    if owner_uid is not None and owner_gid is not None:
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(f"{int(expires_at)}\n")
+
+            if owner_uid is not None and owner_gid is not None:
+                try:
+                    os.fchown(handle.fileno(), int(owner_uid), int(owner_gid))
+                except OSError as exc:
+                    log.warning(
+                        "Failed to set recording unlock file owner on %s to %s:%s: %s",
+                        tmp_path,
+                        owner_uid,
+                        owner_gid,
+                        exc,
+                    )
+
+            os.fchmod(handle.fileno(), int(mode))
+
+        _validate_unlock_parent(path)
+        os.replace(tmp_path, path)
+    except Exception:
         try:
-            os.chown(tmp_path, int(owner_uid), int(owner_gid))
-        except OSError as exc:
-            log.warning(
-                "Failed to set recording unlock file owner on %s to %s:%s: %s",
-                tmp_path,
-                owner_uid,
-                owner_gid,
-                exc,
-            )
-
-    os.chmod(tmp_path, int(mode))
-    os.replace(tmp_path, path)
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise

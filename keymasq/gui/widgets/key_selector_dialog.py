@@ -415,8 +415,7 @@ REPEAT_CATEGORY_OPTIONS = (
         REPEAT_CATEGORY_SPECIAL,
         "Other",
         "Repeat remembered Keymasq special actions that do not fit the other groups, "
-        "including mouse movement, shell commands, profile changes, and recording "
-        "or playback controls.",
+        "including mouse movement, shell commands, and recording or playback controls.",
     ),
 )
 

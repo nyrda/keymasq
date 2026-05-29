@@ -192,6 +192,25 @@ def test_superkey_manager_same_storage_path_rename_does_not_delete_file(
     assert SuperkeyManager().get_superkey("Work?Mode") is not None
 
 
+def test_superkey_manager_rename_to_same_name_keeps_active_config(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+
+    manager = SuperkeyManager()
+    manager.save_superkey(_pattern_superkey("Work", "key_a"))
+
+    assert manager.rename_superkey("Work", "Work") is True
+
+    config = manager.get_superkey("Work")
+    assert config is not None
+    assert config.tap_actions[0].target == "key_a"
+    assert (superkeys_dir / "work.toml").exists()
+
+
 def test_superkey_action_roundtrip_preserves_shared_fields() -> None:
     action = MappingAction(
         action_type=ActionType.KEYBOARD,

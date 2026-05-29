@@ -514,6 +514,9 @@ class SuperkeyManager:
         if old_name not in self._superkeys:
             return False
 
+        if old_name == new_name:
+            return True
+
         if new_name in self._superkeys and new_name != old_name:
             log.warning("Superkey '%s' already exists", new_name)
             return False

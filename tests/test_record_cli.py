@@ -57,7 +57,6 @@ def test_write_lease_rejects_preexisting_symlink(
     target.write_text("keep\n", encoding="utf-8")
     lease = tmp_path / "lease"
     lease.symlink_to(target)
-
     monkeypatch.setattr(
         record.pwd,
         "getpwnam",
@@ -69,6 +68,29 @@ def test_write_lease_rejects_preexisting_symlink(
 
     assert target.read_text(encoding="utf-8") == "keep\n"
     assert lease.is_symlink()
+
+
+def test_write_lease_keeps_existing_lease_when_replace_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    lease = tmp_path / "lease"
+    lease.write_text("41\n", encoding="utf-8")
+    monkeypatch.setattr(
+        record.pwd,
+        "getpwnam",
+        lambda _: SimpleNamespace(pw_uid=1000, pw_gid=1000),
+    )
+
+    def _replace(_src: Path, _dst: Path) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(record.os, "replace", _replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        record._write_lease(lease, 42)
+
+    assert lease.read_text(encoding="utf-8") == "41\n"
+    assert list(tmp_path.glob(".lease.tmp-*")) == []
 
 
 def test_main_status_prints_json(

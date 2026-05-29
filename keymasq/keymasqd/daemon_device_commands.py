@@ -5,12 +5,8 @@ from keymasq.common.ipc import CommandType
 from keymasq.keymasqd import daemon_macro_commands
 from keymasq.keymasqd.daemon_helpers import (
     JsonObject,
+    JsonObjectList,
     float_like,
-    int_dict,
-    json_object,
-    json_object_list,
-    str_dict,
-    str_list,
     str_value,
 )
 
@@ -98,13 +94,13 @@ async def handle_device_command(
     if command_type == CommandType.GRAB_DEVICE:
         return await daemon.device_manager.grab_device(
             hardware_id=str_value(data["hardware_id"]),
-            evdev_paths=str_list(data["evdev_paths"]),
-            button_map=str_dict(data.get("button_map", {})),
-            button_codes=int_dict(data.get("button_codes", {})),
-            button_values=int_dict(data.get("button_values", {})),
-            analog_inputs=json_object(data.get("analog_inputs", {})),
+            evdev_paths=cast(list[str], data["evdev_paths"]),
+            button_map=cast(dict[str, str], data.get("button_map", {})),
+            button_codes=cast(dict[str, int], data.get("button_codes", {})),
+            button_values=cast(dict[str, int], data.get("button_values", {})),
+            analog_inputs=cast(JsonObject, data.get("analog_inputs", {})),
             force_grab_unmapped=bool(data.get("force_grab_unmapped", False)),
-            evdev_interfaces=json_object_list(data.get("evdev_interfaces", [])),
+            evdev_interfaces=cast(JsonObjectList, data.get("evdev_interfaces", [])),
         )
 
     if command_type == CommandType.RELEASE_DEVICE:
@@ -118,7 +114,7 @@ async def handle_device_command(
     if command_type == CommandType.SET_MAPPING:
         mapping = await daemon_macro_commands.resolve_mapping_macros(
             daemon.macro_store,
-            json_object(data["mapping"]),
+            cast(JsonObject, data["mapping"]),
         )
         return await daemon.device_manager.set_mapping(
             hardware_id=str_value(data["hardware_id"]),
@@ -128,7 +124,7 @@ async def handle_device_command(
     if command_type == CommandType.SET_COMBOS:
         combos = await daemon_macro_commands.resolve_combo_macros(
             daemon.macro_store,
-            json_object_list(data.get("combos", [])),
+            cast(JsonObjectList, data.get("combos", [])),
         )
         return await daemon.device_manager.set_combos(combos)
 

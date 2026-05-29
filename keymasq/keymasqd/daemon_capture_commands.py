@@ -9,8 +9,6 @@ from keymasq.keymasqd.daemon_helpers import (
     JsonObjectList,
     float_like,
     int_like,
-    json_object_list,
-    str_list,
 )
 
 MIN_CAPTURE_TIMEOUT_S = 1.0
@@ -86,7 +84,7 @@ async def handle_capture_command(
 ) -> JsonObject | None:
     if command_type == CommandType.START_RECORDING:
         devices = cast(JsonObjectList, data.get("devices", []))
-        recording_ids = str_list(data.get("recording_ids", []))
+        recording_ids = cast(list[str], data.get("recording_ids", []))
         if recording_ids:
             devices = await resolve_recording_devices(daemon, recording_ids)
         return await daemon.recording_manager.start(
@@ -100,20 +98,12 @@ async def handle_capture_command(
 
     if command_type == CommandType.CAPTURE_BEGIN:
         hardware_id = str(data.get("hardware_id", ""))
-        evdev_paths = str_list(data.get("evdev_paths", []))
-        evdev_interfaces = json_object_list(data.get("evdev_interfaces", []))
+        evdev_paths = cast(list[str], data.get("evdev_paths", []))
+        evdev_interfaces = cast(JsonObjectList, data.get("evdev_interfaces", []))
         mode = str(data.get("mode", "button") or "button")
-        if evdev_paths and not evdev_interfaces and mode == "button":
-            return await asyncio.to_thread(
-                daemon.capture_manager.begin,
-                hardware_id,
-                evdev_paths,
-            )
-        if not evdev_paths and not evdev_interfaces and mode == "button":
-            return await asyncio.to_thread(daemon.capture_manager.begin, hardware_id)
         return await asyncio.to_thread(
             daemon.capture_manager.begin,
-            hardware_id,
+            hardware_id=hardware_id,
             evdev_paths=evdev_paths or None,
             evdev_interfaces=evdev_interfaces or None,
             mode=mode,
@@ -130,7 +120,7 @@ async def handle_capture_command(
     if command_type == CommandType.CAPTURE_COMBO:
         hardware_ids = {
             str(hardware_id).lower()
-            for hardware_id in str_list(data.get("hardware_ids", []))
+            for hardware_id in cast(list[str], data.get("hardware_ids", []))
             if str(hardware_id).strip()
         }
         hardware_paths = _hardware_paths(data.get("hardware_paths", {}))
@@ -157,7 +147,7 @@ async def resolve_recording_devices(
 
     result = await daemon.device_manager.list_devices()
     devices: JsonObjectList = []
-    for device in json_object_list(result.get("devices", [])):
+    for device in cast(JsonObjectList, result.get("devices", [])):
         recording_id = str(device.get("recording_id", "") or "")
         if recording_id in wanted:
             devices.append(device)
@@ -197,7 +187,7 @@ async def capture_combo(
             hardware_interfaces=hardware_interfaces or {},
         )
         daemon.capture_manager.register_combo_notifier(token, loop, notify_event)
-        warnings = str_list(capture_result.get("warnings", []))
+        warnings = cast(list[str], capture_result.get("warnings", []))
         capture_timeout_s = min(
             max(MIN_CAPTURE_TIMEOUT_S, float(timeout_s)),
             MAX_CAPTURE_TIMEOUT_S,
@@ -280,9 +270,9 @@ def _hardware_paths(value: object) -> dict[str, list[str]]:
         if not normalized:
             continue
         if isinstance(paths, tuple):
-            path_values = str_list(list(cast(tuple[object, ...], paths)))
+            path_values = cast(list[str], list(cast(tuple[object, ...], paths)))
         else:
-            path_values = str_list(paths)
+            path_values = cast(list[str], paths)
         if path_values:
             result[normalized] = path_values
     return result
@@ -296,7 +286,7 @@ def _hardware_interfaces(value: object) -> dict[str, JsonObjectList]:
         normalized = str(hardware_id or "").lower()
         if not normalized:
             continue
-        interface_values = json_object_list(interfaces)
+        interface_values = cast(JsonObjectList, interfaces)
         if interface_values:
             result[normalized] = interface_values
     return result

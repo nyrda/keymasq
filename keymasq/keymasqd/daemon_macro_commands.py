@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, cast
 
@@ -13,11 +14,34 @@ from keymasq.keymasqd.daemon_helpers import (
     JsonObjectList,
     float_like,
     int_like,
-    json_object_list,
     str_value,
 )
 
 type MacroEvent = dict[str, object]
+
+
+@dataclass(frozen=True)
+class MacroRuntimeOptions:
+    loop_mode: str = "none"
+    loop_count: int = 1
+    loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+    move_to_start: bool = False
+    start_x: int = 0
+    start_y: int = 0
+    block_mouse_movement: bool = False
+
+
+@dataclass(frozen=True)
+class MacroPlaybackOptions:
+    macro_events: JsonObjectList
+    macro_name: str = ""
+    replay_mouse_movement: bool = True
+    replay_mouse_clicks: bool = True
+    speed: float = 1.0
+    runtime_options: MacroRuntimeOptions = field(default_factory=MacroRuntimeOptions)
+    source_device: str = ""
+    source_button: str = ""
+    trigger_value: int = 1
 
 
 class _MacroCommandDeviceManager(Protocol):
@@ -242,67 +266,53 @@ def _save_pending_recording_sync(
 
 
 async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject) -> JsonObject:
-    macro_events = json_object_list(data.get("macro_events", []))
+    macro_events = cast(JsonObjectList, data.get("macro_events", []))
     macro_name = str_value(data.get("macro_name", ""))
-    loop_mode = str_value(data.get("loop_mode", "none"), "none") or "none"
-    loop_count = int_like(data.get("loop_count", 1), 1)
-    loop_stop_behavior = normalize_macro_loop_stop_behavior(
-        data.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
-    )
-    move_to_start = bool(data.get("move_to_start", False))
-    start_x = int_like(data.get("start_x", 0), 0)
-    start_y = int_like(data.get("start_y", 0), 0)
-    block_mouse_movement = bool(data.get("block_mouse_movement", False))
+    stored_macro: JsonObject | None = None
 
     if macro_name and not macro_events:
-        macro_data = await asyncio.to_thread(_load_macro_meta_sync, daemon.macro_store, macro_name)
-        loop_mode = str_value(macro_data.get("loop_mode", loop_mode), loop_mode) or loop_mode
-        loop_count = int_like(macro_data.get("loop_count", loop_count), loop_count)
-        loop_stop_behavior = normalize_macro_loop_stop_behavior(
-            macro_data.get("loop_stop_behavior", loop_stop_behavior)
+        stored_macro = await asyncio.to_thread(
+            _load_macro_meta_sync,
+            daemon.macro_store,
+            macro_name,
         )
-        move_to_start = bool(macro_data.get("move_to_start", move_to_start))
-        start_x = int_like(macro_data.get("start_x", start_x), start_x)
-        start_y = int_like(macro_data.get("start_y", start_y), start_y)
-        block_mouse_movement = bool(macro_data.get("block_mouse_movement", block_mouse_movement))
 
-    return await daemon.device_manager.play_macro(
-        macro_events=macro_events,
-        macro_name=macro_name,
-        replay_mouse_movement=bool(data.get("replay_mouse_movement", True)),
-        replay_mouse_clicks=bool(data.get("replay_mouse_clicks", True)),
-        speed=float_like(data.get("speed", 1.0), 1.0),
-        loop_mode=loop_mode,
-        loop_count=loop_count,
-        loop_stop_behavior=loop_stop_behavior,
-        move_to_start=move_to_start,
-        start_x=start_x,
-        start_y=start_y,
-        block_mouse_movement=block_mouse_movement,
-        source_device=str_value(data.get("source_device", "")),
-        source_button=str_value(data.get("source_button", "")),
-        trigger_value=int_like(data.get("trigger_value", 1), 1),
+    return await _play_macro_with_options(
+        daemon,
+        _macro_playback_options(data, macro_events, macro_name, stored_macro=stored_macro),
     )
 
 
 async def play_macro_by_name(daemon: _MacroCommandDaemon, data: JsonObject) -> JsonObject:
     name = str_value(data.get("name", ""))
-    macro_data = await asyncio.to_thread(_load_macro_meta_sync, daemon.macro_store, name)
+    stored_macro = await asyncio.to_thread(_load_macro_meta_sync, daemon.macro_store, name)
+    return await _play_macro_with_options(
+        daemon,
+        _macro_playback_options(data, [], name, stored_macro=stored_macro),
+    )
+
+
+async def _play_macro_with_options(
+    daemon: _MacroCommandDaemon,
+    options: MacroPlaybackOptions,
+) -> JsonObject:
+    runtime_options = options.runtime_options
     return await daemon.device_manager.play_macro(
-        macro_events=[],
-        macro_name=name,
-        replay_mouse_movement=bool(data.get("replay_mouse_movement", True)),
-        replay_mouse_clicks=bool(data.get("replay_mouse_clicks", True)),
-        speed=float_like(data.get("speed", 1.0), 1.0),
-        loop_mode=str_value(macro_data.get("loop_mode", "none"), "none") or "none",
-        loop_count=int_like(macro_data.get("loop_count", 1), 1),
-        loop_stop_behavior=normalize_macro_loop_stop_behavior(
-            macro_data.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
-        ),
-        move_to_start=bool(macro_data.get("move_to_start", False)),
-        start_x=int_like(macro_data.get("start_x", 0), 0),
-        start_y=int_like(macro_data.get("start_y", 0), 0),
-        block_mouse_movement=bool(macro_data.get("block_mouse_movement", False)),
+        macro_events=options.macro_events,
+        macro_name=options.macro_name,
+        replay_mouse_movement=options.replay_mouse_movement,
+        replay_mouse_clicks=options.replay_mouse_clicks,
+        speed=options.speed,
+        loop_mode=runtime_options.loop_mode,
+        loop_count=runtime_options.loop_count,
+        loop_stop_behavior=runtime_options.loop_stop_behavior,
+        move_to_start=runtime_options.move_to_start,
+        start_x=runtime_options.start_x,
+        start_y=runtime_options.start_y,
+        block_mouse_movement=runtime_options.block_mouse_movement,
+        source_device=options.source_device,
+        source_button=options.source_button,
+        trigger_value=options.trigger_value,
     )
 
 
@@ -325,23 +335,65 @@ async def load_macro_definitions(
 
 
 def _load_macro_meta_sync(macro_store: _MacroDefinitionStore, name: str) -> JsonObject:
-    get_meta = getattr(macro_store, "get_meta", None)
-    if callable(get_meta):
-        return cast(JsonObject, get_meta(name))
-    return macro_store.get(name)
+    return macro_store.get_meta(name)
+
+
+def _macro_runtime_options(
+    payload: JsonObject,
+    *,
+    defaults: MacroRuntimeOptions | None = None,
+) -> MacroRuntimeOptions:
+    if defaults is None:
+        defaults = MacroRuntimeOptions()
+    return MacroRuntimeOptions(
+        loop_mode=str_value(payload.get("loop_mode", defaults.loop_mode), defaults.loop_mode)
+        or defaults.loop_mode,
+        loop_count=int_like(payload.get("loop_count", defaults.loop_count), defaults.loop_count),
+        loop_stop_behavior=normalize_macro_loop_stop_behavior(
+            payload.get("loop_stop_behavior", defaults.loop_stop_behavior)
+        ),
+        move_to_start=bool(payload.get("move_to_start", defaults.move_to_start)),
+        start_x=int_like(payload.get("start_x", defaults.start_x), defaults.start_x),
+        start_y=int_like(payload.get("start_y", defaults.start_y), defaults.start_y),
+        block_mouse_movement=bool(
+            payload.get("block_mouse_movement", defaults.block_mouse_movement)
+        ),
+    )
+
+
+def _macro_playback_options(
+    data: JsonObject,
+    macro_events: JsonObjectList,
+    macro_name: str,
+    *,
+    stored_macro: JsonObject | None = None,
+) -> MacroPlaybackOptions:
+    runtime_options = _macro_runtime_options(data)
+    if stored_macro is not None:
+        runtime_options = _macro_runtime_options(stored_macro, defaults=runtime_options)
+    return MacroPlaybackOptions(
+        macro_events=macro_events,
+        macro_name=macro_name,
+        replay_mouse_movement=bool(data.get("replay_mouse_movement", True)),
+        replay_mouse_clicks=bool(data.get("replay_mouse_clicks", True)),
+        speed=float_like(data.get("speed", 1.0), 1.0),
+        runtime_options=runtime_options,
+        source_device=str_value(data.get("source_device", "")),
+        source_button=str_value(data.get("source_button", "")),
+        trigger_value=int_like(data.get("trigger_value", 1), 1),
+    )
 
 
 def apply_macro_definition(action_data: JsonObject, macro: JsonObject) -> JsonObject:
     updated: JsonObject = dict(action_data)
-    updated["macro_loop_mode"] = str_value(macro.get("loop_mode", "none"), "none") or "none"
-    updated["macro_loop_count"] = int_like(macro.get("loop_count", 1), 1)
-    updated["macro_loop_stop_behavior"] = normalize_macro_loop_stop_behavior(
-        macro.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
-    )
-    updated["macro_move_to_start"] = bool(macro.get("move_to_start", False))
-    updated["macro_start_x"] = int_like(macro.get("start_x", 0), 0)
-    updated["macro_start_y"] = int_like(macro.get("start_y", 0), 0)
-    updated["macro_block_mouse_movement"] = bool(macro.get("block_mouse_movement", False))
+    runtime_options = _macro_runtime_options(macro)
+    updated["macro_loop_mode"] = runtime_options.loop_mode
+    updated["macro_loop_count"] = runtime_options.loop_count
+    updated["macro_loop_stop_behavior"] = runtime_options.loop_stop_behavior
+    updated["macro_move_to_start"] = runtime_options.move_to_start
+    updated["macro_start_x"] = runtime_options.start_x
+    updated["macro_start_y"] = runtime_options.start_y
+    updated["macro_block_mouse_movement"] = runtime_options.block_mouse_movement
     return updated
 
 

@@ -130,9 +130,21 @@ def write_unlock_expires_at(
                     )
 
             os.fchmod(handle.fileno(), int(mode))
+            handle.flush()
+            os.fsync(handle.fileno())
 
         _validate_unlock_parent(path)
         os.replace(tmp_path, path)
+        dir_fd: int | None = None
+        try:
+            dir_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            except OSError:
+                pass
+        finally:
+            if dir_fd is not None:
+                os.close(dir_fd)
     except Exception:
         try:
             tmp_path.unlink()

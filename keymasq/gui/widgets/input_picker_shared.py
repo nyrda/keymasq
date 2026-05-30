@@ -423,19 +423,6 @@ def _build_gamepad_center_col(owner) -> Gtk.Box:
     box.set_valign(Gtk.Align.CENTER)
     box.set_hexpand(True)
 
-    svg_pic = Gtk.Picture()
-    svg_pic.set_halign(Gtk.Align.CENTER)
-    svg_pic.set_can_shrink(True)
-    svg_pic.set_size_request(260, 195)
-
-    try:
-        texture = Gdk.Texture.new_from_filename(_get_gamepad_svg_path())
-        svg_pic.set_paintable(texture)
-    except Exception:
-        pass
-
-    box.append(svg_pic)
-
     center_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     center_btns.set_halign(Gtk.Align.CENTER)
 
@@ -449,7 +436,48 @@ def _build_gamepad_center_col(owner) -> Gtk.Box:
         center_btns.append(btn)
 
     box.append(center_btns)
+
+    svg_pic = Gtk.Picture()
+    svg_pic.set_halign(Gtk.Align.CENTER)
+    svg_pic.set_can_shrink(True)
+    svg_pic.set_size_request(260, 170)
+
+    try:
+        texture = Gdk.Texture.new_from_filename(_get_gamepad_svg_path())
+        svg_pic.set_paintable(texture)
+    except Exception:
+        pass
+
+    box.append(svg_pic)
+
+    if hasattr(owner, "_on_gamepad_code_clicked"):
+        box.append(_build_gamepad_code_row(owner))
+
     return box
+
+
+def _build_gamepad_code_row(owner) -> Gtk.Box:
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    row.set_halign(Gtk.Align.CENTER)
+
+    row.append(Gtk.Label(label="Button code:"))
+
+    entry = Gtk.Entry()
+    entry.set_placeholder_text("e.g. 305 or btn_c")
+    entry.set_width_chars(14)
+    entry.set_tooltip_text(
+        "Map a button outside the template by evdev name (e.g. btn_tl2, btn_tr2 "
+        "for digital triggers, btn_c, btn_trigger_happy1) or numeric code."
+    )
+    entry.connect("activate", owner._on_gamepad_code_clicked)
+    owner.gamepad_code_entry = entry
+    row.append(entry)
+
+    map_btn = Gtk.Button(label="Map Code")
+    map_btn.connect("clicked", owner._on_gamepad_code_clicked)
+    row.append(map_btn)
+
+    return row
 
 
 def _build_gamepad_right_col(owner) -> Gtk.Box:

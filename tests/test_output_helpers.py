@@ -25,6 +25,12 @@ def test_resolve_gamepad_axis_code_requires_axis_targets() -> None:
     assert output_helpers.resolve_gamepad_axis_code("key_a") is None
 
 
+def test_resolve_gamepad_axis_code_resolves_custom_abs_targets() -> None:
+    assert output_helpers.resolve_gamepad_axis_code("abs_hat0x") == evdev.ecodes.ABS_HAT0X
+    assert output_helpers.resolve_gamepad_axis_code("abs_throttle") == evdev.ecodes.ABS_THROTTLE
+    assert output_helpers.resolve_gamepad_axis_code("abs_nope") is None
+
+
 def test_emit_mouse_move_supports_absolute_mode_and_swallows_errors() -> None:
     uinput = MagicMock()
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import evdev
+
 
 @dataclass(frozen=True)
 class GamepadAxisRange:
@@ -36,6 +38,14 @@ GAMEPAD_AXIS_ALIASES = {
 }
 
 
+def _is_custom_abs_axis(target: str) -> bool:
+    """Return True for a valid evdev ABS axis outside the standard template."""
+    if not target.startswith("abs_"):
+        return False
+    code = getattr(evdev.ecodes, target.upper(), None)
+    return isinstance(code, int) and code in evdev.ecodes.ABS
+
+
 def normalize_gamepad_axis_target(value: object) -> str | None:
     target = str(value or "").strip().lower()
     if not target:
@@ -45,7 +55,13 @@ def normalize_gamepad_axis_target(value: object) -> str | None:
         return target
     if target.startswith("abs"):
         target = f"abs_{target.removeprefix('abs').lstrip('_')}"
-    return GAMEPAD_AXIS_ALIASES.get(target, target if target in GAMEPAD_AXIS_RANGES else None)
+    normalized = GAMEPAD_AXIS_ALIASES.get(
+        target, target if target in GAMEPAD_AXIS_RANGES else None
+    )
+    if normalized is not None:
+        return normalized
+    # Advanced: accept any valid custom ABS axis code outside the template.
+    return target if _is_custom_abs_axis(target) else None
 
 
 def gamepad_axis_range(target: object) -> GamepadAxisRange | None:
@@ -62,12 +78,13 @@ def gamepad_axis_max_value(target: object) -> int:
 
 def clamp_gamepad_axis_value(target: object, value: object) -> int:
     axis_range = gamepad_axis_range(target)
-    if axis_range is None:
-        return 0
     try:
         raw_value = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
-        raw_value = axis_range.maximum
+        raw_value = axis_range.maximum if axis_range is not None else 0
+    if axis_range is None:
+        # Custom axes have no known range; pass the value through unclamped.
+        return raw_value if normalize_gamepad_axis_target(target) else 0
     return max(axis_range.minimum, min(axis_range.maximum, raw_value))
 
 

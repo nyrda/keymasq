@@ -1576,6 +1576,163 @@ def test_key_selector_dialog_map_code_handles_valid_and_invalid_input():
     assert invalid_dialog.kb_code_entry.get_placeholder_text() == "Unknown key code"
 
 
+def test_resolve_gamepad_button_target_accepts_names_and_codes():
+    from keymasq.gui.widgets.key_selector_dialog import _resolve_gamepad_button_target
+
+    assert _resolve_gamepad_button_target("btn_c") == "btn_c"
+    assert _resolve_gamepad_button_target("  BTN_Z ") == "btn_z"
+    assert _resolve_gamepad_button_target("btn_trigger_happy1") == "btn_trigger_happy1"
+    assert _resolve_gamepad_button_target("305") == "btn_east"
+    assert _resolve_gamepad_button_target("0x132") == "btn_c"
+    # Non-button codes and garbage are rejected.
+    assert _resolve_gamepad_button_target("125") is None
+    assert _resolve_gamepad_button_target("key_a") is None
+    assert _resolve_gamepad_button_target("abs_x") is None
+    assert _resolve_gamepad_button_target("not-a-button") is None
+    assert _resolve_gamepad_button_target("") is None
+
+
+def test_resolve_gamepad_axis_target_accepts_names_and_codes():
+    from keymasq.gui.widgets.key_selector_dialog import _resolve_gamepad_axis_target
+
+    assert _resolve_gamepad_axis_target("abs_hat0x") == "abs_hat0x"
+    assert _resolve_gamepad_axis_target("  ABS_THROTTLE ") == "abs_throttle"
+    assert _resolve_gamepad_axis_target("16") == "abs_hat0x"
+    assert _resolve_gamepad_axis_target("0x10") == "abs_hat0x"
+    assert _resolve_gamepad_axis_target("btn_c") is None
+    assert _resolve_gamepad_axis_target("key_a") is None
+    assert _resolve_gamepad_axis_target("abs_nope") is None
+    assert _resolve_gamepad_axis_target("") is None
+
+
+def test_key_selector_dialog_custom_axis_maps_and_toggles_percent():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog.stack.set_visible_child_name("gamepad")
+
+    # Standard axis: percent shown, custom entry hidden.
+    assert dialog.gamepad_axis_percent.get_visible() is True
+    assert dialog.gamepad_axis_custom_entry.get_visible() is False
+
+    custom_index = dialog.gamepad_axis_targets.index("custom")
+    dialog.gamepad_axis_dropdown.set_selected(custom_index)
+
+    # Custom: percent hidden, custom entry shown.
+    assert dialog.gamepad_axis_percent.get_visible() is False
+    assert dialog.gamepad_axis_percent_label.get_visible() is False
+    assert dialog.gamepad_axis_custom_entry.get_visible() is True
+
+    dialog.gamepad_axis_custom_entry.set_text("abs_hat0x")
+    dialog.gamepad_axis_value.set_value(1)
+    dialog._on_gamepad_axis_apply_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.GAMEPAD_AXIS
+    assert results[0].target == "abs_hat0x"
+    assert results[0].axis_value == 1
+
+    invalid = KeySelectorDialog(Gtk.Box(), "Back")
+    invalid.stack.set_visible_child_name("gamepad")
+    invalid.gamepad_axis_dropdown.set_selected(
+        invalid.gamepad_axis_targets.index("custom")
+    )
+    invalid.gamepad_axis_custom_entry.set_text("not-an-axis")
+    invalid._on_gamepad_axis_apply_clicked(None)
+
+    assert invalid.gamepad_axis_custom_entry.get_text() == ""
+    assert invalid.gamepad_axis_custom_entry.get_placeholder_text() == "Unknown axis code"
+
+
+def test_key_selector_dialog_prefills_custom_button_and_axis_fields():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    # Custom button code pre-fills the free-form field; a template button does not.
+    custom_btn = KeySelectorDialog(
+        Gtk.Box(),
+        "B",
+        current_action=MappingAction(action_type=ActionType.GAMEPAD, target="btn_tr2"),
+    )
+    assert custom_btn.gamepad_code_entry.get_text() == "btn_tr2"
+
+    template_btn = KeySelectorDialog(
+        Gtk.Box(),
+        "A",
+        current_action=MappingAction(action_type=ActionType.GAMEPAD, target="btn_south"),
+    )
+    assert template_btn.gamepad_code_entry.get_text() == ""
+
+    # Custom axis selects Custom, fills the abs code, and restores the raw value.
+    custom_axis = KeySelectorDialog(
+        Gtk.Box(),
+        "A",
+        current_action=MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS, target="abs_hat2x", axis_value=200
+        ),
+    )
+    assert custom_axis._selected_gamepad_axis_slot() == "custom"
+    assert custom_axis.gamepad_axis_custom_entry.get_text() == "abs_hat2x"
+    assert int(custom_axis.gamepad_axis_value.get_value()) == 200
+    assert custom_axis.gamepad_axis_percent.get_visible() is False
+
+    # Standard axis selects its dropdown entry and restores the value.
+    standard_axis = KeySelectorDialog(
+        Gtk.Box(),
+        "A",
+        current_action=MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS, target="abs_ry", axis_value=-16384
+        ),
+    )
+    assert standard_axis._selected_gamepad_axis_slot() == "abs_ry"
+    assert int(standard_axis.gamepad_axis_value.get_value()) == -16384
+    assert standard_axis.gamepad_axis_custom_entry.get_visible() is False
+
+
+def test_key_selector_dialog_gamepad_code_maps_and_routes(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 2)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Extra Button 13")
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    # Off-standard button by numeric code, routed to the selected output.
+    dialog._selected_gamepad_output_id = "virtual-gamepad-2"
+    dialog.gamepad_code_entry.set_text("305")
+    dialog._on_gamepad_code_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.GAMEPAD
+    assert results[0].target == "btn_east"
+    assert results[0].output_id == "virtual-gamepad-2"
+
+    invalid = KeySelectorDialog(Gtk.Box(), "Extra Button 13")
+    invalid.gamepad_code_entry.set_text("not-a-button")
+    invalid._on_gamepad_code_clicked(None)
+
+    assert invalid.gamepad_code_entry.get_text() == ""
+    assert invalid.gamepad_code_entry.get_placeholder_text() == "Unknown button code"
+
+
 def test_key_selector_dialog_profile_tab_populates_and_maps_selected_action(monkeypatch):
     from gi.repository import Gtk
 

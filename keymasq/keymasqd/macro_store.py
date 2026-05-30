@@ -151,6 +151,14 @@ class MacroStore:
         *,
         return_full: bool = False,
     ) -> MacroPayload:
+        missing_meta = [
+            key for key in ("event_count", "duration_us", "device_types") if key not in payload
+        ]
+        if missing_meta:
+            raise ValueError(
+                "create_from_events requires streamed macro metadata: "
+                + ", ".join(missing_meta)
+            )
         return self._create_from_events(payload, events, return_full=return_full)
 
     def update(
@@ -206,9 +214,18 @@ class MacroStore:
         current["name"] = safe_new
         current["revision"] = current_revision + 1
         current["event_count"] = len(_payload_events(current))
-        self._write_payload(new_path, current)
+        try:
+            self._write_payload(new_path, current, overwrite=False)
+            renamed = self.get(safe_new)
+            if renamed != current:
+                raise ValueError(f"Renamed macro '{safe_new}' failed validation")
+        except FileExistsError:
+            raise
+        except Exception:
+            new_path.unlink(missing_ok=True)
+            raise
         old_path.unlink(missing_ok=True)
-        return self.get(safe_new)
+        return renamed
 
     def delete(self, name: str, expected_revision: int | None) -> None:
         if name in self._internal_macros:
@@ -246,7 +263,7 @@ class MacroStore:
         data["revision"] = _payload_int(payload, "revision", 1)
 
         meta = MacroFileMeta.from_payload(data, name=name)
-        write_macro(path, meta, events)
+        write_macro(path, meta, events, overwrite=False)
         return self.get(name) if return_full else meta.to_payload()
 
     def _macro_path(self, name: str) -> Path:
@@ -258,11 +275,11 @@ class MacroStore:
     def _sanitize_name(self, name: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_.-]", "_", name).strip("._")
 
-    def _write_payload(self, path: Path, data: MacroPayload) -> None:
+    def _write_payload(self, path: Path, data: MacroPayload, *, overwrite: bool = True) -> None:
         events = _payload_events(data)
         payload = macro_payload_from_events(data, events)
         meta = MacroFileMeta.from_payload(payload)
-        write_macro(path, meta, events)
+        write_macro(path, meta, events, overwrite=overwrite)
 
 
 def _payload_events(payload: MacroPayload) -> list[MacroEvent]:

@@ -1,10 +1,29 @@
 import asyncio
+import contextlib
 import logging
+import os
+import signal
 
 from keymasq.gui.session_client import JsonDict
 
 log = logging.getLogger("keymasq-session.actions")
 DEFAULT_COMMAND_TIMEOUT_S = 300.0
+KILLED_COMMAND_CLEANUP_TIMEOUT_S = 1.0
+
+
+async def _kill_and_drain_process(process: asyncio.subprocess.Process) -> None:
+    pid = getattr(process, "pid", None)
+    if isinstance(pid, int):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGKILL)
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(
+            process.communicate(),
+            timeout=KILLED_COMMAND_CLEANUP_TIMEOUT_S,
+        )
 
 
 class ActionHandler:
@@ -36,6 +55,7 @@ class ActionHandler:
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
         except Exception as e:
             log.error(f"Failed to execute command: {e}")
@@ -50,12 +70,11 @@ class ActionHandler:
 
         except TimeoutError:
             log.error(f"Command timed out after {timeout_s:g}s, killing: {cmd}")
-            process.kill()
-            await process.wait()
+            await _kill_and_drain_process(process)
             return -1
         except asyncio.CancelledError:
             log.debug("Command task cancelled, killing: %s", cmd)
-            process.kill()
+            await _kill_and_drain_process(process)
             raise
         except Exception as e:
             log.error(f"Failed to execute command: {e}")

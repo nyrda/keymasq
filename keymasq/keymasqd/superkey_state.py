@@ -280,6 +280,10 @@ class SuperkeyMachine:
         await self._emit_hold_down()
 
     async def _start_tap_holding(self) -> None:
+        if not self.config.tap_hold_actions:
+            await self._start_holding()
+            return
+
         self.state = SuperkeyState.TAP_HOLDING
         await self._emit_tap_hold_down()
 
@@ -322,7 +326,7 @@ class SuperkeyMachine:
 
         self.state = SuperkeyState.DOWN_WAIT_2
 
-        if self.config.tap_hold_actions:
+        if self.config.tap_hold_actions or self.config.hold_actions:
             self._hold_task = asyncio.create_task(self._hold_timeout())
 
     async def _on_second_up(self) -> None:

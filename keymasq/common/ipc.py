@@ -111,14 +111,19 @@ def decode_command(data: bytes) -> tuple[Command | None, bytes]:
     remaining = data[total_len:]
 
     try:
-        payload = json.loads(json_bytes.decode("utf-8"))
+        payload_text = json_bytes.decode("utf-8")
+        payload = json.loads(payload_text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None, remaining
+
+    try:
         cmd = Command(
             command=CommandType(payload["command"]),
             data=payload.get("data", {}),
             request_id=payload.get("request_id"),
         )
         return cmd, remaining
-    except (json.JSONDecodeError, KeyError, ValueError):
+    except (KeyError, ValueError):
         return None, remaining
 
 
@@ -152,7 +157,12 @@ def decode_response(data: bytes) -> tuple[Response | None, bytes]:
     remaining = data[total_len:]
 
     try:
-        payload = json.loads(json_bytes.decode("utf-8"))
+        payload_text = json_bytes.decode("utf-8")
+        payload = json.loads(payload_text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None, remaining
+
+    try:
         resp = Response(
             status=payload["status"],
             data=payload.get("data"),
@@ -160,5 +170,5 @@ def decode_response(data: bytes) -> tuple[Response | None, bytes]:
             request_id=payload.get("request_id"),
         )
         return resp, remaining
-    except (json.JSONDecodeError, KeyError, ValueError):
+    except (KeyError, ValueError):
         return None, remaining

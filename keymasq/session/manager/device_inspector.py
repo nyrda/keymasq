@@ -118,18 +118,24 @@ async def stop_device_inspector(
     if not normalized:
         return {"status": "error", "message": "missing hardware_id"}
 
-    removed_last_owner = _drop_owner(manager, normalized, _writer_id(writer))
+    writer_id = _writer_id(writer)
+    owners = manager.device_inspector_state.owners_by_hardware_id.get(normalized)
+    previous_owners = set(owners) if owners else None
+    removed_last_owner = _drop_owner(manager, normalized, writer_id)
     if not removed_last_owner:
         snapshot = build_device_inspector_snapshot(manager, normalized)
         if snapshot.get("status") != "error":
             snapshot["status"] = "ok"
         return snapshot
 
-    return await _stop_device_inspector_unlocked(
+    result = await _stop_device_inspector_unlocked(
         manager,
         normalized,
         reason=f"device inspector stop {normalized}",
     )
+    if result.get("status") != "ok" and previous_owners is not None:
+        manager.device_inspector_state.owners_by_hardware_id[normalized] = previous_owners
+    return result
 
 
 async def enable_device_inspector_suppression(
@@ -244,17 +250,16 @@ async def _stop_device_inspector_unlocked(
     *,
     reason: str,
 ) -> JsonObject:
-    manager.device_inspector_state.owners_by_hardware_id.pop(hardware_id, None)
-    manager.device_inspector_state.active_hardware_ids.discard(hardware_id)
-    manager.device_inspector_state.suppressed_hardware_ids.discard(hardware_id)
-
     result = await _send_inspector_command(
         manager,
         CommandType.DEVICE_INSPECTOR_STOP,
         {"hardware_id": hardware_id},
     )
-    await runtime_profiles.reevaluate_profiles(manager, reason=reason)
     if result.get("status") == "ok":
+        manager.device_inspector_state.owners_by_hardware_id.pop(hardware_id, None)
+        manager.device_inspector_state.active_hardware_ids.discard(hardware_id)
+        manager.device_inspector_state.suppressed_hardware_ids.discard(hardware_id)
+        await runtime_profiles.reevaluate_profiles(manager, reason=reason)
         update_status_from_daemon_event(manager, result)
         return {
             "status": "ok",

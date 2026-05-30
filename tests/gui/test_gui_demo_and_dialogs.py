@@ -394,10 +394,23 @@ class TestRecordingOverlay:
         assert callbacks[0][0] == {"command": "stop_recording"}
         assert overlay._stop_btn.get_sensitive() is False
         assert overlay._stop_btn.get_label() == "Stopping..."
+        assert overlay._timer_id != 0
 
-        assert callbacks[0][1]({"status": "ok"}) is False
+        assert callbacks[0][1]({"status": "error", "message": "Daemon unavailable"}) is False
         assert overlay._stop_btn.get_sensitive() is True
         assert overlay._stop_btn.get_label() == "Stop Recording"
+        assert overlay._timer_id != 0
+        assert overlay._status_label is not None
+        assert overlay._status_label.get_visible() is True
+        assert overlay._status_label.get_label() == "Daemon unavailable"
+
+        overlay._on_stop_clicked(overlay._stop_btn)
+        assert overlay._status_label.get_visible() is False
+
+        assert callbacks[1][1]({"status": "ok"}) is False
+        assert overlay._stop_btn.get_sensitive() is True
+        assert overlay._stop_btn.get_label() == "Stop Recording"
+        assert overlay._timer_id == 0
 
         overlay.on_started({"event": "recording_started"})
         assert overlay._timer_id != 0
@@ -445,6 +458,68 @@ class TestSaveMacroDialog:
 
         assert captured["command"] == "save_recording"
         assert captured["pending_save_token"] == "pending-1"
+
+    def test_save_macro_dialog_failed_save_allows_retry(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+            if on_start:
+                on_start()
+            callback({"status": "error", "message": "session unavailable"})
+            if on_done:
+                on_done()
+
+        monkeypatch.setattr(
+            save_macro_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+            },
+        )
+        dialog._name_entry.set_text("macro_1")
+
+        dialog._on_save_clicked(dialog._save_btn)
+
+        assert dialog._saved is False
+        assert dialog._save_btn.get_sensitive() is True
+        assert dialog._error_label.get_label() == "session unavailable"
+        assert dialog.get_can_close() is True
+
+    def test_save_macro_dialog_keeps_user_name_when_macro_list_loads(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+            },
+        )
+        dialog._name_entry.set_text("custom_macro")
+
+        dialog._on_existing_macro_names_loaded({"macros": [{"name": "macro"}]})
+
+        assert dialog._name_entry.get_text() == "custom_macro"
+        assert dialog._save_btn.get_sensitive() is True
 
     def test_save_macro_dialog_discard_sends_pending_save_token(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -1452,6 +1527,47 @@ class TestDialogConstruction:
 
         assert dialog._on_duplicate_finished(GuiTaskResult(value={"status": "ok"})) is False
         assert loaded == [True]
+
+    def test_macro_manager_delete_failure_shows_error(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.macro_manager_dialog as macro_manager_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        requests: list[dict] = []
+        alerts: list[tuple[object, object]] = []
+
+        def fake_session_request_with_hooks(payload, callback, **_kwargs):
+            requests.append(payload)
+            callback({"status": "error", "message": "boom"})
+
+        monkeypatch.setattr(
+            macro_manager_dialog_module,
+            "session_request_with_hooks",
+            fake_session_request_with_hooks,
+        )
+        monkeypatch.setattr(
+            macro_manager_dialog_module.Adw.AlertDialog,
+            "present",
+            lambda alert, parent: alerts.append((alert, parent)),
+        )
+
+        parent = Gtk.Window()
+        dialog = MacroManagerDialog(parent)
+        loaded: list[bool] = []
+        monkeypatch.setattr(dialog, "_load_macros", lambda: loaded.append(True) or False)
+
+        dialog._on_delete_response(None, "delete", "stored")
+
+        assert requests == [{"command": "delete_macro", "name": "stored"}]
+        assert loaded == []
+        assert len(alerts) == 1
+        alert, alert_parent = alerts[0]
+        assert alert_parent is parent
+        assert alert.get_heading() == "Delete Macro"
+        assert alert.get_body() == "boom"
 
     def test_macro_manager_create_and_record_button_paths(self, monkeypatch):
         gi.require_version("Gtk", "4.0")

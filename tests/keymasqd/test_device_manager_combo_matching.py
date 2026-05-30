@@ -95,6 +95,40 @@ class TestCombos:
         assert manager.active_combos[0].action.profile_name == "Gaming"
 
     @pytest.mark.asyncio
+    async def test_set_combos_parses_match_across_devices(self):
+        manager = DeviceManager()
+
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-any-device",
+                    "name": "Any Device",
+                    "profile_name": "Desktop",
+                    "match_across_devices": True,
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd",
+                                    "evdev": "key_f13",
+                                }
+                            ]
+                        }
+                    ],
+                    "action": {"action": "suppress"},
+                }
+            ]
+        )
+
+        combo = manager.active_combos[0]
+        binding = combo.steps[0].bindings[0]
+        assert combo.match_across_devices is True
+        assert binding.hardware_id == ""
+        assert binding.source == ""
+        assert dm.combo_runtime_signature(combo)[-1] is True
+
+    @pytest.mark.asyncio
     async def test_set_combos_allows_omitted_hardware_id_as_wildcard(self):
         manager = DeviceManager()
 

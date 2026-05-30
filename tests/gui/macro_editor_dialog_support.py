@@ -4,8 +4,9 @@
 
 # ruff: noqa: E402, I001
 
-import gi
 import sys
+
+from tests.gui.support import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")

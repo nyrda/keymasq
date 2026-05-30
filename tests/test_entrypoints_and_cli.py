@@ -152,6 +152,19 @@ def test_session_script_entrypoint_calls_manager_main(monkeypatch: pytest.Monkey
     assert called == ["manager"]
 
 
+def test_session_entrypoint_delegates_help_to_manager(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[str] = []
+    monkeypatch.setitem(
+        sys.modules,
+        "keymasq.session.manager",
+        _module_with_main(lambda: called.append("manager")),
+    )
+    monkeypatch.setattr(sys, "argv", ["keymasq-session", "--help"])
+
+    runpy.run_module("keymasq.session.__main__", run_name="__main__")
+    assert called == ["manager"]
+
+
 def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
 
@@ -251,6 +264,50 @@ def test_cli_main_play_routes_json_input_to_helper(monkeypatch: pytest.MonkeyPat
             "json_output": True,
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["keymasq", "type", "--speed", "nan", "hello"],
+        ["keymasq", "type", "--speed", "inf", "hello"],
+        ["keymasq", "play", "--speed", "nan", "key_a"],
+        ["keymasq", "play", "--speed", "inf", "key_a"],
+        ["keymasq", "macros", "play", "--speed", "nan", "stored"],
+        ["keymasq", "macros", "play", "--speed", "inf", "stored"],
+    ],
+)
+def test_cli_main_rejects_non_finite_speed_options(
+    argv: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main.main()
+
+    assert excinfo.value.code == 2
+    assert "must be a finite number greater than 0" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("interval", ["-1", "0", "nan", "inf"])
+def test_cli_main_rejects_invalid_diagnostics_interval(
+    interval: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    monkeypatch.setattr(sys, "argv", ["keymasq", "diagnostics", "on", "--interval", interval])
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main.main()
+
+    assert excinfo.value.code == 2
+    assert "must be a finite number greater than 0" in capsys.readouterr().err
 
 
 def test_cli_main_macros_create_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:

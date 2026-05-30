@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=78.1.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -121,6 +121,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 markers = [
+    "common: tests covering shared models and common helpers",
     "keymasqd: tests covering the keymasqd daemon and input runtime",
     "session: tests covering keymasq-session and compositor/session integration",
     "gui: tests covering the GTK GUI",

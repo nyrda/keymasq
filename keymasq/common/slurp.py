@@ -114,6 +114,7 @@ class SlurpCapture:
             "%x,%y",
         ]
 
+        process: asyncio.subprocess.Process | None = None
         try:
             log.debug(
                 "Starting slurp capture: path=%s compositor=%s "
@@ -123,11 +124,12 @@ class SlurpCapture:
                 os.environ.get("WAYLAND_DISPLAY", ""),
                 os.environ.get("XDG_RUNTIME_DIR", ""),
             )
-            self._process = await asyncio.create_subprocess_exec(
+            process = await asyncio.create_subprocess_exec(
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            self._process = process
 
             if mode == SlurpMode.POINT_IMMEDIATE:
                 log.debug("slurp waiting 150ms before triggering callback")
@@ -136,15 +138,13 @@ class SlurpCapture:
                     log.debug("slurp triggering on_ready callback")
                     await on_ready()
 
-            stdout, stderr = await asyncio.wait_for(
-                self._process.communicate(), timeout=timeout
-            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
 
-            if self._process.returncode != 0:
+            if process.returncode != 0:
                 stderr_text = stderr.decode().strip() if stderr else ""
                 log.warning(
                     "slurp failed: returncode=%s stderr=%s wayland_display=%s xdg_runtime_dir=%s",
-                    self._process.returncode,
+                    process.returncode,
                     stderr_text,
                     os.environ.get("WAYLAND_DISPLAY", ""),
                     os.environ.get("XDG_RUNTIME_DIR", ""),
@@ -160,22 +160,27 @@ class SlurpCapture:
 
         except TimeoutError:
             log.warning("slurp capture timed out after %.1fs", timeout)
-            if self._process:
-                await self._terminate_process_async(self._process)
+            if process:
+                await self._terminate_process_async(process)
             return None
         except asyncio.CancelledError:
-            if self._process:
-                await self._terminate_process_async(self._process)
+            if process:
+                await self._terminate_process_async(process)
             raise
         except Exception:
             log.exception("slurp capture failed")
+            if process:
+                await self._terminate_process_async(process)
             return None
         finally:
-            self._process = None
+            if self._process is process:
+                self._process = None
 
     async def cancel_async(self) -> None:
-        if self._process:
-            await self._terminate_process_async(self._process)
+        process = self._process
+        if process:
+            await self._terminate_process_async(process)
+        if self._process is process:
             self._process = None
 
     async def _terminate_process_async(self, process: asyncio.subprocess.Process) -> None:

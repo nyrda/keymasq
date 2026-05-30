@@ -1670,6 +1670,7 @@ class HardwareSetupDialog(Adw.Dialog):
             {
                 "command": "begin_capture",
                 "hardware_id": self._capture_hardware_id,
+                "end_on_disconnect": True,
                 "evdev_paths": [
                     str(
                         iface.get("config_path")

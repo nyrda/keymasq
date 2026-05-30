@@ -245,19 +245,24 @@ _CATEGORY_BY_FILE = {
     "test_macro_editor_dialog.py": "gui",
 }
 
+_CATEGORY_SUBTREES = {"common", "keymasqd", "session", "gui"}
+
+
+def _category_for_test_path(item_path: Path) -> str | None:
+    parts = item_path.parts
+    for tests_index in range(len(parts) - 2, -1, -1):
+        if parts[tests_index] != "tests":
+            continue
+        subtree = parts[tests_index + 1]
+        if subtree in _CATEGORY_SUBTREES:
+            return subtree
+    return _CATEGORY_BY_FILE.get(item_path.name)
+
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     del config
     for item in items:
         item_path = Path(str(item.fspath))
-        category = None
-        if "tests" in item_path.parts:
-            tests_index = item_path.parts.index("tests")
-            if len(item_path.parts) > tests_index + 1:
-                subtree = item_path.parts[tests_index + 1]
-                if subtree in {"keymasqd", "session", "gui"}:
-                    category = subtree
-        if category is None:
-            category = _CATEGORY_BY_FILE.get(item_path.name)
+        category = _category_for_test_path(item_path)
         if category is not None:
             item.add_marker(getattr(pytest.mark, category))

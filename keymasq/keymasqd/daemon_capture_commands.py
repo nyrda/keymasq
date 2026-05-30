@@ -174,6 +174,7 @@ async def capture_combo(
         for device in devices
     }
     daemon.device_manager.begin_combo_capture(token, hardware_ids, notify_event)
+    capture_started = False
     try:
         authorization = daemon.capture_manager.authorize_combo_capture()
         capture_result = await asyncio.to_thread(
@@ -186,6 +187,7 @@ async def capture_combo(
             hardware_paths=hardware_paths or {},
             hardware_interfaces=hardware_interfaces or {},
         )
+        capture_started = True
         daemon.capture_manager.register_combo_notifier(token, loop, notify_event)
         warnings = cast(list[str], capture_result.get("warnings", []))
         capture_timeout_s = min(
@@ -258,7 +260,8 @@ async def capture_combo(
         raise TimeoutError("Combo capture timed out")
     finally:
         daemon.device_manager.end_combo_capture(token)
-        await asyncio.to_thread(daemon.capture_manager.end, token)
+        if capture_started:
+            await asyncio.to_thread(daemon.capture_manager.end, token)
 
 
 def _hardware_paths(value: object) -> dict[str, list[str]]:

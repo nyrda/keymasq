@@ -258,11 +258,13 @@ def play_adhoc_cli(
     print_json: bool = False,
     json_output: bool = False,
 ) -> None:
+    print_device_types: list[str] | None = None
     try:
         if input_json:
             from keymasq.common.macro_compile import build_macro_payload, parse_macro_json
 
             macro_data = parse_macro_json(_json_input_from_args_or_stdin(tokens))
+            print_device_types = _macro_device_types(macro_data)
             raw_events = macro_data.get("events", [])
             if not isinstance(raw_events, list):
                 raise ValueError("macro JSON events must be a list")
@@ -309,9 +311,13 @@ def play_adhoc_cli(
         sys.exit(1)
 
     if print_json:
-        from keymasq.common.macro_compile import macro_definition_from_events
-
-        _print_json(macro_definition_from_events(cast(list[JsonObject], payload["macro_events"])))
+        _print_json(
+            _macro_definition_from_payload(
+                payload,
+                device_types=print_device_types,
+                include_playback_options=input_json,
+            )
+        )
         return
 
     result = _request_or_error({"command": "play_macro_payload", **payload})
@@ -379,6 +385,34 @@ def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonO
     ):
         if key in macro_data:
             macro[key] = macro_data[key]
+    return macro
+
+
+def _macro_definition_from_payload(
+    payload: JsonObject,
+    *,
+    device_types: list[str] | None = None,
+    include_playback_options: bool = False,
+) -> JsonObject:
+    from keymasq.common.macro_compile import macro_definition_from_events
+
+    macro = macro_definition_from_events(
+        cast(list[JsonObject], payload["macro_events"]),
+        name=str(payload.get("macro_name", "") or ""),
+        device_types=device_types,
+    )
+    if include_playback_options:
+        for key in (
+            "loop_mode",
+            "loop_count",
+            "loop_stop_behavior",
+            "move_to_start",
+            "start_x",
+            "start_y",
+            "block_mouse_movement",
+        ):
+            if key in payload:
+                macro[key] = payload[key]
     return macro
 
 
@@ -470,25 +504,26 @@ def list_profiles_cli(*, json_output: bool = False) -> None:
     devices = result.get("devices", [])
     if not profiles:
         print("No profiles found")
-        return
-
-    print("Profiles:")
-    for profile in profiles:
-        name = str(profile.get("name", ""))
-        enabled = bool(profile.get("enabled", False))
-        active = bool(profile.get("active", False))
-        marker = "*" if active else " "
-        kind = _profile_kind(profile)
-        priority = int(profile.get("priority", 0) or 0)
-        window_rule_count = int(profile.get("window_rule_count", 0) or 0)
-        device_names = ", ".join(str(device) for device in profile.get("devices", []))
-        details = [kind, f"priority={priority}"]
-        if window_rule_count > 0:
-            details.append(f"rules={window_rule_count}")
-        if device_names:
-            details.append(f"devices={device_names}")
-        state = "on" if enabled else "off"
-        print(f"  [{marker}] [{state:3}] {name} ({', '.join(details)})")
+        if not devices:
+            return
+    else:
+        print("Profiles:")
+        for profile in profiles:
+            name = str(profile.get("name", ""))
+            enabled = bool(profile.get("enabled", False))
+            active = bool(profile.get("active", False))
+            marker = "*" if active else " "
+            kind = _profile_kind(profile)
+            priority = int(profile.get("priority", 0) or 0)
+            window_rule_count = int(profile.get("window_rule_count", 0) or 0)
+            device_names = ", ".join(str(device) for device in profile.get("devices", []))
+            details = [kind, f"priority={priority}"]
+            if window_rule_count > 0:
+                details.append(f"rules={window_rule_count}")
+            if device_names:
+                details.append(f"devices={device_names}")
+            state = "on" if enabled else "off"
+            print(f"  [{marker}] [{state:3}] {name} ({', '.join(details)})")
 
     if devices:
         print()

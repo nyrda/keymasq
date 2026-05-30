@@ -1064,6 +1064,7 @@ class TestRapidfireRelease:
     @pytest.mark.asyncio
     async def test_release_interface_clears_scoped_combo_runtime_before_device_teardown(
         self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
         fake_device = SimpleNamespace(
@@ -1075,12 +1076,10 @@ class TestRapidfireRelease:
         manager.grabbed_devices = {"hw": [fake_device]}
         clear_combo_scope = AsyncMock()
         clear_combo_runtime = AsyncMock()
-        monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
         monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
 
         await _runtime_release_interface_unlocked(manager, "hw", "/dev/input/event0")
-        monkeypatch.undo()
 
         clear_combo_scope.assert_awaited_once()
         clear_combo_runtime.assert_not_awaited()
@@ -1089,6 +1088,7 @@ class TestRapidfireRelease:
     @pytest.mark.asyncio
     async def test_release_interface_preserves_desired_state_for_missing_managed_device(
         self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
         fake_device = SimpleNamespace(
@@ -1105,11 +1105,9 @@ class TestRapidfireRelease:
             paths={"/dev/input/event0"},
             button_map={"btn_side": "btn_side"},
         )
-        monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", AsyncMock())
 
         await _runtime_release_interface_unlocked(manager, "hw", "/dev/input/event0")
-        monkeypatch.undo()
 
         assert manager.grabbed_devices == {}
         assert manager.active_mappings["hw"] == {"btn_side": action}
@@ -1118,6 +1116,7 @@ class TestRapidfireRelease:
     @pytest.mark.asyncio
     async def test_release_device_clears_scoped_combo_runtime_before_releasing_hardware(
         self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
         fake_device = SimpleNamespace(release=AsyncMock())
@@ -1125,13 +1124,11 @@ class TestRapidfireRelease:
         clear_combo_scope = AsyncMock()
         clear_combo_runtime = AsyncMock()
         destroy_global_uinputs = Mock()
-        monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
         monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
         monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
 
         result = await _runtime_release_device_unlocked(manager, "hw")
-        monkeypatch.undo()
 
         assert result == {"released": True, "hardware_id": "hw"}
         clear_combo_scope.assert_awaited_once()
@@ -1140,6 +1137,7 @@ class TestRapidfireRelease:
     @pytest.mark.asyncio
     async def test_clear_combo_runtime_for_binding_scope_stops_only_affected_actions(
         self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
         manager.combo_state.engine.drop_candidates_for_binding_scope = Mock(  # type: ignore[method-assign]
@@ -1147,12 +1145,10 @@ class TestRapidfireRelease:
         )
         stop_combo_action = AsyncMock()
         refresh_combo_timeout_watchdog = Mock()
-        monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(cdm, "stop_combo_action", stop_combo_action)
         monkeypatch.setattr(cdm, "refresh_combo_timeout_watchdog", refresh_combo_timeout_watchdog)
 
         await _runtime_clear_combo_scope(manager, "1234:5678", "mouse")
-        monkeypatch.undo()
 
         manager.combo_state.engine.drop_candidates_for_binding_scope.assert_called_once_with(
             "1234:5678",

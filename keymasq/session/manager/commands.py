@@ -6,7 +6,11 @@ from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import normalize_macro_loop_stop_behavior
 from keymasq.common.security import PeerCredentials, SecurityPolicy, command_allowed
 from keymasq.common.settings import GlobalSettings
-from keymasq.common.virtual_devices import MAX_VIRTUAL_GAMEPADS, MIN_VIRTUAL_GAMEPADS
+from keymasq.common.virtual_devices import (
+    MAX_VIRTUAL_GAMEPADS,
+    MIN_VIRTUAL_GAMEPADS,
+    clamp_virtual_gamepad_count,
+)
 from keymasq.session.settings import save_global_settings, save_virtual_gamepad_count
 
 from . import combo_inspector as runtime_combo_inspector
@@ -78,7 +82,7 @@ async def handle_session_request(
     if result is not None:
         return result
 
-    result = await _handle_capture_commands(manager, command, request)
+    result = await _handle_capture_commands(manager, command, request, writer)
     if result is not None:
         return result
 
@@ -210,9 +214,9 @@ async def _handle_virtual_gamepad_commands(
     if command != "set_virtual_gamepads":
         return None
 
-    requested_count = int_value(request.get("count"), manager.virtual_gamepad_count)
-    count = save_virtual_gamepad_count(requested_count)
-    manager.virtual_gamepad_count = count
+    count = clamp_virtual_gamepad_count(
+        int_value(request.get("count"), manager.virtual_gamepad_count)
+    )
     if manager.connected:
         response = await manager.client.send_command(
             Command(command=CommandType.SET_VIRTUAL_GAMEPADS, data={"count": count})
@@ -222,7 +226,8 @@ async def _handle_virtual_gamepad_commands(
         if isinstance(response.data, dict):
             data = cast(JsonObject, response.data)
             count = int_value(data.get("count"), count)
-            manager.virtual_gamepad_count = count
+    count = save_virtual_gamepad_count(count)
+    manager.virtual_gamepad_count = count
     manager.broadcast_to_session_clients(
         {"event": "virtual_gamepads_changed", "count": int(manager.virtual_gamepad_count)}
     )
@@ -292,42 +297,33 @@ async def _handle_settings_commands(
     if command != "set_settings":
         return None
 
-    requested_count = int_value(request.get("virtual_gamepad_count"), manager.virtual_gamepad_count)
-    saved = save_global_settings(
-        GlobalSettings(
-            virtual_gamepad_count=requested_count,
-        )
+    count = clamp_virtual_gamepad_count(
+        int_value(request.get("virtual_gamepad_count"), manager.virtual_gamepad_count)
     )
-    manager.virtual_gamepad_count = saved.virtual_gamepad_count
-    gamepad_error = ""
 
     if manager.connected:
         response = await manager.client.send_command(
             Command(
                 command=CommandType.SET_VIRTUAL_GAMEPADS,
-                data={"count": int(manager.virtual_gamepad_count)},
+                data={"count": count},
             )
         )
         if response.status != "ok":
-            gamepad_error = response.error or "daemon rejected virtual gamepad count"
-        elif isinstance(response.data, dict):
+            payload = _settings_payload(manager)
+            payload["status"] = "error"
+            payload["message"] = response.error or "daemon rejected virtual gamepad count"
+            return payload
+        if isinstance(response.data, dict):
             data = cast(JsonObject, response.data)
-            manager.virtual_gamepad_count = int_value(
-                data.get("count"),
-                manager.virtual_gamepad_count,
-            )
-            saved = save_global_settings(
-                GlobalSettings(
-                    virtual_gamepad_count=manager.virtual_gamepad_count,
-                )
-            )
-            manager.virtual_gamepad_count = saved.virtual_gamepad_count
+            count = int_value(data.get("count"), count)
 
+    saved = save_global_settings(
+        GlobalSettings(
+            virtual_gamepad_count=count,
+        )
+    )
+    manager.virtual_gamepad_count = saved.virtual_gamepad_count
     payload = _settings_payload(manager)
-    if gamepad_error:
-        payload["status"] = "error"
-        payload["message"] = gamepad_error
-        return payload
     manager.broadcast_to_session_clients(
         {
             "event": "settings_changed",
@@ -803,6 +799,7 @@ async def _handle_capture_commands(
     manager: "SessionManager",
     command: str,
     request: JsonObject,
+    writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
     if command == "list_devices_for_recording":
         device_types = ["keyboard", "gamepad", "mouse"]
@@ -844,6 +841,7 @@ async def _handle_capture_commands(
             evdev_paths,
             evdev_interfaces=evdev_interfaces,
             mode=mode,
+            owner_writer=writer if bool(request.get("end_on_disconnect", False)) else None,
         )
 
     if command == "capture_read":

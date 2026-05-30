@@ -190,10 +190,14 @@ class HyprlandListener(WindowListener):
                 return "", "", []
 
             data = json.loads(response.decode())
+            tags = data.get("tags", [])
+            if not isinstance(tags, list):
+                tags = []
+            tag_items = cast(list[object], tags)
             return (
                 data.get("class", ""),
                 data.get("title", ""),
-                data.get("tags", []),
+                [str(tag) for tag in tag_items],
             )
 
         except Exception as e:

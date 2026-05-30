@@ -565,6 +565,7 @@ class ComboInspectorWindow(Adw.Window):
         if bool(event.get("connected", False)):
             self._request_snapshot()
         else:
+            self._snapshot_request_counter += 1
             self._set_status_title("Active Combos - Daemon disconnected", "stopped")
         return False
 

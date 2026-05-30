@@ -37,8 +37,12 @@ def test_ext_wayland_client_updates_tracker_metadata() -> None:
 
     handle_object_id = client._allocate_object_id("ext_foreign_toplevel_handle_v1")
     client._handle_list_event(list_id, 0, _pack_uint(handle_object_id))
-    client._handle_toplevel_event(handle_object_id, 3, _encode_string("Alacritty"))
-    client._handle_toplevel_event(handle_object_id, 2, _encode_string("terminal"))
+    asyncio.run(
+        client._handle_toplevel_event(handle_object_id, 3, _encode_string("Alacritty"))
+    )
+    asyncio.run(
+        client._handle_toplevel_event(handle_object_id, 2, _encode_string("terminal"))
+    )
 
     tracker.update_state(str(handle_object_id), {"activated": True})
     assert tracker.get_active_window() == ("Alacritty", "terminal")
@@ -53,10 +57,16 @@ def test_ext_wayland_client_close_clears_active_window() -> None:
 
     handle_object_id = client._allocate_object_id("ext_foreign_toplevel_handle_v1")
     client._handle_list_event(list_id, 0, _pack_uint(handle_object_id))
-    client._handle_toplevel_event(handle_object_id, 3, _encode_string("firefox"))
-    client._handle_toplevel_event(handle_object_id, 2, _encode_string("Mozilla"))
+    asyncio.run(
+        client._handle_toplevel_event(handle_object_id, 3, _encode_string("firefox"))
+    )
+    asyncio.run(
+        client._handle_toplevel_event(handle_object_id, 2, _encode_string("Mozilla"))
+    )
     tracker.update_state(str(handle_object_id), {"activated": True})
     assert tracker.get_active_window() == ("firefox", "Mozilla")
 
-    client._handle_toplevel_event(handle_object_id, 0, b"")
+    asyncio.run(client._handle_toplevel_event(handle_object_id, 0, b""))
     assert tracker.get_active_window() == ("", "")
+    assert handle_object_id not in client._objects
+    assert handle_object_id not in client._toplevel_handles

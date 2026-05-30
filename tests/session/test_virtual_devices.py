@@ -63,3 +63,6 @@ def test_virtual_gamepad_output_ids_match_validator_contract() -> None:
     with pytest.raises(ValueError):
         virtual_gamepad_output_id(0)
     assert not is_virtual_gamepad_output_id("virtual-gamepad-0")
+    assert not is_virtual_gamepad_output_id("virtual-gamepad-01")
+    assert not is_virtual_gamepad_output_id("virtual-gamepad-+1")
+    assert not is_virtual_gamepad_output_id("virtual-gamepad-1 ")

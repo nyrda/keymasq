@@ -36,6 +36,7 @@ class RuntimeCombo:
     profile_name: str = ""
     recall_trigger_keys: bool = False
     restore_trigger_keys: list[str] = field(default_factory=list)
+    match_across_devices: bool = False
 
 
 @dataclass(frozen=True)

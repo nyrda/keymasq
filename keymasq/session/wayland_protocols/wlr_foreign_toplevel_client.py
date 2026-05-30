@@ -70,6 +70,7 @@ class WlrForeignToplevelWaylandClient:
         self._registry_id: int | None = None
         self._manager_id: int | None = None
         self._sync_waiters: set[int] = set()
+        self._toplevel_handles: set[int] = set()
 
     async def start(self) -> None:
         if self._socket_path is None:
@@ -82,25 +83,30 @@ class WlrForeignToplevelWaylandClient:
         self._loop = asyncio.get_running_loop()
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.setblocking(False)
-        await self._loop.sock_connect(self._socket, self._socket_path)
+        try:
+            await self._loop.sock_connect(self._socket, self._socket_path)
 
-        self._registry_id = self._allocate_object_id("wl_registry")
-        await self._send_request(
-            WL_DISPLAY_OBJECT_ID,
-            1,
-            _pack_uint(self._registry_id),
-        )
-
-        sync_id = await self._request_sync()
-        await self._pump_until_sync(sync_id)
-
-        if self._manager_id is None:
-            raise RuntimeError(
-                "zwlr_foreign_toplevel_manager_v1 is unavailable on this compositor"
+            self._registry_id = self._allocate_object_id("wl_registry")
+            await self._send_request(
+                WL_DISPLAY_OBJECT_ID,
+                1,
+                _pack_uint(self._registry_id),
             )
 
-        post_bind_sync = await self._request_sync()
-        await self._pump_until_sync(post_bind_sync)
+            sync_id = await self._request_sync()
+            await self._pump_until_sync(sync_id)
+
+            if self._manager_id is None:
+                raise RuntimeError(
+                    "zwlr_foreign_toplevel_manager_v1 is unavailable on this compositor"
+                )
+
+            post_bind_sync = await self._request_sync()
+            await self._pump_until_sync(post_bind_sync)
+        except Exception:
+            self._socket.close()
+            self._socket = None
+            raise
 
     async def run(self) -> None:
         if self._socket is None or self._loop is None:
@@ -118,10 +124,14 @@ class WlrForeignToplevelWaylandClient:
         self._running = False
         if self._socket is not None:
             if self._manager_id is not None:
+                for handle_id in list(self._toplevel_handles):
+                    await self._destroy_toplevel_handle(handle_id)
                 try:
                     await self._send_request(self._manager_id, 0, b"")
                 except Exception:
                     pass
+                self._objects.pop(self._manager_id, None)
+                self._manager_id = None
             self._socket.close()
             self._socket = None
 
@@ -201,13 +211,14 @@ class WlrForeignToplevelWaylandClient:
             self._handle_manager_event(object_id, opcode, payload)
             return
         if interface == "zwlr_foreign_toplevel_handle_v1":
-            self._handle_toplevel_event(object_id, opcode, payload)
+            await self._handle_toplevel_event(object_id, opcode, payload)
 
     def _handle_display_event(self, opcode: int, payload: bytes) -> None:
         if opcode != 1:
             return
         (deleted_object_id,) = struct.unpack_from("<I", payload, 0)
         self._objects.pop(deleted_object_id, None)
+        self._toplevel_handles.discard(deleted_object_id)
 
     async def _handle_registry_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         if object_id != self._registry_id:
@@ -248,9 +259,18 @@ class WlrForeignToplevelWaylandClient:
 
         (handle_object_id,) = struct.unpack_from("<I", payload, 0)
         self._objects[handle_object_id] = _WaylandObject("zwlr_foreign_toplevel_handle_v1")
+        self._toplevel_handles.add(handle_object_id)
         self._tracker.add_toplevel(str(handle_object_id))
 
-    def _handle_toplevel_event(self, object_id: int, opcode: int, payload: bytes) -> None:
+    async def _destroy_toplevel_handle(self, object_id: int) -> None:
+        try:
+            await self._send_request(object_id, 7, b"")
+        except Exception:
+            pass
+        self._objects.pop(object_id, None)
+        self._toplevel_handles.discard(object_id)
+
+    async def _handle_toplevel_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         handle_id = str(object_id)
         if opcode == 0:
             title, _ = _decode_string(payload, 0)
@@ -266,3 +286,4 @@ class WlrForeignToplevelWaylandClient:
             return
         if opcode == 6:
             self._tracker.close_toplevel(handle_id)
+            await self._destroy_toplevel_handle(object_id)

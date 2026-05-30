@@ -12,6 +12,30 @@ def _clamp(value: float, minimum: float = -1.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, float(value)))
 
 
+def _threshold_ticks(minimum: float, maximum: float) -> tuple[tuple[float, str], ...]:
+    if minimum == 0.0 and maximum == 1.0:
+        return (
+            (0.0, "0"),
+            (0.25, "25%"),
+            (0.5, "50%"),
+            (0.75, "75%"),
+            (1.0, "100%"),
+        )
+    if minimum == -1.0 and maximum == 1.0:
+        return (
+            (-1.0, "-100%"),
+            (-0.5, "-50%"),
+            (0.0, "0"),
+            (0.5, "50%"),
+            (1.0, "100%"),
+        )
+    span = maximum - minimum
+    return tuple(
+        (value, f"{value:g}")
+        for value in (minimum + span * index / 4.0 for index in range(5))
+    )
+
+
 class ThresholdRangeBar(Gtk.DrawingArea):
     def __init__(self) -> None:
         super().__init__()
@@ -32,6 +56,10 @@ class ThresholdRangeBar(Gtk.DrawingArea):
             maximum = 1.0
         self._minimum = float(minimum)
         self._maximum = float(maximum)
+        self._trigger_min = _clamp(self._trigger_min, self._minimum, self._maximum)
+        self._trigger_max = _clamp(self._trigger_max, self._minimum, self._maximum)
+        self._release_min = _clamp(self._release_min, self._minimum, self._maximum)
+        self._release_max = _clamp(self._release_max, self._minimum, self._maximum)
         self.queue_draw()
 
     def set_ranges(
@@ -106,20 +134,7 @@ class ThresholdRangeBar(Gtk.DrawingArea):
         tick_y1 = track_y + track_h + 4.0
         tick_y2 = tick_y1 + 5.0
         label_y = min(float(height) - 4.0, tick_y2 + 12.0)
-        ticks = (
-            (0.0, "0"),
-            (0.25, "25%"),
-            (0.5, "50%"),
-            (0.75, "75%"),
-            (1.0, "100%"),
-        ) if self._minimum == 0.0 else (
-            (-1.0, "-100%"),
-            (-0.5, "-50%"),
-            (0.0, "0"),
-            (0.5, "50%"),
-            (1.0, "100%"),
-        )
-        for value, label in ticks:
+        for value, label in _threshold_ticks(self._minimum, self._maximum):
             x = self._x_for_value(value, left, track_w)
             cr.move_to(x, tick_y1)
             cr.line_to(x, tick_y2)

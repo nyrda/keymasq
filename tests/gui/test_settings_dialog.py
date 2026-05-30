@@ -81,6 +81,29 @@ def test_settings_dialog_local_saves_only_without_session_response(
     assert saves[0].virtual_gamepad_count == 3
 
 
+def test_settings_dialog_save_tolerates_malformed_saved_count(
+    monkeypatch,
+    temp_config_dir,
+) -> None:
+    from keymasq.gui.widgets import settings_dialog as dialog_module
+    from keymasq.gui.widgets.settings_dialog import SettingsDialog
+
+    callbacks = []
+
+    def fake_session_request_async(payload, callback, timeout=5.0):
+        callbacks.append((payload, callback))
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+
+    dialog = SettingsDialog()
+    dialog._set_gamepad_count(2)
+
+    callbacks[-1][1]({"status": "ok", "virtual_gamepad_count": "bad"})
+
+    assert dialog._gamepad_count == 2
+    assert dialog._count_label.get_text() == "2"
+
+
 def test_settings_dialog_loads_virtual_gamepad_count_from_session(
     monkeypatch,
     temp_config_dir,

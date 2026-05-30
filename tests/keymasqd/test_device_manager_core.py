@@ -247,7 +247,12 @@ async def test_profile_activation_trigger_end_broadcasts_deactivate_requested() 
     assert events == [expected_deactivate]
 
 
-@pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
+requires_uinput = pytest.mark.skipif(
+    not os.access("/dev/uinput", os.W_OK),
+    reason="No uinput access",
+)
+
+
 class TestDeviceManager:
     @pytest.fixture
     def manager(self):
@@ -261,6 +266,7 @@ class TestDeviceManager:
         assert isinstance(result["devices"], list)
 
     @pytest.mark.asyncio
+    @requires_uinput
     async def test_grab_virtual_device(self, manager, virtual_mouse):
         device_path = virtual_mouse.device.path
 
@@ -396,6 +402,7 @@ class TestDeviceManager:
         assert deps.resolve_stable_path_fn is dm.resolve_stable_path
 
     @pytest.mark.asyncio
+    @requires_uinput
     async def test_grab_device_resolves_keymasq_path_and_uses_configured_interface_id(
         self,
         manager,
@@ -440,6 +447,7 @@ class TestDeviceManager:
         await manager.release_device(f"{info.vendor:04x}:{info.product:04x}")
 
     @pytest.mark.asyncio
+    @requires_uinput
     async def test_grab_device_updates_existing_interface_id(
         self,
         manager,
@@ -530,6 +538,7 @@ class TestDeviceManager:
             )
 
     @pytest.mark.asyncio
+    @requires_uinput
     async def test_release_device(self, manager, virtual_mouse):
         device_path = virtual_mouse.device.path
 
@@ -551,6 +560,7 @@ class TestDeviceManager:
         assert result["released"] is True
 
     @pytest.mark.asyncio
+    @requires_uinput
     async def test_set_mapping(self, manager, virtual_mouse):
         device_path = virtual_mouse.device.path
 
@@ -578,6 +588,7 @@ class TestDeviceManager:
             await manager.set_mapping("ffff:ffff", mapping)
 
     @pytest.mark.asyncio
+    @requires_uinput
     async def test_release_all_devices(self, manager, virtual_mouse, virtual_keyboard):
         mouse_path = virtual_mouse.device.path
         keyboard_path = virtual_keyboard.device.path
@@ -1038,6 +1049,56 @@ class TestListDevices:
             log=dm.log,
             deps=dm._topology_runtime_deps(),
         )
+
+    @pytest.mark.asyncio
+    async def test_start_topology_watcher_reconciles_initial_snapshot_with_existing_grabs(
+        self,
+    ) -> None:
+        stable_path = "/dev/input/by-id/stale-kbd"
+        manager = DeviceManager(topology_poll_s=1.0, topology_debounce_s=1.0)
+        manager.grabbed_devices["1234:5678"] = [
+            SimpleNamespace(
+                path="/dev/input/event5",
+                stable_path=stable_path,
+                resolved_event_path="/dev/input/event5",
+                interface_id="kbd",
+            )
+        ]
+        released: list[tuple[str, str]] = []
+
+        async def release_interface(
+            manager_arg: DeviceManager,
+            hardware_id: str,
+            path: str,
+        ) -> None:
+            released.append((hardware_id, path))
+            devices = manager_arg.grabbed_devices.get(hardware_id, [])
+            manager_arg.grabbed_devices[hardware_id] = [
+                device for device in devices if device.path != path
+            ]
+            if not manager_arg.grabbed_devices[hardware_id]:
+                del manager_arg.grabbed_devices[hardware_id]
+
+        deps = tdm.TopologyRuntimeDeps(
+            asyncio_mod=dm.ASYNCIO_RUNTIME,
+            clear_device_path_cache_fn=lambda: None,
+            device_paths_fn=lambda: [],
+            device_input_fn=lambda path: None,
+            detect_input_classes_fn=lambda device: [],
+            primary_input_class_fn=lambda device: None,
+            resolve_stable_path_fn=lambda path: path,
+            get_interface_id_fn=lambda stable_path: None,
+            release_interface_fn=release_interface,
+        )
+
+        await tdm.start_topology_watcher(manager, log=dm.log, deps=deps)
+        try:
+            assert released == [("1234:5678", "/dev/input/event5")]
+            assert manager.grabbed_devices == {}
+            assert manager.topology_state.live_snapshot == {}
+            assert manager.topology_state.reconciled_snapshot == {}
+        finally:
+            await tdm.stop_topology_watcher(manager, deps=deps)
 
     def test_topology_events_match_numbered_desired_hardware_id(self) -> None:
         manager = SimpleNamespace(_command_type=CommandType)

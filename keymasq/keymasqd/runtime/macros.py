@@ -149,6 +149,13 @@ async def play_macro(
         if hold_instances:
             return {"status": "ok", "already_running": True}
 
+    event_source = macro_event_source or list_macro_event_source(
+        macro_events,
+        int_value_fn=deps.int_value_fn,
+    )
+    if event_source.event_count <= 0:
+        return {"status": "ok"}
+
     manager.macro_state.instance_seq += 1
     instance_id = manager.macro_state.instance_seq
     manager.macro_state.instance_held[instance_id] = set()
@@ -168,8 +175,7 @@ async def play_macro(
             manager,
             instance_id=instance_id,
             macro_events=macro_events,
-            macro_event_source=macro_event_source
-            or list_macro_event_source(macro_events, int_value_fn=deps.int_value_fn),
+            macro_event_source=event_source,
             macro_name=macro_name,
             replay_mouse_movement=replay_mouse_movement,
             replay_mouse_clicks=replay_mouse_clicks,

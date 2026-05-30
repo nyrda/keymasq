@@ -513,13 +513,22 @@ class MacroManagerDialog(Adw.Dialog):
 
     def _on_delete_response(self, dialog, response: str, name: str) -> None:
         if response == "delete":
-            def on_delete_finished(_result: JsonDict | None) -> bool:
-                return self._load_macros()
-
             session_request_with_hooks(
                 {"command": "delete_macro", "name": name},
-                on_delete_finished,
+                self._on_delete_finished,
             )
+
+    def _on_delete_finished(self, result: JsonDict | None) -> bool:
+        result = result or {}
+        if result.get("status") == "ok":
+            return self._load_macros()
+
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Delete Macro")
+        dialog.set_body(result.get("message", "Failed to delete macro"))
+        dialog.add_response("ok", "OK")
+        dialog.present(self._parent)
+        return False
 
     def _on_record_new(self, btn: Gtk.Button) -> None:
         if not self._recording_active and not self._recording_unlocked:

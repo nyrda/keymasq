@@ -39,6 +39,7 @@ class _PersistentSessionConnection:
         self._reader_thread: threading.Thread | None = None
         self._buffer = b""
         self._state_lock = threading.Lock()
+        self._connect_lock = threading.Lock()
         self._request_lock = threading.Lock()
         self._response_queue: queue.Queue[JsonDict | None] | None = None
         self._callbacks: dict[str, list[Callable[[JsonDict], bool | None]]] = {}
@@ -99,21 +100,32 @@ class _PersistentSessionConnection:
         if not SESSION_SOCKET_PATH.exists():
             return False
 
-        try:
-            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            sock.connect(str(SESSION_SOCKET_PATH))
-            sock.settimeout(None)
-        except Exception as e:
-            log.debug(f"persistent connect failed: {e}")
-            return False
+        with self._connect_lock:
+            with self._state_lock:
+                if self._sock is not None:
+                    return True
 
-        with self._state_lock:
-            self._sock = sock
-            self._buffer = b""
-            if self._reader_thread is None or not self._reader_thread.is_alive():
-                self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
-                self._reader_thread.start()
+            sock: _socket.socket | None = None
+            try:
+                sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+                sock.settimeout(timeout)
+                sock.connect(str(SESSION_SOCKET_PATH))
+                sock.settimeout(None)
+            except Exception as e:
+                log.debug(f"persistent connect failed: {e}")
+                if sock is not None:
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
+                return False
+
+            with self._state_lock:
+                self._sock = sock
+                self._buffer = b""
+                if self._reader_thread is None or not self._reader_thread.is_alive():
+                    self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+                    self._reader_thread.start()
         return True
 
     def _reader_loop(self) -> None:

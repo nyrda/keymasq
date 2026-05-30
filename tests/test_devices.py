@@ -147,17 +147,22 @@ def test_config_path_for_detected_event_uses_keymasq_path_without_by_id(
 
 def test_find_all_interfaces_filters_matching_devices(monkeypatch: pytest.MonkeyPatch) -> None:
     device_paths = ["/dev/input/event1", "/dev/input/event2", "/dev/input/event3"]
+    closed_paths: list[str] = []
 
     class _FakeInputDevice:
         def __init__(self, path: str) -> None:
             if path == "/dev/input/event3":
                 raise OSError("unreadable")
+            self.path = path
             if path == "/dev/input/event1":
                 self.info = SimpleNamespace(vendor=0x1234, product=0x5678)
                 self.name = "Main Keyboard"
             else:
                 self.info = SimpleNamespace(vendor=0x9999, product=0x5678)
                 self.name = "Other Device"
+
+        def close(self) -> None:
+            closed_paths.append(self.path)
 
     monkeypatch.setattr("evdev.list_devices", lambda: device_paths)
     monkeypatch.setattr("evdev.InputDevice", _FakeInputDevice)
@@ -181,6 +186,38 @@ def test_find_all_interfaces_filters_matching_devices(monkeypatch: pytest.Monkey
             "phys": "",
         }
     ]
+    assert closed_paths == ["/dev/input/event1", "/dev/input/event2"]
+
+
+def test_find_all_interfaces_closes_devices_when_scan_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    device_paths = ["/dev/input/event1", "/dev/input/event2"]
+    closed_paths: list[str] = []
+
+    class _FakeInputDevice:
+        def __init__(self, path: str) -> None:
+            self.path = path
+            self.name = "Device"
+
+        @property
+        def info(self) -> SimpleNamespace:
+            if self.path == "/dev/input/event2":
+                raise OSError("metadata unavailable")
+            return SimpleNamespace(vendor=0x1234, product=0x5678)
+
+        def close(self) -> None:
+            closed_paths.append(self.path)
+
+    monkeypatch.setattr("evdev.list_devices", lambda: device_paths)
+    monkeypatch.setattr("evdev.InputDevice", _FakeInputDevice)
+    monkeypatch.setattr(
+        "keymasq.common.devices.resolve_stable_path",
+        lambda _path: (_ for _ in ()).throw(OSError("stable path unavailable")),
+    )
+
+    assert find_all_interfaces("1234", "5678") == []
+    assert closed_paths == ["/dev/input/event1", "/dev/input/event2"]
 
 
 def test_detect_input_classes_reports_combo_keyboard_mouse_pointstick() -> None:

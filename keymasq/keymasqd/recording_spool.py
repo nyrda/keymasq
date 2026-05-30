@@ -85,7 +85,7 @@ class RecordingSpool:
             self._memory_events.append(event)
             self._memory_bytes += _estimate_event_bytes(event)
             self.event_count += 1
-            self.duration_ms = int(_event_t_us(event) / 1000)
+            self.duration_ms = max(self.duration_ms, int(_event_t_us(event) / 1000))
             self.device_types.add(str(event.get("device_type", "other")))
 
             if (

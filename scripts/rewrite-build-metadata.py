@@ -7,6 +7,24 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+PEP440_VERSION_RE = re.compile(
+    r"""
+    ^
+    (?:[1-9][0-9]*!)?
+    [0-9]+(?:\.[0-9]+)*
+    (?:(?:a|b|rc)[0-9]+)?
+    (?:\.post[0-9]+)?
+    (?:\.dev[0-9]+)?
+    (?:\+[a-z0-9]+(?:[._-][a-z0-9]+)*)?
+    $
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+DEBIAN_VERSION_RE = re.compile(
+    r"^(?:[0-9]+:)?[0-9][A-Za-z0-9.+:~]*(?:-[A-Za-z0-9+.~]+)?$"
+)
+RPM_VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~^]*$")
+
 
 @dataclass(frozen=True)
 class RewriteRule:
@@ -18,6 +36,24 @@ class RewriteRule:
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
+def _validate_version(value: str, pattern: re.Pattern[str], description: str) -> str:
+    if not pattern.fullmatch(value):
+        raise argparse.ArgumentTypeError(f"{description} has an invalid version format")
+    return value
+
+
+def _validate_python_version(value: str) -> str:
+    return _validate_version(value, PEP440_VERSION_RE, "python-version")
+
+
+def _validate_debian_version(value: str) -> str:
+    return _validate_version(value, DEBIAN_VERSION_RE, "debian-version")
+
+
+def _validate_rpm_version(value: str) -> str:
+    return _validate_version(value, RPM_VERSION_RE, "rpm-version")
 
 
 def _rewrite_file(rule: RewriteRule) -> bool:
@@ -82,10 +118,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Rewrite build metadata for CI-only package version overrides."
     )
-    parser.add_argument("--python-version", help="PEP 440 version for pyproject.toml")
-    parser.add_argument("--debian-version", help="Package version for debian/changelog")
     parser.add_argument(
-        "--rpm-version", help="Package version for packaging/rpm/metadata.env"
+        "--python-version",
+        type=_validate_python_version,
+        help="PEP 440 version for pyproject.toml",
+    )
+    parser.add_argument(
+        "--debian-version",
+        type=_validate_debian_version,
+        help="Package version for debian/changelog",
+    )
+    parser.add_argument(
+        "--rpm-version",
+        type=_validate_rpm_version,
+        help="Package version for packaging/rpm/metadata.env",
     )
     args = parser.parse_args()
 

@@ -36,9 +36,23 @@ def test_wlr_wayland_client_tracks_active_toplevel() -> None:
 
     handle_object_id = client._allocate_object_id("zwlr_foreign_toplevel_handle_v1")
     client._handle_manager_event(manager_id, 0, _pack_uint(handle_object_id))
-    client._handle_toplevel_event(handle_object_id, 1, _encode_string("firefox"))
-    client._handle_toplevel_event(handle_object_id, 0, _encode_string("Mozilla Firefox"))
-    client._handle_toplevel_event(handle_object_id, 4, _encode_array((2).to_bytes(4, "little")))
+    asyncio.run(
+        client._handle_toplevel_event(handle_object_id, 1, _encode_string("firefox"))
+    )
+    asyncio.run(
+        client._handle_toplevel_event(
+            handle_object_id,
+            0,
+            _encode_string("Mozilla Firefox"),
+        )
+    )
+    asyncio.run(
+        client._handle_toplevel_event(
+            handle_object_id,
+            4,
+            _encode_array((2).to_bytes(4, "little")),
+        )
+    )
 
     assert tracker.get_active_window() == ("firefox", "Mozilla Firefox")
 
@@ -54,5 +68,26 @@ def test_wlr_wayland_client_close_clears_active_window() -> None:
     tracker.update_state(str(handle_object_id), (2).to_bytes(4, "little"))
     assert tracker.get_active_window() == ("Alacritty", "term")
 
-    client._handle_toplevel_event(handle_object_id, 6, b"")
+    asyncio.run(client._handle_toplevel_event(handle_object_id, 6, b""))
     assert tracker.get_active_window() == ("", "")
+    assert handle_object_id not in client._objects
+    assert handle_object_id not in client._toplevel_handles
+
+
+def test_wlr_wayland_client_destroy_toplevel_handle_uses_destroy_opcode() -> None:
+    tracker = WlrForeignToplevelManagerTracker()
+    client = WlrForeignToplevelWaylandClient(tracker, socket_path="/tmp/nonexistent")
+    sent: list[tuple[int, int, bytes]] = []
+
+    async def record_send(obj: int, opcode: int, payload: bytes) -> None:
+        sent.append((obj, opcode, payload))
+
+    client._send_request = record_send  # type: ignore[method-assign]
+    handle_object_id = client._allocate_object_id("zwlr_foreign_toplevel_handle_v1")
+    client._toplevel_handles.add(handle_object_id)
+
+    asyncio.run(client._destroy_toplevel_handle(handle_object_id))
+
+    assert sent == [(handle_object_id, 7, b"")]
+    assert handle_object_id not in client._objects
+    assert handle_object_id not in client._toplevel_handles

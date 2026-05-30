@@ -55,6 +55,9 @@ class ProfileActivationTracker:
         previous_activation_id = self._activation_by_profile.get(normalized_profile_name)
         if previous_activation_id and previous_activation_id != normalized_activation_id:
             self.cancel(activation_id=previous_activation_id)
+        previous_tracker = self._trackers.get(normalized_activation_id)
+        if previous_tracker is not None:
+            self._cancel_timeout(previous_tracker)
 
         tracker = RuntimeProfileActivationTracker(
             profile_name=normalized_profile_name,

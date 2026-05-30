@@ -399,7 +399,8 @@ class ProfileManager:
         if action_type == ActionType.MACRO:
             return MappingAction(
                 action_type=ActionType.MACRO,
-                macro_name=str(action_data.get("target", "")),
+                macro_name=str(action_data.get("target", "") or "")
+                or str(action_data.get("macro_name", "") or ""),
                 macro_replay_mouse_movement=bool(action_data.get("replay_mouse_movement", True)),
                 macro_replay_mouse_clicks=bool(action_data.get("replay_mouse_clicks", True)),
                 macro_speed=_float_value(action_data.get("speed"), 1.0),
@@ -528,6 +529,7 @@ class ProfileManager:
                 action_data["analog_control_names"] = action.analog_control_names
         if action.action_type == ActionType.MACRO:
             action_data["target"] = action.macro_name or ""
+            action_data["macro_name"] = action.macro_name or ""
             action_data["replay_mouse_movement"] = action.macro_replay_mouse_movement
             action_data["replay_mouse_clicks"] = action.macro_replay_mouse_clicks
             action_data["speed"] = action.macro_speed

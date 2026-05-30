@@ -366,9 +366,10 @@ async def test_play_macro_allows_concurrent_playback() -> None:
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(mdm, "play_macro_task", fake_play_macro_task)
     try:
-        await manager.play_macro(macro_events=[], macro_name="first")
+        macro_events = [{"t_us": 0, "macro_action": "wait", "duration_us": 0}]
+        await manager.play_macro(macro_events=macro_events, macro_name="first")
         await asyncio.sleep(0)
-        await manager.play_macro(macro_events=[], macro_name="second")
+        await manager.play_macro(macro_events=macro_events, macro_name="second")
         await asyncio.sleep(0.1)
 
         assert "first" in started
@@ -617,7 +618,7 @@ async def test_hold_macro_block_mouse_movement_refreshes_suppression_until_relea
     monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
 
     await manager.play_macro(
-        macro_events=[],
+        macro_events=[{"t_us": 0, "macro_action": "wait", "duration_us": 10_000}],
         macro_name="hold_blocked",
         loop_mode="hold",
         block_mouse_movement=True,

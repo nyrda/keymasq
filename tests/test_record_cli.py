@@ -112,10 +112,11 @@ def test_main_status_prints_json(
     assert payload["source"] == "runtime"
 
 
-def test_main_unlock_runtime_extends_previous_expiry(
+def test_main_unlock_runtime_replaces_previous_expiry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runtime_path = tmp_path / "runtime-lease"
+    runtime_path.write_text("20\n", encoding="utf-8")
     writes: list[tuple[Path, int]] = []
 
     monkeypatch.setattr(
@@ -126,7 +127,6 @@ def test_main_unlock_runtime_extends_previous_expiry(
     monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
     monkeypatch.setattr(record.time, "time", lambda: 10)
-    monkeypatch.setattr(record, "parse_unlock_expires_at", lambda _: 20)
 
     def _write(path: Path, expires_at: int) -> None:
         writes.append((path, expires_at))
@@ -135,9 +135,79 @@ def test_main_unlock_runtime_extends_previous_expiry(
 
     record.main()
 
-    assert writes == [(runtime_path, 21)]
+    assert writes == [(runtime_path, 15)]
     payload = json.loads(capsys.readouterr().out.strip())
-    assert payload["expires_at"] == 21
+    assert payload["expires_at"] == 15
+
+
+def test_main_unlock_runtime_extends_with_requested_ttl(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runtime_path = tmp_path / "runtime-lease"
+    runtime_path.write_text("12\n", encoding="utf-8")
+    writes: list[tuple[Path, int]] = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "20"],
+    )
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(record.time, "time", lambda: 10)
+
+    def _write(path: Path, expires_at: int) -> None:
+        writes.append((path, expires_at))
+
+    monkeypatch.setattr(record, "_write_lease", _write)
+
+    record.main()
+
+    assert writes == [(runtime_path, 30)]
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["expires_at"] == 30
+
+
+def test_main_unlock_runtime_ttl_zero_writes_non_expiring_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runtime_path = tmp_path / "runtime-lease"
+    writes: list[tuple[Path, int]] = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "0"],
+    )
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+
+    def _write(path: Path, expires_at: int) -> None:
+        writes.append((path, expires_at))
+
+    monkeypatch.setattr(record, "_write_lease", _write)
+
+    record.main()
+
+    assert writes == [(runtime_path, 0)]
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["expires_at"] == 0
+
+
+def test_main_lock_runtime_removes_runtime_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runtime_path = tmp_path / "runtime-lease"
+    runtime_path.write_text("20\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["keymasq-record", "lock-runtime", "--uid", "1000"])
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+
+    record.main()
+
+    assert runtime_path.exists() is False
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload == {"status": "ok", "scope": "runtime", "locked": True}
 
 
 def test_main_rejects_persistent_unlock_command(

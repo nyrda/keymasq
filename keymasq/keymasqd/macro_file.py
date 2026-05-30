@@ -114,7 +114,13 @@ def load_macro(path: Path) -> JsonObject:
     return payload
 
 
-def write_macro(path: Path, meta: MacroFileMeta, events: Iterable[MacroEvent]) -> None:
+def write_macro(
+    path: Path,
+    meta: MacroFileMeta,
+    events: Iterable[MacroEvent],
+    *,
+    overwrite: bool = True,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = _open_private_temp(path)
     fileobj: io.BufferedWriter | None = None
@@ -127,7 +133,7 @@ def write_macro(path: Path, meta: MacroFileMeta, events: Iterable[MacroEvent]) -
                     f.write(_json_line(event))
         fileobj.flush()
         os.fsync(fd)
-        os.replace(tmp_path, path)
+        _commit_temp_macro(tmp_path, path, overwrite=overwrite)
         path.chmod(0o600)
     except Exception:
         tmp_path.unlink(missing_ok=True)
@@ -184,6 +190,14 @@ def _open_private_temp(path: Path) -> tuple[int, Path]:
         os.fchmod(fd, 0o600)
         return fd, tmp_path
     raise FileExistsError(f"Could not create temporary macro file for {path}")
+
+
+def _commit_temp_macro(tmp_path: Path, path: Path, *, overwrite: bool) -> None:
+    if overwrite:
+        os.replace(tmp_path, path)
+        return
+    os.link(tmp_path, path)
+    tmp_path.unlink()
 
 
 def _json_line(value: JsonObject) -> str:

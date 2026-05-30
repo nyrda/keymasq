@@ -379,9 +379,8 @@ def _macro_playback_options(
     *,
     stored_macro: JsonObject | None = None,
 ) -> MacroPlaybackOptions:
-    runtime_options = _macro_runtime_options(data)
-    if stored_macro is not None:
-        runtime_options = _macro_runtime_options(stored_macro, defaults=runtime_options)
+    defaults = _macro_runtime_options(stored_macro) if stored_macro is not None else None
+    runtime_options = _macro_runtime_options(data, defaults=defaults)
     return MacroPlaybackOptions(
         macro_events=macro_events,
         macro_name=macro_name,

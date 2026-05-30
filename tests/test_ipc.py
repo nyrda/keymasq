@@ -105,6 +105,14 @@ class TestProtocolEncoding:
         assert decoded is None
         assert remaining == b""
 
+    def test_decode_invalid_utf8_command_consumes_frame(self):
+        malformed = struct.pack(HEADER_FORMAT, 1) + b"\xff"
+
+        decoded, remaining = decode_command(malformed)
+
+        assert decoded is None
+        assert remaining == b""
+
     def test_error_response(self):
         resp = Response(
             status="error",
@@ -144,6 +152,14 @@ class TestProtocolEncoding:
         partial = struct.pack(HEADER_FORMAT, 9) + b"xxx"
 
         decoded, remaining = decode_response(partial)
+
+        assert decoded is None
+        assert remaining == b""
+
+    def test_decode_invalid_utf8_response_consumes_frame(self):
+        malformed = struct.pack(HEADER_FORMAT, 1) + b"\xff"
+
+        decoded, remaining = decode_response(malformed)
 
         assert decoded is None
         assert remaining == b""

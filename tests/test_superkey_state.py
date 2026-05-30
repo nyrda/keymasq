@@ -432,6 +432,46 @@ async def test_tap_hold_can_fire_without_double_tap_slot() -> None:
 
 
 @pytest.mark.asyncio
+async def test_second_press_hold_uses_hold_slot_without_tap_hold_slot() -> None:
+    keyboard_uinput = MagicMock()
+    keyboard_uinput.write = MagicMock()
+    keyboard_uinput.syn = MagicMock()
+
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="second_press_hold_without_tap_hold",
+            hold_threshold_ms=0,
+            hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_c")],
+            double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine.on_down()
+    await machine.on_up()
+
+    assert keyboard_uinput.write.call_args_list == []
+
+    await machine.on_down()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert [tuple(call.args) for call in keyboard_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1),
+    ]
+
+    await machine.on_up()
+
+    assert [tuple(call.args) for call in keyboard_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 0),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_stop_cancels_rapidfire_task_without_extra_writes() -> None:
     keyboard_uinput = MagicMock()
     keyboard_uinput.write = MagicMock()

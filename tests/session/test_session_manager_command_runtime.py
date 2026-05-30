@@ -4,6 +4,8 @@ import json
 from tests.session.command_support import *
 from keymasq.common import paths
 from keymasq.common.ipc import CommandType
+from keymasq.common.settings import GlobalSettings
+import keymasq.session.settings as session_settings
 import keymasq.session.manager.commands as session_commands_module
 import keymasq.session.manager.device_inspector as session_device_inspector_module
 
@@ -37,6 +39,7 @@ async def test_handle_session_request_set_settings_does_not_broadcast_on_daemon_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "keymasq")
+    session_settings.save_global_settings(GlobalSettings(virtual_gamepad_count=3))
     manager = SessionManager()
     manager.connected = True
     manager.client.send_command = AsyncMock(
@@ -54,6 +57,40 @@ async def test_handle_session_request_set_settings_does_not_broadcast_on_daemon_
 
     assert result["status"] == "error"
     assert result["message"] == "daemon rejected count"
+    assert result["virtual_gamepad_count"] == 3
+    assert manager.virtual_gamepad_count == 3
+    assert session_settings.load_global_settings().virtual_gamepad_count == 3
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_handle_session_request_set_virtual_gamepads_keeps_state_on_daemon_error(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "keymasq")
+    session_settings.save_global_settings(GlobalSettings(virtual_gamepad_count=3))
+    manager = SessionManager()
+    manager.connected = True
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="daemon rejected count")
+    )
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "set_virtual_gamepads", "count": 2},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "error", "message": "daemon rejected count"}
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.SET_VIRTUAL_GAMEPADS
+    assert sent.data == {"count": 2}
+    assert manager.virtual_gamepad_count == 3
+    assert session_settings.load_global_settings().virtual_gamepad_count == 3
     manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
 
 
@@ -838,6 +875,39 @@ async def test_stop_device_inspector_preserves_error_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_stop_device_inspector_preserves_state_on_daemon_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    writer = object()
+    writer_id = id(writer)
+    manager.device_inspector_state.owners_by_hardware_id[hardware_id] = {writer_id}
+    manager.device_inspector_state.active_hardware_ids.add(hardware_id)
+    manager.device_inspector_state.suppressed_hardware_ids.add(hardware_id)
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="daemon stop failed")
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    result = await session_device_inspector_module.stop_device_inspector(
+        manager,
+        hardware_id,
+        writer,  # type: ignore[arg-type]
+    )
+
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.DEVICE_INSPECTOR_STOP
+    assert sent.data == {"hardware_id": hardware_id}
+    assert result == {"status": "error", "message": "daemon stop failed"}
+    assert manager.device_inspector_state.owners_by_hardware_id[hardware_id] == {writer_id}
+    assert hardware_id in manager.device_inspector_state.active_hardware_ids
+    assert hardware_id in manager.device_inspector_state.suppressed_hardware_ids
+    reevaluate_profiles.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_clear_device_inspectors_for_writer_continues_after_stop_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1203,6 +1273,106 @@ async def test_capture_commands_with_owner_return_error_on_missing_hardware_id(
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_rejects_duplicate_for_same_hardware() -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            Response(status="ok", data={"token": "token-1", "warnings": []}),
+            Response(status="ok", data={"token": "token-2", "warnings": []}),
+        ]
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-test",
+    }
+
+    first = await manager._handle_session_request(
+        {"command": "begin_capture", "hardware_id": hardware_id},
+        "client",
+        peer,
+        writer,
+    )
+    second = await manager._handle_session_request(
+        {"command": "begin_capture", "hardware_id": hardware_id},
+        "client",
+        peer,
+        writer,
+    )
+
+    assert first["status"] == "ok"
+    assert first["token"] == "token-1"
+    assert second == {
+        "status": "error",
+        "error_code": "capture_already_active",
+        "message": f"capture already active for {hardware_id}",
+    }
+    assert manager.capture_state.tokens[hardware_id] == "token-1"
+    assert manager.client.send_command.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_clear_captures_for_writer_ends_owned_capture_on_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            Response(status="ok", data={"token": "token-1", "warnings": []}),
+            Response(status="ok"),
+        ]
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-test",
+    }
+
+    result = await manager._handle_session_request(
+        {
+            "command": "begin_capture",
+            "hardware_id": hardware_id,
+            "end_on_disconnect": True,
+        },
+        "client",
+        peer,
+        writer,
+    )
+
+    assert result["status"] == "ok"
+    assert manager.capture_state.tokens[hardware_id] == "token-1"
+    assert manager.capture_state.owner_writer_ids[hardware_id] == id(writer)
+    assert hardware_id in manager.capture_state.locks
+
+    await session_recording_module.clear_captures_for_writer(
+        manager,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+    assert manager.capture_state.owner_writer_ids == {}
+    end_command = manager.client.send_command.await_args_list[1].args[0]
+    assert end_command.command == CommandType.CAPTURE_END
+    assert end_command.data == {"token": "token-1"}
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason=f"capture ended for {hardware_id}",
+    )
+
+
+@pytest.mark.asyncio
 async def test_begin_capture_for_numbered_hardware_uses_configured_paths() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678@2"
@@ -1236,6 +1406,48 @@ async def test_begin_capture_for_numbered_hardware_uses_configured_paths() -> No
         "evdev_paths": ["/dev/input/by-path/test-event-kbd"],
     }
 
+
+@pytest.mark.asyncio
+async def test_begin_capture_default_lifetime_survives_request_writer_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"token": "token-1", "warnings": []})
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = cast(asyncio.StreamWriter, object())
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-test",
+    }
+
+    result = await manager._handle_session_request(
+        {"command": "begin_capture", "hardware_id": hardware_id},
+        "client",
+        peer,
+        writer,
+    )
+
+    assert result["status"] == "ok"
+    assert manager.capture_state.tokens[hardware_id] == "token-1"
+    assert manager.capture_state.owner_writer_ids == {}
+    assert hardware_id in manager.capture_state.locks
+
+    await session_recording_module.clear_captures_for_writer(
+        manager,
+        writer,
+    )
+
+    assert manager.capture_state.tokens[hardware_id] == "token-1"
+    assert hardware_id in manager.capture_state.locks
+    manager.client.send_command.assert_awaited_once()
+    reevaluate_profiles.assert_not_awaited()
 
 @pytest.mark.asyncio
 async def test_begin_capture_with_paths_uses_configured_interfaces_when_omitted() -> None:

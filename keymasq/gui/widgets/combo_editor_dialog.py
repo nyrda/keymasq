@@ -577,6 +577,7 @@ class ComboEditorDialog(Adw.Dialog):
             empty.add_css_class("dim-label")
             empty.set_halign(Gtk.Align.START)
             self.steps_box.append(empty)
+            self._refresh_restore_trigger_keys()
             return
 
         for index, step in enumerate(self._draft.steps):

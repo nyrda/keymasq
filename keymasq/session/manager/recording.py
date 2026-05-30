@@ -1057,18 +1057,13 @@ def update_recording_settings(manager: "SessionManager", request: JsonObject) ->
         settings["include_mouse_clicks"] = bool(request.get("include_mouse_clicks"))
     if "record_start_position" in request:
         settings["record_start_position"] = bool(request.get("record_start_position"))
-    if "record_keyboard" in request:
-        settings["record_keyboard"] = bool(request.get("record_keyboard"))
-    if "record_mouse" in request:
-        settings["record_mouse"] = bool(request.get("record_mouse"))
-    if "record_gamepad" in request:
-        settings["record_gamepad"] = bool(request.get("record_gamepad"))
     if "device_overrides" in request:
         overrides = json_object(request.get("device_overrides"))
         if overrides is not None:
             settings["device_overrides"] = {
                 str(recording_id): bool(enabled) for recording_id, enabled in overrides.items()
             }
+    prune_stale_recording_device_overrides(manager, settings)
     update_selected_recording_devices_cache(manager)
     queue_recording_settings_save(manager, dict(settings))
 
@@ -1106,9 +1101,6 @@ def load_recording_settings_from_disk(manager: "SessionManager") -> None:
         settings["include_mouse_movement"] = bool(data.get("include_mouse_movement", False))
         settings["include_mouse_clicks"] = bool(data.get("include_mouse_clicks", False))
         settings["record_start_position"] = bool(data.get("record_start_position", False))
-        settings["record_keyboard"] = bool(data.get("record_keyboard", True))
-        settings["record_mouse"] = bool(data.get("record_mouse", False))
-        settings["record_gamepad"] = bool(data.get("record_gamepad", True))
         overrides = json_object(data.get("device_overrides"))
         if overrides is not None:
             settings["device_overrides"] = {
@@ -1131,9 +1123,6 @@ def save_recording_settings_to_disk(
             "include_mouse_movement": bool(settings.get("include_mouse_movement", False)),
             "include_mouse_clicks": bool(settings.get("include_mouse_clicks", False)),
             "record_start_position": bool(settings.get("record_start_position", False)),
-            "record_keyboard": bool(settings.get("record_keyboard", True)),
-            "record_mouse": bool(settings.get("record_mouse", False)),
-            "record_gamepad": bool(settings.get("record_gamepad", True)),
             "device_overrides": {
                 str(recording_id): bool(enabled)
                 for recording_id, enabled in (
@@ -1150,6 +1139,35 @@ def save_recording_settings_to_disk(
             "Failed to save recording settings to %s",
             manager.RECORDING_SETTINGS_PATH,
         )
+
+
+def prune_stale_recording_device_overrides(
+    manager: "SessionManager",
+    settings: JsonObject | None = None,
+) -> None:
+    if not manager.recording_state.devices_cache_ready:
+        return
+
+    settings = settings if settings is not None else manager.recording_state.settings
+    known_ids = {
+        recording_id
+        for device in manager.recording_state.devices_cache
+        if (recording_id := _recording_device_id(device))
+    }
+    if not known_ids:
+        settings["device_overrides"] = {}
+        return
+
+    overrides = json_object(settings.get("device_overrides"))
+    if not overrides:
+        settings["device_overrides"] = {}
+        return
+
+    settings["device_overrides"] = {
+        str(recording_id): bool(enabled)
+        for recording_id, enabled in overrides.items()
+        if str(recording_id) in known_ids
+    }
 
 
 async def start_recording(

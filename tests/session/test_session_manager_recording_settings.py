@@ -91,9 +91,20 @@ def test_recording_settings_save_load_toml_uses_recording_ids(tmp_path) -> None:
         "include_mouse_movement": True,
         "include_mouse_clicks": True,
         "record_start_position": True,
+        # Legacy fields may still exist in old in-memory/test payloads, but new
+        # TOML writes should prune them.
         "record_keyboard": False,
         "record_mouse": True,
         "record_gamepad": False,
+        "device_overrides": {
+            "keymasq:passthrough:1234:5678:mouse": True,
+            "physical:/dev/input/by-id/usb-test-event-mouse": False,
+        },
+    }
+    expected = {
+        "include_mouse_movement": True,
+        "include_mouse_clicks": True,
+        "record_start_position": True,
         "device_overrides": {
             "keymasq:passthrough:1234:5678:mouse": True,
             "physical:/dev/input/by-id/usb-test-event-mouse": False,
@@ -104,13 +115,13 @@ def test_recording_settings_save_load_toml_uses_recording_ids(tmp_path) -> None:
 
     with manager.RECORDING_SETTINGS_PATH.open("rb") as f:
         written = tomllib.load(f)
-    assert written == manager.recording_state.settings
+    assert written == expected
 
     loaded_manager = SessionManager()
     loaded_manager.RECORDING_SETTINGS_PATH = manager.RECORDING_SETTINGS_PATH
     session_recording_module.load_recording_settings_from_disk(loaded_manager)
 
-    assert loaded_manager.recording_state.settings == manager.recording_state.settings
+    assert loaded_manager.recording_state.settings == expected
 
 
 def test_recording_settings_load_logs_errors(tmp_path, caplog) -> None:
@@ -168,9 +179,6 @@ async def test_start_recording_sends_selected_devices_from_cache() -> None:
         "include_mouse_movement": False,
         "include_mouse_clicks": False,
         "record_start_position": False,
-        "record_keyboard": True,
-        "record_mouse": False,
-        "record_gamepad": False,
         "device_overrides": {
             "keymasq:passthrough:1234:5678:kbd": True,
             "physical:/dev/input/by-id/usb-raw-event-kbd": False,
@@ -319,7 +327,7 @@ async def test_update_recording_settings_recomputes_selected_devices_cache() -> 
         },
         {
             "path": "/dev/input/event21",
-            "recording_id": "physical:/dev/input/by-id/raw-mouse",
+            "recording_id": "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse",
             "recording_kind": "physical",
             "device_type": "mouse",
             "device_types": ["mouse"],
@@ -332,12 +340,85 @@ async def test_update_recording_settings_recomputes_selected_devices_cache() -> 
 
     session_recording_module.update_recording_settings(
         manager,
-        {"device_overrides": {"physical:/dev/input/by-id/raw-mouse": True}},
+        {
+            "device_overrides": {
+                "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True
+            }
+        },
     )
 
     assert [
         device["recording_id"] for device in manager.recording_state.selected_devices_cache
-    ] == ["keymasq:output:keyboard", "physical:/dev/input/by-id/raw-mouse"]
+    ] == ["keymasq:output:keyboard", "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse"]
+
+    save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
+    if save_task is not None:
+        await save_task
+
+
+@pytest.mark.asyncio
+async def test_update_recording_settings_prunes_stale_device_overrides() -> None:
+    manager = SessionManager()
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {},
+    }
+    manager.recording_state.devices_cache_ready = True
+    manager.recording_state.devices_cache = [
+        {
+            "path": "/dev/input/event20",
+            "recording_id": "keymasq:output:keyboard",
+            "recording_kind": "keymasq_output",
+            "device_type": "keyboard",
+            "device_types": ["keyboard"],
+        },
+    ]
+
+    session_recording_module.update_recording_settings(
+        manager,
+        {
+            "device_overrides": {
+                "keymasq:output:keyboard": False,
+                "physical:/dev/input/by-id/stale-mouse": True,
+            }
+        },
+    )
+
+    assert manager.recording_state.settings["device_overrides"] == {
+        "keymasq:output:keyboard": False
+    }
+
+    save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
+    if save_task is not None:
+        await save_task
+
+
+@pytest.mark.asyncio
+async def test_update_recording_settings_clears_overrides_when_cache_is_empty() -> None:
+    manager = SessionManager()
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {
+            "physical:/dev/input/by-id/stale-mouse": True,
+        },
+    }
+    manager.recording_state.devices_cache_ready = True
+    manager.recording_state.devices_cache = []
+
+    session_recording_module.update_recording_settings(
+        manager,
+        {
+            "device_overrides": {
+                "physical:/dev/input/by-id/stale-mouse": True,
+            }
+        },
+    )
+
+    assert manager.recording_state.settings["device_overrides"] == {}
 
     save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
     if save_task is not None:

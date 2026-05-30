@@ -178,7 +178,7 @@ class TestRecordMacroDialog:
             },
             {
                 "path": "/dev/input/event0",
-                "recording_id": "physical:/dev/input/by-id/raw-mouse",
+                "recording_id": "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse",
                 "recording_kind": "physical",
                 "device_type": "mouse",
                 "device_types": ["mouse"],
@@ -189,7 +189,12 @@ class TestRecordMacroDialog:
         dialog._populate_device_list()
 
         assert dialog._device_checks["keymasq:output:keyboard"].get_active() is True
-        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
+        assert (
+            dialog._device_checks[
+                "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse"
+            ].get_active()
+            is False
+        )
         assert dialog._selection_summary.get_label() == "1 selected (1kb)"
 
     def test_record_dialog_source_row_activation_toggles_checkbox(self, monkeypatch):
@@ -214,7 +219,7 @@ class TestRecordMacroDialog:
             },
             {
                 "path": "/dev/input/event0",
-                "recording_id": "physical:/dev/input/by-id/raw-mouse",
+                "recording_id": "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse",
                 "recording_kind": "physical",
                 "device_type": "mouse",
                 "device_types": ["mouse"],
@@ -227,19 +232,34 @@ class TestRecordMacroDialog:
         raw_row = None
         row = dialog._device_listbox.get_first_child()
         while row is not None:
-            if getattr(row, "_recording_id", "") == "physical:/dev/input/by-id/raw-mouse":
+            if (
+                getattr(row, "_recording_id", "")
+                == "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse"
+            ):
                 raw_row = row
                 break
             row = row.get_next_sibling()
 
         assert raw_row is not None
         dialog._on_device_row_activated(dialog._device_listbox, raw_row)
-        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is True
-        assert dialog._device_overrides == {"physical:/dev/input/by-id/raw-mouse": True}
+        assert (
+            dialog._device_checks[
+                "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse"
+            ].get_active()
+            is True
+        )
+        assert dialog._device_overrides == {
+            "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True
+        }
         assert dialog._selection_summary.get_label() == "2 selected (1kb, 1m)"
 
         dialog._on_device_row_activated(dialog._device_listbox, raw_row)
-        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
+        assert (
+            dialog._device_checks[
+                "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse"
+            ].get_active()
+            is False
+        )
         assert dialog._device_overrides == {}
         assert dialog._selection_summary.get_label() == "1 selected (1kb)"
 
@@ -271,7 +291,7 @@ class TestRecordMacroDialog:
             },
             {
                 "path": "/dev/input/event0",
-                "recording_id": "physical:/dev/input/by-id/raw-mouse",
+                "recording_id": "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse",
                 "recording_kind": "physical",
                 "device_type": "mouse",
                 "device_types": ["mouse"],
@@ -283,12 +303,22 @@ class TestRecordMacroDialog:
         assert dialog._selection_warning.get_visible() is True
 
         dialog._on_select_type_clicked(Gtk.Button(), "mouse", True)
-        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is True
+        assert (
+            dialog._device_checks[
+                "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse"
+            ].get_active()
+            is True
+        )
         assert dialog._selection_summary.get_label() == "2 selected (1kb, 1m)"
         assert dialog._selection_warning.get_visible() is False
 
         dialog._on_reset_to_recommended_clicked(Gtk.Button())
-        assert dialog._device_checks["physical:/dev/input/by-id/raw-mouse"].get_active() is False
+        assert (
+            dialog._device_checks[
+                "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse"
+            ].get_active()
+            is False
+        )
         assert dialog._selection_warning.get_visible() is True
 
     def test_record_dialog_reset_sync_wins_over_inflight_selection(self, monkeypatch):
@@ -316,7 +346,9 @@ class TestRecordMacroDialog:
         monkeypatch.setattr(record_macro_dialog_module, "session_request", fake_session_request)
 
         dialog = RecordMacroDialog(Gtk.Window())
-        dialog._device_overrides = {"physical:/dev/input/by-id/raw-mouse": True}
+        dialog._device_overrides = {
+            "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True
+        }
 
         dialog._sync_settings_async()
         assert first_started.wait(2.0)
@@ -335,7 +367,7 @@ class TestRecordMacroDialog:
             pytest.fail("settings sync worker did not finish")
 
         assert [payload["device_overrides"] for payload in captured_payloads] == [
-            {"physical:/dev/input/by-id/raw-mouse": True},
+            {"physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True},
             {},
         ]
 

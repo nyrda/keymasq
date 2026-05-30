@@ -289,18 +289,29 @@ class RecordingManager:
         ttl_s: float = PENDING_RECORDING_TTL_S,
     ) -> None:
         now = asyncio.get_running_loop().time()
-        expired_ids: list[str] = []
+        expired_pending_ids: list[str] = []
+        expired_claimed_ids: list[str] = []
+        snapshots: list[RecordingSnapshot] = []
         async with self._pending_recording_lock:
+            ttl = max(0.0, float(ttl_s))
             for recording_id, created_at in self._pending_recording_created_at.items():
-                if now - created_at >= max(0.0, float(ttl_s)):
-                    expired_ids.append(recording_id)
-            snapshots = [
-                self._pending_recordings.pop(recording_id)
-                for recording_id in expired_ids
-                if recording_id in self._pending_recordings
-            ]
-            for recording_id in expired_ids:
+                if now - created_at >= ttl:
+                    expired_pending_ids.append(recording_id)
+            for recording_id, created_at in self._claimed_recording_created_at.items():
+                if now - created_at >= ttl:
+                    expired_claimed_ids.append(recording_id)
+
+            for recording_id in expired_pending_ids:
+                snapshot = self._pending_recordings.pop(recording_id, None)
+                if snapshot is not None:
+                    snapshots.append(snapshot)
                 self._pending_recording_created_at.pop(recording_id, None)
+            for recording_id in expired_claimed_ids:
+                snapshot = self._claimed_recordings.pop(recording_id, None)
+                if snapshot is not None:
+                    snapshots.append(snapshot)
+                self._claimed_recording_created_at.pop(recording_id, None)
+                self._claimed_recording_discard_requested.discard(recording_id)
 
         for snapshot in snapshots:
             snapshot.cleanup()

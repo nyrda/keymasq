@@ -45,7 +45,9 @@ def test_set_timer_slack_ns_clamps_non_positive() -> None:
     # must clamp non-positive requests to >=1ns so callers never accidentally
     # loosen the wakeup resolution.
     assert timer_precision.set_timer_slack_ns(0) is True
+    assert _get_timer_slack_ns() == 1
     assert timer_precision.set_timer_slack_ns(-5) is True
+    assert _get_timer_slack_ns() == 1
 
 
 def test_set_timer_slack_ns_is_idempotent() -> None:

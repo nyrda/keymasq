@@ -283,6 +283,72 @@ class TestDeviceManagerHelpers:
         assert manager.active_mappings == {}
         assert manager.grab_state.desired_paths == {}
         destroy_global_uinputs.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_grab_skipped_probe_closes_raw_device(self) -> None:
+        class _RawInputDevice:
+            def __init__(self) -> None:
+                self.close_count = 0
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A]}
+
+            def close(self) -> None:
+                self.close_count += 1
+
+        raw_device = _RawInputDevice()
+        manager = DeviceManager()
+        manager._device_input = lambda _path: raw_device  # type: ignore[method-assign]
+
+        result = await manager.grab_device(
+            "1234:5678",
+            ["/dev/input/event0"],
+            {},
+        )
+
+        assert result["grabbed_count"] == 0
+        assert result["skipped_count"] == 1
+        assert raw_device.close_count == 1
+
+    @pytest.mark.asyncio
+    async def test_grab_failure_closes_raw_probe_device(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _RawInputDevice:
+            def __init__(self) -> None:
+                self.close_count = 0
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A]}
+
+            def close(self) -> None:
+                self.close_count += 1
+
+        class _FailingManagedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+
+            async def grab(self) -> None:
+                raise OSError(errno.EACCES, "denied")
+
+        raw_device = _RawInputDevice()
+        manager = DeviceManager()
+        manager._device_input = lambda _path: raw_device  # type: ignore[method-assign]
+        monkeypatch.setattr(manager, "_detect_device_types", lambda _device: ["keyboard"])
+        monkeypatch.setattr(dm, "GrabbedDevice", _FailingManagedDevice)
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", Mock())
+
+        with pytest.raises(OSError):
+            await manager.grab_device(
+                "1234:5678",
+                ["/dev/input/event0"],
+                {"source": "key_a"},
+            )
+
+        assert raw_device.close_count == 1
+
     def test_parse_action_supports_string_and_compositor_dispatch(self) -> None:
         manager = DeviceManager()
 
@@ -516,11 +582,13 @@ class TestDeviceManagerHelpers:
         assert action.rapidfire_wait_ms == 20
         assert "Ignoring rapidfire for unsupported exec action in runtime payload" in caplog.text
     @pytest.mark.asyncio
-    async def test_set_combos_skips_malformed_entries_and_parses_timeout(self) -> None:
+    async def test_set_combos_skips_malformed_entries_and_parses_timeout(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         manager = DeviceManager()
         clear_combo_runtime = AsyncMock()
         refresh_combo_timeout_watchdog = Mock()
-        monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
         monkeypatch.setattr(cdm, "refresh_combo_timeout_watchdog", refresh_combo_timeout_watchdog)
 
@@ -555,7 +623,6 @@ class TestDeviceManagerHelpers:
         assert manager.active_combos[0].steps[0].timeout_ms == 250
         clear_combo_runtime.assert_awaited_once()
         refresh_combo_timeout_watchdog.assert_called_once()
-        monkeypatch.undo()
     @pytest.mark.asyncio
     async def test_set_combos_parses_superkey_combo_action(self) -> None:
         manager = DeviceManager()
@@ -674,8 +741,27 @@ class TestDeviceManagerHelpers:
         assert manager.read_combo_capture("token") == {"event": None}
         assert manager.end_combo_capture("token") == {"status": "ok", "ended": True}
         assert manager.end_combo_capture("token") == {"status": "ok", "ended": False}
+
+    def test_combo_capture_queue_ignores_unmatched_hardware_filter(self) -> None:
+        manager = DeviceManager()
+        ready = asyncio.Event()
+        manager.begin_combo_capture("token", {"device-a"}, ready)
+
+        consumed = cdm.queue_combo_capture_event(
+            manager,
+            {"hardware_id": "device-b", "evdev": "key_a", "value": 1},
+            str_value_fn=lambda value, default: default if value is None else str(value),
+        )
+
+        assert consumed is False
+        assert ready.is_set() is False
+        assert manager.read_combo_capture("token") == {"event": None}
+
     @pytest.mark.asyncio
-    async def test_refresh_combo_timeout_watchdog_cancels_or_replaces_existing_task(self) -> None:
+    async def test_refresh_combo_timeout_watchdog_cancels_or_replaces_existing_task(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         manager = DeviceManager()
         previous = asyncio.create_task(asyncio.sleep(60))
         manager.combo_state.timeout_task = previous
@@ -691,7 +777,6 @@ class TestDeviceManagerHelpers:
         manager.combo_state.timeout_task = replacement
         manager.combo_state.engine.next_deadline = Mock(return_value=42.0)  # type: ignore[method-assign]
         combo_timeout_watchdog = AsyncMock()
-        monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(cdm, "combo_timeout_watchdog", combo_timeout_watchdog)
 
         _runtime_refresh_combo_watchdog(manager)
@@ -702,7 +787,6 @@ class TestDeviceManagerHelpers:
         manager.combo_state.timeout_task.cancel()
         await asyncio.sleep(0)
         assert manager.combo_state.timeout_task.done() is True
-        monkeypatch.undo()
     @pytest.mark.asyncio
     async def test_combo_timeout_watchdog_expires_and_clears_current_task(
         self,

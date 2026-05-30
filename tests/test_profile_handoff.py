@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 
 import evdev
 import pytest
@@ -27,6 +28,7 @@ class _DummyGrabbedDevice:
         self.cleaned = False
         self.released = False
         self.held = False
+        self.held_checks = 0
 
     def release_tracked_outputs(self) -> None:
         self.cleaned = True
@@ -35,7 +37,27 @@ class _DummyGrabbedDevice:
         self.released = True
 
     def has_held_source_inputs(self) -> bool:
+        self.held_checks += 1
         return self.held
+
+
+async def _wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout_s: float = 1.0,
+    interval_s: float = 0.005,
+) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
+    while loop.time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(interval_s)
+    assert predicate()
+
+
+def _has_key_event(keyboard: _FakeUInput, code: int, value: int) -> bool:
+    return (evdev.ecodes.EV_KEY, code, value) in keyboard.events
 
 
 async def _noop_event_callback(*_args, **_kwargs) -> None:
@@ -113,7 +135,9 @@ async def test_rapidfire_release_uses_original_action_after_switch() -> None:
     up = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
 
     await _process_event(device, down)
-    await asyncio.sleep(0.04)
+    key_a = evdev.ecodes.KEY_A
+    await _wait_until(lambda: _has_key_event(keyboard, key_a, 1))
+    await _wait_until(lambda: _has_key_event(keyboard, key_a, 0))
 
     mapping_ref["value"] = {
         "btn_side": MappingAction(
@@ -125,9 +149,8 @@ async def test_rapidfire_release_uses_original_action_after_switch() -> None:
         ),
     }
     await _process_event(device, up)
-    await asyncio.sleep(0.04)
+    await _wait_until(lambda: device.state.rapidfire_tasks == {})
 
-    key_a = evdev.ecodes.KEY_A
     key_b = evdev.ecodes.KEY_B
     key_events = [e for e in keyboard.events if e[0] == evdev.ecodes.EV_KEY]
     assert any(code == key_a and value == 1 for _, code, value in key_events)
@@ -179,7 +202,9 @@ async def test_release_device_uses_grace_period_and_cleans_outputs() -> None:
     assert result["scheduled"] is True
     assert dummy.cleaned is False
 
-    await asyncio.sleep(0.08)
+    await _wait_until(
+        lambda: dummy.released is True and "1234:5678" not in manager.grabbed_devices
+    )
 
     assert dummy.released is True
     assert "1234:5678" not in manager.grabbed_devices
@@ -200,12 +225,14 @@ async def test_release_device_retries_when_source_button_is_held() -> None:
     result = await manager.release_device("1234:5678", immediate=False, grace_s=0.03)
     assert result["scheduled"] is True
 
-    await asyncio.sleep(0.04)
+    await _wait_until(lambda: dummy.held_checks >= 1)
     assert "1234:5678" in manager.grabbed_devices
     assert dummy.released is False
 
     dummy.held = False
-    await asyncio.sleep(0.05)
+    await _wait_until(
+        lambda: dummy.released is True and "1234:5678" not in manager.grabbed_devices
+    )
 
     assert dummy.released is True
     assert "1234:5678" not in manager.grabbed_devices

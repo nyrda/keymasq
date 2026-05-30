@@ -375,13 +375,15 @@ def queue_combo_capture_event(
     if payload is None or not manager.combo_state.capture_queues:
         return False
     hardware_id = str_value_fn(payload.get("hardware_id"), "")
+    enqueued = False
     for capture_queue, hardware_ids, notify_event in manager.combo_state.capture_queues.values():
         if hardware_ids and hardware_id not in hardware_ids:
             continue
         capture_queue.put(dict(payload))
+        enqueued = True
         if notify_event is not None:
             notify_event.set()
-    return True
+    return enqueued
 
 
 async def process_runtime_combo_event(

@@ -98,6 +98,60 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
     )
 
 
+@pytest.mark.parametrize(
+    ("command_type", "data"),
+    [
+        (
+            CommandType.MACRO_PLAY_BY_NAME,
+            {
+                "name": "combo",
+                "loop_mode": "none",
+                "loop_count": 1,
+                "loop_stop_behavior": "finish_run",
+                "move_to_start": False,
+                "start_x": 9,
+                "start_y": 10,
+                "block_mouse_movement": False,
+            },
+        ),
+        (
+            CommandType.PLAY_MACRO,
+            {
+                "macro_name": "combo",
+                "loop_mode": "none",
+                "loop_count": 1,
+                "loop_stop_behavior": "finish_run",
+                "move_to_start": False,
+                "start_x": 9,
+                "start_y": 10,
+                "block_mouse_movement": False,
+            },
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_macro_play_request_runtime_options_override_stored_options(
+    daemon_testbed,
+    command_type,
+    data,
+):
+    daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    macro_store.get_meta.return_value = MACRO_RUNTIME_META
+
+    result = await daemon._handle_command(command_type, data)
+
+    assert result == {"played": True}
+    call_kwargs = device_manager.play_macro.await_args.kwargs
+    assert call_kwargs["macro_name"] == "combo"
+    assert call_kwargs["loop_mode"] == "none"
+    assert call_kwargs["loop_count"] == 1
+    assert call_kwargs["loop_stop_behavior"] == "finish_run"
+    assert call_kwargs["move_to_start"] is False
+    assert call_kwargs["start_x"] == 9
+    assert call_kwargs["start_y"] == 10
+    assert call_kwargs["block_mouse_movement"] is False
+
+
 @pytest.mark.asyncio
 async def test_macro_save_recording_claims_snapshot_before_streaming(daemon_testbed):
     daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
@@ -530,6 +584,19 @@ async def test_capture_combo_clamps_client_timeout_to_daemon_max(daemon_testbed,
         < deadline_offsets[0]
         <= daemon_capture_commands.MAX_CAPTURE_TIMEOUT_S
     )
+
+
+@pytest.mark.asyncio
+async def test_capture_combo_preserves_begin_failure_when_end_would_fail(daemon_testbed):
+    daemon, device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+    capture_manager.begin_combo.side_effect = RuntimeError("begin failed")
+    capture_manager.end.side_effect = RuntimeError("cleanup failed")
+
+    with pytest.raises(RuntimeError, match="begin failed"):
+        await daemon_capture_commands.capture_combo(daemon, {"1234:5678"}, 1.0)
+
+    device_manager.end_combo_capture.assert_called_once()
+    capture_manager.end.assert_not_called()
 
 
 @pytest.mark.asyncio

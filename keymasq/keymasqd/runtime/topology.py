@@ -69,7 +69,9 @@ async def start_topology_watcher(
         log=log,
     )
     manager.topology_state.live_snapshot = dict(snapshot)
-    manager.topology_state.reconciled_snapshot = dict(snapshot)
+    async with manager._op_lock:
+        await reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        manager.topology_state.reconciled_snapshot = dict(snapshot)
     manager.topology_state.watcher_task = asyncio_mod.create_task(
         topology_watch_loop(
             manager,

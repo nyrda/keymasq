@@ -201,6 +201,27 @@ async def test_cancel_macro_playback_interrupts_tight_toggle_loop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_empty_toggle_macro_does_not_create_playback_task() -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+
+    result = await manager.play_macro(
+        macro_events=[],
+        macro_name="empty_toggle",
+        loop_mode="toggle",
+        source_device="dev1",
+        source_button="btn_toggle",
+        trigger_value=1,
+    )
+    await asyncio.sleep(0)
+
+    assert result["status"] == "ok"
+    assert mdm.running_macro_instance_ids(manager) == []
+    assert manager.macro_state.tasks == {}
+    assert manager.macro_state.instance_meta == {}
+
+
+@pytest.mark.asyncio
 async def test_toggle_second_press_finishes_current_run_by_default() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()

@@ -212,6 +212,36 @@ class TestActionExecution:
         assert grabbed.uinput.syn.call_count == 2
 
 
+def test_release_all_keys_resets_abs_only_dynamic_gamepad_output():
+    pad2_uinput = MagicMock()
+    resolver = MagicMock(return_value=SimpleNamespace(uinput=pad2_uinput))
+
+    grabbed = GrabbedDevice(
+        path="/dev/input/event0",
+        hardware_id="test",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=lambda *args: None,
+        gamepad_output_resolver=resolver,
+    )
+    grabbed.state.held_output_abs["gamepad:pad2"] = {evdev.ecodes.ABS_X}
+
+    gdo.release_all_keys(
+        grabbed,
+        evdev_mod=evdev,
+        uinput_writer=lambda device: device,
+    )
+
+    resolver.assert_called_once_with("pad2", "release tracked gamepad:pad2")
+    pad2_uinput.write.assert_called_once_with(
+        evdev.ecodes.EV_ABS,
+        evdev.ecodes.ABS_X,
+        0,
+    )
+    pad2_uinput.syn.assert_called_once_with()
+    assert grabbed.state.held_output_abs["gamepad:pad2"] == set()
+
+
 class TestPassthrough:
     def test_relative_mouse_movement_is_suppressed_when_filter_active(self):
         passthrough = MagicMock()

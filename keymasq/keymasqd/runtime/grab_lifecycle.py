@@ -224,10 +224,12 @@ async def grab_device_unlocked(
     for path in sorted(requested_paths):
         if path in existing_by_path:
             continue
+        raw_device: Any | None = None
         try:
-            raw_device = manager._device_input(path)
+            probe_device = manager._device_input(path)
+            raw_device = probe_device
             available_count += 1
-            caps = raw_device.capabilities()
+            caps = probe_device.capabilities()
             resolved_interface = resolved_by_path.get(path)
             interface_id = str(
                 (resolved_interface.interface_id if resolved_interface else "")
@@ -254,7 +256,7 @@ async def grab_device_unlocked(
                         uinput_writer=runtime_adapters.identity_uinput_writer,
                     )
                     created_global_uinputs = True
-                detected_types = manager._detect_device_types(raw_device)
+                detected_types = manager._detect_device_types(probe_device)
                 detected_type = device_path_resolver_deps.primary_input_class_fn(
                     detected_types
                 )
@@ -298,12 +300,16 @@ async def grab_device_unlocked(
                     inspector_suppressed_ids_getter=(
                         manager.device_inspector_suppressed_hardware_ids_snapshot
                     ),
-                    inspector_suppression_disabler=manager.disable_device_inspector_suppression,
+                    inspector_suppression_disabler=(
+                        manager.disable_device_inspector_suppression
+                    ),
                     profile_activation_recorder=manager.record_profile_action,
                     profile_activation_trigger_start_observer=(
                         manager.observe_profile_trigger_start
                     ),
-                    profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+                    profile_activation_trigger_end_observer=(
+                        manager.observe_profile_trigger_end
+                    ),
                     suppress_rel_getter=lambda: manager.macro_state.mouse_rel_suppressed,
                     mouse_rel_suppression_start_callback=lambda: None,
                     diagnostics_recorder=diagnostics_recorder,
@@ -328,6 +334,9 @@ async def grab_device_unlocked(
                 if manager.verbosity >= 1:
                     log.debug("  %s - skipped (no matching mapped button names/codes)", path)
         except OSError as exc:
+            if raw_device is not None:
+                _close_device(raw_device)
+                raw_device = None
             if exc.errno in {errno_mod.ENOENT, errno_mod.ENODEV}:
                 log.info("Skipping unavailable interface for %s: %s", hardware_id, path)
                 continue
@@ -340,6 +349,9 @@ async def grab_device_unlocked(
                 runtime_outputs.destroy_global_uinputs(manager, log=log)
             raise
         except Exception as exc:
+            if raw_device is not None:
+                _close_device(raw_device)
+                raw_device = None
             log.error("Failed to grab %s: %s", path, exc)
             for device in devices:
                 if device.path in existing_by_path:
@@ -348,6 +360,9 @@ async def grab_device_unlocked(
             if created_global_uinputs:
                 runtime_outputs.destroy_global_uinputs(manager, log=log)
             raise
+        finally:
+            if raw_device is not None:
+                _close_device(raw_device)
 
     waiting_for_device = bool(
         (requested_paths or raw_interfaces) and available_count == 0 and not devices
@@ -400,6 +415,16 @@ def grabbed_paths_for_other_hardware(manager: _GrabManager, hardware_id: str) ->
                 if path:
                     paths.add(path)
     return paths
+
+
+def _close_device(device: object) -> None:
+    close = getattr(device, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception:
+        pass
 
 
 async def grab_with_retry(

@@ -232,6 +232,7 @@ def combo_runtime_signature(combo: RuntimeCombo) -> tuple[object, ...]:
         combo.action,
         bool(combo.recall_trigger_keys),
         tuple(combo.restore_trigger_keys),
+        bool(combo.match_across_devices),
     )
 
 
@@ -913,6 +914,7 @@ class DeviceManager:
                 if not steps_data:
                     continue
 
+                match_across_devices = bool(combo_dict.get("match_across_devices", False))
                 steps: list[RuntimeComboStep] = []
                 for step_data in steps_data:
                     step_dict = _json_object(step_data)
@@ -931,6 +933,9 @@ class DeviceManager:
                         source = _str_value(event_dict.get("source"), "").lower()
                         if not evdev_name:
                             continue
+                        if match_across_devices:
+                            hardware_id = ""
+                            source = ""
                         bindings.append(
                             RuntimeComboBinding(
                                 hardware_id=hardware_id,
@@ -970,6 +975,7 @@ class DeviceManager:
                         restore_trigger_keys=normalize_combo_restore_keys(
                             _json_list(combo_dict.get("restore_trigger_keys"))
                         ),
+                        match_across_devices=match_across_devices,
                     )
                 )
 

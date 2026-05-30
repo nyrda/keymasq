@@ -214,13 +214,12 @@ def test_held_bindings_for_step_respects_source_specific_and_wildcard_matching()
     wildcard_match = engine._held_bindings_for_step(wildcard_step)
     assert wildcard_match == {held_aux}
 
+    engine = ComboEngine()
     engine.prime_held_bindings({held_kbd})
     assert engine._held_bindings_for_step(exact_step) == {held_kbd}
 
     wildcard_match = engine._held_bindings_for_step(wildcard_step)
-    assert wildcard_match is not None
-    assert len(wildcard_match) == 1
-    assert next(iter(wildcard_match)) in {held_aux, held_kbd}
+    assert wildcard_match == {held_kbd}
 
 
 def test_held_bindings_for_step_respects_hardware_wildcard_matching():

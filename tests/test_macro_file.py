@@ -3,7 +3,9 @@ import stat
 from collections.abc import Iterator
 from pathlib import Path
 
-from keymasq.keymasqd.macro_file import MacroFileMeta, write_macro
+import pytest
+
+from keymasq.keymasqd.macro_file import MacroFileMeta, load_macro, write_macro
 
 
 def _open_fd_count() -> int:
@@ -45,3 +47,21 @@ def test_write_macro_closes_temp_file_descriptor(tmp_path: Path) -> None:
             [{"type": 1, "code": 30, "value": 1, "t_us": index}],
         )
         assert _open_fd_count() == baseline
+
+
+def test_write_macro_without_overwrite_preserves_existing_destination(tmp_path: Path) -> None:
+    path = tmp_path / "macro.kmacro.xz"
+    original_event = {"type": 1, "code": 30, "value": 1, "t_us": 0}
+    replacement_event = {"type": 1, "code": 31, "value": 1, "t_us": 100}
+
+    write_macro(path, MacroFileMeta(name="macro", event_count=1), [original_event])
+
+    with pytest.raises(FileExistsError):
+        write_macro(
+            path,
+            MacroFileMeta(name="macro", event_count=1),
+            [replacement_event],
+            overwrite=False,
+        )
+
+    assert load_macro(path)["events"] == [original_event]

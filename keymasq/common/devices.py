@@ -613,6 +613,7 @@ def find_all_interfaces(vendor_id: str, product_id: str) -> list[dict[str, str]]
 
     list_devices = cast(Callable[[], list[str]], evdev.list_devices)
     for path in list_devices():
+        device = None
         try:
             device = evdev.InputDevice(path)
             info = device.info
@@ -632,5 +633,11 @@ def find_all_interfaces(vendor_id: str, product_id: str) -> list[dict[str, str]]
                 )
         except Exception:
             continue
+        finally:
+            if device is not None:
+                try:
+                    device.close()
+                except Exception:
+                    pass
 
     return interfaces

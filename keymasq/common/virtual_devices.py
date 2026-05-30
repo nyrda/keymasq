@@ -24,4 +24,4 @@ def is_virtual_gamepad_output_id(output_id: str) -> bool:
         index = int(output_id.removeprefix("virtual-gamepad-"))
     except ValueError:
         return False
-    return 1 <= index <= MAX_VIRTUAL_GAMEPADS
+    return 1 <= index <= MAX_VIRTUAL_GAMEPADS and output_id == virtual_gamepad_output_id(index)

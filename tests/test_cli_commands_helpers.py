@@ -105,6 +105,35 @@ def test_list_macros_cli_json_prints_response(
     assert payload == {"status": "ok", "macros": [{"name": "combo"}]}
 
 
+def test_list_profiles_cli_prints_devices_without_profiles(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        commands,
+        "_session_request",
+        lambda payload: {
+            "status": "ok",
+            "profiles": [],
+            "devices": [
+                {
+                    "hardware_id": "kbd",
+                    "device_name": "Keyboard",
+                    "active_profiles": [],
+                    "mapping_count": 0,
+                }
+            ],
+        },
+    )
+
+    commands.list_profiles_cli()
+
+    out = capsys.readouterr().out
+    assert "No profiles found" in out
+    assert "Devices:" in out
+    assert "kbd  Keyboard" in out
+    assert "active: passthrough" in out
+
+
 def test_create_macro_cli_sends_create_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[dict[str, object]] = []
 
@@ -378,3 +407,46 @@ def test_play_adhoc_cli_print_json_does_not_send(
     payload = json.loads(capsys.readouterr().out)
     assert payload["device_types"] == ["keyboard"]
     assert len(payload["events"]) == 2
+
+
+def test_play_adhoc_cli_json_print_preserves_playback_options(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(commands, "_session_request", lambda payload: pytest.fail("sent request"))
+
+    commands.play_adhoc_cli(
+        [
+            json.dumps(
+                {
+                    "name": "demo",
+                    "device_types": ["mouse"],
+                    "events": [],
+                    "loop_mode": "count",
+                    "loop_count": 3,
+                    "loop_stop_behavior": "cancel",
+                    "move_to_start": True,
+                    "start_x": 10,
+                    "start_y": 20,
+                    "block_mouse_movement": True,
+                }
+            )
+        ],
+        input_json=True,
+        print_json=True,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "block_mouse_movement": True,
+        "device_types": ["mouse"],
+        "duration_us": 0,
+        "events": [],
+        "loop_count": 3,
+        "loop_mode": "count",
+        "loop_stop_behavior": "cancel",
+        "move_to_start": True,
+        "name": "demo",
+        "start_x": 10,
+        "start_y": 20,
+    }

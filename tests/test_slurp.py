@@ -179,6 +179,52 @@ def test_capture_point_async_returns_parsed_result_and_calls_on_ready(monkeypatc
     assert events == ["spawn", "sleep", "ready", "communicate"]
 
 
+def test_capture_point_async_terminates_process_when_on_ready_fails(monkeypatch) -> None:
+    capture = SlurpCapture()
+    capture._available = True
+    capture._slurp_path = "/usr/bin/slurp"
+
+    class _FakeProcess:
+        returncode = 0
+
+        def __init__(self) -> None:
+            self.terminated = False
+            self.communicated = False
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            self.communicated = True
+            return b"50,60\n", b""
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        async def wait(self) -> None:
+            return None
+
+    process = _FakeProcess()
+
+    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
+        return process
+
+    async def _on_ready() -> None:
+        raise RuntimeError("ready failed")
+
+    async def _sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+    monkeypatch.setattr(asyncio, "sleep", _sleep)
+
+    result = asyncio.run(
+        capture.capture_point_async(mode=SlurpMode.POINT_IMMEDIATE, on_ready=_on_ready)
+    )
+
+    assert result is None
+    assert process.terminated is True
+    assert process.communicated is False
+    assert capture._process is None
+
+
 def test_capture_point_async_returns_none_for_empty_output(monkeypatch) -> None:
     capture = SlurpCapture()
     capture._available = True
@@ -247,6 +293,77 @@ def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(monke
     assert process.killed is True
     assert process.wait_calls == 2
     assert capture._process is None
+
+
+def test_capture_point_async_timeout_does_not_clear_overlapping_capture(monkeypatch) -> None:
+    capture = SlurpCapture()
+    capture._available = True
+    capture._slurp_path = "/usr/bin/slurp"
+    capture._process = None
+
+    async def _run() -> None:
+        first_waiting = asyncio.Event()
+        allow_first_timeout = asyncio.Event()
+        second_started = asyncio.Event()
+        second_release = asyncio.Event()
+
+        class _FakeProcess:
+            returncode = 0
+
+            def __init__(self, name: str) -> None:
+                self.name = name
+                self.terminated = False
+                self.waited = False
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                if self.name == "second":
+                    second_started.set()
+                    await second_release.wait()
+                    return b"70,80\n", b""
+                return b"", b""
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+            async def wait(self) -> None:
+                self.waited = True
+
+        processes: list[_FakeProcess] = []
+
+        async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
+            process = _FakeProcess("first" if not processes else "second")
+            processes.append(process)
+            return process
+
+        async def _wait_for(awaitable: Awaitable[object], timeout: float) -> object:
+            if timeout == 0.01:
+                first_waiting.set()
+                await allow_first_timeout.wait()
+                awaitable.close()
+                raise TimeoutError
+            return await awaitable
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+        monkeypatch.setattr(asyncio, "wait_for", _wait_for)
+
+        first_task = asyncio.create_task(capture.capture_point_async(timeout=0.01))
+        await first_waiting.wait()
+        second_task = asyncio.create_task(capture.capture_point_async(timeout=5.0))
+        await second_started.wait()
+
+        allow_first_timeout.set()
+        assert await first_task is None
+        first_process, second_process = processes
+        assert first_process.terminated is True
+        assert first_process.waited is True
+        assert second_process.terminated is False
+        assert capture._process is second_process
+
+        second_release.set()
+        assert await second_task == SlurpResult(x=70, y=80)
+        assert capture._process is None
+
+    asyncio.run(_run())
 
 
 def test_capture_point_async_cancels_process_on_external_cancel(monkeypatch) -> None:

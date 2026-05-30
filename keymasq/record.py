@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 
 from keymasq.common.recording_guard import (
-    parse_unlock_expires_at,
     resolve_unlock_status,
     runtime_unlock_path,
     write_unlock_expires_at,
@@ -83,11 +82,7 @@ def main() -> None:
             if int(args.ttl) == 0:
                 expires_at = 0
             else:
-                candidate = int(time.time()) + max(1, int(args.ttl))
-                previous = parse_unlock_expires_at(runtime_path)
-                if previous is not None:
-                    candidate = max(candidate, int(previous) + 1)
-                expires_at = candidate
+                expires_at = int(time.time()) + max(1, int(args.ttl))
             _write_lease(runtime_path, expires_at)
             print(json.dumps({"status": "ok", "scope": "runtime", "expires_at": expires_at}))
             return

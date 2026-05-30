@@ -1,4 +1,5 @@
 import sys
+from math import isfinite
 
 from keymasq import __version__
 
@@ -11,8 +12,8 @@ def _positive_float(value: str) -> float:
 
 def _parse_positive_float(value: str, error_type: type[Exception] = ValueError) -> float:
     parsed = float(value)
-    if parsed <= 0:
-        raise error_type("must be greater than 0")
+    if not isfinite(parsed) or parsed <= 0:
+        raise error_type("must be a finite number greater than 0")
     return parsed
 
 
@@ -159,7 +160,7 @@ def main() -> None:
     diagnostics_parser.add_argument("state", choices=["on", "off"], help="Enable or disable")
     diagnostics_parser.add_argument(
         "--interval",
-        type=float,
+        type=_positive_float,
         default=5.0,
         help="Logging interval in seconds when enabled",
     )

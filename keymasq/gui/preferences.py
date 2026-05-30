@@ -78,6 +78,24 @@ def load_hidden_tabs() -> set[str]:
     return set(_clean_string_list(data.get("hidden_tabs")))
 
 
+def load_selected_tab() -> str:
+    data = _load_settings()
+    selected_tab = data.get("selected_tab")
+    if isinstance(selected_tab, str):
+        return selected_tab.strip()
+    return ""
+
+
+def save_selected_tab(selected_tab: str) -> None:
+    data = _load_settings()
+    cleaned = selected_tab.strip()
+    if cleaned:
+        data["selected_tab"] = cleaned
+    else:
+        data.pop("selected_tab", None)
+    _save_settings(data)
+
+
 def save_tab_layout(tab_order: list[str], hidden_tabs: set[str]) -> None:
     data = _load_settings()
     cleaned_order = _clean_string_list(tab_order)

@@ -396,6 +396,36 @@ async def test_update_recording_settings_prunes_stale_device_overrides() -> None
 
 
 @pytest.mark.asyncio
+async def test_update_recording_settings_clears_overrides_when_cache_is_empty() -> None:
+    manager = SessionManager()
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {
+            "physical:/dev/input/by-id/stale-mouse": True,
+        },
+    }
+    manager.recording_state.devices_cache_ready = True
+    manager.recording_state.devices_cache = []
+
+    session_recording_module.update_recording_settings(
+        manager,
+        {
+            "device_overrides": {
+                "physical:/dev/input/by-id/stale-mouse": True,
+            }
+        },
+    )
+
+    assert manager.recording_state.settings["device_overrides"] == {}
+
+    save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
+    if save_task is not None:
+        await save_task
+
+
+@pytest.mark.asyncio
 async def test_start_recording_blocks_when_macro_save_is_pending() -> None:
     manager = SessionManager()
     manager.send_notification = Mock()  # type: ignore[method-assign]

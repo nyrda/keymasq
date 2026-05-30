@@ -1148,17 +1148,19 @@ def prune_stale_recording_device_overrides(
     if not manager.recording_state.devices_cache_ready:
         return
 
+    settings = settings if settings is not None else manager.recording_state.settings
     known_ids = {
         recording_id
         for device in manager.recording_state.devices_cache
         if (recording_id := _recording_device_id(device))
     }
     if not known_ids:
+        settings["device_overrides"] = {}
         return
 
-    settings = settings or manager.recording_state.settings
-    overrides = json_object(settings.get("device_overrides")) or {}
+    overrides = json_object(settings.get("device_overrides"))
     if not overrides:
+        settings["device_overrides"] = {}
         return
 
     settings["device_overrides"] = {

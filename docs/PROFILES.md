@@ -310,6 +310,7 @@ In the GUI:
 - enabling or disabling a profile affects every device layer in that profile
 - active-state displays show the active profiles contributing to that device
 - `Passthrough` removes the mapping from the selected profile so lower profiles can still apply one
+- the app remembers the last selected device or combo tab and restores it on launch
 - right-clicking the device name in a device tab lets you edit the saved display
   name; hardware IDs, mappings, and device identity are unchanged
 - deleting a button from the device tab removes it from the hardware config and clears saved mappings for that button across profiles

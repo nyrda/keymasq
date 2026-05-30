@@ -23,7 +23,9 @@ from keymasq.gui.preferences import (
     AppearanceMode,
     load_appearance_mode,
     load_hidden_tabs,
+    load_selected_tab,
     load_tab_order,
+    save_selected_tab,
     save_tab_layout,
 )
 from keymasq.gui.session_client import (
@@ -123,11 +125,14 @@ class MainWindow(Adw.ApplicationWindow):
         self._destroyed = False
         self._tab_order = load_tab_order()
         self._hidden_tabs = load_hidden_tabs()
+        self._selected_tab = load_selected_tab()
         self._device_pages: dict[str, Adw.TabPage] = {}
         self._combo_page: Adw.TabPage | None = None
         self._placeholder_page: Adw.TabPage | None = None
         self._allow_tab_page_close = False
         self._suppress_tab_layout_save = False
+        self._suppress_selected_tab_save = True
+        self._initial_tab_selection_pending = True
         self.combo_tab: ComboTab | None = None
         self._device_inspector_windows: dict[str, Gtk.Window] = {}
         self._combo_inspector_window: Gtk.Window | None = None
@@ -136,6 +141,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.set_default_size(760, 1000)
 
         self._setup_content()
+        self._suppress_selected_tab_save = False
         self._start_startup_probe()
 
         if not self.demo_mode:
@@ -320,6 +326,13 @@ class MainWindow(Adw.ApplicationWindow):
             return _COMBO_TAB_ID
         return None
 
+    def _selected_tab_for_child(self, child: Gtk.Widget | None) -> str | None:
+        if isinstance(child, DeviceTab):
+            return child.device.hardware_id
+        if isinstance(child, ComboTab):
+            return _COMBO_TAB_ID
+        return None
+
     def _current_tab_order(self) -> list[str]:
         order: list[str] = []
         for page in self._iter_tab_pages():
@@ -383,6 +396,41 @@ class MainWindow(Adw.ApplicationWindow):
             hardware_id = tab_id.removeprefix(_DEVICE_TAB_PREFIX)
             return self._device_pages.get(hardware_id)
         return None
+
+    def _page_for_selected_tab(self, selected_tab: str) -> Adw.TabPage | None:
+        selected_tab = selected_tab.strip()
+        if selected_tab == _COMBO_TAB_ID:
+            return self._combo_page
+        return self._device_pages.get(selected_tab)
+
+    def _default_selected_tab_page(self) -> Adw.TabPage | None:
+        for tab_id in self._desired_visible_tab_order():
+            page = self._page_for_tab_id(tab_id)
+            if page is not None:
+                return page
+
+        for page in self._iter_tab_pages():
+            if self._tab_id_for_child(page.get_child()) is not None:
+                return page
+        return None
+
+    def _select_saved_or_default_tab(self) -> None:
+        page = self._page_for_selected_tab(self._selected_tab)
+        if page is None:
+            page = self._default_selected_tab_page()
+        if page is None:
+            self._initial_tab_selection_pending = False
+            return
+
+        self.tab_view.set_selected_page(page)
+        selected_tab = self._selected_tab_for_child(page.get_child())
+        if selected_tab is None:
+            self._initial_tab_selection_pending = False
+            return
+
+        self._selected_tab = selected_tab
+        save_selected_tab(selected_tab)
+        self._initial_tab_selection_pending = False
 
     def _default_visible_tab_order(self) -> list[str]:
         device_ids: list[str] = []
@@ -517,6 +565,14 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_selected_tab_changed(self, _tab_view, _pspec) -> None:
         page = self.tab_view.get_selected_page()
         child = page.get_child() if page is not None else None
+        selected_tab = self._selected_tab_for_child(child)
+        if (
+            selected_tab is not None
+            and not self._suppress_selected_tab_save
+            and not self._initial_tab_selection_pending
+        ):
+            self._selected_tab = selected_tab
+            save_selected_tab(selected_tab)
         if isinstance(child, ProfileManagedTab):
             child.refresh_profiles(
                 preferred_profile_name=self._selected_profile_name,
@@ -1245,12 +1301,16 @@ class MainWindow(Adw.ApplicationWindow):
 
         if not devices:
             self._set_empty_placeholder_state()
+            self._select_saved_or_default_tab()
             return
 
         self._close_tab_page(self._page_for_child(self.placeholder))
         self._placeholder_page = None
 
+        suppress_layout_was = self._suppress_tab_layout_save
+        suppress_selected_was = self._suppress_selected_tab_save
         self._suppress_tab_layout_save = True
+        self._suppress_selected_tab_save = True
         try:
             for device in self._order_devices_for_tabs(devices):
                 if device.hardware_id in self._device_pages:
@@ -1258,7 +1318,9 @@ class MainWindow(Adw.ApplicationWindow):
                 self._add_device_tab(device, persist_order=False)
             self._reorder_visible_pages_to_saved_order()
         finally:
-            self._suppress_tab_layout_save = False
+            self._suppress_tab_layout_save = suppress_layout_was
+            self._suppress_selected_tab_save = suppress_selected_was
+        self._select_saved_or_default_tab()
 
     def _load_demo_devices(self) -> None:
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
@@ -1287,9 +1349,15 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._close_tab_page(self._page_for_child(self.placeholder))
         self._placeholder_page = None
-        if demo_device.hardware_id not in self._device_pages:
-            self._add_device_tab(demo_device, persist_order=False)
-        self._reorder_visible_pages_to_saved_order()
+        suppress_selected_was = self._suppress_selected_tab_save
+        self._suppress_selected_tab_save = True
+        try:
+            if demo_device.hardware_id not in self._device_pages:
+                self._add_device_tab(demo_device, persist_order=False)
+            self._reorder_visible_pages_to_saved_order()
+        finally:
+            self._suppress_selected_tab_save = suppress_selected_was
+        self._select_saved_or_default_tab()
 
     def _setup_combo_tab(self) -> None:
         if _COMBO_TAB_ID in self._hidden_tabs:

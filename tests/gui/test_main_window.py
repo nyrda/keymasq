@@ -518,6 +518,124 @@ class TestMainWindow:
         assert window._current_tab_order() == expected_order
         assert window.tab_view.get_n_pages() == 4
 
+    def test_main_window_persists_selected_tab(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.preferences import load_selected_tab
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        devices = [
+            HardwareConfig(
+                vendor_id="1234",
+                product_id=product_id,
+                name=name,
+                evdev_devices=[],
+                buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+            )
+            for product_id, name in (
+                ("5678", "Mouse One"),
+                ("5679", "Mouse Two"),
+            )
+        ]
+        window._apply_loaded_devices(devices)
+
+        second_page = window._page_for_hardware_id(devices[1].hardware_id)
+        combo_page = window._page_for_child(window.combo_tab)
+        assert second_page is not None
+        assert combo_page is not None
+
+        window.tab_view.set_selected_page(second_page)
+
+        assert load_selected_tab() == devices[1].hardware_id
+
+        window.tab_view.set_selected_page(combo_page)
+
+        assert load_selected_tab() == "combos"
+
+    def test_main_window_applies_saved_selected_device_tab_on_load(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.preferences import save_selected_tab, save_tab_layout
+        from keymasq.gui.window import MainWindow
+
+        devices = [
+            HardwareConfig(
+                vendor_id="1234",
+                product_id=product_id,
+                name=name,
+                evdev_devices=[],
+                buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+            )
+            for product_id, name in (
+                ("5678", "Mouse One"),
+                ("5679", "Mouse Two"),
+            )
+        ]
+        save_tab_layout(
+            [f"device:{devices[0].hardware_id}", "combos", f"device:{devices[1].hardware_id}"],
+            set(),
+        )
+        save_selected_tab(devices[1].hardware_id)
+
+        window = MainWindow(demo_mode=True)
+        window._apply_loaded_devices(devices)
+
+        assert window.tab_view.get_selected_page() is window._page_for_hardware_id(
+            devices[1].hardware_id
+        )
+
+    def test_main_window_applies_saved_selected_combo_tab_on_load(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.preferences import save_selected_tab, save_tab_layout
+        from keymasq.gui.window import MainWindow
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        save_tab_layout([f"device:{device.hardware_id}", "combos"], set())
+        save_selected_tab("combos")
+
+        window = MainWindow(demo_mode=True)
+        window._apply_loaded_devices([device])
+
+        assert window.combo_tab is not None
+        assert window.tab_view.get_selected_page() is window._page_for_child(window.combo_tab)
+
+    def test_main_window_invalid_selected_tab_falls_back_to_saved_order(self, temp_config_dir):
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.gui.preferences import load_selected_tab, save_selected_tab, save_tab_layout
+        from keymasq.gui.window import MainWindow
+
+        devices = [
+            HardwareConfig(
+                vendor_id="1234",
+                product_id=product_id,
+                name=name,
+                evdev_devices=[],
+                buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+            )
+            for product_id, name in (
+                ("5678", "Mouse One"),
+                ("5679", "Mouse Two"),
+            )
+        ]
+        save_tab_layout(
+            [f"device:{devices[1].hardware_id}", "combos", f"device:{devices[0].hardware_id}"],
+            set(),
+        )
+        save_selected_tab("missing-hardware")
+
+        window = MainWindow(demo_mode=True)
+        window._apply_loaded_devices(devices)
+
+        assert window.tab_view.get_selected_page() is window._page_for_hardware_id(
+            devices[1].hardware_id
+        )
+        assert load_selected_tab() == devices[1].hardware_id
+
     def test_main_window_hides_and_restores_combo_tab_from_menu(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.preferences import load_hidden_tabs, load_tab_order

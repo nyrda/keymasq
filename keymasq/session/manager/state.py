@@ -14,9 +14,6 @@ def default_recording_settings() -> JsonObject:
         "include_mouse_movement": False,
         "include_mouse_clicks": False,
         "record_start_position": False,
-        "record_keyboard": True,
-        "record_mouse": False,
-        "record_gamepad": True,
         "device_overrides": {},
     }
 

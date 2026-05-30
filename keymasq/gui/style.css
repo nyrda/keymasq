@@ -31,7 +31,6 @@ button.button-card-mapped-inactive {
   padding: 0;
   min-width: 0;
   min-height: 0;
-  text-align: left;
 }
 
 button.button-card-passthrough label,
@@ -65,19 +64,16 @@ button.button-card-mapped-inactive label {
   background: alpha(@accent_color, 0.08);
   border-left-color: @accent_color;
   opacity: 0.82;
-  cursor: pointer;
 }
 
 .button-card-mapped-active:hover {
   background: alpha(@success_color, 0.22);
   border-left-color: @success_color;
-  cursor: pointer;
 }
 
 .button-card-mapped-inactive:hover {
   background: alpha(@warning_color, 0.18);
   border-left-color: @warning_color;
-  cursor: pointer;
 }
 
 .button-card-passthrough:active {
@@ -200,11 +196,6 @@ button.button-card-mapped-inactive label {
 
 .combo-row:hover {
   background: alpha(@accent_color, 0.08);
-  cursor: pointer;
-}
-
-.combo-row-readonly:hover {
-  cursor: default;
 }
 
 .combo-row:active {
@@ -276,10 +267,6 @@ button.square-key-button {
 /* Diagnostics stat cells: tabular figures for column alignment */
 .diagnostics-stat {
   font-feature-settings: "tnum" 1;
-}
-
-.inspector-control-card:hover {
-  cursor: default;
 }
 
 .inspector-header-title {

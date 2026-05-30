@@ -887,7 +887,7 @@ class DeviceTab(ProfileManagedTab):
                 if col >= max_cols:
                     col = 0
                     r += 1
-                parent.append(grid)
+            parent.append(grid)
 
         if kind == "gamepad":
             buttons_by_id = {b.id: b for b in self.device.buttons}

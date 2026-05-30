@@ -2007,39 +2007,33 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
     def _build_macro_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        toolbar_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        toolbar_row.set_margin_top(8)
-        toolbar_row.set_margin_bottom(4)
-        toolbar_row.set_margin_start(12)
-        toolbar_row.set_margin_end(12)
-        toolbar_row.set_halign(Gtk.Align.START)
-
-        refresh_btn = Gtk.Button(label="Refresh")
-        refresh_btn.add_css_class("flat")
-        refresh_btn.connect("clicked", self._on_macro_refresh)
-        toolbar_row.append(refresh_btn)
-        outer.append(toolbar_row)
-
         controls_label = Gtk.Label(label="Macro Controls")
         controls_label.add_css_class("dim-label")
         controls_label.set_halign(Gtk.Align.CENTER)
-        controls_label.set_margin_top(4)
+        controls_label.set_margin_top(12)
+        controls_label.set_margin_bottom(8)
         outer.append(controls_label)
 
         controls_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         controls_row.set_halign(Gtk.Align.CENTER)
         controls_row.set_margin_bottom(8)
 
-        toggle_rec_btn = self._create_key_button(
-            "Toggle Recording", "start_macro_recording", width=2.0
+        toggle_rec_content = Adw.ButtonContent(
+            icon_name="media-record-symbolic", label="Toggle Recording"
         )
+        toggle_rec_content.add_css_class("macro-record-icon")
+        toggle_rec_btn = Gtk.Button()
+        toggle_rec_btn.set_child(toggle_rec_content)
         toggle_rec_btn.connect("clicked", self._on_macro_special_action_clicked, "toggle_recording")
         toggle_rec_btn.set_tooltip_text("Start recording when idle, stop when recording is active")
         controls_row.append(toggle_rec_btn)
 
-        cancel_macro_btn = self._create_key_button(
-            "Cancel Playback", "cancel_macro_playback", width=2.0
+        cancel_macro_content = Adw.ButtonContent(
+            icon_name="media-playback-stop-symbolic", label="Cancel Playback"
         )
+        cancel_macro_content.add_css_class("macro-stop-icon")
+        cancel_macro_btn = Gtk.Button()
+        cancel_macro_btn.set_child(cancel_macro_content)
         cancel_macro_btn.connect(
             "clicked", self._on_macro_special_action_clicked, "cancel_macro_playback"
         )
@@ -2831,9 +2825,6 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
                 self._clear_macro_selection()
         if not self._selected_macro:
             self._clear_macro_selection()
-
-    def _on_macro_refresh(self, btn) -> None:
-        self._load_macro_list()
 
     def _after_macro_search_filter_changed(self) -> None:
         selected_row = self._macro_listbox.get_selected_row()

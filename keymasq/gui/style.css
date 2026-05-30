@@ -258,6 +258,15 @@ button.key-button {
   min-height: 0;
 }
 
+/* Macro Controls: tint the record/stop glyphs so they are not stark white */
+.macro-record-icon image {
+  color: @error_color;
+}
+
+.macro-stop-icon image {
+  opacity: 0.7;
+}
+
 button.square-key-button {
   padding: 0;
   min-width: 0;

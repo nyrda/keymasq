@@ -46,6 +46,42 @@ class TestProfileManager:
         assert 'activation_macro = "game_enter"' in content
         assert 'deactivation_macro = "game_leave"' in content
 
+    def test_profile_macro_action_accepts_macro_name_alias(self, temp_config_dir):
+        profile_path = Path(temp_config_dir) / "profiles" / "macro-alias.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Macro Alias"
+enabled = true
+is_permanent = false
+priority = 0
+notify_on_activation = true
+created_at = "2026-05-29T12:00:00"
+
+[devices."1234:5678"]
+always_grab_all = false
+
+[devices."1234:5678".mapping.btn_side]
+action = "macro"
+macro_name = "Example"
+""",
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        profile = manager.get_profile("Macro Alias")
+
+        assert profile is not None
+        action = profile.config.device_layers["1234:5678"].mappings["btn_side"]
+        assert action.action_type == ActionType.MACRO
+        assert action.macro_name == "Example"
+
+        manager.save_profile(profile.config)
+
+        content = profile.path.read_text(encoding="utf-8")
+        assert 'target = "Example"' in content
+        assert 'macro_name = "Example"' in content
+
     def test_multiple_profiles_global(self, temp_config_dir, sample_profile_config):
         manager = ProfileManager()
         manager.save_profile(sample_profile_config)

@@ -175,28 +175,7 @@ class X11Listener(WindowListener):
     @classmethod
     async def probe_available(cls, dbus: SessionDBus | None = None) -> bool:
         _ = dbus
-        if not has_x11_support():
-            return False
-
-        for display_name in cls._candidate_displays():
-            if not display_name.startswith(":"):
-                continue
-
-            suffix = display_name.split(":", 1)[1].split(".", 1)[0]
-            if not suffix.isdigit():
-                continue
-
-            socket_path = f"/tmp/.X11-unix/X{suffix}"
-            try:
-                connect_coro = asyncio.open_unix_connection(path=socket_path)
-                _reader, writer = await asyncio.wait_for(connect_coro, timeout=0.2)
-                writer.close()
-                await writer.wait_closed()
-                return True
-            except Exception:
-                continue
-
-        return False
+        return await asyncio.to_thread(cls.pick_display_name) is not None
 
     async def start(self) -> None:
         if not has_x11_support():

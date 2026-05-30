@@ -31,6 +31,24 @@ async def test_hyprland_dispatch_set_cursor_position_uses_special_dispatcher() -
     listener.set_cursor_position.assert_awaited_once_with(123, 456)
 
 
+@pytest.mark.asyncio
+async def test_hyprland_get_active_window_normalizes_tags() -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener._send_cmd = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            b'{"class":"term","title":"Shell","tags":["one",2,true,null]}',
+            b'{"class":"term","title":"Shell","tags":"not-a-list"}',
+        ]
+    )
+
+    assert await listener.get_active_window() == (
+        "term",
+        "Shell",
+        ["one", "2", "True", "None"],
+    )
+    assert await listener.get_active_window() == ("term", "Shell", [])
+
+
 class _FakeWriter:
     def __init__(self) -> None:
         self.closed = False

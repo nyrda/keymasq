@@ -26,6 +26,7 @@ class CaptureRuntimeState:
     locks: set[str] = field(default_factory=set)
     resume_profiles: dict[str, list[str]] = field(default_factory=dict)
     tokens: dict[str, str] = field(default_factory=dict)
+    owner_writer_ids: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import runpy
+import shlex
+import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -236,28 +238,84 @@ async def test_action_handler_execute_command_kills_timed_out_process(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     handler = ActionHandler()
-    process = _FakeProcess(communicate=lambda: asyncio.sleep(360))
-    timeouts: list[float] = []
+    communicate_calls = 0
+
+    async def _communicate() -> tuple[bytes, bytes]:
+        nonlocal communicate_calls
+        communicate_calls += 1
+        if communicate_calls == 1:
+            await asyncio.Event().wait()
+        return b"", b""
+
+    process = _FakeProcess(communicate=_communicate)
 
     async def _create_subprocess_shell(*_args: Any, **_kwargs: Any) -> _FakeProcess:
         return process
 
-    async def _wait_for(_awaitable: Any, timeout: float) -> Any:
-        timeouts.append(timeout)
-        _awaitable.close()
-        raise TimeoutError
-
     monkeypatch.setattr(asyncio, "create_subprocess_shell", _create_subprocess_shell)
-    monkeypatch.setattr(asyncio, "wait_for", _wait_for)
 
     with caplog.at_level(logging.ERROR):
-        result = await handler.execute_command("sleep 999", timeout_s=0.25)
+        result = await handler.execute_command("sleep 999", timeout_s=0.001)
 
     assert result == -1
     assert process.killed is True
-    assert timeouts == [0.25]
-    assert process.waited is True
-    assert "Command timed out after 0.25s, killing: sleep 999" in caplog.text
+    assert process.waited is False
+    assert communicate_calls == 2
+    assert "Command timed out after 0.001s, killing: sleep 999" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_action_handler_execute_command_drains_after_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = ActionHandler()
+    started = asyncio.Event()
+    communicate_calls = 0
+
+    async def _communicate() -> tuple[bytes, bytes]:
+        nonlocal communicate_calls
+        communicate_calls += 1
+        if communicate_calls == 1:
+            started.set()
+            await asyncio.Event().wait()
+        return b"", b""
+
+    process = _FakeProcess(communicate=_communicate)
+
+    async def _create_subprocess_shell(*_args: Any, **_kwargs: Any) -> _FakeProcess:
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", _create_subprocess_shell)
+
+    task = asyncio.create_task(handler.execute_command("sleep 999"))
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert process.killed is True
+    assert process.waited is False
+    assert communicate_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_action_handler_execute_command_timeout_drains_pipe_backed_stdout() -> None:
+    handler = ActionHandler()
+    code = (
+        "import sys, time; "
+        "sys.stdout.buffer.write(b'x' * 1048576); "
+        "sys.stdout.flush(); "
+        "time.sleep(10)"
+    )
+    cmd = f"exec {shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+
+    result = await asyncio.wait_for(
+        handler.execute_command(cmd, timeout_s=0.05),
+        timeout=3.0,
+    )
+
+    assert result == -1
 
 
 @pytest.mark.asyncio

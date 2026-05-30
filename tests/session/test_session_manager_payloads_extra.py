@@ -392,6 +392,7 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
             "dispatcher": "workspace",
             "args": "3",
         },
+        "match_across_devices": False,
         "recall_trigger_keys": True,
         "restore_trigger_keys": ["key_a"],
     }
@@ -413,6 +414,38 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
     assert manager.exec_state.combo_exec_refs == {1}
     assert manager.exec_state.exec_refs[1].cmd == "echo tap"
     assert manager.exec_state.exec_refs[1].owner == "combo"
+
+
+def test_combo_payload_and_signature_include_match_across_devices() -> None:
+    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+    from keymasq.session.manager import payloads
+    from keymasq.session.profiles import ResolvedCombo
+
+    manager = _manager_with_superkeys()
+    base_combo = ResolvedCombo(
+        id="any-device",
+        name="Any Device",
+        steps=[ComboStep(events=[ComboEvent(evdev="key_f13")])],
+        action=MappingAction(action_type=ActionType.SUPPRESS),
+        match_across_devices=False,
+    )
+    any_device_combo = ResolvedCombo(
+        id="any-device",
+        name="Any Device",
+        steps=[ComboStep(events=[ComboEvent(evdev="key_f13")])],
+        action=MappingAction(action_type=ActionType.SUPPRESS),
+        match_across_devices=True,
+    )
+
+    base_signature = payloads.resolved_combos_signature(manager, [base_combo])
+    any_device_signature = payloads.resolved_combos_signature(manager, [any_device_combo])
+    combo_payload = payloads.resolved_combo_payload(manager, any_device_combo)
+
+    assert base_signature != any_device_signature
+    assert '"match_across_devices":false' in base_signature
+    assert '"match_across_devices":true' in any_device_signature
+    assert combo_payload is not None
+    assert combo_payload["match_across_devices"] is True
 
 
 def test_payload_signatures_and_log_view_are_stable() -> None:

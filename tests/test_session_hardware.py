@@ -1,7 +1,9 @@
 import logging
+from typing import BinaryIO
 
 import pytest
 
+import keymasq.session.hardware as hardware_module
 from keymasq.common.models import (
     AnalogAxisDefinition,
     AnalogInputDefinition,
@@ -248,6 +250,66 @@ def test_hardware_manager_preserves_explicit_hardware_id(temp_config_dir) -> Non
 
     reloaded = HardwareManager().get_hardware(config.hardware_id)
     assert reloaded == config
+
+
+def test_hardware_manager_suffixes_colliding_sanitized_hardware_ids(temp_config_dir) -> None:
+    manager = HardwareManager()
+    first = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="USB Path",
+        evdev_devices=[],
+        buttons=[],
+        id="1234:5678@usb/foo",
+    )
+    second = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="USB Underscore",
+        evdev_devices=[],
+        buttons=[],
+        id="1234:5678@usb_foo",
+    )
+
+    manager.save_hardware(first)
+    manager.save_hardware(second)
+
+    saved_names = sorted(path.name for path in (temp_config_dir / "hardware").glob("*.toml"))
+    assert saved_names == ["1234_5678_usb_foo.toml", "1234_5678_usb_foo_2.toml"]
+
+    reloaded = HardwareManager()
+    assert reloaded.get_hardware(first.hardware_id) == first
+    assert reloaded.get_hardware(second.hardware_id) == second
+
+    assert reloaded.delete_hardware(second.hardware_id) is True
+    assert sorted(path.name for path in (temp_config_dir / "hardware").glob("*.toml")) == [
+        "1234_5678_usb_foo.toml"
+    ]
+    assert HardwareManager().get_hardware(first.hardware_id) == first
+
+
+def test_hardware_manager_cleans_reserved_path_when_save_fails(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = HardwareManager()
+    config = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Broken Save",
+        evdev_devices=[],
+        buttons=[],
+    )
+
+    def fail_dump(_data: object, _file: BinaryIO) -> None:
+        raise RuntimeError("dump failed")
+
+    monkeypatch.setattr(hardware_module.tomli_w, "dump", fail_dump)
+
+    with pytest.raises(RuntimeError, match="dump failed"):
+        manager.save_hardware(config)
+
+    assert not (temp_config_dir / "hardware" / "1234_5678.toml").exists()
 
 
 def test_hardware_manager_rejects_mismatched_explicit_hardware_id(

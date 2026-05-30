@@ -56,6 +56,11 @@ def _wl_message(object_id: int, opcode: int, payload: bytes = b"") -> bytes:
     return struct.pack("<II", object_id, ((size & 0xFFFF) << 16) | (opcode & 0xFFFF)) + payload
 
 
+def _wl_message_object_opcode(message: bytes) -> tuple[int, int]:
+    object_id, size_opcode = struct.unpack_from("<II", message, 0)
+    return object_id, size_opcode & 0xFFFF
+
+
 def _fake_send_request_recorder(fake_socket: _FakeWaylandSocket) -> Any:
     async def send_request(object_id: int, opcode: int, payload: bytes) -> None:
         fake_socket.sendall(_wl_message(object_id, opcode, payload))
@@ -355,8 +360,10 @@ def test_ext_wayland_client_dispatches_registry_and_toplevel_events() -> None:
     assert fake_socket.sent
 
     client._handle_list_event(client._list_id, 0, struct.pack("<I", 40))
-    client._handle_toplevel_event(40, 2, _encode_string("Terminal"))
-    client._handle_toplevel_event(40, 3, _encode_string("org.example.Terminal"))
+    asyncio.run(client._handle_toplevel_event(40, 2, _encode_string("Terminal")))
+    asyncio.run(
+        client._handle_toplevel_event(40, 3, _encode_string("org.example.Terminal"))
+    )
     tracker.update_state("40", [2])
     assert tracker.get_active_window() == ("org.example.Terminal", "Terminal")
 
@@ -365,10 +372,34 @@ def test_ext_wayland_client_dispatches_registry_and_toplevel_events() -> None:
     client._handle_callback_event(99, 0)
     assert 99 not in client._sync_waiters
 
-    client._handle_toplevel_event(40, 0, b"")
+    asyncio.run(client._handle_toplevel_event(40, 0, b""))
     assert "40" not in tracker._windows
+    assert 40 not in client._objects
+    assert 40 not in client._toplevel_handles
+    assert _wl_message(40, 0) in fake_socket.sent
     client._handle_display_event(1, struct.pack("<I", 40))
     asyncio.run(client.stop())
+    assert fake_socket.closed is True
+
+
+def test_ext_wayland_client_stop_destroys_handles_before_list() -> None:
+    tracker = ExtForeignToplevelListTracker()
+    client = ExtForeignToplevelListWaylandClient(tracker)
+    fake_socket = _FakeWaylandSocket()
+    client._socket = fake_socket
+    client._send_request = _fake_send_request_recorder(fake_socket)
+
+    list_id = client._allocate_object_id(EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE)
+    handle_id = client._allocate_object_id("ext_foreign_toplevel_handle_v1")
+    client._list_id = list_id
+    client._toplevel_handles.add(handle_id)
+
+    asyncio.run(client.stop())
+
+    assert [_wl_message_object_opcode(message) for message in fake_socket.sent] == [
+        (handle_id, 0),
+        (list_id, 1),
+    ]
     assert fake_socket.closed is True
 
 
@@ -391,13 +422,22 @@ def test_wlr_wayland_client_dispatches_manager_and_toplevel_events() -> None:
     assert client._manager_id is not None
 
     client._handle_manager_event(client._manager_id, 0, struct.pack("<I", 50))
-    client._handle_toplevel_event(50, 0, _encode_string("Editor"))
-    client._handle_toplevel_event(50, 1, _encode_string("code"))
-    client._handle_toplevel_event(50, 4, _encode_array([WLR_TOPLEVEL_STATE_ACTIVATED]))
+    asyncio.run(client._handle_toplevel_event(50, 0, _encode_string("Editor")))
+    asyncio.run(client._handle_toplevel_event(50, 1, _encode_string("code")))
+    asyncio.run(
+        client._handle_toplevel_event(
+            50,
+            4,
+            _encode_array([WLR_TOPLEVEL_STATE_ACTIVATED]),
+        )
+    )
     assert tracker.get_active_window() == ("code", "Editor")
 
-    client._handle_toplevel_event(50, 6, b"")
+    asyncio.run(client._handle_toplevel_event(50, 6, b""))
     assert tracker.get_active_window() == ("", "")
+    assert 50 not in client._objects
+    assert 50 not in client._toplevel_handles
+    assert _wl_message(50, 7) in fake_socket.sent
     asyncio.run(client.stop())
     assert fake_socket.closed is True
 
@@ -430,8 +470,10 @@ def test_cosmic_wayland_client_links_ext_handles_to_cosmic_state() -> None:
 
     asyncio.run(client._handle_list_event(client._list_id, 0, struct.pack("<I", 70)))
     cosmic_handle = client._ext_to_cosmic[70]
-    client._handle_toplevel_event(70, 2, _encode_string("Settings"))
-    client._handle_toplevel_event(70, 3, _encode_string("com.system76.Settings"))
+    asyncio.run(client._handle_toplevel_event(70, 2, _encode_string("Settings")))
+    asyncio.run(
+        client._handle_toplevel_event(70, 3, _encode_string("com.system76.Settings"))
+    )
     client._handle_cosmic_toplevel_event(cosmic_handle, 8, _encode_array([2]))
     assert tracker.get_active_window() == ("com.system76.Settings", "Settings")
 
@@ -441,10 +483,42 @@ def test_cosmic_wayland_client_links_ext_handles_to_cosmic_state() -> None:
         "Settings",
     )
 
-    client._handle_display_event(1, struct.pack("<I", 70))
+    asyncio.run(client._handle_toplevel_event(70, 0, b""))
     assert 70 not in client._toplevel_handles
+    assert 70 not in client._objects
     assert cosmic_handle not in client._cosmic_handles
+    assert cosmic_handle not in client._objects
+    assert _wl_message(cosmic_handle, 0) in fake_socket.sent
+    assert _wl_message(70, 0) in fake_socket.sent
     asyncio.run(client.stop())
+    assert fake_socket.closed is True
+
+
+def test_cosmic_wayland_client_stop_destroys_handles_before_list() -> None:
+    tracker = ExtForeignToplevelListTracker()
+    client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
+    fake_socket = _FakeWaylandSocket()
+    client._socket = fake_socket
+    client._send_request = _fake_send_request_recorder(fake_socket)
+
+    list_id = client._allocate_object_id(cosmic_client_module.EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE)
+    cosmic_info_id = client._allocate_object_id(cosmic_client_module.COSMIC_TOPLEVEL_INFO_INTERFACE)
+    handle_id = client._allocate_object_id("ext_foreign_toplevel_handle_v1")
+    cosmic_handle_id = client._allocate_object_id("zcosmic_toplevel_handle_v1")
+    client._list_id = list_id
+    client._cosmic_info_id = cosmic_info_id
+    client._toplevel_handles.add(handle_id)
+    client._cosmic_handles.add(cosmic_handle_id)
+    client._ext_to_cosmic[handle_id] = cosmic_handle_id
+    client._cosmic_to_ext[cosmic_handle_id] = handle_id
+
+    asyncio.run(client.stop())
+
+    assert [_wl_message_object_opcode(message) for message in fake_socket.sent] == [
+        (cosmic_handle_id, 0),
+        (handle_id, 0),
+        (list_id, 1),
+    ]
     assert fake_socket.closed is True
 
 
@@ -511,6 +585,63 @@ def test_wayland_clients_require_display_environment(monkeypatch) -> None:
                 raise AssertionError("client.start() unexpectedly succeeded")
 
     asyncio.run(start_clients())
+
+
+def test_wayland_clients_close_socket_when_start_fails_missing_global() -> None:
+    async def run_client(client: Any, expected_error: str, socket_name: str) -> None:
+        with _short_socket_path(socket_name) as socket_path:
+            disconnected = asyncio.Event()
+
+            async def handle_client(
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+            ) -> None:
+                await reader.read(4096)
+                writer.write(_wl_message(3, 0))
+                await writer.drain()
+                await reader.read(4096)
+                disconnected.set()
+                writer.close()
+                await writer.wait_closed()
+
+            server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
+            client._socket_path = str(socket_path)
+            try:
+                try:
+                    await client.start()
+                except RuntimeError as exc:
+                    assert expected_error in str(exc)
+                else:
+                    raise AssertionError("client.start() unexpectedly succeeded")
+
+                assert client._socket is None
+                await asyncio.wait_for(disconnected.wait(), timeout=1.0)
+            finally:
+                server.close()
+                await server.wait_closed()
+
+    async def run_clients() -> None:
+        await run_client(
+            ExtForeignToplevelListWaylandClient(ExtForeignToplevelListTracker()),
+            "ext_foreign_toplevel_list_v1 is unavailable",
+            "ext-missing-global",
+        )
+        await run_client(
+            wlr_client_module.WlrForeignToplevelWaylandClient(
+                WlrForeignToplevelManagerTracker()
+            ),
+            "zwlr_foreign_toplevel_manager_v1 is unavailable",
+            "wlr-missing-global",
+        )
+        await run_client(
+            cosmic_client_module.CosmicToplevelInfoWaylandClient(
+                ExtForeignToplevelListTracker()
+            ),
+            "ext_foreign_toplevel_list_v1 is unavailable",
+            "cosmic-missing-global",
+        )
+
+    asyncio.run(run_clients())
 
 
 def test_ext_wayland_client_start_and_run_against_minimal_socket() -> None:

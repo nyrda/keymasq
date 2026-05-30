@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import re
 import tomllib
@@ -19,6 +20,7 @@ from keymasq.common.models import (
 from keymasq.session.config_errors import ConfigLoadError, ConfigLoadFailure
 
 log = logging.getLogger("keymasq-session.hardware")
+MAX_HARDWARE_PATH_ATTEMPTS = 10000
 
 
 def _valid_hardware_id_for_model(hardware_id: str, model_id: str) -> bool:
@@ -157,10 +159,46 @@ class HardwareManager:
     def list_hardware_ids(self) -> list[str]:
         return list(self._cache.keys())
 
+    def _hardware_storage_path_candidate(self, hardware_id: str, attempt: int) -> Path:
+        stem = _hardware_storage_stem(hardware_id)
+        suffix = "" if attempt == 1 else f"_{attempt}"
+        return paths.HARDWARE_DIR / f"{stem}{suffix}.toml"
+
+    def _storage_file_hardware_id(self, path: Path) -> str:
+        try:
+            return self._load_config(path).hardware_id
+        except Exception as exc:
+            raise ValueError(
+                f"Hardware storage path '{path.name}' already exists but could not be read"
+            ) from exc
+
+    def _path_for_hardware_id(self, hardware_id: str) -> tuple[Path, bool]:
+        existing_path = self._existing_path_for_hardware_id(hardware_id)
+        if existing_path is not None:
+            return existing_path, False
+
+        for attempt in range(1, MAX_HARDWARE_PATH_ATTEMPTS + 1):
+            path = self._hardware_storage_path_candidate(hardware_id, attempt)
+            try:
+                with path.open("x", encoding="utf-8"):
+                    pass
+            except FileExistsError:
+                continue
+            return path, True
+        raise ValueError(f"Could not allocate storage path for hardware '{hardware_id}'")
+
+    def _existing_path_for_hardware_id(self, hardware_id: str) -> Path | None:
+        stem = _hardware_storage_stem(hardware_id)
+        for path in sorted(paths.HARDWARE_DIR.glob(f"{stem}*.toml")):
+            suffix = path.stem.removeprefix(stem)
+            if suffix and not (suffix.startswith("_") and suffix[1:].isdigit()):
+                continue
+            if self._storage_file_hardware_id(path) == hardware_id:
+                return path
+        return None
+
     def save_hardware(self, config: HardwareConfig) -> None:
         paths.ensure_config_dirs()
-
-        path = paths.HARDWARE_DIR / f"{_hardware_storage_stem(config.hardware_id)}.toml"
 
         buttons_data: list[dict[str, object]] = []
         for btn in config.buttons:
@@ -261,28 +299,37 @@ class HardwareManager:
         if config.image:
             data["hardware"]["image"] = config.image
 
-        with open(path, "wb") as f:
-            tomli_w.dump(data, f)
+        path, reserved_path = self._path_for_hardware_id(config.hardware_id)
+        try:
+            with open(path, "wb") as f:
+                tomli_w.dump(data, f)
 
-        if is_keyboard_layout:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write("\n")
-                f.write("# Optional special keys (not shown in GUI by default)\n")
-                f.write("# Add entries below into [hardware.layout.buttons] if needed\n")
-                f.write("# Example entries:\n")
-                f.write(
-                    '# { id = "key_volumedown", label = "Volume Down", '
-                    'evdev = "key_volumedown", type = "key" }\n'
-                )
-                f.write(
-                    '# { id = "key_volumeup", label = "Volume Up", '
-                    'evdev = "key_volumeup", type = "key" }\n'
-                )
-                f.write('# { id = "key_mute", label = "Mute", evdev = "key_mute", type = "key" }\n')
-                f.write(
-                    '# { id = "key_playpause", label = "Play Pause", '
-                    'evdev = "key_playpause", type = "key" }\n'
-                )
+            if is_keyboard_layout:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write("\n")
+                    f.write("# Optional special keys (not shown in GUI by default)\n")
+                    f.write("# Add entries below into [hardware.layout.buttons] if needed\n")
+                    f.write("# Example entries:\n")
+                    f.write(
+                        '# { id = "key_volumedown", label = "Volume Down", '
+                        'evdev = "key_volumedown", type = "key" }\n'
+                    )
+                    f.write(
+                        '# { id = "key_volumeup", label = "Volume Up", '
+                        'evdev = "key_volumeup", type = "key" }\n'
+                    )
+                    f.write(
+                        '# { id = "key_mute", label = "Mute", evdev = "key_mute", type = "key" }\n'
+                    )
+                    f.write(
+                        '# { id = "key_playpause", label = "Play Pause", '
+                        'evdev = "key_playpause", type = "key" }\n'
+                    )
+        except Exception:
+            if reserved_path:
+                with contextlib.suppress(OSError):
+                    path.unlink()
+            raise
 
         self._cache[config.hardware_id] = config
         log.info(f"Saved hardware config: {path}")
@@ -291,9 +338,9 @@ class HardwareManager:
         if hardware_id not in self._cache:
             return False
 
-        path = paths.HARDWARE_DIR / f"{_hardware_storage_stem(hardware_id)}.toml"
+        path = self._existing_path_for_hardware_id(hardware_id)
 
-        if path.exists():
+        if path is not None and path.exists():
             try:
                 path.unlink()
             except Exception as e:

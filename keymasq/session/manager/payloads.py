@@ -127,6 +127,7 @@ def resolved_combos_signature(
                 "profile_name": combo.profile_name,
                 "steps": steps,
                 "action": action_data,
+                "match_across_devices": bool(combo.match_across_devices),
                 **({"recall_trigger_keys": True} if combo.recall_trigger_keys else {}),
                 **(
                     {"restore_trigger_keys": list(combo.restore_trigger_keys)}
@@ -445,6 +446,7 @@ def resolved_combo_payload(
         "profile_name": combo.profile_name,
         "steps": steps,
         "action": action_data,
+        "match_across_devices": bool(combo.match_across_devices),
         **({"recall_trigger_keys": True} if combo.recall_trigger_keys else {}),
         **(
             {"restore_trigger_keys": list(combo.restore_trigger_keys)}

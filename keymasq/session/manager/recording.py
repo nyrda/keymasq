@@ -595,7 +595,18 @@ async def capture_begin_for_paths(
     *,
     evdev_interfaces: list[JsonObject] | None = None,
     mode: str = "button",
+    owner_writer: asyncio.StreamWriter | None = None,
 ) -> JsonObject:
+    if (
+        hardware_id in manager.capture_state.tokens
+        or hardware_id in manager.capture_state.locks
+    ):
+        return {
+            "status": "error",
+            "error_code": "capture_already_active",
+            "message": f"capture already active for {hardware_id}",
+        }
+
     explicit_evdev_paths = bool(evdev_paths)
     if not explicit_evdev_paths:
         evdev_paths = _hardware_evdev_paths(manager, hardware_id)
@@ -640,6 +651,8 @@ async def capture_begin_for_paths(
         return {"status": "error", "message": "Missing capture token"}
 
     manager.capture_state.tokens[hardware_id] = token
+    if owner_writer is not None:
+        manager.capture_state.owner_writer_ids[hardware_id] = id(owner_writer)
     response = {
         "status": "ok",
         "hardware_id": hardware_id,
@@ -680,9 +693,31 @@ async def capture_end(manager: "SessionManager", hardware_id: str) -> JsonObject
     return await _end_capture(manager, hardware_id)
 
 
+async def clear_captures_for_writer(
+    manager: "SessionManager",
+    writer: asyncio.StreamWriter,
+) -> None:
+    writer_id = id(writer)
+    hardware_ids = [
+        hardware_id
+        for hardware_id, owner_writer_id in manager.capture_state.owner_writer_ids.items()
+        if owner_writer_id == writer_id
+    ]
+    for hardware_id in hardware_ids:
+        try:
+            await capture_end(manager, hardware_id)
+        except Exception as exc:
+            log.warning(
+                "Failed to end capture for disconnected owner hardware_id=%s: %s",
+                hardware_id,
+                exc,
+            )
+
+
 async def _end_capture(manager: "SessionManager", hardware_id: str) -> JsonObject:
     was_locked = hardware_id in manager.capture_state.locks
     manager.capture_state.locks.discard(hardware_id)
+    manager.capture_state.owner_writer_ids.pop(hardware_id, None)
 
     previous_profile_names = manager.capture_state.resume_profiles.pop(hardware_id, [])
     if not was_locked:

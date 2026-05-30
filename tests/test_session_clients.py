@@ -157,6 +157,58 @@ class _BlockingErrorSocket:
         self.closed = True
 
 
+class _ExistingSessionSocketPath:
+    def exists(self) -> bool:
+        return True
+
+    def __str__(self) -> str:
+        return "/tmp/keymasq-test-session.sock"
+
+
+class _ConnectBlockingSocket:
+    instances: list["_ConnectBlockingSocket"] = []
+    instances_lock = threading.Lock()
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.connected_path: str | None = None
+        self._closed_event = threading.Event()
+        with self.instances_lock:
+            self.instances.append(self)
+
+    def settimeout(self, _timeout: float | None) -> None:
+        return
+
+    def connect(self, path: str) -> None:
+        self.connected_path = path
+
+    def recv(self, _size: int) -> bytes:
+        self._closed_event.wait(1.0)
+        return b""
+
+    def close(self) -> None:
+        self.closed = True
+        self._closed_event.set()
+
+
+class _ConnectFailingSocket:
+    instances: list["_ConnectFailingSocket"] = []
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.timeout: float | None = None
+        self.instances.append(self)
+
+    def settimeout(self, timeout: float | None) -> None:
+        self.timeout = timeout
+
+    def connect(self, _path: str) -> None:
+        raise TimeoutError("connect timed out")
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def _install_fake_glib(monkeypatch: pytest.MonkeyPatch) -> None:
     glib_module = types.ModuleType("GLib")
 
@@ -226,6 +278,62 @@ def test_persistent_session_request_timeout_closes_connection() -> None:
     assert sock.sent == b'{"command": "get_status"}\n'
     assert sock.closed is True
     assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
+
+
+def test_persistent_session_failed_connect_closes_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ConnectFailingSocket.instances = []
+    connection = gui_session_client._PersistentSessionConnection()
+
+    def _fake_socket(_family: int, _kind: int) -> _ConnectFailingSocket:
+        return _ConnectFailingSocket()
+
+    monkeypatch.setattr(gui_session_client, "SESSION_SOCKET_PATH", _ExistingSessionSocketPath())
+    monkeypatch.setattr(gui_session_client._socket, "socket", _fake_socket)
+
+    assert connection._ensure_connected(timeout=0.5) is False  # pyright: ignore[reportPrivateUsage]
+    assert connection._ensure_connected(timeout=0.5) is False  # pyright: ignore[reportPrivateUsage]
+    assert [sock.closed for sock in _ConnectFailingSocket.instances] == [True, True]
+    assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
+
+
+def test_persistent_session_concurrent_first_connect_uses_one_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ConnectBlockingSocket.instances = []
+    connection = gui_session_client._PersistentSessionConnection()
+    start = threading.Barrier(3)
+    results: list[bool] = []
+    results_lock = threading.Lock()
+
+    def _fake_socket(_family: int, _kind: int) -> _ConnectBlockingSocket:
+        return _ConnectBlockingSocket()
+
+    monkeypatch.setattr(gui_session_client, "SESSION_SOCKET_PATH", _ExistingSessionSocketPath())
+    monkeypatch.setattr(gui_session_client._socket, "socket", _fake_socket)
+
+    def _connect() -> None:
+        start.wait()
+        result = connection._ensure_connected(timeout=0.5)  # pyright: ignore[reportPrivateUsage]
+        with results_lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=_connect) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    start.wait()
+    for thread in threads:
+        thread.join(1.0)
+
+    assert results == [True, True]
+    assert len(_ConnectBlockingSocket.instances) == 1
+    assert connection._sock is _ConnectBlockingSocket.instances[0]  # pyright: ignore[reportPrivateUsage]
+
+    connection._close_connection()  # pyright: ignore[reportPrivateUsage]
+    reader_thread = connection._reader_thread  # pyright: ignore[reportPrivateUsage]
+    if reader_thread is not None:
+        reader_thread.join(1.0)
 
 
 def test_persistent_session_reader_thread_survives_socket_swap(

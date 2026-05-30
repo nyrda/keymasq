@@ -74,22 +74,27 @@ class ExtForeignToplevelListWaylandClient:
         self._loop = asyncio.get_running_loop()
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.setblocking(False)
-        await self._loop.sock_connect(self._socket, self._socket_path)
+        try:
+            await self._loop.sock_connect(self._socket, self._socket_path)
 
-        self._registry_id = self._allocate_object_id("wl_registry")
-        await self._send_request(WL_DISPLAY_OBJECT_ID, 1, _pack_uint(self._registry_id))
+            self._registry_id = self._allocate_object_id("wl_registry")
+            await self._send_request(WL_DISPLAY_OBJECT_ID, 1, _pack_uint(self._registry_id))
 
-        sync_id = await self._request_sync()
-        await self._pump_until_sync(sync_id)
+            sync_id = await self._request_sync()
+            await self._pump_until_sync(sync_id)
 
-        if self._list_id is None:
-            raise RuntimeError(
-                "ext_foreign_toplevel_list_v1 is unavailable on this compositor"
-            )
+            if self._list_id is None:
+                raise RuntimeError(
+                    "ext_foreign_toplevel_list_v1 is unavailable on this compositor"
+                )
 
-        post_bind_sync = await self._request_sync()
-        await self._pump_until_sync(post_bind_sync)
-        self._tracker.mark_done()
+            post_bind_sync = await self._request_sync()
+            await self._pump_until_sync(post_bind_sync)
+            self._tracker.mark_done()
+        except Exception:
+            self._socket.close()
+            self._socket = None
+            raise
 
     async def run(self) -> None:
         if self._socket is None or self._loop is None:
@@ -109,17 +114,8 @@ class ExtForeignToplevelListWaylandClient:
             return
 
         if self._list_id is not None:
-            try:
-                await self._send_request(self._list_id, 0, b"")
-            except Exception:
-                pass
             for handle_id in list(self._toplevel_handles):
-                try:
-                    await self._send_request(handle_id, 0, b"")
-                except Exception:
-                    pass
-                self._objects.pop(handle_id, None)
-                self._toplevel_handles.discard(handle_id)
+                await self._destroy_toplevel_handle(handle_id)
             try:
                 await self._send_request(self._list_id, 1, b"")
             except Exception:
@@ -206,7 +202,7 @@ class ExtForeignToplevelListWaylandClient:
             self._handle_list_event(object_id, opcode, payload)
             return
         if interface == "ext_foreign_toplevel_handle_v1":
-            self._handle_toplevel_event(object_id, opcode, payload)
+            await self._handle_toplevel_event(object_id, opcode, payload)
 
     def _handle_display_event(self, opcode: int, payload: bytes) -> None:
         if opcode != 1:
@@ -260,12 +256,20 @@ class ExtForeignToplevelListWaylandClient:
         if opcode == 1:
             self._running = False
 
-    def _handle_toplevel_event(self, object_id: int, opcode: int, payload: bytes) -> None:
+    async def _destroy_toplevel_handle(self, object_id: int) -> None:
+        try:
+            await self._send_request(object_id, 0, b"")
+        except Exception:
+            pass
+        self._objects.pop(object_id, None)
+        self._toplevel_handles.discard(object_id)
+
+    async def _handle_toplevel_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         handle_id = str(object_id)
 
         if opcode == 0:
             self._tracker.close_toplevel(handle_id)
-            self._toplevel_handles.discard(object_id)
+            await self._destroy_toplevel_handle(object_id)
             return
 
         if opcode == 1:

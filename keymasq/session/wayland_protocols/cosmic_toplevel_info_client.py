@@ -88,22 +88,27 @@ class CosmicToplevelInfoWaylandClient:
         self._loop = asyncio.get_running_loop()
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.setblocking(False)
-        await self._loop.sock_connect(self._socket, self._socket_path)
+        try:
+            await self._loop.sock_connect(self._socket, self._socket_path)
 
-        self._registry_id = self._allocate_object_id("wl_registry")
-        await self._send_request(WL_DISPLAY_OBJECT_ID, 1, _pack_uint(self._registry_id))
+            self._registry_id = self._allocate_object_id("wl_registry")
+            await self._send_request(WL_DISPLAY_OBJECT_ID, 1, _pack_uint(self._registry_id))
 
-        sync_id = await self._request_sync()
-        await self._pump_until_sync(sync_id)
+            sync_id = await self._request_sync()
+            await self._pump_until_sync(sync_id)
 
-        if self._list_id is None:
-            raise RuntimeError("ext_foreign_toplevel_list_v1 is unavailable on this compositor")
-        if self._cosmic_info_id is None:
-            raise RuntimeError("zcosmic_toplevel_info_v1 is unavailable on this compositor")
+            if self._list_id is None:
+                raise RuntimeError("ext_foreign_toplevel_list_v1 is unavailable on this compositor")
+            if self._cosmic_info_id is None:
+                raise RuntimeError("zcosmic_toplevel_info_v1 is unavailable on this compositor")
 
-        post_bind_sync = await self._request_sync()
-        await self._pump_until_sync(post_bind_sync)
-        self._tracker.mark_done()
+            post_bind_sync = await self._request_sync()
+            await self._pump_until_sync(post_bind_sync)
+            self._tracker.mark_done()
+        except Exception:
+            self._socket.close()
+            self._socket = None
+            raise
 
     async def run(self) -> None:
         if self._socket is None or self._loop is None:
@@ -124,12 +129,7 @@ class CosmicToplevelInfoWaylandClient:
 
         if self._cosmic_info_id is not None:
             for cosmic_id in list(self._cosmic_handles):
-                try:
-                    await self._send_request(cosmic_id, 0, b"")
-                except Exception:
-                    pass
-                self._objects.pop(cosmic_id, None)
-            self._cosmic_handles.clear()
+                await self._destroy_cosmic_handle(cosmic_id)
             self._ext_to_cosmic.clear()
             self._cosmic_to_ext.clear()
             self._objects.pop(self._cosmic_info_id, None)
@@ -137,16 +137,7 @@ class CosmicToplevelInfoWaylandClient:
 
         if self._list_id is not None:
             for handle_id in list(self._toplevel_handles):
-                try:
-                    await self._send_request(handle_id, 0, b"")
-                except Exception:
-                    pass
-                self._objects.pop(handle_id, None)
-                self._toplevel_handles.discard(handle_id)
-            try:
-                await self._send_request(self._list_id, 0, b"")
-            except Exception:
-                pass
+                await self._destroy_toplevel_handle(handle_id)
             try:
                 await self._send_request(self._list_id, 1, b"")
             except Exception:
@@ -231,7 +222,7 @@ class CosmicToplevelInfoWaylandClient:
             self._handle_cosmic_info_event(opcode)
             return
         if interface == "ext_foreign_toplevel_handle_v1":
-            self._handle_toplevel_event(object_id, opcode, payload)
+            await self._handle_toplevel_event(object_id, opcode, payload)
             return
         if interface == "zcosmic_toplevel_handle_v1":
             self._handle_cosmic_toplevel_event(object_id, opcode, payload)
@@ -315,17 +306,34 @@ class CosmicToplevelInfoWaylandClient:
         if opcode == 2:
             self._tracker.mark_done()
 
-    def _handle_toplevel_event(self, object_id: int, opcode: int, payload: bytes) -> None:
+    async def _destroy_cosmic_handle(self, object_id: int) -> None:
+        try:
+            await self._send_request(object_id, 0, b"")
+        except Exception:
+            pass
+        self._objects.pop(object_id, None)
+        self._cosmic_handles.discard(object_id)
+        ext_id = self._cosmic_to_ext.pop(object_id, None)
+        if ext_id is not None and self._ext_to_cosmic.get(ext_id) == object_id:
+            self._ext_to_cosmic.pop(ext_id, None)
+
+    async def _destroy_toplevel_handle(self, object_id: int) -> None:
+        cosmic_id = self._ext_to_cosmic.get(object_id)
+        if cosmic_id is not None:
+            await self._destroy_cosmic_handle(cosmic_id)
+        try:
+            await self._send_request(object_id, 0, b"")
+        except Exception:
+            pass
+        self._objects.pop(object_id, None)
+        self._toplevel_handles.discard(object_id)
+
+    async def _handle_toplevel_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         handle_id = str(object_id)
 
         if opcode == 0:
             self._tracker.close_toplevel(handle_id)
-            self._toplevel_handles.discard(object_id)
-            cosmic_id = self._ext_to_cosmic.pop(object_id, None)
-            if cosmic_id is not None:
-                self._cosmic_to_ext.pop(cosmic_id, None)
-                self._cosmic_handles.discard(cosmic_id)
-                self._objects.pop(cosmic_id, None)
+            await self._destroy_toplevel_handle(object_id)
             return
 
         if opcode == 2:

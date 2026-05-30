@@ -90,7 +90,9 @@ def test_owner_disconnect_clears_active_recording_owner() -> None:
 
 
 @pytest.mark.asyncio
-async def test_last_client_disconnect_cleans_runtime_unlock_without_owner() -> None:
+async def test_last_client_disconnect_cleans_runtime_unlock_without_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=222, uid=1000, gid=1000)
     writer = object()
@@ -99,7 +101,6 @@ async def test_last_client_disconnect_cleans_runtime_unlock_without_owner() -> N
     resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "runtime", "expires_at": 2000}
     )
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_recording_module,
         "resolve_unlock_status_async",
@@ -119,7 +120,6 @@ async def test_last_client_disconnect_cleans_runtime_unlock_without_owner() -> N
             data={"uid": 1000, "cleanup": True},
         )
     )
-    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -158,7 +158,9 @@ async def test_capture_combo_uses_all_known_hardware_ids_not_just_profile_layers
 
 
 @pytest.mark.asyncio
-async def test_claim_recording_unlock_refresh_creates_runtime_lease() -> None:
+async def test_claim_recording_unlock_refresh_creates_runtime_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=12, uid=101, gid=100)
     writer = object()
@@ -168,7 +170,6 @@ async def test_claim_recording_unlock_refresh_creates_runtime_lease() -> None:
             {"unlocked": True, "source": "runtime", "expires_at": 2000},
         ]
     )
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_recording_module,
         "resolve_unlock_status_async",
@@ -186,7 +187,6 @@ async def test_claim_recording_unlock_refresh_creates_runtime_lease() -> None:
     assert manager.unlock_state.runtime_refresh_claim_consumed_until[peer.uid] == 2000
     assert resolve_unlock_status_async.await_count == 2
     manager.client.send_command.assert_awaited_once()
-    monkeypatch.undo()
 
 
 @pytest.mark.asyncio

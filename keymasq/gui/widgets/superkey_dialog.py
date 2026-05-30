@@ -18,6 +18,7 @@ from keymasq.common.models import (
     superkey_action_to_mapping_action,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
+from keymasq.gui.widgets.dialog_sizing import parent_constrained_dialog_width
 from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter
 from keymasq.session.profiles import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
@@ -179,7 +180,11 @@ class ActionListDialog(Adw.Dialog):
         current_actions: list[SuperkeyAction] | list[MappingAction] | None = None,
         action_key: str | None = None,
     ):
-        super().__init__(title=title, content_width=720, content_height=520)
+        super().__init__(
+            title=title,
+            content_width=parent_constrained_dialog_width(parent, 720),
+            content_height=520,
+        )
         self._parent = parent
         self._list_mode = list_mode
         self._action_key = action_key or ""

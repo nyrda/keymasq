@@ -25,6 +25,7 @@ from keymasq.common.models import (
 )
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.dialog_sizing import parent_constrained_dialog_width
 from keymasq.gui.widgets.key_selector_dialog import (
     EVDEV_TO_GAMEPAD,
     EVDEV_TO_KEY,
@@ -279,7 +280,11 @@ class ComboEditorDialog(Adw.Dialog):
         emergency_cancel_combo_enabled: bool = True,
     ) -> None:
         title = "Edit Combo" if combo else "Add Combo"
-        super().__init__(title=title, content_width=720, content_height=840)
+        super().__init__(
+            title=title,
+            content_width=parent_constrained_dialog_width(parent, 720),
+            content_height=840,
+        )
         self._parent = parent
         self._draft = deepcopy(combo) if combo else new_combo_draft()
         self._profile_name = profile_name

@@ -566,7 +566,7 @@ class MainWindow(Adw.ApplicationWindow):
         elif event_type == "recording_auth_requested":
             self.present_recording_settings_dialog(reason="recording_locked")
         elif event_type == "macro_save_pending":
-            self.present_pending_macro_save_dialog()
+            self.present_pending_macro_save_dialog(event)
 
         callbacks = self._event_handlers.get(event_type)
         if callbacks is None:
@@ -575,21 +575,22 @@ class MainWindow(Adw.ApplicationWindow):
             cb(event)
 
     def _on_recording_stopped(self, event: dict) -> None:
+        self.present_pending_macro_save_dialog(event)
+
+    def present_pending_macro_save_dialog(self, recording_data: dict | None = None) -> bool:
         from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
 
         if self._save_macro_dialog is not None:
             self._save_macro_dialog.present(self)
-            return
+            return True
 
-        dialog = SaveMacroDialog(self, event)
+        if recording_data is None:
+            return False
+
+        dialog = SaveMacroDialog(self, recording_data)
         dialog.connect("closed", self._on_save_macro_dialog_closed)
         self._save_macro_dialog = dialog
         dialog.present(self)
-
-    def present_pending_macro_save_dialog(self) -> bool:
-        if self._save_macro_dialog is None:
-            return False
-        self._save_macro_dialog.present(self)
         return True
 
     def _on_save_macro_dialog_closed(self, dialog) -> None:

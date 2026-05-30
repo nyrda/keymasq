@@ -286,8 +286,7 @@ class DeviceTab(ProfileManagedTab):
 
     def _update_header_caption(self) -> None:
         mapped = self._count_mapped_buttons()
-        total = len(self.device.buttons) + len(self.device.analog_inputs)
-        base = f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, {total} buttons"
+        base = self._header_caption_text()
         if mapped > 0:
             caption = f"{base} · {mapped} mapped"
         else:
@@ -454,9 +453,13 @@ class DeviceTab(ProfileManagedTab):
         return "\n".join(lines)
 
     def _header_caption_text(self) -> str:
+        parts = [f"{len(self.device.buttons)} buttons"]
+        analog_count = len(self.device.analog_inputs)
+        if analog_count:
+            parts.append(f"{analog_count} analog inputs")
         return (
             f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
-            f"{len(self.device.buttons)} buttons"
+            f"{', '.join(parts)}"
         )
 
     def _device_grab_label_text(self, device: HardwareConfig | None = None) -> str:
@@ -2046,6 +2049,7 @@ class DeviceTab(ProfileManagedTab):
                 "hardware_id": self._capture_active_hardware_id,
                 "evdev_paths": [device.path for device in self.device.evdev_devices],
                 "mode": "analog",
+                "end_on_disconnect": True,
             },
             lambda result: self._on_learn_analog_capture_begun(
                 result,
@@ -2526,6 +2530,7 @@ class DeviceTab(ProfileManagedTab):
                 "command": "begin_capture",
                 "hardware_id": self._capture_active_hardware_id,
                 "evdev_paths": [device.path for device in self.device.evdev_devices],
+                "end_on_disconnect": True,
             },
             on_capture_begun,
         )

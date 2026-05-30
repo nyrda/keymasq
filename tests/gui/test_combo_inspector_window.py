@@ -209,6 +209,57 @@ def test_combo_inspector_window_ignores_stale_snapshot_responses(monkeypatch) ->
     window._finalize()
 
 
+def test_combo_inspector_window_ignores_snapshot_response_after_disconnect(monkeypatch) -> None:
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import combo_inspector_window as inspector_module
+    from keymasq.gui.widgets.combo_inspector_window import ComboInspectorWindow
+
+    snapshot = {
+        "status": "ok",
+        "active_profiles": ["Base"],
+        "combos": [
+            {
+                "id": "combo-1",
+                "name": "Late Combo",
+                "profile_name": "Base",
+                "steps": [{"events": [{"evdev": "key_l"}]}],
+                "action": {"action": "keyboard", "target": "key_l"},
+            }
+        ],
+    }
+    event_callbacks: dict[str, list[Callable[[dict[str, object]], object]]] = {}
+    response_callbacks: list[Callable[[dict[str, object]], object]] = []
+
+    def fake_register(event, callback):
+        event_callbacks.setdefault(event, []).append(callback)
+
+    def fake_unregister(event, callback):
+        event_callbacks[event].remove(callback)
+
+    def fake_request_async(_payload, callback, timeout=5.0):
+        response_callbacks.append(callback)
+
+    monkeypatch.setattr(inspector_module, "register_session_event_callback", fake_register)
+    monkeypatch.setattr(inspector_module, "unregister_session_event_callback", fake_unregister)
+    monkeypatch.setattr(inspector_module, "session_request_async", fake_request_async)
+
+    window = ComboInspectorWindow(Gtk.Window())
+
+    assert len(response_callbacks) == 1
+
+    event_callbacks["keymasqd_status"][0]({"event": "keymasqd_status", "connected": False})
+    assert window._status_label.get_text() == "Active Combos - Daemon disconnected"
+
+    response_callbacks[0](snapshot)
+    assert window._status_label.get_text() == "Active Combos - Daemon disconnected"
+    assert window.active_profiles_label.get_text() == "None"
+    assert _combo_inspector_row_names(window) == []
+    assert window._snapshots == []
+
+    window._finalize()
+
+
 def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
     from gi.repository import Gtk
 

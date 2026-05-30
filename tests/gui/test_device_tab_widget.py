@@ -157,6 +157,65 @@ class TestDeviceTabWidget:
             f"Hardware ID: {hardware_id}\nInterfaces:\n{stable_path}"
         )
 
+    def test_header_caption_keeps_button_and_analog_counts_consistent(self):
+        from keymasq.common.models import (
+            AnalogAxisDefinition,
+            AnalogInputDefinition,
+            ButtonDefinition,
+            DeviceType,
+            EvdevDevice,
+            HardwareConfig,
+        )
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event10",
+                    device_type=DeviceType.GAMEPAD,
+                    id="pad",
+                )
+            ],
+            buttons=[
+                ButtonDefinition(
+                    id="btn_south",
+                    label="A",
+                    evdev="btn_south",
+                    evdev_code=304,
+                    source="pad",
+                )
+            ],
+            analog_inputs=[
+                AnalogInputDefinition(
+                    id="left_stick",
+                    label="Left Stick",
+                    type="stick",
+                    source="pad",
+                    axes=[
+                        AnalogAxisDefinition(role="x", evdev="abs_x", evdev_code=0),
+                        AnalogAxisDefinition(role="y", evdev="abs_y", evdev_code=1),
+                    ],
+                ),
+                AnalogInputDefinition(
+                    id="left_trigger",
+                    label="Left Trigger",
+                    type="axis",
+                    source="pad",
+                    axes=[AnalogAxisDefinition(role="x", evdev="abs_z", evdev_code=2)],
+                ),
+            ],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
+
+        expected_caption = "1234:5678 | 1 evdev, 1 buttons, 2 analog inputs"
+        assert tab._header_caption_label.get_text() == expected_caption
+        tab._update_header_caption()
+        assert tab._header_caption_label.get_text() == expected_caption
+
     def test_keyboard_left_layout_does_not_request_seventh_column(self):
         from gi.repository import Gtk
 

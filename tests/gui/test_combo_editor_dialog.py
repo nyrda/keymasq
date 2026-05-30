@@ -369,6 +369,14 @@ class TestComboEditorDialog:
         assert dialog._draft.restore_trigger_keys == ["ctrl"]
         assert dialog.save_button.get_sensitive() is True
 
+        dialog._on_clear_clicked(None)
+
+        assert dialog.restore_trigger_keys_group.get_visible() is False
+        assert dialog._restore_trigger_key_rows == []
+        assert dialog._restore_trigger_key_labels == {}
+        assert dialog._restore_trigger_key_buttons == {}
+        assert dialog._draft.restore_trigger_keys == []
+
     def test_combo_editor_exact_duplicate_is_rejected(self):
         from gi.repository import Gtk
 

@@ -197,6 +197,59 @@ def test_parse_reconstruct_preserves_wait_controls() -> None:
     assert rebuilt == raw
 
 
+def test_parse_reconstruct_preserves_equal_timestamp_control_before_key_events() -> None:
+    raw = [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 1000,
+            "macro_action": "wait",
+            "duration_us": 75_000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 1,
+            "t_us": 1000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 0,
+            "t_us": 1000,
+        },
+    ]
+
+    editable, rel_events, passthrough, synthetic_moves, control_events = parse_events(raw)
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
+
+    assert rebuilt == raw
+
+
+def test_parse_reconstruct_preserves_unknown_macro_action_payload() -> None:
+    raw = [
+        {
+            "macro_action": "custom_action",
+            "t_us": 1000,
+            "foo": "bar",
+        }
+    ]
+
+    editable, rel_events, passthrough, synthetic_moves, control_events = parse_events(raw)
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
+
+    assert editable == []
+    assert rel_events == []
+    assert passthrough == raw
+    assert synthetic_moves == []
+    assert control_events == []
+    assert rebuilt == raw
+
+
 def test_parse_reconstruct_compositor_macro_action() -> None:
     raw = [
         {

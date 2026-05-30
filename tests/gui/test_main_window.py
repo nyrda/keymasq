@@ -938,6 +938,36 @@ class TestMainWindow:
 
         assert presented == [True]
 
+    def test_main_window_macro_save_pending_event_creates_save_dialog(self, monkeypatch):
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        created: list[dict] = []
+        presented: list[object] = []
+
+        class DummySaveMacroDialog:
+            def __init__(self, parent, event: dict) -> None:
+                self.parent = parent
+                self.event = event
+                created.append(event)
+
+            def connect(self, signal: str, callback) -> None:
+                self.signal = signal
+                self.callback = callback
+
+            def present(self, parent) -> None:
+                presented.append(parent)
+
+        monkeypatch.setattr(save_macro_dialog_module, "SaveMacroDialog", DummySaveMacroDialog)
+
+        event = {"event": "macro_save_pending", "pending_save_token": "pending-1"}
+        window._handle_session_event(event)
+
+        assert created == [event]
+        assert presented == [window]
+        assert window._save_macro_dialog is not None
+
     def test_main_window_recording_started_closes_tracked_dialogs(self):
         from keymasq.gui.window import MainWindow
 

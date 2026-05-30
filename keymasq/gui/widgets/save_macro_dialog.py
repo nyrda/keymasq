@@ -216,11 +216,15 @@ class SaveMacroDialog(Adw.Dialog):
             for m in (result or {}).get("macros", [])
             if str(m.get("name", ""))
         }
-        self._suggest_name()
+        current_name = self._name_entry.get_text()
+        if current_name:
+            self._validate_name(current_name)
+        else:
+            self._suggest_name()
         return False
 
     def _on_name_changed(self, entry: Gtk.Entry) -> None:
-        self._validate_name(entry.get_text())
+        self._validate_name(entry.get_text().strip())
 
     def _on_name_activated(self, entry: Gtk.Entry) -> None:
         if self._save_btn.get_sensitive():
@@ -245,7 +249,10 @@ class SaveMacroDialog(Adw.Dialog):
             return
 
         self._hide_error()
-        self._save_btn.set_sensitive(True)
+        self._save_btn.set_sensitive(not self._request_inflight)
+
+    def _refresh_submit_state(self) -> None:
+        self._validate_name(self._name_entry.get_text().strip())
 
     def _show_error(self, message: str) -> None:
         self._error_label.set_label(message)
@@ -259,16 +266,14 @@ class SaveMacroDialog(Adw.Dialog):
         if not name:
             return
 
-        payload = (
-            {
-                "command": "save_recording",
-                "name": name,
-                "move_to_start": self._move_to_start,
-                "start_x": int(self._start_x_spin.get_value()),
-                "start_y": int(self._start_y_spin.get_value()),
-                "block_mouse_movement": self._block_mouse_check.get_active(),
-            }
-        )
+        payload = {
+            "command": "save_recording",
+            "name": name,
+            "move_to_start": self._move_to_start,
+            "start_x": int(self._start_x_spin.get_value()),
+            "start_y": int(self._start_y_spin.get_value()),
+            "block_mouse_movement": self._block_mouse_check.get_active(),
+        }
         if self._pending_save_token:
             payload["pending_save_token"] = self._pending_save_token
         session_request_with_hooks(
@@ -343,7 +348,7 @@ class SaveMacroDialog(Adw.Dialog):
     def _set_request_inflight(self, inflight: bool) -> None:
         self._request_inflight = inflight
         self.set_can_close(not inflight)
-        self._save_btn.set_sensitive(False if inflight else self._save_btn.get_sensitive())
+        self._save_btn.set_sensitive(False)
         self._discard_btn.set_sensitive(not inflight)
         self._name_entry.set_sensitive(not inflight)
         self._move_to_start_check.set_sensitive(not inflight)
@@ -354,4 +359,4 @@ class SaveMacroDialog(Adw.Dialog):
             return
 
         self._update_start_pos_controls()
-        self._validate_name(self._name_entry.get_text().strip())
+        self._refresh_submit_state()

@@ -38,6 +38,27 @@ from keymasq.session.compositor import detect_compositor_sync
 # ---------------------------------------------------------------------------
 
 MacroEvent = dict[str, Any]
+_EDITOR_ORDER_ATTR = "_keymasq_editor_order"
+_MISSING_EDITOR_ORDER = 2**63 - 1
+
+
+class _OrderedMacroEvent(dict[str, Any]):
+    pass
+
+
+def _with_editor_order(ev: MacroEvent, order: int) -> MacroEvent:
+    ordered = _OrderedMacroEvent(ev)
+    setattr(ordered, _EDITOR_ORDER_ATTR, order)
+    return ordered
+
+
+def _get_editor_order(ev: MacroEvent) -> int | None:
+    order = getattr(ev, _EDITOR_ORDER_ATTR, None)
+    return order if isinstance(order, int) else None
+
+
+def _original_order_or_last(order: int | None) -> int:
+    return order if order is not None else _MISSING_EDITOR_ORDER
 
 
 def _get_key_name(code: int) -> str:
@@ -105,6 +126,14 @@ _LOOP_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("toggle", "Toggle"),
 )
 
+_CONTROL_MACRO_ACTIONS = {
+    "wait",
+    "wait_random",
+    "exec_sync",
+    "exec_async",
+    "compositor_dispatch",
+}
+
 
 def _build_option_dropdown(
     options: tuple[tuple[str, str], ...],
@@ -165,6 +194,8 @@ class EditableEvent:
     press_t_us: int  # microseconds from macro start (press)
     release_t_us: int  # microseconds from macro start (release)
     output_id: str | None = None
+    original_press_order: int | None = None
+    original_release_order: int | None = None
 
 
 @dataclass
@@ -173,6 +204,7 @@ class EditableMove:
     t_us: int
     x: int
     y: int
+    original_order: int | None = None
 
 
 @dataclass
@@ -188,6 +220,7 @@ class EditableControl:
     compositor_id: str = ""
     compositor_dispatcher: str = ""
     compositor_args: str = ""
+    original_order: int | None = None
 
 
 def _control_to_compositor_action(control: EditableControl) -> MappingAction:
@@ -236,9 +269,9 @@ def parse_events(
     passthrough_events: list[MacroEvent] = []
     editable_moves: list[EditableMove] = []
     control_events: list[EditableControl] = []
-    open_presses: dict[tuple, list[int]] = {}
+    open_presses: dict[tuple, list[tuple[int, int]]] = {}
 
-    for ev in raw_events:
+    for original_order, ev in enumerate(raw_events):
         macro_action = str(ev.get("macro_action", "") or "")
         if macro_action in {"mouse_move_abs", "mouse_move_rel"}:
             editable_moves.append(
@@ -247,10 +280,11 @@ def parse_events(
                     t_us=int(ev.get("t_us", 0)),
                     x=int(ev.get("x", 0) or 0),
                     y=int(ev.get("y", 0) or 0),
+                    original_order=original_order,
                 )
             )
             continue
-        if macro_action:
+        if macro_action in _CONTROL_MACRO_ACTIONS:
             control_events.append(
                 EditableControl(
                     mode=macro_action,
@@ -264,19 +298,24 @@ def parse_events(
                     compositor_id=str(ev.get("compositor", "") or ""),
                     compositor_dispatcher=str(ev.get("dispatcher", "") or ""),
                     compositor_args=str(ev.get("args", "") or ""),
+                    original_order=original_order,
                 )
             )
+            continue
+        if macro_action:
+            passthrough_events.append(_with_editor_order(ev, original_order))
             continue
 
         if ev["type"] == ev_key:
             output_id = str(ev.get("output_id", "") or "").strip() or None
             key = (ev["device_type"], ev["code"], output_id)
             if ev["value"] == 1:
-                open_presses.setdefault(key, []).append(ev["t_us"])
+                open_presses.setdefault(key, []).append((ev["t_us"], original_order))
             elif ev["value"] == 0:
                 stack = open_presses.get(key)
-                press_t = stack.pop() if stack else None
-                if press_t is not None:
+                press = stack.pop() if stack else None
+                if press is not None:
+                    press_t, press_order = press
                     editable.append(
                         EditableEvent(
                             device_type=ev["device_type"],
@@ -285,19 +324,21 @@ def parse_events(
                             press_t_us=press_t,
                             release_t_us=ev["t_us"],
                             output_id=output_id if ev["device_type"] == "gamepad" else None,
+                            original_press_order=press_order,
+                            original_release_order=original_order,
                         )
                     )
                 else:
-                    passthrough_events.append(ev)
+                    passthrough_events.append(_with_editor_order(ev, original_order))
             else:
-                passthrough_events.append(ev)
+                passthrough_events.append(_with_editor_order(ev, original_order))
         elif ev["type"] == ev_rel:
-            rel_events.append(ev)
+            rel_events.append(_with_editor_order(ev, original_order))
         else:
-            passthrough_events.append(ev)
+            passthrough_events.append(_with_editor_order(ev, original_order))
 
     for (device_type, code, output_id), presses in open_presses.items():
-        for press_t in presses:
+        for press_t, press_order in presses:
             event = {
                 "device_type": device_type,
                 "type": ev_key,
@@ -307,12 +348,14 @@ def parse_events(
             }
             if device_type == "gamepad" and output_id:
                 event["output_id"] = output_id
-            passthrough_events.append(event)
+            passthrough_events.append(_with_editor_order(event, press_order))
 
-    editable.sort(key=lambda e: e.press_t_us)
-    editable_moves.sort(key=lambda m: m.t_us)
-    control_events.sort(key=lambda c: c.t_us)
-    passthrough_events.sort(key=lambda e: e["t_us"])
+    editable.sort(key=lambda e: (e.press_t_us, _original_order_or_last(e.original_press_order)))
+    editable_moves.sort(key=lambda m: (m.t_us, _original_order_or_last(m.original_order)))
+    control_events.sort(key=lambda c: (c.t_us, _original_order_or_last(c.original_order)))
+    passthrough_events.sort(
+        key=lambda e: (int(e["t_us"]), _original_order_or_last(_get_editor_order(e)))
+    )
     return editable, rel_events, passthrough_events, editable_moves, control_events
 
 
@@ -328,14 +371,14 @@ def reconstruct_events(
     raw: list[MacroEvent] = []
 
     for ev in editable:
-        press_event = {
+        press_event: MacroEvent = {
             "device_type": ev.device_type,
             "type": ev_key,
             "code": ev.code,
             "value": 1,
             "t_us": ev.press_t_us,
         }
-        release_event = {
+        release_event: MacroEvent = {
             "device_type": ev.device_type,
             "type": ev_key,
             "code": ev.code,
@@ -345,27 +388,32 @@ def reconstruct_events(
         if ev.device_type == "gamepad" and ev.output_id:
             press_event["output_id"] = ev.output_id
             release_event["output_id"] = ev.output_id
+        if ev.original_press_order is not None:
+            press_event = _with_editor_order(press_event, ev.original_press_order)
         raw.append(press_event)
+        if ev.original_release_order is not None:
+            release_event = _with_editor_order(release_event, ev.original_release_order)
         raw.append(release_event)
 
     raw.extend(rel_events)
 
     for move in editable_moves:
-        raw.append(
-            {
-                "device_type": "macro",
-                "type": 0,
-                "code": 0,
-                "value": 0,
-                "t_us": int(move.t_us),
-                "macro_action": "mouse_move_abs" if move.mode == "abs" else "mouse_move_rel",
-                "x": int(move.x),
-                "y": int(move.y),
-            }
-        )
+        move_event: MacroEvent = {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": int(move.t_us),
+            "macro_action": "mouse_move_abs" if move.mode == "abs" else "mouse_move_rel",
+            "x": int(move.x),
+            "y": int(move.y),
+        }
+        if move.original_order is not None:
+            move_event = _with_editor_order(move_event, move.original_order)
+        raw.append(move_event)
 
     for control in control_events:
-        event = {
+        control_event: MacroEvent = {
             "device_type": "macro",
             "type": 0,
             "code": 0,
@@ -374,25 +422,35 @@ def reconstruct_events(
             "macro_action": str(control.mode),
         }
         if control.mode == "wait":
-            event["duration_us"] = int(control.duration_us)
+            control_event["duration_us"] = int(control.duration_us)
         elif control.mode == "wait_random":
-            event["min_us"] = int(control.min_us)
-            event["max_us"] = int(control.max_us)
+            control_event["min_us"] = int(control.min_us)
+            control_event["max_us"] = int(control.max_us)
         elif control.mode in {"exec_sync", "exec_async"}:
-            event["command"] = str(control.command)
+            control_event["command"] = str(control.command)
             if control.mode == "exec_sync":
-                event["timeout_ms"] = int(control.timeout_ms)
-                event["inhibit_mouse"] = bool(control.inhibit_mouse)
+                control_event["timeout_ms"] = int(control.timeout_ms)
+                control_event["inhibit_mouse"] = bool(control.inhibit_mouse)
         elif control.mode == "compositor_dispatch":
             if control.compositor_id:
-                event["compositor"] = str(control.compositor_id)
-            event["dispatcher"] = str(control.compositor_dispatcher)
-            event["args"] = str(control.compositor_args)
-        raw.append(event)
+                control_event["compositor"] = str(control.compositor_id)
+            control_event["dispatcher"] = str(control.compositor_dispatcher)
+            control_event["args"] = str(control.compositor_args)
+        if control.original_order is not None:
+            control_event = _with_editor_order(control_event, control.original_order)
+        raw.append(control_event)
 
     raw.extend(passthrough_events)
-    raw.sort(key=lambda e: e["t_us"])
-    return raw
+    original_orders = [order for ev in raw if (order := _get_editor_order(ev)) is not None]
+    max_original_order = max(original_orders, default=-1)
+
+    def sort_key(item: tuple[int, MacroEvent]) -> tuple[int, int]:
+        index, ev = item
+        original_order = _get_editor_order(ev)
+        order = original_order if original_order is not None else max_original_order + 1 + index
+        return int(ev["t_us"]), order
+
+    return [dict(ev) for _, ev in sorted(enumerate(raw), key=sort_key)]
 
 
 def _assign_lanes(events: list[EditableEvent], device_type: str) -> tuple[dict[int, int], int]:

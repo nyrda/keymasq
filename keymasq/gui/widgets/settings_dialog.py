@@ -139,7 +139,7 @@ class SettingsDialog(Adw.Dialog):
                 return False
             if isinstance(response, dict) and response.get("status") == "ok":
                 raw_saved = response.get("virtual_gamepad_count", count)
-                saved_count = int(raw_saved if isinstance(raw_saved, (int, float, str)) else count)
+                saved_count = _count_value(raw_saved, count)
                 self._syncing_controls = True
                 self._gamepad_count = clamp_virtual_gamepad_count(saved_count)
                 self._sync_gamepad_count_controls()

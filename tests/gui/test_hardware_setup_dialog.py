@@ -1880,6 +1880,7 @@ def test_hardware_setup_capture_flow_records_buttons_and_saves(monkeypatch):
         {
             "command": "begin_capture",
             "hardware_id": "1234:5678",
+            "end_on_disconnect": True,
             "evdev_paths": ["/dev/input/by-id/test-mouse"],
             "evdev_interfaces": [
                     {

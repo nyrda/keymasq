@@ -16,12 +16,13 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
 )
 
 from keymasq import __version__
-from keymasq.common.devices import is_gamepad_button_name
+from keymasq.common.devices import is_gamepad_button_name, resolve_evdev_code
 from keymasq.common.gamepad_axes import (
     GAMEPAD_AXIS_RANGES,
     gamepad_axis_percent_from_value,
     gamepad_axis_range,
     gamepad_axis_value_from_percent,
+    normalize_gamepad_axis_target,
 )
 from keymasq.common.models import (
     DEFAULT_REPEAT_CATEGORIES,
@@ -125,6 +126,62 @@ def _format_current_virtual_output_choice(output_id: str) -> str:
     if is_virtual_gamepad_output_id(output_id):
         return f"{output_id} (unavailable)"
     return f"{output_id} (unknown)"
+
+
+def _resolve_gamepad_button_target(raw: str) -> str | None:
+    """Resolve free-form button input to a canonical evdev button name.
+
+    Accepts an evdev button name (e.g. ``btn_c``, ``btn_trigger_happy1``) or a
+    numeric key code (decimal or ``0x``-prefixed). Returns a lowercase ``btn_*``
+    name, or ``None`` when the input is not a recognized button code.
+    """
+    text = (raw or "").strip().lower()
+    if not text:
+        return None
+
+    if text.startswith("btn_"):
+        return text if resolve_evdev_code(text) is not None else None
+
+    try:
+        code = int(text, 0)
+    except ValueError:
+        return None
+
+    names = evdev.ecodes.BTN.get(code)
+    if isinstance(names, (list, tuple)):
+        # evdev orders aliases oldest-first; the last name is the canonical
+        # modern label (e.g. BTN_SOUTH over BTN_A).
+        names = names[-1] if names else None
+    if isinstance(names, str) and names.startswith("BTN_"):
+        return names.lower()
+    return None
+
+
+def _resolve_gamepad_axis_target(raw: str) -> str | None:
+    """Resolve free-form axis input to a canonical evdev ABS name.
+
+    Accepts an evdev axis name (e.g. ``abs_hat0x``, ``abs_throttle``) or a
+    numeric ABS code (decimal or ``0x``-prefixed). Returns a lowercase ``abs_*``
+    name, or ``None`` when the input is not a recognized axis code.
+    """
+    text = (raw or "").strip().lower()
+    if not text:
+        return None
+
+    if text.startswith("abs_"):
+        return text if resolve_evdev_code(text) is not None else None
+
+    try:
+        code = int(text, 0)
+    except ValueError:
+        return None
+
+    names = evdev.ecodes.ABS.get(code)
+    if isinstance(names, (list, tuple)):
+        names = names[-1] if names else None
+    if isinstance(names, str) and names.startswith("ABS_"):
+        return names.lower()
+    return None
 
 
 def _is_hardware_gamepad(config: object) -> bool:
@@ -476,22 +533,38 @@ def _ensure_compact_tabs_css() -> None:
     _compact_tabs_css_installed = True
 
 
+_GAMEPAD_AXIS_CUSTOM_SLOT = "custom"
+
+
 class _GamepadAxisControlsMixin:
     gamepad_axis_targets: list[str]
     gamepad_axis_dropdown: Gtk.DropDown
+    gamepad_axis_custom_entry: Gtk.Entry
     gamepad_axis_value: Gtk.SpinButton
     gamepad_axis_percent: Gtk.SpinButton
+    gamepad_axis_percent_label: Gtk.Label
+    gamepad_code_entry: Gtk.Entry
     _syncing_gamepad_axis_controls: bool
 
     def _build_gamepad_axis_controls(self) -> Gtk.Widget:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row.set_halign(Gtk.Align.CENTER)
 
-        self.gamepad_axis_targets = list(GAMEPAD_AXIS_RANGES)
-        labels = [GAMEPAD_AXIS_RANGES[target].label for target in self.gamepad_axis_targets]
+        self.gamepad_axis_targets = [*GAMEPAD_AXIS_RANGES, _GAMEPAD_AXIS_CUSTOM_SLOT]
+        labels = [GAMEPAD_AXIS_RANGES[target].label for target in GAMEPAD_AXIS_RANGES]
+        labels.append("Custom")
         self.gamepad_axis_dropdown = Gtk.DropDown.new_from_strings(labels)
         self.gamepad_axis_dropdown.connect("notify::selected", self._on_gamepad_axis_changed)
         row.append(self.gamepad_axis_dropdown)
+
+        self.gamepad_axis_custom_entry = Gtk.Entry()
+        self.gamepad_axis_custom_entry.set_placeholder_text("abs_ code")
+        self.gamepad_axis_custom_entry.set_width_chars(11)
+        self.gamepad_axis_custom_entry.set_tooltip_text(
+            "Custom axis evdev name (e.g. abs_hat0x, abs_hat0y, abs_throttle, "
+            "abs_rudder) or numeric code."
+        )
+        row.append(self.gamepad_axis_custom_entry)
 
         self.gamepad_axis_value = Gtk.SpinButton()
         self.gamepad_axis_value.set_numeric(True)
@@ -507,7 +580,8 @@ class _GamepadAxisControlsMixin:
         self.gamepad_axis_percent.set_tooltip_text("Percent")
         self.gamepad_axis_percent.connect("value-changed", self._on_gamepad_axis_percent_changed)
         row.append(self.gamepad_axis_percent)
-        row.append(Gtk.Label(label="%"))
+        self.gamepad_axis_percent_label = Gtk.Label(label="%")
+        row.append(self.gamepad_axis_percent_label)
 
         apply_btn = Gtk.Button(label="Map Analog")
         apply_btn.add_css_class("suggested-action")
@@ -517,15 +591,40 @@ class _GamepadAxisControlsMixin:
         self._on_gamepad_axis_changed(self.gamepad_axis_dropdown, None)
         return row
 
-    def _selected_gamepad_axis_target(self) -> str:
+    def _selected_gamepad_axis_slot(self) -> str:
         index = int(self.gamepad_axis_dropdown.get_selected())
         if index < 0 or index >= len(self.gamepad_axis_targets):
             return "abs_x"
         return self.gamepad_axis_targets[index]
 
+    def _selected_gamepad_axis_target(self) -> str | None:
+        slot = self._selected_gamepad_axis_slot()
+        if slot == _GAMEPAD_AXIS_CUSTOM_SLOT:
+            return _resolve_gamepad_axis_target(self.gamepad_axis_custom_entry.get_text())
+        return slot
+
     def _on_gamepad_axis_changed(self, dropdown, _param) -> None:
-        target = self._selected_gamepad_axis_target()
-        axis = gamepad_axis_range(target)
+        is_custom = self._selected_gamepad_axis_slot() == _GAMEPAD_AXIS_CUSTOM_SLOT
+        self.gamepad_axis_custom_entry.set_visible(is_custom)
+        self.gamepad_axis_percent.set_visible(not is_custom)
+        self.gamepad_axis_percent_label.set_visible(not is_custom)
+
+        if is_custom:
+            current = int(self.gamepad_axis_value.get_value())
+            self._syncing_gamepad_axis_controls = True
+            self.gamepad_axis_value.set_adjustment(
+                Gtk.Adjustment(
+                    value=current,
+                    lower=-2147483648,
+                    upper=2147483647,
+                    step_increment=1,
+                    page_increment=256,
+                )
+            )
+            self._syncing_gamepad_axis_controls = False
+            return
+
+        axis = gamepad_axis_range(self._selected_gamepad_axis_slot())
         if axis is None:
             return
         self._syncing_gamepad_axis_controls = True
@@ -548,6 +647,8 @@ class _GamepadAxisControlsMixin:
         if getattr(self, "_syncing_gamepad_axis_controls", False):
             return
         target = self._selected_gamepad_axis_target()
+        if target is None:
+            return
         self._syncing_gamepad_axis_controls = True
         self.gamepad_axis_value.set_value(
             gamepad_axis_value_from_percent(target, spin.get_value())
@@ -557,7 +658,11 @@ class _GamepadAxisControlsMixin:
     def _on_gamepad_axis_value_changed(self, spin: Gtk.SpinButton) -> None:
         if getattr(self, "_syncing_gamepad_axis_controls", False):
             return
+        if self._selected_gamepad_axis_slot() == _GAMEPAD_AXIS_CUSTOM_SLOT:
+            return
         target = self._selected_gamepad_axis_target()
+        if target is None:
+            return
         self._syncing_gamepad_axis_controls = True
         self.gamepad_axis_percent.set_value(
             gamepad_axis_percent_from_value(target, spin.get_value())
@@ -565,11 +670,48 @@ class _GamepadAxisControlsMixin:
         self._syncing_gamepad_axis_controls = False
 
     def _on_gamepad_axis_apply_clicked(self, btn) -> None:
+        target = self._selected_gamepad_axis_target()
+        if not target:
+            self.gamepad_axis_custom_entry.set_text("")
+            self.gamepad_axis_custom_entry.set_placeholder_text("Unknown axis code")
+            return
         self._on_gamepad_axis_clicked(
             btn,
-            self._selected_gamepad_axis_target(),
+            target,
             int(self.gamepad_axis_value.get_value()),
         )
+
+    def _prefill_gamepad_inputs(self) -> None:
+        """Restore the code/axis fields when editing an existing gamepad action."""
+        action = getattr(self, "_current_action", None)
+        if action is None:
+            return
+        action_type = getattr(action, "action_type", None)
+        target = str(getattr(action, "target", "") or "")
+
+        if action_type == ActionType.GAMEPAD:
+            # Pre-fill the free-form code field for buttons outside the template.
+            if target and target not in EVDEV_TO_GAMEPAD and hasattr(self, "gamepad_code_entry"):
+                self.gamepad_code_entry.set_text(target)
+            return
+
+        if action_type == ActionType.GAMEPAD_AXIS:
+            self._prefill_gamepad_axis(target, int(getattr(action, "axis_value", 0) or 0))
+
+    def _prefill_gamepad_axis(self, target: str, value: int) -> None:
+        normalized = normalize_gamepad_axis_target(target) or target
+        if normalized in GAMEPAD_AXIS_RANGES:
+            self.gamepad_axis_dropdown.set_selected(
+                self.gamepad_axis_targets.index(normalized)
+            )
+        elif _resolve_gamepad_axis_target(normalized):
+            self.gamepad_axis_dropdown.set_selected(
+                self.gamepad_axis_targets.index(_GAMEPAD_AXIS_CUSTOM_SLOT)
+            )
+            self.gamepad_axis_custom_entry.set_text(normalized)
+        else:
+            return
+        self.gamepad_axis_value.set_value(value)
 
     def _on_gamepad_axis_clicked(self, btn, axis_target: str, axis_value: int) -> None:
         raise NotImplementedError
@@ -1429,6 +1571,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         box.append(warning)
         box.append(build_shared_gamepad_tab(self))
         self._update_gamepad_output_warning()
+        self._prefill_gamepad_inputs()
         return box
 
     def _build_gamepad_output_header(self) -> Gtk.Widget | None:
@@ -2003,6 +2146,14 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         )
         self.emit("key-selected", action)
         self.close()
+
+    def _on_gamepad_code_clicked(self, widget) -> None:
+        evdev_name = _resolve_gamepad_button_target(self.gamepad_code_entry.get_text())
+        if not evdev_name:
+            self.gamepad_code_entry.set_text("")
+            self.gamepad_code_entry.set_placeholder_text("Unknown button code")
+            return
+        self._on_gamepad_clicked(widget, evdev_name)
 
     def _build_macro_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -3500,6 +3651,14 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self.emit("action-selected", action)
         self.close()
 
+    def _on_gamepad_code_clicked(self, widget) -> None:
+        evdev_name = _resolve_gamepad_button_target(self.gamepad_code_entry.get_text())
+        if not evdev_name:
+            self.gamepad_code_entry.set_text("")
+            self.gamepad_code_entry.set_placeholder_text("Unknown button code")
+            return
+        self._on_gamepad_clicked(widget, evdev_name)
+
     def _set_initial_tab(self):
         if not self._current_action:
             return
@@ -3583,6 +3742,7 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         outer.append(warning)
         outer.append(build_shared_gamepad_tab(self))
         self._update_gamepad_output_warning()
+        self._prefill_gamepad_inputs()
         return outer
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:

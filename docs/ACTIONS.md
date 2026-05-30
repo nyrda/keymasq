@@ -194,6 +194,14 @@ Map to a gamepad button, trigger axis, or stick axis. Available inputs include:
 
 ![Gamepad tab — face buttons, shoulders, triggers, D-pad, and sticks](assets/screenshots/key_selector_gamepad.png)
 
+To map a button outside the template, use the **Button code** field below the
+controller diagram. It accepts an evdev button name (such as `btn_c` or
+`btn_trigger_happy1`) or a numeric key code (decimal or `0x`-prefixed), and
+routes through the same output selected above. This is an advanced option: the
+chosen output must actually support the button code for it to emit. Hardware
+gamepad outputs expose whatever buttons the physical device advertises, while
+the virtual gamepad outputs advertise the standard Xbox 360 button set.
+
 Gamepad actions can route to a specific output with `output_id`. Use
 `virtual-gamepad-1` through `virtual-gamepad-4` for configured virtual Xbox
 360 outputs, or a configured hardware gamepad ID such as `045e:028e@2`.
@@ -206,6 +214,13 @@ or `abs_rz`, and a raw evdev `value`. Stick axes accept `-32768..32767`;
 trigger axes accept `0..255`. Releasing the source input returns the axis to
 neutral `0`. LT and RT are axis actions (`abs_z` and `abs_rz`); `gamepad`
 actions are button-only.
+
+To target an axis outside the template, pick **Custom** in the axis dropdown
+and enter an evdev axis name (such as `abs_hat0x`, `abs_hat0y`, `abs_throttle`,
+or `abs_rudder`) or a numeric code, then enter the raw value to send. As with
+custom buttons, the chosen output must support the axis for it to emit; the
+virtual gamepad outputs include the standard stick, trigger, and `abs_hat0`
+axes.
 
 ## Analog Controls
 

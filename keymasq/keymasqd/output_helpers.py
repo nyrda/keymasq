@@ -72,9 +72,12 @@ def resolve_gamepad_axis_code(target: str | None) -> int | None:
 
     target_lower = target.strip().lower()
     axis_range = gamepad_axis_range(normalize_gamepad_axis_target(target_lower))
-    if axis_range is None:
-        return None
-    return _ecode_value(axis_range.evdev_name)
+    if axis_range is not None:
+        return _ecode_value(axis_range.evdev_name)
+    # Advanced: resolve any custom ABS axis code outside the standard template.
+    if target_lower.startswith("abs_"):
+        return _ecode_value(target_lower.upper())
+    return None
 
 
 def emit_mouse_move(

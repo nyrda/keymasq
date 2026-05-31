@@ -286,6 +286,7 @@ class TestRecordMacroDialog:
 
         dialog = RecordMacroDialog(Gtk.Window())
         dialog._apply_recording_settings({"status": "ok", "device_overrides": {}})
+        dialog._settings_loaded = True
         dialog._devices = [
             {
                 "path": "/dev/input/event20",
@@ -327,6 +328,7 @@ class TestRecordMacroDialog:
 
         dialog = RecordMacroDialog(Gtk.Window())
         dialog._apply_recording_settings({"status": "ok", "device_overrides": {}})
+        dialog._settings_loaded = True
         dialog._devices = [
             {
                 "path": "/dev/input/event20",
@@ -399,6 +401,7 @@ class TestRecordMacroDialog:
                 "device_overrides": {},
             }
         )
+        dialog._settings_loaded = True
         dialog._devices = [
             {
                 "path": "/dev/input/event20",
@@ -465,6 +468,7 @@ class TestRecordMacroDialog:
         monkeypatch.setattr(record_macro_dialog_module, "session_request", fake_session_request)
 
         dialog = RecordMacroDialog(Gtk.Window())
+        dialog._settings_loaded = True
         dialog._device_overrides = {
             "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True
         }

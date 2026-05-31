@@ -775,7 +775,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._macro_list: list[dict] = []
         self._selected_macro: str | None = None
         self._cancel_macro_playback_btn: Gtk.Button | None = None
-        self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=True)
+        self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=False)
         self._macro_slot_console: Gtk.Box | None = None
         self._superkey_list: list[SuperkeyConfig] = []
         self._superkey_names: list[str] = []
@@ -2332,7 +2332,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             console.remove(child)
             child = console.get_first_child()
         self._macro_recording_enabled = self._resolve_macro_recording_enabled(
-            default=self._macro_recording_enabled
+            default=False
         )
         if self._macro_recording_enabled:
             console.append(self._build_macro_slot_cards())

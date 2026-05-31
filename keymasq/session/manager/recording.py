@@ -1207,6 +1207,10 @@ async def play_macro_slot_trigger(manager: "SessionManager", data: JsonObject) -
 
     pending_slot = pending_macro_save_slot(manager, recording_slot=slot)
     if not pending_slot:
+        await sync_pending_macro_slots_from_daemon(manager)
+        pending_slot = pending_macro_save_slot(manager, recording_slot=slot)
+
+    if not pending_slot:
         return {
             "status": "error",
             "error_code": "macro_recording_slot_empty",

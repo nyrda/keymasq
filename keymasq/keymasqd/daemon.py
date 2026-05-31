@@ -95,6 +95,7 @@ class Daemon:
             self.security_policy.emergency_cancel_combo_enabled
         )
         await asyncio.to_thread(self._prepare_macro_store)
+        await self.recording_manager.load_persisted_slot_recordings()
         log.info(
             "Security policy loaded from %s",
             SECURITY_POLICY_PATH,

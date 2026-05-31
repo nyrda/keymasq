@@ -64,7 +64,6 @@ class RecordingManager:
         self._include_mouse_clicks = False
         self._record_grabbed_source_keys: set[str] = set()
         self._recording_slot = 0
-        self._load_persisted_slot_recordings()
 
     @property
     def is_recording(self) -> bool:
@@ -352,6 +351,9 @@ class RecordingManager:
             recording_slot=int(slot),
             cleanup_paths=(meta_path,),
         )
+
+    async def load_persisted_slot_recordings(self) -> None:
+        await asyncio.to_thread(self._load_persisted_slot_recordings)
 
     def _load_persisted_slot_recordings(self) -> None:
         if not self._spool_dir_exists():

@@ -642,11 +642,15 @@ class RecordMacroDialog(Adw.Dialog):
         device_type: str,
         active: bool,
     ) -> None:
+        if not self._settings_loaded:
+            return
         self._set_device_type_selection(device_type, active)
         self._update_selection_ui()
         self._sync_settings_async()
 
     def _on_reset_to_recommended_clicked(self, _btn: Gtk.Button) -> None:
+        if not self._settings_loaded:
+            return
         self._device_overrides.clear()
         for device in self._devices:
             recording_id = self._device_recording_id(device)
@@ -659,7 +663,7 @@ class RecordMacroDialog(Adw.Dialog):
         self._sync_settings_async()
 
     def _on_record_options_changed(self, check: Gtk.CheckButton) -> None:
-        if self._applying_settings:
+        if self._applying_settings or not self._settings_loaded:
             return
 
         self._record_mouse_movement = self._record_movement_check.get_active()
@@ -774,7 +778,7 @@ class RecordMacroDialog(Adw.Dialog):
         threading.Thread(target=self._refresh_unlock_state, daemon=True).start()
 
     def _on_device_check_toggled(self, check: Gtk.CheckButton) -> None:
-        if self._applying_settings:
+        if self._applying_settings or not self._settings_loaded:
             return
 
         for recording_id, dev_check in self._device_checks.items():
@@ -895,6 +899,11 @@ class RecordMacroDialog(Adw.Dialog):
 
     def _sync_settings_to_session(self) -> None:
         while True:
+            if not self._settings_loaded or self._closed:
+                with self._settings_sync_lock:
+                    self._settings_sync_worker_running = False
+                return
+
             with self._settings_sync_lock:
                 generation = self._settings_sync_generation
 
@@ -909,6 +918,9 @@ class RecordMacroDialog(Adw.Dialog):
                     return
 
     def _sync_settings_async(self) -> None:
+        if not self._settings_loaded or self._closed:
+            return
+
         with self._settings_sync_lock:
             self._settings_sync_generation += 1
             if self._settings_sync_worker_running:

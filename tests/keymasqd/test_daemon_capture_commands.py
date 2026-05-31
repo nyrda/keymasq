@@ -826,6 +826,7 @@ async def test_start_offloads_macro_store_prep_to_thread(
     macro_store.ensure.assert_called_once()
     macro_store.register_internal.assert_called_once()
     recording_manager.cleanup_spool_dir.assert_called_once()
+    recording_manager.load_persisted_slot_recordings.assert_awaited_once()
     device_manager.initialize_output_devices.assert_called_once()
     device_manager.shutdown_output_devices.assert_called_once()
     device_manager.start_topology_watcher.assert_awaited_once()

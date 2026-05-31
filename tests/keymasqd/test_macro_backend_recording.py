@@ -46,6 +46,7 @@ async def test_recording_slot_survives_recording_manager_restart(tmp_path: Path)
     assert result["recording_slot"] == 2
 
     restored = RecordingManager(spool_dir=tmp_path)
+    await restored.load_persisted_slot_recordings()
     recordings = await restored.list_pending_recordings()
     assert recordings == [
         {
@@ -99,6 +100,7 @@ async def test_recording_slot_overwrite_replaces_pending_snapshot(tmp_path: Path
         await recorder.pending_recording(first_id)
 
     restored = RecordingManager(spool_dir=tmp_path)
+    await restored.load_persisted_slot_recordings()
     snapshot = await restored.pending_recording(second_id)
     assert list(snapshot.iter_events())[0]["code"] == evdev.ecodes.KEY_B
 
@@ -127,6 +129,7 @@ async def test_recording_slot_overwrite_preserves_new_meta_after_old_claim_relea
     await recorder.release_pending_recording_claim(first_id, saved=False)
 
     restored = RecordingManager(spool_dir=tmp_path)
+    await restored.load_persisted_slot_recordings()
     recordings = await restored.list_pending_recordings()
     assert recordings[0]["pending_recording_id"] == second_id
     snapshot = await restored.pending_recording(second_id)
@@ -170,6 +173,7 @@ async def test_recording_slot_overwrite_expires_abandoned_old_claim(
     assert second_path.exists()
 
     restored = RecordingManager(spool_dir=tmp_path)
+    await restored.load_persisted_slot_recordings()
     recordings = await restored.list_pending_recordings()
     assert recordings[0]["pending_recording_id"] == second_id
     snapshot = await restored.pending_recording(second_id)

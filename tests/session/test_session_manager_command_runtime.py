@@ -881,6 +881,47 @@ async def test_play_macro_slot_trigger_sends_pending_recording_to_daemon() -> No
 
 
 @pytest.mark.asyncio
+async def test_play_macro_slot_trigger_refreshes_empty_cache_before_playback() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            Response(
+                status="ok",
+                data={
+                    "recordings": [
+                        {
+                            "pending_recording_id": "recording-2",
+                            "recording_slot": 2,
+                            "duration_ms": 100,
+                            "duration_us": 100_000,
+                            "device_types": ["keyboard"],
+                            "event_count": 1,
+                        }
+                    ]
+                },
+            ),
+            Response(status="ok", data={"status": "ok", "played": True}),
+        ]
+    )
+
+    result = await session_recording_module.play_macro_slot_trigger(
+        manager,
+        {"recording_slot": 2},
+    )
+
+    assert result == {"status": "ok", "played": True}
+    sent_commands = [
+        call.args[0].command for call in manager.client.send_command.await_args_list
+    ]
+    assert sent_commands == [
+        CommandType.MACRO_LIST_RECORDINGS,
+        CommandType.MACRO_PLAY_RECORDING,
+    ]
+    play_command = manager.client.send_command.await_args_list[1].args[0]
+    assert play_command.data["pending_recording_id"] == "recording-2"
+
+
+@pytest.mark.asyncio
 async def test_list_macros_include_slots_syncs_slots_from_daemon() -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
@@ -926,7 +967,9 @@ async def test_list_macros_include_slots_syncs_slots_from_daemon() -> None:
 @pytest.mark.asyncio
 async def test_play_macro_slot_trigger_rejects_empty_slot() -> None:
     manager = SessionManager()
-    manager.client.send_command = AsyncMock()
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"recordings": []})
+    )
 
     result = await session_recording_module.play_macro_slot_trigger(
         manager,
@@ -935,7 +978,8 @@ async def test_play_macro_slot_trigger_rejects_empty_slot() -> None:
 
     assert result["status"] == "error"
     assert result["error_code"] == "macro_recording_slot_empty"
-    manager.client.send_command.assert_not_awaited()
+    sent_command = manager.client.send_command.await_args.args[0]
+    assert sent_command.command == CommandType.MACRO_LIST_RECORDINGS
 
 
 @pytest.mark.asyncio

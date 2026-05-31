@@ -190,8 +190,12 @@ def test_key_selector_macro_slots_use_card_layout(monkeypatch) -> None:
         lambda _payload, _callback: None,
     )
 
+    class Parent(Gtk.Window):
+        def macro_recording_enabled(self) -> bool:
+            return True
+
     results: list[MappingAction] = []
-    dialog = KeySelectorDialog(Gtk.Window(), "Back")
+    dialog = KeySelectorDialog(Parent(), "Back")
     monkeypatch.setattr(dialog, "close", lambda: None)
     dialog.connect("key-selected", lambda _dialog, action: results.append(action))
     dialog.stack.set_visible_child_name("macro")

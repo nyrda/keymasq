@@ -3,14 +3,15 @@ from tests.session.command_support import *
 
 
 @pytest.mark.asyncio
-async def test_sensitive_command_requires_active_recording_owner() -> None:
+async def test_sensitive_command_requires_active_recording_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=111, uid=1000, gid=1000)
     owner_writer = object()
     other_writer = object()
 
     lock_recording_unlock = AsyncMock(return_value={"status": "ok"})
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(session_recording_module, "lock_recording_unlock", lock_recording_unlock)
     manager.unlock_state.refresh_owner = {
         "uid": 1000,
@@ -36,7 +37,6 @@ async def test_sensitive_command_requires_active_recording_owner() -> None:
     )
     assert allowed["status"] == "ok"
     lock_recording_unlock.assert_awaited_once()
-    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -46,7 +46,7 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
     manager = SessionManager()
     peer = PeerCredentials(pid=111, uid=1000, gid=1000)
     writer = object()
-    start_recording = AsyncMock(return_value={"status": "ok"})
+    capture_begin_for_paths = AsyncMock(return_value={"status": "ok"})
     manager.security_policy = SecurityPolicy(
         session_command_acl={"client": []},
         daemon_command_acl={"session": []},
@@ -54,7 +54,7 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
     )
 
     def fake_command_allowed(command: str, acl: dict[str, list[str]], client_class: str) -> bool:
-        assert command == "start_recording"
+        assert command == "begin_capture"
         assert acl is manager.security_policy.session_command_acl
         assert client_class == "client"
         manager.security_policy = SecurityPolicy(
@@ -65,10 +65,14 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
         return True
 
     monkeypatch.setattr("keymasq.session.manager.commands.command_allowed", fake_command_allowed)
-    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(
+        session_recording_module,
+        "capture_begin_for_paths",
+        capture_begin_for_paths,
+    )
 
     result = await manager._handle_session_request(
-        {"command": "start_recording"},
+        {"command": "begin_capture", "hardware_id": "1234:5678"},
         "client",
         peer,
         writer,  # type: ignore[arg-type]
@@ -76,7 +80,7 @@ async def test_session_request_uses_single_policy_snapshot_for_acl_and_sensitivi
 
     assert result["status"] == "error"
     assert result["error_code"] == "sensitive_command_denied"
-    start_recording.assert_not_awaited()
+    capture_begin_for_paths.assert_not_awaited()
 
 
 @pytest.mark.asyncio

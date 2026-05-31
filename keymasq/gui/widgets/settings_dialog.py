@@ -27,7 +27,7 @@ def _count_value(value: object, default: int) -> int:
 
 class SettingsDialog(Adw.Dialog):
     def __init__(self, parent: Gtk.Window | None = None) -> None:
-        super().__init__(title="Settings", content_width=460, content_height=240)
+        super().__init__(title="Settings", content_width=460, content_height=380)
         self._parent = parent
         self._settings = load_global_settings()
         self._gamepad_count = self._settings.virtual_gamepad_count
@@ -63,6 +63,19 @@ class SettingsDialog(Adw.Dialog):
         gamepad_group.add(gamepad_row)
         self._sync_gamepad_count_controls()
 
+        macro_group = Adw.PreferencesGroup(title="Macros")
+        page.add(macro_group)
+
+        macro_row = Adw.ActionRow(title="Macro recording")
+        macro_row.set_subtitle("Recording sources and opt-in state")
+        macro_btn = Gtk.Button(icon_name="go-next-symbolic")
+        macro_btn.set_tooltip_text("Open macro recording settings")
+        macro_btn.set_valign(Gtk.Align.CENTER)
+        macro_btn.connect("clicked", self._on_macro_settings_clicked)
+        macro_row.add_suffix(macro_btn)
+        macro_group.add(macro_row)
+        self._macro_settings_btn = macro_btn
+
         footer = Gtk.ActionBar()
         self._status = Gtk.Label(label="")
         self._status.set_xalign(0)
@@ -87,6 +100,20 @@ class SettingsDialog(Adw.Dialog):
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
         self.close()
+
+    def _on_macro_settings_clicked(self, _button: Gtk.Button) -> None:
+        present_settings = getattr(self._parent, "present_recording_settings_dialog", None)
+        if callable(present_settings):
+            present_settings(reason="settings")
+            return
+        if self._parent is None:
+            self._status.set_text("Macro recording settings are available from the main window")
+            return
+
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        dialog = RecordMacroDialog(self._parent)
+        dialog.present(self._parent)
 
     def _on_loaded(self, response: dict[str, object] | None) -> bool:
         if self._save_seq > 0:

@@ -414,7 +414,11 @@ class TestIntegrationLifecycle(IntegrationTestBase):
 
             virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
             virtual_mouse.syn()
-            await asyncio.sleep(0.04)
+            grabbed = manager.grabbed_devices[hardware_id][0]
+            await self._wait_until(
+                lambda: "btn_side" in grabbed.state.held_source_actions,
+                reason="held source button",
+            )
 
             release_data = await self._send_command(
                 reader,
@@ -426,13 +430,21 @@ class TestIntegrationLifecycle(IntegrationTestBase):
             )
             assert release_data.get("scheduled") is True
 
-            await asyncio.sleep(0.06)
+            grace_elapsed_at = asyncio.get_running_loop().time() + 0.04
+            await self._wait_until(
+                lambda: asyncio.get_running_loop().time() >= grace_elapsed_at
+                and hardware_id in manager.grabbed_devices,
+                reason="device remains grabbed while button is held",
+            )
             assert hardware_id in manager.grabbed_devices
 
             virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
             virtual_mouse.syn()
 
-            await asyncio.sleep(0.12)
+            await self._wait_until(
+                lambda: hardware_id not in manager.grabbed_devices,
+                reason="device release after held button release",
+            )
             assert hardware_id not in manager.grabbed_devices
         finally:
             writer.close()

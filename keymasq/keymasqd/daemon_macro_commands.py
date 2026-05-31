@@ -8,6 +8,7 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
     normalize_macro_loop_stop_behavior,
+    normalize_macro_recording_slot,
 )
 from keymasq.keymasqd.daemon_helpers import (
     JsonObject,
@@ -53,6 +54,7 @@ class MacroPlaybackOptions:
     source_device: str = ""
     source_button: str = ""
     trigger_value: int = 1
+    load_stored_macro: bool = True
 
 
 class _MacroCommandDeviceManager(Protocol):
@@ -73,6 +75,7 @@ class _MacroCommandDeviceManager(Protocol):
         source_device: str = "",
         source_button: str = "",
         trigger_value: int = 1,
+        load_stored_macro: bool = True,
     ) -> JsonObject: ...
 
     async def cancel_macro_playback(self) -> JsonObject: ...
@@ -111,6 +114,8 @@ class _MacroCommandStore(_MacroDefinitionStore, Protocol):
 
 
 class _MacroCommandRecordingManager(Protocol):
+    async def list_pending_recordings(self) -> JsonObjectList: ...
+
     async def claim_pending_recording(self, recording_id: str) -> object: ...
 
     async def release_pending_recording_claim(
@@ -201,10 +206,17 @@ async def handle_macro_command(
     if command_type == CommandType.MACRO_SAVE_RECORDING:
         return await save_pending_recording(daemon, data)
 
-    if command_type == CommandType.MACRO_DISCARD_RECORDING:
+    if command_type == CommandType.MACRO_LIST_RECORDINGS:
+        recordings = await daemon.recording_manager.list_pending_recordings()
+        return {"recordings": recordings}
+
+    if command_type == CommandType.MACRO_DELETE_RECORDING:
         recording_id = str_value(data.get("pending_recording_id", ""))
         await daemon.recording_manager.discard_pending_recording(recording_id)
         return {"status": "ok"}
+
+    if command_type == CommandType.MACRO_PLAY_RECORDING:
+        return await play_pending_recording(daemon, data)
 
     if command_type == CommandType.MACRO_PLAY_BY_NAME:
         return await play_macro_by_name(daemon, data)
@@ -236,15 +248,15 @@ async def save_pending_recording(
         _PendingRecording,
         await daemon.recording_manager.claim_pending_recording(recording_id),
     )
-    saved = False
     try:
-        result = await asyncio.to_thread(_save_pending_recording_sync, daemon, data, snapshot)
-        saved = True
-        return result
+        return await asyncio.to_thread(_save_pending_recording_sync, daemon, data, snapshot)
     finally:
+        is_slot_backed = bool(
+            normalize_macro_recording_slot(getattr(snapshot, "recording_slot", 0))
+        )
         await daemon.recording_manager.release_pending_recording_claim(
             recording_id,
-            saved=saved,
+            saved=not is_slot_backed,
         )
 
 
@@ -303,6 +315,38 @@ async def play_macro_by_name(daemon: _MacroCommandDaemon, data: JsonObject) -> J
     )
 
 
+async def play_pending_recording(
+    daemon: _MacroCommandDaemon,
+    data: JsonObject,
+) -> JsonObject:
+    recording_id = str_value(data.get("pending_recording_id", ""))
+    if not recording_id:
+        raise ValueError("pending_recording_id required")
+    snapshot = cast(
+        _PendingRecording,
+        await daemon.recording_manager.claim_pending_recording(recording_id),
+    )
+    try:
+        macro_events = await asyncio.to_thread(lambda: list(snapshot.iter_events()))
+        macro_name = str_value(data.get("macro_name", ""))
+        if not macro_name:
+            macro_name = recording_id
+        return await _play_macro_with_options(
+            daemon,
+            _macro_playback_options(
+                data,
+                macro_events,
+                macro_name,
+                load_stored_macro=False,
+            ),
+        )
+    finally:
+        await daemon.recording_manager.release_pending_recording_claim(
+            recording_id,
+            saved=False,
+        )
+
+
 async def _play_macro_with_options(
     daemon: _MacroCommandDaemon,
     options: MacroPlaybackOptions,
@@ -324,6 +368,7 @@ async def _play_macro_with_options(
         source_device=options.source_device,
         source_button=options.source_button,
         trigger_value=options.trigger_value,
+        load_stored_macro=options.load_stored_macro,
     )
 
 
@@ -378,6 +423,7 @@ def _macro_playback_options(
     macro_name: str,
     *,
     stored_macro: JsonObject | None = None,
+    load_stored_macro: bool = True,
 ) -> MacroPlaybackOptions:
     defaults = _macro_runtime_options(stored_macro) if stored_macro is not None else None
     runtime_options = _macro_runtime_options(data, defaults=defaults)
@@ -391,6 +437,7 @@ def _macro_playback_options(
         source_device=str_value(data.get("source_device", "")),
         source_button=str_value(data.get("source_button", "")),
         trigger_value=int_like(data.get("trigger_value", 1), 1),
+        load_stored_macro=load_stored_macro,
     )
 
 

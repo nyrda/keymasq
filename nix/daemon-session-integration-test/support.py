@@ -25,6 +25,7 @@ LOWER_PROFILE_NAME = "Integration Lower Fallback"
 PASSTHROUGH_PROFILE_NAME = "Integration Passthrough Override"
 TEMP_PROFILE_NAME = "Integration Temporary Layer"
 REPEAT_PROFILE_NAME = "Integration Repeat"
+MACRO_SLOT_PROFILE_NAME = "Integration Macro Slot Actions"
 MACRO_NAME = "integration-macro"
 LONG_MACRO_NAME = "integration-hold-macro"
 SUPERKEY_NAME = "integration-tap-superkey"
@@ -33,6 +34,26 @@ OVERLOAD_SUPERKEY_NAME = "integration-overload-superkey"
 PROFILE_LIFETIME_HOLD_SUPERKEY_NAME = "integration-profile-lifetime-hold-superkey"
 PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME = "integration-profile-lifetime-overload-superkey"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+MACRO_SLOT_PROFILE_TEMPLATE = """
+[profile]
+name = "$MACRO_SLOT_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 500
+notify_on_activation = false
+created_at = "2026-05-12T00:00:05"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$HARDWARE_ID".mapping.key_f23]
+action = "start_macro_recording"
+recording_slot = 1
+
+[devices."$HARDWARE_ID".mapping.key_f24]
+action = "play_macro_slot"
+recording_slot = 1
+""".strip()
 
 
 @dataclass(frozen=True)
@@ -78,6 +99,7 @@ class ScenarioContext:
                 "Integration Analog Signed Axis Threshold",
                 "Integration Analog Signed Axis Mouse",
                 "Integration Analog Gamepad",
+                MACRO_SLOT_PROFILE_NAME,
                 REPEAT_PROFILE_NAME,
             ):
                 self.request({"command": "disable_profile", "profile_name": profile_name}, ok=False)
@@ -257,6 +279,10 @@ class ScenarioContext:
             "profiles/repeat.toml",
             values,
         )
+        (profiles_dir / "integration-macro-slot-actions.toml").write_text(
+            Template(MACRO_SLOT_PROFILE_TEMPLATE).safe_substitute(values),
+            encoding="utf-8",
+        )
         for fixture_name in (
             "analog-stick-gamepad.toml",
             "analog-trigger-deadzone.toml",
@@ -323,6 +349,7 @@ class ScenarioContext:
             "PASSTHROUGH_PROFILE_NAME": PASSTHROUGH_PROFILE_NAME,
             "TEMP_PROFILE_NAME": TEMP_PROFILE_NAME,
             "REPEAT_PROFILE_NAME": REPEAT_PROFILE_NAME,
+            "MACRO_SLOT_PROFILE_NAME": MACRO_SLOT_PROFILE_NAME,
             "MACRO_NAME": MACRO_NAME,
             "LONG_MACRO_NAME": LONG_MACRO_NAME,
             "SUPERKEY_NAME": SUPERKEY_NAME,

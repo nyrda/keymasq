@@ -415,13 +415,14 @@ class GrabbedDevice:
                 "passthrough",
                 test_name=f"passthrough-{self.hardware_id}",
             )
+            passthrough_vendor = _int_u16(passthrough_vendor)
+            passthrough_product = _int_u16(passthrough_product)
             passthrough_version: int | None = None
             passthrough_bustype: int | None = None
             passthrough_input_props = None
             if (
                 is_gamepad_passthrough
-                and passthrough_vendor is None
-                and passthrough_product is None
+                and (passthrough_vendor is None or passthrough_product is None)
             ):
                 (
                     passthrough_vendor,

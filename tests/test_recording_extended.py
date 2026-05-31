@@ -368,6 +368,36 @@ async def test_recording_manager_discards_expired_pending_recordings(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_expired_pending_recording_claim_survives_pending_cleanup(
+    tmp_path: Path,
+) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
+    path = tmp_path / "recording-claimed.jsonl"
+    path.write_text('{"t_us":0}\n', encoding="utf-8")
+    snapshot = RecordingSnapshot(
+        recording_id="claimed",
+        duration_ms=0,
+        device_types=[],
+        event_count=1,
+        spool_path=path,
+        memory_events=(),
+    )
+    now = asyncio.get_running_loop().time()
+    recorder._pending_recordings[snapshot.recording_id] = snapshot
+    recorder._pending_recording_created_at[snapshot.recording_id] = now - 10
+
+    claimed = await recorder.claim_pending_recording(snapshot.recording_id)
+    await recorder.discard_expired_pending_recordings(ttl_s=5)
+
+    assert claimed is snapshot
+    assert path.exists()
+    assert list(claimed.iter_events()) == [{"t_us": 0}]
+    assert recorder._claimed_recordings[snapshot.recording_id] is snapshot
+    await recorder.release_pending_recording_claim(snapshot.recording_id, saved=True)
+    assert not path.exists()
+
+
+@pytest.mark.asyncio
 async def test_recording_manager_discards_expired_claimed_recordings(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
     path = tmp_path / "recording-claimed.jsonl"
@@ -385,6 +415,7 @@ async def test_recording_manager_discards_expired_claimed_recordings(tmp_path: P
     recorder._pending_recording_created_at[snapshot.recording_id] = now - 10
 
     await recorder.claim_pending_recording(snapshot.recording_id)
+    recorder._claimed_recording_created_at[snapshot.recording_id] = now - 10
     await recorder.discard_expired_pending_recordings(ttl_s=5)
 
     assert not path.exists()

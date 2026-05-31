@@ -193,13 +193,24 @@ class _PersistentSessionConnection:
             from gi.repository import GLib  # pyright: ignore[reportAttributeAccessIssue]
 
             for callback in callbacks:
-                GLib.idle_add(callback, message)
+                GLib.idle_add(self._dispatch_event_callback_once, callback, message)
         except Exception:
             for callback in callbacks:
                 try:
                     callback(message)
                 except Exception:
                     pass
+
+    @staticmethod
+    def _dispatch_event_callback_once(
+        callback: Callable[[JsonDict], bool | None],
+        message: JsonDict,
+    ) -> bool:
+        try:
+            callback(message)
+        except Exception:
+            log.exception("Session event callback failed")
+        return False
 
     def _close_connection(self) -> None:
         with self._state_lock:

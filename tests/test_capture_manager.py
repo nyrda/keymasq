@@ -106,14 +106,21 @@ def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:
     monkeypatch.setattr(evdev, "InputDevice", fake_input_device)
 
     manager = CaptureManager()
-    begin = manager.begin("1234:5678@slot2", ["/dev/input/event2"])
-    token = str(begin["token"])
+    token: str | None = None
+    try:
+        begin = manager.begin("1234:5678@slot2", ["/dev/input/event2"])
+        token = str(begin["token"])
 
-    assert wanted.grabbed is True
-    assert other.grabbed is False
+        assert wanted.grabbed is True
+        assert other.grabbed is False
 
-    captured = cast(dict[str, object], manager.read(token)["captured"])
-    assert captured["evdev"] == "key_a"
+        captured = cast(dict[str, object], manager.read(token)["captured"])
+        assert captured["evdev"] == "key_a"
+    finally:
+        if token is not None:
+            manager.end(token)
+    assert wanted.grabbed is False
+    assert wanted.closed is True
 
 
 def test_capture_manager_resolves_keymasq_paths(monkeypatch) -> None:
@@ -162,22 +169,29 @@ def test_capture_manager_analog_mode_reads_abs_events(monkeypatch) -> None:
     monkeypatch.setattr(evdev, "InputDevice", lambda path: fake)
 
     manager = CaptureManager()
-    begin = manager.begin("1234:5678", ["/dev/input/event2"], mode="analog")
-    token = str(begin["token"])
+    token: str | None = None
+    try:
+        begin = manager.begin("1234:5678", ["/dev/input/event2"], mode="analog")
+        token = str(begin["token"])
 
-    assert manager.read(token)["captured"] is None
-    captured = cast(dict[str, object], manager.read(token)["captured"])
-    assert captured["evdev"] == "abs_x"
-    assert captured["code"] == evdev.ecodes.ABS_X
-    assert captured["value"] == 12000
-    assert captured["absinfo"] == {
-        "value": 0,
-        "minimum": -32768,
-        "maximum": 32767,
-        "fuzz": 0,
-        "flat": 0,
-        "resolution": 0,
-    }
+        assert manager.read(token)["captured"] is None
+        captured = cast(dict[str, object], manager.read(token)["captured"])
+        assert captured["evdev"] == "abs_x"
+        assert captured["code"] == evdev.ecodes.ABS_X
+        assert captured["value"] == 12000
+        assert captured["absinfo"] == {
+            "value": 0,
+            "minimum": -32768,
+            "maximum": 32767,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0,
+        }
+    finally:
+        if token is not None:
+            manager.end(token)
+    assert fake.grabbed is False
+    assert fake.closed is True
 
 
 def test_capture_manager_begin_numbered_hardware_id_falls_back_to_model_id(monkeypatch) -> None:
@@ -188,10 +202,18 @@ def test_capture_manager_begin_numbered_hardware_id_falls_back_to_model_id(monke
     monkeypatch.setattr(evdev, "InputDevice", lambda path: fake)
 
     manager = CaptureManager()
-    begin = manager.begin("045e:02a1@2")
+    token: str | None = None
+    try:
+        begin = manager.begin("045e:02a1@2")
+        token = str(begin["token"])
 
-    assert begin["hardware_id"] == "045e:02a1@2"
-    assert fake.grabbed is True
+        assert begin["hardware_id"] == "045e:02a1@2"
+        assert fake.grabbed is True
+    finally:
+        if token is not None:
+            manager.end(token)
+    assert fake.grabbed is False
+    assert fake.closed is True
 
 
 def test_capture_manager_end_invalid_token_is_safe() -> None:

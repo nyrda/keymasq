@@ -104,7 +104,7 @@ class TestComboTabWidget:
         assert tab._selected_profile is not None
         assert tab._selected_profile.config.name == "Gaming"
 
-    def test_combo_tab_add_edit_delete_combo(self, temp_config_dir):
+    def test_combo_tab_add_edit_delete_combo(self, temp_config_dir, monkeypatch):
         from keymasq.common.models import (
             ActionType,
             ComboConfig,
@@ -113,6 +113,7 @@ class TestComboTabWidget:
             MappingAction,
             ProfileConfig,
         )
+        import keymasq.gui.widgets.combo_tab as combo_tab_module
         from keymasq.gui.widgets.combo_tab import ComboTab
         from keymasq.session.profiles import ProfileManager
 
@@ -179,7 +180,19 @@ class TestComboTabWidget:
         assert len(tab._selected_combos()) == 1
         assert tab._selected_combos()[0].name == "Quick Load"
 
+        presented: list[object] = []
+        monkeypatch.setattr(
+            combo_tab_module.Adw.AlertDialog,
+            "present",
+            lambda dialog, parent: presented.append((dialog, parent)),
+        )
+
         tab._on_delete_combo_clicked(None, combo.id)
+
+        assert len(presented) == 1
+        assert len(tab._selected_combos()) == 1
+
+        tab._on_delete_combo_response(None, "delete", combo.id)
 
         assert tab._selected_combos() == []
         assert tab.section_label.get_text() == "No combos in this profile."

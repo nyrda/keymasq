@@ -112,7 +112,7 @@ superkeys and mapping-only control actions are not available. Pattern slots can 
 | **Macro** | Play a saved macro. |
 | **Command** | Run a shell command. |
 | **Compositor Dispatch** | Send a compositor-specific command. |
-| **Macro Controls** | Toggle recording, stop recording, or cancel playback. |
+| **Macro Controls** | Toggle recording, stop recording, or cancel macro playback. |
 | **Profile Controls** | Enable, disable, or toggle a profile. |
 
 When a pattern slot fires, **Repeat Last Action** remembers the resolved Super

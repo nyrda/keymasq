@@ -188,10 +188,18 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "runtime", "expires_at": 1234}
     )
+    resolve_macro_recording_status_async = AsyncMock(
+        return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
+    )
     monkeypatch.setattr(
         session_recording_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
+    )
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_macro_recording_status_async",
+        resolve_macro_recording_status_async,
     )
 
     async def support_details(_compositor_id: str | None, _dbus=None) -> dict[str, bool | str]:
@@ -216,7 +224,10 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     assert result["emergency_cancel_combo_enabled"] is False
     assert result["recording_unlock_source"] == "runtime"
     assert result["recording_unlock_expires_at"] == 1234
+    assert result["macro_recording_enabled"] is True
+    assert result["macro_recording_source"] == "persistent"
     resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
+    resolve_macro_recording_status_async.assert_awaited_once_with(manager, peer.uid)
 
 
 @pytest.mark.asyncio
@@ -355,7 +366,9 @@ async def test_get_combo_inspector_snapshot_preserves_profile_deactivation() -> 
 
 
 @pytest.mark.asyncio
-async def test_get_recording_settings_uses_unlock_and_owner_state_only() -> None:
+async def test_get_recording_settings_uses_unlock_and_owner_state_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = True
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
@@ -363,17 +376,24 @@ async def test_get_recording_settings_uses_unlock_and_owner_state_only() -> None
     resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "runtime", "expires_at": 4321}
     )
+    resolve_macro_recording_status_async = AsyncMock(
+        return_value={"unlocked": False, "source": "none", "expires_at": 0}
+    )
     manager.unlock_state.refresh_owner = {
         "uid": peer.uid,
         "pid": peer.pid,
         "writer_id": id(writer),
         "lease_id": "lease-test",
     }
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_recording_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
+    )
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_macro_recording_status_async",
+        resolve_macro_recording_status_async,
     )
 
     result = await manager._handle_session_request(
@@ -387,9 +407,10 @@ async def test_get_recording_settings_uses_unlock_and_owner_state_only() -> None
     assert result["recording_unlocked"] is True
     assert result["recording_unlock_required"] is True
     assert result["recording_refresh_owner"] is True
+    assert result["macro_recording_enabled"] is False
     assert "authorized" not in result
     resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
-    monkeypatch.undo()
+    resolve_macro_recording_status_async.assert_awaited_once_with(manager, peer.uid)
 
 
 @pytest.mark.asyncio
@@ -532,17 +553,18 @@ async def test_play_macro_payload_requires_events() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not_required() -> None:
+async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = False
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
     start_recording = AsyncMock(return_value={"status": "ok"})
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
 
     result = await manager._handle_session_request(
-        {"command": "start_recording"},
+        {"command": "start_recording", "recording_slot": 1},
         "client",
         peer,
         writer,  # type: ignore[arg-type]
@@ -552,86 +574,394 @@ async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not
     start_recording.assert_awaited_once_with(
         manager,
         reset_if_active=False,
+        recording_slot=1,
         owner_peer=peer,
         owner_writer=writer,
     )
-    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
-async def test_start_macro_trigger_warns_when_gui_is_missing() -> None:
+async def test_start_recording_command_requires_explicit_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    start_recording = AsyncMock(return_value={"status": "ok"})
+    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+
+    result = await manager._handle_session_request(
+        {"command": "start_recording"},
+        "client",
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "macro_recording_slot_required"
+    start_recording.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_macro_trigger_requires_explicit_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     start_recording = AsyncMock(return_value={"status": "ok"})
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
 
-    await session_events_module.handle_start_macro_trigger(manager)
+    await session_events_module.handle_start_macro_trigger(manager, {})
 
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
-        "Keymasq: Recording Unavailable",
-        "Macro recording from triggers requires Keymasq GUI to be open.",
+        "Keymasq: Recording Slot Required",
+        "Macro recording triggers must choose a slot from 1 to 4.",
     )
-    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
-        {"event": "recording_auth_requested"}
-    )
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
     start_recording.assert_not_awaited()
-    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
-async def test_start_macro_trigger_warns_when_gui_is_open_but_locked() -> None:
+async def test_start_macro_trigger_warns_when_macro_recording_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
-    manager.session_clients.add(object())  # type: ignore[arg-type]
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     start_recording = AsyncMock(return_value={"status": "ok"})
-    monkeypatch = pytest.MonkeyPatch()
+    resolve_macro_recording_status_async = AsyncMock(
+        return_value={"unlocked": False, "source": "none", "expires_at": 0}
+    )
     monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_macro_recording_status_async",
+        resolve_macro_recording_status_async,
+    )
 
-    await session_events_module.handle_start_macro_trigger(manager)
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 2})
 
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
-        "Keymasq: Recording Locked",
-        "Unlock macro recording in Keymasq GUI before using recording triggers.",
-    )
-    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
-        {"event": "recording_auth_requested"}
-    )
-    start_recording.assert_not_awaited()
-    monkeypatch.undo()
-
-
-@pytest.mark.asyncio
-async def test_start_macro_trigger_blocks_when_macro_save_is_pending() -> None:
-    manager = SessionManager()
-    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
-    manager.recording_state.pending_save_token = "pending-1"
-    manager.unlock_state.refresh_owner = {
-        "uid": 1000,
-        "pid": 111,
-        "writer_id": 222,
-        "lease_id": "lease-1",
-    }
-    manager.send_notification = Mock()  # type: ignore[method-assign]
-    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
-    manager.client.send_command = AsyncMock()
-
-    await session_events_module.handle_start_macro_trigger(manager)
-
-    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
-        "Keymasq: Macro Save Pending",
-        "Save or discard the current recording before starting another recording.",
+        "Keymasq: Macro Recording Disabled",
+        (
+            "Macro recording is disabled. Enable macro recording in Keymasq before using "
+            "recording triggers."
+        ),
     )
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {
-            "event": "macro_save_pending",
-            "message": "Save or discard the current recording before starting another recording.",
-            "pending_save_token": "pending-1",
+            "event": "macro_recording_disabled",
+            "macro_recording_enabled": False,
+            "macro_recording_source": "none",
+            "macro_recording_expires_at": 0,
         }
     )
+    start_recording.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_macro_trigger_starts_selected_enabled_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    start_recording = AsyncMock(return_value={"status": "ok"})
+    resolve_macro_recording_status_async = AsyncMock(
+        return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
+    )
+    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_macro_recording_status_async",
+        resolve_macro_recording_status_async,
+    )
+
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 3})
+
+    start_recording.assert_awaited_once_with(
+        manager,
+        reset_if_active=False,
+        recording_slot=3,
+    )
+    manager.send_notification.assert_not_called()  # type: ignore[attr-defined]
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_start_macro_trigger_does_not_request_auth_for_non_auth_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    start_recording = AsyncMock(
+        return_value={
+            "status": "error",
+            "error_code": "recording_already_active",
+            "message": "Recording already in progress",
+        }
+    )
+    resolve_macro_recording_status_async = AsyncMock(
+        return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
+    )
+    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_macro_recording_status_async",
+        resolve_macro_recording_status_async,
+    )
+
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 3})
+
+    manager.send_notification.assert_not_called()  # type: ignore[attr-defined]
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_start_macro_trigger_requests_auth_for_locked_recording(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    start_recording = AsyncMock(
+        return_value={
+            "status": "error",
+            "error_code": "recording_locked",
+            "message": "recording_locked",
+        }
+    )
+    resolve_macro_recording_status_async = AsyncMock(
+        return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
+    )
+    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_macro_recording_status_async",
+        resolve_macro_recording_status_async,
+    )
+
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 3})
+
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Recording Locked",
+        "Recording/capture requires unlock in Keymasq GUI.",
+    )
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "recording_auth_requested"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_recording_started_event_notifies_user_with_slot() -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.RECORDING_STARTED,
+        {"status": "ok", "recording_slot": 2},
+    )
+
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Macro Recording Started",
+        "Slot 2 is recording.",
+    )
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "recording_started", "status": "ok", "recording_slot": 2}
+    )
+
+
+@pytest.mark.asyncio
+async def test_recording_stopped_event_notifies_user_with_slot_summary() -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.RECORDING_STOPPED,
+        {
+            "pending_recording_id": "recording-2",
+            "recording_slot": 2,
+            "duration_ms": 1300,
+            "event_count": 3,
+            "device_types": ["keyboard"],
+        },
+    )
+
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Macro Recording Stopped",
+        "Slot 2 captured 3 events over 1.3s.",
+    )
+    broadcast = manager.broadcast_to_session_clients.call_args.args[0]  # type: ignore[attr-defined]
+    assert broadcast["event"] == "recording_stopped"
+    assert broadcast["recording_slot"] == 2
+    assert broadcast["duration_ms"] == 1300
+    assert broadcast["event_count"] == 3
+    assert manager.recording_state.pending_slots[2]["pending_recording_id"] == "recording-2"
+
+
+@pytest.mark.asyncio
+async def test_action_trigger_play_macro_slot_dispatches_slot_playback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    play_macro_slot_trigger = AsyncMock(return_value={"status": "ok"})
+    monkeypatch.setattr(
+        session_recording_module,
+        "play_macro_slot_trigger",
+        play_macro_slot_trigger,
+    )
+
+    data = {
+        "action_type": "play_macro_slot",
+        "recording_slot": 2,
+        "source_device": "kbd",
+        "source_button": "key_f13",
+        "trigger_value": 1,
+    }
+    await session_events_module.handle_event(manager, CommandType.ACTION_TRIGGER, data)
+    tasks = list(manager.event_state.tasks)
+    assert tasks
+    await asyncio.gather(*tasks)
+
+    play_macro_slot_trigger.assert_awaited_once_with(manager, data)
+
+
+@pytest.mark.asyncio
+async def test_play_macro_slot_trigger_sends_pending_recording_to_daemon() -> None:
+    manager = SessionManager()
+    manager.recording_state.pending_slots[4] = {
+        "pending_recording_id": "recording-4",
+        "recording_slot": 4,
+        "move_to_start": True,
+        "start_x": 120,
+        "start_y": 240,
+        "block_mouse_movement": True,
+    }
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"status": "ok", "played": True})
+    )
+
+    result = await session_recording_module.play_macro_slot_trigger(
+        manager,
+        {
+            "recording_slot": 4,
+            "source_device": "kbd",
+            "source_button": "key_f13",
+            "trigger_value": 0,
+        },
+    )
+
+    assert result == {"status": "ok", "played": True}
+    sent_command = manager.client.send_command.await_args.args[0]
+    assert sent_command.command == CommandType.MACRO_PLAY_RECORDING
+    assert sent_command.data == {
+        "pending_recording_id": "recording-4",
+        "macro_name": "recording-slot-4",
+        "replay_mouse_movement": True,
+        "replay_mouse_clicks": True,
+        "speed": 1.0,
+        "loop_mode": "none",
+        "loop_count": 1,
+        "loop_stop_behavior": "finish_run",
+        "move_to_start": True,
+        "start_x": 120,
+        "start_y": 240,
+        "block_mouse_movement": True,
+        "source_device": "kbd",
+        "source_button": "key_f13",
+        "trigger_value": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_list_macros_include_slots_syncs_slots_from_daemon() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            Response(status="ok", data={"macros": [{"name": "stored"}]}),
+            Response(
+                status="ok",
+                data={
+                    "recordings": [
+                        {
+                            "pending_recording_id": "recording-3",
+                            "recording_slot": 3,
+                            "duration_ms": 250,
+                            "duration_us": 250_000,
+                            "device_types": ["keyboard"],
+                            "event_count": 2,
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+
+    result = await manager._handle_session_request(
+        {"command": "list_macros", "include_slots": True},
+        "client",
+        peer,
+        object(),
+    )
+
+    sent_commands = [
+        call.args[0].command for call in manager.client.send_command.await_args_list
+    ]
+    macros = cast(list[dict[str, object]], result["macros"])
+    assert sent_commands == [CommandType.MACRO_LIST_META, CommandType.MACRO_LIST_RECORDINGS]
+    assert manager.recording_state.pending_slots[3]["pending_recording_id"] == "recording-3"
+    assert macros[0]["name"] == "stored"
+    assert macros[1]["kind"] == "recording_slot"
+    assert macros[1]["recording_slot"] == 3
+
+
+@pytest.mark.asyncio
+async def test_play_macro_slot_trigger_rejects_empty_slot() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock()
+
+    result = await session_recording_module.play_macro_slot_trigger(
+        manager,
+        {"recording_slot": 4},
+    )
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "macro_recording_slot_empty"
     manager.client.send_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_play_macro_slot_trigger_notifies_when_slot_is_recording() -> None:
+    manager = SessionManager()
+    manager.recording_state.active = True
+    manager.recording_state.active_slot = 4
+    manager.client.send_command = AsyncMock()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+
+    result = await session_recording_module.play_macro_slot_trigger(
+        manager,
+        {"recording_slot": 4},
+    )
+
+    assert result == {
+        "status": "error",
+        "error_code": "macro_recording_slot_active",
+        "message": "Slot 4 is currently recording. Stop recording before playing it.",
+        "recording_slot": 4,
+    }
+    manager.client.send_command.assert_not_awaited()
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Macro Recording Active",
+        "Slot 4 is currently recording. Stop recording before playing it.",
+    )
 
 
 @pytest.mark.asyncio
@@ -1220,10 +1550,18 @@ async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": False, "source": "none", "expires_at": 0}
     )
+    resolve_macro_recording_status_async = AsyncMock(
+        return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
+    )
     monkeypatch.setattr(
         session_recording_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
+    )
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_macro_recording_status_async",
+        resolve_macro_recording_status_async,
     )
 
     async def support_details(_compositor_id: str | None, _dbus=None) -> dict[str, bool | str]:
@@ -1245,6 +1583,7 @@ async def test_get_status_reports_effective_unlock_when_unlock_not_required(
     assert result["status"] == "ok"
     assert result["recording_unlock_required"] is False
     assert result["recording_unlocked"] is False
+    assert result["macro_recording_enabled"] is True
 
 
 @pytest.mark.asyncio
@@ -1688,7 +2027,7 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event() -> N
 
 
 @pytest.mark.asyncio
-async def test_save_recording_clears_pending_macro_save_state() -> None:
+async def test_save_recording_keeps_pending_macro_save_slot() -> None:
     manager = SessionManager()
     manager.recording_state.pending_data = {
         "pending_recording_id": "recording-1",
@@ -1703,6 +2042,67 @@ async def test_save_recording_clears_pending_macro_save_state() -> None:
     )
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-1",
+    }
+
+    result = await manager._handle_session_request(
+        {
+            "command": "save_recording",
+            "name": "Saved",
+            "pending_save_token": "pending-1",
+            "move_to_start": True,
+            "start_x": 100,
+            "start_y": 200,
+            "block_mouse_movement": True,
+        },
+        "client",
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result == {"status": "ok", "name": "Saved"}
+    sent_command = manager.client.send_command.await_args.args[0]
+    assert sent_command.command == CommandType.MACRO_SAVE_RECORDING
+    assert sent_command.data["pending_recording_id"] == "recording-1"
+    assert sent_command.data["move_to_start"] is True
+    assert sent_command.data["start_x"] == 100
+    assert sent_command.data["start_y"] == 200
+    assert sent_command.data["block_mouse_movement"] is True
+    assert manager.recording_state.pending_save_token == "pending-1"
+    assert manager.recording_state.pending_save_owner_writer_id == 123
+    assert manager.recording_state.pending_data is manager.recording_state.pending_slots[1]
+    assert manager.recording_state.pending_data == {
+        "pending_recording_id": "recording-1",
+        "duration_ms": 10,
+        "device_types": ["keyboard"],
+        "event_count": 1,
+        "recording_slot": 1,
+        "pending_save_token": "pending-1",
+        "move_to_start": True,
+        "start_x": 100,
+        "start_y": 200,
+        "block_mouse_movement": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_save_recording_requires_active_unlock_owner() -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = True
+    manager.recording_state.pending_data = {
+        "pending_recording_id": "recording-1",
+        "duration_ms": 10,
+        "device_types": ["keyboard"],
+        "event_count": 1,
+    }
+    manager.recording_state.pending_save_token = "pending-1"
+    manager.client.send_command = AsyncMock()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
     result = await manager._handle_session_request(
         {
@@ -1715,24 +2115,20 @@ async def test_save_recording_clears_pending_macro_save_state() -> None:
         object(),
     )
 
-    assert result == {"status": "ok", "name": "Saved"}
-    sent_command = manager.client.send_command.await_args.args[0]
-    assert sent_command.command == CommandType.MACRO_SAVE_RECORDING
-    assert sent_command.data["pending_recording_id"] == "recording-1"
-    assert manager.recording_state.pending_data is None
-    assert manager.recording_state.pending_save_token is None
-    assert manager.recording_state.pending_save_owner_writer_id is None
+    assert result["status"] == "error"
+    assert result["error_code"] == "sensitive_command_denied"
+    manager.client.send_command.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_discard_recording_rejects_stale_pending_macro_save_token() -> None:
+async def test_delete_recording_slot_rejects_stale_pending_macro_save_token() -> None:
     manager = SessionManager()
     manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
     manager.recording_state.pending_save_token = "current"
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
     result = await manager._handle_session_request(
-        {"command": "discard_recording", "pending_save_token": "stale"},
+        {"command": "delete_recording_slot", "pending_save_token": "stale"},
         "client",
         peer,
         object(),
@@ -1744,8 +2140,49 @@ async def test_discard_recording_rejects_stale_pending_macro_save_token() -> Non
     assert manager.recording_state.pending_save_token == "current"
 
 
+def test_clear_pending_macro_save_keeps_slots_for_invalid_selector() -> None:
+    manager = SessionManager()
+    session_recording_module.begin_pending_macro_save(
+        manager,
+        {"pending_recording_id": "recording-1", "duration_ms": 10},
+        recording_slot=1,
+    )
+    manager.recording_state.pending_slot_tokens[1] = "current"
+    manager.recording_state.pending_slots[1]["pending_save_token"] = "current"
+    session_recording_module.clear_pending_macro_save(
+        manager,
+        pending_save_token="stale",
+    )
+
+    assert manager.recording_state.pending_slots[1]["pending_recording_id"] == "recording-1"
+    assert manager.recording_state.pending_slot_tokens[1] == "current"
+
+
 @pytest.mark.asyncio
-async def test_discard_recording_clears_pending_macro_save_state() -> None:
+async def test_delete_recording_slot_keeps_state_when_daemon_delete_fails() -> None:
+    manager = SessionManager()
+    manager.recording_state.pending_data = {
+        "pending_recording_id": "recording-1",
+        "duration_ms": 10,
+    }
+    manager.recording_state.pending_save_token = "pending-1"
+    manager.client.send_command = AsyncMock(return_value=Response(status="error", error="boom"))
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "delete_recording_slot", "pending_save_token": "pending-1"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "error", "message": "No pending recording"}
+    assert manager.recording_state.pending_slots[1]["pending_recording_id"] == "recording-1"
+    assert manager.recording_state.pending_save_token == "pending-1"
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_slot_clears_pending_macro_save_state() -> None:
     manager = SessionManager()
     manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
     manager.recording_state.pending_save_token = "pending-1"
@@ -1753,7 +2190,7 @@ async def test_discard_recording_clears_pending_macro_save_state() -> None:
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
     result = await manager._handle_session_request(
-        {"command": "discard_recording", "pending_save_token": "pending-1"},
+        {"command": "delete_recording_slot", "pending_save_token": "pending-1"},
         "client",
         peer,
         object(),

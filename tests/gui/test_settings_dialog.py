@@ -20,7 +20,31 @@ def test_settings_dialog_constructs(monkeypatch, temp_config_dir) -> None:
     assert isinstance(dialog, Adw.Dialog)
     assert dialog.get_child() is not None
     assert dialog.get_content_width() == 460
-    assert dialog.get_content_height() == 240
+    assert dialog.get_content_height() == 380
+    assert dialog._macro_settings_btn.get_tooltip_text() == "Open macro recording settings"
+
+
+def test_settings_dialog_opens_macro_recording_settings(monkeypatch, temp_config_dir) -> None:
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import settings_dialog as dialog_module
+    from keymasq.gui.widgets.settings_dialog import SettingsDialog
+
+    monkeypatch.setattr(
+        dialog_module,
+        "session_request_async",
+        lambda payload, callback, timeout=5.0: None,
+    )
+    captured: dict[str, object] = {}
+
+    class Parent(Gtk.Window):
+        def present_recording_settings_dialog(self, reason: str = "settings") -> None:
+            captured["reason"] = reason
+
+    dialog = SettingsDialog(Parent())
+    dialog._on_macro_settings_clicked(dialog._macro_settings_btn)
+
+    assert captured == {"reason": "settings"}
 
 
 def test_settings_dialog_shows_session_apply_error(

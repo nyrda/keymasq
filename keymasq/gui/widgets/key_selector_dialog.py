@@ -26,6 +26,7 @@ from keymasq.common.gamepad_axes import (
 )
 from keymasq.common.models import (
     DEFAULT_REPEAT_CATEGORIES,
+    MAX_MACRO_RECORDING_SLOTS,
     MIN_RAPIDFIRE_HOLD_MS,
     MIN_RAPIDFIRE_WAIT_MS,
     REPEAT_CATEGORY_GAMEPAD,
@@ -773,6 +774,9 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._repeat_options_box: Gtk.Widget | None = None
         self._macro_list: list[dict] = []
         self._selected_macro: str | None = None
+        self._cancel_macro_playback_btn: Gtk.Button | None = None
+        self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=True)
+        self._macro_slot_console: Gtk.Box | None = None
         self._superkey_list: list[SuperkeyConfig] = []
         self._superkey_names: list[str] = []
         self._selected_superkey: str | None = None
@@ -1035,6 +1039,11 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         footer_spacer.set_hexpand(True)
         footer.append(footer_spacer)
 
+        cancel_macro_playback_btn = self._create_cancel_macro_playback_button()
+        cancel_macro_playback_btn.set_visible(False)
+        self._cancel_macro_playback_btn = cancel_macro_playback_btn
+        footer.append(cancel_macro_playback_btn)
+
         self.map_btn = Gtk.Button(label="Map")
         self.map_btn.add_css_class("suggested-action")
         self.map_btn.set_sensitive(False)
@@ -1056,6 +1065,67 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         self.close()
+
+    def _create_cancel_macro_playback_button(self) -> Gtk.Button:
+        content = Adw.ButtonContent(
+            icon_name="media-playback-stop-symbolic",
+            label="Cancel Macro Playback",
+        )
+        content.add_css_class("macro-stop-icon")
+        button = Gtk.Button()
+        button.set_child(content)
+        button.connect(
+            "clicked",
+            self._on_macro_special_action_clicked,
+            "cancel_macro_playback",
+        )
+        button.set_tooltip_text("Stop currently running macro playback")
+        return button
+
+    def _macro_parent_candidates(self) -> list[object]:
+        candidates: list[object] = []
+        queue: list[object] = [self._parent]
+        seen: set[int] = set()
+        while queue:
+            candidate = queue.pop(0)
+            if candidate is None:
+                continue
+            candidate_id = id(candidate)
+            if candidate_id in seen:
+                continue
+            seen.add(candidate_id)
+            candidates.append(candidate)
+
+            main_window = getattr(candidate, "main_window", None)
+            if main_window is not None:
+                queue.append(main_window)
+            parent = getattr(candidate, "_parent", None)
+            if parent is not None:
+                queue.append(parent)
+            get_root = getattr(candidate, "get_root", None)
+            if callable(get_root):
+                root = get_root()
+                if root is not None:
+                    queue.append(root)
+        return candidates
+
+    def _resolve_macro_recording_enabled(self, *, default: bool) -> bool:
+        for candidate in self._macro_parent_candidates():
+            enabled = getattr(candidate, "macro_recording_enabled", None)
+            if callable(enabled):
+                return bool(enabled())
+            raw_enabled = getattr(candidate, "_macro_recording_enabled", None)
+            if isinstance(raw_enabled, bool):
+                return raw_enabled
+        return default
+
+    def _present_macro_recording_settings(self, _button: Gtk.Button) -> None:
+        for candidate in self._macro_parent_candidates():
+            present_settings = getattr(candidate, "present_recording_settings_dialog", None)
+            if callable(present_settings):
+                present_settings(reason="settings")
+                self.close()
+                return
 
     def _build_special_tab(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -1767,6 +1837,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self.options_box.set_visible(show_options)
         self._update_options_visibility()
         self.map_btn.set_visible(is_superkey or is_analog_control or is_macro or is_profile)
+        if self._cancel_macro_playback_btn is not None:
+            self._cancel_macro_playback_btn.set_visible(is_macro)
         if is_superkey:
             self.map_btn.set_sensitive(self._selected_superkey is not None)
         elif is_analog_control:
@@ -1850,14 +1922,6 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         elif action_type == "suppress":
             self._warn_and_clear_unsupported_rapidfire(ActionType.SUPPRESS)
             action = MappingAction(action_type=ActionType.SUPPRESS)
-            self.emit("key-selected", action)
-        elif action_type == "start_macro_recording":
-            self._warn_and_clear_unsupported_rapidfire(ActionType.START_MACRO_RECORDING)
-            action = MappingAction(action_type=ActionType.START_MACRO_RECORDING)
-            self.emit("key-selected", action)
-        elif action_type == "stop_macro_recording":
-            self._warn_and_clear_unsupported_rapidfire(ActionType.STOP_MACRO_RECORDING)
-            action = MappingAction(action_type=ActionType.STOP_MACRO_RECORDING)
             self.emit("key-selected", action)
         elif action_type == "cancel_macro_playback":
             self._warn_and_clear_unsupported_rapidfire(ActionType.CANCEL_MACRO_PLAYBACK)
@@ -2158,44 +2222,17 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
     def _build_macro_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        controls_label = Gtk.Label(label="Macro Controls")
-        controls_label.add_css_class("dim-label")
-        controls_label.set_halign(Gtk.Align.CENTER)
-        controls_label.set_margin_top(12)
-        controls_label.set_margin_bottom(8)
-        outer.append(controls_label)
+        outer.append(self._build_macro_slot_console())
 
-        controls_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        controls_row.set_halign(Gtk.Align.CENTER)
-        controls_row.set_margin_bottom(8)
+        outer.append(Gtk.Separator())
 
-        toggle_rec_content = Adw.ButtonContent(
-            icon_name="media-record-symbolic", label="Toggle Recording"
-        )
-        toggle_rec_content.add_css_class("macro-record-icon")
-        toggle_rec_btn = Gtk.Button()
-        toggle_rec_btn.set_child(toggle_rec_content)
-        toggle_rec_btn.connect("clicked", self._on_macro_special_action_clicked, "toggle_recording")
-        toggle_rec_btn.set_tooltip_text("Start recording when idle, stop when recording is active")
-        controls_row.append(toggle_rec_btn)
-
-        cancel_macro_content = Adw.ButtonContent(
-            icon_name="media-playback-stop-symbolic", label="Cancel Playback"
-        )
-        cancel_macro_content.add_css_class("macro-stop-icon")
-        cancel_macro_btn = Gtk.Button()
-        cancel_macro_btn.set_child(cancel_macro_content)
-        cancel_macro_btn.connect(
-            "clicked", self._on_macro_special_action_clicked, "cancel_macro_playback"
-        )
-        cancel_macro_btn.set_tooltip_text("Stop currently running macro playback")
-        controls_row.append(cancel_macro_btn)
-
-        outer.append(controls_row)
-
-        controls_spacer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        controls_spacer.set_size_request(-1, 6)
-        outer.append(controls_spacer)
+        library_label = Gtk.Label(label="Macro Library")
+        library_label.add_css_class("dim-label")
+        library_label.set_halign(Gtk.Align.START)
+        library_label.set_margin_top(8)
+        library_label.set_margin_bottom(6)
+        library_label.set_margin_start(12)
+        outer.append(library_label)
 
         self._macro_search_entry = Gtk.SearchEntry()
         self._macro_search_entry.set_placeholder_text("Search macros")
@@ -2270,6 +2307,153 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
         GLib.idle_add(self._load_macro_list)
         return outer
+
+    def _build_macro_slot_console(self) -> Gtk.Widget:
+        """Slot-based recording/playback console.
+
+        Renders recording and playback controls for every temporary slot.
+        """
+        console = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        console.set_margin_top(10)
+        console.set_margin_bottom(10)
+        console.set_margin_start(12)
+        console.set_margin_end(12)
+        self._macro_slot_console = console
+        self._refresh_macro_slot_console()
+
+        return console
+
+    def _refresh_macro_slot_console(self) -> None:
+        console = self._macro_slot_console
+        if console is None:
+            return
+        child = console.get_first_child()
+        while child is not None:
+            console.remove(child)
+            child = console.get_first_child()
+        self._macro_recording_enabled = self._resolve_macro_recording_enabled(
+            default=self._macro_recording_enabled
+        )
+        if self._macro_recording_enabled:
+            console.append(self._build_macro_slot_cards())
+        else:
+            console.append(self._build_macro_recording_disabled_placeholder())
+
+    def _build_macro_recording_disabled_placeholder(self) -> Gtk.Widget:
+        placeholder = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        placeholder.add_css_class("card")
+        placeholder.add_css_class("macro-recording-disabled-placeholder")
+        placeholder.set_valign(Gtk.Align.CENTER)
+        placeholder.set_halign(Gtk.Align.FILL)
+
+        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
+        icon.set_valign(Gtk.Align.START)
+        placeholder.append(icon)
+
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box.set_hexpand(True)
+        title = Gtk.Label(label="Macro recording is disabled")
+        title.add_css_class("caption-heading")
+        title.set_halign(Gtk.Align.START)
+        text_box.append(title)
+
+        body = Gtk.Label(label="Enable it in Settings > Macro recording to bind slot actions.")
+        body.add_css_class("dim-label")
+        body.set_wrap(True)
+        body.set_halign(Gtk.Align.START)
+        text_box.append(body)
+        placeholder.append(text_box)
+
+        settings_content = Adw.ButtonContent(
+            icon_name="emblem-system-symbolic",
+            label="Open Settings",
+        )
+        settings_btn = Gtk.Button()
+        settings_btn.set_child(settings_content)
+        settings_btn.set_valign(Gtk.Align.CENTER)
+        settings_btn.set_tooltip_text("Open macro recording settings")
+        settings_btn.connect("clicked", self._present_macro_recording_settings)
+        settings_btn.set_sensitive(
+            any(
+                callable(getattr(candidate, "present_recording_settings_dialog", None))
+                for candidate in self._macro_parent_candidates()
+            )
+        )
+        placeholder.append(settings_btn)
+        return placeholder
+
+    def _build_macro_slot_cards(self) -> Gtk.Widget:
+        grid = Gtk.Grid(column_spacing=6, row_spacing=6)
+        grid.set_halign(Gtk.Align.CENTER)
+
+        for index in range(MAX_MACRO_RECORDING_SLOTS):
+            slot = index + 1
+            grid.attach(self._build_macro_slot_card(slot), index, 0, 1, 1)
+
+        return grid
+
+    def _build_macro_slot_card(self, slot: int) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        card.add_css_class("card")
+        card.add_css_class("macro-slot-card")
+
+        card.append(self._build_macro_slot_header(f"Slot {slot}"))
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        buttons.set_halign(Gtk.Align.CENTER)
+        buttons.append(self._create_record_slot_button(slot))
+        buttons.append(self._create_play_slot_button(slot))
+        card.append(buttons)
+        return card
+
+    def _build_macro_slot_header(self, label: str) -> Gtk.Widget:
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        header.add_css_class("macro-slot-header")
+        header.set_halign(Gtk.Align.CENTER)
+
+        title = Gtk.Label(label=label)
+        title.add_css_class("caption-heading")
+        title.add_css_class("macro-slot-title")
+        title.set_halign(Gtk.Align.CENTER)
+        header.append(title)
+        return header
+
+    def _create_record_slot_button(self, slot: int) -> Gtk.Button:
+        content = Adw.ButtonContent(icon_name="media-record-symbolic", label=str(slot))
+        content.add_css_class("macro-record-icon")
+        button = Gtk.Button()
+        button.add_css_class("macro-slot-button")
+        button.set_child(content)
+        button.set_size_request(42, 34)
+        button.set_tooltip_text(f"Toggle macro recording into slot {slot}")
+        button.connect("clicked", self._on_macro_recording_slot_clicked, slot)
+        if (
+            self._current_action
+            and self._current_action.action_type
+            in (ActionType.START_MACRO_RECORDING, ActionType.STOP_MACRO_RECORDING)
+            and self._current_action.macro_recording_slot == slot
+        ):
+            button.add_css_class("suggested-action")
+        return button
+
+    def _create_play_slot_button(self, slot: int) -> Gtk.Button:
+        content = Adw.ButtonContent(
+            icon_name="media-playback-start-symbolic", label=str(slot)
+        )
+        content.add_css_class("macro-play-icon")
+        button = Gtk.Button()
+        button.add_css_class("macro-slot-button")
+        button.set_child(content)
+        button.set_size_request(42, 34)
+        button.set_tooltip_text(f"Play the macro recorded in slot {slot}")
+        button.connect("clicked", self._on_macro_play_slot_clicked, slot)
+        if (
+            self._current_action
+            and self._current_action.action_type == ActionType.PLAY_MACRO_SLOT
+            and self._current_action.macro_recording_slot == slot
+        ):
+            button.add_css_class("suggested-action")
+        return button
 
     def _build_profile_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -3014,14 +3198,29 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._macro_speed = spin.get_value()
 
     def _on_macro_special_action_clicked(self, _btn, action_name: str) -> None:
-        if action_name == "toggle_recording":
-            self._warn_and_clear_unsupported_rapidfire(ActionType.START_MACRO_RECORDING)
-            action = MappingAction(action_type=ActionType.START_MACRO_RECORDING)
-        elif action_name == "cancel_macro_playback":
+        if action_name == "cancel_macro_playback":
             self._warn_and_clear_unsupported_rapidfire(ActionType.CANCEL_MACRO_PLAYBACK)
             action = MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK)
         else:
             return
+        self.emit("key-selected", action)
+        self.close()
+
+    def _on_macro_recording_slot_clicked(self, _btn, slot: int) -> None:
+        self._warn_and_clear_unsupported_rapidfire(ActionType.START_MACRO_RECORDING)
+        action = MappingAction(
+            action_type=ActionType.START_MACRO_RECORDING,
+            macro_recording_slot=slot,
+        )
+        self.emit("key-selected", action)
+        self.close()
+
+    def _on_macro_play_slot_clicked(self, _btn, slot: int) -> None:
+        self._warn_and_clear_unsupported_rapidfire(ActionType.PLAY_MACRO_SLOT)
+        action = MappingAction(
+            action_type=ActionType.PLAY_MACRO_SLOT,
+            macro_recording_slot=slot,
+        )
         self.emit("key-selected", action)
         self.close()
 
@@ -3151,6 +3350,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             ActionType.ANALOG_CONTROL: "analog_control",
             ActionType.START_MACRO_RECORDING: "macro",
             ActionType.STOP_MACRO_RECORDING: "macro",
+            ActionType.PLAY_MACRO_SLOT: "macro",
             ActionType.CANCEL_MACRO_PLAYBACK: "macro",
             ActionType.EMERGENCY_RESET: "macro",
             ActionType.EXEC: "special",

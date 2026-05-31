@@ -559,6 +559,163 @@ class TestRapidfireRelease:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
+    @pytest.mark.asyncio
+    async def test_grab_ignores_invalid_passthrough_identity(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(
+            gdm,
+            "uinput_identity",
+            lambda *_args, **_kwargs: ("Bad Keyboard", 0x1234, 0x1_0000),
+        )
+
+        class _FakeInputDevice:
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_L],
+                    evdev.ecodes.EV_SYN: [],
+                }
+
+            def active_keys(self) -> list[int]:
+                return []
+
+            def grab(self) -> None:
+                return
+
+        created_tasks: list[asyncio.Task[None]] = []
+        created_kwargs: list[dict[str, object]] = []
+        original_create_task = asyncio.create_task
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        def fake_create_task(coro):
+            coro.close()
+            task = original_create_task(asyncio.sleep(0))
+            created_tasks.append(task)
+            return task
+
+        def fake_uinput(*_args, **kwargs) -> _FakeUInput:
+            created_kwargs.append(kwargs)
+            return _FakeUInput(**kwargs)
+
+        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(gdm.evdev, "UInput", fake_uinput)
+        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+        )
+
+        await device.grab()
+        await asyncio.sleep(0)
+
+        assert created_kwargs
+        assert created_kwargs[0]["name"] == "Bad Keyboard"
+        assert "vendor" not in created_kwargs[0]
+        assert "product" not in created_kwargs[0]
+
+        for task in created_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    @pytest.mark.asyncio
+    async def test_gamepad_passthrough_falls_back_when_identity_is_invalid(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "js")
+        monkeypatch.setattr(
+            gdm,
+            "uinput_identity",
+            lambda *_args, **_kwargs: ("Bad Gamepad", "nope", 0x1_0000),
+        )
+
+        class _FakeInputDevice:
+            name = "Xbox 360 Wireless Controller"
+            info = SimpleNamespace(
+                vendor=0x045E,
+                product=0x02A1,
+                version=0x0114,
+                bustype=0x0003,
+            )
+
+            def capabilities(self) -> dict[int, list[object]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [
+                        (
+                            evdev.ecodes.ABS_X,
+                            evdev.AbsInfo(0, -32768, 32767, 16, 128, 0),
+                        )
+                    ],
+                    evdev.ecodes.EV_SYN: [],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def active_keys(self) -> list[int]:
+                return []
+
+            def grab(self) -> None:
+                return
+
+        created_tasks: list[asyncio.Task[None]] = []
+        original_create_task = asyncio.create_task
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        def fake_create_task(coro):
+            coro.close()
+            task = original_create_task(asyncio.sleep(0))
+            created_tasks.append(task)
+            return task
+
+        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(gdm.evdev, "UInput", _FakeUInput)
+        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="045e:02a1",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.GAMEPAD,
+            device_types=["gamepad"],
+            gamepad_uinput=_FakeUInput(),  # type: ignore[arg-type]
+        )
+
+        await device.grab()
+        await asyncio.sleep(0)
+
+        assert isinstance(device.uinput, _FakeUInput)
+        assert device.uinput.kwargs["name"] == "Bad Gamepad"
+        assert device.uinput.kwargs["vendor"] == 0x045E
+        assert device.uinput.kwargs["product"] == 0x02A1
+        assert device.uinput.kwargs["version"] == 0x0114
+        assert device.uinput.kwargs["bustype"] == 0x0003
+
+        for task in created_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
     def test_gamepad_passthrough_fallback_name_includes_interface(self) -> None:
         device = SimpleNamespace(name="")
 

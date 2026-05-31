@@ -55,7 +55,33 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
         source_device="",
         source_button="",
         trigger_value=1,
+        load_stored_macro=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_macro_list_recordings_returns_pending_slot_meta(daemon_testbed):
+    daemon, _device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    recording_manager.list_pending_recordings.return_value = [
+        {
+            "pending_recording_id": "recording-2",
+            "recording_slot": 2,
+            "duration_ms": 100,
+        }
+    ]
+
+    result = await daemon._handle_command(CommandType.MACRO_LIST_RECORDINGS, {})
+
+    assert result == {
+        "recordings": [
+            {
+                "pending_recording_id": "recording-2",
+                "recording_slot": 2,
+                "duration_ms": 100,
+            }
+        ]
+    }
+    recording_manager.list_pending_recordings.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -95,6 +121,7 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
         source_device="kbd",
         source_button="a",
         trigger_value=0,
+        load_stored_macro=True,
     )
 
 
@@ -153,12 +180,13 @@ async def test_macro_play_request_runtime_options_override_stored_options(
 
 
 @pytest.mark.asyncio
-async def test_macro_save_recording_claims_snapshot_before_streaming(daemon_testbed):
+async def test_macro_save_recording_claims_snapshot_and_restores_slot(daemon_testbed):
     daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
     stored_events: list[dict[str, object]] = []
 
     class Snapshot:
         recording_id = "recording-1"
+        recording_slot = 2
         duration_ms = 5
         device_types = ["keyboard"]
         event_count = 1
@@ -185,10 +213,86 @@ async def test_macro_save_recording_claims_snapshot_before_streaming(daemon_test
     recording_manager.claim_pending_recording.assert_awaited_once_with("recording-1")
     recording_manager.release_pending_recording_claim.assert_awaited_once_with(
         "recording-1",
-        saved=True,
+        saved=False,
     )
     recording_manager.discard_pending_recording.assert_not_awaited()
     assert stored_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+
+
+@pytest.mark.asyncio
+async def test_macro_save_recording_releases_unslotted_snapshot_as_saved(daemon_testbed):
+    daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
+
+    class Snapshot:
+        recording_id = "recording-1"
+        duration_ms = 5
+        device_types = ["keyboard"]
+        event_count = 1
+
+        def iter_events(self):
+            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
+
+    recording_manager.claim_pending_recording.return_value = Snapshot()
+    macro_store.create_from_events.return_value = {"name": "saved"}
+
+    result = await daemon._handle_command(
+        CommandType.MACRO_SAVE_RECORDING,
+        {"pending_recording_id": "recording-1", "name": "saved"},
+    )
+
+    assert result == {"macro": {"name": "saved"}}
+    recording_manager.release_pending_recording_claim.assert_awaited_once_with(
+        "recording-1",
+        saved=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_macro_play_recording_claims_snapshot_and_releases_without_saving(
+    daemon_testbed,
+):
+    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+
+    class Snapshot:
+        recording_id = "recording-1"
+        duration_ms = 5
+        device_types = ["keyboard"]
+        event_count = 1
+
+        def iter_events(self):
+            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
+
+    recording_manager.claim_pending_recording.return_value = Snapshot()
+
+    result = await daemon._handle_command(
+        CommandType.MACRO_PLAY_RECORDING,
+        {
+            "pending_recording_id": "recording-1",
+            "macro_name": "recording-slot-4",
+            "speed": "1.5",
+            "source_device": "kbd",
+            "source_button": "key_f13",
+            "trigger_value": "1",
+        },
+    )
+
+    assert result == {"played": True}
+    recording_manager.claim_pending_recording.assert_awaited_once_with("recording-1")
+    recording_manager.release_pending_recording_claim.assert_awaited_once_with(
+        "recording-1",
+        saved=False,
+    )
+    device_manager.play_macro.assert_awaited_once()
+    call_kwargs = device_manager.play_macro.await_args.kwargs
+    assert call_kwargs["macro_events"] == [
+        {"type": 1, "code": 30, "value": 1, "t_us": 0}
+    ]
+    assert call_kwargs["macro_name"] == "recording-slot-4"
+    assert call_kwargs["speed"] == 1.5
+    assert call_kwargs["source_device"] == "kbd"
+    assert call_kwargs["source_button"] == "key_f13"
+    assert call_kwargs["trigger_value"] == 1
+    assert call_kwargs["load_stored_macro"] is False
 
 
 @pytest.mark.asyncio
@@ -218,6 +322,7 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
         CommandType.START_RECORDING,
         {
             "recording_ids": ["keymasq:passthrough:1234:5678:mouse"],
+            "recording_slot": 2,
             "include_mouse_movement": True,
             "include_mouse_clicks": False,
         },
@@ -228,6 +333,7 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
         [selected],
         include_mouse_movement=True,
         include_mouse_clicks=False,
+        recording_slot=2,
     )
 
 
@@ -272,6 +378,7 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
 @pytest.mark.asyncio
 async def test_capture_commands_forward_to_capture_manager(
     daemon_testbed,
+    monkeypatch: pytest.MonkeyPatch,
     command_type: CommandType,
     data: dict,
     manager_method: str,
@@ -284,7 +391,6 @@ async def test_capture_commands_forward_to_capture_manager(
             "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}]
         }
     )
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(daemon_capture_commands, "capture_combo", capture_combo)
 
     result = await daemon._handle_command(command_type, data)
@@ -292,7 +398,6 @@ async def test_capture_commands_forward_to_capture_manager(
     if command_type == CommandType.CAPTURE_COMBO:
         assert result == expected_result
         capture_combo.assert_awaited_once_with(daemon, *expected_call)
-        monkeypatch.undo()
         return
     assert result == expected_result
     if isinstance(expected_call, dict):
@@ -301,7 +406,6 @@ async def test_capture_commands_forward_to_capture_manager(
         getattr(capture_manager, manager_method).assert_called_once_with()
     else:
         getattr(capture_manager, manager_method).assert_called_once_with(expected_call)
-    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
@@ -597,6 +701,53 @@ async def test_capture_combo_preserves_begin_failure_when_end_would_fail(daemon_
 
     device_manager.end_combo_capture.assert_called_once()
     capture_manager.end.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_capture_combo_preserves_result_when_end_cleanup_fails(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+    queued_events = [
+        {"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd", "value": 1},
+        {"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd", "value": 0},
+    ]
+    capture_manager.end.side_effect = RuntimeError("cleanup failed")
+
+    async def read_event(
+        _daemon,
+        _token: str,
+        _notify_event: asyncio.Event,
+        _deadline: float,
+    ) -> dict:
+        return queued_events.pop(0)
+
+    monkeypatch.setattr(daemon_capture_commands, "read_capture_combo_event", read_event)
+
+    result = await daemon_capture_commands.capture_combo(daemon, {"1234:5678"}, 1.0)
+
+    assert result == {
+        "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}],
+        "warnings": [],
+    }
+    capture_manager.end.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_capture_combo_preserves_timeout_when_end_cleanup_fails(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+    capture_manager.end.side_effect = RuntimeError("cleanup failed")
+    monkeypatch.setattr(daemon_capture_commands, "MIN_CAPTURE_TIMEOUT_S", 0.0)
+    monkeypatch.setattr(daemon_capture_commands, "MAX_CAPTURE_TIMEOUT_S", 0.0)
+
+    with pytest.raises(TimeoutError, match="Combo capture timed out"):
+        await daemon_capture_commands.capture_combo(daemon, {"1234:5678"}, 0.0)
+
+    capture_manager.end.assert_called_once()
 
 
 @pytest.mark.asyncio

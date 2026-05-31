@@ -132,6 +132,12 @@ in
             )
             log_command_output("input devices", "cat /proc/bus/input/devices || true")
             log_command_output(
+                "recording leases",
+                "ls -la /run/keymasq /etc/keymasq || true; "
+                + "cat /run/keymasq/macro-recording-enabled-${toString vmUid} "
+                + "/etc/keymasq/macro-recording-enabled-${toString vmUid} 2>/dev/null || true",
+            )
+            log_command_output(
                 "generated config",
                 as_user("find ~/.config/keymasq -maxdepth 3 -type f -print -exec sed -n 1,220p {} \\; || true"),
             )
@@ -160,6 +166,8 @@ in
         machine.succeed("chmod g+rw /dev/uinput")
         machine.succeed("${pkgs.acl}/bin/setfacl -m u:${vmUser}:rw /dev/uinput")
         wait_for_user_command("uinput writable", "test -w /dev/uinput")
+
+        machine.succeed("${keymasqPackage}/bin/keymasq-record enable-macro-recording-persistent --uid ${toString vmUid}")
 
         machine.succeed("loginctl enable-linger ${vmUser}")
         machine.wait_for_unit("user@${toString vmUid}.service")

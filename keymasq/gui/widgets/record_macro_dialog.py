@@ -49,10 +49,15 @@ class RecordMacroDialog(Adw.Dialog):
         self._recording_unlocked = False
         self._recording_unlock_required = True
         self._recording_refresh_owner = False
+        self._macro_recording_enabled = False
+        self._macro_recording_source = "none"
+        self._macro_recording_expires_at = 0
+        self._settings_loaded = False
         self._applying_settings = False
         self._settings_sync_lock = threading.Lock()
         self._settings_sync_generation = 0
         self._settings_sync_worker_running = False
+        self._closed = False
         self._build_ui()
         self.set_presentation_reason(reason)
         self._register_parent_events()
@@ -85,6 +90,23 @@ class RecordMacroDialog(Adw.Dialog):
 
         self._locked_notice = self._build_locked_notice()
         content.append(self._locked_notice)
+
+        access_frame = Gtk.ListBox()
+        access_frame.set_selection_mode(Gtk.SelectionMode.NONE)
+        access_frame.add_css_class("boxed-list")
+
+        self._macro_recording_row = Adw.ActionRow(title="Macro recording")
+        self._macro_recording_row.set_subtitle("Disabled")
+        self._macro_recording_toggle_btn = Gtk.Button()
+        self._macro_recording_toggle_btn.set_valign(Gtk.Align.CENTER)
+        self._macro_recording_toggle_btn.connect(
+            "clicked",
+            self._on_macro_recording_toggle_clicked,
+        )
+        self._macro_recording_row.add_suffix(self._macro_recording_toggle_btn)
+        access_frame.append(self._macro_recording_row)
+
+        content.append(access_frame)
 
         # Recording options in a compact boxed list
         options_frame = Gtk.ListBox()
@@ -225,7 +247,7 @@ class RecordMacroDialog(Adw.Dialog):
         self.recording_docs_btn.connect("clicked", self._on_recording_docs_clicked)
         footer.set_start_widget(self.recording_docs_btn)
 
-        self._unlock_status = Gtk.Label(label="Recording locked")
+        self._unlock_status = Gtk.Label(label="Save access locked")
         self._unlock_status.add_css_class("dim-label")
         self._unlock_status.set_halign(Gtk.Align.CENTER)
         footer.set_center_widget(self._unlock_status)
@@ -236,14 +258,15 @@ class RecordMacroDialog(Adw.Dialog):
         self._unlock_btn = Gtk.Button()
         self._unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
         self._unlock_btn.set_tooltip_text(
-            "Authorize raw original-input capture before live macro recording can read "
-            "keyboard, mouse, and gamepad events."
+            "Authorize saving temporary recording slots and protected macro body access."
         )
         self._unlock_btn.connect("clicked", self._on_unlock_clicked)
         footer_actions.append(self._unlock_btn)
 
         self._save_btn = Gtk.Button(label="Done")
         self._save_btn.add_css_class("suggested-action")
+        self._save_btn.set_sensitive(False)
+        self._save_btn.set_tooltip_text("Loading recording settings")
         self._save_btn.connect("clicked", self._on_save_settings)
         footer_actions.append(self._save_btn)
         footer.set_end_widget(footer_actions)
@@ -252,6 +275,7 @@ class RecordMacroDialog(Adw.Dialog):
         frame.set_child(inner)
         main_box.append(frame)
         self.set_child(main_box)
+        self._update_macro_recording_ui()
 
     def _build_locked_notice(self) -> Gtk.Box:
         notice = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -266,15 +290,15 @@ class RecordMacroDialog(Adw.Dialog):
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         text_box.set_hexpand(True)
 
-        self._locked_notice_title = Gtk.Label(label="Recording needs unlock")
+        self._locked_notice_title = Gtk.Label(label="Saving needs unlock")
         self._locked_notice_title.add_css_class("heading")
         self._locked_notice_title.set_halign(Gtk.Align.START)
         text_box.append(self._locked_notice_title)
 
         body = Gtk.Label(
             label=(
-                "Macro recording is locked. Unlock recording before starting a live "
-                "recording."
+                "Temporary slots can be recorded after macro recording is enabled. "
+                "Saving a slot as a persistent macro still requires unlock."
             )
         )
         body.set_wrap(True)
@@ -287,7 +311,7 @@ class RecordMacroDialog(Adw.Dialog):
     def set_presentation_reason(self, reason: str = "settings") -> None:
         self._reason = reason
         locked = reason == "recording_locked"
-        title = "Unlock Macro Recording" if locked else "Macro Recording Settings"
+        title = "Macro Recording Settings"
         self.set_title(title)
         self._title_label.set_label(title)
         self._locked_notice.set_visible(locked)
@@ -306,6 +330,7 @@ class RecordMacroDialog(Adw.Dialog):
             register_event_handler("recording_started", self._on_recording_started)
 
     def _on_dialog_closed(self, _dialog: Adw.Dialog) -> None:
+        self._closed = True
         unregister_event_handler = getattr(self._parent, "unregister_event_handler", None)
         if callable(unregister_event_handler):
             unregister_event_handler("recording_started", self._on_recording_started)
@@ -319,6 +344,8 @@ class RecordMacroDialog(Adw.Dialog):
         def worker() -> None:
             devices_result = session_request({"command": "list_devices_for_recording"})
             settings_result = session_request({"command": "get_recording_settings"})
+            if self._closed:
+                return
             GLib.idle_add(self._apply_initial_state, devices_result, settings_result)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -328,11 +355,23 @@ class RecordMacroDialog(Adw.Dialog):
         devices_result: dict | None,
         settings_result: dict | None,
     ) -> bool:
+        if self._closed:
+            return False
+        settings_loaded = (
+            isinstance(settings_result, dict) and settings_result.get("status") == "ok"
+        )
         self._apply_recording_settings(settings_result)
         self._devices = (devices_result or {}).get("devices", [])
-        self._loading_label.set_visible(False)
         self._populate_device_list()
         self._apply_unlock_state(settings_result)
+        self._settings_loaded = settings_loaded
+        if settings_loaded:
+            self._loading_label.set_visible(False)
+            self._save_btn.set_sensitive(True)
+            self._save_btn.set_tooltip_text(None)
+        else:
+            self._loading_label.set_label("Failed to load recording settings")
+            self._loading_label.set_visible(True)
         return False
 
     def _populate_device_list(self) -> None:
@@ -631,21 +670,30 @@ class RecordMacroDialog(Adw.Dialog):
 
     def _refresh_unlock_state(self) -> None:
         result = session_request({"command": "get_recording_settings"})
+        if self._closed:
+            return
+        GLib.idle_add(self._apply_security_state_from_session, result)
+
+    def _apply_security_state_from_session(self, result: dict | None) -> bool:
+        if self._closed:
+            return False
         self._apply_unlock_state(result)
+        return False
 
     def _apply_unlock_state(self, result: dict | None) -> None:
         result = result or {}
+        self._apply_macro_recording_state(result)
         self._recording_unlock_required = bool(result.get("recording_unlock_required", True))
         self._recording_unlocked = bool(
             result.get("recording_unlocked", False)
         ) or not self._recording_unlock_required
         self._recording_refresh_owner = bool(result.get("recording_refresh_owner", False))
         if not self._recording_unlock_required:
-            self._unlock_status.set_label("Unlock not required")
+            self._unlock_status.set_label("Save unlock not required")
             self._unlock_status.remove_css_class("success")
             self._unlock_status.remove_css_class("error")
         elif self._recording_unlocked and self._recording_refresh_owner:
-            self._unlock_status.set_label("Recording unlocked")
+            self._unlock_status.set_label("Save access unlocked")
             self._unlock_status.remove_css_class("error")
             self._unlock_status.add_css_class("success")
         elif self._recording_unlocked:
@@ -653,11 +701,67 @@ class RecordMacroDialog(Adw.Dialog):
             self._unlock_status.remove_css_class("success")
             self._unlock_status.add_css_class("error")
         else:
-            self._unlock_status.set_label("Recording locked")
+            self._unlock_status.set_label("Save access locked")
             self._unlock_status.remove_css_class("success")
             self._unlock_status.remove_css_class("error")
 
         self._update_unlock_ui()
+
+    def _apply_macro_recording_state(self, result: dict | None) -> None:
+        result = result or {}
+        self._macro_recording_enabled = bool(result.get("macro_recording_enabled", False))
+        self._macro_recording_source = str(result.get("macro_recording_source", "none") or "none")
+        try:
+            self._macro_recording_expires_at = int(
+                result.get("macro_recording_expires_at", 0) or 0
+            )
+        except (TypeError, ValueError):
+            self._macro_recording_expires_at = 0
+        self._update_macro_recording_ui()
+
+    def _update_macro_recording_ui(self) -> None:
+        if self._macro_recording_enabled:
+            if self._macro_recording_source == "runtime" and self._macro_recording_expires_at:
+                subtitle = "Enabled temporarily"
+            elif self._macro_recording_source == "persistent":
+                subtitle = "Enabled"
+            else:
+                subtitle = "Enabled"
+            self._macro_recording_row.set_subtitle(subtitle)
+            self._macro_recording_toggle_btn.set_child(
+                self._make_button_content("channel-secure-symbolic", "Disable")
+            )
+            self._macro_recording_toggle_btn.set_tooltip_text("Disable macro recording")
+            self._macro_recording_toggle_btn.add_css_class("destructive-action")
+            self._macro_recording_toggle_btn.remove_css_class("suggested-action")
+            return
+
+        self._macro_recording_row.set_subtitle("Disabled")
+        self._macro_recording_toggle_btn.set_child(
+            self._make_button_content("channel-insecure-symbolic", "Enable")
+        )
+        self._macro_recording_toggle_btn.set_tooltip_text("Enable macro recording")
+        self._macro_recording_toggle_btn.add_css_class("suggested-action")
+        self._macro_recording_toggle_btn.remove_css_class("destructive-action")
+
+    def _on_macro_recording_toggle_clicked(self, _btn: Gtk.Button) -> None:
+        if self._macro_recording_enabled:
+            present_disable = getattr(
+                self._parent,
+                "present_macro_recording_disable_dialog",
+                None,
+            )
+            if callable(present_disable):
+                present_disable(on_success=self._refresh_unlock_state_async)
+                return
+            self._show_error("Macro recording opt-out is only available from the main window")
+            return
+
+        present_enable = getattr(self._parent, "present_macro_recording_enable_dialog", None)
+        if callable(present_enable):
+            present_enable(on_success=self._refresh_unlock_state_async)
+            return
+        self._show_error("Macro recording opt-in is only available from the main window")
 
     def _on_unlock_clicked(self, _btn: Gtk.Button) -> None:
         present_unlock = getattr(self._parent, "present_unlock_dialog", None)
@@ -684,13 +788,16 @@ class RecordMacroDialog(Adw.Dialog):
         self._update_selection_ui()
         self._sync_settings_async()
 
-    def _make_unlock_button_content(self, label: str) -> Gtk.Box:
+    def _make_button_content(self, icon_name: str, label: str) -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
+        icon = Gtk.Image.new_from_icon_name(icon_name)
         box.append(icon)
         lbl = Gtk.Label(label=label)
         box.append(lbl)
         return box
+
+    def _make_unlock_button_content(self, label: str) -> Gtk.Box:
+        return self._make_button_content("channel-insecure-symbolic", label)
 
     def _update_unlock_ui(self) -> None:
         if not self._recording_unlock_required:
@@ -703,12 +810,11 @@ class RecordMacroDialog(Adw.Dialog):
         self._unlock_btn.set_child(self._make_unlock_button_content(label))
         if self._recording_unlocked:
             self._unlock_btn.set_tooltip_text(
-                "Claim this GUI as the active owner before recording macros with raw input."
+                "Claim this GUI as the active owner before saving temporary recording slots."
             )
         else:
             self._unlock_btn.set_tooltip_text(
-                "Authorize raw original-input capture before live macro recording can read "
-                "keyboard, mouse, and gamepad events."
+                "Authorize saving temporary recording slots and protected macro body access."
             )
 
     def _device_types(self, device: dict) -> list[str]:
@@ -761,15 +867,21 @@ class RecordMacroDialog(Adw.Dialog):
         self._selection_warning.set_visible(bool(warning))
 
     def _on_save_settings(self, btn: Gtk.Button) -> None:
+        if not self._settings_loaded:
+            return
         self._save_btn.set_sensitive(False)
 
         def worker() -> None:
             result = session_request(self._settings_payload(), timeout=2.0)
+            if self._closed:
+                return
             GLib.idle_add(self._on_save_settings_done, result)
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_save_settings_done(self, result: dict | None) -> bool:
+        if self._closed:
+            return False
         self._save_btn.set_sensitive(True)
         if result and result.get("status") == "ok":
             if self._on_saved:

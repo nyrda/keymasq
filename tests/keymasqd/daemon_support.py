@@ -54,6 +54,7 @@ def daemon_testbed(monkeypatch):
     recording_manager = SimpleNamespace(
         start=AsyncMock(return_value={"recording": "started"}),
         stop=AsyncMock(return_value={"recording": "stopped"}),
+        list_pending_recordings=AsyncMock(return_value=[]),
         claim_pending_recording=AsyncMock(),
         release_pending_recording_claim=AsyncMock(return_value=None),
         discard_pending_recording=AsyncMock(return_value=None),

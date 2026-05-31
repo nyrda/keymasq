@@ -5,7 +5,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.models import ComboConfig
 from keymasq.gui.icons import combo_icon_names, image_from_icon_names, resolve_icon_name
@@ -426,6 +426,32 @@ class ComboTab(ProfileManagedTab):
         self._open_combo_editor()
 
     def _on_delete_combo_clicked(self, _button: Gtk.Button, combo_id: str) -> None:
+        combo = next((combo for combo in self._selected_combos() if combo.id == combo_id), None)
+        if combo is None:
+            return
+
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Delete Combo")
+        dialog.set_body(f"Delete '{combo.name or combo_default_name(combo)}'?")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_delete_combo_response, combo_id)
+        dialog.present(self.get_root())
+
+    def _on_delete_combo_response(
+        self,
+        _dialog: Adw.AlertDialog,
+        response: str,
+        combo_id: str,
+    ) -> None:
+        if response != "delete":
+            return
+        self._delete_combo(combo_id)
+
+    def _delete_combo(self, combo_id: str) -> None:
         combos = self._selected_combos()
         combos[:] = [combo for combo in combos if combo.id != combo_id]
         self._save_profile()

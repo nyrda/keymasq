@@ -60,9 +60,14 @@ def describe_mapping_action_compact(
     elif action.action_type == ActionType.REPEAT:
         parts.append("↻ repeat")
     elif action.action_type == ActionType.START_MACRO_RECORDING:
-        parts.append("⏺ toggle recording")
+        slot = f" slot {action.macro_recording_slot}" if action.macro_recording_slot else ""
+        parts.append(f"⏺ toggle recording{slot}")
     elif action.action_type == ActionType.STOP_MACRO_RECORDING:
-        parts.append("⏹ stop recording")
+        slot = f" slot {action.macro_recording_slot}" if action.macro_recording_slot else ""
+        parts.append(f"⏹ stop recording{slot}")
+    elif action.action_type == ActionType.PLAY_MACRO_SLOT:
+        slot = f" slot {action.macro_recording_slot}" if action.macro_recording_slot else ""
+        parts.append(f"▶ play recording{slot}")
     elif action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         parts.append("⏹ cancel playback")
     elif action.action_type == ActionType.EMERGENCY_RESET:
@@ -146,9 +151,14 @@ def describe_mapping_action_verbose(
         return f"Compositor → {dispatcher}{suffix}"
 
     if action.action_type == ActionType.START_MACRO_RECORDING:
-        return "Toggle Macro Recording"
+        slot = f" Slot {action.macro_recording_slot}" if action.macro_recording_slot else ""
+        return f"Toggle Macro Recording{slot}"
     if action.action_type == ActionType.STOP_MACRO_RECORDING:
-        return "Stop Macro Recording"
+        slot = f" Slot {action.macro_recording_slot}" if action.macro_recording_slot else ""
+        return f"Stop Macro Recording{slot}"
+    if action.action_type == ActionType.PLAY_MACRO_SLOT:
+        slot = f" Slot {action.macro_recording_slot}" if action.macro_recording_slot else ""
+        return f"Play Macro Recording{slot}"
     if action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         return "Cancel Macro Playback"
     if action.action_type == ActionType.EMERGENCY_RESET:

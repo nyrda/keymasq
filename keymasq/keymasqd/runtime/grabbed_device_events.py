@@ -930,6 +930,7 @@ def _is_recording_control_action(
         in (
             ActionType.START_MACRO_RECORDING,
             ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
             ActionType.CANCEL_MACRO_PLAYBACK,
             ActionType.EMERGENCY_RESET,
         )

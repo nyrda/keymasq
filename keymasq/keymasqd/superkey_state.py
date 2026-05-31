@@ -65,6 +65,7 @@ class SuperkeyActionData:
     macro_start_x: int = 0
     macro_start_y: int = 0
     macro_block_mouse_movement: bool = False
+    macro_recording_slot: int = 0
     profile_name: str | None = None
     compositor_id: str | None = None
     compositor_dispatcher: str | None = None
@@ -93,6 +94,12 @@ class SuperkeyActionData:
             ActionType(self.action_type),
             self.profile_deactivation,
         )
+        if self.action_type not in {
+            ActionType.START_MACRO_RECORDING.value,
+            ActionType.STOP_MACRO_RECORDING.value,
+            ActionType.PLAY_MACRO_SLOT.value,
+        }:
+            self.macro_recording_slot = 0
 
 
 @dataclass

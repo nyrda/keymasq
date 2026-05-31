@@ -1,4 +1,6 @@
 # ruff: noqa: F403, F405, I001
+from pathlib import Path
+
 from tests.keymasqd.macro_backend_support import *
 
 
@@ -28,6 +30,170 @@ async def test_recording_manager_uses_relative_timestamps() -> None:
     events = await _recorded_events(recorder, result)
     assert events[0]["t_us"] == 0
     assert events[1]["t_us"] == 400
+
+
+@pytest.mark.asyncio
+async def test_recording_slot_survives_recording_manager_restart(tmp_path: Path) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.start([], recording_slot=2)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+
+    result = await recorder.stop()
+    recording_id = str(result["pending_recording_id"])
+    assert result["recording_slot"] == 2
+
+    restored = RecordingManager(spool_dir=tmp_path)
+    recordings = await restored.list_pending_recordings()
+    assert recordings == [
+        {
+            "pending_recording_id": recording_id,
+            "duration_ms": 0,
+            "duration_us": 0,
+            "device_types": ["keyboard"],
+            "event_count": 1,
+            "recording_slot": 2,
+        }
+    ]
+
+    snapshot = await restored.pending_recording(recording_id)
+    assert snapshot.recording_slot == 2
+    assert list(snapshot.iter_events())[0]["code"] == evdev.ecodes.KEY_A
+
+    await restored.discard_pending_recording(recording_id)
+    assert list(tmp_path.glob("slot-*")) == []
+
+
+@pytest.mark.asyncio
+async def test_recording_slot_overwrite_replaces_pending_snapshot(tmp_path: Path) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.start([], recording_slot=2)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+    first = await recorder.stop()
+    first_id = str(first["pending_recording_id"])
+
+    await recorder.start([], recording_slot=2)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+    )
+    second = await recorder.stop()
+    second_id = str(second["pending_recording_id"])
+
+    assert await recorder.list_pending_recordings() == [
+        {
+            "pending_recording_id": second_id,
+            "duration_ms": 0,
+            "duration_us": 0,
+            "device_types": ["keyboard"],
+            "event_count": 1,
+            "recording_slot": 2,
+        }
+    ]
+    with pytest.raises(FileNotFoundError):
+        await recorder.pending_recording(first_id)
+
+    restored = RecordingManager(spool_dir=tmp_path)
+    snapshot = await restored.pending_recording(second_id)
+    assert list(snapshot.iter_events())[0]["code"] == evdev.ecodes.KEY_B
+
+
+@pytest.mark.asyncio
+async def test_recording_slot_overwrite_preserves_new_meta_after_old_claim_release(
+    tmp_path: Path,
+) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.start([], recording_slot=2)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+    first = await recorder.stop()
+    first_id = str(first["pending_recording_id"])
+    await recorder.claim_pending_recording(first_id)
+
+    await recorder.start([], recording_slot=2)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+    )
+    second = await recorder.stop()
+    second_id = str(second["pending_recording_id"])
+    await recorder.release_pending_recording_claim(first_id, saved=False)
+
+    restored = RecordingManager(spool_dir=tmp_path)
+    recordings = await restored.list_pending_recordings()
+    assert recordings[0]["pending_recording_id"] == second_id
+    snapshot = await restored.pending_recording(second_id)
+    assert list(snapshot.iter_events())[0]["code"] == evdev.ecodes.KEY_B
+
+
+@pytest.mark.asyncio
+async def test_recording_slot_overwrite_expires_abandoned_old_claim(
+    tmp_path: Path,
+) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.start([], recording_slot=2)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+    first = await recorder.stop()
+    first_id = str(first["pending_recording_id"])
+    first_snapshot = await recorder.claim_pending_recording(first_id)
+    first_path = first_snapshot.spool_path
+    assert first_path is not None
+    assert first_path.exists()
+
+    await recorder.start([], recording_slot=2)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+    )
+    second = await recorder.stop()
+    second_id = str(second["pending_recording_id"])
+    second_snapshot = await recorder.pending_recording(second_id)
+    second_path = second_snapshot.spool_path
+    assert second_path is not None
+
+    await recorder.discard_expired_pending_recordings(ttl_s=0)
+
+    assert first_id not in recorder._claimed_recordings
+    assert first_id not in recorder._claimed_recording_created_at
+    assert first_id not in recorder._claimed_recording_discard_requested
+    assert not first_path.exists()
+    assert second_path.exists()
+
+    restored = RecordingManager(spool_dir=tmp_path)
+    recordings = await restored.list_pending_recordings()
+    assert recordings[0]["pending_recording_id"] == second_id
+    snapshot = await restored.pending_recording(second_id)
+    assert list(snapshot.iter_events())[0]["code"] == evdev.ecodes.KEY_B
+
+
+@pytest.mark.asyncio
+async def test_invalid_recording_slot_is_treated_as_unslotted(tmp_path: Path) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
+
+    start_result = await recorder.start([], recording_slot=99)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+    result = await recorder.stop()
+
+    assert start_result == {"status": "ok"}
+    assert "recording_slot" not in result
+    assert await recorder.list_pending_recordings() == []
+    assert list(tmp_path.glob("slot-*")) == []
+
+    snapshot = await recorder.pending_recording(str(result["pending_recording_id"]))
+    assert snapshot.recording_slot == 0
 
 
 @pytest.mark.asyncio
@@ -413,6 +579,23 @@ async def test_play_macro_uses_daemon_lifetime_outputs_without_active_grab(
     manager.shutdown_output_devices()
     assert destroyed == [True]
     assert manager.output_state.keyboard_uinput is None
+
+
+@pytest.mark.asyncio
+async def test_play_macro_can_skip_stored_lookup_for_empty_explicit_events() -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    get_meta = MagicMock(side_effect=AssertionError("stored macro lookup should be skipped"))
+    manager.macro_store = SimpleNamespace(get_meta=get_meta, iter_events=MagicMock())
+
+    result = await manager.play_macro(
+        macro_events=[],
+        macro_name="recording-slot-2",
+        load_stored_macro=False,
+    )
+
+    assert result == {"status": "ok"}
+    get_meta.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -871,7 +1054,8 @@ async def test_macro_cleanup_releases_unmatched_held_keys() -> None:
         macro_name="unmatched",
     )
 
-    await asyncio.sleep(0.01)
+    if manager.macro_state.tasks:
+        await asyncio.gather(*manager.macro_state.tasks.values())
 
     assert manager.macro_state.held_refcount == {}
     assert any(

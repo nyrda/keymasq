@@ -13,6 +13,7 @@ from keymasq.common.models import (
     SuperkeyMode,
     normalize_analog_control_features,
     normalize_macro_loop_stop_behavior,
+    normalize_macro_recording_slot,
     normalize_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     parse_rapidfire_fields,
@@ -156,6 +157,9 @@ def parse_action(
         macro_start_x=int_value(action_data.get("macro_start_x"), 0),
         macro_start_y=int_value(action_data.get("macro_start_y"), 0),
         macro_block_mouse_movement=bool(action_data.get("macro_block_mouse_movement", False)),
+        macro_recording_slot=normalize_macro_recording_slot(
+            action_data.get("recording_slot", action_data.get("macro_recording_slot"))
+        ),
         profile_name=optional_str(profile_name),
         profile_deactivation=profile_deactivation,
         compositor_id=optional_str(compositor_id),
@@ -596,6 +600,9 @@ def parse_superkey_action(
         macro_start_x=int_value(action.get("macro_start_x"), 0),
         macro_start_y=int_value(action.get("macro_start_y"), 0),
         macro_block_mouse_movement=bool(action.get("macro_block_mouse_movement", False)),
+        macro_recording_slot=normalize_macro_recording_slot(
+            action.get("recording_slot", action.get("macro_recording_slot"))
+        ),
         profile_name=optional_str(action.get("profile_name")),
         profile_deactivation=normalize_profile_deactivation_policy(
             action_type,

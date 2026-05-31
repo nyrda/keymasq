@@ -1,5 +1,7 @@
 import logging
+import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +14,14 @@ def test_unlock_path_helpers() -> None:
 
     assert runtime.name == "recording-unlock-1000"
     assert persistent.name == "recording-unlock-1000"
+
+
+def test_macro_recording_path_helpers() -> None:
+    runtime = recording_guard.runtime_macro_recording_path(1000)
+    persistent = recording_guard.persistent_macro_recording_path(1000)
+
+    assert runtime.name == "macro-recording-enabled-1000"
+    assert persistent.name == "macro-recording-enabled-1000"
 
 
 def test_parse_unlock_expires_at_invalid_or_missing(tmp_path: Path) -> None:
@@ -72,6 +82,28 @@ def test_resolve_unlock_status_none(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert status == {"unlocked": False, "source": "none", "expires_at": 0, "path": ""}
 
 
+def test_resolve_macro_recording_status_uses_macro_recording_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_dir = tmp_path / "run"
+    persistent_dir = tmp_path / "etc"
+    runtime_dir.mkdir()
+    persistent_dir.mkdir()
+
+    monkeypatch.setattr(recording_guard, "RECORDING_UNLOCK_RUNTIME_DIR", runtime_dir)
+    monkeypatch.setattr(recording_guard, "RECORDING_UNLOCK_PERSISTENT_DIR", persistent_dir)
+
+    persistent_path = persistent_dir / "macro-recording-enabled-1000"
+    persistent_path.write_text("0\n", encoding="utf-8")
+
+    status = recording_guard.resolve_macro_recording_status(1000, now=100)
+    assert status["unlocked"] is True
+    assert status["source"] == "persistent"
+    assert status["expires_at"] == 0
+    assert status["path"] == str(persistent_path)
+
+
 def test_write_unlock_expires_at_handles_chown_failure(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -89,6 +121,23 @@ def test_write_unlock_expires_at_handles_chown_failure(
     assert "Failed to set recording unlock file owner" in caplog.text
     tmp_candidates = list(lease.parent.glob(f".{lease.name}.tmp-*"))
     assert tmp_candidates == []
+
+
+def test_write_unlock_expires_at_accepts_keymasq_owned_parent_when_run_as_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    lease = tmp_path / "lease"
+    monkeypatch.setattr(recording_guard.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        recording_guard.pwd,
+        "getpwnam",
+        lambda name: SimpleNamespace(pw_uid=os.getuid()) if name == "keymasq" else None,
+    )
+
+    recording_guard.write_unlock_expires_at(lease, 123)
+
+    assert lease.read_text(encoding="utf-8") == "123\n"
 
 
 def test_write_unlock_expires_at_fsyncs_parent_directory(

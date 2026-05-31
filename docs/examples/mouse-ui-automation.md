@@ -17,7 +17,7 @@ are easier to inspect and adjust on the timeline.
 
 ## Bind A Cancel Key First
 
-Before testing mouse automation, bind **Cancel Playback** to a key or combo.
+Before testing mouse automation, bind **Cancel Macro Playback** to a key or combo.
 Use it as an emergency stop if anything goes wrong.
 
 ## Create An Empty Macro

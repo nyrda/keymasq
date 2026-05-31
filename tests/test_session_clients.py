@@ -242,6 +242,39 @@ def test_persistent_session_dispatch_event_callback_fallback(
     assert calls[0]["name"] == "example"
 
 
+def test_persistent_session_dispatch_event_callback_is_one_shot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    glib_module = types.ModuleType("GLib")
+    idle_returns: list[bool] = []
+
+    def _idle_add(callback: Callable[..., Any], *args: Any) -> bool:
+        idle_returns.append(bool(callback(*args)))
+        return True
+
+    glib_module.idle_add = _idle_add
+    repository_module = types.ModuleType("repository")
+    repository_module.GLib = glib_module
+    gi_module = types.ModuleType("gi")
+    gi_module.repository = repository_module
+    monkeypatch.setitem(sys.modules, "gi", gi_module)
+    monkeypatch.setitem(sys.modules, "gi.repository", repository_module)
+    monkeypatch.setitem(sys.modules, "gi.repository.GLib", glib_module)
+
+    connection = gui_session_client._PersistentSessionConnection()
+    calls: list[dict[str, Any]] = []
+
+    def callback(message: dict[str, Any]) -> bool:
+        calls.append(message)
+        return True
+
+    connection.register_callback("macro_saved", callback)
+    connection._dispatch_event({"event": "macro_saved", "name": "example"})
+
+    assert [call["name"] for call in calls] == ["example"]
+    assert idle_returns == [False]
+
+
 def test_persistent_session_reader_loop_routes_events_and_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -305,6 +338,7 @@ def test_persistent_session_concurrent_first_connect_uses_one_socket(
     connection = gui_session_client._PersistentSessionConnection()
     start = threading.Barrier(3)
     results: list[bool] = []
+    errors: list[BaseException] = []
     results_lock = threading.Lock()
 
     def _fake_socket(_family: int, _kind: int) -> _ConnectBlockingSocket:
@@ -314,26 +348,38 @@ def test_persistent_session_concurrent_first_connect_uses_one_socket(
     monkeypatch.setattr(gui_session_client._socket, "socket", _fake_socket)
 
     def _connect() -> None:
-        start.wait()
-        result = connection._ensure_connected(timeout=0.5)  # pyright: ignore[reportPrivateUsage]
-        with results_lock:
-            results.append(result)
+        try:
+            start.wait(timeout=1.0)
+            result = connection._ensure_connected(timeout=0.5)  # pyright: ignore[reportPrivateUsage]
+            with results_lock:
+                results.append(result)
+        except BaseException as exc:
+            with results_lock:
+                errors.append(exc)
 
     threads = [threading.Thread(target=_connect) for _ in range(2)]
-    for thread in threads:
-        thread.start()
-    start.wait()
-    for thread in threads:
-        thread.join(1.0)
+    try:
+        for thread in threads:
+            thread.start()
+        try:
+            start.wait(timeout=1.0)
+        except threading.BrokenBarrierError as exc:
+            pytest.fail(f"connect workers did not reach barrier: {exc!r}")
+        for thread in threads:
+            thread.join(1.0)
 
-    assert results == [True, True]
-    assert len(_ConnectBlockingSocket.instances) == 1
-    assert connection._sock is _ConnectBlockingSocket.instances[0]  # pyright: ignore[reportPrivateUsage]
-
-    connection._close_connection()  # pyright: ignore[reportPrivateUsage]
-    reader_thread = connection._reader_thread  # pyright: ignore[reportPrivateUsage]
-    if reader_thread is not None:
-        reader_thread.join(1.0)
+        assert [thread.is_alive() for thread in threads] == [False, False]
+        assert errors == []
+        assert results == [True, True]
+        assert len(_ConnectBlockingSocket.instances) == 1
+        assert connection._sock is _ConnectBlockingSocket.instances[0]  # pyright: ignore[reportPrivateUsage]
+    finally:
+        for thread in threads:
+            thread.join(1.0)
+        connection._close_connection()  # pyright: ignore[reportPrivateUsage]
+        reader_thread = connection._reader_thread  # pyright: ignore[reportPrivateUsage]
+        if reader_thread is not None:
+            reader_thread.join(1.0)
 
 
 def test_persistent_session_reader_thread_survives_socket_swap(

@@ -2,7 +2,15 @@ import concurrent.futures
 import time
 
 import evdev
-from support import HARDWARE_ID, PROFILE_NAME, SECOND_HARDWARE_ID, ScenarioContext
+from support import (
+    HARDWARE_ID,
+    MACRO_SLOT_PROFILE_NAME,
+    PROFILE_NAME,
+    SECOND_HARDWARE_ID,
+    ScenarioContext,
+)
+
+RECORDING_SLOT = 1
 
 
 def run(ctx: ScenarioContext) -> None:
@@ -49,25 +57,101 @@ def run(ctx: ScenarioContext) -> None:
     if events != expected:
         raise AssertionError(f"unexpected captured combo events: {combo}")
 
+    status = ctx.request({"command": "get_status"})
+    if status.get("macro_recording_enabled") is not True:
+        raise AssertionError(f"macro recording opt-in was not enabled: {status}")
+
     ctx.request({"command": "list_devices_for_recording"})
-    start = ctx.request({"command": "start_recording"})
+    start = ctx.request({"command": "start_recording", "recording_slot": RECORDING_SLOT})
     if start.get("status") != "ok":
         raise AssertionError(f"start_recording failed: {start}")
+    if start.get("recording_slot") != RECORDING_SLOT:
+        raise AssertionError(f"recording started in unexpected slot: {start}")
     ctx.tap_source(evdev.ecodes.KEY_Q)
-    stopped = ctx.request({"command": "stop_recording"})
+    stopped = ctx.request({"command": "stop_recording", "recording_slot": RECORDING_SLOT})
     if stopped.get("status") != "ok":
         raise AssertionError(f"stop_recording failed: {stopped}")
+    if stopped.get("recording_slot") != RECORDING_SLOT:
+        raise AssertionError(f"recording stopped in unexpected slot: {stopped}")
     token = str(stopped.get("pending_save_token", ""))
+    if not token:
+        raise AssertionError(f"stop_recording did not return a pending save token: {stopped}")
+    assert_recording_slot_listed(ctx, RECORDING_SLOT)
+
     saved_name = "integration-recorded-macro"
     ctx.request(
         {
             "command": "save_recording",
             "name": saved_name,
+            "recording_slot": RECORDING_SLOT,
             "pending_save_token": token,
         }
     )
+    assert_recording_slot_listed(ctx, RECORDING_SLOT)
     ctx.request({"command": "play_macro", "name": saved_name})
     ctx.expect_keys([(evdev.ecodes.KEY_Q, 1), (evdev.ecodes.KEY_Q, 0)])
+
+
+def run_mapped_slot_actions(ctx: ScenarioContext) -> None:
+    try:
+        ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=True)
+        assert_macro_recording_enabled(ctx)
+
+        ctx.tap_source(evdev.ecodes.KEY_F23)
+        wait_for_recording_state(ctx, active=True, recording_slot=RECORDING_SLOT)
+
+        ctx.tap_source(evdev.ecodes.KEY_Q)
+
+        ctx.tap_source(evdev.ecodes.KEY_F23)
+        wait_for_recording_state(ctx, active=False, recording_slot=0)
+        assert_recording_slot_listed(ctx, RECORDING_SLOT)
+
+        ctx.drain_outputs()
+        ctx.tap_source(evdev.ecodes.KEY_F24)
+        ctx.expect_keys([(evdev.ecodes.KEY_Q, 1), (evdev.ecodes.KEY_Q, 0)])
+    finally:
+        ctx.request({"command": "stop_recording", "recording_slot": RECORDING_SLOT}, ok=False)
+        ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=False)
+
+
+def assert_macro_recording_enabled(ctx: ScenarioContext) -> None:
+    status = ctx.request({"command": "get_status"})
+    if status.get("macro_recording_enabled") is not True:
+        raise AssertionError(f"macro recording opt-in was not enabled: {status}")
+
+
+def wait_for_recording_state(
+    ctx: ScenarioContext,
+    *,
+    active: bool,
+    recording_slot: int,
+) -> None:
+    def matches() -> bool:
+        status = ctx.request({"command": "get_status"}, ok=False)
+        if status.get("recording_active") is not active:
+            return False
+        return int(status.get("recording_slot", 0) or 0) == recording_slot
+
+    label = f"recording active={active} slot={recording_slot}"
+    ctx.wait_until(label, matches, timeout_s=5)
+
+
+def assert_recording_slot_listed(ctx: ScenarioContext, recording_slot: int) -> None:
+    result = ctx.request({"command": "list_macros", "include_slots": True})
+    macros = result.get("macros", [])
+    if not isinstance(macros, list):
+        raise AssertionError(f"list_macros did not return a macro list: {result}")
+
+    for macro in macros:
+        if not isinstance(macro, dict):
+            continue
+        if (
+            macro.get("kind") == "recording_slot"
+            and macro.get("recording_slot") == recording_slot
+        ):
+            return
+
+    raise AssertionError(f"recording slot {recording_slot} was not listed: {result}")
 
 
 def wait_for_capture(ctx: ScenarioContext, hardware_id: str) -> dict[str, object]:

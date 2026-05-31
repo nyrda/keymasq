@@ -138,7 +138,11 @@ analog_control_name = "FPS Mouse"
 
 # macro controls
 action = "start_macro_recording"
+recording_slot = 1
 action = "stop_macro_recording"
+recording_slot = 1
+action = "play_macro_slot"
+recording_slot = 1
 action = "cancel_macro_playback"
 ```
 

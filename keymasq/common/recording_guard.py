@@ -1,5 +1,6 @@
 import logging
 import os
+import pwd
 import stat
 import tempfile
 import time
@@ -18,6 +19,14 @@ def runtime_unlock_path(uid: int) -> Path:
 
 def persistent_unlock_path(uid: int) -> Path:
     return RECORDING_UNLOCK_PERSISTENT_DIR / f"recording-unlock-{int(uid)}"
+
+
+def runtime_macro_recording_path(uid: int) -> Path:
+    return RECORDING_UNLOCK_RUNTIME_DIR / f"macro-recording-enabled-{int(uid)}"
+
+
+def persistent_macro_recording_path(uid: int) -> Path:
+    return RECORDING_UNLOCK_PERSISTENT_DIR / f"macro-recording-enabled-{int(uid)}"
 
 
 def parse_unlock_expires_at(path: Path) -> int | None:
@@ -49,6 +58,22 @@ def resolve_unlock_status(uid: int, now: int | None = None) -> UnlockStatus:
     runtime_path = runtime_unlock_path(uid)
     persistent_path = persistent_unlock_path(uid)
 
+    return _resolve_status_from_paths(runtime_path, persistent_path, now=now)
+
+
+def resolve_macro_recording_status(uid: int, now: int | None = None) -> UnlockStatus:
+    runtime_path = runtime_macro_recording_path(uid)
+    persistent_path = persistent_macro_recording_path(uid)
+
+    return _resolve_status_from_paths(runtime_path, persistent_path, now=now)
+
+
+def _resolve_status_from_paths(
+    runtime_path: Path,
+    persistent_path: Path,
+    *,
+    now: int | None = None,
+) -> UnlockStatus:
     runtime_expires = parse_unlock_expires_at(runtime_path)
     if runtime_expires is not None and is_unlock_value_active(runtime_expires, now=now):
         return {
@@ -87,7 +112,8 @@ def _validate_unlock_parent(path: Path) -> None:
     if not stat.S_ISDIR(parent_stat.st_mode):
         raise PermissionError(f"Recording unlock parent is not a directory: {parent}")
 
-    if parent_stat.st_uid not in {0, os.geteuid()}:
+    trusted_owner_uids = _trusted_unlock_parent_owner_uids()
+    if parent_stat.st_uid not in trusted_owner_uids:
         raise PermissionError(f"Recording unlock directory has untrusted owner: {parent}")
 
     if parent_stat.st_mode & stat.S_IWOTH:
@@ -100,6 +126,15 @@ def _validate_unlock_parent(path: Path) -> None:
 
     if stat.S_ISLNK(path_stat.st_mode):
         raise PermissionError(f"Recording unlock path is a symlink: {path}")
+
+
+def _trusted_unlock_parent_owner_uids() -> set[int]:
+    trusted = {0, os.geteuid()}
+    try:
+        trusted.add(int(pwd.getpwnam("keymasq").pw_uid))
+    except KeyError:
+        pass
+    return trusted
 
 
 def write_unlock_expires_at(

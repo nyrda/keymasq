@@ -374,16 +374,23 @@ Super keys have two modes:
 
 ## Macro
 
-Trigger macro recording controls or play a saved macro.
+Trigger temporary macro recording slots, play temporary slots, cancel macro
+playback, or play a saved macro.
 
 ### Macro Controls
 
-Two buttons at the top of the Macro tab:
+Recording slot buttons and playback controls appear in the Macro tab:
 
-| Button | What it does |
+| Control | What it does |
 |---|---|
-| **Toggle Recording** | Start or stop macro recording. Maps the key to a recording toggle. |
-| **Cancel Playback** | Stop all currently running macros. |
+| **Record slot** | Start or stop macro recording in that explicit temporary slot. Slots 1-4 are fixed controls. |
+| **Play slot** | Play the current temporary recording in that explicit slot without saving it as a macro. |
+| **Cancel Macro Playback** | Stop all currently running macros. |
+
+Recording triggers must name a slot. Keymasq does not choose a slot
+automatically for mapped recording controls. Slot playback triggers also name
+the slot they play. If macro recording is disabled, the key selector replaces
+the slot controls with a short disabled notice and a settings shortcut.
 
 ### Playing a Macro
 
@@ -401,7 +408,7 @@ pressed, the selected macro plays back.
 See [Macros](MACROS.md) for details on creating macros, loop modes, and
 editing.
 
-![Macro tab — recording controls, macro list, and playback options](assets/screenshots/key_selector_macro.png)
+![Macro tab — recording slot controls, macro list, and playback options](assets/screenshots/key_selector_macro.png)
 
 ## Profile
 

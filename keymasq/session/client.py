@@ -32,6 +32,7 @@ class KeymasqdClient:
         self._listen_task = asyncio.create_task(self._listen_loop())
 
     async def disconnect(self) -> None:
+        writer = self.writer
         if self._listen_task:
             self._listen_task.cancel()
             try:
@@ -40,10 +41,10 @@ class KeymasqdClient:
                 pass
             self._listen_task = None
 
-        if self.writer:
-            self.writer.close()
+        if writer:
+            writer.close()
             try:
-                await self.writer.wait_closed()
+                await writer.wait_closed()
             except Exception:
                 pass
 

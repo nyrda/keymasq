@@ -52,6 +52,24 @@ def enable_test_uinput_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(TEST_UINPUT_ENV, "1")
 
 
+@pytest.fixture(autouse=True)
+def isolate_session_recording_settings_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from keymasq.session.manager.core import SessionManager
+
+    monkeypatch.setattr(
+        SessionManager,
+        "RECORDING_SETTINGS_PATH",
+        tmp_path / "recording_settings.toml",
+    )
+    monkeypatch.setattr(
+        "keymasq.keymasqd.recording.STATE_DIR",
+        tmp_path / "state",
+    )
+
+
 @pytest.fixture
 def temp_config_dir(tmp_path: Path) -> Generator[Path, None, None]:
     config_dir = tmp_path / "keymasq"

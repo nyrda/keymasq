@@ -12,7 +12,10 @@ from gi.repository import Adw, Gio, GLib, Gtk  # pyright: ignore[reportAttribute
 
 from keymasq.common.models import HardwareConfig
 from keymasq.common.paths import KEYMASQ_RECORD_HELPER_PATH, resolve_keymasq_record_helper_path
-from keymasq.common.recording_guard import resolve_unlock_status
+from keymasq.common.recording_guard import (
+    resolve_macro_recording_status,
+    resolve_unlock_status,
+)
 from keymasq.gui.icons import (
     combo_icon_names,
     device_icon_names,
@@ -97,10 +100,14 @@ class MainWindow(Adw.ApplicationWindow):
         self._recording_unlock_source = "none"
         self._recording_unlock_expires_at = 0
         self._recording_refresh_owner = False
+        self._macro_recording_enabled = False
+        self._macro_recording_source = "none"
+        self._macro_recording_expires_at = 0
         self._emergency_cancel_combo_enabled = True
         self._recording_refresh_lease_id: str = ""
         self._recording_claim_attempt_key: tuple[str, int] | None = None
         self._unlock_request_inflight = False
+        self._macro_recording_enable_inflight = False
         self._unlock_refresh_inflight = False
         self._placeholder_subtitle: Gtk.Label | None = None
         self._menu_unlock_btn: Gtk.Button | None = None
@@ -180,6 +187,8 @@ class MainWindow(Adw.ApplicationWindow):
         self,
         result: GuiTaskResult[tuple[dict[str, object], list[HardwareConfig]]],
     ) -> bool:
+        if self._destroyed:
+            return False
         if result.ok and result.value is not None:
             compositor_state, devices = result.value
         else:
@@ -621,8 +630,8 @@ class MainWindow(Adw.ApplicationWindow):
             self._recording_overlay.on_progress(event)
         elif event_type == "recording_auth_requested":
             self.present_recording_settings_dialog(reason="recording_locked")
-        elif event_type == "macro_save_pending":
-            self.present_pending_macro_save_dialog(event)
+        elif event_type == "macro_recording_disabled":
+            self._update_macro_recording_state(event)
 
         callbacks = self._event_handlers.get(event_type)
         if callbacks is None:
@@ -696,6 +705,7 @@ class MainWindow(Adw.ApplicationWindow):
             session_ok = bool(data and data.get("status") == "ok")
             keymasqd_ok = bool(data and data.get("keymasqd_connected") is True)
             self._update_unlock_state(data if isinstance(data, dict) else None)
+            self._update_macro_recording_state(data if isinstance(data, dict) else None)
             self._update_compositor_dispatch_state(data if isinstance(data, dict) else None)
             if isinstance(data, dict) and data.get("status") == "ok":
                 self._apply_profile_runtime_state(data)
@@ -723,6 +733,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self._update_status_disconnected()
         except Exception:
             self._update_unlock_state(None)
+            self._update_macro_recording_state(None)
             self._update_status_disconnected()
 
         return False
@@ -815,6 +826,36 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._refresh_macro_menu_state()
         self._refresh_unlock_status_label()
+
+    def _update_macro_recording_state(self, status_data: dict | None) -> None:
+        enabled = None
+        source = None
+        expires_at = None
+
+        if isinstance(status_data, dict) and status_data.get("status", "ok") == "ok":
+            enabled = status_data.get("macro_recording_enabled")
+            source = status_data.get("macro_recording_source")
+            expires_at = status_data.get("macro_recording_expires_at")
+
+        if enabled is None or source is None or expires_at is None:
+            local_status = resolve_macro_recording_status(os.getuid())
+            enabled = local_status.get("unlocked", False)
+            source = local_status.get("source", "none")
+            expires_at = local_status.get("expires_at", 0)
+
+        self._macro_recording_enabled = bool(enabled)
+        self._macro_recording_source = str(source or "none")
+        self._macro_recording_expires_at = int(expires_at or 0)
+        log.debug(
+            "Macro recording status updated: enabled=%s source=%s expires_at=%s",
+            self._macro_recording_enabled,
+            self._macro_recording_source,
+            self._macro_recording_expires_at,
+        )
+        self._refresh_macro_menu_state()
+
+    def macro_recording_enabled(self) -> bool:
+        return bool(self._macro_recording_enabled)
 
     def emergency_cancel_combo_enabled(self) -> bool:
         return bool(self._emergency_cancel_combo_enabled)
@@ -1600,6 +1641,51 @@ class MainWindow(Adw.ApplicationWindow):
     def present_unlock_dialog(self, on_success=None) -> None:
         self._start_recording_unlock(on_success=on_success)
 
+    def present_macro_recording_enable_dialog(self, on_success=None) -> None:
+        self._update_macro_recording_state(None)
+        if self._macro_recording_enabled:
+            if callable(on_success):
+                on_success()
+            return
+
+        dialog = Adw.AlertDialog(
+            heading="Enable Macro Recording",
+            body=(
+                "Macro recording is disabled until you opt in. Enabling it allows "
+                "recording triggers and the Macro Manager record button to create "
+                "temporary recording slots."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("enable", "Enable")
+        dialog.set_default_response("enable")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("enable", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_macro_recording_enable_response, on_success)
+        dialog.present(self)
+
+    def present_macro_recording_disable_dialog(self, on_success=None) -> None:
+        self._update_macro_recording_state(None)
+        if not self._macro_recording_enabled:
+            if callable(on_success):
+                on_success()
+            return
+
+        dialog = Adw.AlertDialog(
+            heading="Disable Macro Recording",
+            body=(
+                "This turns off macro recording opt-in. Existing saved macros can still "
+                "be played."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("disable", "Disable")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("disable", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", self._on_macro_recording_disable_response, on_success)
+        dialog.present(self)
+
     def _on_quit_clicked(self, _button: Gtk.Button) -> None:
         self.get_application().quit()
 
@@ -1682,6 +1768,158 @@ class MainWindow(Adw.ApplicationWindow):
             worker,
             on_worker_done,
         )
+
+    def _on_macro_recording_enable_response(
+        self,
+        _dialog: Adw.AlertDialog,
+        response: str,
+        on_success,
+    ) -> None:
+        if response != "enable":
+            return
+        self._start_macro_recording_enable(on_success=on_success)
+
+    def _on_macro_recording_disable_response(
+        self,
+        _dialog: Adw.AlertDialog,
+        response: str,
+        on_success,
+    ) -> None:
+        if response != "disable":
+            return
+        self._start_macro_recording_disable(on_success=on_success)
+
+    def _start_macro_recording_enable(self, on_success=None) -> None:
+        if self._macro_recording_enable_inflight:
+            return
+
+        if self.demo_mode:
+            self._show_unlock_error_dialog("Macro recording opt-in is unavailable in demo mode.")
+            return
+
+        self._macro_recording_enable_inflight = True
+
+        def worker() -> tuple[str, dict | None]:
+            uid = os.getuid()
+            helper_path = resolve_keymasq_record_helper_path()
+            if helper_path is None:
+                return f"Recording helper not found at {KEYMASQ_RECORD_HELPER_PATH}", None
+
+            cmd = [
+                "pkexec",
+                helper_path,
+                "enable-macro-recording-persistent",
+                "--uid",
+                str(uid),
+            ]
+            completed = subprocess.run(cmd, capture_output=True, text=True)
+            if completed.returncode != 0:
+                error_msg = (
+                    completed.stderr.strip()
+                    or completed.stdout.strip()
+                    or "Authorization failed"
+                )
+                return error_msg, None
+
+            status = session_request({"command": "get_status"}, timeout=3.0)
+            if not isinstance(status, dict):
+                return "Macro recording was enabled, but keymasq-session did not respond.", None
+            if status.get("status") != "ok":
+                message = status.get("message") or "Failed to refresh macro recording status."
+                return str(message), None
+            return "", status
+
+        def on_worker_done(result: GuiTaskResult[tuple[str, dict | None]]) -> bool:
+            success = result.ok and isinstance(result.value, tuple) and result.value[0] == ""
+            error_msg = (
+                result.value[0]
+                if result.ok and isinstance(result.value, tuple)
+                else "Authorization failed"
+            )
+            status = result.value[1] if result.ok and isinstance(result.value, tuple) else None
+            return self._on_macro_recording_enable_finished(
+                success,
+                error_msg,
+                on_success,
+                status,
+            )
+
+        run_gui_task(worker, on_worker_done)
+
+    def _start_macro_recording_disable(self, on_success=None) -> None:
+        if self._macro_recording_enable_inflight:
+            return
+
+        if self.demo_mode:
+            self._show_unlock_error_dialog("Macro recording opt-out is unavailable in demo mode.")
+            return
+
+        self._macro_recording_enable_inflight = True
+
+        def worker() -> tuple[str, dict | None]:
+            uid = os.getuid()
+            helper_path = resolve_keymasq_record_helper_path()
+            if helper_path is None:
+                return f"Recording helper not found at {KEYMASQ_RECORD_HELPER_PATH}", None
+
+            cmd = [
+                "pkexec",
+                helper_path,
+                "disable-macro-recording",
+                "--uid",
+                str(uid),
+            ]
+            completed = subprocess.run(cmd, capture_output=True, text=True)
+            if completed.returncode != 0:
+                error_msg = (
+                    completed.stderr.strip()
+                    or completed.stdout.strip()
+                    or "Authorization failed"
+                )
+                return error_msg, None
+
+            status = session_request({"command": "get_status"}, timeout=3.0)
+            if not isinstance(status, dict):
+                return "Macro recording was disabled, but keymasq-session did not respond.", None
+            if status.get("status") != "ok":
+                message = status.get("message") or "Failed to refresh macro recording status."
+                return str(message), None
+            return "", status
+
+        def on_worker_done(result: GuiTaskResult[tuple[str, dict | None]]) -> bool:
+            success = result.ok and isinstance(result.value, tuple) and result.value[0] == ""
+            error_msg = (
+                result.value[0]
+                if result.ok and isinstance(result.value, tuple)
+                else "Authorization failed"
+            )
+            status = result.value[1] if result.ok and isinstance(result.value, tuple) else None
+            return self._on_macro_recording_enable_finished(
+                success,
+                error_msg,
+                on_success,
+                status,
+            )
+
+        run_gui_task(worker, on_worker_done)
+
+    def _on_macro_recording_enable_finished(
+        self,
+        success: bool,
+        error_msg: str,
+        on_success,
+        status: dict | None = None,
+    ) -> bool:
+        self._macro_recording_enable_inflight = False
+        if success:
+            self._update_macro_recording_state(status)
+            self._update_status_from_session()
+            if callable(on_success):
+                on_success()
+            return False
+
+        self._show_unlock_error_dialog(error_msg or "Authorization failed")
+        return False
 
     def _on_unlock_finished(
         self,

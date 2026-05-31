@@ -1419,8 +1419,9 @@ class DeviceManager:
         source_button: str = "",
         trigger_value: int = 1,
         macro_event_source: runtime_macros.MacroEventSource | None = None,
+        load_stored_macro: bool = True,
     ) -> JsonObject:
-        if macro_event_source is None and macro_name and not macro_events:
+        if load_stored_macro and macro_event_source is None and macro_name and not macro_events:
             macro_event_source = await self._stored_macro_event_source(macro_name)
         return await runtime_macros.play_macro(
             self,

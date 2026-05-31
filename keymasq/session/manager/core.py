@@ -410,7 +410,6 @@ class SessionManager:
             with contextlib.suppress(Exception):
                 await runtime_recording.clear_captures_for_writer(self, writer)
             runtime_recording.clear_active_recording_owner_if_writer(self, writer)
-            await runtime_recording.discard_pending_macro_save_if_writer(self, writer)
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
             self._drop_session_client_writer(writer)
             await self._close_session_writer(writer, peer)
@@ -755,6 +754,7 @@ class SessionManager:
                 except Exception as e:
                     log.error(f"Failed to activate initial profiles: {e}")
                     traceback.print_exc()
+                await runtime_recording.sync_pending_macro_slots_from_daemon(self)
                 await runtime_recording.refresh_recording_devices_cache(self)
 
                 await self.client.wait_disconnected()
@@ -797,6 +797,12 @@ class SessionManager:
         self.device_inspector_state.active_hardware_ids.clear()
         self.device_inspector_state.suppressed_hardware_ids.clear()
         self.device_inspector_state.owners_by_hardware_id.clear()
+        self.recording_state.active = False
+        self.recording_state.active_slot = 0
+        self.recording_state.start_cursor = None
+        self.recording_state.active_owner_writer_id = None
+        self.recording_state.active_owner_pid = None
+        self.recording_state.active_owner_uid = None
         self.recording_state.devices_cache.clear()
         self.recording_state.selected_devices_cache.clear()
         self.recording_state.devices_cache_ready = False

@@ -489,19 +489,52 @@ async def test_resolve_combo_macros_ignores_malformed_stored_macro_values(daemon
 
 
 @pytest.mark.asyncio
-async def test_handle_command_start_recording_respects_runtime_lock(daemon_testbed, monkeypatch):
+async def test_handle_command_start_recording_requires_macro_recording_opt_in(
+    daemon_testbed,
+    monkeypatch,
+):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
 
     monkeypatch.setattr(
         daemon_module,
-        "resolve_unlock_status",
+        "resolve_macro_recording_status",
         lambda _uid: {"unlocked": False, "source": "none", "expires_at": 0},
     )
 
-    with pytest.raises(PermissionError, match="recording_locked"):
+    with pytest.raises(PermissionError, match="macro_recording_disabled"):
         await daemon._handle_command(
             CommandType.START_RECORDING,
             {},
             client=_client(uid=1000, pid=111, connection_id=7),
         )
+
+
+def test_macro_recording_enabled_cache_rechecks_persistent_opt_in(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    now_mono = 100.0
+    statuses = [
+        {"unlocked": True, "source": "persistent", "expires_at": 0},
+        {"unlocked": False, "source": "none", "expires_at": 0},
+    ]
+    calls: list[int] = []
+
+    def resolve_status(_uid: int) -> dict[str, bool | int | str]:
+        calls.append(_uid)
+        return statuses[min(len(calls) - 1, len(statuses) - 1)]
+
+    monkeypatch.setattr(daemon_module, "resolve_macro_recording_status", resolve_status)
+    monkeypatch.setattr(daemon_module.time, "time", lambda: 1000)
+    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: now_mono)
+
+    assert daemon._macro_recording_enabled_for_uid(1000) == (True, 0, "persistent")
+
+    now_mono = 100.5
+    assert daemon._macro_recording_enabled_for_uid(1000) == (True, 0, "persistent")
+
+    now_mono = 102.0
+    assert daemon._macro_recording_enabled_for_uid(1000) == (False, 0, "none")
+    assert calls == [1000, 1000]

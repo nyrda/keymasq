@@ -115,6 +115,14 @@ def status_cli(*, json_output: bool = False) -> None:
     recording_state = _bool_status(result.get("recording_active"), "active", "idle")
     print(f"recording: {recording_state}")
 
+    macro_recording_enabled = bool(result.get("macro_recording_enabled", False))
+    if macro_recording_enabled:
+        source = str(result.get("macro_recording_source") or "unknown")
+        macro_recording_state = f"enabled ({source})"
+    else:
+        macro_recording_state = "disabled"
+    print(f"macro recording: {macro_recording_state}")
+
     unlock_required = bool(result.get("recording_unlock_required", True))
     raw_unlocked = bool(result.get("recording_unlocked", False))
     unlocked = raw_unlocked or not unlock_required
@@ -406,6 +414,7 @@ def _macro_definition_from_payload(
             "loop_mode",
             "loop_count",
             "loop_stop_behavior",
+            "speed",
             "move_to_start",
             "start_x",
             "start_y",

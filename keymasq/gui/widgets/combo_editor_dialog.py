@@ -222,6 +222,9 @@ def combo_action_label(action: MappingAction | None) -> str:
         return "Start Recording"
     if action.action_type == ActionType.STOP_MACRO_RECORDING:
         return "Stop Recording"
+    if action.action_type == ActionType.PLAY_MACRO_SLOT:
+        slot = f" {action.macro_recording_slot}" if action.macro_recording_slot else ""
+        return f"Play Slot{slot}"
     if action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         return "Cancel Playback"
     if action.action_type == ActionType.EMERGENCY_RESET:

@@ -82,6 +82,20 @@ async def test_device_inspector_start_requires_recording_unlock(daemon_testbed, 
 
 
 @pytest.mark.asyncio
+async def test_macro_save_recording_requires_recording_unlock(daemon_testbed, monkeypatch):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
+    with pytest.raises(PermissionError, match="recording_locked"):
+        await daemon._handle_command(
+            CommandType.MACRO_SAVE_RECORDING,
+            {"pending_recording_id": "recording-1", "name": "saved"},
+            client=_client(),
+        )
+
+
+@pytest.mark.asyncio
 async def test_capture_end_allows_owner_after_recording_unlock_expires(
     daemon_testbed,
     monkeypatch,
@@ -129,20 +143,33 @@ async def test_macro_exec_complete_forwards_wait_id_and_returncode(daemon_testbe
 
 @pytest.mark.asyncio
 async def test_sensitive_command_owner_mismatch_is_denied(daemon_testbed, monkeypatch):
-    daemon, _device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
     monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (True, 0, "runtime"))
 
     first_client = _client(uid=2000, pid=111, connection_id=10)
     second_client = _client(uid=2000, pid=222, connection_id=11)
 
-    first = await daemon._handle_command(CommandType.START_RECORDING, {}, client=first_client)
-    assert first == {"recording": "started"}
+    first = await daemon._handle_command(
+        CommandType.CAPTURE_BEGIN,
+        {"hardware_id": "1234:5678"},
+        client=first_client,
+    )
+    assert first == {"token": "cap-token"}
 
     with pytest.raises(PermissionError, match="sensitive_command_denied"):
-        await daemon._handle_command(CommandType.START_RECORDING, {}, client=second_client)
+        await daemon._handle_command(
+            CommandType.CAPTURE_BEGIN,
+            {"hardware_id": "1234:5678"},
+            client=second_client,
+        )
 
-    recording_manager.start.assert_awaited_once()
+    capture_manager.begin.assert_called_once_with(
+        hardware_id="1234:5678",
+        evdev_paths=None,
+        evdev_interfaces=None,
+        mode="button",
+    )
 
 
 @pytest.mark.asyncio

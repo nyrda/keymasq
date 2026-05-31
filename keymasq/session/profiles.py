@@ -24,6 +24,7 @@ from keymasq.common.models import (
     ProfileConfig,
     WindowRule,
     normalize_macro_loop_stop_behavior,
+    normalize_macro_recording_slot,
     normalize_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     parse_rapidfire_fields,
@@ -418,9 +419,21 @@ class ProfileManager:
         if action_type in (
             ActionType.START_MACRO_RECORDING,
             ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
             ActionType.CANCEL_MACRO_PLAYBACK,
             ActionType.EMERGENCY_RESET,
         ):
+            if action_type in (
+                ActionType.START_MACRO_RECORDING,
+                ActionType.STOP_MACRO_RECORDING,
+                ActionType.PLAY_MACRO_SLOT,
+            ):
+                return MappingAction(
+                    action_type=action_type,
+                    macro_recording_slot=normalize_macro_recording_slot(
+                        action_data.get("recording_slot", action_data.get("slot"))
+                    ),
+                )
             return MappingAction(action_type=action_type)
 
         if action_type in (
@@ -540,6 +553,12 @@ class ProfileManager:
             action_data["start_x"] = int(action.macro_start_x)
             action_data["start_y"] = int(action.macro_start_y)
             action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+        if action.action_type in (
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
+        ) and action.macro_recording_slot:
+            action_data["recording_slot"] = int(action.macro_recording_slot)
         if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
             action_data["x"] = int(action.move_x)
             action_data["y"] = int(action.move_y)

@@ -3,7 +3,11 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.ipc import Command, CommandType
-from keymasq.common.models import normalize_macro_loop_stop_behavior
+from keymasq.common.models import (
+    MAX_MACRO_RECORDING_SLOTS,
+    normalize_macro_loop_stop_behavior,
+    normalize_macro_recording_slot,
+)
 from keymasq.common.security import PeerCredentials, SecurityPolicy, command_allowed
 from keymasq.common.settings import GlobalSettings
 from keymasq.common.virtual_devices import (
@@ -387,6 +391,10 @@ async def _handle_compositor_commands(
 
     if command == "get_status":
         unlock_status = await runtime_recording.resolve_unlock_status_async(manager, peer.uid)
+        macro_recording_status = await runtime_recording.resolve_macro_recording_status_async(
+            manager,
+            peer.uid,
+        )
         compositor_status = await runtime_compositor.build_compositor_payload(manager)
         compositor_details = cast(dict[str, object], compositor_status["details"])
         policy = manager.security_policy
@@ -402,6 +410,7 @@ async def _handle_compositor_commands(
             "listener_name": compositor_status["listener_name"],
             "compositor_dispatch_available": compositor_status["compositor_dispatch_available"],
             "recording_active": manager.recording_state.active,
+            "recording_slot": int(manager.recording_state.active_slot),
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
             "emergency_cancel_combo_enabled": bool(policy.emergency_cancel_combo_enabled),
             **runtime_recording.serialize_recording_unlock_state(
@@ -409,6 +418,7 @@ async def _handle_compositor_commands(
                 unlock_status,
                 refresh_owner=runtime_recording.is_refresh_owner_request(manager, peer, writer),
             ),
+            **runtime_recording.serialize_macro_recording_state(macro_recording_status),
         }
         if command_allowed("get_active_profiles", policy.session_command_acl, client_class):
             status_payload["active_profiles"] = profile_payload["active_profiles"]
@@ -428,21 +438,27 @@ async def _handle_recording_commands(
     writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
     if command == "start_recording":
-        if runtime_recording.has_pending_macro_save(manager):
-            return await runtime_recording.start_recording(
-                manager,
-                reset_if_active=False,
-                owner_peer=peer,
-                owner_writer=writer,
-            )
+        recording_slot = int_value(request.get("recording_slot"), 0)
+        if not normalize_macro_recording_slot(recording_slot):
+            return {
+                "status": "error",
+                "error_code": "macro_recording_slot_required",
+                "message": (
+                    "Macro recording requires an explicit slot from 1 to "
+                    f"{MAX_MACRO_RECORDING_SLOTS}."
+                ),
+            }
         runtime_recording.update_recording_settings(manager, request)
         start_result = await runtime_recording.start_recording(
             manager,
             reset_if_active=False,
+            recording_slot=recording_slot,
             owner_peer=peer,
             owner_writer=writer,
         )
         runtime_recording.notify_recording_unlock_required(manager, start_result)
+        if runtime_recording.is_macro_recording_disabled_error(start_result):
+            runtime_recording.notify_macro_recording_disabled(manager)
         return start_result
 
     if command == "set_recording_settings":
@@ -451,6 +467,10 @@ async def _handle_recording_commands(
 
     if command == "get_recording_settings":
         unlock_status = await runtime_recording.resolve_unlock_status_async(manager, peer.uid)
+        macro_recording_status = await runtime_recording.resolve_macro_recording_status_async(
+            manager,
+            peer.uid,
+        )
         return {
             "status": "ok",
             **runtime_recording.serialize_recording_unlock_state(
@@ -458,6 +478,7 @@ async def _handle_recording_commands(
                 unlock_status,
                 refresh_owner=runtime_recording.is_refresh_owner_request(manager, peer, writer),
             ),
+            **runtime_recording.serialize_macro_recording_state(macro_recording_status),
             **manager.recording_state.settings,
         }
 
@@ -473,14 +494,16 @@ async def _handle_recording_commands(
         return await runtime_recording.lock_recording_unlock(manager, peer, writer, lease_id)
 
     if command == "stop_recording":
-        return await runtime_recording.stop_recording(manager, error_if_idle=True)
+        return await runtime_recording.stop_recording(
+            manager,
+            error_if_idle=True,
+            recording_slot=int_value(request.get("recording_slot"), 0),
+        )
 
     if command == "save_recording":
         name = str_value(request.get("name"), "").strip()
         if not name:
             return {"status": "error", "message": "Name required"}
-        if not manager.recording_state.pending_data:
-            return {"status": "error", "message": "No pending recording"}
         pending_save_token = str_value(request.get("pending_save_token"), "").strip()
         if pending_save_token and not runtime_recording.pending_macro_save_token_matches(
             manager,
@@ -498,12 +521,14 @@ async def _handle_recording_commands(
             start_x=int_value(request.get("start_x"), 0),
             start_y=int_value(request.get("start_y"), 0),
             block_mouse_movement=bool(request.get("block_mouse_movement", False)),
+            recording_slot=int_value(request.get("recording_slot"), 0),
+            pending_save_token=pending_save_token,
         )
         if save_result.get("status") != "ok":
             return save_result
         return {"status": "ok", "name": save_result.get("name", name)}
 
-    if command == "discard_recording":
+    if command == "delete_recording_slot":
         pending_save_token = str_value(request.get("pending_save_token"), "").strip()
         if pending_save_token and not runtime_recording.pending_macro_save_token_matches(
             manager,
@@ -514,19 +539,13 @@ async def _handle_recording_commands(
                 "error_code": "stale_pending_macro_save",
                 "message": "Pending recording has already changed.",
             }
-        pending_data = manager.recording_state.pending_data or {}
-        pending_recording_id = str_value(pending_data.get("pending_recording_id"), "")
-        if pending_recording_id:
-            try:
-                await manager.client.send_command(
-                    Command(
-                        command=CommandType.MACRO_DISCARD_RECORDING,
-                        data={"pending_recording_id": pending_recording_id},
-                    )
-                )
-            except Exception:
-                pass
-        runtime_recording.clear_pending_macro_save(manager)
+        deleted = await runtime_recording.delete_pending_macro_slot(
+            manager,
+            recording_slot=int_value(request.get("recording_slot"), 0),
+            pending_save_token=pending_save_token,
+        )
+        if not deleted:
+            return {"status": "error", "message": "No pending recording"}
         return {"status": "ok"}
 
     return None
@@ -544,7 +563,11 @@ async def _handle_macro_commands(
             return {"status": "error", "message": "Daemon unavailable"}
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
-            return {"status": "ok", "macros": result_data.get("macros", [])}
+            macros = list(json_list(result_data.get("macros")))
+            if bool(request.get("include_slots", False)):
+                await runtime_recording.sync_pending_macro_slots_from_daemon(manager)
+                macros.extend(runtime_recording.build_pending_macro_slot_meta(manager))
+            return {"status": "ok", "macros": macros}
         return {"status": "error", "message": result.error or "Failed to list macros"}
 
     if command == "get_macro":

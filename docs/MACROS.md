@@ -56,12 +56,16 @@ you perform them. This is the most accurate option and is recommended when:
 - You use a non-standard keyboard layout.
 - The target application is sensitive to input speed.
 
-**Before you start:** bind **Toggle Recording** to a key on your device. Toggle
-Recording starts and stops a live recording from whatever window you're in, so
+**Before you start:** opt in to macro recording from the Macro Manager or
+**Settings > Macro recording**, then bind **Toggle Recording** to a specific
+temporary slot (1-4) on your device.
+Toggle Recording starts and stops that slot from whatever window you're in, so
 you can record in the target application without switching back to the GUI.
-It requires the GUI to be running and unlocked. You should also bind **Cancel
-Playback** — it immediately stops every running macro and is a useful safety
-net.
+Bind **Play Slot** for the same slot if you want to replay the temporary
+recording before saving it.
+The GUI does not need to stay open after recording is enabled. You should also
+bind **Cancel Macro Playback** — it immediately stops every running macro and
+is a useful safety net.
 
 When Keymasq has grabbed a keyboard, `Ctrl+Alt+Esc` is also reserved as an
 emergency combo. Tap it once to cancel all macro playback after a 200 ms
@@ -71,24 +75,37 @@ by `keymasqd` and does not need to be added to your profiles.
 
 **How to record:**
 
-1. Make sure the Keymasq GUI is running and unlocked.
+1. Enable macro recording once from the Macro Manager or **Settings > Macro recording**.
 2. Switch to the application you want to record in.
-3. Press your **Toggle Recording** key to start capturing.
+3. Press your **Toggle Recording** key for the chosen slot to start capturing.
 4. Perform the inputs you want to capture.
-5. Press **Toggle Recording** again to stop.
-6. The GUI opens a save dialog — give the macro a name and save it.
+5. Press the same **Toggle Recording** key again to stop.
+6. Save the temporary slot from the save dialog, or click **Later** and save it
+   from Macro Manager.
 
-Until that save dialog is saved or discarded, Keymasq blocks new macro
-recordings. If you try to record again, the session sends a desktop
-notification and the GUI presents the existing save dialog. Closing the GUI or
-the save dialog discards the unsaved recording.
+The session sends desktop notifications when a recording starts and when it
+stops, including the temporary slot number.
+
+Temporary recording slots live in daemon-private slot storage until they are
+overwritten or deleted. They survive `keymasqd` restarts and can be relisted by
+Macro Manager after the session reconnects. Saving a slot duplicates it into a
+regular macro and keeps the slot available for playback. Closing the save
+dialog keeps the slot for Macro Manager; deleting a slot from Macro Manager
+removes it.
+The slot that is currently recording cannot be played until recording stops;
+pressing its **Play Slot** action is ignored and Keymasq sends a desktop
+notification. Completed recordings in other slots remain playable.
+Starting a new recording in the same slot replaces that slot; starting a
+different slot requires a binding that explicitly names that different slot.
+Keymasq never round-robins or infers a recording slot for mapped recording
+triggers.
 
 Starting and stopping from a hotkey keeps the recording clean. If you click
 buttons in the GUI to start or stop, those clicks and any mouse movement to
 reach them will be captured too, which is rarely what you want.
 
-> **Fallback:** you can also click **Record Macro…** in Macro Manager and
-> **Stop Recording** in the GUI, but be aware that interacting with the GUI
+> **Fallback:** you can also select a slot and click **Record** in Macro
+> Manager, then **Stop** in the GUI, but be aware that interacting with the GUI
 > during a recording will capture those inputs.
 
 **Options available when saving:**
@@ -372,11 +389,11 @@ Macros are stored in `/var/lib/keymasq/macros/`, owned by the `keymasq`
 system user. Persistent macros use compressed `.kmacro.xz` files. Do not edit
 these files by hand — use the GUI or CLI instead.
 
-During live recording, Keymasq keeps the unsaved recording inside keymasqd and
-spills long recordings to daemon-owned temporary files instead of sending the
-full event list through the session. Saving the dialog finalizes that pending
-recording into compressed macro storage; discarding it removes the temporary
-recording.
+During live recording, Keymasq keeps unsaved recordings in temporary slots
+backed by daemon-owned private files instead of sending the full event list
+through the session. Saving a slot copies that pending recording into
+compressed macro storage and leaves the slot in place; deleting or overwriting
+the slot removes the temporary recording.
 
 ### Deleting Macros
 
@@ -392,11 +409,22 @@ pressing the trigger will do nothing because the macro no longer exists.
 Keymasq treats macros with care because recording captures raw input, which
 could be misused as a keylogger.
 
-- **Recording is allowed by default**, but guarded by an unlock step. Before
-  you can record a macro, Keymasq asks Polkit to authorize a runtime unlock
-  for the active GUI. This is intentional — recording captures your raw
-  keystrokes, so the unlock prevents anything from silently recording in the
-  background without your knowledge.
+- **Recording is opt-in.** A default install will not start macro recording
+  until you enable it through the Polkit-backed `keymasq-record` helper.
+  You can disable the opt-in again from **Settings > Macro recording**.
+  Playback and normal macro management remain available. This makes macro
+  recording a deliberate user choice instead of an always-available background
+  capture surface.
+
+- **Temporary slots are not macro bodies.** Recording creates an opaque
+  pending slot. It can be replayed only through an explicit **Play Slot**
+  action for that slot; it cannot be fetched, inspected, or edited as a macro
+  until it is saved into normal macro storage. Slot storage is daemon-private
+  and exists so slots survive daemon restarts, not as a macro library API.
+
+- **Saving a slot requires unlock.** Persisting a temporary recording into the
+  macro library goes through the recording unlock flow even after macro
+  recording has been enabled.
 
 - **Macros are stored in `/var/lib/keymasq/macros/`**, owned by the `keymasq`
   system user, not mixed into your profile files. They are compressed on disk.
@@ -411,7 +439,8 @@ could be misused as a keylogger.
 **Optional security settings** (in `/etc/keymasq/security.toml`). Most users
 do not need to change these — they are intended for system administrators:
 
-- **Disable the unlock requirement** (not recommended):
+- **Disable the capture unlock requirement** (not recommended). Macro recording
+  still requires its separate opt-in:
 
   ```toml
   [recording_guard]
@@ -440,7 +469,7 @@ do not need to change these — they are intended for system administrators:
     "deny:start_recording",
     "deny:stop_recording",
     "deny:save_recording",
-    "deny:discard_recording",
+    "deny:delete_recording_slot",
   ]
   ```
 

@@ -247,6 +247,26 @@ def build_topology_events(
             )
         )
 
+    for stable_path in sorted(previous.keys() & current.keys()):
+        previous_info = previous[stable_path]
+        current_info = current[stable_path]
+        if not live_interface_changed(previous_info, current_info):
+            continue
+        if hardware_id_matches_desired(previous_info.hardware_id, desired_hardware_ids):
+            events.append(
+                (
+                    manager._command_type.DEVICE_DISCONNECTED,
+                    live_interface_payload(previous_info),
+                )
+            )
+        if hardware_id_matches_desired(current_info.hardware_id, desired_hardware_ids):
+            events.append(
+                (
+                    manager._command_type.DEVICE_CONNECTED,
+                    live_interface_payload(current_info),
+                )
+            )
+
     for stable_path in sorted(current.keys() - previous.keys()):
         info = current[stable_path]
         if not hardware_id_matches_desired(info.hardware_id, desired_hardware_ids):
@@ -259,6 +279,13 @@ def build_topology_events(
         )
 
     return events
+
+
+def live_interface_changed(previous_info: Any, current_info: Any) -> bool:
+    return (
+        str(previous_info.path) != str(current_info.path)
+        or str(previous_info.interface_id) != str(current_info.interface_id)
+    )
 
 
 def hardware_id_matches_desired(hardware_id: str, desired_hardware_ids: set[str]) -> bool:

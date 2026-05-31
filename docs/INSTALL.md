@@ -288,16 +288,24 @@ If `uvloop` is missing or fails to import, `keymasqd` and `keymasq-session`
 still start and fall back to the default `asyncio` event loop policy. They log
 a warning when this happens so the missing optimization is visible.
 
-### Recording and capture unlock
+### Macro recording opt-in and capture unlock
 
-Packaged installs handle this automatically. For manual installs, if macro
-recording unlock requests do not appear or fail, you can disable the unlock
-requirement in `/etc/keymasq/security.toml`:
+Packaged installs handle this automatically. Macro recording is enabled by a
+Polkit-backed `keymasq-record` opt-in from the GUI. Capture flows such as
+button/key capture, combo capture, and Device Inspector suppression use the
+separate recording unlock lease.
+
+For manual installs, if capture unlock requests do not appear or fail, you can
+disable the capture unlock requirement in `/etc/keymasq/security.toml`:
 
 ```toml
 [recording_guard]
 unlock_required = false
 ```
+
+This does not enable macro recording; macro recording still requires the
+`keymasq-record` opt-in helper, exposed in the GUI under
+**Settings > Macro recording**.
 
 `Ctrl+Alt+Esc` is reserved by default as an emergency combo while Keymasq has a
 keyboard grabbed. One tap cancels macro playback; a double tap releases all

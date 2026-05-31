@@ -5,6 +5,14 @@ import tomllib
 from typing import cast
 
 from tests.session.profile_support import *
+from keymasq.common.ipc import Command
+
+
+def test_session_manager_recording_settings_path_is_test_isolated(tmp_path) -> None:
+    manager = SessionManager()
+
+    assert manager.RECORDING_SETTINGS_PATH == tmp_path / "recording_settings.toml"
+
 
 @pytest.mark.asyncio
 async def test_recording_settings_persistence_applies_latest_snapshot_last() -> None:
@@ -124,6 +132,30 @@ def test_recording_settings_save_load_toml_uses_recording_ids(tmp_path) -> None:
     assert loaded_manager.recording_state.settings == expected
 
 
+def test_recording_settings_load_preserves_missing_keys(tmp_path) -> None:
+    manager = SessionManager()
+    manager.RECORDING_SETTINGS_PATH = tmp_path / "recording_settings.toml"
+    manager.recording_state.settings = {
+        "include_mouse_movement": True,
+        "include_mouse_clicks": True,
+        "record_start_position": True,
+        "device_overrides": {"physical:/dev/input/event0": True},
+    }
+    manager.RECORDING_SETTINGS_PATH.write_text(
+        "include_mouse_movement = false\n",
+        encoding="utf-8",
+    )
+
+    session_recording_module.load_recording_settings_from_disk(manager)
+
+    assert manager.recording_state.settings == {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": True,
+        "record_start_position": True,
+        "device_overrides": {"physical:/dev/input/event0": True},
+    }
+
+
 def test_recording_settings_load_logs_errors(tmp_path, caplog) -> None:
     manager = SessionManager()
     manager.RECORDING_SETTINGS_PATH = tmp_path / "recording_settings.toml"
@@ -205,8 +237,9 @@ async def test_start_recording_sends_selected_devices_from_cache() -> None:
 
     result = await session_recording_module.start_recording(manager)
 
-    assert result == {"status": "ok"}
+    assert result == {"status": "ok", "recording_slot": 1}
     assert sent_commands == [CommandType.START_RECORDING]
+    assert sent_payloads[0]["recording_slot"] == 1
     assert sent_payloads[0]["devices"] == [
         {
             "path": "/dev/input/event20",
@@ -300,7 +333,7 @@ async def test_start_recording_defaults_to_recommended_sources_only() -> None:
 
     result = await session_recording_module.start_recording(manager)
 
-    assert result == {"status": "ok"}
+    assert result == {"status": "ok", "recording_slot": 1}
     sent_devices = cast(list[dict[str, object]], sent_payloads[0]["devices"])
     assert [device["recording_id"] for device in sent_devices] == [
         "keymasq:output:keyboard",
@@ -396,7 +429,7 @@ async def test_update_recording_settings_prunes_stale_device_overrides() -> None
 
 
 @pytest.mark.asyncio
-async def test_update_recording_settings_clears_overrides_when_cache_is_empty() -> None:
+async def test_update_recording_settings_preserves_overrides_when_cache_is_empty() -> None:
     manager = SessionManager()
     manager.recording_state.settings = {
         "include_mouse_movement": False,
@@ -418,44 +451,78 @@ async def test_update_recording_settings_clears_overrides_when_cache_is_empty() 
         },
     )
 
-    assert manager.recording_state.settings["device_overrides"] == {}
+    assert manager.recording_state.settings["device_overrides"] == {
+        "physical:/dev/input/by-id/stale-mouse": True,
+    }
 
     save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
     if save_task is not None:
         await save_task
 
 
-@pytest.mark.asyncio
-async def test_start_recording_blocks_when_macro_save_is_pending() -> None:
+def test_update_recording_settings_ignores_requests_without_settings_fields() -> None:
     manager = SessionManager()
-    manager.send_notification = Mock()  # type: ignore[method-assign]
-    manager.client = SimpleNamespace(send_command=AsyncMock())  # type: ignore[assignment]
-    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
+    manager.recording_state.settings = {
+        "include_mouse_movement": True,
+        "include_mouse_clicks": True,
+        "record_start_position": True,
+        "device_overrides": {
+            "physical:/dev/input/by-id/keep": True,
+        },
+    }
+    manager.recording_state.devices_cache_ready = True
+    manager.recording_state.devices_cache = []
+
+    session_recording_module.update_recording_settings(
+        manager,
+        {"command": "start_recording", "recording_slot": 2},
+    )
+
+    assert manager.recording_state.settings == {
+        "include_mouse_movement": True,
+        "include_mouse_clicks": True,
+        "record_start_position": True,
+        "device_overrides": {
+            "physical:/dev/input/by-id/keep": True,
+        },
+    }
+    assert manager.recording_state.settings_save_task is None
+
+
+@pytest.mark.asyncio
+async def test_start_recording_replaces_pending_recording_in_selected_slot() -> None:
+    manager = SessionManager()
+    sent_commands: list[Command] = []
+
+    async def send_command(command: Command) -> Response:
+        sent_commands.append(command)
+        return Response(status="ok", data={"status": "ok"})
+
+    manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
+    manager.recording_state.pending_data = {
+        "pending_recording_id": "recording-old",
+        "recording_slot": 1,
+    }
     manager.recording_state.pending_save_token = "pending-1"
 
     result = await session_recording_module.start_recording(manager)
 
-    assert result == {
-        "status": "error",
-        "error_code": "macro_save_pending",
-        "message": "Save or discard the current recording before starting another recording.",
-        "pending_save_token": "pending-1",
-    }
-    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
-        "Keymasq: Macro Save Pending",
-        "Save or discard the current recording before starting another recording.",
-    )
-    manager.client.send_command.assert_not_awaited()
+    assert result == {"status": "ok", "recording_slot": 1}
+    assert [command.command for command in sent_commands] == [
+        CommandType.START_RECORDING,
+        CommandType.MACRO_DELETE_RECORDING,
+    ]
+    assert sent_commands[0].data["recording_slot"] == 1
+    assert sent_commands[1].data == {"pending_recording_id": "recording-old"}
+    assert manager.recording_state.pending_data is None
+    assert manager.recording_state.pending_save_token is None
 
 
 @pytest.mark.asyncio
-async def test_start_recording_pending_save_notification_is_rate_limited() -> None:
+async def test_start_recording_rejects_missing_recording_slot() -> None:
     manager = SessionManager()
-    manager.send_notification = Mock()  # type: ignore[method-assign]
-    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
-    manager.recording_state.pending_save_token = "pending-1"
 
-    await session_recording_module.start_recording(manager)
-    await session_recording_module.start_recording(manager)
+    result = await session_recording_module.start_recording(manager, recording_slot=0)
 
-    manager.send_notification.assert_called_once()  # type: ignore[attr-defined]
+    assert result["status"] == "error"
+    assert result["error_code"] == "macro_recording_slot_required"

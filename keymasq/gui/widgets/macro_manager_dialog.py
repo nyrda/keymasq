@@ -16,6 +16,7 @@ from keymasq.common.macro_compile import (
     normalize_type_macro_text,
     normalize_unicode_type_macro_text,
 )
+from keymasq.common.models import MAX_MACRO_RECORDING_SLOTS
 from keymasq.gui.session_client import (
     GuiTaskResult,
     JsonDict,
@@ -71,7 +72,11 @@ class MacroManagerDialog(Adw.Dialog):
         self._macros: list[JsonDict] = []
         self._recording_active: bool = False
         self._recording_unlocked: bool = False
+        self._macro_recording_enabled: bool = False
+        self._recording_slot: int = 1
+        self._active_recording_slot: int = 0
         self._record_btn: Gtk.Button | None = None
+        self._slot_dropdown: Gtk.DropDown | None = None
         self._search_button: Gtk.Button | None = None
         self.macros_docs_btn: Gtk.Button | None = None
         self._build_ui()
@@ -114,6 +119,17 @@ class MacroManagerDialog(Adw.Dialog):
         # Toolbar row for create actions
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         toolbar.set_margin_bottom(4)
+
+        slot_model = Gtk.StringList()
+        for slot in range(1, MAX_MACRO_RECORDING_SLOTS + 1):
+            slot_model.append(f"Slot {slot}")
+        slot_dropdown = Gtk.DropDown()
+        slot_dropdown.set_model(slot_model)
+        slot_dropdown.set_selected(0)
+        slot_dropdown.set_tooltip_text("Temporary recording slot")
+        slot_dropdown.connect("notify::selected", self._on_recording_slot_changed)
+        toolbar.append(slot_dropdown)
+        self._slot_dropdown = slot_dropdown
 
         record_btn = Gtk.Button()
         record_btn.set_child(
@@ -219,6 +235,7 @@ class MacroManagerDialog(Adw.Dialog):
         frame.set_child(inner)
         main_box.append(frame)
         self.set_child(main_box)
+        self._sync_record_button_state()
 
     def _on_key_pressed(self, _controller, keyval, _keycode, state) -> bool:
         if keyval in (Gdk.KEY_f, Gdk.KEY_F) and state & Gdk.ModifierType.CONTROL_MASK:
@@ -240,6 +257,17 @@ class MacroManagerDialog(Adw.Dialog):
 
     def _on_search_stop(self, _entry: Gtk.SearchEntry) -> None:
         self._hide_search()
+
+    def _on_recording_slot_changed(self, dropdown: Gtk.DropDown, _pspec) -> None:
+        if self._recording_active:
+            active_slot = self._active_recording_slot or self._recording_slot
+            if 1 <= active_slot <= MAX_MACRO_RECORDING_SLOTS:
+                selected = int(dropdown.get_selected())
+                expected = active_slot - 1
+                if selected != expected:
+                    dropdown.set_selected(expected)
+            return
+        self._recording_slot = int(dropdown.get_selected()) + 1
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
         self.close()
@@ -268,7 +296,7 @@ class MacroManagerDialog(Adw.Dialog):
 
         return (
             session_request({"command": "get_status"}) or {},
-            session_request({"command": "list_macros"}) or {},
+            session_request({"command": "list_macros", "include_slots": True}) or {},
         )
 
     def _on_initial_state_loaded(
@@ -282,13 +310,24 @@ class MacroManagerDialog(Adw.Dialog):
         self._recording_unlocked = bool(
             status.get("recording_unlocked", False)
         ) or not unlock_required
+        self._macro_recording_enabled = bool(status.get("macro_recording_enabled", False))
+        active_slot = int(status.get("recording_slot", 0) or 0)
+        if 1 <= active_slot <= MAX_MACRO_RECORDING_SLOTS:
+            self._recording_slot = active_slot
+            if self._recording_active:
+                self._active_recording_slot = active_slot
+            if self._slot_dropdown is not None:
+                self._slot_dropdown.set_selected(active_slot - 1)
         self._sync_record_button_state()
         self._macros = (macros or {}).get("macros", [])
         self._populate_list()
         return False
 
     def _load_macros(self) -> bool:
-        session_request_async({"command": "list_macros"}, self._on_macros_loaded)
+        session_request_async(
+            {"command": "list_macros", "include_slots": True},
+            self._on_macros_loaded,
+        )
         return False
 
     def _on_macros_loaded(self, result: JsonDict | None) -> bool:
@@ -314,6 +353,8 @@ class MacroManagerDialog(Adw.Dialog):
         row = Gtk.ListBoxRow()
         row.set_selectable(False)
         row._search_text = macro_search_text(macro)
+        is_slot = str(macro.get("kind", "") or "") == "recording_slot"
+        macro_name = str(macro.get("name", "") or "")
 
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row_box.set_margin_top(6)
@@ -325,7 +366,7 @@ class MacroManagerDialog(Adw.Dialog):
         info_box.set_hexpand(True)
         info_box.set_valign(Gtk.Align.CENTER)
 
-        name_label = Gtk.Label(label=macro["name"])
+        name_label = Gtk.Label(label=str(macro.get("display_name", macro_name) or ""))
         name_label.set_halign(Gtk.Align.START)
         info_box.append(name_label)
 
@@ -343,6 +384,8 @@ class MacroManagerDialog(Adw.Dialog):
         event_count = macro.get("event_count", 0)
         if event_count:
             meta_text += f" · {event_count} events"
+        if is_slot:
+            meta_text = f"temporary · {meta_text}"
 
         meta_label = Gtk.Label(label=meta_text)
         meta_label.add_css_class("caption")
@@ -355,34 +398,55 @@ class MacroManagerDialog(Adw.Dialog):
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         btn_box.set_valign(Gtk.Align.CENTER)
 
-        play_btn = Gtk.Button()
-        play_btn.set_icon_name("media-playback-start-symbolic")
-        play_btn.set_tooltip_text("Play")
-        play_btn.add_css_class("flat")
-        play_btn.connect("clicked", self._on_play_clicked, macro["name"], play_btn)
-        btn_box.append(play_btn)
+        if is_slot:
+            save_btn = Gtk.Button()
+            save_btn.set_icon_name("document-save-symbolic")
+            save_btn.set_tooltip_text("Save slot as macro")
+            save_btn.add_css_class("flat")
+            save_btn.connect("clicked", self._on_save_slot_clicked, macro)
+            btn_box.append(save_btn)
 
-        edit_btn = Gtk.Button()
-        edit_btn.set_icon_name("document-edit-symbolic")
-        edit_btn.set_tooltip_text("Edit")
-        edit_btn.add_css_class("flat")
-        edit_btn.connect("clicked", self._on_edit_clicked, macro["name"])
-        btn_box.append(edit_btn)
+            delete_btn = Gtk.Button()
+            delete_btn.set_icon_name("edit-delete-symbolic")
+            delete_btn.set_tooltip_text("Delete slot")
+            delete_btn.add_css_class("flat")
+            delete_btn.add_css_class("destructive-action")
+            delete_btn.connect("clicked", self._on_delete_slot_clicked, macro)
+            btn_box.append(delete_btn)
+        else:
+            play_btn = Gtk.Button()
+            play_btn.set_icon_name("media-playback-start-symbolic")
+            play_btn.set_tooltip_text("Play")
+            play_btn.add_css_class("flat")
+            play_btn.connect("clicked", self._on_play_clicked, macro_name, play_btn)
+            btn_box.append(play_btn)
 
-        duplicate_btn = Gtk.Button()
-        duplicate_btn.set_icon_name("edit-copy-symbolic")
-        duplicate_btn.set_tooltip_text("Duplicate")
-        duplicate_btn.add_css_class("flat")
-        duplicate_btn.connect("clicked", self._on_duplicate_clicked, macro["name"], duplicate_btn)
-        btn_box.append(duplicate_btn)
+            edit_btn = Gtk.Button()
+            edit_btn.set_icon_name("document-edit-symbolic")
+            edit_btn.set_tooltip_text("Edit")
+            edit_btn.add_css_class("flat")
+            edit_btn.connect("clicked", self._on_edit_clicked, macro_name)
+            btn_box.append(edit_btn)
 
-        delete_btn = Gtk.Button()
-        delete_btn.set_icon_name("edit-delete-symbolic")
-        delete_btn.set_tooltip_text("Delete")
-        delete_btn.add_css_class("flat")
-        delete_btn.add_css_class("destructive-action")
-        delete_btn.connect("clicked", self._on_delete_clicked, macro["name"])
-        btn_box.append(delete_btn)
+            duplicate_btn = Gtk.Button()
+            duplicate_btn.set_icon_name("edit-copy-symbolic")
+            duplicate_btn.set_tooltip_text("Duplicate")
+            duplicate_btn.add_css_class("flat")
+            duplicate_btn.connect(
+                "clicked",
+                self._on_duplicate_clicked,
+                macro_name,
+                duplicate_btn,
+            )
+            btn_box.append(duplicate_btn)
+
+            delete_btn = Gtk.Button()
+            delete_btn.set_icon_name("edit-delete-symbolic")
+            delete_btn.set_tooltip_text("Delete")
+            delete_btn.add_css_class("flat")
+            delete_btn.add_css_class("destructive-action")
+            delete_btn.connect("clicked", self._on_delete_clicked, macro_name)
+            btn_box.append(delete_btn)
 
         row_box.append(btn_box)
         row.set_child(row_box)
@@ -443,6 +507,35 @@ class MacroManagerDialog(Adw.Dialog):
         dialog = Adw.AlertDialog()
         dialog.set_heading("Duplicate Macro")
         dialog.set_body(payload.get("message", "Failed to duplicate macro"))
+        dialog.add_response("ok", "OK")
+        dialog.present(self._parent)
+        return False
+
+    def _on_save_slot_clicked(self, _btn: Gtk.Button, macro: JsonDict) -> None:
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        dialog = SaveMacroDialog(self._parent, dict(macro))
+        dialog.connect("closed", self._on_slot_save_dialog_closed)
+        dialog.present(self._parent)
+
+    def _on_slot_save_dialog_closed(self, _dialog: Adw.Dialog) -> None:
+        self._load_macros()
+
+    def _on_delete_slot_clicked(self, _btn: Gtk.Button, macro: JsonDict) -> None:
+        slot = int(macro.get("recording_slot", 0) or 0)
+        token = str(macro.get("pending_save_token", "") or "")
+        payload: JsonDict = {"command": "delete_recording_slot", "recording_slot": slot}
+        if token:
+            payload["pending_save_token"] = token
+        session_request_with_hooks(payload, self._on_delete_slot_finished)
+
+    def _on_delete_slot_finished(self, result: JsonDict | None) -> bool:
+        if result and result.get("status") == "ok":
+            return self._load_macros()
+
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Delete Recording Slot")
+        dialog.set_body((result or {}).get("message", "Failed to delete recording slot"))
         dialog.add_response("ok", "OK")
         dialog.present(self._parent)
         return False
@@ -531,16 +624,17 @@ class MacroManagerDialog(Adw.Dialog):
         return False
 
     def _on_record_new(self, btn: Gtk.Button) -> None:
-        if not self._recording_active and not self._recording_unlocked:
-            present_unlock = getattr(self._parent, "present_unlock_dialog", None)
-            if callable(present_unlock):
-                present_unlock(on_success=self._on_unlock_success)
-            else:
-                self._open_recording_settings_dialog()
+        if not self._recording_active and not self._macro_recording_enabled:
             return
 
         btn.set_sensitive(False)
         command = "stop_recording" if self._recording_active else "start_recording"
+        if self._recording_active:
+            recording_slot = self._active_recording_slot or self._recording_slot
+        else:
+            recording_slot = self._recording_slot
+        if command == "start_recording":
+            self._active_recording_slot = recording_slot
 
         def on_record_request(result: JsonDict | None) -> bool:
             return self._on_record_request_finished(result, command)
@@ -549,7 +643,7 @@ class MacroManagerDialog(Adw.Dialog):
             btn.set_sensitive(True)
 
         session_request_with_hooks(
-            {"command": command},
+            {"command": command, "recording_slot": int(recording_slot)},
             on_record_request,
             on_done=on_record_done,
         )
@@ -561,22 +655,26 @@ class MacroManagerDialog(Adw.Dialog):
         if result.get("status") == "ok" or is_stop_success:
             if command == "stop_recording":
                 self._recording_active = False
+                self._active_recording_slot = 0
                 self._sync_record_button_state()
             else:
                 self._recording_unlocked = True
+                self._macro_recording_enabled = True
                 self._sync_record_button_state()
             return False
 
         if command == "start_recording" and self._is_recording_locked(result):
+            self._active_recording_slot = 0
             self._recording_unlocked = False
             self._sync_record_button_state()
             self._open_recording_settings_dialog(reason="recording_locked")
             return False
 
-        if command == "start_recording" and self._is_macro_save_pending(result):
-            present_pending_save = getattr(self._parent, "present_pending_macro_save_dialog", None)
-            if callable(present_pending_save) and present_pending_save():
-                return False
+        if command == "start_recording" and self._is_macro_recording_disabled(result):
+            self._active_recording_slot = 0
+            self._macro_recording_enabled = False
+            self._sync_record_button_state()
+            return False
 
         fallback = (
             "Failed to stop recording"
@@ -595,6 +693,8 @@ class MacroManagerDialog(Adw.Dialog):
         dialog.set_body(msg)
         dialog.add_response("ok", "OK")
         dialog.present(self._parent)
+        if command == "start_recording":
+            self._active_recording_slot = 0
         return False
 
     def _is_stop_recording_success(self, result: dict) -> bool:
@@ -605,15 +705,32 @@ class MacroManagerDialog(Adw.Dialog):
     def _on_recording_started(self, data: dict) -> None:
         self._recording_active = True
         self._recording_unlocked = True
+        self._macro_recording_enabled = True
+        slot = int(data.get("recording_slot", 0) or 0)
+        if 1 <= slot <= MAX_MACRO_RECORDING_SLOTS:
+            self._recording_slot = slot
+            self._active_recording_slot = slot
+            if self._slot_dropdown is not None:
+                self._slot_dropdown.set_selected(slot - 1)
         self._sync_record_button_state()
         self.close()
 
     def _on_recording_stopped(self, data: dict) -> None:
         self._recording_active = False
+        self._active_recording_slot = 0
         self._sync_record_button_state()
 
     def _sync_record_button_state(self) -> None:
         if not self._record_btn:
+            return
+
+        show_recording_controls = self._recording_active or self._macro_recording_enabled
+        self._record_btn.set_visible(show_recording_controls)
+        if self._slot_dropdown is not None:
+            self._slot_dropdown.set_visible(show_recording_controls)
+            self._slot_dropdown.set_sensitive(not self._recording_active)
+        if not show_recording_controls:
+            self._record_btn.remove_css_class("destructive-action")
             return
 
         if self._recording_active:
@@ -626,30 +743,10 @@ class MacroManagerDialog(Adw.Dialog):
 
         self._record_btn.remove_css_class("destructive-action")
 
-        if not self._recording_unlocked:
-            self._record_btn.set_child(
-                self._make_button_content("channel-insecure-symbolic", "Unlock")
-            )
-            self._record_btn.set_tooltip_text(
-                "Authorize raw original-input capture before starting live macro recording."
-            )
-        else:
-            self._record_btn.set_child(
-                self._make_button_content("media-record-symbolic", "Record", "error")
-            )
-            self._record_btn.set_tooltip_text("Record a new macro")
-
-    def _on_unlock_success(self) -> None:
-        session_request_async({"command": "get_status"}, self._on_status_after_unlock)
-
-    def _on_status_after_unlock(self, status: dict | None) -> bool:
-        status = status or {}
-        unlock_required = bool(status.get("recording_unlock_required", True))
-        self._recording_unlocked = bool(
-            status.get("recording_unlocked", False)
-        ) or not unlock_required
-        self._sync_record_button_state()
-        return False
+        self._record_btn.set_child(
+            self._make_button_content("media-record-symbolic", "Record", "error")
+        )
+        self._record_btn.set_tooltip_text("Record a new macro")
 
     def _on_record_settings(self, btn: Gtk.Button) -> None:
         self._open_recording_settings_dialog()
@@ -671,12 +768,12 @@ class MacroManagerDialog(Adw.Dialog):
         message = str(result.get("message", "") or "").strip().lower()
         return "recording_locked" in message
 
-    def _is_macro_save_pending(self, result: dict) -> bool:
+    def _is_macro_recording_disabled(self, result: dict) -> bool:
         error_code = str(result.get("error_code", "") or "").strip().lower()
-        if error_code == "macro_save_pending":
+        if error_code == "macro_recording_disabled":
             return True
         message = str(result.get("message", "") or "").strip().lower()
-        return "save or discard" in message and "recording" in message
+        return "macro_recording_disabled" in message or "macro recording opt-in" in message
 
     def _on_create_type_macro(self, btn: Gtk.Button) -> None:
         dialog = TypeMacroDialog(self._parent, on_created=self._load_macros)

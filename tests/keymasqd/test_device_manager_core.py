@@ -1134,6 +1134,62 @@ class TestListDevices:
             )
         ]
 
+    def test_topology_events_report_reconnect_for_same_stable_path(self) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        stable_path = "/dev/input/by-id/test-pad"
+        previous = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event10",
+                interface_id="gamepad",
+            )
+        }
+        current = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event11",
+                interface_id="gamepad",
+            )
+        }
+
+        events = tdm.build_topology_events(
+            manager,
+            previous,
+            current,
+            {"1234:5678"},
+        )
+
+        assert events == [
+            (
+                CommandType.DEVICE_DISCONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": stable_path,
+                    "interface_id": "gamepad",
+                },
+            ),
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event11",
+                    "stable_path": stable_path,
+                    "interface_id": "gamepad",
+                },
+            ),
+        ]
+
     @pytest.mark.asyncio
     async def test_reconcile_topology_releases_stale_grab_when_live_event_path_changes(
         self,

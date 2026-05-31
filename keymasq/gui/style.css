@@ -249,9 +249,37 @@ button.key-button {
   min-height: 0;
 }
 
-/* Macro Controls: tint the record/stop glyphs so they are not stark white */
+/* Macro Controls: compact slot cards with tinted record/play glyphs */
+.macro-slot-card {
+  min-width: 104px;
+  padding: 6px 8px;
+}
+
+.macro-slot-header {
+  min-height: 30px;
+}
+
+.macro-slot-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.macro-recording-disabled-placeholder {
+  padding: 10px 12px;
+}
+
+button.macro-slot-button {
+  min-width: 42px;
+  min-height: 34px;
+  padding: 0 6px;
+}
+
 .macro-record-icon image {
   color: @error_color;
+}
+
+.macro-play-icon image {
+  color: @accent_color;
 }
 
 .macro-stop-icon image {

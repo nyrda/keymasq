@@ -15,8 +15,8 @@ the compositor sees Keymasq's output as normal hardware input.
 - The daemon runs as a dedicated `keymasq` system user, not root
 - GUI and CLI never touch input devices directly — they talk to a per-user
   session broker, which talks to the daemon
-- Recording and capture features require an explicit Polkit unlock to prevent
-  silent keylogging
+- Macro recording is disabled until the user opts in through the Polkit-backed
+  helper; capture features require an explicit Polkit unlock
 - The daemon accepts only one session connection at a time, preventing rogue
   processes from issuing commands
 
@@ -101,18 +101,29 @@ This prevents bypass when a local process attempts to talk directly to the daemo
 
 Keymasq treats recording and capture features as sensitive because they can observe original input.
 
-- Tier 1: recording and capture commands require an active unlock lease by default
+- Macro recording requires a user opt-in recorded by the Polkit-backed
+  `keymasq-record` helper; the GUI exposes this under
+  **Settings > Macro recording** and allows opting out again
+- Recording always writes into one of four explicit temporary slots
+- Capture commands require an active unlock lease by default
 - Unlock is per-user and time-bounded by default
 - GUI can keep a runtime unlock lease refreshed while it remains the active owner
 - Permanent unlock is an explicit administrative decision outside normal runtime flow
 
-When locked, recording/capture requests fail with `recording_locked`.
+When macro recording is disabled, recording requests fail with
+`macro_recording_disabled`. When capture is locked, capture requests fail with
+`recording_locked`.
 
-When a recorded macro is waiting in the Save Macro dialog, new macro recording
-requests fail with `macro_save_pending` until the recording is saved,
-discarded, or the owning GUI connection closes. The pending recording payload
-is held in `keymasq-session` memory only; it is written to disk only after an
-explicit save.
+Temporary macro slots are pending recording handles, not inspectable macro
+bodies. They can be replayed only through an explicit slot playback action and
+cannot be fetched through the macro body APIs. Slot data is kept in
+daemon-private storage so slots survive daemon restarts. Saving a slot copies
+it into normal macro storage and leaves the slot in place; deleting or
+overwriting a slot removes the pending recording.
+
+Saving a temporary slot into the macro library requires the recording unlock
+flow when `unlock_required = true`. This is enforced in the GUI, the
+session broker, and the daemon command handler.
 
 If `macro_edit_requires_unlock = true`, macro inspection and edit operations are promoted into the same sensitive class.
 
@@ -145,7 +156,6 @@ Sensitive commands are bound to the active recording owner, not just to UID/ACL 
 
 Session-side sensitive commands currently include:
 
-- `start_recording`
 - `begin_capture`
 - `capture_read`
 - `end_capture`
@@ -154,7 +164,6 @@ Session-side sensitive commands currently include:
 
 Daemon-side sensitive commands currently include:
 
-- `START_RECORDING`
 - `CAPTURE_BEGIN`
 - `CAPTURE_READ`
 - `CAPTURE_END`
@@ -162,6 +171,11 @@ Daemon-side sensitive commands currently include:
 - optionally `MACRO_GET`, `MACRO_CREATE`, `MACRO_UPDATE` when macro editing is guarded
 
 If an owner already exists for that UID, the same process and connection must continue issuing those commands. Otherwise the request is rejected with `sensitive_command_denied`.
+
+`START_RECORDING` is deliberately not part of the capture unlock owner chain.
+It is instead gated by the macro-recording opt-in file. This keeps the macro
+recording workflow unified after opt-in while preventing recording from being
+an available default attack surface.
 
 ## Combo Capture Security Model
 
@@ -180,7 +194,7 @@ In practice, this means:
 
 - an unlocked lease alone is not enough if another process owns the sensitive-command chain
 - ACL permission alone is not enough if capture is locked
-- GUI capture of combos is intentionally tied to the same security model as macro recording
+- GUI capture of combos is intentionally tied to the capture unlock owner chain
 
 ## Compositor Dispatch
 
@@ -232,7 +246,6 @@ observation flows require an explicit unlock before they are allowed.
 
 When `unlock_required = true`:
 
-- macro recording requires an unlock
 - live key/button capture requires an unlock
 - combo capture requires an unlock
 - starting the Device Inspector and enabling its suppression mode require an
@@ -245,9 +258,10 @@ same-user hardware/profile config files.
 This is the recommended packaged default because those features observe raw
 input before normal remapping or application delivery.
 
-When `unlock_required = false`, those flows are allowed without the extra unlock
-step. This is mainly useful for trusted single-user manual installs and
-development setups that do not provide the packaged Polkit-based unlock path.
+When `unlock_required = false`, capture and inspector flows are allowed without
+the extra unlock step. This is mainly useful for trusted single-user manual
+installs and development setups that do not provide the packaged Polkit-based
+unlock path. Macro recording still requires its separate opt-in.
 
 `[recording_guard].macro_edit_requires_unlock` is separate. It controls whether
 macro create/update/get APIs also require an unlock, in addition to live

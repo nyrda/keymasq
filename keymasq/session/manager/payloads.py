@@ -192,9 +192,16 @@ def action_signature_payload(
     if action_type in (
         "start_macro_recording",
         "stop_macro_recording",
+        "play_macro_slot",
         "cancel_macro_playback",
         "emergency_reset",
     ):
+        if action.action_type in (
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
+        ):
+            data["recording_slot"] = int(action.macro_recording_slot)
         return data
 
     if action_type in (
@@ -340,10 +347,16 @@ def profile_to_mapping(
         elif action.action_type.value in (
             "start_macro_recording",
             "stop_macro_recording",
+            "play_macro_slot",
             "cancel_macro_playback",
             "emergency_reset",
         ):
-            pass
+            if action.action_type in (
+                ActionType.START_MACRO_RECORDING,
+                ActionType.STOP_MACRO_RECORDING,
+                ActionType.PLAY_MACRO_SLOT,
+            ):
+                action_data["recording_slot"] = int(action.macro_recording_slot)
         elif action.action_type.value in (
             "profile_enable",
             "profile_disable",
@@ -516,9 +529,16 @@ def combo_action_to_payload(
     if action_type in (
         "start_macro_recording",
         "stop_macro_recording",
+        "play_macro_slot",
         "cancel_macro_playback",
         "emergency_reset",
     ):
+        if action.action_type in (
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
+        ):
+            action_data["recording_slot"] = int(action.macro_recording_slot)
         return action_data
 
     if action_type in ("profile_enable", "profile_disable", "profile_toggle"):
@@ -1009,8 +1029,15 @@ def serialize_overload_action(
     if action_type in (
         "start_macro_recording",
         "stop_macro_recording",
+        "play_macro_slot",
         "cancel_macro_playback",
     ):
+        if action.action_type in (
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
+        ):
+            action_data["recording_slot"] = int(action.macro_recording_slot)
         return action_data
 
     if action_type in (

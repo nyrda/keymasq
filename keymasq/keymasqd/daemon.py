@@ -20,6 +20,7 @@ from keymasq.common.paths import (
     STATE_DIR,
 )
 from keymasq.common.recording_guard import (
+    resolve_macro_recording_status,
     resolve_unlock_status,
     runtime_unlock_path,
     write_unlock_expires_at,
@@ -77,8 +78,10 @@ class Daemon:
         self.verbosity = verbosity
         self.security_policy: SecurityPolicy | None = None
         self._unlock_cache: dict[int, tuple[float, bool, int, str]] = {}
+        self._macro_recording_cache: dict[int, tuple[float, bool, int, str]] = {}
         self._unlock_cache_interval_s = 1.0
         self._unlock_state_last_logged: dict[int, tuple[bool, str]] = {}
+        self._macro_recording_state_last_logged: dict[int, tuple[bool, str]] = {}
         self._recording_refresh_owners: dict[int, tuple[int, int]] = {}
 
     async def start(self) -> None:
@@ -92,6 +95,7 @@ class Daemon:
             self.security_policy.emergency_cancel_combo_enabled
         )
         await asyncio.to_thread(self._prepare_macro_store)
+        await self.recording_manager.load_persisted_slot_recordings()
         log.info(
             "Security policy loaded from %s",
             SECURITY_POLICY_PATH,
@@ -302,16 +306,20 @@ class Daemon:
         command_type: CommandType,
         client: ClientContext,
     ) -> None:
+        if command_type == CommandType.START_RECORDING:
+            self._ensure_macro_recording_enabled(client.uid)
+            return
+
         policy = self.security_policy
         if policy is None or not policy.recording_unlock_required:
             return
 
         tier1_commands = {
-            CommandType.START_RECORDING,
             CommandType.CAPTURE_BEGIN,
             CommandType.CAPTURE_READ,
             CommandType.CAPTURE_END,
             CommandType.CAPTURE_COMBO,
+            CommandType.MACRO_SAVE_RECORDING,
             CommandType.DEVICE_INSPECTOR_START,
             CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
         }
@@ -320,7 +328,6 @@ class Daemon:
             CommandType.MACRO_GET,
             CommandType.MACRO_CREATE,
             CommandType.MACRO_UPDATE,
-            CommandType.MACRO_SAVE_RECORDING,
         }
 
         requires_unlock = command_type in tier1_commands
@@ -348,6 +355,70 @@ class Daemon:
                 "recording_locked: unlock required for capture/recording features"
             )
         raise PermissionError(f"recording_locked: unlock lease expired at {expires_at}")
+
+    def _ensure_macro_recording_enabled(self, uid: int) -> None:
+        enabled, expires_at, source = self._macro_recording_enabled_for_uid(uid)
+        if enabled:
+            return
+        if source == "none":
+            raise PermissionError(
+                "macro_recording_disabled: macro recording opt-in required"
+            )
+        raise PermissionError(f"macro_recording_disabled: opt-in expired at {expires_at}")
+
+    def _macro_recording_enabled_for_uid(self, uid: int) -> tuple[bool, int, str]:
+        now_mono = time.monotonic()
+        now_wall = int(time.time())
+        cached = self._macro_recording_cache.get(uid)
+
+        if cached is not None:
+            checked_mono, enabled, expires_at, source = cached
+            cache_fresh = (now_mono - checked_mono) < self._unlock_cache_interval_s
+            if enabled and cache_fresh and (expires_at == 0 or expires_at >= now_wall):
+                return enabled, expires_at, source
+            if not enabled and cache_fresh:
+                return enabled, expires_at, source
+
+        status = resolve_macro_recording_status(uid)
+        enabled = bool(status.get("unlocked", False))
+        expires_at = int(status.get("expires_at", 0) or 0)
+        source = str(status.get("source", "none") or "none")
+        self._macro_recording_cache[uid] = (now_mono, enabled, expires_at, source)
+        self._log_macro_recording_state_change(
+            uid,
+            enabled,
+            source,
+            expires_at,
+            reason="status_probe",
+        )
+        return enabled, expires_at, source
+
+    def _log_macro_recording_state_change(
+        self,
+        uid: int,
+        enabled: bool,
+        source: str,
+        expires_at: int,
+        reason: str,
+    ) -> None:
+        current = (bool(enabled), str(source))
+        previous = self._macro_recording_state_last_logged.get(int(uid))
+        if previous == current:
+            return
+
+        self._macro_recording_state_last_logged[int(uid)] = current
+        state = "ENABLED" if enabled else "DISABLED"
+        log.info(
+            (
+                "Macro recording opt-in state changed uid=%s state=%s "
+                "source=%s expires_at=%s reason=%s"
+            ),
+            int(uid),
+            state,
+            str(source),
+            int(expires_at),
+            str(reason),
+        )
 
     def _recording_unlocked_for_uid(self, uid: int) -> tuple[bool, int, str]:
         now_mono = time.monotonic()
@@ -401,11 +472,11 @@ class Daemon:
         claim_if_missing: bool = True,
     ) -> None:
         sensitive_commands = {
-            CommandType.START_RECORDING,
             CommandType.CAPTURE_BEGIN,
             CommandType.CAPTURE_READ,
             CommandType.CAPTURE_END,
             CommandType.CAPTURE_COMBO,
+            CommandType.MACRO_SAVE_RECORDING,
             CommandType.MACRO_GET,
             CommandType.MACRO_CREATE,
             CommandType.MACRO_UPDATE,

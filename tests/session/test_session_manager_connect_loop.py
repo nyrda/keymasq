@@ -19,6 +19,12 @@ async def test_keymasqd_disconnect_clears_runtime_state() -> None:
     manager.profile_state.last_sent_combo_signature = "combos"
     manager.profile_state.active_profile_names = ["Default"]
     manager.profile_state.resolved_devices["1234:5678"] = object()  # type: ignore[assignment]
+    manager.recording_state.active = True
+    manager.recording_state.active_slot = 2
+    manager.recording_state.start_cursor = (100, 200)
+    manager.recording_state.active_owner_writer_id = 123
+    manager.recording_state.active_owner_pid = 456
+    manager.recording_state.active_owner_uid = 1000
     manager.recording_state.devices_cache = [{"name": "Keyboard"}]
     manager.recording_state.selected_devices_cache = [{"name": "Keyboard"}]
     manager.recording_state.devices_cache_ready = True
@@ -38,6 +44,12 @@ async def test_keymasqd_disconnect_clears_runtime_state() -> None:
     assert manager.profile_state.last_sent_combo_signature == ""
     assert manager.profile_state.active_profile_names == []
     assert manager.profile_state.resolved_devices == {}
+    assert manager.recording_state.active is False
+    assert manager.recording_state.active_slot == 0
+    assert manager.recording_state.start_cursor is None
+    assert manager.recording_state.active_owner_writer_id is None
+    assert manager.recording_state.active_owner_pid is None
+    assert manager.recording_state.active_owner_uid is None
     assert manager.recording_state.devices_cache == []
     assert manager.recording_state.selected_devices_cache == []
     assert manager.recording_state.devices_cache_ready is False

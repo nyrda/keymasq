@@ -9,22 +9,33 @@ async def _wait_for_no_running_macros(manager: DeviceManager) -> None:
 
 @pytest.mark.asyncio
 async def test_recording_manager_start_opens_extra_devices_via_to_thread(monkeypatch) -> None:
-    recorder = RecordingManager(broadcast_callback=AsyncMock())
+    broadcast_callback = AsyncMock()
+    recorder = RecordingManager(broadcast_callback=broadcast_callback)
     recorder._read_extra_device = AsyncMock(return_value=None)  # type: ignore[method-assign]
     calls: list[tuple[object, tuple[object, ...]]] = []
 
     async def fake_to_thread(func, /, *args, **kwargs):
         assert kwargs == {}
-        calls.append((func, args))
-        return SimpleNamespace(close=MagicMock())
+        if func is recording_module._open_recording_input_device:
+            calls.append((func, args))
+            return SimpleNamespace(close=MagicMock())
+        return func(*args)
 
     monkeypatch.setattr(recording_module.asyncio, "to_thread", fake_to_thread)
 
-    await recorder.start([{"path": "/dev/input/event0", "device_type": "keyboard"}])
+    result = await recorder.start(
+        [{"path": "/dev/input/event0", "device_type": "keyboard"}],
+        recording_slot=4,
+    )
     await asyncio.sleep(0)
     await recorder.stop()
 
+    assert result == {"status": "ok", "recording_slot": 4}
     assert calls == [(recording_module._open_recording_input_device, ("/dev/input/event0",))]
+    assert broadcast_callback.await_args_list[0].args == (
+        CommandType.RECORDING_STARTED,
+        {"status": "ok", "recording_slot": 4},
+    )
 
 
 @pytest.mark.asyncio
@@ -386,8 +397,18 @@ def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatc
                         macro_loop_mode="hold",
                         macro_loop_stop_behavior="cancel_run",
                     ),
-                    "btn_start": MappingAction(action_type=ActionType.START_MACRO_RECORDING),
-                    "btn_stop": MappingAction(action_type=ActionType.STOP_MACRO_RECORDING),
+                    "btn_start": MappingAction(
+                        action_type=ActionType.START_MACRO_RECORDING,
+                        macro_recording_slot=2,
+                    ),
+                    "btn_stop": MappingAction(
+                        action_type=ActionType.STOP_MACRO_RECORDING,
+                        macro_recording_slot=2,
+                    ),
+                    "btn_play_slot": MappingAction(
+                        action_type=ActionType.PLAY_MACRO_SLOT,
+                        macro_recording_slot=4,
+                    ),
                 },
             )
         },
@@ -409,4 +430,8 @@ def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatc
     assert macro_action.macro_loop_stop_behavior == "cancel_run"
 
     assert layer.mappings["btn_start"].action_type == ActionType.START_MACRO_RECORDING
+    assert layer.mappings["btn_start"].macro_recording_slot == 2
     assert layer.mappings["btn_stop"].action_type == ActionType.STOP_MACRO_RECORDING
+    assert layer.mappings["btn_stop"].macro_recording_slot == 2
+    assert layer.mappings["btn_play_slot"].action_type == ActionType.PLAY_MACRO_SLOT
+    assert layer.mappings["btn_play_slot"].macro_recording_slot == 4

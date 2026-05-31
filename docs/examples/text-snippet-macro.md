@@ -28,7 +28,7 @@ If the target app does not accept those sequences, use a recording instead.
 
 Create a recording with the layout you actually type with:
 
-1. Bind **Toggle Recording** to a temporary key.
+1. Enable macro recording and bind **Toggle Recording** slot 1 to a temporary key.
 2. Open a plain text editor.
 3. Press **Toggle Recording** to start recording.
 4. Type the snippet normally.

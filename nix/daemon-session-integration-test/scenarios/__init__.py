@@ -35,6 +35,7 @@ from .profile_lifetime_toggle import run as profile_lifetime_toggle
 from .profile_toggle import run as profile_toggle
 from .rapidfire_keyboard import run as rapidfire_keyboard
 from .recording_capture import run as recording_capture
+from .recording_capture import run_mapped_slot_actions as macro_slot_actions
 from .repeat_combo_superkey import run as repeat_combo_superkey
 from .repeat_direct_actions import run as repeat_direct_actions
 from .repeat_passthrough import run as repeat_passthrough
@@ -87,6 +88,7 @@ SCENARIOS = [
     ScenarioCase("analog priority override", analog_priority_override),
     ScenarioCase("analog restart recovery", analog_restart_recovery),
     ScenarioCase("emergency reset", emergency_reset),
+    ScenarioCase("mapped macro slot actions", macro_slot_actions),
     ScenarioCase("recording and capture", recording_capture),
     ScenarioCase("restart recovery", restart_recovery),
     ScenarioCase("hotplug replug", hotplug_replug),

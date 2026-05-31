@@ -231,13 +231,21 @@ def build_action_trigger_payload(
     if action.action_type in {
         ActionType.START_MACRO_RECORDING,
         ActionType.STOP_MACRO_RECORDING,
+        ActionType.PLAY_MACRO_SLOT,
         ActionType.CANCEL_MACRO_PLAYBACK,
         ActionType.EMERGENCY_RESET,
     }:
-        return {
+        payload = {
             "action_type": action.action_type.value,
             **base_payload,
         }
+        if action.action_type in {
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
+        }:
+            payload["recording_slot"] = int(action.macro_recording_slot)
+        return payload
 
     if action.action_type in {
         ActionType.PROFILE_ENABLE,
@@ -474,6 +482,7 @@ async def execute_action(
         ActionType.COMPOSITOR_DISPATCH,
         ActionType.START_MACRO_RECORDING,
         ActionType.STOP_MACRO_RECORDING,
+        ActionType.PLAY_MACRO_SLOT,
         ActionType.PROFILE_ENABLE,
         ActionType.PROFILE_DISABLE,
         ActionType.PROFILE_TOGGLE,

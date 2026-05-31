@@ -218,6 +218,7 @@ def test_status_cli_prints_runtime_summary(
             "listener_active": True,
             "listener_name": "gnome",
             "recording_active": False,
+            "macro_recording_enabled": False,
             "recording_unlock_required": True,
             "recording_unlocked": False,
             "active_profiles": ["Base"],
@@ -238,6 +239,7 @@ def test_status_cli_prints_runtime_summary(
     assert "keymasqd: connected" in out
     assert "compositor: GNOME Shell (gnome)" in out
     assert "listener: active (gnome)" in out
+    assert "macro recording: disabled" in out
     assert "recording unlock: locked" in out
     assert "active profiles: Base" in out
     assert "Example Keyboard (1234:5678)" in out
@@ -434,6 +436,7 @@ def test_play_adhoc_cli_json_print_preserves_playback_options(
         ],
         input_json=True,
         print_json=True,
+        speed=2.0,
     )
 
     payload = json.loads(capsys.readouterr().out)
@@ -447,6 +450,7 @@ def test_play_adhoc_cli_json_print_preserves_playback_options(
         "loop_stop_behavior": "cancel",
         "move_to_start": True,
         "name": "demo",
+        "speed": 2.0,
         "start_x": 10,
         "start_y": 20,
     }

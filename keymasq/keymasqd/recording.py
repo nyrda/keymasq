@@ -1,6 +1,11 @@
 import asyncio
+import json
 import logging
+import os
+import tempfile
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol, cast
@@ -14,6 +19,7 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.ipc import CommandType
+from keymasq.common.models import normalize_macro_recording_slot
 from keymasq.common.paths import STATE_DIR
 from keymasq.keymasqd.evdev_clock import set_evdev_clock_monotonic
 from keymasq.keymasqd.recording_spool import RecordingSnapshot, RecordingSpool
@@ -57,6 +63,7 @@ class RecordingManager:
         self._include_mouse_movement = False
         self._include_mouse_clicks = False
         self._record_grabbed_source_keys: set[str] = set()
+        self._recording_slot = 0
 
     @property
     def is_recording(self) -> bool:
@@ -72,6 +79,7 @@ class RecordingManager:
         devices: list[RecordingDevice],
         include_mouse_movement: bool = False,
         include_mouse_clicks: bool = False,
+        recording_slot: int = 0,
     ) -> RecordingPayload:
         await self.discard_expired_pending_recordings()
         previous = await self.stop()
@@ -86,6 +94,7 @@ class RecordingManager:
         self._stopped = False
         self._include_mouse_movement = bool(include_mouse_movement)
         self._include_mouse_clicks = bool(include_mouse_clicks)
+        self._recording_slot = normalize_macro_recording_slot(recording_slot)
         extra_devices, self._record_grabbed_source_keys = _build_recording_plan(devices)
 
         for dev in extra_devices:
@@ -113,10 +122,14 @@ class RecordingManager:
 
         self._progress_task = asyncio.create_task(self._monitor_progress())
 
-        if self.broadcast_callback:
-            await self.broadcast_callback(CommandType.RECORDING_STARTED, {"status": "ok"})
+        started_payload: RecordingPayload = {"status": "ok"}
+        if self._recording_slot:
+            started_payload["recording_slot"] = int(self._recording_slot)
 
-        return {"status": "ok"}
+        if self.broadcast_callback:
+            await self.broadcast_callback(CommandType.RECORDING_STARTED, started_payload)
+
+        return started_payload
 
     def record_event(self, device_type: str, event: evdev.InputEvent) -> None:
         if self._stopped:
@@ -182,6 +195,8 @@ class RecordingManager:
                 pass
         self._extra_devices = []
         self._record_grabbed_source_keys = set()
+        recording_slot = int(self._recording_slot)
+        self._recording_slot = 0
 
         spool = self._spool
         if spool is None:
@@ -189,17 +204,34 @@ class RecordingManager:
 
         try:
             snapshot = await spool.finish()
+            if recording_slot:
+                snapshot = await asyncio.to_thread(
+                    self._persist_slot_snapshot,
+                    recording_slot,
+                    snapshot,
+                )
         except Exception:
             await spool.discard()
             raise
         finally:
             self._spool = None
 
+        cleanup_snapshots: list[RecordingSnapshot] = []
         async with self._pending_recording_lock:
+            if recording_slot:
+                cleanup_snapshots.extend(
+                    self._discard_existing_slot_recordings_locked(
+                        recording_slot,
+                        keep_recording_id=snapshot.recording_id,
+                    )
+                )
             self._pending_recordings[snapshot.recording_id] = snapshot
             self._pending_recording_created_at[snapshot.recording_id] = (
                 asyncio.get_running_loop().time()
             )
+
+        for old_snapshot in cleanup_snapshots:
+            old_snapshot.cleanup()
 
         payload: RecordingPayload = {
             "pending_recording_id": snapshot.recording_id,
@@ -207,6 +239,8 @@ class RecordingManager:
             "device_types": snapshot.device_types,
             "event_count": snapshot.event_count,
         }
+        if recording_slot:
+            payload["recording_slot"] = recording_slot
 
         if was_recording and self.broadcast_callback:
             await self.broadcast_callback(CommandType.RECORDING_STOPPED, payload)
@@ -223,17 +257,241 @@ class RecordingManager:
                 raise FileNotFoundError("Pending recording not found")
             return snapshot
 
+    async def list_pending_recordings(self) -> list[RecordingPayload]:
+        async with self._pending_recording_lock:
+            snapshots = list(self._pending_recordings.values())
+        return [
+            self._pending_recording_meta(snapshot)
+            for snapshot in snapshots
+            if normalize_macro_recording_slot(snapshot.recording_slot)
+        ]
+
+    def _pending_recording_meta(self, snapshot: RecordingSnapshot) -> RecordingPayload:
+        payload: RecordingPayload = {
+            "pending_recording_id": snapshot.recording_id,
+            "duration_ms": int(snapshot.duration_ms),
+            "duration_us": int(snapshot.duration_ms) * 1000,
+            "device_types": list(snapshot.device_types),
+            "event_count": int(snapshot.event_count),
+        }
+        if snapshot.recording_slot:
+            payload["recording_slot"] = int(snapshot.recording_slot)
+        return payload
+
+    def _slot_meta_path(self, slot: int) -> Path:
+        return self._spool_dir / f"slot-{int(slot)}.json"
+
+    def _slot_event_path(self, slot: int, recording_id: str) -> Path:
+        safe_id = "".join(ch for ch in str(recording_id) if ch.isalnum() or ch in {"-", "_"})
+        return self._spool_dir / f"slot-{int(slot)}-{safe_id}.jsonl"
+
+    def _persist_slot_snapshot(
+        self,
+        recording_slot: int,
+        snapshot: RecordingSnapshot,
+    ) -> RecordingSnapshot:
+        slot = normalize_macro_recording_slot(recording_slot)
+        if not slot:
+            return snapshot
+
+        self._spool_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(self._spool_dir, 0o700)
+
+        event_path = self._slot_event_path(slot, snapshot.recording_id)
+        meta_path = self._slot_meta_path(slot)
+        fd, raw_event_tmp = tempfile.mkstemp(
+            prefix=f".slot-{slot}-",
+            suffix=".jsonl.tmp",
+            dir=self._spool_dir,
+            text=True,
+        )
+        event_tmp = Path(raw_event_tmp)
+        meta_tmp = meta_path.with_name(f".{meta_path.name}.tmp-{os.getpid()}")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                for event in snapshot.iter_events():
+                    handle.write(json.dumps(event, separators=(",", ":")))
+                    handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            event_tmp.chmod(0o600)
+
+            meta: RecordingPayload = {
+                "pending_recording_id": snapshot.recording_id,
+                "recording_slot": int(slot),
+                "duration_ms": int(snapshot.duration_ms),
+                "device_types": list(snapshot.device_types),
+                "event_count": int(snapshot.event_count),
+                "event_file": event_path.name,
+                "created_at": int(time.time()),
+            }
+            with meta_tmp.open("w", encoding="utf-8") as handle:
+                json.dump(meta, handle, separators=(",", ":"))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            meta_tmp.chmod(0o600)
+
+            os.replace(event_tmp, event_path)
+            os.replace(meta_tmp, meta_path)
+            self._fsync_spool_dir()
+        except Exception:
+            event_tmp.unlink(missing_ok=True)
+            meta_tmp.unlink(missing_ok=True)
+            raise
+
+        snapshot.cleanup()
+        return RecordingSnapshot(
+            recording_id=snapshot.recording_id,
+            duration_ms=int(snapshot.duration_ms),
+            device_types=list(snapshot.device_types),
+            event_count=int(snapshot.event_count),
+            spool_path=event_path,
+            memory_events=(),
+            recording_slot=int(slot),
+            cleanup_paths=(meta_path,),
+        )
+
+    async def load_persisted_slot_recordings(self) -> None:
+        await asyncio.to_thread(self._load_persisted_slot_recordings)
+
+    def _load_persisted_slot_recordings(self) -> None:
+        if not self._spool_dir_exists():
+            return
+
+        loaded_event_paths: set[Path] = set()
+        try:
+            meta_paths = sorted(self._spool_dir.glob("slot-*.json"))
+        except OSError as exc:
+            log.warning(
+                "Unable to inspect recording slot metadata in %s: %s",
+                self._spool_dir,
+                exc,
+            )
+            return
+
+        for meta_path in meta_paths:
+            try:
+                decoded = json.loads(meta_path.read_text(encoding="utf-8"))
+                if not isinstance(decoded, dict):
+                    raise ValueError("slot metadata must be an object")
+                meta = cast(dict[str, object], decoded)
+                slot = normalize_macro_recording_slot(meta.get("recording_slot"))
+                recording_id = str(meta.get("pending_recording_id", "") or "")
+                event_file = str(meta.get("event_file", "") or "")
+                if not slot or not recording_id or not event_file:
+                    raise ValueError("slot metadata is incomplete")
+                event_path = (self._spool_dir / event_file).resolve()
+                spool_dir = self._spool_dir.resolve()
+                if event_path.parent != spool_dir or not event_path.is_file():
+                    raise ValueError("slot event file is unavailable")
+                raw_device_types = meta.get("device_types", [])
+                device_types = (
+                    [
+                        str(value)
+                        for value in cast(list[object], raw_device_types)
+                        if isinstance(value, str)
+                    ]
+                    if isinstance(raw_device_types, list)
+                    else []
+                )
+                snapshot = RecordingSnapshot(
+                    recording_id=recording_id,
+                    duration_ms=_int_value(meta.get("duration_ms", 0)),
+                    device_types=device_types,
+                    event_count=_int_value(meta.get("event_count", 0)),
+                    spool_path=event_path,
+                    memory_events=(),
+                    recording_slot=int(slot),
+                    cleanup_paths=(meta_path,),
+                )
+                self._pending_recordings[recording_id] = snapshot
+                self._pending_recording_created_at[recording_id] = time.monotonic()
+                loaded_event_paths.add(event_path)
+            except Exception as exc:
+                log.warning("Ignoring invalid recording slot metadata %s: %s", meta_path, exc)
+                try:
+                    meta_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+        try:
+            event_paths = list(self._spool_dir.glob("slot-*-*.jsonl"))
+        except OSError as exc:
+            log.warning(
+                "Unable to inspect recording slot event files in %s: %s",
+                self._spool_dir,
+                exc,
+            )
+            return
+
+        for path in event_paths:
+            try:
+                if path.resolve() not in loaded_event_paths:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                continue
+
+    def _discard_existing_slot_recordings_locked(
+        self,
+        slot: int,
+        *,
+        keep_recording_id: str,
+    ) -> list[RecordingSnapshot]:
+        normalized_slot = normalize_macro_recording_slot(slot)
+        if not normalized_slot:
+            return []
+
+        cleanup_snapshots: list[RecordingSnapshot] = []
+        for recording_id, snapshot in list(self._pending_recordings.items()):
+            if recording_id == keep_recording_id:
+                continue
+            if normalize_macro_recording_slot(snapshot.recording_slot) != normalized_slot:
+                continue
+            cleanup_snapshots.append(replace(snapshot, cleanup_paths=()))
+            self._pending_recordings.pop(recording_id, None)
+            self._pending_recording_created_at.pop(recording_id, None)
+
+        for recording_id, snapshot in self._claimed_recordings.items():
+            if recording_id == keep_recording_id:
+                continue
+            if normalize_macro_recording_slot(snapshot.recording_slot) == normalized_slot:
+                self._claimed_recordings[recording_id] = replace(snapshot, cleanup_paths=())
+                self._claimed_recording_discard_requested.add(recording_id)
+
+        return cleanup_snapshots
+
+    def _fsync_spool_dir(self) -> None:
+        dir_fd: int | None = None
+        try:
+            dir_fd = os.open(self._spool_dir, os.O_RDONLY)
+            os.fsync(dir_fd)
+        except OSError:
+            pass
+        finally:
+            if dir_fd is not None:
+                os.close(dir_fd)
+
+    def _spool_dir_exists(self) -> bool:
+        try:
+            return self._spool_dir.exists()
+        except OSError as exc:
+            log.warning(
+                "Unable to inspect recording spool directory %s: %s",
+                self._spool_dir,
+                exc,
+            )
+            return False
+
     async def claim_pending_recording(self, recording_id: str) -> RecordingSnapshot:
         async with self._pending_recording_lock:
             snapshot = self._pending_recordings.pop(recording_id, None)
-            created_at = self._pending_recording_created_at.pop(recording_id, None)
+            self._pending_recording_created_at.pop(recording_id, None)
             if snapshot is None:
                 raise FileNotFoundError("Pending recording not found")
             self._claimed_recordings[recording_id] = snapshot
             self._claimed_recording_created_at[recording_id] = (
-                created_at
-                if created_at is not None
-                else asyncio.get_running_loop().time()
+                asyncio.get_running_loop().time()
             )
             self._claimed_recording_discard_requested.discard(recording_id)
             return snapshot
@@ -303,11 +561,24 @@ class RecordingManager:
 
             for recording_id in expired_pending_ids:
                 snapshot = self._pending_recordings.pop(recording_id, None)
+                if snapshot is not None and normalize_macro_recording_slot(
+                    snapshot.recording_slot
+                ):
+                    self._pending_recordings[recording_id] = snapshot
+                    continue
                 if snapshot is not None:
                     snapshots.append(snapshot)
                 self._pending_recording_created_at.pop(recording_id, None)
             for recording_id in expired_claimed_ids:
                 snapshot = self._claimed_recordings.pop(recording_id, None)
+                discard_requested = recording_id in self._claimed_recording_discard_requested
+                if (
+                    snapshot is not None
+                    and normalize_macro_recording_slot(snapshot.recording_slot)
+                    and not discard_requested
+                ):
+                    self._claimed_recordings[recording_id] = snapshot
+                    continue
                 if snapshot is not None:
                     snapshots.append(snapshot)
                 self._claimed_recording_created_at.pop(recording_id, None)
@@ -317,7 +588,7 @@ class RecordingManager:
             snapshot.cleanup()
 
     def cleanup_spool_dir(self, *, older_than_s: float | None = None) -> None:
-        if not self._spool_dir.exists():
+        if not self._spool_dir_exists():
             return
         cutoff = (
             datetime.now() - timedelta(seconds=max(0.0, float(older_than_s)))
@@ -336,10 +607,26 @@ class RecordingManager:
 
     async def _pop_all_pending_recordings(self) -> list[RecordingSnapshot]:
         async with self._pending_recording_lock:
-            snapshots = list(self._pending_recordings.values())
-            self._pending_recordings.clear()
-            self._pending_recording_created_at.clear()
-            self._claimed_recording_discard_requested.update(self._claimed_recordings)
+            snapshots = [
+                snapshot
+                for snapshot in self._pending_recordings.values()
+                if not normalize_macro_recording_slot(snapshot.recording_slot)
+            ]
+            self._pending_recordings = {
+                recording_id: snapshot
+                for recording_id, snapshot in self._pending_recordings.items()
+                if normalize_macro_recording_slot(snapshot.recording_slot)
+            }
+            self._pending_recording_created_at = {
+                recording_id: created_at
+                for recording_id, created_at in self._pending_recording_created_at.items()
+                if recording_id in self._pending_recordings
+            }
+            self._claimed_recording_discard_requested.update(
+                recording_id
+                for recording_id, snapshot in self._claimed_recordings.items()
+                if not normalize_macro_recording_slot(snapshot.recording_slot)
+            )
             return snapshots
 
     async def _monitor_progress(self) -> None:
@@ -376,6 +663,13 @@ def _is_wheel_event(event: evdev.InputEvent) -> bool:
 
 def _str_value(value: object, default: str = "") -> str:
     return default if value is None else str(value)
+
+
+def _int_value(value: object, default: int = 0) -> int:
+    try:
+        return int(cast(int | float | str, value))
+    except (TypeError, ValueError):
+        return default
 
 
 def _physical_source_key(stable_path: str) -> str:

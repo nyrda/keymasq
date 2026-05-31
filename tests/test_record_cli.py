@@ -10,7 +10,7 @@ from keymasq import record
 
 def test_require_privileged_caller_allows_root(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(record.os, "geteuid", lambda: 0)
-    record._require_privileged_caller()
+    assert record._require_privileged_caller() == 0
 
 
 def test_require_privileged_caller_rejects_other_user(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -24,7 +24,25 @@ def test_require_privileged_caller_rejects_other_user(monkeypatch: pytest.Monkey
 def test_require_privileged_caller_allows_keymasq_user(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(record.os, "geteuid", lambda: 777)
     monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
-    record._require_privileged_caller()
+    assert record._require_privileged_caller() == 777
+
+
+def test_authorize_target_uid_rejects_pkexec_uid_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PKEXEC_UID", "1000")
+
+    with pytest.raises(PermissionError, match="Target uid"):
+        record._authorize_target_uid(1001, 0)
+
+
+def test_authorize_target_uid_rejects_non_root_caller_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PKEXEC_UID", raising=False)
+
+    with pytest.raises(PermissionError, match="Target uid"):
+        record._authorize_target_uid(1001, 777)
 
 
 def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -168,7 +186,7 @@ def test_main_unlock_runtime_extends_with_requested_ttl(
     assert payload["expires_at"] == 30
 
 
-def test_main_unlock_runtime_ttl_zero_writes_non_expiring_lease(
+def test_main_unlock_runtime_ttl_zero_rejected(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runtime_path = tmp_path / "runtime-lease"
@@ -187,11 +205,73 @@ def test_main_unlock_runtime_ttl_zero_writes_non_expiring_lease(
 
     monkeypatch.setattr(record, "_write_lease", _write)
 
-    record.main()
+    with pytest.raises(SystemExit) as excinfo:
+        record.main()
 
-    assert writes == [(runtime_path, 0)]
+    assert excinfo.value.code == 1
+    assert writes == []
     payload = json.loads(capsys.readouterr().out.strip())
-    assert payload["expires_at"] == 0
+    assert payload["status"] == "error"
+    assert "runtime ttl" in payload["message"]
+
+
+def test_main_macro_recording_runtime_ttl_zero_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runtime_path = tmp_path / "macro-runtime"
+    writes: list[tuple[Path, int]] = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "enable-macro-recording-runtime", "--uid", "1000", "--ttl", "0"],
+    )
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "runtime_macro_recording_path", lambda uid: runtime_path)
+    monkeypatch.setattr(
+        record,
+        "_write_lease",
+        lambda path, expires_at: writes.append((path, expires_at)),
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        record.main()
+
+    assert excinfo.value.code == 1
+    assert writes == []
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["status"] == "error"
+    assert "runtime ttl" in payload["message"]
+
+
+def test_main_mutation_rejects_pkexec_uid_mismatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runtime_path = tmp_path / "runtime-lease"
+    writes: list[tuple[Path, int]] = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "unlock-runtime", "--uid", "1001", "--ttl", "5"],
+    )
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 0)
+    monkeypatch.setenv("PKEXEC_UID", "1000")
+    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(
+        record,
+        "_write_lease",
+        lambda path, expires_at: writes.append((path, expires_at)),
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        record.main()
+
+    assert excinfo.value.code == 1
+    assert writes == []
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["status"] == "error"
+    assert "Target uid" in payload["message"]
 
 
 def test_main_lock_runtime_removes_runtime_lease(
@@ -208,6 +288,69 @@ def test_main_lock_runtime_removes_runtime_lease(
     assert runtime_path.exists() is False
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload == {"status": "ok", "scope": "runtime", "locked": True}
+
+
+def test_main_enable_and_disable_macro_recording_persistent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    persistent_path = tmp_path / "macro-enabled"
+    runtime_path = tmp_path / "macro-runtime"
+    writes: list[tuple[Path, int]] = []
+
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "persistent_macro_recording_path", lambda uid: persistent_path)
+    monkeypatch.setattr(record, "runtime_macro_recording_path", lambda uid: runtime_path)
+    monkeypatch.setattr(
+        record,
+        "_write_lease",
+        lambda path, expires_at: writes.append((path, expires_at)),
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "enable-macro-recording-persistent", "--uid", "1000"],
+    )
+    record.main()
+
+    assert writes == [(persistent_path, 0)]
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["scope"] == "macro_recording_persistent"
+
+    runtime_path.write_text("123\n", encoding="utf-8")
+    persistent_path.write_text("0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "disable-macro-recording-persistent", "--uid", "1000"],
+    )
+
+    record.main()
+
+    assert runtime_path.exists() is True
+    assert persistent_path.exists() is False
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload == {
+        "status": "ok",
+        "scope": "macro_recording_persistent",
+        "enabled": False,
+    }
+
+    persistent_path.write_text("0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "disable-macro-recording", "--uid", "1000"],
+    )
+
+    record.main()
+
+    assert runtime_path.exists() is False
+    assert persistent_path.exists() is False
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload == {"status": "ok", "scope": "macro_recording", "enabled": False}
 
 
 def test_main_rejects_persistent_unlock_command(

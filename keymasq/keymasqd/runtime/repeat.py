@@ -90,7 +90,7 @@ def repeat_category_for_action(action: MappingAction) -> str | None:
         return REPEAT_CATEGORY_SPECIAL
     if action_type in {ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS}:
         return REPEAT_CATEGORY_GAMEPAD
-    if action_type == ActionType.MACRO:
+    if action_type in {ActionType.MACRO, ActionType.PLAY_MACRO_SLOT}:
         return REPEAT_CATEGORY_MACRO
     if action_type in _SPECIAL_REPEAT_ACTION_TYPES:
         return REPEAT_CATEGORY_SPECIAL

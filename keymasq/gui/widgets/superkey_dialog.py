@@ -114,6 +114,9 @@ def _describe_pattern_superkey_action(
         label = type_label("Toggle Macro Recording")
     elif action.action_type == ActionType.STOP_MACRO_RECORDING:
         label = type_label("Stop Macro Recording")
+    elif action.action_type == ActionType.PLAY_MACRO_SLOT:
+        slot = f" {action.macro_recording_slot}" if action.macro_recording_slot else ""
+        label = type_label(f"Play Macro Recording Slot{slot}")
     elif action.action_type == ActionType.CANCEL_MACRO_PLAYBACK:
         label = type_label("Cancel Macro Playback")
     elif action.action_type == ActionType.EMERGENCY_RESET:

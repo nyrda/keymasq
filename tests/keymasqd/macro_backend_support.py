@@ -11,6 +11,7 @@ import pytest
 import keymasq.common.paths as paths
 import keymasq.keymasqd.device_manager as dm
 import keymasq.keymasqd.recording as recording_module
+from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
     ActionType,
     DeviceProfileLayer,
@@ -78,6 +79,7 @@ __all__ = [
     'paths',
     'dm',
     'recording_module',
+    'CommandType',
     'ActionType',
     'DeviceProfileLayer',
     'DeviceType',

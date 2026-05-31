@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import uuid
 from typing import Protocol, cast
 
@@ -13,6 +14,7 @@ from keymasq.keymasqd.daemon_helpers import (
 
 MIN_CAPTURE_TIMEOUT_S = 1.0
 MAX_CAPTURE_TIMEOUT_S = 15.0
+log = logging.getLogger("keymasqd.capture")
 
 
 class _GrabbedDeviceRef(Protocol):
@@ -39,6 +41,7 @@ class _CaptureCommandRecordingManager(Protocol):
         devices: JsonObjectList,
         include_mouse_movement: bool = False,
         include_mouse_clicks: bool = False,
+        recording_slot: int = 0,
     ) -> JsonObject: ...
 
     async def stop(self) -> JsonObject: ...
@@ -91,6 +94,7 @@ async def handle_capture_command(
             devices,
             include_mouse_movement=bool(data.get("include_mouse_movement", False)),
             include_mouse_clicks=bool(data.get("include_mouse_clicks", False)),
+            recording_slot=int_like(data.get("recording_slot", 0), 0),
         )
 
     if command_type == CommandType.STOP_RECORDING:
@@ -259,9 +263,15 @@ async def capture_combo(
 
         raise TimeoutError("Combo capture timed out")
     finally:
-        daemon.device_manager.end_combo_capture(token)
+        try:
+            daemon.device_manager.end_combo_capture(token)
+        except Exception:
+            log.exception("Failed to end combo capture in device manager")
         if capture_started:
-            await asyncio.to_thread(daemon.capture_manager.end, token)
+            try:
+                await asyncio.to_thread(daemon.capture_manager.end, token)
+            except Exception:
+                log.exception("Failed to end combo capture")
 
 
 def _hardware_paths(value: object) -> dict[str, list[str]]:

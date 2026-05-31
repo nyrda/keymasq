@@ -29,14 +29,19 @@ class CaptureRuntimeState:
 @dataclass
 class RecordingRuntimeState:
     active: bool = False
+    active_slot: int = 0
     pending_data: JsonObject | None = None
+    pending_slots: dict[int, JsonObject] = field(default_factory=dict)
+    pending_slot_tokens: dict[int, str] = field(default_factory=dict)
+    pending_slot_owner_writer_ids: dict[int, int | None] = field(default_factory=dict)
+    pending_slot_owner_pids: dict[int, int | None] = field(default_factory=dict)
+    pending_slot_owner_uids: dict[int, int | None] = field(default_factory=dict)
+    pending_slot_created_at: dict[int, float] = field(default_factory=dict)
     pending_save_token: str | None = None
     pending_save_owner_writer_id: int | None = None
     pending_save_owner_pid: int | None = None
     pending_save_owner_uid: int | None = None
     pending_save_created_at: float = 0.0
-    pending_save_notification_token: str | None = None
-    pending_save_notification_at: float = 0.0
     active_owner_writer_id: int | None = None
     active_owner_pid: int | None = None
     active_owner_uid: int | None = None

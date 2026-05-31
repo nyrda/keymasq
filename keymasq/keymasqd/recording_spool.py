@@ -25,6 +25,8 @@ class RecordingSnapshot:
     event_count: int
     spool_path: Path | None
     memory_events: tuple[RecordingEvent, ...]
+    recording_slot: int = 0
+    cleanup_paths: tuple[Path, ...] = ()
 
     def iter_events(self) -> Iterator[RecordingEvent]:
         if self.spool_path is not None:
@@ -39,8 +41,16 @@ class RecordingSnapshot:
         yield from self.memory_events
 
     def cleanup(self) -> None:
+        cleanup_paths: list[Path] = []
         if self.spool_path is not None:
-            self.spool_path.unlink(missing_ok=True)
+            cleanup_paths.append(self.spool_path)
+        cleanup_paths.extend(self.cleanup_paths)
+        seen: set[Path] = set()
+        for path in cleanup_paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            path.unlink(missing_ok=True)
 
 
 class RecordingSpool:

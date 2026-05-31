@@ -53,14 +53,21 @@ class TestIntegrationCombos(IntegrationTestBase):
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.08)
+        await self._wait_until(
+            lambda: evdev.ecodes.KEY_LEFTCTRL
+            in grabbed.state.held_output_keys["passthrough"],
+            reason="left ctrl passthrough hold",
+        )
 
         assert evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"]
         assert manager.output_state.keyboard_uinput.write.call_count == 0
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.08)
+        await self._wait_until(
+            lambda: manager.output_state.keyboard_uinput.write.call_count >= 1,
+            reason="combo action press",
+        )
 
         assert evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"]
         assert evdev.ecodes.KEY_A not in grabbed.state.held_output_keys["passthrough"]
@@ -72,7 +79,10 @@ class TestIntegrationCombos(IntegrationTestBase):
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.08)
+        await self._wait_until(
+            lambda: manager.output_state.keyboard_uinput.write.call_count >= 2,
+            reason="combo action release",
+        )
 
         assert manager.output_state.keyboard_uinput.write.call_args_list[1].args == (
             evdev.ecodes.EV_KEY,
@@ -82,7 +92,10 @@ class TestIntegrationCombos(IntegrationTestBase):
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.08)
+        await self._wait_until(
+            lambda: grabbed.state.held_output_keys["passthrough"] == set(),
+            reason="left ctrl passthrough release",
+        )
 
         assert grabbed.state.held_output_keys["passthrough"] == set()
 
@@ -144,36 +157,64 @@ class TestIntegrationCombos(IntegrationTestBase):
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.05)
+        await self._wait_until(
+            lambda: evdev.ecodes.KEY_LEFTCTRL
+            in grabbed.state.held_output_keys["passthrough"],
+            reason="left ctrl passthrough hold",
+        )
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.05)
+        await self._wait_until(
+            lambda: any(
+                candidate.releasing
+                for candidate in manager.combo_state.engine._candidates.values()
+            ),
+            reason="combo first step release phase",
+        )
 
         assert manager.combo_state.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.05)
+        await self._wait_until(
+            lambda: any(
+                candidate.releasing and len(candidate.pressed_bindings) == 1
+                for candidate in manager.combo_state.engine._candidates.values()
+            ),
+            reason="combo first step partial release",
+        )
         assert manager.combo_state.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.05)
+        await self._wait_until(
+            lambda: manager.combo_state.engine.next_deadline() is not None,
+            reason="combo second step deadline",
+        )
         assert manager.combo_state.engine.next_deadline() is not None
 
-        await asyncio.sleep(0.12)
+        await self._wait_until(
+            lambda: manager.combo_state.engine.next_deadline() is None,
+            reason="combo second step timeout",
+        )
         assert manager.combo_state.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 1)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.08)
+        await self._wait_until(
+            lambda: evdev.ecodes.KEY_1 in grabbed.state.held_output_keys["passthrough"],
+            reason="key 1 passthrough hold after timeout",
+        )
 
         assert evdev.ecodes.KEY_1 in grabbed.state.held_output_keys["passthrough"]
         assert manager.output_state.keyboard_uinput.write.call_count == 0
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 0)
         virtual_keyboard.syn()
-        await asyncio.sleep(0.08)
+        await self._wait_until(
+            lambda: grabbed.state.held_output_keys["passthrough"] == set(),
+            reason="key 1 passthrough release",
+        )
 
         assert grabbed.state.held_output_keys["passthrough"] == set()
 

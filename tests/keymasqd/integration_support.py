@@ -2,6 +2,7 @@
 # ruff: noqa: F401, I001
 import asyncio
 import os
+from collections.abc import Callable
 from unittest.mock import Mock
 
 import evdev
@@ -61,16 +62,41 @@ class IntegrationTestBase:
     async def _send_command(self, reader, writer, command: Command) -> dict:
         writer.write(encode_command(command))
         await writer.drain()
-        response_data = await reader.read(4096)
-        response, _ = decode_response(response_data)
-        assert response is not None
+        response_data = b""
+        while True:
+            chunk = await reader.read(4096)
+            assert chunk
+            response_data += chunk
+            response, remaining = decode_response(response_data)
+            if response is None:
+                response_data = remaining
+                continue
+            break
         assert response.status == "ok"
         return response.data or {}
+
+    async def _wait_until(
+        self,
+        condition: Callable[[], bool],
+        *,
+        timeout_s: float = 1.0,
+        interval_s: float = 0.01,
+        reason: str = "condition",
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        while True:
+            if condition():
+                return
+            if loop.time() >= deadline:
+                raise AssertionError(f"Timed out waiting for {reason}")
+            await asyncio.sleep(interval_s)
 
 
 __all__ = [
     "asyncio",
     "os",
+    "Callable",
     "Mock",
     "evdev",
     "pytest",

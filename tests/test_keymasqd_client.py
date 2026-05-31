@@ -32,6 +32,7 @@ class _ChunkedAsyncReader:
 class _FakeAsyncWriter:
     def __init__(self) -> None:
         self.closed = False
+        self.wait_closed_count = 0
 
     def write(self, data: bytes) -> None:
         _ = data
@@ -43,6 +44,7 @@ class _FakeAsyncWriter:
         self.closed = True
 
     async def wait_closed(self) -> None:
+        self.wait_closed_count += 1
         return
 
 
@@ -97,6 +99,25 @@ def test_keymasqd_client_send_command_uses_custom_timeout(monkeypatch: pytest.Mo
         assert response.status == "ok"
         assert response.data == {"pong": True}
         assert timeouts == [42.0]
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_disconnect_waits_for_cancelled_writer_to_close() -> None:
+    async def _run() -> None:
+        client = KeymasqdClient(event_handler=lambda _event, _data: None)
+        client.reader = _BlockingAsyncReader()
+        writer = _FakeAsyncWriter()
+        client.writer = writer
+        client._listen_task = asyncio.create_task(client._listen_loop())
+
+        await asyncio.sleep(0)
+        await client.disconnect()
+
+        assert writer.closed is True
+        assert writer.wait_closed_count == 1
+        assert client.reader is None
+        assert client.writer is None
 
     asyncio.run(_run())
 

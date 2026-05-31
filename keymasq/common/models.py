@@ -27,6 +27,7 @@ class ActionType(Enum):
     SUPERKEY = "superkey"
     START_MACRO_RECORDING = "start_macro_recording"
     STOP_MACRO_RECORDING = "stop_macro_recording"
+    PLAY_MACRO_SLOT = "play_macro_slot"
     CANCEL_MACRO_PLAYBACK = "cancel_macro_playback"
     EMERGENCY_RESET = "emergency_reset"
     MACRO = "macro"
@@ -83,6 +84,7 @@ SUPERKEY_ACTION_TYPES = frozenset(
         ActionType.COMPOSITOR_DISPATCH,
         ActionType.START_MACRO_RECORDING,
         ActionType.STOP_MACRO_RECORDING,
+        ActionType.PLAY_MACRO_SLOT,
         ActionType.CANCEL_MACRO_PLAYBACK,
         ActionType.EMERGENCY_RESET,
         ActionType.MACRO,
@@ -111,6 +113,17 @@ MIN_RAPIDFIRE_WAIT_MS = 1
 
 MACRO_LOOP_STOP_BEHAVIORS = frozenset({"finish_run", "cancel_run"})
 DEFAULT_MACRO_LOOP_STOP_BEHAVIOR = "finish_run"
+MAX_MACRO_RECORDING_SLOTS = 4
+
+
+def normalize_macro_recording_slot(value: object) -> int:
+    try:
+        slot = int(cast(int | float | str, value))
+    except (TypeError, ValueError):
+        return 0
+    if 1 <= slot <= MAX_MACRO_RECORDING_SLOTS:
+        return slot
+    return 0
 
 
 class DeviceType(Enum):
@@ -425,6 +438,7 @@ class MappingAction:
     macro_start_x: int = 0
     macro_start_y: int = 0
     macro_block_mouse_movement: bool = False
+    macro_recording_slot: int = 0
     profile_name: str | None = None
     compositor_id: str | None = None
     compositor_dispatcher: str | None = None
@@ -478,6 +492,16 @@ class MappingAction:
             self.action_type,
             self.profile_deactivation,
         )
+        if self.action_type in {
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
+        }:
+            self.macro_recording_slot = normalize_macro_recording_slot(
+                self.macro_recording_slot
+            )
+        else:
+            self.macro_recording_slot = 0
         if self.action_type == ActionType.REPEAT:
             self.repeat_categories = normalize_repeat_categories(self.repeat_categories)
         else:
@@ -728,6 +752,7 @@ class SuperkeyAction:
     macro_start_x: int = 0
     macro_start_y: int = 0
     macro_block_mouse_movement: bool = False
+    macro_recording_slot: int = 0
     profile_name: str | None = None
     compositor_id: str | None = None
     compositor_dispatcher: str | None = None
@@ -762,6 +787,16 @@ class SuperkeyAction:
             self.action_type,
             self.profile_deactivation,
         )
+        if self.action_type in {
+            ActionType.START_MACRO_RECORDING,
+            ActionType.STOP_MACRO_RECORDING,
+            ActionType.PLAY_MACRO_SLOT,
+        }:
+            self.macro_recording_slot = normalize_macro_recording_slot(
+                self.macro_recording_slot
+            )
+        else:
+            self.macro_recording_slot = 0
 
 
 SUPERKEY_ACTION_SHARED_FIELDS = (
@@ -780,6 +815,7 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
     "macro_start_x",
     "macro_start_y",
     "macro_block_mouse_movement",
+    "macro_recording_slot",
     "profile_name",
     "profile_deactivation",
     "compositor_id",

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 import uuid
 from collections.abc import Coroutine
@@ -7,8 +8,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
+    MAX_MACRO_RECORDING_SLOTS,
     ActionType,
     ProfileDeactivationPolicy,
+    normalize_macro_recording_slot,
     normalize_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     profile_deactivation_policy_to_dict,
@@ -102,14 +105,20 @@ async def handle_event(
         if action_type_str == "start_macro_recording":
             create_event_task(
                 manager,
-                handle_start_macro_trigger(manager),
+                handle_start_macro_trigger(manager, data),
                 name="start_macro_recording",
             )
         elif action_type_str == "stop_macro_recording":
             create_event_task(
                 manager,
-                handle_stop_macro_trigger(manager),
+                handle_stop_macro_trigger(manager, data),
                 name="stop_macro_recording",
+            )
+        elif action_type_str == "play_macro_slot":
+            create_event_task(
+                manager,
+                runtime_recording.play_macro_slot_trigger(manager, data),
+                name="play_macro_slot",
             )
         elif action_type_str == "cancel_macro_playback":
             create_event_task(
@@ -194,29 +203,42 @@ async def handle_event(
 
     if event_type == CommandType.RECORDING_STARTED:
         manager.recording_state.active = True
-        manager.broadcast_to_session_clients({"event": "recording_started", **data})
+        event_data = dict(data)
+        recording_slot = normalize_macro_recording_slot(
+            event_data.get("recording_slot")
+        ) or normalize_macro_recording_slot(manager.recording_state.active_slot)
+        if recording_slot:
+            manager.recording_state.active_slot = recording_slot
+            event_data["recording_slot"] = int(recording_slot)
+        _notify_recording_started(manager, recording_slot)
+        manager.broadcast_to_session_clients({"event": "recording_started", **event_data})
         return
 
     if event_type == CommandType.RECORDING_STOPPED:
         manager.recording_state.active = False
+        recording_slot = runtime_recording.normalize_pending_macro_recording_slot(
+            data.get("recording_slot", manager.recording_state.active_slot),
+            default=1,
+        )
         recording_data = dict(data)
+        recording_data["recording_slot"] = recording_slot
         if manager.recording_state.start_cursor:
             recording_data["start_x"] = int(manager.recording_state.start_cursor[0])
             recording_data["start_y"] = int(manager.recording_state.start_cursor[1])
             recording_data["move_to_start"] = True
-        if runtime_recording.has_pending_macro_save(manager):
-            manager.recording_state.pending_data = recording_data
-            pending_save_token = str(manager.recording_state.pending_save_token or "")
-        else:
-            pending_save_token = runtime_recording.begin_pending_macro_save(
-                manager,
-                recording_data,
-            )
+        pending_save_token = await runtime_recording.store_pending_macro_save(
+            manager,
+            recording_data,
+            recording_slot=recording_slot,
+        )
+        _notify_recording_stopped(manager, recording_slot, recording_data)
         manager.recording_state.start_cursor = None
+        manager.recording_state.active_slot = 0
         manager.broadcast_to_session_clients(
             {
                 "event": "recording_stopped",
                 "pending_save_token": pending_save_token,
+                "recording_slot": recording_slot,
                 "duration_ms": recording_data.get("duration_ms", 0),
                 "event_count": _int_value(recording_data.get("event_count"), 0),
                 "device_types": recording_data.get("device_types", []),
@@ -228,50 +250,115 @@ async def handle_event(
         return
 
     if event_type == CommandType.RECORDING_PROGRESS:
-        manager.broadcast_to_session_clients({"event": "recording_progress", **data})
+        progress_data = dict(data)
+        if manager.recording_state.active_slot:
+            progress_data["recording_slot"] = int(manager.recording_state.active_slot)
+        manager.broadcast_to_session_clients({"event": "recording_progress", **progress_data})
 
 
-async def handle_start_macro_trigger(manager: "SessionManager") -> None:
+def _notify_recording_started(manager: "SessionManager", recording_slot: int) -> None:
+    slot = normalize_macro_recording_slot(recording_slot)
+    suffix = f"Slot {slot} is recording." if slot else "Macro recording is active."
+    manager.send_notification("Keymasq: Macro Recording Started", suffix)
+
+
+def _notify_recording_stopped(
+    manager: "SessionManager",
+    recording_slot: int,
+    recording_data: JsonObject,
+) -> None:
+    slot = normalize_macro_recording_slot(recording_slot)
+    event_count = _int_value(recording_data.get("event_count"), 0)
+    duration_ms = _int_value(recording_data.get("duration_ms"), 0)
+    if duration_ms >= 1000:
+        duration_text = f"{duration_ms / 1000.0:.1f}s"
+    else:
+        duration_text = f"{duration_ms}ms"
+    event_word = "event" if event_count == 1 else "events"
+    prefix = f"Slot {slot}" if slot else "Macro recording"
+    manager.send_notification(
+        "Keymasq: Macro Recording Stopped",
+        f"{prefix} captured {event_count} {event_word} over {duration_text}.",
+    )
+
+
+async def handle_start_macro_trigger(
+    manager: "SessionManager",
+    data: JsonObject | None = None,
+) -> None:
+    data = data or {}
+    recording_slot = normalize_macro_recording_slot(data.get("recording_slot"))
+    if not recording_slot:
+        manager.send_notification(
+            "Keymasq: Recording Slot Required",
+            f"Macro recording triggers must choose a slot from 1 to {MAX_MACRO_RECORDING_SLOTS}.",
+        )
+        log.info("Ignored start_macro_recording trigger: missing explicit recording slot")
+        return
+
     if manager.recording_state.active:
-        await handle_stop_macro_trigger(manager)
-        return
-
-    if not runtime_recording.has_active_gui_recording_owner(manager):
-        if manager.session_clients:
-            log.info("Ignored start_macro_recording trigger: GUI recording is locked")
-            manager.send_notification(
-                "Keymasq: Recording Locked",
-                "Unlock macro recording in Keymasq GUI before using recording triggers.",
-            )
-        else:
-            log.info("Ignored start_macro_recording trigger: no active GUI recording owner")
-            manager.send_notification(
-                "Keymasq: Recording Unavailable",
-                "Macro recording from triggers requires Keymasq GUI to be open.",
-            )
-        manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
-        return
-
-    result = await runtime_recording.start_recording(manager, reset_if_active=False)
-    if result.get("status") != "ok":
-        if result.get("error_code") == runtime_recording.MACRO_SAVE_PENDING_ERROR_CODE:
-            manager.broadcast_to_session_clients(
-                {
-                    "event": "macro_save_pending",
-                    "message": result.get("message", ""),
-                    "pending_save_token": result.get("pending_save_token", ""),
-                }
-            )
+        active_slot = normalize_macro_recording_slot(manager.recording_state.active_slot)
+        if active_slot == recording_slot:
+            await handle_stop_macro_trigger(manager, data)
             return
-        runtime_recording.notify_recording_unlock_required(manager, result)
-        manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
+        manager.send_notification(
+            "Keymasq: Macro Recording Active",
+            f"Slot {active_slot or '?'} is already recording.",
+        )
+        return
+
+    status = await runtime_recording.resolve_macro_recording_status_async(
+        manager,
+        os.getuid(),
+    )
+    if not bool(status.get("unlocked", False)):
+        log.info("Ignored start_macro_recording trigger: macro recording is disabled")
+        runtime_recording.notify_macro_recording_disabled(manager)
+        manager.broadcast_to_session_clients(
+            {
+                "event": "macro_recording_disabled",
+                **runtime_recording.serialize_macro_recording_state(status),
+            }
+        )
+        return
+
+    result = await runtime_recording.start_recording(
+        manager,
+        reset_if_active=False,
+        recording_slot=recording_slot,
+    )
+    if result.get("status") != "ok":
+        if runtime_recording.is_macro_recording_disabled_error(result):
+            runtime_recording.notify_macro_recording_disabled(manager)
+            manager.broadcast_to_session_clients({"event": "macro_recording_disabled"})
+            return
+        if runtime_recording.is_recording_unlock_required_error(result):
+            runtime_recording.notify_recording_unlock_required(manager, result)
+            manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
 
 
-async def handle_stop_macro_trigger(manager: "SessionManager") -> None:
+async def handle_stop_macro_trigger(
+    manager: "SessionManager",
+    data: JsonObject | None = None,
+) -> None:
     if not manager.recording_state.active:
         return
+    data = data or {}
+    recording_slot = normalize_macro_recording_slot(data.get("recording_slot"))
+    active_slot = normalize_macro_recording_slot(manager.recording_state.active_slot)
+    if recording_slot and active_slot and recording_slot != active_slot:
+        log.info(
+            "Ignored stop_macro_recording trigger for slot %s while slot %s is active",
+            recording_slot,
+            active_slot,
+        )
+        return
     try:
-        await runtime_recording.stop_recording(manager, error_if_idle=False)
+        await runtime_recording.stop_recording(
+            manager,
+            error_if_idle=False,
+            recording_slot=recording_slot or active_slot,
+        )
     except Exception:
         pass
 

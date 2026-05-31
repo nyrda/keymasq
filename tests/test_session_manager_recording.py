@@ -37,39 +37,6 @@ async def test_owner_disconnect_cleans_runtime_unlock() -> None:
     )
 
 
-def test_owner_disconnect_discards_pending_macro_save() -> None:
-    manager = SessionManager()
-    writer = object()
-    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
-    manager.recording_state.pending_save_token = "pending-1"
-    manager.recording_state.pending_save_owner_writer_id = id(writer)
-
-    session_recording_module.clear_pending_macro_save_if_writer(
-        manager,
-        writer,  # type: ignore[arg-type]
-    )
-
-    assert manager.recording_state.pending_data is None
-    assert manager.recording_state.pending_save_token is None
-    assert manager.recording_state.pending_save_owner_writer_id is None
-
-
-def test_owner_disconnect_leaves_ownerless_pending_macro_save() -> None:
-    manager = SessionManager()
-    writer = object()
-    manager.recording_state.pending_data = {"events": [{"t_us": 0}]}
-    manager.recording_state.pending_save_token = "pending-1"
-
-    session_recording_module.clear_pending_macro_save_if_writer(
-        manager,
-        writer,  # type: ignore[arg-type]
-    )
-
-    assert manager.recording_state.pending_data == {"events": [{"t_us": 0}]}
-    assert manager.recording_state.pending_save_token == "pending-1"
-    assert manager.recording_state.pending_save_owner_writer_id is None
-
-
 def test_owner_disconnect_clears_active_recording_owner() -> None:
     manager = SessionManager()
     writer = object()
@@ -87,6 +54,56 @@ def test_owner_disconnect_clears_active_recording_owner() -> None:
     assert manager.recording_state.active_owner_writer_id is None
     assert manager.recording_state.active_owner_pid is None
     assert manager.recording_state.active_owner_uid is None
+
+
+@pytest.mark.asyncio
+async def test_start_recording_keeps_pending_slot_when_daemon_start_fails() -> None:
+    manager = SessionManager()
+    session_recording_module.begin_pending_macro_save(
+        manager,
+        {"pending_recording_id": "recording-1", "duration_ms": 10},
+        recording_slot=1,
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="recording_locked")
+    )
+
+    result = await session_recording_module.start_recording(manager, recording_slot=1)
+
+    assert result == {
+        "status": "error",
+        "message": "recording_locked",
+        "error_code": "recording_locked",
+    }
+    assert manager.recording_state.pending_slots[1]["pending_recording_id"] == "recording-1"
+    sent_command = manager.client.send_command.await_args.args[0]
+    assert sent_command.command == CommandType.START_RECORDING
+
+
+@pytest.mark.asyncio
+async def test_start_recording_clears_replaced_pending_slot_after_success() -> None:
+    manager = SessionManager()
+    session_recording_module.begin_pending_macro_save(
+        manager,
+        {"pending_recording_id": "recording-1", "duration_ms": 10},
+        recording_slot=1,
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"status": "ok"})
+    )
+
+    result = await session_recording_module.start_recording(manager, recording_slot=1)
+
+    assert result == {"status": "ok", "recording_slot": 1}
+    assert manager.recording_state.pending_slots == {}
+    assert manager.recording_state.active is True
+    assert manager.recording_state.active_slot == 1
+    sent_commands = [call.args[0] for call in manager.client.send_command.await_args_list]
+    assert [command.command for command in sent_commands] == [
+        CommandType.START_RECORDING,
+        CommandType.MACRO_DELETE_RECORDING,
+    ]
+    assert sent_commands[1].data == {"pending_recording_id": "recording-1"}
 
 
 @pytest.mark.asyncio

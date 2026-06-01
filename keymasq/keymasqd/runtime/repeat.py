@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -258,27 +258,41 @@ def refresh_repeated_exec_source(
     )
 
 
+def _superkey_slot_action_lists(config: Any, slot: str | None) -> Iterable[Iterable[Any]]:
+    normalized_slot = str(slot or "")
+    if normalized_slot == SUPERKEY_SLOT_TAP:
+        yield config.tap_actions
+    elif normalized_slot == SUPERKEY_SLOT_DOUBLE_TAP:
+        yield config.double_tap_actions
+    elif normalized_slot == SUPERKEY_SLOT_HOLD:
+        yield config.hold_actions
+    elif normalized_slot == SUPERKEY_SLOT_TAP_HOLD:
+        yield config.tap_hold_actions
+    elif normalized_slot == SUPERKEY_SLOT_OVERLOAD:
+        yield config.overload_actions
+        yield config.overload_down_actions
+        yield config.overload_up_actions
+
+
+def _superkey_all_action_lists(config: Any) -> Iterable[Iterable[Any]]:
+    for slot in (
+        SUPERKEY_SLOT_TAP,
+        SUPERKEY_SLOT_DOUBLE_TAP,
+        SUPERKEY_SLOT_HOLD,
+        SUPERKEY_SLOT_TAP_HOLD,
+        SUPERKEY_SLOT_OVERLOAD,
+    ):
+        yield from _superkey_slot_action_lists(config, slot)
+
+
 def _superkey_action_contains_exec(action: MappingAction) -> bool:
     config = action.superkey_config
     if action.action_type != ActionType.SUPERKEY or config is None:
         return False
-    pattern_slots = (
-        config.tap_actions,
-        config.double_tap_actions,
-        config.hold_actions,
-        config.tap_hold_actions,
-    )
-    if any(
-        _is_exec_action_type(child.action_type) for actions in pattern_slots for child in actions
-    ):
-        return True
-    overload_slots = (
-        config.overload_actions,
-        config.overload_down_actions,
-        config.overload_up_actions,
-    )
     return any(
-        _is_exec_action_type(child.action_type) for actions in overload_slots for child in actions
+        _is_exec_action_type(child.action_type)
+        for actions in _superkey_all_action_lists(config)
+        for child in actions
     )
 
 
@@ -286,25 +300,10 @@ def _superkey_slot_contains_profile_action(action: MappingAction, slot: str | No
     config = action.superkey_config
     if action.action_type != ActionType.SUPERKEY or config is None:
         return False
-    if slot == SUPERKEY_SLOT_OVERLOAD:
-        return any(
-            _is_profile_action_type(child.action_type)
-            for actions in (
-                config.overload_actions,
-                config.overload_down_actions,
-                config.overload_up_actions,
-            )
-            for child in actions
-        )
-    pattern_slots = {
-        SUPERKEY_SLOT_TAP: config.tap_actions,
-        SUPERKEY_SLOT_DOUBLE_TAP: config.double_tap_actions,
-        SUPERKEY_SLOT_HOLD: config.hold_actions,
-        SUPERKEY_SLOT_TAP_HOLD: config.tap_hold_actions,
-    }
     return any(
         _is_profile_action_type(child.action_type)
-        for child in pattern_slots.get(str(slot or ""), [])
+        for actions in _superkey_slot_action_lists(config, slot)
+        for child in actions
     )
 
 

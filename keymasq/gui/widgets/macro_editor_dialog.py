@@ -491,15 +491,12 @@ def _compute_macro_editor_dialog_size(parent: Gtk.Window) -> tuple[int, int]:
     width = 760
     height = 680
 
-    try:
-        parent_width = parent.get_width()
-        parent_height = parent.get_height()
-        if parent_width > 1:
-            width = int(max(760, min(1500, parent_width * 0.9)))
-        if parent_height > 1:
-            height = int(max(620, min(1000, parent_height * 0.9)))
-    except Exception:
-        pass
+    parent_width = parent.get_width()
+    parent_height = parent.get_height()
+    if parent_width > 1:
+        width = int(max(760, min(1500, parent_width * 0.9)))
+    if parent_height > 1:
+        height = int(max(620, min(1000, parent_height * 0.9)))
 
     return width, height
 

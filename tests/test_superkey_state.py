@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import evdev
@@ -8,7 +9,24 @@ from keymasq.keymasqd.superkey_state import (
     SuperkeyActionData,
     SuperkeyConfig,
     SuperkeyMachine,
+    _default_action_deps,
 )
+
+
+@pytest.mark.asyncio
+async def test_default_action_deps_observes_background_task_exceptions(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def fail() -> None:
+        raise RuntimeError("boom")
+
+    with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
+        task = _default_action_deps().fire_and_observe_fn(fail(), "superkey action")
+        with pytest.raises(RuntimeError):
+            await task
+        await asyncio.sleep(0)
+
+    assert "superkey action failed: boom" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -887,21 +905,3 @@ async def test_stop_rapidfire_tasks_is_safe_without_task() -> None:
 
     await machine._stop_rapidfire_tasks()
     assert machine._rapidfire_tasks == []
-
-
-def test_get_uinput_returns_expected_device() -> None:
-    keyboard = MagicMock()
-    mouse = MagicMock()
-    gamepad = MagicMock()
-    machine = SuperkeyMachine(
-        config=SuperkeyConfig(name="devices"),
-        event_name="btn_side",
-        keyboard_uinput=keyboard,
-        mouse_uinput=mouse,
-        gamepad_uinput=gamepad,
-    )
-
-    assert machine._get_uinput("keyboard") is keyboard
-    assert machine._get_uinput("mouse") is mouse
-    assert machine._get_uinput("gamepad") is gamepad
-    assert machine._get_uinput("unknown") is None

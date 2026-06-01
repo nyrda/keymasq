@@ -4,8 +4,16 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from dataclasses import dataclass
 from pathlib import Path
+
+from build_metadata_rewrite import (
+    RewriteRule,
+    apply_rules,
+    debian_changelog_version_rule,
+    python_metadata_rules,
+    repo_root,
+    rpm_metadata_rule,
+)
 
 PEP440_VERSION_RE = re.compile(
     r"""
@@ -26,18 +34,6 @@ DEBIAN_VERSION_RE = re.compile(
 RPM_VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~^]*$")
 
 
-@dataclass(frozen=True)
-class RewriteRule:
-    path: Path
-    pattern: re.Pattern[str]
-    replacement: str
-    count: int = 1
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
-
-
 def _validate_version(value: str, pattern: re.Pattern[str], description: str) -> str:
     if not pattern.fullmatch(value):
         raise argparse.ArgumentTypeError(f"{description} has an invalid version format")
@@ -56,19 +52,6 @@ def _validate_rpm_version(value: str) -> str:
     return _validate_version(value, RPM_VERSION_RE, "rpm-version")
 
 
-def _rewrite_file(rule: RewriteRule) -> bool:
-    content = rule.path.read_text(encoding="utf-8")
-    updated, replacements = rule.pattern.subn(rule.replacement, content, count=rule.count)
-    if replacements != rule.count:
-        raise RuntimeError(
-            f"expected {rule.count} replacement(s) in {rule.path}, got {replacements}"
-        )
-    if updated == content:
-        return False
-    rule.path.write_text(updated, encoding="utf-8")
-    return True
-
-
 def _build_rules(
     root: Path,
     python_version: str | None,
@@ -78,38 +61,13 @@ def _build_rules(
     rules: list[RewriteRule] = []
 
     if python_version is not None:
-        rules.extend(
-            [
-                RewriteRule(
-                    root / "pyproject.toml",
-                    re.compile(r'(?m)^version = "[^"]+"$'),
-                    f'version = "{python_version}"',
-                ),
-                RewriteRule(
-                    root / "keymasq/_version.py",
-                    re.compile(r'(?m)^__version__ = "[^"]+"$'),
-                    f'__version__ = "{python_version}"',
-                ),
-            ]
-        )
+        rules.extend(python_metadata_rules(root, python_version))
 
     if debian_version is not None:
-        rules.append(
-            RewriteRule(
-                root / "debian/changelog",
-                re.compile(r"(?m)^keymasq \([^)]+\)"),
-                f"keymasq ({debian_version})",
-            )
-        )
+        rules.append(debian_changelog_version_rule(root, debian_version))
 
     if rpm_version is not None:
-        rules.append(
-            RewriteRule(
-                root / "packaging/rpm/metadata.env",
-                re.compile(r'(?m)^VERSION=".*"$'),
-                f'VERSION="{rpm_version}"',
-            )
-        )
+        rules.append(rpm_metadata_rule(root, rpm_version))
 
     return rules
 
@@ -138,16 +96,16 @@ def main() -> int:
     if not any((args.python_version, args.debian_version, args.rpm_version)):
         parser.error("at least one version override must be provided")
 
-    root = _repo_root()
-    changed_paths: list[Path] = []
-    for rule in _build_rules(
+    root = repo_root()
+    changed_paths = apply_rules(
         root,
-        python_version=args.python_version,
-        debian_version=args.debian_version,
-        rpm_version=args.rpm_version,
-    ):
-        if _rewrite_file(rule):
-            changed_paths.append(rule.path.relative_to(root))
+        _build_rules(
+            root,
+            python_version=args.python_version,
+            debian_version=args.debian_version,
+            rpm_version=args.rpm_version,
+        ),
+    )
 
     if changed_paths:
         for path in changed_paths:

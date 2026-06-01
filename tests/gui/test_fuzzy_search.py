@@ -1,5 +1,10 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+from types import SimpleNamespace
+
+import pytest
+
+from tests.gui.support import collect_widgets
+
+gi = pytest.importorskip("gi")
 
 
 def test_fuzzy_query_matches_substrings_and_abbreviations() -> None:
@@ -173,16 +178,6 @@ def test_key_selector_macro_slots_use_card_layout(monkeypatch) -> None:
     from keymasq.common.models import ActionType, MappingAction
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
-    def collect_widgets(widget, widget_type):
-        matches = []
-        child = widget.get_first_child()
-        while child is not None:
-            if isinstance(child, widget_type):
-                matches.append(child)
-            matches.extend(collect_widgets(child, widget_type))
-            child = child.get_next_sibling()
-        return matches
-
     monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
     monkeypatch.setattr(
         key_selector_dialog_module,
@@ -263,16 +258,6 @@ def test_key_selector_macro_slots_show_disabled_placeholder(monkeypatch) -> None
 
     import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
-
-    def collect_widgets(widget, widget_type):
-        matches = []
-        child = widget.get_first_child()
-        while child is not None:
-            if isinstance(child, widget_type):
-                matches.append(child)
-            matches.extend(collect_widgets(child, widget_type))
-            child = child.get_next_sibling()
-        return matches
 
     monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
     monkeypatch.setattr(

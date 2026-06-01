@@ -1,5 +1,13 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.daemon_support import *
+from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
+
+from keymasq.common.ipc import CommandType
+from keymasq.common.security import SecurityPolicy
+from keymasq.keymasqd import daemon as daemon_module
+from tests.keymasqd.daemon_support import client_context
+
 
 @pytest.mark.asyncio
 async def test_set_diagnostics_forwards_with_type_conversion(daemon_testbed):
@@ -77,7 +85,7 @@ async def test_device_inspector_start_requires_recording_unlock(daemon_testbed, 
         await daemon._handle_command(
             CommandType.DEVICE_INSPECTOR_START,
             {"hardware_id": "1234:5678"},
-            client=_client(),
+            client=client_context(),
         )
 
 
@@ -91,7 +99,7 @@ async def test_macro_save_recording_requires_recording_unlock(daemon_testbed, mo
         await daemon._handle_command(
             CommandType.MACRO_SAVE_RECORDING,
             {"pending_recording_id": "recording-1", "name": "saved"},
-            client=_client(),
+            client=client_context(),
         )
 
 
@@ -102,7 +110,7 @@ async def test_capture_end_allows_owner_after_recording_unlock_expires(
 ):
     daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
-    client = _client(uid=2000, pid=111, connection_id=10)
+    client = client_context(uid=2000, pid=111, connection_id=10)
     unlocked = True
 
     def fake_recording_unlocked_for_uid(_uid: int):
@@ -147,8 +155,8 @@ async def test_sensitive_command_owner_mismatch_is_denied(daemon_testbed, monkey
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
     monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (True, 0, "runtime"))
 
-    first_client = _client(uid=2000, pid=111, connection_id=10)
-    second_client = _client(uid=2000, pid=222, connection_id=11)
+    first_client = client_context(uid=2000, pid=111, connection_id=10)
+    second_client = client_context(uid=2000, pid=222, connection_id=11)
 
     first = await daemon._handle_command(
         CommandType.CAPTURE_BEGIN,
@@ -172,6 +180,40 @@ async def test_sensitive_command_owner_mismatch_is_denied(daemon_testbed, monkey
     )
 
 
+@pytest.mark.parametrize(
+    ("command_type", "data"),
+    [
+        (CommandType.MACRO_GET, {"name": "recorded"}),
+        (CommandType.MACRO_CREATE, {"macro": {"name": "recorded"}}),
+        (
+            CommandType.MACRO_UPDATE,
+            {"name": "recorded", "macro": {"name": "recorded"}},
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_macro_edit_unlock_commands_enforce_active_owner(
+    daemon_testbed,
+    monkeypatch,
+    command_type: CommandType,
+    data: dict[str, object],
+):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(
+        recording_unlock_required=True,
+        macro_edit_requires_unlock=True,
+    )
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (True, 0, "runtime"))
+
+    first_client = client_context(uid=2000, pid=111, connection_id=10)
+    second_client = client_context(uid=2000, pid=222, connection_id=11)
+
+    await daemon._handle_command(command_type, data, client=first_client)
+
+    with pytest.raises(PermissionError, match="sensitive_command_denied"):
+        await daemon._handle_command(command_type, data, client=second_client)
+
+
 @pytest.mark.asyncio
 async def test_refresh_then_lock_runtime_unlock_updates_owner_cache_and_file(
     daemon_testbed,
@@ -180,7 +222,7 @@ async def test_refresh_then_lock_runtime_unlock_updates_owner_cache_and_file(
 ):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     uid = 5555
-    client = _client(uid=uid, pid=600, connection_id=9)
+    client = client_context(uid=uid, pid=600, connection_id=9)
     unlock_file = tmp_path / "recording-unlock"
     unlock_file.write_text("1\n", encoding="utf-8")
 
@@ -238,7 +280,7 @@ async def test_client_disconnect_clears_owned_runtime_unlock_only(
     daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
     owned_uid = 5555
     unrelated_uid = 7777
-    client = _client(uid=owned_uid, pid=600, connection_id=9)
+    client = client_context(uid=owned_uid, pid=600, connection_id=9)
     runtime_dir = tmp_path / "runtime-unlocks"
     runtime_dir.mkdir()
     (runtime_dir / f"recording-unlock-{owned_uid}").write_text("10\n", encoding="utf-8")

@@ -16,6 +16,7 @@ from keymasq.gui.session_client import (
     session_request_async,
     unregister_session_event_callback,
 )
+from keymasq.gui.widgets.docs_links import docs_page_url
 
 DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "internal")
 DIAGNOSTICS_LABELS = {
@@ -90,17 +91,8 @@ def _sort_by_priority(row1: Gtk.ListBoxRow, row2: Gtk.ListBoxRow) -> int:
 log = logging.getLogger("keymasq.gui.widgets.diagnostics_dialog")
 
 
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version:
-        return "master"
-    if "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
 def _diagnostics_docs_url() -> str:
-    return f"https://keymasq.tools/docs/{_docs_version()}/PERFORMANCE/#diagnostics-labels"
+    return docs_page_url("PERFORMANCE", anchor="diagnostics-labels", version=__version__)
 
 
 class DiagnosticsDialog(Adw.Dialog):

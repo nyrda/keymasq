@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from keymasq.common.models import ActionType, MappingAction
 from keymasq.gui.widgets.compositor_actions.core import (
-    CompositorActionDefinition,
     CompositorActionPreset,
+    build_compositor_dispatch_definition,
 )
 
 NIRI_DISPATCH_PRESETS = (
@@ -154,53 +153,13 @@ NIRI_DISPATCH_PRESETS = (
 )
 
 
-def _niri_available(current_action: MappingAction | None, status: dict[str, object]) -> bool:
-    _ = current_action
-    return bool(
-        status.get("listener_name") == "niri"
-        and status.get("compositor_dispatch_available") is True
-    )
-
-
-def _niri_fields(current_action: MappingAction | None) -> tuple[str, str]:
-    if current_action is None or current_action.action_type != ActionType.COMPOSITOR_DISPATCH:
-        return "", ""
-    compositor_id = str(current_action.compositor_id or "").strip()
-    if compositor_id and compositor_id != "niri":
-        return "", ""
-    return (
-        str(current_action.compositor_dispatcher or ""),
-        str(current_action.compositor_args or ""),
-    )
-
-
-def _build_niri_action(dispatcher: str, args: str) -> MappingAction:
-    return MappingAction(
-        action_type=ActionType.COMPOSITOR_DISPATCH,
-        compositor_id="niri",
-        compositor_dispatcher=dispatcher,
-        compositor_args=args,
-    )
-
-
-def _describe_niri_action(action: MappingAction) -> str:
-    args = str(action.compositor_args or "").strip()
-    suffix = f" {args}" if args else ""
-    return f"Niri → {action.compositor_dispatcher or '?'}{suffix}"
-
-
-NIRI_ACTION_DEFINITION = CompositorActionDefinition(
+NIRI_ACTION_DEFINITION = build_compositor_dispatch_definition(
     page_id="niri",
     compositor_id="niri",
     title="Niri",
     subtitle="Send a Niri action through the active Niri listener using niri msg action syntax.",
     dispatcher_placeholder="e.g. focus-workspace",
     args_placeholder="e.g. 2, --id 17, --focus",
-    action_type=ActionType.COMPOSITOR_DISPATCH,
     presets=NIRI_DISPATCH_PRESETS,
     allow_custom=True,
-    is_available=_niri_available,
-    extract_fields=_niri_fields,
-    build_action=_build_niri_action,
-    describe_action=_describe_niri_action,
 )

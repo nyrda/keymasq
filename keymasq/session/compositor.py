@@ -32,6 +32,8 @@ class SupportedCompositor(TypedDict):
     env: str
     name: str
     capabilities: list[str]
+    listener: CompositorListener
+    probe_order: int
 
 
 SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
@@ -39,43 +41,60 @@ SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
         "env": "HYPRLAND_INSTANCE_SIGNATURE",
         "name": "Hyprland",
         "capabilities": ["window_tags"],
+        "listener": HyprlandListener,
+        "probe_order": 10,
     },
     "niri": {
         "env": "NIRI_SOCKET",
         "name": "Niri",
         "capabilities": [],
-    },
-    "x11": {
-        "env": "DISPLAY",
-        "name": "X11",
-        "capabilities": [],
+        "listener": NiriListener,
+        "probe_order": 20,
     },
     "kde": {
         "env": "KDE_FULL_SESSION",
         "name": "KDE Plasma",
         "capabilities": [],
-    },
-    "cosmic": {
-        "env": "XDG_CURRENT_DESKTOP",
-        "name": "COSMIC",
-        "capabilities": [],
+        "listener": KDEListener,
+        "probe_order": 30,
     },
     "gnome": {
         "env": "XDG_CURRENT_DESKTOP",
         "name": "GNOME",
         "capabilities": [],
+        "listener": GnomeListener,
+        "probe_order": 40,
+    },
+    "cosmic": {
+        "env": "XDG_CURRENT_DESKTOP",
+        "name": "COSMIC",
+        "capabilities": [],
+        "listener": CosmicListener,
+        "probe_order": 50,
+    },
+    "wayland": {
+        "env": "WAYLAND_DISPLAY",
+        "name": "Wayland",
+        "capabilities": [],
+        "listener": WlrootsWaylandListener,
+        "probe_order": 60,
+    },
+    "x11": {
+        "env": "DISPLAY",
+        "name": "X11",
+        "capabilities": [],
+        "listener": X11Listener,
+        "probe_order": 70,
     },
 }
 
 
 PROBE_ORDER: list[tuple[str, CompositorListener]] = [
-    ("hyprland", HyprlandListener),
-    ("niri", NiriListener),
-    ("kde", KDEListener),
-    ("gnome", GnomeListener),
-    ("cosmic", CosmicListener),
-    ("wayland", WlrootsWaylandListener),
-    ("x11", X11Listener),
+    (compositor_id, metadata["listener"])
+    for compositor_id, metadata in sorted(
+        SUPPORTED_COMPOSITORS.items(),
+        key=lambda item: item[1]["probe_order"],
+    )
 ]
 
 
@@ -87,8 +106,16 @@ async def _probe_compositor_session(
     if callable(probe_session):
         probe = cast(Callable[[SessionDBus | None], Awaitable[bool]], probe_session)
         return bool(await probe(dbus))
+    return await _probe_listener_available(listener_class, dbus)
+
+
+async def _probe_listener_available(
+    listener_class: CompositorListener,
+    dbus: SessionDBus | None = None,
+) -> bool:
     probe_available = cast(CompositorProbe, listener_class.probe_available)
     return bool(await probe_available(dbus))
+
 
 def _run_probe_sync[ProbeResult](
     coro: Coroutine[object, object, ProbeResult],
@@ -124,15 +151,7 @@ def get_compositor_name(compositor_id: str | None) -> str:
     if compositor_id in SUPPORTED_COMPOSITORS:
         return SUPPORTED_COMPOSITORS[compositor_id]["name"]
 
-    names = {
-        "kde": "KDE Plasma",
-        "cosmic": "COSMIC",
-        "gnome": "GNOME",
-        "niri": "Niri",
-        "x11": "X11",
-        "wayland": "Wayland",
-    }
-    return names.get(compositor_id, compositor_id.title())
+    return compositor_id.title()
 
 
 def is_compositor_supported_sync(compositor_id: str | None) -> bool:
@@ -146,21 +165,10 @@ async def is_compositor_supported(
 ) -> bool:
     if not compositor_id:
         return False
-    if compositor_id == "x11":
-        return await X11Listener.probe_available(dbus)
-    if compositor_id == "wayland":
-        return await WlrootsWaylandListener.probe_available(dbus)
-    if compositor_id == "kde":
-        return await KDEListener.probe_available(dbus)
-    if compositor_id == "cosmic":
-        return await CosmicListener.probe_available(dbus)
-    if compositor_id == "gnome":
-        return await GnomeListener.probe_available(dbus)
-    if compositor_id == "niri":
-        return await NiriListener.probe_available(dbus)
-    if compositor_id == "hyprland":
-        return await HyprlandListener.probe_available(dbus)
-    return compositor_id in SUPPORTED_COMPOSITORS
+    metadata = SUPPORTED_COMPOSITORS.get(compositor_id)
+    if metadata is None:
+        return False
+    return await _probe_listener_available(metadata["listener"], dbus)
 
 
 async def get_compositor_support_details(
@@ -199,25 +207,9 @@ def has_capability(compositor_id: str | None, capability: str) -> bool:
 
 
 def get_listener_class(compositor_id: str | None) -> CompositorListener | None:
-    if compositor_id == "hyprland":
-        return HyprlandListener
-
-    if compositor_id == "kde":
-        return KDEListener
-
-    if compositor_id == "niri":
-        return NiriListener
-
-    if compositor_id == "x11":
-        return X11Listener
-
-    if compositor_id == "cosmic":
-        return CosmicListener
-
-    if compositor_id == "gnome":
-        return GnomeListener
-
-    if compositor_id == "wayland":
-        return WlrootsWaylandListener
-
-    return None
+    if not compositor_id:
+        return None
+    metadata = SUPPORTED_COMPOSITORS.get(compositor_id)
+    if metadata is None:
+        return None
+    return metadata["listener"]

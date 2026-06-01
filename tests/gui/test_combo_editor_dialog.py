@@ -1,5 +1,6 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+import pytest
+
+pytest.importorskip("gi")
 
 
 class TestComboEditorDialog:
@@ -293,14 +294,7 @@ class TestComboEditorDialog:
             MappingAction,
         )
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
-
-        def child_widgets(widget):
-            children = []
-            child = widget.get_first_child()
-            while child is not None:
-                children.append(child)
-                child = child.get_next_sibling()
-            return children
+        from tests.gui.support import collect_child_widgets, iter_widget_children
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(
@@ -319,13 +313,10 @@ class TestComboEditorDialog:
             ),
         )
 
-        first_row = dialog.steps_box.get_first_child()
-        second_row = first_row.get_next_sibling()
+        first_row, second_row = list(iter_widget_children(dialog.steps_box))
 
-        assert not any(isinstance(child, Gtk.SpinButton) for child in child_widgets(first_row))
-        second_spins = [
-            child for child in child_widgets(second_row) if isinstance(child, Gtk.SpinButton)
-        ]
+        assert collect_child_widgets(first_row, Gtk.SpinButton) == []
+        second_spins = collect_child_widgets(second_row, Gtk.SpinButton)
         assert len(second_spins) == 1
         second_spins[0].set_value(850)
 

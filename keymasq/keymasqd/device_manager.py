@@ -65,6 +65,7 @@ from keymasq.keymasqd.runtime import repeat as runtime_repeat
 from keymasq.keymasqd.runtime import topology as runtime_topology
 from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
+from keymasq.keymasqd.task_helpers import fire_and_observe as _fire_and_observe
 
 log = logging.getLogger("keymasqd.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
@@ -150,19 +151,6 @@ def _is_virtual_input(device: object) -> bool:
     phys = str(getattr(device, "phys", "") or "").lower()
     name = str(getattr(device, "name", "") or "").lower()
     return phys == "py-evdev-uinput" or name.startswith("keymasq-")
-
-
-def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
-    task = asyncio.ensure_future(coro)
-
-    def _log_task_result(done: asyncio.Task[object]) -> None:
-        with contextlib.suppress(asyncio.CancelledError):
-            exc = done.exception()
-            if exc is not None:
-                log.warning("%s failed: %s", label, exc)
-
-    task.add_done_callback(_log_task_result)
-    return task
 
 
 def _topology_runtime_deps() -> runtime_topology.TopologyRuntimeDeps:

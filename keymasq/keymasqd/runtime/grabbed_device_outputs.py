@@ -125,6 +125,62 @@ def track_abs_state(
         held.discard(int(axis_code))
 
 
+def track_refcounted_held_output(
+    refcounts: dict[int, int],
+    held: set[int],
+    code: int,
+    *,
+    pressed: bool,
+    released: bool,
+) -> bool:
+    """Update shared held-output state and return whether to emit the event."""
+    output_code = int(code)
+    current = refcounts.get(output_code, 0)
+
+    if pressed:
+        refcounts[output_code] = current + 1
+        held.add(output_code)
+        return current == 0
+
+    if released:
+        if current <= 1:
+            refcounts.pop(output_code, None)
+            held.discard(output_code)
+            return current == 1
+
+        refcounts[output_code] = current - 1
+        return False
+
+    return True
+
+
+def track_refcounted_output_bucket(
+    refcount_buckets: dict[str, dict[int, int]],
+    held_buckets: dict[str, set[int]],
+    bucket: str,
+    code: int,
+    value: int,
+    *,
+    pressed_value: int | None = 1,
+    release_value: int = 0,
+) -> bool:
+    """Update a bucketed shared-output refcount and held set."""
+    event_value = int(value)
+    normalized_release_value = int(release_value)
+    pressed = (
+        event_value != normalized_release_value
+        if pressed_value is None
+        else event_value == int(pressed_value)
+    )
+    return track_refcounted_held_output(
+        refcount_buckets.setdefault(bucket, {}),
+        held_buckets.setdefault(bucket, set()),
+        code,
+        pressed=pressed,
+        released=event_value == normalized_release_value,
+    )
+
+
 def write_abs_axis(
     device_runtime: ActionRuntime,
     uinput_dev: object | None,
@@ -174,29 +230,13 @@ def write_key(
 def track_superkey_output(
     device_runtime: ActionRuntime, action_type: str, code: int, value: int
 ) -> bool:
-    bucket = action_type
-    if bucket not in device_runtime.state.superkey_output_refcounts:
-        device_runtime.state.superkey_output_refcounts[bucket] = {}
-    held = device_runtime.state.held_output_keys.setdefault(bucket, set())
-
-    refcounts = device_runtime.state.superkey_output_refcounts[bucket]
-    current = refcounts.get(int(code), 0)
-
-    if int(value) == 1:
-        refcounts[int(code)] = current + 1
-        held.add(int(code))
-        return current == 0
-
-    if int(value) == 0:
-        if current <= 1:
-            refcounts.pop(int(code), None)
-            held.discard(int(code))
-            return current == 1
-
-        refcounts[int(code)] = current - 1
-        return False
-
-    return True
+    return track_refcounted_output_bucket(
+        device_runtime.state.superkey_output_refcounts,
+        device_runtime.state.held_output_keys,
+        action_type,
+        code,
+        value,
+    )
 
 
 def track_superkey_abs_output(
@@ -207,25 +247,15 @@ def track_superkey_abs_output(
     *,
     release_value: int = 0,
 ) -> bool:
-    if bucket not in device_runtime.state.superkey_abs_refcounts:
-        device_runtime.state.superkey_abs_refcounts[bucket] = {}
-    held = device_runtime.state.held_output_abs.setdefault(bucket, set())
-
-    refcounts = device_runtime.state.superkey_abs_refcounts[bucket]
-    current = refcounts.get(int(axis_code), 0)
-
-    if int(value) != int(release_value):
-        refcounts[int(axis_code)] = current + 1
-        held.add(int(axis_code))
-        return current == 0
-
-    if current <= 1:
-        refcounts.pop(int(axis_code), None)
-        held.discard(int(axis_code))
-        return current == 1
-
-    refcounts[int(axis_code)] = current - 1
-    return False
+    return track_refcounted_output_bucket(
+        device_runtime.state.superkey_abs_refcounts,
+        device_runtime.state.held_output_abs,
+        bucket,
+        axis_code,
+        value,
+        pressed_value=None,
+        release_value=release_value,
+    )
 
 
 def passthrough(
@@ -338,6 +368,36 @@ def emit_configured_mouse_move(
     )
 
 
+def _clear_held_output_bucket(
+    device_runtime: ActionRuntime,
+    bucket: str,
+    *,
+    held_keys: bool = True,
+    held_abs: bool = True,
+    key_refcounts: bool = True,
+    abs_refcounts: bool = True,
+) -> None:
+    state = device_runtime.state
+    if held_keys:
+        state.held_output_keys.get(bucket, set()).clear()
+    if held_abs:
+        state.held_output_abs.get(bucket, set()).clear()
+    if key_refcounts:
+        for refcounts in (
+            state.superkey_output_refcounts,
+            state.analog_threshold_output_refcounts,
+        ):
+            if bucket in refcounts:
+                refcounts[bucket].clear()
+    if abs_refcounts:
+        for refcounts in (
+            state.superkey_abs_refcounts,
+            state.analog_threshold_abs_refcounts,
+        ):
+            if bucket in refcounts:
+                refcounts[bucket].clear()
+
+
 def release_all_keys(
     device_runtime: ActionRuntime,
     *,
@@ -365,16 +425,7 @@ def release_all_keys(
     for bucket, uinput_dev in devices.items():
         writer = uinput_writer(uinput_dev)
         if writer is None:
-            device_runtime.state.held_output_keys.get(bucket, set()).clear()
-            device_runtime.state.held_output_abs.get(bucket, set()).clear()
-            if bucket in device_runtime.state.superkey_output_refcounts:
-                device_runtime.state.superkey_output_refcounts[bucket].clear()
-            if bucket in device_runtime.state.analog_threshold_output_refcounts:
-                device_runtime.state.analog_threshold_output_refcounts[bucket].clear()
-            if bucket in device_runtime.state.superkey_abs_refcounts:
-                device_runtime.state.superkey_abs_refcounts[bucket].clear()
-            if bucket in device_runtime.state.analog_threshold_abs_refcounts:
-                device_runtime.state.analog_threshold_abs_refcounts[bucket].clear()
+            _clear_held_output_bucket(device_runtime, bucket)
             continue
         held = sorted(device_runtime.state.held_output_keys.get(bucket, set()))
         if not held:
@@ -393,15 +444,7 @@ def release_all_keys(
                 exc_info=True,
             )
         else:
-            device_runtime.state.held_output_keys[bucket].clear()
-            if bucket in device_runtime.state.superkey_output_refcounts:
-                device_runtime.state.superkey_output_refcounts[bucket].clear()
-            if bucket in device_runtime.state.analog_threshold_output_refcounts:
-                device_runtime.state.analog_threshold_output_refcounts[bucket].clear()
-            if bucket in device_runtime.state.superkey_abs_refcounts:
-                device_runtime.state.superkey_abs_refcounts[bucket].clear()
-            if bucket in device_runtime.state.analog_threshold_abs_refcounts:
-                device_runtime.state.analog_threshold_abs_refcounts[bucket].clear()
+            _clear_held_output_bucket(device_runtime, bucket, held_abs=False)
 
     for bucket, held_abs in list(device_runtime.state.held_output_abs.items()):
         if not bucket.startswith("gamepad") and not held_abs:
@@ -409,7 +452,12 @@ def release_all_keys(
         uinput_dev = devices.get(bucket)
         writer = uinput_writer(uinput_dev)
         if writer is None:
-            held_abs.clear()
+            _clear_held_output_bucket(
+                device_runtime,
+                bucket,
+                held_keys=False,
+                key_refcounts=False,
+            )
             continue
         try:
             axes = held_abs or {evdev_mod.ecodes.ABS_Z, evdev_mod.ecodes.ABS_RZ}
@@ -425,11 +473,12 @@ def release_all_keys(
                 exc_info=True,
             )
         else:
-            held_abs.clear()
-            if bucket in device_runtime.state.superkey_abs_refcounts:
-                device_runtime.state.superkey_abs_refcounts[bucket].clear()
-            if bucket in device_runtime.state.analog_threshold_abs_refcounts:
-                device_runtime.state.analog_threshold_abs_refcounts[bucket].clear()
+            _clear_held_output_bucket(
+                device_runtime,
+                bucket,
+                held_keys=False,
+                key_refcounts=False,
+            )
 
     for task in list(device_runtime.state.rapidfire_tasks.values()):
         if not task.done():

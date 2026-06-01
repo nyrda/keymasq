@@ -1,7 +1,3 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
-
-
 def test_action_labels_describe_all_mapping_action_types() -> None:
     from keymasq.common.models import ActionType, MappingAction
     from keymasq.gui.widgets.action_labels import (

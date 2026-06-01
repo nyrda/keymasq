@@ -1,29 +1,22 @@
-# pyright: reportUnusedImport=false, reportUnusedFunction=false, reportUnusedClass=false
-# ruff: noqa: F401, I001
-"""Macro editor dialog tests."""
-
 # ruff: noqa: E402, I001
+"""Shared helpers for macro editor dialog tests."""
 
-import sys
+import pytest
 
-from tests.gui.support import gi
+gi = pytest.importorskip("gi")
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-import evdev  # noqa: E402
+from gi.repository import Gtk
 
-from keymasq.common.models import ActionType  # noqa: E402
-from keymasq.gui.widgets.macro_editor_dialog import EditableControl  # noqa: E402
-from keymasq.gui.widgets.macro_editor_dialog import EditableEvent  # noqa: E402
-from keymasq.gui.widgets.macro_editor_dialog import EditableMove  # noqa: E402
-from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog  # noqa: E402
-from keymasq.gui.widgets.macro_editor_dialog import _describe_passthrough_event  # noqa: E402
-from keymasq.gui.widgets.macro_editor_dialog import _passthrough_track  # noqa: E402
-from keymasq.gui.widgets.macro_editor_dialog import parse_events  # noqa: E402
-from keymasq.gui.widgets.macro_editor_dialog import reconstruct_events  # noqa: E402
+from keymasq.gui.widgets import macro_editor_dialog as macro_editor_dialog_module
+from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
 
-macro_editor_dialog_module = sys.modules["keymasq.gui.widgets.macro_editor_dialog"]
+__all__ = [
+    "_FakeSlurpCapture",
+    "_build_macro_dialog",
+]
 
 
 class _FakeSlurpCapture:
@@ -40,8 +33,6 @@ class _FakeSlurpCapture:
 
 
 def _build_macro_dialog(monkeypatch, *, slurp_available: bool = False) -> MacroEditorDialog:
-    from gi.repository import Gtk
-
     fake_slurp = _FakeSlurpCapture(available=slurp_available)
     monkeypatch.setattr(macro_editor_dialog_module, "get_slurp_capture", lambda: fake_slurp)
     monkeypatch.setattr(macro_editor_dialog_module, "detect_compositor_sync", lambda: "hyprland")
@@ -54,21 +45,3 @@ def _build_macro_dialog(monkeypatch, *, slurp_available: bool = False) -> MacroE
     dialog = MacroEditorDialog(Gtk.Window(), "demo_macro")
     dialog._test_slurp = fake_slurp  # type: ignore[attr-defined]
     return dialog
-
-__all__ = [
-    'gi',
-    'sys',
-    'evdev',
-    'ActionType',
-    'EditableControl',
-    'EditableEvent',
-    'EditableMove',
-    'MacroEditorDialog',
-    '_describe_passthrough_event',
-    '_passthrough_track',
-    'parse_events',
-    'reconstruct_events',
-    'macro_editor_dialog_module',
-    '_FakeSlurpCapture',
-    '_build_macro_dialog',
-]

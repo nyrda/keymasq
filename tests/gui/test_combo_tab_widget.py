@@ -1,5 +1,10 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+# ruff: noqa: I001
+import pytest
+
+from tests.gui.support import collect_listbox_row_labels
+
+pytest.importorskip("gi")
+
 
 class TestComboTabWidget:
     def test_combo_tab_does_not_start_active_profile_polling(self, monkeypatch):
@@ -338,19 +343,11 @@ class TestComboTabWidget:
         tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
         tab.refresh_profiles(preferred_profile_name="Desktop", publish_selection=False)
 
-        tab._on_column_header_clicked(tab._name_header_btn, 1)
-        name_rows = []
-        row = tab.combo_listbox.get_first_child()
-        while row is not None:
-            name_rows.append(row.get_child().get_first_child().get_label())
-            row = row.get_next_sibling()
+        tab._combo_list.name_header_btn.emit("clicked")
+        name_rows = collect_listbox_row_labels(tab.combo_listbox)
 
-        tab._on_column_header_clicked(tab._name_header_btn, 1)
-        reversed_rows = []
-        row = tab.combo_listbox.get_first_child()
-        while row is not None:
-            reversed_rows.append(row.get_child().get_first_child().get_label())
-            row = row.get_next_sibling()
+        tab._combo_list.name_header_btn.emit("clicked")
+        reversed_rows = collect_listbox_row_labels(tab.combo_listbox)
 
         opened: list[str] = []
         tab._open_combo_editor = lambda selected=None: opened.append(
@@ -365,7 +362,7 @@ class TestComboTabWidget:
 
         assert name_rows == ["alpha", "Bravo", "Charlie"]
         assert reversed_rows == ["Charlie", "Bravo", "alpha"]
-        assert tab._name_header_btn.get_label() == "Name ▾"
+        assert tab._combo_list.name_header_btn.get_label() == "Name ▾"
         assert opened == ["combo-c"]
 
     def test_combo_tab_search_filters_rows(self, temp_config_dir):
@@ -431,31 +428,31 @@ class TestComboTabWidget:
         assert tab.search_entry.get_visible() is True
 
         tab.search_entry.set_text("mouse")
-        assert tab._visible_combo_count() == 1
+        assert tab._combo_list.visible_count() == 1
         assert tab.section_label.get_visible() is False
 
         tab.search_entry.set_text("missing")
-        assert tab._visible_combo_count() == 0
+        assert tab._combo_list.visible_count() == 0
         assert tab.section_label.get_text() == "No matching combos."
         assert tab.combo_listbox.get_visible() is False
 
-        tab._hide_search()
+        tab._combo_list.hide_search()
         assert tab.search_entry.get_visible() is False
         assert tab.section_label.get_visible() is False
 
         tab.search_button.emit("clicked")
         tab.search_entry.set_text("mouse")
         tab._selected_profile = None
-        tab._render_combo_list()
+        tab._combo_list.render()
         assert tab.search_entry.get_visible() is False
         assert tab.search_entry.get_text() == ""
 
-        tab._show_search()
+        tab._combo_list.show_search()
         assert tab.search_entry.get_visible() is False
 
         tab.search_entry.set_visible(True)
         tab.search_entry.set_text("stale")
-        tab._update_combo_list_state()
+        tab._combo_list.update_state()
         assert tab.search_entry.get_visible() is False
         assert tab.search_entry.get_text() == ""
 

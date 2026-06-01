@@ -1,12 +1,6 @@
-# pyright: reportUnusedImport=false, reportUnusedFunction=false, reportUnusedClass=false
-# ruff: noqa: F401, I001
 import asyncio
-import os
 from collections.abc import Callable
-from unittest.mock import Mock
 
-import evdev
-import pytest
 import pytest_asyncio
 
 from keymasq.common import paths
@@ -22,12 +16,6 @@ class IntegrationTestBase:
 
         async def handle_disconnect() -> None:
             await manager.release_all_devices()
-
-        server = SocketServer(
-            str(paths.SOCKET_PATH),
-            lambda cmd, data, _client: manager._handle_command(cmd, data),
-            handle_disconnect,
-        )
 
         async def command_handler(cmd_type, data, _client):
             if cmd_type == CommandType.GRAB_DEVICE:
@@ -50,7 +38,11 @@ class IntegrationTestBase:
                 return {"pong": True}
             return {}
 
-        server.command_handler = command_handler
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            command_handler,
+            handle_disconnect,
+        )
 
         await server.start()
 
@@ -91,22 +83,3 @@ class IntegrationTestBase:
             if loop.time() >= deadline:
                 raise AssertionError(f"Timed out waiting for {reason}")
             await asyncio.sleep(interval_s)
-
-
-__all__ = [
-    "asyncio",
-    "os",
-    "Callable",
-    "Mock",
-    "evdev",
-    "pytest",
-    "pytest_asyncio",
-    "paths",
-    "Command",
-    "CommandType",
-    "decode_response",
-    "encode_command",
-    "DeviceManager",
-    "SocketServer",
-    "IntegrationTestBase",
-]

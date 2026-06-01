@@ -1,11 +1,15 @@
-import re
-from pathlib import Path
+from tests.gui.macro_editor_dialog_support import _build_macro_dialog, _FakeSlurpCapture
 
 
-def test_macro_editor_support_uses_gui_import_guard() -> None:
-    source = Path(__file__).with_name("macro_editor_dialog_support.py").read_text(encoding="utf-8")
+def test_macro_editor_support_imports_shared_helpers() -> None:
+    fake_slurp = _FakeSlurpCapture(available=True)
+    captured: list[int] = []
+    callback = captured.append
 
-    guarded_import = "from tests.gui.support import gi"
-    assert guarded_import in source
-    assert not any(re.match(r"^\s*import\s+gi\b", line) for line in source.splitlines())
-    assert source.index(guarded_import) < source.index('gi.require_version("Gtk", "4.0")')
+    fake_slurp.set_compositor("hyprland")
+    fake_slurp.capture_point(callback)
+
+    assert fake_slurp.available is True
+    assert fake_slurp.compositor == "hyprland"
+    assert fake_slurp.capture_callback is callback
+    assert callable(_build_macro_dialog)

@@ -19,6 +19,7 @@ from keymasq.gui.session_client import (
     session_request_async,
 )
 from keymasq.gui.session_reload import notify_session_reload, notify_session_reload_async
+from keymasq.gui.widgets.docs_links import docs_page_url
 from keymasq.gui.wizards.profile_create import ProfileCreateDialog
 from keymasq.session.profiles import ProfileInfo, ProfileManager
 
@@ -30,17 +31,8 @@ PROFILE_TYPE_ICONS = {
 log = logging.getLogger("keymasq.gui.widgets.profile_managed_tab")
 
 
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version:
-        return "master"
-    if "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
 def _profiles_docs_url() -> str:
-    return f"https://keymasq.tools/docs/{_docs_version()}/PROFILES/"
+    return docs_page_url("PROFILES", version=__version__)
 
 
 class ProfileManagedTab(Gtk.Box):

@@ -1,6 +1,5 @@
 import errno
 import logging
-from typing import cast
 
 import evdev
 
@@ -17,12 +16,8 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     ErrnoModule,
     GrabbedDeviceRuntime,
     TimeModule,
-    WritableUInput,
+    identity_uinput_writer,
 )
-
-
-def _uinput_writer(device: object | None) -> WritableUInput | None:
-    return cast(WritableUInput | None, device)
 
 
 async def broadcast_grab_status(
@@ -288,5 +283,5 @@ def reconcile_startup_held_action(
                 device_runtime,
                 axis_code,
                 evdev_mod=evdev,
-                uinput_writer=_uinput_writer,
+                uinput_writer=identity_uinput_writer,
             )

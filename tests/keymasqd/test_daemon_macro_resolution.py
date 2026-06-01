@@ -1,20 +1,19 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.daemon_support import *
+from typing import cast
+
+import pytest
+
+from keymasq.common.ipc import CommandType
+from keymasq.common.security import SecurityPolicy
+from keymasq.keymasqd import daemon as daemon_module
+from keymasq.keymasqd import daemon_macro_commands
+from tests.keymasqd.daemon_support import client_context, macro_meta
+
 
 @pytest.mark.asyncio
 async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get_meta.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": 3,
-        "loop_stop_behavior": "cancel_run",
-        "move_to_start": True,
-        "start_x": 111,
-        "start_y": 222,
-        "block_mouse_movement": True,
-    }
+    macro_store.get_meta.return_value = macro_meta()
 
     resolved = await daemon_macro_commands.resolve_mapping_macros(
         daemon.macro_store,
@@ -41,16 +40,7 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
 async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get_meta.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": 3,
-        "loop_stop_behavior": "cancel_run",
-        "move_to_start": True,
-        "start_x": 111,
-        "start_y": 222,
-        "block_mouse_movement": True,
-    }
+    macro_store.get_meta.return_value = macro_meta()
 
     resolved = await daemon_macro_commands.resolve_mapping_macros(
         daemon.macro_store,
@@ -98,15 +88,13 @@ async def test_resolve_mapping_macros_traverses_all_nested_action_containers(
     ]
     loop_counts = {name: index + 1 for index, name in enumerate(macro_names)}
 
-    macro_store.get_meta.side_effect = lambda name: {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": loop_counts[str(name)],
-        "move_to_start": False,
-        "start_x": 0,
-        "start_y": 0,
-        "block_mouse_movement": False,
-    }
+    macro_store.get_meta.side_effect = lambda name: macro_meta(
+        loop_count=loop_counts[str(name)],
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+    )
 
     resolved = await daemon_macro_commands.resolve_mapping_macros(
         daemon.macro_store,
@@ -161,16 +149,11 @@ async def test_resolve_mapping_macros_traverses_all_nested_action_containers(
 @pytest.mark.asyncio
 async def test_mapping_and_combo_macro_resolution_match_for_nested_actions(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-    macro_store.get_meta.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": 6,
-        "loop_stop_behavior": "cancel_run",
-        "move_to_start": True,
-        "start_x": 11,
-        "start_y": 12,
-        "block_mouse_movement": True,
-    }
+    macro_store.get_meta.return_value = macro_meta(
+        loop_count=6,
+        start_x=11,
+        start_y=12,
+    )
 
     def nested_action():
         return {
@@ -214,15 +197,13 @@ async def test_mapping_and_combo_macro_resolution_match_for_nested_actions(daemo
 async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get_meta.side_effect = lambda name: {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": 3 if name == "combo" else 2,
-        "move_to_start": False,
-        "start_x": 0,
-        "start_y": 0,
-        "block_mouse_movement": False,
-    }
+    macro_store.get_meta.side_effect = lambda name: macro_meta(
+        loop_count=3 if name == "combo" else 2,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+    )
 
     resolved = await daemon_macro_commands.resolve_mapping_macros(
         daemon.macro_store,
@@ -272,15 +253,13 @@ async def test_resolve_mapping_macros_ignores_malformed_stored_macro_values(daem
 async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
-    macro_store.get_meta.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": 2,
-        "move_to_start": False,
-        "start_x": 4,
-        "start_y": 5,
-        "block_mouse_movement": False,
-    }
+    macro_store.get_meta.return_value = macro_meta(
+        loop_count=2,
+        move_to_start=False,
+        start_x=4,
+        start_y=5,
+        block_mouse_movement=False,
+    )
 
     await daemon._handle_command(
         CommandType.SET_MAPPING,
@@ -304,15 +283,11 @@ async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
 async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
-    macro_store.get_meta.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": 4,
-        "move_to_start": True,
-        "start_x": 7,
-        "start_y": 8,
-        "block_mouse_movement": True,
-    }
+    macro_store.get_meta.return_value = macro_meta(
+        loop_count=4,
+        start_x=7,
+        start_y=8,
+    )
 
     await daemon._handle_command(
         CommandType.SET_COMBOS,
@@ -349,16 +324,12 @@ async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
 async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
-    macro_store.get_meta.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "hold",
-        "loop_count": 5,
-        "loop_stop_behavior": "cancel_run",
-        "move_to_start": True,
-        "start_x": 7,
-        "start_y": 8,
-        "block_mouse_movement": True,
-    }
+    macro_store.get_meta.return_value = macro_meta(
+        loop_mode="hold",
+        loop_count=5,
+        start_x=7,
+        start_y=8,
+    )
 
     await daemon._handle_command(
         CommandType.SET_COMBOS,
@@ -409,15 +380,13 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
 async def test_resolve_combo_macros_deduplicates_macro_store_reads(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get_meta.side_effect = lambda name: {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": 4 if name == "combo" else 1,
-        "move_to_start": False,
-        "start_x": 0,
-        "start_y": 0,
-        "block_mouse_movement": False,
-    }
+    macro_store.get_meta.side_effect = lambda name: macro_meta(
+        loop_count=4 if name == "combo" else 1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+    )
 
     resolved = await daemon_macro_commands.resolve_combo_macros(
         daemon.macro_store,
@@ -506,7 +475,7 @@ async def test_handle_command_start_recording_requires_macro_recording_opt_in(
         await daemon._handle_command(
             CommandType.START_RECORDING,
             {},
-            client=_client(uid=1000, pid=111, connection_id=7),
+            client=client_context(uid=1000, pid=111, connection_id=7),
         )
 
 

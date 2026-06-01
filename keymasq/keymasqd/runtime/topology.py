@@ -45,6 +45,24 @@ class TopologyRuntimeDeps:
     release_interface_fn: ReleaseInterfaceFn
 
 
+async def _scan_live_interfaces(
+    *,
+    log: logging.Logger,
+    deps: TopologyRuntimeDeps,
+) -> Snapshot:
+    return await deps.asyncio_mod.to_thread(
+        scan_live_interfaces_sync,
+        clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
+        device_paths_fn=deps.device_paths_fn,
+        device_input_fn=deps.device_input_fn,
+        detect_input_classes_fn=deps.detect_input_classes_fn,
+        primary_input_class_fn=deps.primary_input_class_fn,
+        resolve_stable_path_fn=deps.resolve_stable_path_fn,
+        get_interface_id_fn=deps.get_interface_id_fn,
+        log=log,
+    )
+
+
 async def start_topology_watcher(
     manager: _TopologyManager,
     *,
@@ -57,17 +75,7 @@ async def start_topology_watcher(
         and not manager.topology_state.watcher_task.done()
     ):
         return
-    snapshot = await asyncio_mod.to_thread(
-        scan_live_interfaces_sync,
-        clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
-        device_paths_fn=deps.device_paths_fn,
-        device_input_fn=deps.device_input_fn,
-        detect_input_classes_fn=deps.detect_input_classes_fn,
-        primary_input_class_fn=deps.primary_input_class_fn,
-        resolve_stable_path_fn=deps.resolve_stable_path_fn,
-        get_interface_id_fn=deps.get_interface_id_fn,
-        log=log,
-    )
+    snapshot = await _scan_live_interfaces(log=log, deps=deps)
     manager.topology_state.live_snapshot = dict(snapshot)
     async with manager._op_lock:
         await reconcile_topology_unlocked(manager, snapshot, deps=deps)
@@ -112,17 +120,7 @@ async def topology_watch_loop(
         while True:
             await asyncio_mod.sleep(manager.topology_state.poll_s)
             try:
-                snapshot = await asyncio_mod.to_thread(
-                    scan_live_interfaces_sync,
-                    clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
-                    device_paths_fn=deps.device_paths_fn,
-                    device_input_fn=deps.device_input_fn,
-                    detect_input_classes_fn=deps.detect_input_classes_fn,
-                    primary_input_class_fn=deps.primary_input_class_fn,
-                    resolve_stable_path_fn=deps.resolve_stable_path_fn,
-                    get_interface_id_fn=deps.get_interface_id_fn,
-                    log=log,
-                )
+                snapshot = await _scan_live_interfaces(log=log, deps=deps)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

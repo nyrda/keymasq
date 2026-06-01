@@ -100,9 +100,11 @@ class MockCommandHandler:
 class MockDisconnectHandler:
     def __init__(self):
         self.disconnect_called = False
+        self.disconnected = asyncio.Event()
 
     async def handle(self):
         self.disconnect_called = True
+        self.disconnected.set()
 
 
 async def _ok_handler(
@@ -249,7 +251,7 @@ class TestSocketServer:
     async def test_command_handler_receives_command(self, server_and_handlers):
         _server, cmd_handler, _ = server_and_handlers
 
-        _reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
 
         cmd = Command(
             command=CommandType.LIST_DEVICES,
@@ -259,8 +261,11 @@ class TestSocketServer:
         writer.write(encode_command(cmd))
         await writer.drain()
 
-        await asyncio.sleep(0.1)
+        response_data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+        response, _ = decode_response(response_data)
 
+        assert response is not None
+        assert response.status == "ok"
         assert len(cmd_handler.commands_received) == 1
         received_type, received_data = cmd_handler.commands_received[0]
         assert received_type == CommandType.LIST_DEVICES
@@ -277,7 +282,7 @@ class TestSocketServer:
         writer.close()
         await writer.wait_closed()
 
-        await asyncio.sleep(0.2)
+        await asyncio.wait_for(disc_handler.disconnected.wait(), timeout=1.0)
 
         assert disc_handler.disconnect_called
 
@@ -365,12 +370,18 @@ class TestSocketServer:
         await server.stop()
 
     async def test_single_owner_handoff_after_owner_disconnect(self, temp_socket_dir):
+        owner_disconnected = asyncio.Event()
+
         async def handle(_command: CommandType, _data: dict, _client: ClientContext) -> dict:
             return {"pong": True}
+
+        async def handle_disconnect() -> None:
+            owner_disconnected.set()
 
         server = SocketServer(
             str(paths.SOCKET_PATH),
             handle,
+            disconnect_handler=handle_disconnect,
             single_owner=True,
         )
 
@@ -396,7 +407,8 @@ class TestSocketServer:
         writer1.close()
         await writer1.wait_closed()
 
-        await asyncio.sleep(0.1)
+        await asyncio.wait_for(owner_disconnected.wait(), timeout=1.0)
+        assert server.owner_context is None
 
         # After release, a new owner may connect.
         third_reader, third_writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
@@ -416,9 +428,11 @@ class TestSocketServer:
         class Counter:
             def __init__(self) -> None:
                 self.calls = 0
+                self.called = asyncio.Event()
 
             async def handle(self) -> None:
                 self.calls += 1
+                self.called.set()
 
         counter = Counter()
 
@@ -430,19 +444,39 @@ class TestSocketServer:
 
         await server.start()
 
-        _c1_reader, c1_writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
-        _c2_reader, c2_writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        first_drop = asyncio.Event()
+        original_drop_client = server._drop_client
+        drop_count = 0
+
+        async def observe_drop(writer: asyncio.StreamWriter) -> None:
+            nonlocal drop_count
+            await original_drop_client(writer)
+            drop_count += 1
+            if drop_count == 1:
+                first_drop.set()
+
+        server._drop_client = observe_drop  # type: ignore[method-assign]
+
+        c1_reader, c1_writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        c2_reader, c2_writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        for reader, writer in ((c1_reader, c1_writer), (c2_reader, c2_writer)):
+            writer.write(encode_command(Command(command=CommandType.PING, data={})))
+            await writer.drain()
+            response_data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+            response, _ = decode_response(response_data)
+            assert response is not None
+            assert response.status == "ok"
 
         c1_writer.close()
         await c1_writer.wait_closed()
 
-        await asyncio.sleep(0.2)
+        await asyncio.wait_for(first_drop.wait(), timeout=1.0)
         assert counter.calls == 0
 
         c2_writer.close()
         await c2_writer.wait_closed()
 
-        await asyncio.sleep(0.2)
+        await asyncio.wait_for(counter.called.wait(), timeout=1.0)
         assert counter.calls == 1
 
         await server.stop()

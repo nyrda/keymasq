@@ -1,6 +1,7 @@
-# ruff: noqa: F403, F405, I001, E402
-from tests.gui.support import *
+# ruff: noqa: E402, I001
+import pytest
 
+gi = pytest.importorskip("gi")
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 

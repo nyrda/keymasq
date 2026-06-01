@@ -27,12 +27,196 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+_TARGET_ACTION_TYPES = frozenset(
+    {
+        ActionType.KEYBOARD,
+        ActionType.MOUSE,
+        ActionType.GAMEPAD,
+        ActionType.GAMEPAD_AXIS,
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
+    }
+)
+_RECORDING_ACTION_TYPES = frozenset(
+    {
+        ActionType.START_MACRO_RECORDING,
+        ActionType.STOP_MACRO_RECORDING,
+        ActionType.PLAY_MACRO_SLOT,
+        ActionType.CANCEL_MACRO_PLAYBACK,
+        ActionType.EMERGENCY_RESET,
+    }
+)
+_RECORDING_SLOT_ACTION_TYPES = frozenset(
+    {
+        ActionType.START_MACRO_RECORDING,
+        ActionType.STOP_MACRO_RECORDING,
+        ActionType.PLAY_MACRO_SLOT,
+    }
+)
+_PROFILE_ACTION_TYPES = frozenset(
+    {
+        ActionType.PROFILE_ENABLE,
+        ActionType.PROFILE_DISABLE,
+        ActionType.PROFILE_TOGGLE,
+    }
+)
+
+
+def _new_action_payload(action: MappingAction) -> dict[str, object]:
+    data: dict[str, object] = {"action": action.action_type.value}
+    if action.source_profile_name:
+        data["source_profile_name"] = action.source_profile_name
+    return data
+
+
+def _set_optional_string(data: dict[str, object], key: str, value: object) -> None:
+    if value is not None and str(value):
+        data[key] = str(value)
+
+
+def _add_target_action_fields(
+    data: dict[str, object],
+    action: MappingAction,
+    *,
+    empty_target: bool,
+) -> None:
+    data["target"] = action.target or "" if empty_target else action.target
+    if action.action_type in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS) and action.output_id:
+        data["output_id"] = action.output_id
+    if action.action_type == ActionType.GAMEPAD_AXIS:
+        data["value"] = int(action.axis_value)
+    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+        data["x"] = int(action.move_x)
+        data["y"] = int(action.move_y)
+    _add_rapidfire_and_tap_fields(data, action)
+
+
+def _add_rapidfire_and_tap_fields(data: dict[str, object], action: MappingAction) -> None:
+    if action.rapidfire_enabled:
+        data["rapidfire_enabled"] = True
+        data["rapidfire_hold_ms"] = int(action.rapidfire_hold_ms)
+        data["rapidfire_wait_ms"] = int(action.rapidfire_wait_ms)
+    if action.tap_enabled:
+        data["tap_enabled"] = True
+        data["tap_hold_ms"] = int(action.tap_hold_ms)
+
+
 def _add_repeat_action_fields(data: dict[str, object], action: MappingAction) -> None:
     data["repeat_categories"] = list(action.repeat_categories or [])
     if action.rapidfire_enabled:
         data["rapidfire_enabled"] = True
         data["rapidfire_hold_ms"] = int(action.rapidfire_hold_ms)
         data["rapidfire_wait_ms"] = int(action.rapidfire_wait_ms)
+
+
+def _add_compositor_dispatch_fields(
+    data: dict[str, object],
+    action: MappingAction,
+    *,
+    trim_dispatcher: bool = False,
+) -> bool:
+    dispatcher = action.compositor_dispatcher or ""
+    if trim_dispatcher:
+        dispatcher = str(dispatcher).strip()
+        if not dispatcher:
+            return False
+    if action.compositor_id:
+        data["compositor"] = action.compositor_id
+    data["dispatcher"] = dispatcher
+    data["args"] = action.compositor_args or ""
+    return True
+
+
+def _add_recording_action_fields(data: dict[str, object], action: MappingAction) -> None:
+    if action.action_type in _RECORDING_SLOT_ACTION_TYPES:
+        data["recording_slot"] = int(action.macro_recording_slot)
+
+
+def _add_profile_action_fields(
+    data: dict[str, object],
+    action: MappingAction,
+    *,
+    fallback_target: bool = True,
+    include_target: bool = False,
+) -> None:
+    profile_name = action.profile_name or (action.target if fallback_target else "") or ""
+    data["profile_name"] = profile_name
+    if include_target:
+        data["target"] = profile_name
+    deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
+    if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
+        data["deactivation"] = deactivation
+
+
+def _add_macro_payload_fields(
+    data: dict[str, object],
+    action: MappingAction,
+    *,
+    include_empty: bool,
+) -> bool:
+    if not include_empty and not action.macro_name:
+        return False
+    data["macro_name"] = action.macro_name or ""
+    data["macro_replay_mouse_movement"] = bool(action.macro_replay_mouse_movement)
+    data["macro_replay_mouse_clicks"] = bool(action.macro_replay_mouse_clicks)
+    data["macro_speed"] = float(action.macro_speed)
+    data["macro_loop_mode"] = action.macro_loop_mode
+    data["macro_loop_count"] = int(action.macro_loop_count)
+    data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
+    data["macro_move_to_start"] = bool(action.macro_move_to_start)
+    data["macro_start_x"] = int(action.macro_start_x)
+    data["macro_start_y"] = int(action.macro_start_y)
+    data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+    return True
+
+
+def serialize_mapping_action(action: MappingAction | None) -> JsonObject | None:
+    if action is None:
+        return None
+
+    data = _new_action_payload(action)
+    _set_optional_string(data, "target", action.target)
+    _set_optional_string(data, "output_id", action.output_id)
+    if action.keys:
+        data["keys"] = list(action.keys)
+    _set_optional_string(data, "cmd", action.cmd)
+    _set_optional_string(data, "superkey_name", action.superkey_name)
+    if action.analog_control_names:
+        data["analog_control_names"] = list(action.analog_control_names)
+    elif action.analog_control_name:
+        data["analog_control_name"] = action.analog_control_name
+    if action.action_type == ActionType.MACRO:
+        data["target"] = action.macro_name or ""
+        data["replay_mouse_movement"] = bool(action.macro_replay_mouse_movement)
+        data["replay_mouse_clicks"] = bool(action.macro_replay_mouse_clicks)
+        data["speed"] = float(action.macro_speed)
+        data["loop_mode"] = action.macro_loop_mode
+        data["loop_count"] = int(action.macro_loop_count)
+        data["loop_stop_behavior"] = action.macro_loop_stop_behavior
+        data["move_to_start"] = bool(action.macro_move_to_start)
+        data["start_x"] = int(action.macro_start_x)
+        data["start_y"] = int(action.macro_start_y)
+        data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+        data["x"] = int(action.move_x)
+        data["y"] = int(action.move_y)
+    if action.action_type == ActionType.GAMEPAD_AXIS:
+        data["value"] = int(action.axis_value)
+    if action.action_type in _PROFILE_ACTION_TYPES:
+        _add_profile_action_fields(
+            data,
+            action,
+            fallback_target=False,
+            include_target=True,
+        )
+    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
+        _add_compositor_dispatch_fields(data, action)
+    if action.action_type == ActionType.REPEAT:
+        data["repeat_categories"] = list(action.repeat_categories or [])
+    if action.action_type in _RECORDING_ACTION_TYPES:
+        _add_recording_action_fields(data, action)
+    _add_rapidfire_and_tap_fields(data, action)
+    return data
 
 
 def clear_exec_refs(manager: "SessionManager", hardware_id: str) -> None:
@@ -144,92 +328,37 @@ def action_signature_payload(
     action: MappingAction,
     hardware_id: str,
 ) -> dict[str, object]:
-    action_type = action.action_type.value
-    data: dict[str, object] = {"action": action_type}
-    if action.source_profile_name:
-        data["source_profile_name"] = action.source_profile_name
+    data = _new_action_payload(action)
 
-    if action_type in (
-        "keyboard",
-        "mouse",
-        "gamepad",
-        "gamepad_axis",
-        "mouse_move_rel",
-        "mouse_move_abs",
-    ):
-        data["target"] = action.target or ""
-        if action_type in ("gamepad", "gamepad_axis") and action.output_id:
-            data["output_id"] = action.output_id
-        if action_type == "gamepad_axis":
-            data["value"] = int(action.axis_value)
-        if action_type in ("mouse_move_rel", "mouse_move_abs"):
-            data["x"] = int(action.move_x)
-            data["y"] = int(action.move_y)
-        if action.rapidfire_enabled:
-            data["rapidfire_enabled"] = True
-            data["rapidfire_hold_ms"] = int(action.rapidfire_hold_ms)
-            data["rapidfire_wait_ms"] = int(action.rapidfire_wait_ms)
-        if action.tap_enabled:
-            data["tap_enabled"] = True
-            data["tap_hold_ms"] = int(action.tap_hold_ms)
+    if action.action_type in _TARGET_ACTION_TYPES:
+        _add_target_action_fields(data, action, empty_target=True)
         return data
 
-    if action_type == "repeat":
+    if action.action_type == ActionType.REPEAT:
         _add_repeat_action_fields(data, action)
         return data
 
-    if action_type == "exec":
+    if action.action_type == ActionType.EXEC:
         data["cmd"] = action.cmd or ""
         return data
 
-    if action_type == "compositor_dispatch":
-        if action.compositor_id:
-            data["compositor"] = action.compositor_id
-        data["dispatcher"] = action.compositor_dispatcher or ""
-        data["args"] = action.compositor_args or ""
+    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
+        _add_compositor_dispatch_fields(data, action)
         return data
 
-    if action_type in (
-        "start_macro_recording",
-        "stop_macro_recording",
-        "play_macro_slot",
-        "cancel_macro_playback",
-        "emergency_reset",
-    ):
-        if action.action_type in (
-            ActionType.START_MACRO_RECORDING,
-            ActionType.STOP_MACRO_RECORDING,
-            ActionType.PLAY_MACRO_SLOT,
-        ):
-            data["recording_slot"] = int(action.macro_recording_slot)
+    if action.action_type in _RECORDING_ACTION_TYPES:
+        _add_recording_action_fields(data, action)
         return data
 
-    if action_type in (
-        "profile_enable",
-        "profile_disable",
-        "profile_toggle",
-    ):
-        data["profile_name"] = action.profile_name or action.target or ""
-        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
-        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
-            data["deactivation"] = deactivation
+    if action.action_type in _PROFILE_ACTION_TYPES:
+        _add_profile_action_fields(data, action)
         return data
 
-    if action_type == "macro":
-        data["macro_name"] = action.macro_name or ""
-        data["macro_replay_mouse_movement"] = bool(action.macro_replay_mouse_movement)
-        data["macro_replay_mouse_clicks"] = bool(action.macro_replay_mouse_clicks)
-        data["macro_speed"] = float(action.macro_speed)
-        data["macro_loop_mode"] = action.macro_loop_mode
-        data["macro_loop_count"] = int(action.macro_loop_count)
-        data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
-        data["macro_move_to_start"] = bool(action.macro_move_to_start)
-        data["macro_start_x"] = int(action.macro_start_x)
-        data["macro_start_y"] = int(action.macro_start_y)
-        data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+    if action.action_type == ActionType.MACRO:
+        _add_macro_payload_fields(data, action, include_empty=True)
         return data
 
-    if action_type == "superkey":
+    if action.action_type == ActionType.SUPERKEY:
         if action.superkey_name:
             superkey_config = manager.superkeys.get_superkey(action.superkey_name)
             if superkey_config:
@@ -240,7 +369,7 @@ def action_signature_payload(
                 )
         return data
 
-    if action_type == "analog_control":
+    if action.action_type == ActionType.ANALOG_CONTROL:
         configs = _resolved_analog_control_configs(manager, action)
         if len(configs) == 1:
             data["analog_control"] = serialize_analog_control_signature(
@@ -301,34 +430,11 @@ def profile_to_mapping(
 
     mapping: dict[str, dict[str, object]] = {}
     for button_id, action in resolved.mappings.items():
-        action_data: dict[str, object] = {"action": action.action_type.value}
-        if action.source_profile_name:
-            action_data["source_profile_name"] = action.source_profile_name
+        action_data = _new_action_payload(action)
 
-        if action.action_type.value in (
-            "keyboard",
-            "mouse",
-            "gamepad",
-            "gamepad_axis",
-            "mouse_move_rel",
-            "mouse_move_abs",
-        ):
-            action_data["target"] = action.target
-            if action.action_type.value in ("gamepad", "gamepad_axis") and action.output_id:
-                action_data["output_id"] = action.output_id
-            if action.action_type.value == "gamepad_axis":
-                action_data["value"] = int(action.axis_value)
-            if action.action_type.value in ("mouse_move_rel", "mouse_move_abs"):
-                action_data["x"] = int(action.move_x)
-                action_data["y"] = int(action.move_y)
-            if action.rapidfire_enabled:
-                action_data["rapidfire_enabled"] = True
-                action_data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
-                action_data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
-            if action.tap_enabled:
-                action_data["tap_enabled"] = True
-                action_data["tap_hold_ms"] = action.tap_hold_ms
-        elif action.action_type.value == "exec":
+        if action.action_type in _TARGET_ACTION_TYPES:
+            _add_target_action_fields(action_data, action, empty_target=False)
+        elif action.action_type == ActionType.EXEC:
             if action.cmd:
                 exec_ref = _allocate_exec_ref(
                     manager,
@@ -337,49 +443,17 @@ def profile_to_mapping(
                     hardware_id=hardware_id,
                 )
                 action_data["exec_ref"] = exec_ref
-        elif action.action_type.value == "compositor_dispatch":
-            if action.compositor_id:
-                action_data["compositor"] = action.compositor_id
-            action_data["dispatcher"] = action.compositor_dispatcher or ""
-            action_data["args"] = action.compositor_args or ""
-        elif action.action_type.value == "repeat":
+        elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
+            _add_compositor_dispatch_fields(action_data, action)
+        elif action.action_type == ActionType.REPEAT:
             _add_repeat_action_fields(action_data, action)
-        elif action.action_type.value in (
-            "start_macro_recording",
-            "stop_macro_recording",
-            "play_macro_slot",
-            "cancel_macro_playback",
-            "emergency_reset",
-        ):
-            if action.action_type in (
-                ActionType.START_MACRO_RECORDING,
-                ActionType.STOP_MACRO_RECORDING,
-                ActionType.PLAY_MACRO_SLOT,
-            ):
-                action_data["recording_slot"] = int(action.macro_recording_slot)
-        elif action.action_type.value in (
-            "profile_enable",
-            "profile_disable",
-            "profile_toggle",
-        ):
-            action_data["profile_name"] = action.profile_name or action.target or ""
-            deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
-            if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
-                action_data["deactivation"] = deactivation
-        elif action.action_type.value == "macro":
-            if action.macro_name:
-                action_data["macro_name"] = action.macro_name
-                action_data["macro_replay_mouse_movement"] = action.macro_replay_mouse_movement
-                action_data["macro_replay_mouse_clicks"] = action.macro_replay_mouse_clicks
-                action_data["macro_speed"] = action.macro_speed
-                action_data["macro_loop_mode"] = action.macro_loop_mode
-                action_data["macro_loop_count"] = int(action.macro_loop_count)
-                action_data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
-                action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
-                action_data["macro_start_x"] = int(action.macro_start_x)
-                action_data["macro_start_y"] = int(action.macro_start_y)
-                action_data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
-        elif action.action_type.value == "superkey":
+        elif action.action_type in _RECORDING_ACTION_TYPES:
+            _add_recording_action_fields(action_data, action)
+        elif action.action_type in _PROFILE_ACTION_TYPES:
+            _add_profile_action_fields(action_data, action)
+        elif action.action_type == ActionType.MACRO:
+            _add_macro_payload_fields(action_data, action, include_empty=False)
+        elif action.action_type == ActionType.SUPERKEY:
             if action.superkey_name:
                 superkey_config = manager.superkeys.get_superkey(action.superkey_name)
                 if superkey_config:
@@ -388,7 +462,7 @@ def profile_to_mapping(
                         superkey_config,
                         hardware_id,
                     )
-        elif action.action_type.value == "analog_control":
+        elif action.action_type == ActionType.ANALOG_CONTROL:
             analog_configs = _resolved_analog_control_configs(manager, action)
             if len(analog_configs) == 1:
                 action_data["analog_control"] = serialize_analog_control(
@@ -475,99 +549,45 @@ def combo_action_to_payload(
     *,
     step_count: int,
 ) -> JsonObject | None:
-    action_type = action.action_type.value
-    action_data: dict[str, object] = {"action": action_type}
-    if action.source_profile_name:
-        action_data["source_profile_name"] = action.source_profile_name
+    action_data = _new_action_payload(action)
 
-    if action_type in (
-        "keyboard",
-        "mouse",
-        "gamepad",
-        "gamepad_axis",
-        "mouse_move_rel",
-        "mouse_move_abs",
-    ):
-        action_data["target"] = action.target
-        if action_type in ("gamepad", "gamepad_axis") and action.output_id:
-            action_data["output_id"] = action.output_id
-        if action_type == "gamepad_axis":
-            action_data["value"] = int(action.axis_value)
-        if action_type in ("mouse_move_rel", "mouse_move_abs"):
-            action_data["x"] = int(action.move_x)
-            action_data["y"] = int(action.move_y)
-        if action.rapidfire_enabled:
-            action_data["rapidfire_enabled"] = True
-            action_data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
-            action_data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
-        if action.tap_enabled:
-            action_data["tap_enabled"] = True
-            action_data["tap_hold_ms"] = action.tap_hold_ms
+    if action.action_type in _TARGET_ACTION_TYPES:
+        _add_target_action_fields(action_data, action, empty_target=False)
         return action_data
 
-    if action_type == "repeat":
+    if action.action_type == ActionType.REPEAT:
         _add_repeat_action_fields(action_data, action)
         return action_data
 
-    if action_type == "exec":
+    if action.action_type == ActionType.EXEC:
         if not action.cmd:
             return None
         exec_ref = _allocate_exec_ref(manager, action.cmd, owner="combo")
         action_data["exec_ref"] = exec_ref
         return action_data
 
-    if action_type == "compositor_dispatch":
-        dispatcher = str(action.compositor_dispatcher or "").strip()
-        if not dispatcher:
+    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
+        if not _add_compositor_dispatch_fields(action_data, action, trim_dispatcher=True):
             return None
-        if action.compositor_id:
-            action_data["compositor"] = action.compositor_id
-        action_data["dispatcher"] = dispatcher
-        action_data["args"] = action.compositor_args or ""
         return action_data
 
-    if action_type in (
-        "start_macro_recording",
-        "stop_macro_recording",
-        "play_macro_slot",
-        "cancel_macro_playback",
-        "emergency_reset",
-    ):
-        if action.action_type in (
-            ActionType.START_MACRO_RECORDING,
-            ActionType.STOP_MACRO_RECORDING,
-            ActionType.PLAY_MACRO_SLOT,
-        ):
-            action_data["recording_slot"] = int(action.macro_recording_slot)
+    if action.action_type in _RECORDING_ACTION_TYPES:
+        _add_recording_action_fields(action_data, action)
         return action_data
 
-    if action_type in ("profile_enable", "profile_disable", "profile_toggle"):
-        action_data["profile_name"] = action.profile_name or action.target or ""
-        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
-        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
-            action_data["deactivation"] = deactivation
+    if action.action_type in _PROFILE_ACTION_TYPES:
+        _add_profile_action_fields(action_data, action)
         return action_data
 
-    if action_type == "macro":
-        if action.macro_name:
-            action_data["macro_name"] = action.macro_name
-            action_data["macro_replay_mouse_movement"] = action.macro_replay_mouse_movement
-            action_data["macro_replay_mouse_clicks"] = action.macro_replay_mouse_clicks
-            action_data["macro_speed"] = action.macro_speed
-            action_data["macro_loop_mode"] = action.macro_loop_mode
-            action_data["macro_loop_count"] = int(action.macro_loop_count)
-            action_data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
-            action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
-            action_data["macro_start_x"] = int(action.macro_start_x)
-            action_data["macro_start_y"] = int(action.macro_start_y)
-            action_data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+    if action.action_type == ActionType.MACRO:
+        if _add_macro_payload_fields(action_data, action, include_empty=False):
             return action_data
         return None
 
-    if action_type == "suppress":
+    if action.action_type == ActionType.SUPPRESS:
         return action_data
 
-    if action_type == "superkey":
+    if action.action_type == ActionType.SUPERKEY:
         config = _resolved_combo_superkey_config(manager, action, step_count=step_count)
         if config is None:
             return None
@@ -581,7 +601,7 @@ def combo_action_to_payload(
         )
         return action_data
 
-    if action_type == "analog_control":
+    if action.action_type == ActionType.ANALOG_CONTROL:
         log.warning("Ignoring unsupported combo action: analog_control")
         return None
 
@@ -970,45 +990,21 @@ def serialize_overload_action(
     *,
     track_combo_refs: bool = False,
 ) -> JsonObject:
-    action_type = action.action_type.value
     if action.action_type == ActionType.SUPERKEY:
         raise ValueError("nested superkeys are not allowed inside superkeys")
     if action.action_type == ActionType.ANALOG_CONTROL:
         raise ValueError("nested analog controls are not allowed inside analog controls")
-    action_data: JsonObject = {"action": action_type}
-    if action.source_profile_name:
-        action_data["source_profile_name"] = action.source_profile_name
+    action_data = _new_action_payload(action)
 
-    if action_type in (
-        "keyboard",
-        "mouse",
-        "gamepad",
-        "gamepad_axis",
-        "mouse_move_rel",
-        "mouse_move_abs",
-    ):
-        action_data["target"] = action.target
-        if action_type in ("gamepad", "gamepad_axis") and action.output_id:
-            action_data["output_id"] = action.output_id
-        if action_type == "gamepad_axis":
-            action_data["value"] = int(action.axis_value)
-        if action_type in ("mouse_move_rel", "mouse_move_abs"):
-            action_data["x"] = int(action.move_x)
-            action_data["y"] = int(action.move_y)
-        if action.rapidfire_enabled:
-            action_data["rapidfire_enabled"] = True
-            action_data["rapidfire_hold_ms"] = action.rapidfire_hold_ms
-            action_data["rapidfire_wait_ms"] = action.rapidfire_wait_ms
-        if action.tap_enabled:
-            action_data["tap_enabled"] = True
-            action_data["tap_hold_ms"] = action.tap_hold_ms
+    if action.action_type in _TARGET_ACTION_TYPES:
+        _add_target_action_fields(action_data, action, empty_target=False)
         return action_data
 
-    if action_type == "repeat":
+    if action.action_type == ActionType.REPEAT:
         _add_repeat_action_fields(action_data, action)
         return action_data
 
-    if action_type == "exec":
+    if action.action_type == ActionType.EXEC:
         if action.cmd:
             exec_ref = _allocate_exec_ref(
                 manager,
@@ -1019,51 +1015,20 @@ def serialize_overload_action(
             action_data["exec_ref"] = exec_ref
         return action_data
 
-    if action_type == "compositor_dispatch":
-        if action.compositor_id:
-            action_data["compositor"] = action.compositor_id
-        action_data["dispatcher"] = action.compositor_dispatcher or ""
-        action_data["args"] = action.compositor_args or ""
+    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
+        _add_compositor_dispatch_fields(action_data, action)
         return action_data
 
-    if action_type in (
-        "start_macro_recording",
-        "stop_macro_recording",
-        "play_macro_slot",
-        "cancel_macro_playback",
-    ):
-        if action.action_type in (
-            ActionType.START_MACRO_RECORDING,
-            ActionType.STOP_MACRO_RECORDING,
-            ActionType.PLAY_MACRO_SLOT,
-        ):
-            action_data["recording_slot"] = int(action.macro_recording_slot)
+    if action.action_type in _RECORDING_ACTION_TYPES:
+        _add_recording_action_fields(action_data, action)
         return action_data
 
-    if action_type in (
-        "profile_enable",
-        "profile_disable",
-        "profile_toggle",
-    ):
-        action_data["profile_name"] = action.profile_name or action.target or ""
-        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
-        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
-            action_data["deactivation"] = deactivation
+    if action.action_type in _PROFILE_ACTION_TYPES:
+        _add_profile_action_fields(action_data, action)
         return action_data
 
-    if action_type == "macro":
-        if action.macro_name:
-            action_data["macro_name"] = action.macro_name
-            action_data["macro_replay_mouse_movement"] = action.macro_replay_mouse_movement
-            action_data["macro_replay_mouse_clicks"] = action.macro_replay_mouse_clicks
-            action_data["macro_speed"] = action.macro_speed
-            action_data["macro_loop_mode"] = action.macro_loop_mode
-            action_data["macro_loop_count"] = int(action.macro_loop_count)
-            action_data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
-            action_data["macro_move_to_start"] = bool(action.macro_move_to_start)
-            action_data["macro_start_x"] = int(action.macro_start_x)
-            action_data["macro_start_y"] = int(action.macro_start_y)
-            action_data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+    if action.action_type == ActionType.MACRO:
+        _add_macro_payload_fields(action_data, action, include_empty=False)
         return action_data
 
     return action_data

@@ -76,7 +76,9 @@ class _HangingSessionWriter(_FakeSessionWriter):
 
 
 @pytest.mark.asyncio
-async def test_connect_loop_reconnect_reapplies_profiles_after_restart() -> None:
+async def test_connect_loop_reconnect_reapplies_profiles_after_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     manager.client = _FakeKeymasqdClient()
     manager.running = True
@@ -92,7 +94,6 @@ async def test_connect_loop_reconnect_reapplies_profiles_after_restart() -> None
         if len(activations) >= 2:
             manager.running = False
 
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_profiles_module,
         "activate_initial_profiles",
@@ -100,10 +101,7 @@ async def test_connect_loop_reconnect_reapplies_profiles_after_restart() -> None
     )
     manager._broadcast_keymasqd_status = lambda connected: status_events.append(connected)  # type: ignore[assignment]
 
-    try:
-        await manager.connect_loop()
-    finally:
-        monkeypatch.undo()
+    await manager.connect_loop()
 
     assert activations == ["apply", "apply"]
     assert status_events[:4] == [True, False, True, False]

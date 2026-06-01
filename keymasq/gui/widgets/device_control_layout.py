@@ -1,9 +1,11 @@
+import re
 from collections.abc import Callable, Iterable
 
 from keymasq.common.devices import is_gamepad_button_name
 from keymasq.common.models import DeviceType, HardwareConfig
 
 KEYBOARD_LAYOUT_KEY_THRESHOLD = 40
+_TRAILING_NUMBER_RE = re.compile(r"^(?P<prefix>.*?)(?P<number>\d+)\s*$")
 
 POINTER_MAIN_BUTTON_IDS = {"btn_left", "btn_right", "btn_middle"}
 POINTER_SCROLL_KEYWORDS = {"scroll", "wheel"}
@@ -49,3 +51,12 @@ def group_pointer_controls[T](
             extra_buttons.append(control)
 
     return main_buttons, scroll_buttons, side_buttons, extra_buttons
+
+
+def label_sort_key(label: object) -> tuple[str, int, int, str]:
+    text = str(label or "").strip()
+    lowered = text.lower()
+    match = _TRAILING_NUMBER_RE.match(lowered)
+    if match:
+        return (match.group("prefix").strip(), 0, int(match.group("number")), lowered)
+    return (lowered, 1, 0, lowered)

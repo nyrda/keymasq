@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 
 import evdev
 import gi
@@ -16,7 +16,7 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
 )
 
 from keymasq import __version__
-from keymasq.common.devices import is_gamepad_button_name, resolve_evdev_code
+from keymasq.common.devices import resolve_evdev_code
 from keymasq.common.gamepad_axes import (
     GAMEPAD_AXIS_RANGES,
     gamepad_axis_percent_from_value,
@@ -43,17 +43,26 @@ from keymasq.common.models import (
     action_type_supports_rapidfire,
 )
 from keymasq.common.slurp import get_slurp_capture
-from keymasq.common.virtual_devices import is_virtual_gamepad_output_id, virtual_gamepad_output_id
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.gui.widgets.compositor_actions import (
     build_compositor_action_pages,
     compositor_action_tab_name,
 )
+from keymasq.gui.widgets.docs_links import actions_docs_url
 from keymasq.gui.widgets.fuzzy_search import (
     fuzzy_query_matches,
     install_listbox_fuzzy_filter,
     macro_search_text,
+)
+from keymasq.gui.widgets.gamepad_output_choices import (
+    gamepad_output_choice_matches,
+    gamepad_output_choices_for,
+    gamepad_output_unavailable_message,
+    virtual_gamepad_count,
+)
+from keymasq.gui.widgets.input_picker_shared import (
+    GAMEPAD_BUTTONS,
 )
 from keymasq.gui.widgets.input_picker_shared import (
     build_gamepad_tab as build_shared_gamepad_tab,
@@ -74,7 +83,6 @@ from keymasq.session.analog_controls import AnalogControlManager
 from keymasq.session.compositor import detect_compositor_sync
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.superkeys import SuperkeyManager
-from keymasq.session.virtual_devices import load_virtual_gamepad_count
 
 log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
 
@@ -89,44 +97,6 @@ _PROFILE_LIFETIME_PRESETS_TOGGLE: tuple[tuple[str, str], ...] = (
     ("after_one_action", "One-shot"),
     ("custom", "Custom"),
 )
-
-
-def _virtual_gamepad_count() -> int:
-    try:
-        return max(0, int(load_virtual_gamepad_count()))
-    except Exception:
-        return 1
-
-
-def _virtual_gamepad_index(output_id: str | None) -> int | None:
-    if output_id is None:
-        return 1
-    if not is_virtual_gamepad_output_id(output_id):
-        return None
-    try:
-        return int(output_id.removeprefix("virtual-gamepad-"))
-    except ValueError:
-        return None
-
-
-def _gamepad_output_unavailable_message(output_id: str | None, count: int) -> str | None:
-    index = _virtual_gamepad_index(output_id)
-    if index is None:
-        return None
-    if index <= count:
-        return None
-    if output_id is None:
-        return "No virtual gamepads are configured."
-    return (
-        f"{output_id} is not configured. This mapping will be saved, but output will be "
-        "dropped until that virtual gamepad is enabled."
-    )
-
-
-def _format_current_virtual_output_choice(output_id: str) -> str:
-    if is_virtual_gamepad_output_id(output_id):
-        return f"{output_id} (unavailable)"
-    return f"{output_id} (unknown)"
 
 
 def _resolve_gamepad_button_target(raw: str) -> str | None:
@@ -183,60 +153,6 @@ def _resolve_gamepad_axis_target(raw: str) -> str | None:
     if isinstance(names, str) and names.startswith("ABS_"):
         return names.lower()
     return None
-
-
-def _is_hardware_gamepad(config: object) -> bool:
-    evdev_devices = getattr(config, "evdev_devices", []) or []
-    for device in evdev_devices:
-        device_type = getattr(device, "device_type", None)
-        if getattr(device_type, "value", device_type) == "gamepad":
-            return True
-    return any(
-        is_gamepad_button_name(getattr(button, "evdev", None))
-        for button in getattr(config, "buttons", []) or []
-    )
-
-
-def _hardware_gamepad_output_label(config: object) -> str:
-    hardware_id = str(getattr(config, "hardware_id", "") or "")
-    name = str(getattr(config, "name", "") or "").strip()
-    if name and hardware_id:
-        return f"{name} ({hardware_id})"
-    return name or hardware_id
-
-
-def _gamepad_output_choice_matches(choice_id: str | None, selected_id: str | None) -> bool:
-    if choice_id == selected_id:
-        return True
-    return choice_id is None and selected_id == "virtual-gamepad-1"
-
-
-def _gamepad_output_choices_for(
-    selected_id: str | None,
-    count: int,
-    hardware_configs: Sequence[object],
-) -> list[tuple[str | None, str]]:
-    default_label = "Virtual Gamepad 1" if count > 0 else "Default output unavailable"
-    choices: list[tuple[str | None, str]] = [(None, default_label)]
-    for index in range(2, count + 1):
-        output_id = virtual_gamepad_output_id(index)
-        choices.append((output_id, f"Virtual Gamepad {index}"))
-
-    for config in hardware_configs:
-        if _is_hardware_gamepad(config):
-            choices.append(
-                (
-                    str(getattr(config, "hardware_id", "") or ""),
-                    _hardware_gamepad_output_label(config),
-                )
-            )
-
-    if selected_id and all(
-        not _gamepad_output_choice_matches(output_id, selected_id)
-        for output_id, _label in choices
-    ):
-        choices.append((selected_id, _format_current_virtual_output_choice(selected_id)))
-    return choices
 
 
 KEYBOARD_LAYOUT = [
@@ -395,24 +311,6 @@ KEY_WIDTHS = {
     "RCtrl": 1.25,
 }
 
-GAMEPAD_BUTTONS = {
-    "A": ("btn_south", False),
-    "B": ("btn_east", False),
-    "X": ("btn_north", False),
-    "Y": ("btn_west", False),
-    "LB": ("btn_tl", False),
-    "RB": ("btn_tr", False),
-    "Select": ("btn_select", False),
-    "Start": ("btn_start", False),
-    "Guide": ("btn_mode", False),
-    "LS": ("btn_thumbl", False),
-    "RS": ("btn_thumbr", False),
-    "D-Up": ("btn_dpad_up", False),
-    "D-Down": ("btn_dpad_down", False),
-    "D-Left": ("btn_dpad_left", False),
-    "D-Right": ("btn_dpad_right", False),
-}
-
 F_EXTRA = ["F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"]
 
 MEDIA_KEY_GROUPS = [
@@ -478,24 +376,13 @@ REPEAT_CATEGORY_OPTIONS = (
 )
 
 EVDEV_TO_KEY = {v: k for k, v in KEY_TO_EVDEV.items()}
-EVDEV_TO_GAMEPAD = {v[0]: k for k, v in GAMEPAD_BUTTONS.items()}
+EVDEV_TO_GAMEPAD = {v: k for k, v in GAMEPAD_BUTTONS.items()}
 
 _compact_tabs_css_installed = False
 
 
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version:
-        return "master"
-    if "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
 def _actions_docs_url(anchor: str) -> str:
-    if anchor == "analog-controls":
-        return f"https://keymasq.tools/docs/{_docs_version()}/ANALOG_CONTROLS/"
-    return f"https://keymasq.tools/docs/{_docs_version()}/ACTIONS/#{anchor}"
+    return actions_docs_url(anchor, version=__version__)
 
 
 def _create_actions_docs_button() -> Gtk.Button:
@@ -1658,7 +1545,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         dropdown.set_valign(Gtk.Align.CENTER)
         selected = 0
         for index, output_id in enumerate(self._gamepad_output_ids):
-            if _gamepad_output_choice_matches(output_id, self._selected_gamepad_output_id):
+            if gamepad_output_choice_matches(output_id, self._selected_gamepad_output_id):
                 selected = index
                 break
         dropdown.set_selected(selected)
@@ -1670,12 +1557,12 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         return box
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
-        count = _virtual_gamepad_count()
+        count = virtual_gamepad_count()
         try:
             hardware_configs = list(HardwareManager().list_hardware())
         except Exception:
             hardware_configs = []
-        return _gamepad_output_choices_for(
+        return gamepad_output_choices_for(
             self._selected_gamepad_output_id,
             count,
             hardware_configs,
@@ -1691,9 +1578,9 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         label = self._gamepad_output_warning_label
         if label is None:
             return
-        message = _gamepad_output_unavailable_message(
+        message = gamepad_output_unavailable_message(
             self._selected_gamepad_output_id,
-            _virtual_gamepad_count(),
+            virtual_gamepad_count(),
         )
         label.set_label(message or "")
         label.set_visible(bool(message))
@@ -3923,7 +3810,7 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             dropdown = Gtk.DropDown.new_from_strings([label for _output_id, label in choices])
             selected = 0
             for index, output_id in enumerate(self._gamepad_output_ids):
-                if _gamepad_output_choice_matches(output_id, self._selected_gamepad_output_id):
+                if gamepad_output_choice_matches(output_id, self._selected_gamepad_output_id):
                     selected = index
                     break
             dropdown.set_selected(selected)
@@ -3946,12 +3833,12 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         return outer
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
-        count = _virtual_gamepad_count()
+        count = virtual_gamepad_count()
         try:
             hardware_configs = list(HardwareManager().list_hardware())
         except Exception:
             hardware_configs = []
-        return _gamepad_output_choices_for(
+        return gamepad_output_choices_for(
             self._selected_gamepad_output_id,
             count,
             hardware_configs,
@@ -3967,9 +3854,9 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         label = self._gamepad_output_warning_label
         if label is None:
             return
-        message = _gamepad_output_unavailable_message(
+        message = gamepad_output_unavailable_message(
             self._selected_gamepad_output_id,
-            _virtual_gamepad_count(),
+            virtual_gamepad_count(),
         )
         label.set_label(message or "")
         label.set_visible(bool(message))

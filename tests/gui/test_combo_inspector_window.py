@@ -1,8 +1,10 @@
-# ruff: noqa: F403, F405
 from collections.abc import Callable
 
-from tests.gui.support import *
+import pytest
 
+from tests.gui.support import collect_listbox_row_labels
+
+gi = pytest.importorskip("gi")
 gi.require_version("Gtk", "4.0")
 
 
@@ -94,23 +96,19 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
     assert len(window._snapshots) == 1
     assert window.snapshot_dropdown.get_sensitive() is False
 
-    first_row = window.combo_listbox.get_first_child()
-    assert first_row is not None
-    row_box = first_row.get_child()
-    name_box = row_box.get_first_child()
-    assert name_box.get_first_child().get_label() == "Quick Save"
+    assert collect_listbox_row_labels(window.combo_listbox) == ["Quick Save"]
 
     window.search_button.emit("clicked")
     assert window.search_entry.get_visible() is True
 
     window.search_entry.set_text("gaming kbd")
-    assert window._visible_combo_count() == 1
+    assert window._combo_list.visible_count() == 1
 
     window.search_entry.set_text("across devices")
-    assert window._visible_combo_count() == 1
+    assert window._combo_list.visible_count() == 1
 
     window.search_entry.set_text("missing")
-    assert window._visible_combo_count() == 0
+    assert window._combo_list.visible_count() == 0
     assert window.section_label.get_text() == "No matching active combos."
     assert window.combo_listbox.get_visible() is False
 
@@ -126,7 +124,7 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
     window.snapshot_dropdown.set_selected(1)
     assert window._status_label.get_text() == "Active Combos Snapshot - 1 combo"
     assert window.active_profiles_label.get_text() == "Base, Overlay"
-    assert window._visible_combo_count() == 1
+    assert window._combo_list.visible_count() == 1
 
     current_snapshot["value"] = snapshot
     callbacks["profiles_changed"][0]({"event": "profiles_changed"})
@@ -199,11 +197,11 @@ def test_combo_inspector_window_ignores_stale_snapshot_responses(monkeypatch) ->
 
     response_callbacks[1](new_snapshot)
     assert window.active_profiles_label.get_text() == "New"
-    assert _combo_inspector_row_names(window) == ["New Combo"]
+    assert collect_listbox_row_labels(window.combo_listbox) == ["New Combo"]
 
     response_callbacks[0](old_snapshot)
     assert window.active_profiles_label.get_text() == "New"
-    assert _combo_inspector_row_names(window) == ["New Combo"]
+    assert collect_listbox_row_labels(window.combo_listbox) == ["New Combo"]
     assert len(window._snapshots) == 1
 
     window._finalize()
@@ -254,77 +252,8 @@ def test_combo_inspector_window_ignores_snapshot_response_after_disconnect(monke
     response_callbacks[0](snapshot)
     assert window._status_label.get_text() == "Active Combos - Daemon disconnected"
     assert window.active_profiles_label.get_text() == "None"
-    assert _combo_inspector_row_names(window) == []
+    assert collect_listbox_row_labels(window.combo_listbox) == []
     assert window._snapshots == []
-
-    window._finalize()
-
-
-def test_combo_inspector_window_sorts_like_combo_tab(monkeypatch) -> None:
-    from gi.repository import Gtk
-
-    from keymasq.gui.widgets import combo_inspector_window as inspector_module
-    from keymasq.gui.widgets.combo_inspector_window import ComboInspectorWindow
-
-    snapshot = {
-        "status": "ok",
-        "active_profiles": ["Base"],
-        "combos": [
-            {
-                "id": "combo-1",
-                "name": "Bravo",
-                "profile_name": "Base",
-                "order": 0,
-                "steps": [{"events": [{"evdev": "key_c"}]}],
-                "action": {"action": "keyboard", "target": "key_c"},
-            },
-            {
-                "id": "combo-2",
-                "name": "Alpha",
-                "profile_name": "Base",
-                "order": 1,
-                "steps": [{"events": [{"evdev": "key_a"}]}],
-                "action": {"action": "keyboard", "target": "key_b"},
-            },
-            {
-                "id": "combo-3",
-                "name": "Charlie",
-                "profile_name": "Base",
-                "order": 2,
-                "steps": [{"events": [{"evdev": "key_b"}]}],
-                "action": {"action": "keyboard", "target": "key_a"},
-            },
-        ],
-    }
-
-    def fake_request_async(_payload, callback, timeout=5.0):
-        callback(snapshot)
-
-    monkeypatch.setattr(inspector_module, "register_session_event_callback", lambda *_: None)
-    monkeypatch.setattr(inspector_module, "unregister_session_event_callback", lambda *_: None)
-    monkeypatch.setattr(inspector_module, "session_request_async", fake_request_async)
-
-    window = ComboInspectorWindow(Gtk.Window())
-
-    assert _combo_inspector_row_names(window) == ["Bravo", "Alpha", "Charlie"]
-    assert window._name_header_btn.get_label() == "Name"
-
-    window._name_header_btn.emit("clicked")
-    assert _combo_inspector_row_names(window) == ["Alpha", "Bravo", "Charlie"]
-    assert window._name_header_btn.get_label() == "Name \u25b4"
-
-    window._name_header_btn.emit("clicked")
-    assert _combo_inspector_row_names(window) == ["Charlie", "Bravo", "Alpha"]
-    assert window._name_header_btn.get_label() == "Name \u25be"
-
-    window._trigger_header_btn.emit("clicked")
-    assert _combo_inspector_row_names(window) == ["Alpha", "Charlie", "Bravo"]
-    assert window._trigger_header_btn.get_label() == "Trigger \u25b4"
-    assert window._name_header_btn.get_label() == "Name"
-
-    window._action_header_btn.emit("clicked")
-    assert _combo_inspector_row_names(window) == ["Charlie", "Alpha", "Bravo"]
-    assert window._action_header_btn.get_label() == "Action \u25b4"
 
     window._finalize()
 
@@ -348,18 +277,6 @@ def test_combo_inspector_snapshot_signature_includes_match_across_devices() -> N
     }
 
     assert _snapshot_signature(scoped) != _snapshot_signature(across)
-
-
-def _combo_inspector_row_names(window) -> list[str]:
-    names: list[str] = []
-    row = window.combo_listbox.get_first_child()
-    while row is not None:
-        row_box = row.get_child()
-        name_box = row_box.get_first_child()
-        name_label = name_box.get_first_child()
-        names.append(name_label.get_label())
-        row = row.get_next_sibling()
-    return names
 
 
 def test_combo_inspector_mapping_action_payload_preserves_macro_loop_stop_behavior() -> None:

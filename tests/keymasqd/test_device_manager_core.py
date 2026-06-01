@@ -1,11 +1,29 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.device_manager_support import *
+import asyncio
+import errno
+import logging
+import os
+from collections import deque
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock, Mock
+
+import evdev
+import pytest
+
+from keymasq.common.ipc import CommandType
+from keymasq.common.models import DeviceType
+from keymasq.keymasqd import device_manager as dm
+from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
+from keymasq.keymasqd.runtime import grab_lifecycle as ldm
+from keymasq.keymasqd.runtime import macros as mdm
+from keymasq.keymasqd.runtime import topology as tdm
+from tests.keymasqd.device_manager_support import FakeUInput
 
 
 @pytest.mark.asyncio
 async def test_set_cursor_position_emits_absolute_mouse_move() -> None:
     manager = DeviceManager()
-    mouse = _FakeUInput()
+    mouse = FakeUInput()
     manager.output_state.mouse_uinput = mouse  # type: ignore[assignment]
 
     result = await manager.set_cursor_position(123, 456)
@@ -329,9 +347,7 @@ class TestDeviceManager:
     ) -> None:
         manager = DeviceManager()
         monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
-        evdev_interfaces = [
-            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-        ]
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
 
         result = await manager.grab_device(
             hardware_id="2dc8:3106",
@@ -380,9 +396,7 @@ class TestDeviceManager:
             "resolve_evdev_interfaces",
             fake_resolve_evdev_interfaces,
         )
-        evdev_interfaces = [
-            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-        ]
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
 
         result = await manager.grab_device(
             hardware_id="2dc8:3106",
@@ -869,7 +883,7 @@ class TestListDevices:
     async def test_diagnostics_loop_offloads_snapshot_to_thread(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        ) -> None:
+    ) -> None:
         manager = DeviceManager()
         manager.diagnostics_state.enabled = True
         manager.broadcast_callback = AsyncMock()
@@ -991,7 +1005,7 @@ class TestListDevices:
         monkeypatch.setattr(tdm, "schedule_topology_reconcile", schedule_topology_reconcile)
 
         with pytest.raises(asyncio.CancelledError):
-            await _runtime_topology_watch_loop(manager)
+            await tdm.topology_watch_loop(manager, log=dm.log, deps=dm._topology_runtime_deps())
 
         schedule_topology_reconcile.assert_called_once_with(
             manager,
@@ -1040,7 +1054,7 @@ class TestListDevices:
 
         with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
             with pytest.raises(asyncio.CancelledError):
-                await _runtime_topology_watch_loop(manager)
+                await tdm.topology_watch_loop(manager, log=dm.log, deps=dm._topology_runtime_deps())
 
         assert "Topology scan failed: scan boom" in caplog.text
         schedule_topology_reconcile.assert_called_once_with(
@@ -1313,18 +1327,15 @@ class TestMacroControlActions:
         monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
         monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
 
-        result = await _runtime_run_macro_control_action(
-            manager,
-            {"macro_action": "wait", "duration_us": 20_000},
+        result = await mdm.run_macro_control_action(
+            manager, {"macro_action": "wait", "duration_us": 20_000}, deps=dm._macro_runtime_deps()
         )
 
         assert sleep_calls == [0.02]
         assert result == pytest.approx(0.02)
 
     @pytest.mark.asyncio
-    async def test_run_macro_control_action_wait_renews_mouse_suppression(
-        self, monkeypatch
-    ):
+    async def test_run_macro_control_action_wait_renews_mouse_suppression(self, monkeypatch):
         manager = DeviceManager()
         clock = {"now": 10.0}
         begin_mouse_rel_suppression = Mock()
@@ -1340,10 +1351,11 @@ class TestMacroControlActions:
         monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
         monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
 
-        result = await _runtime_run_macro_control_action(
+        result = await mdm.run_macro_control_action(
             manager,
             {"macro_action": "wait", "duration_us": 10_000_000},
             renew_mouse_suppression=True,
+            deps=dm._macro_runtime_deps(),
         )
 
         begin_mouse_rel_suppression.assert_called_once()
@@ -1351,9 +1363,7 @@ class TestMacroControlActions:
         assert result == pytest.approx(10.0)
 
     @pytest.mark.asyncio
-    async def test_mouse_suppression_watchdog_keeps_active_inhibit_count(
-        self, monkeypatch
-    ):
+    async def test_mouse_suppression_watchdog_keeps_active_inhibit_count(self, monkeypatch):
         manager = DeviceManager()
 
         async def fake_sleep(_duration: float) -> None:
@@ -1398,9 +1408,10 @@ class TestMacroControlActions:
         monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
         monkeypatch.setattr(mdm.random, "randint", lambda _minimum, _maximum: 50_000)
 
-        result = await _runtime_run_macro_control_action(
+        result = await mdm.run_macro_control_action(
             manager,
             {"macro_action": "wait_random", "min_us": 10_000, "max_us": 80_000},
+            deps=dm._macro_runtime_deps(),
         )
 
         assert sleep_calls == [0.05]
@@ -1417,12 +1428,13 @@ class TestMacroControlActions:
 
         manager.broadcast_callback = cb
 
-        result = await _runtime_run_macro_control_action(
+        result = await mdm.run_macro_control_action(
             manager,
             {
                 "macro_action": "exec_async",
                 "command": "echo hi",
             },
+            deps=dm._macro_runtime_deps(),
         )
 
         callback.assert_awaited_once()
@@ -1443,7 +1455,7 @@ class TestMacroControlActions:
 
         manager.broadcast_callback = cb
 
-        result = await _runtime_run_macro_control_action(
+        result = await mdm.run_macro_control_action(
             manager,
             {
                 "macro_action": "compositor_dispatch",
@@ -1451,6 +1463,7 @@ class TestMacroControlActions:
                 "dispatcher": "workspace",
                 "args": "e+1",
             },
+            deps=dm._macro_runtime_deps(),
         )
 
         callback.assert_awaited_once()
@@ -1498,7 +1511,7 @@ class TestMacroControlActions:
         monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
         monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
 
-        result = await _runtime_run_macro_control_action(
+        result = await mdm.run_macro_control_action(
             manager,
             {
                 "macro_action": "exec_sync",
@@ -1506,6 +1519,7 @@ class TestMacroControlActions:
                 "inhibit_mouse": True,
                 "timeout_ms": 100,
             },
+            deps=dm._macro_runtime_deps(),
         )
 
         assert begin_mouse_rel_suppression.called is True
@@ -1523,7 +1537,10 @@ class TestMacroControlActions:
 
 class TestReleaseScheduling:
     @pytest.mark.asyncio
-    async def test_release_on_hold_state_is_retried_then_released(self):
+    async def test_release_on_hold_state_is_retried_then_released(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
         manager = DeviceManager(held_release_retry_s=0.001)
         fake_device = type("Device", (), {})()
         fake_device.release = AsyncMock()
@@ -1540,13 +1557,17 @@ class TestReleaseScheduling:
         async def release_device(_manager, _hardware_id: str, *, log) -> None:
             await fake_device.release()
 
-        monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(ldm, "release_device_unlocked", release_device)
 
-        _runtime_schedule_hardware_release(manager, "hw", 0.001)
+        ldm.schedule_hardware_release_unlocked(
+            manager,
+            "hw",
+            0.001,
+            asyncio_mod=ldm.ASYNCIO_RUNTIME,
+            log=dm.log,
+        )
         task = manager.grab_state.pending_hardware_release["hw"]
         await task
-        monkeypatch.undo()
 
         assert fake_device.release.await_count == 1
         assert holds["count"] >= 2

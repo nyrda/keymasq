@@ -1,5 +1,27 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.device_manager_support import *
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import evdev
+import pytest
+
+from keymasq.common.ipc import CommandType
+from keymasq.common.models import ActionType, DeviceType
+from keymasq.keymasqd import device_manager as dm
+from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import combos as cdm
+from keymasq.keymasqd.runtime import grabbed_device as gdm
+from keymasq.keymasqd.runtime import grabbed_device_events as gde
+from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from tests.keymasqd.device_manager_support import (
+    FakeUInput,
+    combo_event_runtime_kwargs,
+    grabbed_event_processing_deps,
+    make_combo_grabbed_device,
+    make_combo_runtime_setup,
+    make_grabbed_device,
+)
+
 
 class TestCombos:
     @pytest.mark.asyncio
@@ -38,8 +60,8 @@ class TestCombos:
             hardware_id="1234:5678",
             button_map={"key_f13": "key_f13"},
             mapping_getter=lambda: {},
-            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
-                manager, *args, **kwargs
+            event_callback=lambda *args, **kwargs: cdm.on_device_event(
+                manager, *args, **kwargs, **combo_event_runtime_kwargs()
             ),
             device_type=DeviceType.KEYBOARD,
         )
@@ -53,16 +75,18 @@ class TestCombos:
         monkeypatch.setattr(gdm, "resolve_stable_path", fail_resolve)
         monkeypatch.setattr(gdm, "get_interface_id", fail_interface)
 
-        decision = await _runtime_process_grabbed_event(
+        decision = await gde.process_event(
             device,
             SimpleNamespace(
                 type=evdev.ecodes.EV_KEY,
                 code=evdev.ecodes.KEY_F13,
                 value=1,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert decision is None
+
     @pytest.mark.asyncio
     async def test_set_combos_parses_runtime_combo(self):
         manager = DeviceManager()
@@ -145,14 +169,16 @@ class TestCombos:
 
         assert manager.active_combos[0].steps[0].bindings[0].hardware_id == ""
 
-        pressed = await _runtime_on_device_event(
+        pressed = await cdm.on_device_event(
             manager,
             "9999:0001",
             "/dev/input/event-test",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_F13,
             1,
+            None,
             source="kbd",
+            **combo_event_runtime_kwargs(),
         )
 
         assert pressed is not None
@@ -171,7 +197,7 @@ class TestCombos:
 
         manager.broadcast_callback = cb
 
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         manager.grabbed_devices["1234:5678"] = [device]
 
         device.state.combo_passthrough_held.add("key_leftalt")
@@ -206,20 +232,23 @@ class TestCombos:
             ]
         )
 
-        press_v = await _runtime_on_device_event(
+        press_v = await cdm.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/event-test",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.KEY_V,
             1,
+            None,
             source="kbd",
+            **combo_event_runtime_kwargs(),
         )
 
         assert press_v is not None
         assert press_v.consume_current_event is True
         assert press_v.action_transition is not None
         assert press_v.action_transition.combo_id == "combo-browser-paste"
+
     @pytest.mark.asyncio
     async def test_runtime_combo_match_consumes_events_and_broadcasts(self, monkeypatch):
         manager = DeviceManager()
@@ -253,21 +282,27 @@ class TestCombos:
         monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
 
-        pressed = await _runtime_on_device_event(
+        pressed = await cdm.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.BTN_SIDE,
             1,
+            None,
+            None,
+            **combo_event_runtime_kwargs(),
         )
-        released = await _runtime_on_device_event(
+        released = await cdm.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
             evdev.ecodes.EV_KEY,
             evdev.ecodes.BTN_SIDE,
             0,
+            None,
+            None,
+            **combo_event_runtime_kwargs(),
         )
         await asyncio.sleep(0)
 
@@ -278,15 +313,15 @@ class TestCombos:
         assert sent_command == CommandType.ACTION_TRIGGER
         assert sent_data["action_type"] == "profile_toggle"
         assert sent_data["profile_name"] == "Gaming"
+
     @pytest.mark.asyncio
     async def test_combo_recall_repeat_suppression_resumes_after_restore_via_event_loop(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        manager = DeviceManager()
         hardware_id = "1234:5678"
-        passthrough = _FakeUInput()
-        await manager.set_combos(
+        setup = await make_combo_runtime_setup(
+            monkeypatch,
             [
                 {
                     "id": "combo-recall-repeat",
@@ -311,34 +346,21 @@ class TestCombos:
                     "recall_trigger_keys": True,
                     "restore_trigger_keys": ["key_x"],
                 }
-            ]
-        )
-        manager.output_state.keyboard_uinput = _FakeUInput()
-
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
+            ],
             hardware_id=hardware_id,
             button_map={"key_x": "key_x", "key_c": "key_c"},
-            mapping_getter=lambda: {},
-            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
-                manager, *args, **kwargs
-            ),
-            device_type=DeviceType.KEYBOARD,
         )
-        device._running = True
-        device.uinput = passthrough  # type: ignore[assignment]
-        manager.grabbed_devices = {hardware_id: [device]}
+        device = setup.device
+        passthrough = setup.passthrough
+        keyboard = setup.keyboard
 
         press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
         press_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=1)
         repeat_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=2)
         release_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=0)
 
-        await _runtime_process_grabbed_event(device, press_x)
-        await _runtime_process_grabbed_event(device, press_c)
+        await gde.process_event(device, press_x, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, press_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert device.state.combo_recalled_bindings == {"key_x"}
@@ -346,11 +368,11 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 0),
         ]
-        assert manager.output_state.keyboard_uinput.writes == [
+        assert keyboard.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
         ]
 
-        await _runtime_process_grabbed_event(device, repeat_x)
+        await gde.process_event(device, repeat_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == [
@@ -358,7 +380,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 0),
         ]
 
-        await _runtime_process_grabbed_event(device, release_c)
+        await gde.process_event(device, release_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert device.state.combo_recalled_bindings == set()
@@ -367,12 +389,12 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
         ]
-        assert manager.output_state.keyboard_uinput.writes == [
+        assert keyboard.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
         ]
 
-        await _runtime_process_grabbed_event(device, repeat_x)
+        await gde.process_event(device, repeat_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == [
@@ -381,17 +403,19 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 2),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_restore_respects_suppress_mapping_for_trigger_key(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        manager = DeviceManager()
         hardware_id = "1234:5678"
-        passthrough = _FakeUInput()
-        keyboard = _FakeUInput()
+        mapping = {
+            "key_capslock": dm.MappingAction(action_type=ActionType.SUPPRESS),
+        }
 
-        await manager.set_combos(
+        setup = await make_combo_runtime_setup(
+            monkeypatch,
             [
                 {
                     "id": "combo-restore-suppress",
@@ -416,30 +440,14 @@ class TestCombos:
                     "recall_trigger_keys": True,
                     "restore_trigger_keys": ["key_capslock"],
                 }
-            ]
-        )
-        manager.output_state.keyboard_uinput = keyboard
-
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
-        mapping = {
-            "key_capslock": dm.MappingAction(action_type=ActionType.SUPPRESS),
-        }
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
+            ],
             hardware_id=hardware_id,
             button_map={"key_capslock": "key_capslock", "key_x": "key_x"},
-            mapping_getter=lambda: mapping,
-            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
-                manager, *args, **kwargs
-            ),
-            device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+            mapping=mapping,
         )
-        device._running = True
-        device.uinput = passthrough  # type: ignore[assignment]
-        manager.grabbed_devices = {hardware_id: [device]}
+        device = setup.device
+        passthrough = setup.passthrough
+        keyboard = setup.keyboard
 
         press_caps = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -449,10 +457,10 @@ class TestCombos:
         press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
         release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
 
-        await _runtime_process_grabbed_event(device, press_caps)
-        await _runtime_process_grabbed_event(device, press_x)
+        await gde.process_event(device, press_caps, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, press_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(device, release_x)
+        await gde.process_event(device, release_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == []
@@ -460,17 +468,21 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_restore_replays_simple_keyboard_remap_for_trigger_key(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        manager = DeviceManager()
         hardware_id = "1234:5678"
-        passthrough = _FakeUInput()
-        keyboard = _FakeUInput()
-
-        await manager.set_combos(
+        mapping = {
+            "key_capslock": dm.MappingAction(
+                action_type=ActionType.KEYBOARD,
+                target="key_leftmeta",
+            ),
+        }
+        setup = await make_combo_runtime_setup(
+            monkeypatch,
             [
                 {
                     "id": "combo-restore-remap",
@@ -495,33 +507,14 @@ class TestCombos:
                     "recall_trigger_keys": True,
                     "restore_trigger_keys": ["key_capslock"],
                 }
-            ]
-        )
-        manager.output_state.keyboard_uinput = keyboard
-
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
-        mapping = {
-            "key_capslock": dm.MappingAction(
-                action_type=ActionType.KEYBOARD,
-                target="key_leftmeta",
-            ),
-        }
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
+            ],
             hardware_id=hardware_id,
             button_map={"key_capslock": "key_capslock", "key_x": "key_x"},
-            mapping_getter=lambda: mapping,
-            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
-                manager, *args, **kwargs
-            ),
-            device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+            mapping=mapping,
         )
-        device._running = True
-        device.uinput = passthrough  # type: ignore[assignment]
-        manager.grabbed_devices = {hardware_id: [device]}
+        device = setup.device
+        passthrough = setup.passthrough
+        keyboard = setup.keyboard
 
         press_caps = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -531,10 +524,10 @@ class TestCombos:
         press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
         release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
 
-        await _runtime_process_grabbed_event(device, press_caps)
-        await _runtime_process_grabbed_event(device, press_x)
+        await gde.process_event(device, press_caps, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, press_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(device, release_x)
+        await gde.process_event(device, release_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == []
@@ -545,17 +538,21 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_restore_recalls_remapped_modifier_trigger_key(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        manager = DeviceManager()
         hardware_id = "1234:5678"
-        passthrough = _FakeUInput()
-        keyboard = _FakeUInput()
-
-        await manager.set_combos(
+        mapping = {
+            "key_leftctrl": dm.MappingAction(
+                action_type=ActionType.KEYBOARD,
+                target="key_leftmeta",
+            ),
+        }
+        setup = await make_combo_runtime_setup(
+            monkeypatch,
             [
                 {
                     "id": "combo-restore-remapped-modifier",
@@ -580,33 +577,14 @@ class TestCombos:
                     "recall_trigger_keys": True,
                     "restore_trigger_keys": ["ctrl"],
                 }
-            ]
-        )
-        manager.output_state.keyboard_uinput = keyboard
-
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
-        mapping = {
-            "key_leftctrl": dm.MappingAction(
-                action_type=ActionType.KEYBOARD,
-                target="key_leftmeta",
-            ),
-        }
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
+            ],
             hardware_id=hardware_id,
             button_map={"key_leftctrl": "key_leftctrl", "key_x": "key_x"},
-            mapping_getter=lambda: mapping,
-            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
-                manager, *args, **kwargs
-            ),
-            device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=keyboard,  # type: ignore[arg-type]
+            mapping=mapping,
         )
-        device._running = True
-        device.uinput = passthrough  # type: ignore[assignment]
-        manager.grabbed_devices = {hardware_id: [device]}
+        device = setup.device
+        passthrough = setup.passthrough
+        keyboard = setup.keyboard
 
         press_ctrl = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -616,10 +594,10 @@ class TestCombos:
         press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
         release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
 
-        await _runtime_process_grabbed_event(device, press_ctrl)
-        await _runtime_process_grabbed_event(device, press_x)
+        await gde.process_event(device, press_ctrl, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, press_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(device, release_x)
+        await gde.process_event(device, release_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == []
@@ -630,17 +608,16 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_single_step_survives_unrelated_same_keyboard_actions(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        manager = DeviceManager()
         hardware_id = "1234:5678"
-        passthrough = _FakeUInput()
-        keyboard = _FakeUInput()
 
-        await manager.set_combos(
+        setup = await make_combo_runtime_setup(
+            monkeypatch,
             [
                 {
                     "id": "combo-c",
@@ -676,15 +653,7 @@ class TestCombos:
                     ],
                     "action": {"action": "keyboard", "target": "key_f14"},
                 },
-            ]
-        )
-        manager.output_state.keyboard_uinput = keyboard
-
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
+            ],
             hardware_id=hardware_id,
             button_map={
                 "key_leftalt": "key_leftalt",
@@ -692,15 +661,9 @@ class TestCombos:
                 "key_v": "key_v",
                 "key_h": "key_h",
             },
-            mapping_getter=lambda: {},
-            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
-                manager, *args, **kwargs
-            ),
-            device_type=DeviceType.KEYBOARD,
         )
-        device._running = True
-        device.uinput = passthrough  # type: ignore[assignment]
-        manager.grabbed_devices = {hardware_id: [device]}
+        device = setup.device
+        keyboard = setup.keyboard
 
         press_alt = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -714,17 +677,17 @@ class TestCombos:
         press_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=1)
         release_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=0)
 
-        await _runtime_process_grabbed_event(device, press_alt)
-        await _runtime_process_grabbed_event(device, press_c)
+        await gde.process_event(device, press_alt, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, press_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(device, release_c)
+        await gde.process_event(device, release_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(device, press_h)
-        await _runtime_process_grabbed_event(device, release_h)
+        await gde.process_event(device, press_h, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, release_h, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(device, press_v)
+        await gde.process_event(device, press_v, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(device, release_v)
+        await gde.process_event(device, release_v, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert keyboard.writes == [
@@ -733,6 +696,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_combo_single_step_survives_unrelated_mouse_click_between_combos(
         self,
@@ -741,9 +705,9 @@ class TestCombos:
         manager = DeviceManager()
         keyboard_hw = "1234:5678"
         mouse_hw = "1234:5678"
-        keyboard = _FakeUInput()
-        keyboard_passthrough = _FakeUInput()
-        mouse_passthrough = _FakeUInput()
+        keyboard = FakeUInput()
+        keyboard_passthrough = FakeUInput()
+        mouse_passthrough = FakeUInput()
 
         await manager.set_combos(
             [
@@ -785,14 +749,9 @@ class TestCombos:
         )
         manager.output_state.keyboard_uinput = keyboard
 
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(
-            gdm,
-            "get_interface_id",
-            lambda path: "mouse" if "mouse" in path else "kbd",
-        )
-
-        keyboard_device = GrabbedDevice(
+        keyboard_device = make_combo_grabbed_device(
+            monkeypatch,
+            manager,
             path="/dev/input/event-kbd",
             hardware_id=keyboard_hw,
             button_map={
@@ -800,28 +759,19 @@ class TestCombos:
                 "key_c": "key_c",
                 "key_v": "key_v",
             },
-            mapping_getter=lambda: {},
-            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
-                manager, *args, **kwargs
-            ),
-            device_type=DeviceType.KEYBOARD,
+            passthrough_uinput=keyboard_passthrough,
         )
-        keyboard_device._running = True
-        keyboard_device.uinput = keyboard_passthrough  # type: ignore[assignment]
 
-        mouse_device = GrabbedDevice(
+        mouse_device = make_combo_grabbed_device(
+            monkeypatch,
+            manager,
             path="/dev/input/event-mouse",
             hardware_id=mouse_hw,
             button_map={"btn_left": "btn_left"},
-            mapping_getter=lambda: {},
-            event_callback=lambda *args, **kwargs: _runtime_on_device_event(
-                manager, *args, **kwargs
-            ),
+            source="mouse",
             device_type=DeviceType.MOUSE,
+            passthrough_uinput=mouse_passthrough,
         )
-        mouse_device._running = True
-        mouse_device.uinput = mouse_passthrough  # type: ignore[assignment]
-        manager.grabbed_devices = {keyboard_hw: [keyboard_device, mouse_device]}
 
         press_alt = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -839,17 +789,17 @@ class TestCombos:
         press_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=1)
         release_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=0)
 
-        await _runtime_process_grabbed_event(keyboard_device, press_alt)
-        await _runtime_process_grabbed_event(keyboard_device, press_c)
+        await gde.process_event(keyboard_device, press_alt, deps=grabbed_event_processing_deps())
+        await gde.process_event(keyboard_device, press_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(keyboard_device, release_c)
+        await gde.process_event(keyboard_device, release_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(mouse_device, press_mouse)
-        await _runtime_process_grabbed_event(mouse_device, release_mouse)
+        await gde.process_event(mouse_device, press_mouse, deps=grabbed_event_processing_deps())
+        await gde.process_event(mouse_device, release_mouse, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(keyboard_device, press_v)
+        await gde.process_event(keyboard_device, press_v, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(keyboard_device, release_v)
+        await gde.process_event(keyboard_device, release_v, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert keyboard.writes == [

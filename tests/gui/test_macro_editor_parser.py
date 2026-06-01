@@ -1,5 +1,20 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.macro_editor_dialog_support import *
+# ruff: noqa: E402, I001
+import pytest
+
+gi = pytest.importorskip("gi")
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+
+import evdev
+
+from keymasq.gui.widgets.macro_editor_dialog import (
+    _describe_passthrough_event,
+    _passthrough_track,
+    parse_events,
+    reconstruct_events,
+)
+
 
 def test_parse_reconstruct_preserves_abs_and_repeat_events() -> None:
     raw = [

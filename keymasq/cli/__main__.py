@@ -205,11 +205,16 @@ def main() -> None:
     json_output = bool(getattr(args, "global_json", False)) or bool(
         getattr(args, "json_output", False)
     )
+    if args.command is None:
+        parser.print_help()
+        return
+
+    from keymasq.cli import commands
 
     if args.command == "status":
-        status_cli(json_output=json_output)
+        commands.status_cli(json_output=json_output)
     elif args.command == "type":
-        type_cli(
+        commands.type_cli(
             args.text,
             down_ms=args.down_ms,
             pause_ms=args.pause_ms,
@@ -219,7 +224,7 @@ def main() -> None:
             json_output=json_output,
         )
     elif args.command == "play":
-        play_adhoc_cli(
+        commands.play_adhoc_cli(
             args.events,
             input_json=args.input_json,
             speed=args.speed,
@@ -228,22 +233,22 @@ def main() -> None:
         )
     elif args.command == "macros":
         if args.macros_command == "list":
-            list_macros_cli(json_output=json_output)
+            commands.list_macros_cli(json_output=json_output)
         elif args.macros_command == "create":
-            create_macro_cli(
+            commands.create_macro_cli(
                 args.name,
                 args.json,
                 force=args.force,
                 json_output=json_output,
             )
         elif args.macros_command == "play":
-            play_macro_cli(args.name, args.speed, json_output=json_output)
+            commands.play_macro_cli(args.name, args.speed, json_output=json_output)
         elif args.macros_command == "cancel":
-            cancel_macro_cli(json_output=json_output)
+            commands.cancel_macro_cli(json_output=json_output)
         elif args.macros_command == "delete":
-            delete_macro_cli(args.name, json_output=json_output)
+            commands.delete_macro_cli(args.name, json_output=json_output)
     elif args.command == "diagnostics":
-        set_diagnostics_cli(
+        commands.set_diagnostics_cli(
             args.state == "on",
             args.interval,
             include=args.include,
@@ -252,124 +257,25 @@ def main() -> None:
         )
     elif args.command == "profiles":
         if args.profiles_command == "list":
-            list_profiles_cli(json_output=json_output)
+            commands.list_profiles_cli(json_output=json_output)
         elif args.profiles_command == "enable":
-            set_profile_state_cli("enable_profile", args.profile_name, json_output=json_output)
+            commands.set_profile_state_cli(
+                "enable_profile",
+                args.profile_name,
+                json_output=json_output,
+            )
         elif args.profiles_command == "disable":
-            set_profile_state_cli("disable_profile", args.profile_name, json_output=json_output)
+            commands.set_profile_state_cli(
+                "disable_profile",
+                args.profile_name,
+                json_output=json_output,
+            )
         elif args.profiles_command == "toggle":
-            set_profile_state_cli("toggle_profile", args.profile_name, json_output=json_output)
-    else:
-        parser.print_help()
-
-
-def status_cli(*, json_output: bool = False) -> None:
-    from keymasq.cli.commands import status_cli as impl
-
-    impl(json_output=json_output)
-
-
-def type_cli(
-    text: list[str],
-    *,
-    down_ms: int = 10,
-    pause_ms: int = 20,
-    speed: float = 1.0,
-    use_unicode_input: bool = True,
-    print_json: bool = False,
-    json_output: bool = False,
-) -> None:
-    from keymasq.cli.commands import type_cli as impl
-
-    impl(
-        text,
-        down_ms=down_ms,
-        pause_ms=pause_ms,
-        speed=speed,
-        use_unicode_input=use_unicode_input,
-        print_json=print_json,
-        json_output=json_output,
-    )
-
-
-def play_adhoc_cli(
-    events: list[str],
-    *,
-    input_json: bool = False,
-    speed: float = 1.0,
-    print_json: bool = False,
-    json_output: bool = False,
-) -> None:
-    from keymasq.cli.commands import play_adhoc_cli as impl
-
-    impl(
-        events,
-        input_json=input_json,
-        speed=speed,
-        print_json=print_json,
-        json_output=json_output,
-    )
-
-
-def list_macros_cli(*, json_output: bool = False) -> None:
-    from keymasq.cli.commands import list_macros_cli as impl
-
-    impl(json_output=json_output)
-
-
-def create_macro_cli(
-    name: str,
-    json_parts: list[str],
-    *,
-    force: bool = False,
-    json_output: bool = False,
-) -> None:
-    from keymasq.cli.commands import create_macro_cli as impl
-
-    impl(name, json_parts, force=force, json_output=json_output)
-
-
-def play_macro_cli(name: str, speed: float = 1.0, *, json_output: bool = False) -> None:
-    from keymasq.cli.commands import play_macro_cli as impl
-
-    impl(name, speed, json_output=json_output)
-
-
-def cancel_macro_cli(*, json_output: bool = False) -> None:
-    from keymasq.cli.commands import cancel_macro_cli as impl
-
-    impl(json_output=json_output)
-
-
-def delete_macro_cli(name: str, *, json_output: bool = False) -> None:
-    from keymasq.cli.commands import delete_macro_cli as impl
-
-    impl(name, json_output=json_output)
-
-
-def set_diagnostics_cli(
-    enabled: bool,
-    interval: float = 5.0,
-    *,
-    include: list[str] | None = None,
-    exclude: list[str] | None = None,
-    json_output: bool = False,
-) -> None:
-    from keymasq.cli.commands import set_diagnostics_cli as impl
-
-    impl(enabled, interval, include=include, exclude=exclude, json_output=json_output)
-
-
-def list_profiles_cli(*, json_output: bool = False) -> None:
-    from keymasq.cli.commands import list_profiles_cli as impl
-
-    impl(json_output=json_output)
-
-
-def set_profile_state_cli(command: str, profile_name: str, *, json_output: bool = False) -> None:
-    from keymasq.cli.commands import set_profile_state_cli as impl
-
-    impl(command, profile_name, json_output=json_output)
+            commands.set_profile_state_cli(
+                "toggle_profile",
+                args.profile_name,
+                json_output=json_output,
+            )
 
 
 if __name__ == "__main__":

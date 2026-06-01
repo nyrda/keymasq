@@ -1,11 +1,16 @@
 import asyncio
+import socket
 import struct
 import tempfile
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
+from keymasq.session.wayland_protocols import client_transport as transport_module
 from keymasq.session.wayland_protocols import cosmic_toplevel_info_client as cosmic_client_module
 from keymasq.session.wayland_protocols import registry_probe
 from keymasq.session.wayland_protocols import wlr_foreign_toplevel_client as wlr_client_module
@@ -49,6 +54,11 @@ class _FakeSockSendallLoop:
 
     async def sock_sendall(self, sock: object, data: bytes) -> None:
         self.sent.append((sock, data))
+
+
+class _FakeSockRecvLoop:
+    async def sock_recv(self, _sock: object, _size: int) -> bytes:
+        return b""
 
 
 def _wl_message(object_id: int, opcode: int, payload: bytes = b"") -> bytes:
@@ -96,6 +106,32 @@ def _encode_array(values: list[int]) -> bytes:
     return struct.pack("<I", len(raw)) + raw + (b"\x00" * (padded - len(raw)))
 
 
+def test_wayland_transport_run_closes_socket_on_eof() -> None:
+    client = transport_module.WaylandClientTransport()
+    fake_socket = _FakeWaylandSocket()
+    client._socket = fake_socket  # type: ignore[assignment]
+    client._loop = _FakeSockRecvLoop()  # type: ignore[assignment]
+
+    asyncio.run(client.run())
+
+    assert client._socket is None
+    assert client._running is False
+    assert fake_socket.closed is True
+
+
+def test_wayland_transport_display_error_raises_protocol_error() -> None:
+    client = transport_module.WaylandClientTransport()
+    payload = struct.pack("<II", 40, 7) + _encode_string("bad object")
+
+    with pytest.raises(transport_module.WaylandDisplayError) as exc_info:
+        client._handle_display_event(0, payload)
+
+    error = exc_info.value
+    assert error.object_id == 40
+    assert error.error_code == 7
+    assert error.message == "bad object"
+
+
 @contextmanager
 def _short_socket_path(name: str) -> Iterator[Path]:
     with tempfile.TemporaryDirectory(prefix="kmq-", dir="/tmp") as temp_dir:
@@ -121,21 +157,20 @@ def test_ext_tracker_emits_on_active_title_change() -> None:
     tracker.add_toplevel("a")
     tracker.update_app_id("a", "firefox")
     tracker.update_title("a", "A")
-    tracker.update_state("a", {"activated": True})
+    tracker.update_state("a", [2])
     asyncio.run(tracker.next_active_window(timeout=0.01))
 
     tracker.update_title("a", "B")
     assert asyncio.run(tracker.next_active_window(timeout=0.01)) == ("firefox", "B")
 
 
-def test_ext_tracker_emits_on_byte_state_activation() -> None:
+def test_ext_tracker_emits_on_uint_state_activation() -> None:
     tracker = ExtForeignToplevelListTracker()
     tracker.add_toplevel("x")
     tracker.update_app_id("x", "com.system76.Cosmic")
     tracker.update_title("x", "COSMIC Settings")
 
-    state = (2).to_bytes(4, byteorder="little")
-    tracker.update_state("x", state)
+    tracker.update_state("x", (2,))
 
     assert tracker.get_active_window() == ("com.system76.Cosmic", "COSMIC Settings")
     assert asyncio.run(tracker.next_active_window(timeout=0.01)) == (
@@ -144,14 +179,13 @@ def test_ext_tracker_emits_on_byte_state_activation() -> None:
     )
 
 
-def test_wlr_tracker_emits_on_byte_state_activation() -> None:
+def test_wlr_tracker_emits_on_uint_state_activation() -> None:
     tracker = WlrForeignToplevelManagerTracker()
     tracker.add_toplevel("x")
     tracker.update_app_id("x", "Alacritty")
     tracker.update_title("x", "shell")
 
-    state = WLR_TOPLEVEL_STATE_ACTIVATED.to_bytes(4, byteorder="little")
-    tracker.update_state("x", state)
+    tracker.update_state("x", (WLR_TOPLEVEL_STATE_ACTIVATED,))
 
     assert tracker.get_active_window() == ("Alacritty", "shell")
     assert asyncio.run(tracker.next_active_window(timeout=0.01)) == ("Alacritty", "shell")
@@ -175,32 +209,52 @@ def test_wlr_tracker_switches_focus_between_handles() -> None:
     assert asyncio.run(tracker.next_active_window(timeout=0.01)) == ("b-app", "B")
 
 
-class _ProbeSocket:
-    def __init__(self, *responses: bytes) -> None:
-        self.responses = list(responses)
-        self.sent: list[bytes] = []
-        self.closed = False
+def test_wayland_wire_helpers_parse_messages_incrementally() -> None:
+    buffer = bytearray()
+    frame = transport_module.build_request(11, 4, b"payload")
 
-    def settimeout(self, timeout: float) -> None:
-        return
+    buffer.extend(frame[:5])
+    assert transport_module.pop_message(buffer) is None
 
-    def connect(self, _path: str) -> None:
-        return
-
-    def sendall(self, data: bytes) -> None:
-        self.sent.append(data)
-
-    def recv(self, size: int) -> bytes:
-        if not self.responses:
-            return b""
-        return self.responses.pop(0)
-
-    def close(self) -> None:
-        self.closed = True
+    buffer.extend(frame[5:])
+    assert transport_module.pop_message(buffer) == transport_module.WaylandMessage(
+        11,
+        4,
+        b"payload",
+    )
+    assert buffer == bytearray()
 
 
-def test_registry_probe_reads_globals_sync(monkeypatch) -> None:
-    probe_socket = _ProbeSocket(
+def _serve_registry_probe_response(
+    socket_path: Path,
+    response: bytes,
+) -> tuple[threading.Thread, list[BaseException]]:
+    ready = threading.Event()
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+                server.bind(str(socket_path))
+                server.listen(1)
+                ready.set()
+                conn, _ = server.accept()
+                with conn:
+                    conn.recv(4096)
+                    conn.sendall(response)
+                    conn.recv(4096)
+        except BaseException as exc:
+            errors.append(exc)
+            ready.set()
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    assert ready.wait(timeout=1.0)
+    return thread, errors
+
+
+def test_registry_probe_reads_globals_sync() -> None:
+    response = (
         _wl_message(
             2,
             0,
@@ -209,22 +263,21 @@ def test_registry_probe_reads_globals_sync(monkeypatch) -> None:
         + _wl_message(2, 0, _registry_payload(8, "zwlr_foreign_toplevel_manager_v1", 3))
         + _wl_message(3, 0)
     )
-    monkeypatch.setattr(
-        registry_probe.socket,
-        "socket",
-        lambda _family, _type: probe_socket,
-    )
 
-    assert registry_probe.list_registry_globals_sync(Path("unused"), timeout_s=2.0) == {
-        EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE,
-        "zwlr_foreign_toplevel_manager_v1",
-    }
-    assert len(probe_socket.sent) == 2
-    assert probe_socket.closed is True
+    with _short_socket_path("wayland-sync") as socket_path:
+        thread, errors = _serve_registry_probe_response(socket_path, response)
+        assert registry_probe.list_registry_globals_sync(socket_path, timeout_s=2.0) == {
+            EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE,
+            "zwlr_foreign_toplevel_manager_v1",
+        }
+        thread.join(timeout=1.0)
+
+    assert thread.is_alive() is False
+    assert errors == []
 
 
-def test_registry_probe_ignores_truncated_global_interface_sync(monkeypatch) -> None:
-    probe_socket = _ProbeSocket(
+def test_registry_probe_ignores_truncated_global_interface_sync() -> None:
+    response = (
         _wl_message(
             2,
             0,
@@ -236,15 +289,16 @@ def test_registry_probe_ignores_truncated_global_interface_sync(monkeypatch) -> 
         + _wl_message(2, 0, _registry_payload(8, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1))
         + _wl_message(3, 0)
     )
-    monkeypatch.setattr(
-        registry_probe.socket,
-        "socket",
-        lambda _family, _type: probe_socket,
-    )
 
-    assert registry_probe.list_registry_globals_sync(Path("unused"), timeout_s=2.0) == {
-        EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE
-    }
+    with _short_socket_path("wayland-sync-truncated") as socket_path:
+        thread, errors = _serve_registry_probe_response(socket_path, response)
+        assert registry_probe.list_registry_globals_sync(socket_path, timeout_s=2.0) == {
+            EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE
+        }
+        thread.join(timeout=1.0)
+
+    assert thread.is_alive() is False
+    assert errors == []
 
 
 def test_registry_probe_reads_globals_async() -> None:
@@ -359,7 +413,7 @@ def test_ext_wayland_client_dispatches_registry_and_toplevel_events() -> None:
     assert client._list_id is not None
     assert fake_socket.sent
 
-    client._handle_list_event(client._list_id, 0, struct.pack("<I", 40))
+    asyncio.run(client._handle_list_event(client._list_id, 0, struct.pack("<I", 40)))
     asyncio.run(client._handle_toplevel_event(40, 2, _encode_string("Terminal")))
     asyncio.run(
         client._handle_toplevel_event(40, 3, _encode_string("org.example.Terminal"))

@@ -31,6 +31,7 @@ from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_TAP,
     SUPERKEY_SLOT_TAP_HOLD,
 )
+from keymasq.keymasqd.task_helpers import fire_and_observe as _fire_and_observe
 
 if TYPE_CHECKING:
     from keymasq.keymasqd.runtime.grabbed_device_types import ActionExecutionDeps
@@ -146,10 +147,6 @@ type CursorPositionSetter = Callable[[int, int], Awaitable[dict[str, object]]]
 type CancelMacroPlayback = Callable[[], Awaitable[dict[str, object]]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
 type EmergencyResetter = Callable[[], Awaitable[dict[str, object]]]
-
-
-def _fire_and_observe(coro: Awaitable[object], _label: str) -> asyncio.Task[object]:
-    return asyncio.ensure_future(coro)
 
 
 def _default_action_deps() -> "ActionExecutionDeps":
@@ -548,15 +545,6 @@ class SuperkeyMachine:
         if event_type != CommandType.ACTION_TRIGGER or self.broadcast_callback is None:
             return
         await self.broadcast_callback(data)
-
-    def _get_uinput(self, action_type: str) -> _WritableUInput | None:
-        if action_type == "keyboard":
-            return self.keyboard_uinput
-        elif action_type == "mouse":
-            return self.mouse_uinput
-        elif action_type in ("gamepad", "gamepad_axis"):
-            return self.gamepad_uinput
-        return None
 
     def _resolve_mouse_target(self, target: str | None):
         return resolve_mouse_output_target(target)

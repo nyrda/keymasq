@@ -222,47 +222,6 @@ def event_loop():
     loop.close()
 
 
-_CATEGORY_BY_FILE = {
-    "test_capture_manager.py": "keymasqd",
-    "test_combo_engine.py": "keymasqd",
-    "test_daemon.py": "keymasqd",
-    "test_device_manager.py": "keymasqd",
-    "test_grabbed_device.py": "keymasqd",
-    "test_integration.py": "keymasqd",
-    "test_keymasqd_client.py": "keymasqd",
-    "test_macro_backend.py": "keymasqd",
-    "test_macro_store.py": "keymasqd",
-    "test_macro_store_internal.py": "keymasqd",
-    "test_output_helpers.py": "keymasqd",
-    "test_recording_extended.py": "keymasqd",
-    "test_socket_server.py": "keymasqd",
-    "test_superkey_state.py": "keymasqd",
-    "test_compositor.py": "session",
-    "test_base_listener.py": "session",
-    "test_gnome_shell.py": "session",
-    "test_gnome_listener.py": "session",
-    "test_hyprland_listener.py": "session",
-    "test_kde_listener.py": "session",
-    "test_profile_handoff.py": "session",
-    "test_session_clients.py": "session",
-    "test_session_hardware.py": "session",
-    "test_session_manager_commands.py": "session",
-    "test_session_manager_compositor.py": "session",
-    "test_session_manager_core.py": "session",
-    "test_session_manager_events.py": "session",
-    "test_session_manager_profiles.py": "session",
-    "test_session_manager_recording.py": "session",
-    "test_superkeys.py": "session",
-    "test_session_support.py": "session",
-    "test_wayland_ext_client.py": "session",
-    "test_wayland_protocol_trackers.py": "session",
-    "test_wayland_wlr_client.py": "session",
-    "test_wayland_wlr_listener.py": "session",
-    "test_x11_listener.py": "session",
-    "test_gui.py": "gui",
-    "test_macro_editor_dialog.py": "gui",
-}
-
 _CATEGORY_SUBTREES = {"common", "keymasqd", "session", "gui"}
 
 
@@ -274,7 +233,7 @@ def _category_for_test_path(item_path: Path) -> str | None:
         subtree = parts[tests_index + 1]
         if subtree in _CATEGORY_SUBTREES:
             return subtree
-    return _CATEGORY_BY_FILE.get(item_path.name)
+    return None
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

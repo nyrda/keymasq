@@ -1,10 +1,65 @@
 import asyncio
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
 
 from keymasq.common.slurp import SlurpCapture, SlurpMode, SlurpResult
+
+
+class _FakeSlurpProcess:
+    def __init__(
+        self,
+        *,
+        stdout: bytes = b"",
+        stderr: bytes = b"",
+        returncode: int = 0,
+        communicate: Callable[[], Awaitable[tuple[bytes, bytes]]] | None = None,
+        wait: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+        self.communicate_calls = 0
+        self.wait_calls = 0
+        self.terminated = False
+        self.killed = False
+        self.waited = False
+        self._communicate = communicate
+        self._wait = wait
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        self.communicate_calls += 1
+        if self._communicate:
+            return await self._communicate()
+        return self.stdout, self.stderr
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def wait(self) -> Awaitable[None]:
+        self.wait_calls += 1
+        self.waited = True
+        if self._wait:
+            return self._wait()
+
+        async def _wait() -> None:
+            return None
+
+        return _wait()
+
+
+def _patch_slurp_process(
+    monkeypatch: pytest.MonkeyPatch,
+    process: _FakeSlurpProcess,
+) -> None:
+    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeSlurpProcess:
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
 
 
 def test_slurp_capture_available_without_slurp_binary() -> None:
@@ -75,6 +130,27 @@ def test_slurp_capture_available_with_niri_is_enabled() -> None:
     assert capture.available is True
 
 
+@pytest.mark.parametrize(
+    ("slurp_path", "compositor_id"),
+    [
+        (None, "wayland-wlr"),
+        ("/usr/bin/slurp", None),
+        ("/usr/bin/slurp", "x11"),
+        ("/usr/bin/slurp", "wayland-wlr"),
+    ],
+)
+def test_slurp_available_matches_unavailable_reason(
+    slurp_path: str | None,
+    compositor_id: str | None,
+) -> None:
+    capture = SlurpCapture()
+    capture._slurp_path = slurp_path
+    capture._available = None
+    capture._compositor_id = compositor_id
+
+    assert capture.available is (capture.get_unavailable_reason() is None)
+
+
 def test_slurp_get_unavailable_reason_without_binary() -> None:
     capture = SlurpCapture()
     capture._slurp_path = None
@@ -128,17 +204,9 @@ def test_capture_point_async_returns_none_when_slurp_fails(monkeypatch) -> None:
     capture = SlurpCapture()
     capture._available = True
     capture._slurp_path = "/usr/bin/slurp"
+    process = _FakeSlurpProcess(returncode=1, stderr=b"boom")
 
-    class _FakeProcess:
-        returncode = 1
-
-        async def communicate(self) -> tuple[bytes, bytes]:
-            return b"", b"boom"
-
-    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
-        return _FakeProcess()
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+    _patch_slurp_process(monkeypatch, process)
 
     result = asyncio.run(capture.capture_point_async())
     assert result is None
@@ -150,17 +218,16 @@ def test_capture_point_async_returns_parsed_result_and_calls_on_ready(monkeypatc
     capture._slurp_path = "/usr/bin/slurp"
     events: list[str] = []
 
-    class _FakeProcess:
-        returncode = 0
+    async def _communicate() -> tuple[bytes, bytes]:
+        events.append("communicate")
+        return b"50,60\n", b""
 
-        async def communicate(self) -> tuple[bytes, bytes]:
-            events.append("communicate")
-            return b"50,60\n", b""
+    process = _FakeSlurpProcess(communicate=_communicate)
 
-    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
+    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeSlurpProcess:
         assert args[0] == "/usr/bin/slurp"
         events.append("spawn")
-        return _FakeProcess()
+        return process
 
     async def _on_ready() -> None:
         events.append("ready")
@@ -183,28 +250,7 @@ def test_capture_point_async_terminates_process_when_on_ready_fails(monkeypatch)
     capture = SlurpCapture()
     capture._available = True
     capture._slurp_path = "/usr/bin/slurp"
-
-    class _FakeProcess:
-        returncode = 0
-
-        def __init__(self) -> None:
-            self.terminated = False
-            self.communicated = False
-
-        async def communicate(self) -> tuple[bytes, bytes]:
-            self.communicated = True
-            return b"50,60\n", b""
-
-        def terminate(self) -> None:
-            self.terminated = True
-
-        async def wait(self) -> None:
-            return None
-
-    process = _FakeProcess()
-
-    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
-        return process
+    process = _FakeSlurpProcess(stdout=b"50,60\n")
 
     async def _on_ready() -> None:
         raise RuntimeError("ready failed")
@@ -212,7 +258,7 @@ def test_capture_point_async_terminates_process_when_on_ready_fails(monkeypatch)
     async def _sleep(_delay: float) -> None:
         return None
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+    _patch_slurp_process(monkeypatch, process)
     monkeypatch.setattr(asyncio, "sleep", _sleep)
 
     result = asyncio.run(
@@ -221,7 +267,7 @@ def test_capture_point_async_terminates_process_when_on_ready_fails(monkeypatch)
 
     assert result is None
     assert process.terminated is True
-    assert process.communicated is False
+    assert process.communicate_calls == 0
     assert capture._process is None
 
 
@@ -229,17 +275,9 @@ def test_capture_point_async_returns_none_for_empty_output(monkeypatch) -> None:
     capture = SlurpCapture()
     capture._available = True
     capture._slurp_path = "/usr/bin/slurp"
+    process = _FakeSlurpProcess()
 
-    class _FakeProcess:
-        returncode = 0
-
-        async def communicate(self) -> tuple[bytes, bytes]:
-            return b"", b""
-
-    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
-        return _FakeProcess()
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+    _patch_slurp_process(monkeypatch, process)
 
     result = asyncio.run(capture.capture_point_async())
     assert result is None
@@ -249,42 +287,13 @@ def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(monke
     capture = SlurpCapture()
     capture._available = True
     capture._slurp_path = "/usr/bin/slurp"
-
-    class _FakeProcess:
-        returncode = 0
-
-        def __init__(self) -> None:
-            self.terminated = False
-            self.killed = False
-            self.wait_calls = 0
-
-        async def communicate(self) -> tuple[bytes, bytes]:
-            return b"", b""
-
-        def terminate(self) -> None:
-            self.terminated = True
-
-        def kill(self) -> None:
-            self.killed = True
-
-        def wait(self) -> Awaitable[None]:
-            self.wait_calls += 1
-
-            async def _wait() -> None:
-                return None
-
-            return _wait()
-
-    process = _FakeProcess()
-
-    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
-        return process
+    process = _FakeSlurpProcess()
 
     async def _wait_for(awaitable: Awaitable[object], timeout: float) -> object:
         awaitable.close()
         raise TimeoutError
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+    _patch_slurp_process(monkeypatch, process)
     monkeypatch.setattr(asyncio, "wait_for", _wait_for)
 
     result = asyncio.run(capture.capture_point_async())
@@ -307,31 +316,21 @@ def test_capture_point_async_timeout_does_not_clear_overlapping_capture(monkeypa
         second_started = asyncio.Event()
         second_release = asyncio.Event()
 
-        class _FakeProcess:
-            returncode = 0
-
-            def __init__(self, name: str) -> None:
-                self.name = name
-                self.terminated = False
-                self.waited = False
-
-            async def communicate(self) -> tuple[bytes, bytes]:
-                if self.name == "second":
+        def _communicate_for(name: str) -> Callable[[], Awaitable[tuple[bytes, bytes]]]:
+            async def _communicate() -> tuple[bytes, bytes]:
+                if name == "second":
                     second_started.set()
                     await second_release.wait()
                     return b"70,80\n", b""
                 return b"", b""
 
-            def terminate(self) -> None:
-                self.terminated = True
+            return _communicate
 
-            async def wait(self) -> None:
-                self.waited = True
+        processes: list[_FakeSlurpProcess] = []
 
-        processes: list[_FakeProcess] = []
-
-        async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
-            process = _FakeProcess("first" if not processes else "second")
+        async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeSlurpProcess:
+            name = "first" if not processes else "second"
+            process = _FakeSlurpProcess(communicate=_communicate_for(name))
             processes.append(process)
             return process
 
@@ -371,27 +370,12 @@ def test_capture_point_async_cancels_process_on_external_cancel(monkeypatch) -> 
     capture._available = True
     capture._slurp_path = "/usr/bin/slurp"
 
-    class _FakeProcess:
-        returncode = 0
+    async def _communicate() -> tuple[bytes, bytes]:
+        raise asyncio.CancelledError
 
-        def __init__(self) -> None:
-            self.terminated = False
+    process = _FakeSlurpProcess(communicate=_communicate)
 
-        async def communicate(self) -> tuple[bytes, bytes]:
-            raise asyncio.CancelledError
-
-        def terminate(self) -> None:
-            self.terminated = True
-
-        async def wait(self) -> None:
-            return None
-
-    process = _FakeProcess()
-
-    async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeProcess:
-        return process
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+    _patch_slurp_process(monkeypatch, process)
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(capture.capture_point_async())
@@ -422,19 +406,7 @@ def test_capture_point_invokes_callback_with_result(monkeypatch: pytest.MonkeyPa
 
 def test_cancel_async_terminates_process() -> None:
     capture = SlurpCapture()
-
-    class _FakeProcess:
-        def __init__(self) -> None:
-            self.terminated = False
-            self.waited = False
-
-        def terminate(self) -> None:
-            self.terminated = True
-
-        async def wait(self) -> None:
-            self.waited = True
-
-    process = _FakeProcess()
+    process = _FakeSlurpProcess()
     capture._process = process  # type: ignore[assignment]
 
     asyncio.run(capture.cancel_async())
@@ -448,28 +420,7 @@ def test_cancel_async_kills_and_waits_again_when_terminate_wait_times_out(
     monkeypatch,
 ) -> None:
     capture = SlurpCapture()
-
-    class _FakeProcess:
-        def __init__(self) -> None:
-            self.terminated = False
-            self.killed = False
-            self.wait_calls = 0
-
-        def terminate(self) -> None:
-            self.terminated = True
-
-        def kill(self) -> None:
-            self.killed = True
-
-        def wait(self) -> Awaitable[None]:
-            self.wait_calls += 1
-
-            async def _wait() -> None:
-                return None
-
-            return _wait()
-
-    process = _FakeProcess()
+    process = _FakeSlurpProcess()
     capture._process = process  # type: ignore[assignment]
     wait_for_calls = 0
 

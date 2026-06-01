@@ -23,7 +23,7 @@ from keymasq.common.models import (
     resolve_rapidfire_fields,
     superkey_action_to_mapping_action,
 )
-from keymasq.session.config_errors import ConfigLoadError, ConfigLoadFailure
+from keymasq.session.config_loading import ConfigLoadError, ConfigLoadFailure
 
 log = logging.getLogger("keymasq-session.superkeys")
 type TomlDict = dict[str, object]

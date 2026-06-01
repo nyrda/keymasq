@@ -19,6 +19,14 @@ def _key_values(events: list[dict[str, object]], code: int) -> list[int]:
     ]
 
 
+def _press_codes(events: list[dict[str, object]]) -> list[int]:
+    return [
+        int(event["code"])
+        for event in events
+        if event.get("type") == evdev.ecodes.EV_KEY and event.get("value") == 1
+    ]
+
+
 def test_compact_key_token_emits_tap() -> None:
     events = build_compact_macro_events(["key_a"])
 
@@ -101,11 +109,7 @@ def test_compact_rejects_duplicate_down() -> None:
 def test_type_macro_builder_normalizes_common_pasted_text() -> None:
     events = build_type_macro_events("A\u00a0\u201cHi\u201d\u2026\r\nx\u2014y", 10, 0)
 
-    press_codes = [
-        event["code"]
-        for event in events
-        if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
-    ]
+    press_codes = _press_codes(events)
     assert evdev.ecodes.KEY_SPACE in press_codes
     assert evdev.ecodes.KEY_APOSTROPHE in press_codes
     assert press_codes.count(evdev.ecodes.KEY_DOT) == 3
@@ -131,11 +135,7 @@ def test_type_macro_builder_allows_zero_key_down_and_pause() -> None:
 def test_type_macro_builder_expands_enter_and_tab_controls() -> None:
     events = build_type_macro_events("a<enter>b<tab>c", 10, 0)
 
-    press_codes = [
-        event["code"]
-        for event in events
-        if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
-    ]
+    press_codes = _press_codes(events)
     assert press_codes == [
         evdev.ecodes.KEY_A,
         evdev.ecodes.KEY_ENTER,
@@ -193,11 +193,7 @@ def test_macro_definition_duration_uses_wait_timestamp_not_wait_end() -> None:
 def test_type_macro_builder_keeps_backslash_sequences_literal() -> None:
     events = build_type_macro_events(r"a\nb", 10, 0)
 
-    press_codes = [
-        event["code"]
-        for event in events
-        if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
-    ]
+    press_codes = _press_codes(events)
     assert press_codes == [
         evdev.ecodes.KEY_A,
         evdev.ecodes.KEY_BACKSLASH,
@@ -209,11 +205,7 @@ def test_type_macro_builder_keeps_backslash_sequences_literal() -> None:
 def test_type_macro_builder_escapes_literal_less_than_before_control() -> None:
     events = build_type_macro_events(r"a\<tab>b\\<tab>c", 10, 0)
 
-    press_codes = [
-        event["code"]
-        for event in events
-        if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
-    ]
+    press_codes = _press_codes(events)
     assert press_codes == [
         evdev.ecodes.KEY_A,
         evdev.ecodes.KEY_LEFTSHIFT,

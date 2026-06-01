@@ -1,5 +1,9 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+from types import SimpleNamespace
+
+import pytest
+
+gi = pytest.importorskip("gi")
+
 
 class TestHardwareSetupDialog:
     def test_hardware_setup_uses_inline_adw_dialog(self, monkeypatch):

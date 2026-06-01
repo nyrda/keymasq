@@ -4,18 +4,16 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
-    ActionType,
     AnalogAxisDefinition,
     AnalogInputDefinition,
     ButtonDefinition,
-    MappingAction,
-    profile_deactivation_policy_to_dict,
 )
 from keymasq.common.security import PeerCredentials
 from keymasq.session.profiles import ResolvedDeviceProfile
 
 from . import profiles as runtime_profiles
 from .common import JsonObject, json_object, str_value
+from .payloads import serialize_mapping_action
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -394,7 +392,7 @@ def _serialize_button(
         "col": button.col,
         "type": button.type or "",
         "profile_name": mapping_profile_names.get(button.id, ""),
-        "action": _serialize_action(mapping) if mapping is not None else None,
+        "action": serialize_mapping_action(mapping),
     }
 
 
@@ -411,7 +409,7 @@ def _serialize_analog_input(
         "type": analog.type,
         "source": analog.source or "",
         "profile_name": mapping_profile_names.get(analog.id, ""),
-        "action": _serialize_action(mapping) if mapping is not None else None,
+        "action": serialize_mapping_action(mapping),
         "axes": [_serialize_axis(axis) for axis in analog.axes],
     }
 
@@ -428,65 +426,3 @@ def _serialize_axis(axis: AnalogAxisDefinition) -> JsonObject:
         "invert": bool(axis.invert),
     }
 
-
-def _serialize_action(action: MappingAction | None) -> JsonObject | None:
-    if action is None:
-        return None
-
-    action_data: JsonObject = {"action": action.action_type.value}
-    _set_optional(action_data, "target", action.target)
-    _set_optional(action_data, "output_id", action.output_id)
-    if action.keys:
-        action_data["keys"] = list(action.keys)
-    _set_optional(action_data, "cmd", action.cmd)
-    _set_optional(action_data, "superkey_name", action.superkey_name)
-    if action.analog_control_names:
-        action_data["analog_control_names"] = list(action.analog_control_names)
-    if action.action_type == ActionType.MACRO:
-        action_data["target"] = action.macro_name or ""
-        action_data["replay_mouse_movement"] = bool(action.macro_replay_mouse_movement)
-        action_data["replay_mouse_clicks"] = bool(action.macro_replay_mouse_clicks)
-        action_data["speed"] = float(action.macro_speed)
-        action_data["loop_mode"] = action.macro_loop_mode
-        action_data["loop_count"] = int(action.macro_loop_count)
-        action_data["loop_stop_behavior"] = action.macro_loop_stop_behavior
-        action_data["move_to_start"] = bool(action.macro_move_to_start)
-        action_data["start_x"] = int(action.macro_start_x)
-        action_data["start_y"] = int(action.macro_start_y)
-        action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
-    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
-        action_data["x"] = int(action.move_x)
-        action_data["y"] = int(action.move_y)
-    if action.action_type == ActionType.GAMEPAD_AXIS:
-        action_data["value"] = int(action.axis_value)
-    if action.action_type in (
-        ActionType.PROFILE_ENABLE,
-        ActionType.PROFILE_DISABLE,
-        ActionType.PROFILE_TOGGLE,
-    ):
-        action_data["profile_name"] = action.profile_name or ""
-        action_data["target"] = action.profile_name or ""
-        deactivation = profile_deactivation_policy_to_dict(action.profile_deactivation)
-        if deactivation is not None and action.action_type != ActionType.PROFILE_DISABLE:
-            action_data["deactivation"] = deactivation
-    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        _set_optional(action_data, "compositor", action.compositor_id)
-        action_data["dispatcher"] = action.compositor_dispatcher or ""
-        action_data["args"] = action.compositor_args or ""
-    if action.rapidfire_enabled:
-        action_data["rapidfire_enabled"] = True
-        action_data["rapidfire_hold_ms"] = int(action.rapidfire_hold_ms)
-        action_data["rapidfire_wait_ms"] = int(action.rapidfire_wait_ms)
-    if action.tap_enabled:
-        action_data["tap_enabled"] = True
-        action_data["tap_hold_ms"] = int(action.tap_hold_ms)
-    return action_data
-
-
-def serialize_mapping_action(action: MappingAction | None) -> JsonObject | None:
-    return _serialize_action(action)
-
-
-def _set_optional(action_data: JsonObject, key: str, value: object) -> None:
-    if value is not None and str(value):
-        action_data[key] = str(value)

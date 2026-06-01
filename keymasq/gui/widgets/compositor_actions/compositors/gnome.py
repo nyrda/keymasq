@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from keymasq.common.models import ActionType, MappingAction
 from keymasq.gui.widgets.compositor_actions.core import (
-    CompositorActionDefinition,
     CompositorActionPreset,
+    build_compositor_dispatch_definition,
 )
 
 GNOME_DISPATCH_PRESETS = (
@@ -71,53 +70,13 @@ GNOME_DISPATCH_PRESETS = (
 )
 
 
-def _gnome_available(current_action: MappingAction | None, status: dict[str, object]) -> bool:
-    _ = current_action
-    return bool(
-        status.get("listener_name") == "gnome"
-        and status.get("compositor_dispatch_available") is True
-    )
-
-
-def _gnome_fields(current_action: MappingAction | None) -> tuple[str, str]:
-    if current_action is None or current_action.action_type != ActionType.COMPOSITOR_DISPATCH:
-        return "", ""
-    compositor_id = str(current_action.compositor_id or "").strip()
-    if compositor_id and compositor_id != "gnome":
-        return "", ""
-    return (
-        str(current_action.compositor_dispatcher or ""),
-        str(current_action.compositor_args or ""),
-    )
-
-
-def _build_gnome_action(dispatcher: str, args: str) -> MappingAction:
-    return MappingAction(
-        action_type=ActionType.COMPOSITOR_DISPATCH,
-        compositor_id="gnome",
-        compositor_dispatcher=dispatcher,
-        compositor_args=args,
-    )
-
-
-def _describe_gnome_action(action: MappingAction) -> str:
-    args = str(action.compositor_args or "").strip()
-    suffix = f" {args}" if args else ""
-    return f"GNOME → {action.compositor_dispatcher or '?'}{suffix}"
-
-
-GNOME_ACTION_DEFINITION = CompositorActionDefinition(
+GNOME_ACTION_DEFINITION = build_compositor_dispatch_definition(
     page_id="gnome",
     compositor_id="gnome",
     title="GNOME",
     subtitle="Send an allowlisted GNOME action through the active GNOME Shell bridge.",
     dispatcher_placeholder="e.g. workspace",
     args_placeholder="e.g. next, prev, 2, toggle",
-    action_type=ActionType.COMPOSITOR_DISPATCH,
     presets=GNOME_DISPATCH_PRESETS,
     allow_custom=False,
-    is_available=_gnome_available,
-    extract_fields=_gnome_fields,
-    build_action=_build_gnome_action,
-    describe_action=_describe_gnome_action,
 )

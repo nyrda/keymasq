@@ -71,7 +71,7 @@ def _write_lease(path: Path, expires_at: int) -> None:
         keymasq_user = pwd.getpwnam("keymasq")
         owner_uid = keymasq_user.pw_uid
         owner_gid = keymasq_user.pw_gid
-    except Exception:
+    except KeyError:
         pass
 
     write_unlock_expires_at(

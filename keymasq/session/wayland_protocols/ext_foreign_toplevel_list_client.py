@@ -1,118 +1,42 @@
-import asyncio
-import os
-import socket
 import struct
-from dataclasses import dataclass
 
+from keymasq.session.wayland_protocols import client_transport as _transport
 from keymasq.session.wayland_protocols.ext_foreign_toplevel_list import (
     ExtForeignToplevelListTracker,
 )
 
-WL_DISPLAY_OBJECT_ID = 1
+WL_DISPLAY_OBJECT_ID = _transport.WL_DISPLAY_OBJECT_ID
 EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE = "ext_foreign_toplevel_list_v1"
+EXT_FOREIGN_TOPLEVEL_HANDLE_INTERFACE = "ext_foreign_toplevel_handle_v1"
+_pack_uint = _transport.pack_uint
+_encode_string = _transport.encode_string
+_decode_string = _transport.decode_string
 
 
-def _pack_uint(value: int) -> bytes:
-    return struct.pack("<I", int(value))
-
-
-def _encode_string(value: str) -> bytes:
-    encoded = str(value or "").encode("utf-8") + b"\x00"
-    size = len(encoded)
-    padded = (size + 3) & ~3
-    return _pack_uint(size) + encoded + (b"\x00" * (padded - size))
-
-
-def _decode_string(payload: bytes, offset: int) -> tuple[str, int]:
-    (size,) = struct.unpack_from("<I", payload, offset)
-    cursor = offset + 4
-    if size == 0:
-        return "", cursor
-
-    raw = payload[cursor : cursor + size]
-    padded = (size + 3) & ~3
-    next_offset = cursor + padded
-    if raw.endswith(b"\x00"):
-        raw = raw[:-1]
-    return raw.decode("utf-8", errors="replace"), next_offset
-
-
-@dataclass(slots=True)
-class _WaylandObject:
-    interface: str
-
-
-class ExtForeignToplevelListWaylandClient:
+class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
     def __init__(
         self,
         tracker: ExtForeignToplevelListTracker,
         socket_path: str | None = None,
     ) -> None:
+        super().__init__(socket_path)
         self._tracker = tracker
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._socket: socket.socket | None = None
-        self._socket_path: str | None = socket_path
-        self._running = False
-        self._buffer = bytearray()
-        self._next_object_id = 2
-        self._objects: dict[int, _WaylandObject] = {
-            WL_DISPLAY_OBJECT_ID: _WaylandObject("wl_display")
-        }
-        self._registry_id: int | None = None
         self._list_id: int | None = None
-        self._sync_waiters: set[int] = set()
         self._toplevel_handles: set[int] = set()
 
-    async def start(self) -> None:
-        if self._socket_path is None:
-            runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
-            display_name = os.environ.get("WAYLAND_DISPLAY", "")
-            if not runtime_dir or not display_name:
-                raise RuntimeError("WAYLAND_DISPLAY and XDG_RUNTIME_DIR are required")
-            self._socket_path = os.path.join(runtime_dir, display_name)
+    def _check_required_globals(self) -> None:
+        if self._list_id is None:
+            raise RuntimeError("ext_foreign_toplevel_list_v1 is unavailable on this compositor")
 
-        self._loop = asyncio.get_running_loop()
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._socket.setblocking(False)
-        try:
-            await self._loop.sock_connect(self._socket, self._socket_path)
-
-            self._registry_id = self._allocate_object_id("wl_registry")
-            await self._send_request(WL_DISPLAY_OBJECT_ID, 1, _pack_uint(self._registry_id))
-
-            sync_id = await self._request_sync()
-            await self._pump_until_sync(sync_id)
-
-            if self._list_id is None:
-                raise RuntimeError(
-                    "ext_foreign_toplevel_list_v1 is unavailable on this compositor"
-                )
-
-            post_bind_sync = await self._request_sync()
-            await self._pump_until_sync(post_bind_sync)
-            self._tracker.mark_done()
-        except Exception:
-            self._socket.close()
-            self._socket = None
-            raise
-
-    async def run(self) -> None:
-        if self._socket is None or self._loop is None:
-            raise RuntimeError("wayland client not started")
-
-        self._running = True
-        while self._running:
-            data = await self._loop.sock_recv(self._socket, 4096)
-            if not data:
-                break
-            self._buffer.extend(data)
-            await self._drain_messages()
+    def _after_start_sync(self) -> None:
+        self._tracker.mark_done()
 
     async def stop(self) -> None:
         self._running = False
         if self._socket is None:
             return
 
+        await self._stop_extra_globals()
         if self._list_id is not None:
             for handle_id in list(self._toplevel_handles):
                 await self._destroy_toplevel_handle(handle_id)
@@ -123,140 +47,89 @@ class ExtForeignToplevelListWaylandClient:
             self._objects.pop(self._list_id, None)
             self._list_id = None
 
-        self._socket.close()
-        self._socket = None
+        self._close_socket()
 
-    def _allocate_object_id(self, interface: str) -> int:
-        object_id = self._next_object_id
-        self._next_object_id += 1
-        self._objects[object_id] = _WaylandObject(interface)
-        return object_id
-
-    async def _request_sync(self) -> int:
-        callback_id = self._allocate_object_id("wl_callback")
-        self._sync_waiters.add(callback_id)
-        await self._send_request(WL_DISPLAY_OBJECT_ID, 0, _pack_uint(callback_id))
-        return callback_id
-
-    async def _pump_until_sync(self, callback_id: int, timeout: float = 2.0) -> None:
-        if self._socket is None or self._loop is None:
-            raise RuntimeError("wayland client not started")
-
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
-        while callback_id in self._sync_waiters:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise TimeoutError("timed out waiting for Wayland sync")
-            data = await asyncio.wait_for(
-                self._loop.sock_recv(self._socket, 4096),
-                timeout=remaining,
-            )
-            if not data:
-                raise RuntimeError("Wayland socket closed during sync")
-            self._buffer.extend(data)
-            await self._drain_messages()
-
-    async def _send_request(self, object_id: int, opcode: int, payload: bytes) -> None:
-        if self._socket is None or self._loop is None:
-            raise RuntimeError("wayland socket is not open")
-
-        size = 8 + len(payload)
-        header = struct.pack(
-            "<II",
-            int(object_id),
-            ((size & 0xFFFF) << 16) | (opcode & 0xFFFF),
-        )
-        await self._loop.sock_sendall(self._socket, header + payload)
-
-    async def _drain_messages(self) -> None:
-        while len(self._buffer) >= 8:
-            object_id, size_opcode = struct.unpack_from("<II", self._buffer, 0)
-            size = size_opcode >> 16
-            opcode = size_opcode & 0xFFFF
-            if size < 8:
-                raise RuntimeError("invalid Wayland message size")
-            if len(self._buffer) < size:
-                return
-
-            payload = bytes(self._buffer[8:size])
-            del self._buffer[:size]
-            await self._dispatch_event(object_id, opcode, payload)
-
-    async def _dispatch_event(self, object_id: int, opcode: int, payload: bytes) -> None:
-        wayland_object = self._objects.get(object_id)
-        if wayland_object is None:
-            return
-
-        interface = wayland_object.interface
-        if interface == "wl_display":
-            self._handle_display_event(opcode, payload)
-            return
-        if interface == "wl_registry":
-            await self._handle_registry_event(object_id, opcode, payload)
-            return
-        if interface == "wl_callback":
-            self._handle_callback_event(object_id, opcode)
-            return
+    async def _dispatch_protocol_event(
+        self,
+        interface: str,
+        object_id: int,
+        opcode: int,
+        payload: bytes,
+    ) -> None:
         if interface == EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE:
-            self._handle_list_event(object_id, opcode, payload)
+            await self._handle_list_event(object_id, opcode, payload)
             return
-        if interface == "ext_foreign_toplevel_handle_v1":
+        if interface == EXT_FOREIGN_TOPLEVEL_HANDLE_INTERFACE:
             await self._handle_toplevel_event(object_id, opcode, payload)
-
-    def _handle_display_event(self, opcode: int, payload: bytes) -> None:
-        if opcode != 1:
             return
-        (deleted_object_id,) = struct.unpack_from("<I", payload, 0)
-        self._objects.pop(deleted_object_id, None)
-        self._toplevel_handles.discard(deleted_object_id)
+        await self._dispatch_extra_protocol_event(interface, object_id, opcode, payload)
 
-    async def _handle_registry_event(self, object_id: int, opcode: int, payload: bytes) -> None:
-        if object_id != self._registry_id:
+    def _on_object_deleted(self, object_id: int) -> None:
+        self._toplevel_handles.discard(object_id)
+        self._after_toplevel_object_deleted(object_id)
+
+    async def _handle_registry_global(
+        self,
+        registry_id: int,
+        global_name: int,
+        interface_name: str,
+        version: int,
+    ) -> None:
+        if await self._bind_ext_foreign_toplevel_list_global(
+            registry_id,
+            global_name,
+            interface_name,
+            version,
+        ):
             return
-        if opcode != 0:
-            return
+        await self._handle_extra_registry_global(
+            registry_id,
+            global_name,
+            interface_name,
+            version,
+        )
 
-        global_name = struct.unpack_from("<I", payload, 0)[0]
-        interface_name, offset = _decode_string(payload, 4)
-        version = struct.unpack_from("<I", payload, offset)[0]
-
+    async def _bind_ext_foreign_toplevel_list_global(
+        self,
+        registry_id: int,
+        global_name: int,
+        interface_name: str,
+        version: int,
+    ) -> bool:
         if interface_name != EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE:
-            return
+            return False
         if self._list_id is not None:
-            return
+            return True
 
         bind_version = max(1, min(int(version), 1))
         list_id = self._allocate_object_id(EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE)
-        bind_payload = (
-            _pack_uint(global_name)
-            + _encode_string(EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE)
-            + _pack_uint(bind_version)
-            + _pack_uint(list_id)
+        await self._bind_registry_global(
+            registry_id,
+            global_name,
+            EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE,
+            bind_version,
+            list_id,
         )
-        await self._send_request(object_id, 0, bind_payload)
         self._list_id = list_id
+        return True
 
-    def _handle_callback_event(self, object_id: int, opcode: int) -> None:
-        if opcode != 0:
-            return
-        self._sync_waiters.discard(object_id)
-
-    def _handle_list_event(self, object_id: int, opcode: int, payload: bytes) -> None:
+    async def _handle_list_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         if object_id != self._list_id:
             return
 
         if opcode == 0:
             (handle_object_id,) = struct.unpack_from("<I", payload, 0)
-            self._objects[handle_object_id] = _WaylandObject("ext_foreign_toplevel_handle_v1")
+            self._add_object(handle_object_id, EXT_FOREIGN_TOPLEVEL_HANDLE_INTERFACE)
             self._toplevel_handles.add(handle_object_id)
             self._tracker.add_toplevel(str(handle_object_id))
+            await self._after_toplevel_added(handle_object_id)
             return
 
         if opcode == 1:
             self._running = False
 
     async def _destroy_toplevel_handle(self, object_id: int) -> None:
+        await self._before_destroy_toplevel_handle(object_id)
         try:
             await self._send_request(object_id, 0, b"")
         except Exception:
@@ -287,3 +160,37 @@ class ExtForeignToplevelListWaylandClient:
 
         if opcode == 4:
             return
+
+    async def _stop_extra_globals(self) -> None:
+        pass
+
+    async def _dispatch_extra_protocol_event(
+        self,
+        interface: str,
+        object_id: int,
+        opcode: int,
+        payload: bytes,
+    ) -> None:
+        pass
+
+    async def _handle_extra_registry_global(
+        self,
+        registry_id: int,
+        global_name: int,
+        interface_name: str,
+        version: int,
+    ) -> None:
+        pass
+
+    async def _after_toplevel_added(self, object_id: int) -> None:
+        pass
+
+    async def _before_destroy_toplevel_handle(self, object_id: int) -> None:
+        pass
+
+    def _after_toplevel_object_deleted(self, object_id: int) -> None:
+        pass
+
+
+class ExtForeignToplevelListWaylandClient(ExtForeignToplevelListClientBase):
+    pass

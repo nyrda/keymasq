@@ -1,26 +1,28 @@
-# pyright: reportUnusedImport=false, reportUnusedFunction=false, reportUnusedClass=false
-# ruff: noqa: F401, I001
 from __future__ import annotations
 
-import asyncio
-from enum import Enum
-from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
 from unittest.mock import AsyncMock, Mock
 
-import pytest
-
 import keymasq.keymasqd.daemon as daemon_module
-import keymasq.keymasqd.daemon_capture_commands as daemon_capture_commands
-import keymasq.keymasqd.daemon_macro_commands as daemon_macro_commands
-from keymasq.common.ipc import CommandType
-from keymasq.common.security import SecurityPolicy
 from keymasq.keymasqd.socket_server import ClientContext
 
 
-@pytest.fixture
-def daemon_testbed(monkeypatch):
+def macro_meta(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+        "loop_mode": "count",
+        "loop_count": 3,
+        "loop_stop_behavior": "cancel_run",
+        "move_to_start": True,
+        "start_x": 111,
+        "start_y": 222,
+        "block_mouse_movement": True,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def make_daemon_testbed(monkeypatch):
     device_manager = SimpleNamespace(
         grab_device=AsyncMock(return_value={"grabbed": True}),
         release_device=AsyncMock(return_value={"released": True}),
@@ -94,7 +96,12 @@ def daemon_testbed(monkeypatch):
     return daemon, device_manager, recording_manager, macro_store, capture_manager
 
 
-def _client(*, uid: int = 1000, pid: int = 4321, connection_id: int = 77) -> ClientContext:
+def client_context(
+    *,
+    uid: int = 1000,
+    pid: int = 4321,
+    connection_id: int = 77,
+) -> ClientContext:
     return ClientContext(
         connection_id=connection_id,
         pid=pid,
@@ -102,23 +109,3 @@ def _client(*, uid: int = 1000, pid: int = 4321, connection_id: int = 77) -> Cli
         gid=uid,
         client_class="session",
     )
-
-
-__all__ = [
-    "asyncio",
-    "Enum",
-    "Path",
-    "SimpleNamespace",
-    "cast",
-    "AsyncMock",
-    "Mock",
-    "pytest",
-    "daemon_module",
-    "daemon_capture_commands",
-    "daemon_macro_commands",
-    "CommandType",
-    "SecurityPolicy",
-    "ClientContext",
-    "daemon_testbed",
-    "_client",
-]

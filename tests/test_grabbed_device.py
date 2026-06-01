@@ -211,6 +211,75 @@ class TestActionExecution:
         assert grabbed.uinput.write.call_count == 2
         assert grabbed.uinput.syn.call_count == 2
 
+    @pytest.mark.asyncio
+    async def test_tap_key_output_failure_propagates_and_cleans_state(self):
+        grabbed = GrabbedDevice(
+            path="/dev/input/event0",
+            hardware_id="test",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=lambda *args: None,
+        )
+        grabbed.uinput = MagicMock()
+        grabbed.uinput.write.side_effect = RuntimeError("write failed")
+        grabbed.keyboard_uinput = grabbed.uinput
+        grabbed.state.tap_active["test_key"] = True
+        started = asyncio.Event()
+
+        with pytest.raises(RuntimeError, match="write failed"):
+            await gdr.tap_key(
+                grabbed,
+                evdev.ecodes.KEY_A,
+                hold_ms=1,
+                event_name="test_key",
+                uinput_dev=grabbed.uinput,
+                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                started=started,
+            )
+
+        assert "test_key" not in grabbed.state.tap_active
+        assert started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_rapidfire_key_output_failure_propagates_and_cleans_state(self):
+        grabbed = GrabbedDevice(
+            path="/dev/input/event0",
+            hardware_id="test",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=lambda *args: None,
+        )
+        grabbed.uinput = MagicMock()
+        grabbed.uinput.write.side_effect = RuntimeError("write failed")
+        grabbed.keyboard_uinput = grabbed.uinput
+        grabbed._running = True
+        event_name = "test_key"
+        grabbed.state.rapidfire_active[event_name] = True
+        grabbed.state.rapidfire_tasks[event_name] = asyncio.current_task()
+        grabbed.state.rapidfire_outputs[event_name] = gdr.RapidfireOutputState(
+            kind="key",
+            code=evdev.ecodes.KEY_A,
+            uinput=grabbed.uinput,
+        )
+        started = asyncio.Event()
+
+        with pytest.raises(RuntimeError, match="write failed"):
+            await gdr.rapidfire_key(
+                grabbed,
+                evdev.ecodes.KEY_A,
+                hold_ms=1,
+                wait_ms=1,
+                event_name=event_name,
+                uinput_dev=grabbed.uinput,
+                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                started=started,
+            )
+
+        assert event_name not in grabbed.state.rapidfire_active
+        assert event_name not in grabbed.state.rapidfire_tasks
+        assert event_name not in grabbed.state.rapidfire_outputs
+        assert started.is_set()
+
 
 def test_release_all_keys_resets_abs_only_dynamic_gamepad_output():
     pad2_uinput = MagicMock()

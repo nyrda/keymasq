@@ -127,7 +127,3 @@ markers = [
     "gui: tests covering the GTK GUI",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
-
-[tool.setuptools_scm]
-# Version is static in pyproject.toml, not using scm
-version_file = false

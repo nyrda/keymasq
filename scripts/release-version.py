@@ -7,10 +7,18 @@ import importlib.util
 import re
 import sys
 import tomllib
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
+
+from build_metadata_rewrite import (
+    RewriteRule,
+    apply_rules,
+    debian_changelog_upstream_version_rule,
+    python_metadata_rules,
+    repo_root,
+    rpm_metadata_rule,
+)
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 CHANGELOG_RELEASE_RE_TEMPLATE = r"(?m)^## {version}(?: - \d{{4}}-\d{{2}}-\d{{2}})?$"
@@ -18,18 +26,6 @@ METAINFO_RELEASE_LINE_RE_TEMPLATE = (
     r'(?m)^    <release version="{version}" date="[^"]+">$'
 )
 METAINFO_PLACEHOLDER_SUMMARY = "Update release notes."
-
-
-@dataclass(frozen=True)
-class RewriteRule:
-    path: Path
-    pattern: re.Pattern[str]
-    replacement: str
-    count: int = 1
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
 
 
 def _release_date() -> str:
@@ -54,31 +50,14 @@ def _build_rules(
     root: Path, version: str, release_date: str, current_version: str
 ) -> list[RewriteRule]:
     rules = [
-        RewriteRule(
-            root / "pyproject.toml",
-            re.compile(r'(?m)^version = "[^"]+"$'),
-            f'version = "{version}"',
-        ),
-        RewriteRule(
-            root / "keymasq/_version.py",
-            re.compile(r'(?m)^__version__ = "[^"]+"$'),
-            f'__version__ = "{version}"',
-        ),
-        RewriteRule(
-            root / "packaging/rpm/metadata.env",
-            re.compile(r'(?m)^VERSION=".*"$'),
-            f'VERSION="{version}"',
-        ),
+        *python_metadata_rules(root, version),
+        rpm_metadata_rule(root, version),
         RewriteRule(
             root / "flake.nix",
             re.compile(r'(?m)^ {10}version = "[^"]+";$'),
             f'          version = "{version}";',
         ),
-        RewriteRule(
-            root / "debian/changelog",
-            re.compile(r"(?m)^keymasq \(([^-]+)(-\d+)\)"),
-            rf"keymasq ({version}\2)",
-        ),
+        debian_changelog_upstream_version_rule(root, version),
     ]
     if current_version != version:
         rules.append(
@@ -89,20 +68,6 @@ def _build_rules(
             )
         )
     return rules
-
-
-def _rewrite_file(rule: RewriteRule, dry_run: bool) -> bool:
-    content = rule.path.read_text(encoding="utf-8")
-    updated, replacements = rule.pattern.subn(rule.replacement, content, count=rule.count)
-    if replacements != rule.count:
-        raise RuntimeError(
-            f"expected {rule.count} replacement(s) in {rule.path}, got {replacements}"
-        )
-    if updated == content:
-        return False
-    if not dry_run:
-        rule.path.write_text(updated, encoding="utf-8")
-    return True
 
 
 def _rewrite_changelog(
@@ -278,12 +243,13 @@ def main() -> int:
     except ValueError as exc:
         parser.error(f"release date must use the form YYYY-MM-DD: {exc}")
 
-    root = _repo_root()
+    root = repo_root()
     current_version = _current_version(root)
-    changed_paths: list[Path] = []
-    for rule in _build_rules(root, version, release_date, current_version):
-        if _rewrite_file(rule, dry_run=args.dry_run):
-            changed_paths.append(rule.path.relative_to(root))
+    changed_paths = apply_rules(
+        root,
+        _build_rules(root, version, release_date, current_version),
+        dry_run=args.dry_run,
+    )
     if _rewrite_changelog(root, version, release_date, current_version, dry_run=args.dry_run):
         changed_paths.append(Path("CHANGELOG.md"))
     if _rewrite_metainfo(root, version, release_date, current_version, dry_run=args.dry_run):

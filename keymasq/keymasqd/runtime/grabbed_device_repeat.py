@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-from typing import cast
 
 import evdev
 
@@ -26,7 +25,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     RapidfireOutputState,
     TaskFactory,
     UInputWriter,
-    WritableUInput,
+    identity_uinput_writer,
     runtime_is_running,
 )
 from keymasq.keymasqd.runtime.mouse_actions import (
@@ -162,7 +161,7 @@ def _release_rapidfire_abs_axis(
         device_runtime,
         axis_code,
         evdev_mod=evdev,
-        uinput_writer=_uinput_writer,
+        uinput_writer=identity_uinput_writer,
         uinput_dev=rapidfire_state.uinput,
         bucket=rapidfire_state.bucket,
         release_value=rapidfire_state.axis_release_value,
@@ -272,8 +271,6 @@ async def rapidfire_abs_axis(
                 break
 
             await asyncio_mod.sleep(wait)
-    except Exception:
-        pass
     finally:
         if pressed and event_name in device_runtime.state.rapidfire_outputs:
             state = device_runtime.state.rapidfire_outputs[event_name]
@@ -330,8 +327,6 @@ async def tap_abs_axis(
             bucket=bucket,
         )
         pressed = False
-    except Exception:
-        pass
     finally:
         if pressed:
             ensure_abs_axis_released(
@@ -385,7 +380,7 @@ async def rapidfire_key(
                     code,
                     1,
                     evdev_mod=evdev,
-                    uinput_writer=_uinput_writer,
+                    uinput_writer=identity_uinput_writer,
                     bucket=bucket,
                 )
             pressed = True
@@ -408,7 +403,7 @@ async def rapidfire_key(
                         code,
                         0,
                         evdev_mod=evdev,
-                        uinput_writer=_uinput_writer,
+                        uinput_writer=identity_uinput_writer,
                         bucket=bucket,
                     )
                 pressed = False
@@ -416,8 +411,6 @@ async def rapidfire_key(
                 break
 
             await asyncio_mod.sleep(wait)
-    except Exception:
-        pass
     finally:
         if pressed and event_name in device_runtime.state.rapidfire_outputs:
             state = device_runtime.state.rapidfire_outputs[event_name]
@@ -450,7 +443,7 @@ async def tap_key(
             code,
             1,
             evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
             bucket=bucket,
         )
         pressed = True
@@ -463,12 +456,10 @@ async def tap_key(
             code,
             0,
             evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
             bucket=bucket,
         )
         pressed = False
-    except Exception:
-        pass
     finally:
         if pressed:
             ensure_key_released(device_runtime, code, uinput_dev, bucket=bucket)
@@ -501,7 +492,7 @@ async def rapidfire_relative(
             code,
             value,
             ev_rel_code=evdev.ecodes.EV_REL,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
         )
         if not started_set:
             _mark_started(started)
@@ -518,8 +509,6 @@ async def rapidfire_relative(
             wait_s=wait,
             asyncio_mod=asyncio_mod,
         )
-    except Exception:
-        pass
     finally:
         if task is not None:
             finish_rapidfire_task(device_runtime, event_name, task)
@@ -548,7 +537,7 @@ async def tap_relative(
             code,
             value,
             ev_rel_code=evdev.ecodes.EV_REL,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
         )
         if not started_set:
             _mark_started(started)
@@ -560,8 +549,6 @@ async def tap_relative(
             hold_s=hold,
             asyncio_mod=asyncio_mod,
         )
-    except Exception:
-        pass
     finally:
         device_runtime.state.tap_active.pop(event_name, None)
         if not started_set:
@@ -598,8 +585,6 @@ async def rapidfire_move(
                 break
 
             await asyncio_mod.sleep(wait)
-    except Exception:
-        pass
     finally:
         if task is not None:
             finish_rapidfire_task(device_runtime, event_name, task)
@@ -624,16 +609,10 @@ async def tap_move(
         _mark_started(started)
         started_set = True
         await asyncio_mod.sleep(hold)
-    except Exception:
-        pass
     finally:
         device_runtime.state.tap_active.pop(event_name, None)
         if not started_set:
             _mark_started(started)
-
-
-def _uinput_writer(device: object | None) -> WritableUInput | None:
-    return cast(WritableUInput | None, device)
 
 
 def _mark_started(started: AsyncioEvent | None) -> None:

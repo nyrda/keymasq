@@ -165,15 +165,41 @@ def test_session_entrypoint_delegates_help_to_manager(monkeypatch: pytest.Monkey
     assert called == ["manager"]
 
 
+def test_cli_main_does_not_define_command_wrappers() -> None:
+    from keymasq.cli import __main__ as cli_main
+
+    command_names = {
+        "cancel_macro_cli",
+        "create_macro_cli",
+        "delete_macro_cli",
+        "list_macros_cli",
+        "list_profiles_cli",
+        "play_adhoc_cli",
+        "play_macro_cli",
+        "set_diagnostics_cli",
+        "set_profile_state_cli",
+        "status_cli",
+        "type_cli",
+    }
+    wrappers = [
+        name
+        for name in sorted(command_names)
+        if getattr(getattr(cli_main, name, None), "__module__", None) == cli_main.__name__
+    ]
+
+    assert wrappers == []
+
+
 def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
 
     calls: list[tuple[str, str, bool]] = []
 
     def _set_profile_state(command: str, profile_name: str, *, json_output: bool) -> None:
         calls.append((command, profile_name, json_output))
 
-    monkeypatch.setattr(cli_main, "set_profile_state_cli", _set_profile_state)
+    monkeypatch.setattr(commands, "set_profile_state_cli", _set_profile_state)
     monkeypatch.setattr(sys, "argv", ["keymasq", "profiles", "toggle", "gaming"])
 
     cli_main.main()
@@ -182,13 +208,14 @@ def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPat
 
 def test_cli_main_status_routes_json_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
 
     calls: list[bool] = []
 
     def _status_cli(*, json_output: bool) -> None:
         calls.append(json_output)
 
-    monkeypatch.setattr(cli_main, "status_cli", _status_cli)
+    monkeypatch.setattr(commands, "status_cli", _status_cli)
     monkeypatch.setattr(sys, "argv", ["keymasq", "status", "--json"])
 
     cli_main.main()
@@ -197,13 +224,14 @@ def test_cli_main_status_routes_json_flag(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_cli_main_type_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
 
     calls: list[dict[str, object]] = []
 
     def _type_cli(text: list[str], **kwargs: object) -> None:
         calls.append({"text": text, **kwargs})
 
-    monkeypatch.setattr(cli_main, "type_cli", _type_cli)
+    monkeypatch.setattr(commands, "type_cli", _type_cli)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -226,13 +254,14 @@ def test_cli_main_type_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_cli_main_type_no_unicode_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
 
     calls: list[dict[str, object]] = []
 
     def _type_cli(text: list[str], **kwargs: object) -> None:
         calls.append({"text": text, **kwargs})
 
-    monkeypatch.setattr(cli_main, "type_cli", _type_cli)
+    monkeypatch.setattr(commands, "type_cli", _type_cli)
     monkeypatch.setattr(sys, "argv", ["keymasq", "type", "--no-unicode", "café"])
 
     cli_main.main()
@@ -241,13 +270,14 @@ def test_cli_main_type_no_unicode_routes_to_helper(monkeypatch: pytest.MonkeyPat
 
 def test_cli_main_play_routes_json_input_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
 
     calls: list[dict[str, object]] = []
 
     def _play_cli(events: list[str], **kwargs: object) -> None:
         calls.append({"events": events, **kwargs})
 
-    monkeypatch.setattr(cli_main, "play_adhoc_cli", _play_cli)
+    monkeypatch.setattr(commands, "play_adhoc_cli", _play_cli)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -312,13 +342,14 @@ def test_cli_main_rejects_invalid_diagnostics_interval(
 
 def test_cli_main_macros_create_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
 
     calls: list[dict[str, object]] = []
 
     def _create_macro(name: str, json_parts: list[str], **kwargs: object) -> None:
         calls.append({"name": name, "json_parts": json_parts, **kwargs})
 
-    monkeypatch.setattr(cli_main, "create_macro_cli", _create_macro)
+    monkeypatch.setattr(commands, "create_macro_cli", _create_macro)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -338,13 +369,14 @@ def test_cli_main_macros_create_routes_to_helper(monkeypatch: pytest.MonkeyPatch
 
 def test_cli_main_macros_delete_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
 
     calls: list[dict[str, object]] = []
 
     def _delete_macro(name: str, **kwargs: object) -> None:
         calls.append({"name": name, **kwargs})
 
-    monkeypatch.setattr(cli_main, "delete_macro_cli", _delete_macro)
+    monkeypatch.setattr(commands, "delete_macro_cli", _delete_macro)
     monkeypatch.setattr(sys, "argv", ["keymasq", "macros", "delete", "stored"])
 
     cli_main.main()

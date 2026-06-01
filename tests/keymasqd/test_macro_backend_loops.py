@@ -1,5 +1,18 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.macro_backend_support import *
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import evdev
+import pytest
+
+import keymasq.common.paths as paths
+import keymasq.keymasqd.recording as recording_module
+from keymasq.common.ipc import CommandType
+from keymasq.common.models import ActionType, DeviceProfileLayer, MappingAction, ProfileConfig
+from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.recording import RecordingManager
+from keymasq.keymasqd.runtime import macros as mdm
+from keymasq.session.profiles import ProfileManager
 
 
 async def _wait_for_no_running_macros(manager: DeviceManager) -> None:

@@ -271,19 +271,7 @@ def session_request_async(
     callback: Callable[[JsonDict | None], bool | None],
     timeout: float = 5.0,
 ) -> None:
-    def _request() -> JsonDict | None:
-        return session_request(payload, timeout=timeout)
-
-    def _on_done(result: GuiTaskResult[JsonDict | None]) -> bool | None:
-        if result.ok:
-            return callback(result.value)
-        error = result.error or RuntimeError("GUI task failed without an exception")
-        return callback(_gui_task_error_payload(error))
-
-    run_gui_task(
-        _request,
-        _on_done,
-    )
+    session_request_with_hooks(payload, callback, timeout=timeout)
 
 
 def run_gui_task[T](

@@ -496,6 +496,32 @@ def test_wlr_wayland_client_dispatches_manager_and_toplevel_events() -> None:
     assert fake_socket.closed is True
 
 
+def test_wlr_wayland_client_stop_removes_tracker_handles() -> None:
+    tracker = WlrForeignToplevelManagerTracker()
+    client = wlr_client_module.WlrForeignToplevelWaylandClient(tracker)
+    fake_socket = _FakeWaylandSocket()
+    client._socket = fake_socket
+    client._send_request = _fake_send_request_recorder(fake_socket)
+
+    manager_id = client._allocate_object_id(
+        wlr_client_module.WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE
+    )
+    handle_id = client._allocate_object_id("zwlr_foreign_toplevel_handle_v1")
+    client._manager_id = manager_id
+    client._toplevel_handles.add(handle_id)
+    tracker.add_toplevel(str(handle_id))
+    tracker.update_title(str(handle_id), "Editor")
+    tracker.update_app_id(str(handle_id), "code")
+    tracker.update_state(str(handle_id), [WLR_TOPLEVEL_STATE_ACTIVATED])
+
+    asyncio.run(client.stop())
+
+    assert str(handle_id) not in tracker._windows
+    assert tracker.get_active_window() == ("", "")
+    assert client._toplevel_handles == set()
+    assert fake_socket.closed is True
+
+
 def test_cosmic_wayland_client_links_ext_handles_to_cosmic_state() -> None:
     tracker = ExtForeignToplevelListTracker()
     client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
@@ -546,6 +572,26 @@ def test_cosmic_wayland_client_links_ext_handles_to_cosmic_state() -> None:
     assert _wl_message(70, 0) in fake_socket.sent
     asyncio.run(client.stop())
     assert fake_socket.closed is True
+
+
+def test_cosmic_wayland_client_waits_for_cosmic_done_event() -> None:
+    tracker = ExtForeignToplevelListTracker()
+    client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
+
+    tracker.add_toplevel("70")
+    tracker.update_title("70", "Settings")
+    tracker.update_app_id("70", "com.system76.Settings")
+
+    client._after_start_sync()
+    assert asyncio.run(tracker.next_active_window(timeout=0.01)) is None
+
+    tracker.update_state("70", [2])
+    client._handle_cosmic_info_event(2)
+
+    assert asyncio.run(tracker.next_active_window(timeout=0.01)) == (
+        "com.system76.Settings",
+        "Settings",
+    )
 
 
 def test_cosmic_wayland_client_stop_destroys_handles_before_list() -> None:

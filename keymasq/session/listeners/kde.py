@@ -410,7 +410,7 @@ class KDEListener(WindowListener):
                     await self._call_unload_script(plugin_name)
             if script_path:
                 with contextlib.suppress(Exception):
-                    script_path.unlink(missing_ok=True)
+                    await asyncio.to_thread(script_path.unlink, missing_ok=True)
 
     def handle_window_payload(self, payload: str) -> None:
         parsed = parse_kde_window_payload(payload)

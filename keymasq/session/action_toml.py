@@ -41,11 +41,25 @@ class UnknownActionTypeError(ValueError):
 
 
 def _int_value(value: object, default: int) -> int:
-    return default if value is None else int(cast(_IntLike, value))
+    if value is None:
+        return default
+    try:
+        return int(cast(_IntLike, value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Expected integer value, got {type(value).__name__}: {value!r}"
+        ) from exc
 
 
 def _float_value(value: object, default: float) -> float:
-    return default if value is None else float(cast(_FloatLike, value))
+    if value is None:
+        return default
+    try:
+        return float(cast(_FloatLike, value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Expected float value, got {type(value).__name__}: {value!r}"
+        ) from exc
 
 
 def mapping_action_type_from_toml(

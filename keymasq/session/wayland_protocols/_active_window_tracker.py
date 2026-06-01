@@ -74,6 +74,9 @@ class ActiveWindowTracker:
         except TimeoutError:
             return None
 
+    def mark_done(self) -> None:
+        self._mark_done()
+
     def _mark_done(self) -> None:
         if self._active_handle is None:
             self._active_handle = self._find_active_handle()

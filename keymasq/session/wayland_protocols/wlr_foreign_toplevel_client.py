@@ -37,6 +37,8 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
             if self._manager_id is not None:
                 for handle_id in list(self._toplevel_handles):
                     await self._destroy_toplevel_handle(handle_id)
+                    self._tracker.close_toplevel(str(handle_id))
+                self._toplevel_handles.clear()
                 try:
                     await self._send_request(self._manager_id, 0, b"")
                 except Exception:

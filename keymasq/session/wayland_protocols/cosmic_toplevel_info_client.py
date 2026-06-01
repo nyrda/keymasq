@@ -35,6 +35,9 @@ class CosmicToplevelInfoWaylandClient(ExtForeignToplevelListClientBase):
         if self._cosmic_info_id is None:
             raise RuntimeError("zcosmic_toplevel_info_v1 is unavailable on this compositor")
 
+    def _after_start_sync(self) -> None:
+        pass
+
     async def _stop_extra_globals(self) -> None:
         if self._cosmic_info_id is not None:
             for cosmic_id in list(self._cosmic_handles):

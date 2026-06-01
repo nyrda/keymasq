@@ -78,6 +78,7 @@ def identity_uinput_writer(device: object | None) -> WritableUInput | None:
 
 
 def close_device(device: object) -> None:
+    """Close evdev-style devices synchronously; this is intended as fd-close cleanup."""
     close = getattr(device, "close", None)
     if not callable(close):
         return

@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -69,17 +70,21 @@ def load_config_files_sync[ConfigT](
     failure_log_message: str = "Failed to load %s: %s",
     sort_paths: bool = False,
 ) -> list[tuple[Path, ConfigT]]:
-    loaded_configs: list[tuple[Path, ConfigT]] = []
-    failures: list[ConfigLoadFailure] = []
+    async def _load() -> list[tuple[Path, ConfigT]]:
+        return await load_config_files(
+            config_dir,
+            config_kind=config_kind,
+            strict=strict,
+            load_config=load_config,
+            logger=logger,
+            failure_log_message=failure_log_message,
+            sort_paths=sort_paths,
+        )
 
-    for config_file in _config_files(config_dir, sort_paths=sort_paths):
-        try:
-            loaded_configs.append((config_file, load_config(config_file)))
-        except Exception as exc:
-            logger.error(failure_log_message, config_file, exc)
-            failures.append(ConfigLoadFailure(config_file, str(exc)))
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_load())
 
-    if strict and failures:
-        raise ConfigLoadError(config_kind, failures)
-
-    return loaded_configs
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(_load())).result()

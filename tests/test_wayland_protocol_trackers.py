@@ -301,6 +301,14 @@ def test_registry_probe_ignores_truncated_global_interface_sync() -> None:
     assert errors == []
 
 
+def test_registry_probe_sync_rejects_running_event_loop() -> None:
+    async def run_probe() -> None:
+        with pytest.raises(RuntimeError, match="use await list_registry_globals"):
+            registry_probe.list_registry_globals_sync(Path("/tmp/missing-wayland"))
+
+    asyncio.run(run_probe())
+
+
 def test_registry_probe_reads_globals_async() -> None:
     async def run_probe() -> set[str]:
         with _short_socket_path("wayland-async") as socket_path:

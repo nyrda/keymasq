@@ -53,8 +53,10 @@ def list_registry_globals_sync(socket_path: Path, timeout_s: float = 0.6) -> set
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(list_registry_globals(socket_path, timeout_s=timeout_s))
-    else:
-        return set()
+    raise RuntimeError(
+        "list_registry_globals_sync cannot be called from a running event loop; "
+        "use await list_registry_globals(...)"
+    )
 
 
 async def list_registry_globals(socket_path: Path, timeout_s: float = 0.6) -> set[str]:

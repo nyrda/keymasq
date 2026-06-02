@@ -335,7 +335,7 @@ async def grab_device_unlocked(
                     log.debug("  %s - skipped (no matching mapped button names/codes)", path)
         except OSError as exc:
             if raw_device is not None:
-                _close_device(raw_device)
+                runtime_adapters.close_device(raw_device)
                 raw_device = None
             if exc.errno in {errno_mod.ENOENT, errno_mod.ENODEV}:
                 log.info("Skipping unavailable interface for %s: %s", hardware_id, path)
@@ -350,7 +350,7 @@ async def grab_device_unlocked(
             raise
         except Exception as exc:
             if raw_device is not None:
-                _close_device(raw_device)
+                runtime_adapters.close_device(raw_device)
                 raw_device = None
             log.error("Failed to grab %s: %s", path, exc)
             for device in devices:
@@ -362,7 +362,7 @@ async def grab_device_unlocked(
             raise
         finally:
             if raw_device is not None:
-                _close_device(raw_device)
+                runtime_adapters.close_device(raw_device)
 
     waiting_for_device = bool(
         (requested_paths or raw_interfaces) and available_count == 0 and not devices
@@ -415,16 +415,6 @@ def grabbed_paths_for_other_hardware(manager: _GrabManager, hardware_id: str) ->
                 if path:
                     paths.add(path)
     return paths
-
-
-def _close_device(device: object) -> None:
-    close = getattr(device, "close", None)
-    if not callable(close):
-        return
-    try:
-        close()
-    except Exception:
-        pass
 
 
 async def grab_with_retry(

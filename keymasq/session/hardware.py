@@ -17,7 +17,7 @@ from keymasq.common.models import (
     EvdevDevice,
     HardwareConfig,
 )
-from keymasq.session.config_errors import ConfigLoadError, ConfigLoadFailure
+from keymasq.session.config_loading import load_config_files_sync
 
 log = logging.getLogger("keymasq-session.hardware")
 MAX_HARDWARE_PATH_ATTEMPTS = 10000
@@ -40,22 +40,14 @@ class HardwareManager:
 
     def _load_all(self, *, strict: bool = False) -> None:
         loaded_cache: dict[str, HardwareConfig] = {}
-        failures: list[ConfigLoadFailure] = []
-
-        if not paths.HARDWARE_DIR.exists():
-            self._cache = loaded_cache
-            return
-
-        for config_file in paths.HARDWARE_DIR.glob("*.toml"):
-            try:
-                config = self._load_config(config_file)
-                loaded_cache[config.hardware_id] = config
-            except Exception as e:
-                log.error(f"Failed to load {config_file}: {e}")
-                failures.append(ConfigLoadFailure(config_file, str(e)))
-
-        if strict and failures:
-            raise ConfigLoadError("hardware", failures)
+        for _config_file, config in load_config_files_sync(
+            paths.HARDWARE_DIR,
+            config_kind="hardware",
+            strict=strict,
+            load_config=self._load_config,
+            logger=log,
+        ):
+            loaded_cache[config.hardware_id] = config
 
         self._cache = loaded_cache
 

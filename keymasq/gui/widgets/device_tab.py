@@ -1,5 +1,4 @@
 import logging
-import re
 import shlex
 from collections.abc import Callable
 from typing import cast
@@ -39,7 +38,11 @@ from keymasq.gui.session_client import (
     session_request_async,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
-from keymasq.gui.widgets.device_control_layout import device_layout_kind, group_pointer_controls
+from keymasq.gui.widgets.device_control_layout import (
+    device_layout_kind,
+    group_pointer_controls,
+    label_sort_key,
+)
 from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.hardware import HardwareManager
@@ -59,7 +62,6 @@ _ANALOG_LAYOUT_ORDER = {
     "left_stick": 2,
     "right_stick": 3,
 }
-_TRAILING_NUMBER_RE = re.compile(r"^(?P<prefix>.*?)(?P<number>\d+)\s*$")
 log = logging.getLogger(__name__)
 
 
@@ -155,15 +157,6 @@ def _grouped_analog_inputs(
     if other:
         groups.append(("Other", other))
     return groups
-
-
-def _label_sort_key(label: object) -> tuple[str, int, int, str]:
-    text = str(label or "").strip()
-    lowered = text.lower()
-    match = _TRAILING_NUMBER_RE.match(lowered)
-    if match:
-        return (match.group("prefix").strip(), 0, int(match.group("number")), lowered)
-    return (lowered, 1, 0, lowered)
 
 
 def _display_action_summary(text: str, max_chars: int) -> str:
@@ -911,7 +904,7 @@ class DeviceTab(ProfileManagedTab):
 
             extras = sorted(
                 buttons_by_id.values(),
-                key=lambda button: _label_sort_key(button.label),
+                key=lambda button: label_sort_key(button.label),
             )
             if extras:
                 self._append_other_buttons_section(
@@ -934,7 +927,7 @@ class DeviceTab(ProfileManagedTab):
             extra_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             _add_section(
                 "",
-                sorted(extra_buttons, key=lambda button: _label_sort_key(button.label)),
+                sorted(extra_buttons, key=lambda button: label_sort_key(button.label)),
                 extra_box,
                 max_cols=3,
             )
@@ -1080,7 +1073,7 @@ class DeviceTab(ProfileManagedTab):
         col = 0
         row = 0
         max_cols = 6
-        for button in sorted(extras, key=lambda b: _label_sort_key(b.label)):
+        for button in sorted(extras, key=lambda b: label_sort_key(b.label)):
             widget = self._create_button_widget(button)
             grid.attach(widget, col, row, 1, 1)
             self._button_widgets[button.id] = widget

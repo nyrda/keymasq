@@ -31,7 +31,6 @@ class SettingsDialog(Adw.Dialog):
         self._parent = parent
         self._settings = load_global_settings()
         self._gamepad_count = self._settings.virtual_gamepad_count
-        self._syncing_controls = False
         self._save_seq = 0
 
         toolbar = Adw.ToolbarView()
@@ -119,7 +118,6 @@ class SettingsDialog(Adw.Dialog):
         if self._save_seq > 0:
             return False
         if isinstance(response, dict) and response.get("status") == "ok":
-            self._syncing_controls = True
             try:
                 raw_count = response.get(
                     "virtual_gamepad_count",
@@ -130,7 +128,6 @@ class SettingsDialog(Adw.Dialog):
             except (TypeError, ValueError):
                 self._gamepad_count = self._settings.virtual_gamepad_count
             self._sync_gamepad_count_controls()
-            self._syncing_controls = False
         return False
 
     def _on_increment_gamepads_clicked(self, _button: Gtk.Button) -> None:
@@ -167,10 +164,8 @@ class SettingsDialog(Adw.Dialog):
             if isinstance(response, dict) and response.get("status") == "ok":
                 raw_saved = response.get("virtual_gamepad_count", count)
                 saved_count = _count_value(raw_saved, count)
-                self._syncing_controls = True
                 self._gamepad_count = clamp_virtual_gamepad_count(saved_count)
                 self._sync_gamepad_count_controls()
-                self._syncing_controls = False
                 return False
             if isinstance(response, dict):
                 message = str(response.get("message") or "Failed to apply settings")
@@ -181,10 +176,8 @@ class SettingsDialog(Adw.Dialog):
                     virtual_gamepad_count=count,
                 )
             )
-            self._syncing_controls = True
             self._gamepad_count = saved.virtual_gamepad_count
             self._sync_gamepad_count_controls()
-            self._syncing_controls = False
             return False
 
         session_request_async(

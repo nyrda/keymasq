@@ -1,5 +1,14 @@
-# ruff: noqa: F403, F405, I001
-from tests.session.command_support import *
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock
+
+import pytest
+
+import keymasq.session.manager.compositor as session_compositor_module
+import keymasq.session.manager.recording as session_recording_module
+from keymasq.common.security import PeerCredentials, SecurityPolicy
+from keymasq.session.listeners.hyprland import HyprlandListener
+from keymasq.session.manager import SessionManager
 
 
 @pytest.mark.asyncio
@@ -286,7 +295,9 @@ async def test_handle_session_request_dispatch_compositor_uses_runtime_dispatch(
 
 
 @pytest.mark.asyncio
-async def test_handle_session_request_get_compositor_merges_listener_runtime_warning() -> None:
+async def test_handle_session_request_get_compositor_merges_listener_runtime_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
@@ -309,22 +320,18 @@ async def test_handle_session_request_get_compositor_merges_listener_runtime_war
     async def support_details(_compositor_id: str | None, _dbus=None) -> dict[str, bool | str]:
         return {"supported": True, "warning": ""}
 
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_compositor_module,
         "get_compositor_support_details",
         support_details,
     )
 
-    try:
-        result = await manager._handle_session_request(
-            {"command": "get_compositor"},
-            "client",
-            peer,
-            object(),
-        )
-    finally:
-        monkeypatch.undo()
+    result = await manager._handle_session_request(
+        {"command": "get_compositor"},
+        "client",
+        peer,
+        object(),
+    )
 
     assert result["supported"] is True
     assert result["compositor_dispatch_available"] is False

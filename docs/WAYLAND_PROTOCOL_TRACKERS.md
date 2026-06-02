@@ -94,8 +94,6 @@ async def forward_changes() -> None:
 ## Tests
 
 - `tests/test_wayland_protocol_trackers.py`
-- `tests/test_wayland_wlr_client.py`
-- `tests/test_wayland_ext_client.py`
 
 Coverage includes:
 

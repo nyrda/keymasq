@@ -1,30 +1,26 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.daemon_support import *
+import asyncio
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import evdev
+import pytest
 
 from keymasq.common.devices import detect_input_classes, primary_input_class
+from keymasq.common.ipc import CommandType
+from keymasq.common.security import SecurityPolicy
 from keymasq.keymasqd import capture_manager as capture_manager_module
+from keymasq.keymasqd import daemon as daemon_module
+from keymasq.keymasqd import daemon_capture_commands
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.runtime import device_path_resolver
-
-
-MACRO_RUNTIME_META = {
-    "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-    "loop_mode": "count",
-    "loop_count": 3,
-    "loop_stop_behavior": "cancel_run",
-    "move_to_start": True,
-    "start_x": 111,
-    "start_y": 222,
-    "block_mouse_movement": True,
-}
+from tests.keymasqd.daemon_support import macro_meta
 
 
 @pytest.mark.asyncio
 async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-    macro_store.get_meta.return_value = MACRO_RUNTIME_META
+    macro_store.get_meta.return_value = macro_meta()
 
     result = await daemon._handle_command(
         CommandType.MACRO_PLAY_BY_NAME,
@@ -87,7 +83,7 @@ async def test_macro_list_recordings_returns_pending_slot_meta(daemon_testbed):
 @pytest.mark.asyncio
 async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-    macro_store.get_meta.return_value = MACRO_RUNTIME_META
+    macro_store.get_meta.return_value = macro_meta()
 
     result = await daemon._handle_command(
         CommandType.PLAY_MACRO,
@@ -163,7 +159,7 @@ async def test_macro_play_request_runtime_options_override_stored_options(
     data,
 ):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-    macro_store.get_meta.return_value = MACRO_RUNTIME_META
+    macro_store.get_meta.return_value = macro_meta()
 
     result = await daemon._handle_command(command_type, data)
 

@@ -471,21 +471,6 @@ class Daemon:
         *,
         claim_if_missing: bool = True,
     ) -> None:
-        sensitive_commands = {
-            CommandType.CAPTURE_BEGIN,
-            CommandType.CAPTURE_READ,
-            CommandType.CAPTURE_END,
-            CommandType.CAPTURE_COMBO,
-            CommandType.MACRO_SAVE_RECORDING,
-            CommandType.MACRO_GET,
-            CommandType.MACRO_CREATE,
-            CommandType.MACRO_UPDATE,
-            CommandType.DEVICE_INSPECTOR_START,
-            CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
-        }
-        if command_type not in sensitive_commands:
-            return
-
         owner = self._recording_refresh_owners.get(int(client.uid))
         if owner is None:
             if not claim_if_missing:

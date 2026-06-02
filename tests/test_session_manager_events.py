@@ -7,11 +7,22 @@ import pytest
 
 import keymasq.session.manager.events as session_events_module
 import keymasq.session.manager.profiles as session_profiles_module
-from keymasq.common.ipc import CommandType, Response
-from keymasq.common.models import ProfileConfig
+from keymasq.common.ipc import Command, CommandType, Response
+from keymasq.common.models import ProfileConfig, ProfileDeactivationPolicy
 from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.manager import SessionManager
-from keymasq.session.manager.state import ExecBinding
+from keymasq.session.manager.state import ExecBinding, RuntimeProfileActivation
+
+
+def _sent_daemon_commands(
+    manager: SessionManager,
+    command_type: CommandType,
+) -> list[Command]:
+    return [
+        call_args.args[0]
+        for call_args in manager.client.send_command.await_args_list
+        if call_args.args[0].command == command_type
+    ]
 
 
 @pytest.mark.asyncio
@@ -370,11 +381,7 @@ async def test_lifetime_profile_enable_creates_runtime_activation_without_persis
     assert manager.profiles.get_profile("Nav").config.enabled is False
     assert manager.profile_state.active_profile_names[-1] == "Nav"
     activation = manager.profile_state.runtime_profile_activations["Nav"]
-    track_calls = [
-        call_args.args[0]
-        for call_args in manager.client.send_command.await_args_list
-        if call_args.args[0].command == CommandType.TRACK_PROFILE_ACTIVATION
-    ]
+    track_calls = _sent_daemon_commands(manager, CommandType.TRACK_PROFILE_ACTIVATION)
     assert len(track_calls) == 1
     assert track_calls[0].data == {
         "profile_name": "Nav",
@@ -457,15 +464,49 @@ async def test_explicit_profile_disable_cancels_runtime_activation(
     assert result["enabled"] is False
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     assert "Nav" not in manager.profile_state.active_profile_names
-    cancel_calls = [
-        call_args.args[0]
-        for call_args in manager.client.send_command.await_args_list
-        if call_args.args[0].command == CommandType.CANCEL_PROFILE_ACTIVATION
-    ]
+    cancel_calls = _sent_daemon_commands(manager, CommandType.CANCEL_PROFILE_ACTIVATION)
     assert len(cancel_calls) == 1
     assert cancel_calls[0].data == {
         "profile_name": "Nav",
         "activation_id": activation.activation_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_profile_enabled_cancels_runtime_activation_with_single_reevaluate(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=True, is_permanent=True))
+    manager.profile_state.runtime_profile_activations["Nav"] = RuntimeProfileActivation(
+        profile_name="Nav",
+        activation_id="activation-1",
+        sequence=1,
+        deactivation=ProfileDeactivationPolicy(after_actions=1),
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_profiles_module,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    result = await session_profiles_module.set_profile_enabled(manager, "Nav", False)
+
+    assert result["status"] == "ok"
+    assert result["enabled"] is False
+    assert "Nav" not in manager.profile_state.runtime_profile_activations
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason="profile Nav enabled=False",
+    )
+    cancel_calls = _sent_daemon_commands(manager, CommandType.CANCEL_PROFILE_ACTIVATION)
+    assert len(cancel_calls) == 1
+    assert cancel_calls[0].data == {
+        "profile_name": "Nav",
+        "activation_id": "activation-1",
     }
 
 
@@ -486,11 +527,7 @@ async def test_lifetime_profile_toggle_creates_and_cancels_runtime_activation(
 
     assert manager.profiles.get_profile("Nav").config.enabled is False
     activation = manager.profile_state.runtime_profile_activations["Nav"]
-    track_calls = [
-        call_args.args[0]
-        for call_args in manager.client.send_command.await_args_list
-        if call_args.args[0].command == CommandType.TRACK_PROFILE_ACTIVATION
-    ]
+    track_calls = _sent_daemon_commands(manager, CommandType.TRACK_PROFILE_ACTIVATION)
     assert len(track_calls) == 1
     assert track_calls[0].data == {
         "profile_name": "Nav",
@@ -506,11 +543,7 @@ async def test_lifetime_profile_toggle_creates_and_cancels_runtime_activation(
 
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     assert manager.profiles.get_profile("Nav").config.enabled is False
-    cancel_calls = [
-        call_args.args[0]
-        for call_args in manager.client.send_command.await_args_list
-        if call_args.args[0].command == CommandType.CANCEL_PROFILE_ACTIVATION
-    ]
+    cancel_calls = _sent_daemon_commands(manager, CommandType.CANCEL_PROFILE_ACTIVATION)
     assert len(cancel_calls) == 1
     assert cancel_calls[0].data == {
         "profile_name": "Nav",
@@ -576,11 +609,7 @@ async def test_no_lifetime_disable_cancels_runtime_activation_and_persists_disab
 
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     assert manager.profiles.get_profile("Nav").config.enabled is False
-    cancel_calls = [
-        call_args.args[0]
-        for call_args in manager.client.send_command.await_args_list
-        if call_args.args[0].command == CommandType.CANCEL_PROFILE_ACTIVATION
-    ]
+    cancel_calls = _sent_daemon_commands(manager, CommandType.CANCEL_PROFILE_ACTIVATION)
     assert cancel_calls[-1].data == {
         "profile_name": "Nav",
         "activation_id": activation_id,
@@ -633,11 +662,7 @@ async def test_no_lifetime_toggle_cancels_runtime_activation_before_persisting_e
     assert activation_cancelled_before_persist is True
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     assert manager.profiles.get_profile("Nav").config.enabled is True
-    cancel_calls = [
-        call_args.args[0]
-        for call_args in manager.client.send_command.await_args_list
-        if call_args.args[0].command == CommandType.CANCEL_PROFILE_ACTIVATION
-    ]
+    cancel_calls = _sent_daemon_commands(manager, CommandType.CANCEL_PROFILE_ACTIVATION)
     assert cancel_calls[-1].data == {
         "profile_name": "Nav",
         "activation_id": activation_id,
@@ -712,12 +737,13 @@ def test_handle_device_grab_status_waiting_notifies_once_and_broadcasts() -> Non
     assert manager.profile_state.grab_waiting_devices == {"1234:5678"}
 
 
-def test_handle_device_grab_status_timeout_notifies_and_schedules_retry() -> None:
+def test_handle_device_grab_status_timeout_notifies_and_schedules_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(name="Test Keyboard")  # type: ignore[assignment]
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
-    monkeypatch = pytest.MonkeyPatch()
     schedule_grab_retry = Mock()
     monkeypatch.setattr(session_profiles_module, "schedule_grab_retry", schedule_grab_retry)
     manager.profile_state.grab_waiting_devices.add("1234:5678")
@@ -729,10 +755,7 @@ def test_handle_device_grab_status_timeout_notifies_and_schedules_retry() -> Non
         "waited_s": 300.0,
     }
 
-    try:
-        session_events_module.handle_device_grab_status_event(manager, event)
-    finally:
-        monkeypatch.undo()
+    session_events_module.handle_device_grab_status_event(manager, event)
 
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
         "Keymasq: Grab Timed Out",

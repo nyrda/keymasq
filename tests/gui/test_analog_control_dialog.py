@@ -1,5 +1,20 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+import pytest
+
+gi = pytest.importorskip("gi")
+
+
+def _select_input_type(dialog, input_type: str) -> None:
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+
+    dialog.input_type_dropdown.set_selected(analog_dialog._input_type_index(input_type))
+
+
+def _select_mode(dialog, mode: str) -> None:
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+
+    dialog.mode_dropdown.set_selected(
+        analog_dialog._mode_index_for_input_type(dialog._current_input_type(), mode)
+    )
 
 
 def test_new_analog_control_keeps_draft_when_add_row_reselected(temp_config_dir) -> None:
@@ -12,7 +27,7 @@ def test_new_analog_control_keeps_draft_when_add_row_reselected(temp_config_dir)
     parent = Gtk.Window()
     dialog = AnalogControlDialog(parent)
 
-    dialog.mode_dropdown.set_selected(2)
+    _select_mode(dialog, "digital")
     dialog._on_template_wasd()
     assert len(dialog._thresholds) == 4
 
@@ -147,8 +162,8 @@ def test_analog_control_dialog_unsaved_selection_warns_and_can_discard(
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.common.models import AnalogControlConfig
     import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+    from keymasq.common.models import AnalogControlConfig
     from keymasq.session.analog_controls import AnalogControlManager
 
     manager = AnalogControlManager()
@@ -262,8 +277,8 @@ def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
 
     dialog = AnalogControlDialog(Gtk.Window())
     dialog.name_entry.set_text("Axis Output")
-    dialog.input_type_dropdown.set_selected(1)
-    dialog.mode_dropdown.set_selected(1)
+    _select_input_type(dialog, "axis")
+    _select_mode(dialog, "gamepad")
     dialog.gamepad_output_sensitivity_row.set_value(1.5)
     dialog.gamepad_output_response_curve_row.set_value(0.75)
 
@@ -287,8 +302,8 @@ def test_axis_mouse_movement_exposes_direction_and_curve_controls(temp_config_di
 
     dialog = AnalogControlDialog(Gtk.Window())
     dialog.name_entry.set_text("Axis Mouse")
-    dialog.input_type_dropdown.set_selected(1)
-    dialog.mode_dropdown.set_selected(2)
+    _select_input_type(dialog, "axis")
+    _select_mode(dialog, "mouse")
     dialog.speed_row.set_value(1200)
     dialog.mouse_sensitivity_row.set_value(1.5)
     dialog.mouse_response_curve_row.set_value(0.75)
@@ -407,7 +422,7 @@ def test_stick_mouse_area_exposes_radius_and_start_capture(
 
     dialog = AnalogControlDialog(Gtk.Window())
     dialog.name_entry.set_text("Stick Area")
-    dialog.mode_dropdown.set_selected(1)
+    _select_mode(dialog, "mouse_area")
     dialog._on_mode_changed(dialog.mode_dropdown, None)
     dialog.area_radius_x_row.set_value(640)
     dialog.area_start_enabled_row.set_active(True)
@@ -548,7 +563,7 @@ def test_mouse_area_radius_rows_sync_and_can_desync(temp_config_dir) -> None:
     from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
 
     dialog = AnalogControlDialog(Gtk.Window())
-    dialog.mode_dropdown.set_selected(1)
+    _select_mode(dialog, "mouse_area")
     dialog._on_mode_changed(dialog.mode_dropdown, None)
 
     dialog.area_radius_x_row.set_value(700)
@@ -607,7 +622,7 @@ def test_mouse_area_capture_failure_uses_error_status(temp_config_dir, monkeypat
     monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
 
     dialog = AnalogControlDialog(Gtk.Window())
-    dialog.mode_dropdown.set_selected(1)
+    _select_mode(dialog, "mouse_area")
     dialog._on_mode_changed(dialog.mode_dropdown, None)
     dialog.area_start_enabled_row.set_active(True)
     dialog._on_area_capture_position_clicked(dialog.area_start_capture_btn)
@@ -647,6 +662,57 @@ def test_mouse_movement_tuning_spin_rows_use_expected_page_steps(temp_config_dir
     assert dialog.deadzone_row.get_adjustment().get_page_increment() == pytest.approx(0.05)
     assert dialog.mouse_sensitivity_row.get_adjustment().get_page_increment() == 0.25
     assert dialog.mouse_response_curve_row.get_adjustment().get_page_increment() == 0.25
+
+
+def test_analog_curve_graph_clamps_to_editor_tuning_limits(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.gui.widgets.analog_curve_graph import AnalogCurveGraph
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    graph = AnalogCurveGraph()
+
+    graph.set_curve(deadzone=10.0, sensitivity=10.0, response_curve=10.0)
+    assert graph._deadzone == pytest.approx(
+        dialog.deadzone_row.get_adjustment().get_upper()
+    )
+    assert graph._deadzone == pytest.approx(
+        dialog.gamepad_output_deadzone_row.get_adjustment().get_upper() / 100.0
+    )
+    assert graph._sensitivity == pytest.approx(
+        dialog.mouse_sensitivity_row.get_adjustment().get_upper()
+    )
+    assert graph._sensitivity == pytest.approx(
+        dialog.gamepad_output_sensitivity_row.get_adjustment().get_upper()
+    )
+    assert graph._response_curve == pytest.approx(
+        dialog.mouse_response_curve_row.get_adjustment().get_upper()
+    )
+    assert graph._response_curve == pytest.approx(
+        dialog.gamepad_output_response_curve_row.get_adjustment().get_upper()
+    )
+
+    graph.set_curve(deadzone=-10.0, sensitivity=-10.0, response_curve=-10.0)
+    assert graph._deadzone == pytest.approx(
+        dialog.deadzone_row.get_adjustment().get_lower()
+    )
+    assert graph._deadzone == pytest.approx(
+        dialog.gamepad_output_deadzone_row.get_adjustment().get_lower() / 100.0
+    )
+    assert graph._sensitivity == pytest.approx(
+        dialog.mouse_sensitivity_row.get_adjustment().get_lower()
+    )
+    assert graph._sensitivity == pytest.approx(
+        dialog.gamepad_output_sensitivity_row.get_adjustment().get_lower()
+    )
+    assert graph._response_curve == pytest.approx(
+        dialog.mouse_response_curve_row.get_adjustment().get_lower()
+    )
+    assert graph._response_curve == pytest.approx(
+        dialog.gamepad_output_response_curve_row.get_adjustment().get_lower()
+    )
 
 
 def test_mouse_speed_secondary_steps_apply_500_and_keep_sync(temp_config_dir) -> None:
@@ -835,8 +901,8 @@ def test_axis_control_can_select_mouse_mode(temp_config_dir) -> None:
 
     dialog = AnalogControlDialog(Gtk.Window())
     dialog.name_entry.set_text("Axis Mouse")
-    dialog.input_type_dropdown.set_selected(1)
-    dialog.mode_dropdown.set_selected(2)
+    _select_input_type(dialog, "axis")
+    _select_mode(dialog, "mouse")
 
     assert dialog._current_mode() == "mouse"
     assert dialog._save_current_control() is True
@@ -861,7 +927,7 @@ def test_saved_analog_control_keeps_action_edits_when_current_row_reselected(
     dialog = AnalogControlDialog(parent)
 
     dialog.name_entry.set_text("Saved Control")
-    dialog.mode_dropdown.set_selected(2)
+    _select_mode(dialog, "digital")
     dialog._apply_template(analog_control_wasd_template())
     assert dialog._save_current_control() is True
 
@@ -887,8 +953,8 @@ def test_trigger_analog_control_saves_digital_only_positive_ranges(temp_config_d
     dialog = AnalogControlDialog(parent)
 
     dialog.name_entry.set_text("Axis Control")
-    dialog.input_type_dropdown.set_selected(1)
-    dialog.mode_dropdown.set_selected(0)
+    _select_input_type(dialog, "axis")
+    _select_mode(dialog, "digital")
     dialog._on_add_range_clicked()
 
     assert dialog.mouse_group.get_visible() is False
@@ -916,12 +982,12 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
 
     import keymasq.gui.widgets.analog_control_dialog as analog_dialog
 
-    monkeypatch.setattr(analog_dialog, "_virtual_gamepad_count", lambda: 2)
+    monkeypatch.setattr(analog_dialog, "virtual_gamepad_count", lambda: 2)
 
     parent = Gtk.Window()
     dialog = analog_dialog.AnalogControlDialog(parent)
     dialog.name_entry.set_text("Route Stick")
-    dialog.mode_dropdown.set_selected(3)
+    _select_mode(dialog, "gamepad")
     dialog._gamepad_output_target_buttons["right"].set_active(True)
     assert dialog._gamepad_output_dropdown is not None
     dialog._gamepad_output_dropdown.set_selected(2)
@@ -953,6 +1019,7 @@ def test_analog_output_controls_use_learned_hardware_targets(temp_config_dir, mo
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
     from keymasq.common.models import (
         AnalogAxisDefinition,
         AnalogInputDefinition,
@@ -960,7 +1027,6 @@ def test_analog_output_controls_use_learned_hardware_targets(temp_config_dir, mo
         EvdevDevice,
         HardwareConfig,
     )
-    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
 
     hardware = HardwareConfig(
         vendor_id="1234",
@@ -995,12 +1061,12 @@ def test_analog_output_controls_use_learned_hardware_targets(temp_config_dir, mo
             return [hardware]
 
     monkeypatch.setattr(analog_dialog, "HardwareManager", _HardwareManager)
-    monkeypatch.setattr(analog_dialog, "_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(analog_dialog, "virtual_gamepad_count", lambda: 1)
 
     dialog = analog_dialog.AnalogControlDialog(Gtk.Window())
     dialog.name_entry.set_text("Route Pedal")
-    dialog.input_type_dropdown.set_selected(1)
-    dialog.mode_dropdown.set_selected(1)
+    _select_input_type(dialog, "axis")
+    _select_mode(dialog, "gamepad")
     assert dialog._gamepad_output_dropdown is not None
     dialog._gamepad_output_dropdown.set_selected(2)
 
@@ -1086,7 +1152,7 @@ def test_analog_control_dialog_does_not_offer_mouse_plus_digital_mode(
 
     assert "Mouse + Digital" not in mode_labels()
 
-    dialog.input_type_dropdown.set_selected(1)
+    _select_input_type(dialog, "axis")
 
     assert "Mouse + Digital" not in mode_labels()
 

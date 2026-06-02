@@ -1,12 +1,93 @@
-# ruff: noqa: F403, F405, I001
+# ruff: noqa: E402, I001
 from collections.abc import Callable
+from typing import cast
 
-from keymasq.common.models import MappingAction
-from keymasq.gui.widgets.macro_editor_dialog import EditableControl
+import pytest
 
-from tests.gui.macro_editor_dialog_support import *
+gi = pytest.importorskip("gi")
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+
+import evdev
 
 from gi.repository import Gtk
+
+from keymasq.common.models import ActionType, MappingAction
+from keymasq.gui.widgets import macro_editor_dialog as macro_editor_dialog_module
+from keymasq.gui.widgets.macro_editor_dialog import (
+    EditableControl,
+    EditableEvent,
+    EditableMove,
+    _passthrough_track,
+    parse_events,
+    reconstruct_events,
+)
+from tests.gui.macro_editor_dialog_support import _build_macro_dialog
+
+
+def _install_delayed_cursor_position_capture_harness(
+    monkeypatch,
+) -> Callable[[Callable[[], None]], None]:
+    callbacks: list[Callable[[], bool]] = []
+    requests: list[Callable[[dict[str, object]], bool | None]] = []
+
+    def fake_timeout_add(_delay, callback: Callable[[], bool]) -> int:
+        callbacks.append(callback)
+        return len(callbacks)
+
+    def fake_source_remove(_source_id):
+        return None
+
+    def fake_session_request_async(
+        payload: dict[str, object],
+        callback: Callable[[dict[str, object]], bool | None],
+        timeout: float = 5.0,
+    ) -> None:
+        _ = timeout
+        assert payload == {"command": "get_cursor_position"}
+        requests.append(callback)
+
+    monkeypatch.setattr(macro_editor_dialog_module.GLib, "timeout_add", fake_timeout_add)
+    monkeypatch.setattr(macro_editor_dialog_module.GLib, "source_remove", fake_source_remove)
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    def run_stale_response_sequence(start_capture: Callable[[], None]) -> None:
+        start_capture()
+        timer1 = callbacks.pop(0)
+        assert timer1() is False
+        assert len(requests) == 1
+        stale_response = requests.pop(0)
+
+        start_capture()
+        timer2 = callbacks.pop(0)
+        stale_response({"status": "ok", "x": 100, "y": 200})
+
+        assert timer2() is False
+        assert len(requests) == 1
+        fresh_response = requests.pop(0)
+        fresh_response({"status": "ok", "x": 300, "y": 400})
+
+    return run_stale_response_sequence
+
+
+def test_macro_editor_dialog_size_propagates_parent_width_errors() -> None:
+    class BrokenSizingParent:
+        def get_width(self) -> int:
+            raise RuntimeError("bad parent width")
+
+        def get_height(self) -> int:
+            return 800
+
+    parent = cast(Gtk.Window, BrokenSizingParent())
+
+    with pytest.raises(RuntimeError, match="bad parent width"):
+        macro_editor_dialog_module._compute_macro_editor_dialog_size(parent)
+
 
 def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> None:
     from keymasq.gui.session_client import GuiTaskResult
@@ -486,94 +567,34 @@ def test_macro_editor_repeated_start_capture_updates_every_run(monkeypatch) -> N
 
 
 def test_macro_editor_delayed_start_capture_ignores_stale_response(monkeypatch) -> None:
-    callbacks: list[Callable[[], bool]] = []
-    requests: list[Callable[[dict[str, object]], bool | None]] = []
-
-    def fake_timeout_add(_delay, callback):
-        callbacks.append(callback)
-        return len(callbacks)
-
-    def fake_source_remove(_source_id):
-        return None
-
-    def fake_session_request_async(payload, callback, timeout=5.0):
-        assert payload == {"command": "get_cursor_position"}
-        requests.append(callback)
-
-    monkeypatch.setattr(macro_editor_dialog_module.GLib, "timeout_add", fake_timeout_add)
-    monkeypatch.setattr(macro_editor_dialog_module.GLib, "source_remove", fake_source_remove)
-    monkeypatch.setattr(
-        macro_editor_dialog_module,
-        "session_request_async",
-        fake_session_request_async,
+    run_stale_response_sequence = _install_delayed_cursor_position_capture_harness(
+        monkeypatch
     )
-
     dialog = _build_macro_dialog(monkeypatch, slurp_available=False)
     dialog._macro_move_to_start_check.set_active(True)
     dialog._on_macro_move_to_start_toggled(dialog._macro_move_to_start_check)
 
-    dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
-    timer1 = callbacks.pop(0)
-    assert timer1() is False
-    assert len(requests) == 1
-    stale_response = requests.pop(0)
-
-    dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
-    timer2 = callbacks.pop(0)
-    stale_response({"status": "ok", "x": 100, "y": 200})
-
-    assert timer2() is False
-    assert len(requests) == 1
-    fresh_response = requests.pop(0)
-    fresh_response({"status": "ok", "x": 300, "y": 400})
+    run_stale_response_sequence(
+        lambda: dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
+    )
 
     assert dialog._macro_start_x_spin.get_value_as_int() == 300
     assert dialog._macro_start_y_spin.get_value_as_int() == 400
 
 
 def test_macro_editor_delayed_abs_move_capture_ignores_stale_response(monkeypatch) -> None:
-    callbacks: list[Callable[[], bool]] = []
-    requests: list[Callable[[dict[str, object]], bool | None]] = []
-
-    def fake_timeout_add(_delay, callback):
-        callbacks.append(callback)
-        return len(callbacks)
-
-    def fake_source_remove(_source_id):
-        return None
-
-    def fake_session_request_async(payload, callback, timeout=5.0):
-        assert payload == {"command": "get_cursor_position"}
-        requests.append(callback)
-
-    monkeypatch.setattr(macro_editor_dialog_module.GLib, "timeout_add", fake_timeout_add)
-    monkeypatch.setattr(macro_editor_dialog_module.GLib, "source_remove", fake_source_remove)
-    monkeypatch.setattr(
-        macro_editor_dialog_module,
-        "session_request_async",
-        fake_session_request_async,
+    run_stale_response_sequence = _install_delayed_cursor_position_capture_harness(
+        monkeypatch
     )
-
     dialog = _build_macro_dialog(monkeypatch, slurp_available=False)
     move = EditableMove(mode="abs", t_us=5000, x=10, y=20)
     dialog._synthetic_moves = [move]
     dialog._timeline._selected = move
     dialog._on_selection_changed(move)
 
-    dialog._on_capture_selected_move_clicked(dialog._move_capture_btn)
-    timer1 = callbacks.pop(0)
-    assert timer1() is False
-    assert len(requests) == 1
-    stale_response = requests.pop(0)
-
-    dialog._on_capture_selected_move_clicked(dialog._move_capture_btn)
-    timer2 = callbacks.pop(0)
-    stale_response({"status": "ok", "x": 100, "y": 200})
-
-    assert timer2() is False
-    assert len(requests) == 1
-    fresh_response = requests.pop(0)
-    fresh_response({"status": "ok", "x": 300, "y": 400})
+    run_stale_response_sequence(
+        lambda: dialog._on_capture_selected_move_clicked(dialog._move_capture_btn)
+    )
 
     assert dialog._move_x_spin.get_value_as_int() == 300
     assert dialog._move_y_spin.get_value_as_int() == 400

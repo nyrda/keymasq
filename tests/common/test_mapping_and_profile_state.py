@@ -1,5 +1,17 @@
-# ruff: noqa: F403, F405, I001
-from tests.common.support import *
+import pytest
+
+from keymasq.common.models import (
+    ActionType,
+    MappingAction,
+    ProfileConfig,
+    ProfileState,
+    SuperkeyAction,
+    WindowRule,
+    is_protected_button,
+    mapping_action_to_superkey_action,
+    superkey_action_to_mapping_action,
+)
+
 
 class TestMappingAction:
     def test_keyboard_with_rapidfire(self):

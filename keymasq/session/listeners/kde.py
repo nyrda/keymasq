@@ -142,6 +142,16 @@ class _KDEBridge(ServiceInterface):
         self._listener.handle_dispatch_payload(payload)
 
 
+class _KDEEphemeralScriptLoadError(RuntimeError):
+    def __init__(self, script_id: int) -> None:
+        super().__init__(f"loadScript returned {script_id}")
+        self.script_id = script_id
+
+
+class _KDEEphemeralScriptRunError(RuntimeError):
+    pass
+
+
 class KDEListener(WindowListener):
     def __init__(
         self,
@@ -293,29 +303,20 @@ class KDEListener(WindowListener):
         future: asyncio.Future[tuple[int, int]] = loop.create_future()
         self._cursor_waiters[request_id] = future
 
-        script_path: Path | None = None
         plugin_name = f"keymasq-kde-cursor-{os.getpid()}-{request_id[:8]}"
-        script_iface = None
 
         try:
-            script_path = await asyncio.to_thread(
-                self._write_script_file,
-                self._build_cursor_script_source(request_id),
+            return await self._run_ephemeral_kwin_script(
+                source=self._build_cursor_script_source(request_id),
+                plugin_name=plugin_name,
+                result_future=future,
+                timeout=KDE_DISPATCH_TIMEOUT_SECONDS,
             )
-            script_id = await self._call_load_script(str(script_path), plugin_name)
-            if script_id < 0:
-                log.debug("KDE cursor get failed: loadScript returned %s", script_id)
-                return None
-
-            script_iface = await self._get_script_interface(script_id)
-            call_run = getattr(script_iface, "call_run", None)
-            if not callable(call_run):
-                return None
-            result = call_run()
-            if not inspect.isawaitable(result):
-                return None
-            await cast(Awaitable[object], result)
-            return await asyncio.wait_for(future, timeout=KDE_DISPATCH_TIMEOUT_SECONDS)
+        except _KDEEphemeralScriptLoadError as exc:
+            log.debug("KDE cursor get failed: loadScript returned %s", exc.script_id)
+            return None
+        except _KDEEphemeralScriptRunError:
+            return None
         except TimeoutError:
             log.debug("KDE cursor get timed out waiting for response")
             return None
@@ -324,19 +325,6 @@ class KDEListener(WindowListener):
             return None
         finally:
             self._cursor_waiters.pop(request_id, None)
-            if script_iface is not None:
-                with contextlib.suppress(Exception):
-                    call_stop = getattr(script_iface, "call_stop", None)
-                    if callable(call_stop):
-                        result = call_stop()
-                        if inspect.isawaitable(result):
-                            await cast(Awaitable[object], result)
-            if self._kwin_scripting:
-                with contextlib.suppress(Exception):
-                    await self._call_unload_script(plugin_name)
-            if script_path:
-                with contextlib.suppress(Exception):
-                    script_path.unlink(missing_ok=True)
 
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
         if not self.running or self._kwin_scripting is None:
@@ -358,29 +346,20 @@ class KDEListener(WindowListener):
         future: asyncio.Future[tuple[bool, str]] = loop.create_future()
         self._dispatch_waiters[request_id] = future
 
-        script_path: Path | None = None
         plugin_name = f"keymasq-kde-dispatch-{os.getpid()}-{request_id[:8]}"
-        script_iface = None
 
         try:
-            script_path = await asyncio.to_thread(
-                self._write_script_file,
-                self._build_dispatch_script_source(request_id, method_name),
+            return await self._run_ephemeral_kwin_script(
+                source=self._build_dispatch_script_source(request_id, method_name),
+                plugin_name=plugin_name,
+                result_future=future,
+                timeout=KDE_DISPATCH_TIMEOUT_SECONDS,
             )
-            script_id = await self._call_load_script(str(script_path), plugin_name)
-            if script_id < 0:
-                log.debug("KDE dispatch failed: loadScript returned %s", script_id)
-                return False, "failed to load KWin dispatch script"
-
-            script_iface = await self._get_script_interface(script_id)
-            call_run = getattr(script_iface, "call_run", None)
-            if not callable(call_run):
-                return False, "failed to run KWin dispatch script"
-            result = call_run()
-            if not inspect.isawaitable(result):
-                return False, "failed to run KWin dispatch script"
-            await cast(Awaitable[object], result)
-            return await asyncio.wait_for(future, timeout=KDE_DISPATCH_TIMEOUT_SECONDS)
+        except _KDEEphemeralScriptLoadError as exc:
+            log.debug("KDE dispatch failed: loadScript returned %s", exc.script_id)
+            return False, "failed to load KWin dispatch script"
+        except _KDEEphemeralScriptRunError:
+            return False, "failed to run KWin dispatch script"
         except TimeoutError:
             log.debug("KDE dispatch timed out waiting for response")
             return False, "timed out waiting for KDE dispatch response"
@@ -389,6 +368,36 @@ class KDEListener(WindowListener):
             return False, "KDE dispatch failed"
         finally:
             self._dispatch_waiters.pop(request_id, None)
+
+    async def _run_ephemeral_kwin_script[ResultT](
+        self,
+        *,
+        source: str,
+        plugin_name: str,
+        result_future: asyncio.Future[ResultT],
+        timeout: float,
+    ) -> ResultT:
+        script_path: Path | None = None
+        script_iface: object | None = None
+
+        try:
+            script_path = await asyncio.to_thread(self._write_script_file, source)
+            script_id = await self._call_load_script(str(script_path), plugin_name)
+            if script_id < 0:
+                raise _KDEEphemeralScriptLoadError(script_id)
+
+            script_iface = await self._get_script_interface(script_id)
+            call_run = getattr(script_iface, "call_run", None)
+            if not callable(call_run):
+                raise _KDEEphemeralScriptRunError("KDE script interface is missing call_run")
+            result = call_run()
+            if not inspect.isawaitable(result):
+                raise _KDEEphemeralScriptRunError(
+                    "KDE script interface returned a non-awaitable run result"
+                )
+            await cast(Awaitable[object], result)
+            return await asyncio.wait_for(result_future, timeout=timeout)
+        finally:
             if script_iface is not None:
                 with contextlib.suppress(Exception):
                     call_stop = getattr(script_iface, "call_stop", None)
@@ -401,7 +410,7 @@ class KDEListener(WindowListener):
                     await self._call_unload_script(plugin_name)
             if script_path:
                 with contextlib.suppress(Exception):
-                    script_path.unlink(missing_ok=True)
+                    await asyncio.to_thread(script_path.unlink, missing_ok=True)
 
     def handle_window_payload(self, payload: str) -> None:
         parsed = parse_kde_window_payload(payload)

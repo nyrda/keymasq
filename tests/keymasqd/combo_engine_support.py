@@ -1,5 +1,3 @@
-# pyright: reportUnusedImport=false, reportUnusedFunction=false, reportUnusedClass=false
-# ruff: noqa: F401, I001
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.combo_engine import (
     ComboEngine,
@@ -10,7 +8,7 @@ from keymasq.keymasqd.combo_engine import (
 )
 
 
-def _binding(
+def binding(
     evdev: str,
     hardware_id: str = "1234:5678",
     source: str = "kbd",
@@ -18,7 +16,7 @@ def _binding(
     return RuntimeComboBinding(hardware_id=hardware_id, evdev=evdev, source=source)
 
 
-def _combo(
+def combo(
     combo_id: str,
     *steps: tuple[RuntimeComboBinding, ...],
     action: MappingAction | None = None,
@@ -31,18 +29,10 @@ def _combo(
     )
 
 
-def _handle(engine: ComboEngine, binding: RuntimeComboBinding, value: int, now: float):
-    return engine.handle_event(ComboInputEvent(binding=binding, value=value), now)
-
-__all__ = [
-    'ActionType',
-    'MappingAction',
-    'ComboEngine',
-    'ComboInputEvent',
-    'RuntimeCombo',
-    'RuntimeComboBinding',
-    'RuntimeComboStep',
-    '_binding',
-    '_combo',
-    '_handle',
-]
+def handle_combo_event(
+    engine: ComboEngine,
+    event_binding: RuntimeComboBinding,
+    value: int,
+    now: float,
+):
+    return engine.handle_event(ComboInputEvent(binding=event_binding, value=value), now)

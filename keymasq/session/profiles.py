@@ -13,7 +13,6 @@ import tomli_w
 
 from keymasq.common import paths
 from keymasq.common.combos import normalize_combo_evdev, normalize_combo_restore_keys
-from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
     ActionType,
     ComboConfig,
@@ -23,15 +22,13 @@ from keymasq.common.models import (
     MappingAction,
     ProfileConfig,
     WindowRule,
-    normalize_macro_loop_stop_behavior,
-    normalize_macro_recording_slot,
-    normalize_profile_deactivation_policy,
-    parse_profile_deactivation_policy,
-    parse_rapidfire_fields,
-    profile_deactivation_policy_to_dict,
-    resolve_rapidfire_fields,
 )
-from keymasq.session.config_errors import ConfigLoadError, ConfigLoadFailure
+from keymasq.session.action_toml import (
+    mapping_action_from_toml,
+    mapping_action_to_toml,
+    mapping_action_type_from_toml,
+)
+from keymasq.session.config_loading import load_config_files_sync
 
 log = logging.getLogger("keymasq-session.profiles")
 
@@ -39,7 +36,6 @@ MAX_PROFILE_PATH_ATTEMPTS = 10000
 DEFAULT_PROFILE_NAME = "Default"
 type TomlDict = dict[str, object]
 type _IntLike = int | float | str | bytes
-type _FloatLike = int | float | str | bytes
 
 
 def _as_toml_dict(value: object) -> TomlDict | None:
@@ -52,10 +48,6 @@ def _as_toml_list(value: object) -> list[object]:
 
 def _int_value(value: object, default: int) -> int:
     return default if value is None else int(cast(_IntLike, value))
-
-
-def _float_value(value: object, default: float) -> float:
-    return default if value is None else float(cast(_FloatLike, value))
 
 
 def _optional_str(value: object) -> str | None:
@@ -133,25 +125,18 @@ class ProfileManager:
 
     def _load_all(self, *, strict: bool = False) -> None:
         loaded_profiles: dict[str, ProfileInfo] = {}
-        failures: list[ConfigLoadFailure] = []
-
-        if not paths.PROFILES_DIR.exists():
-            self._profiles = loaded_profiles
-            return
-
-        for profile_file in sorted(paths.PROFILES_DIR.glob("*.toml")):
-            try:
-                config = self._load_profile(profile_file)
-                self._add_loaded_profile(
-                    ProfileInfo(path=profile_file, config=config),
-                    loaded_profiles,
-                )
-            except Exception as e:
-                log.error("Failed to load %s: %s", profile_file, e)
-                failures.append(ConfigLoadFailure(profile_file, str(e)))
-
-        if strict and failures:
-            raise ConfigLoadError("profile", failures)
+        for profile_file, config in load_config_files_sync(
+            paths.PROFILES_DIR,
+            config_kind="profile",
+            strict=strict,
+            load_config=self._load_profile,
+            logger=log,
+            sort_paths=True,
+        ):
+            self._add_loaded_profile(
+                ProfileInfo(path=profile_file, config=config),
+                loaded_profiles,
+            )
 
         self._profiles = loaded_profiles
 
@@ -332,21 +317,14 @@ class ProfileManager:
         if isinstance(action_data, str):
             return MappingAction(action_type=ActionType.KEYBOARD, target=action_data)
 
-        action_type_str = str(action_data.get("action", "passthrough"))
-        if action_type_str == "rapidfire":
-            action_type_str = "keyboard"
-            action_data = dict(action_data)
-            action_data["rapidfire_enabled"] = True
-            action_data["action"] = "keyboard"
-
-        try:
-            action_type = ActionType(action_type_str)
-        except ValueError:
-            log.warning("Unknown action type '%s', defaulting to passthrough", action_type_str)
-            action_type = ActionType.PASSTHROUGH
+        action_type, normalized_action_data = mapping_action_type_from_toml(
+            action_data,
+            unknown_action="passthrough",
+            logger=log,
+        )
 
         if action_type == ActionType.SUPERKEY:
-            superkey_name_raw = action_data.get("superkey_name")
+            superkey_name_raw = normalized_action_data.get("superkey_name")
             superkey_name = str(superkey_name_raw) if superkey_name_raw is not None else None
             if superkey_name:
                 if self._superkey_manager and not self._superkey_manager.get_superkey(
@@ -362,11 +340,11 @@ class ProfileManager:
             return MappingAction(action_type=ActionType.SUPPRESS)
 
         if action_type == ActionType.ANALOG_CONTROL:
-            raw_names = action_data.get("analog_control_names")
+            raw_names = normalized_action_data.get("analog_control_names")
             if isinstance(raw_names, list):
                 raw_analog_control_names = cast(list[object], raw_names)
             else:
-                raw_name: object = action_data.get("analog_control_name")
+                raw_name: object = normalized_action_data.get("analog_control_name")
                 raw_analog_control_names = [raw_name] if raw_name is not None else []
             analog_control_names: list[str] = []
             for raw_name in raw_analog_control_names:
@@ -397,218 +375,20 @@ class ProfileManager:
             )
             return MappingAction(action_type=ActionType.SUPPRESS)
 
-        if action_type == ActionType.MACRO:
-            return MappingAction(
-                action_type=ActionType.MACRO,
-                macro_name=str(action_data.get("target", "") or "")
-                or str(action_data.get("macro_name", "") or ""),
-                macro_replay_mouse_movement=bool(action_data.get("replay_mouse_movement", True)),
-                macro_replay_mouse_clicks=bool(action_data.get("replay_mouse_clicks", True)),
-                macro_speed=_float_value(action_data.get("speed"), 1.0),
-                macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
-                macro_loop_count=_int_value(action_data.get("loop_count"), 1),
-                macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
-                    action_data.get("loop_stop_behavior")
-                ),
-                macro_move_to_start=bool(action_data.get("move_to_start", False)),
-                macro_start_x=_int_value(action_data.get("start_x"), 0),
-                macro_start_y=_int_value(action_data.get("start_y"), 0),
-                macro_block_mouse_movement=bool(action_data.get("block_mouse_movement", False)),
-            )
-
-        if action_type in (
-            ActionType.START_MACRO_RECORDING,
-            ActionType.STOP_MACRO_RECORDING,
-            ActionType.PLAY_MACRO_SLOT,
-            ActionType.CANCEL_MACRO_PLAYBACK,
-            ActionType.EMERGENCY_RESET,
-        ):
-            if action_type in (
-                ActionType.START_MACRO_RECORDING,
-                ActionType.STOP_MACRO_RECORDING,
-                ActionType.PLAY_MACRO_SLOT,
-            ):
-                return MappingAction(
-                    action_type=action_type,
-                    macro_recording_slot=normalize_macro_recording_slot(
-                        action_data.get("recording_slot", action_data.get("slot"))
-                    ),
-                )
-            return MappingAction(action_type=action_type)
-
-        if action_type in (
-            ActionType.PROFILE_ENABLE,
-            ActionType.PROFILE_DISABLE,
-            ActionType.PROFILE_TOGGLE,
-        ):
-            profile_name = str(action_data.get("profile_name", "") or "")
-            if not profile_name:
-                profile_name = str(action_data.get("target", "") or "")
-            deactivation = normalize_profile_deactivation_policy(
-                action_type,
-                parse_profile_deactivation_policy(action_data.get("deactivation")),
-            )
-            return MappingAction(
-                action_type=action_type,
-                profile_name=profile_name,
-                profile_deactivation=deactivation,
-            )
-
-        if action_type == ActionType.COMPOSITOR_DISPATCH:
-            return MappingAction(
-                action_type=action_type,
-                compositor_id=str(action_data.get("compositor", "") or "") or None,
-                compositor_dispatcher=str(action_data.get("dispatcher", "") or ""),
-                compositor_args=str(action_data.get("args", "") or ""),
-            )
-
-        (
-            rapidfire_enabled,
-            rapidfire_hold_ms,
-            rapidfire_wait_ms,
-            unsupported_rapidfire,
-        ) = parse_rapidfire_fields(
+        return mapping_action_from_toml(
+            normalized_action_data,
             action_type,
-            rapidfire_enabled=action_data.get("rapidfire_enabled", False),
-            rapidfire_hold_ms=action_data.get("rapidfire_hold_ms"),
-            rapidfire_wait_ms=action_data.get("rapidfire_wait_ms"),
-            int_value=_int_value,
-        )
-        if unsupported_rapidfire:
-            log.warning(
-                "Ignoring rapidfire for unsupported %s action in profile config",
-                action_type.value,
-            )
-
-        if action_type == ActionType.REPEAT:
-            return MappingAction(
-                action_type=action_type,
-                repeat_categories=cast(list[str] | None, action_data.get("repeat_categories")),
-                rapidfire_enabled=rapidfire_enabled,
-                rapidfire_hold_ms=rapidfire_hold_ms,
-                rapidfire_wait_ms=rapidfire_wait_ms,
-            )
-
-        if action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
-            return MappingAction(
-                action_type=action_type,
-                move_x=_int_value(action_data.get("x"), 0),
-                move_y=_int_value(action_data.get("y"), 0),
-                rapidfire_enabled=rapidfire_enabled,
-                rapidfire_hold_ms=rapidfire_hold_ms,
-                rapidfire_wait_ms=rapidfire_wait_ms,
-                tap_enabled=bool(action_data.get("tap_enabled", False)),
-                tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
-            )
-
-        target = action_data.get("target")
-        axis_value = 0
-        if action_type == ActionType.GAMEPAD_AXIS:
-            axis_value = _int_value(
-                action_data.get("value"),
-                gamepad_axis_max_value(target),
-            )
-        cmd = action_data.get("cmd")
-        return MappingAction(
-            action_type=action_type,
-            target=str(target) if target is not None else None,
-            output_id=str(action_data.get("output_id", "") or "") or None,
-            keys=cast(list[str] | None, action_data.get("keys")),
-            cmd=str(cmd) if cmd is not None else None,
-            axis_value=axis_value,
-            rapidfire_enabled=rapidfire_enabled,
-            rapidfire_hold_ms=rapidfire_hold_ms,
-            rapidfire_wait_ms=rapidfire_wait_ms,
-            tap_enabled=bool(action_data.get("tap_enabled", False)),
-            tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
+            logger=log,
+            rapidfire_warning_context="profile config",
         )
 
     def _serialize_action(self, action: MappingAction) -> dict[str, object]:
-        action_data: dict[str, object] = {"action": action.action_type.value}
-        if action.target:
-            action_data["target"] = action.target
-        if action.action_type in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS) and action.output_id:
-            action_data["output_id"] = action.output_id
-        if action.keys:
-            action_data["keys"] = action.keys
-        if action.cmd:
-            action_data["cmd"] = action.cmd
-        if action.superkey_name:
-            action_data["superkey_name"] = action.superkey_name
-        if action.action_type == ActionType.ANALOG_CONTROL and action.analog_control_names:
-            if len(action.analog_control_names) == 1:
-                action_data["analog_control_name"] = action.analog_control_names[0]
-            else:
-                action_data["analog_control_names"] = action.analog_control_names
-        if action.action_type == ActionType.MACRO:
-            action_data["target"] = action.macro_name or ""
-            action_data["macro_name"] = action.macro_name or ""
-            action_data["replay_mouse_movement"] = action.macro_replay_mouse_movement
-            action_data["replay_mouse_clicks"] = action.macro_replay_mouse_clicks
-            action_data["speed"] = action.macro_speed
-            action_data["loop_mode"] = action.macro_loop_mode
-            action_data["loop_count"] = int(action.macro_loop_count)
-            action_data["loop_stop_behavior"] = action.macro_loop_stop_behavior
-            action_data["move_to_start"] = bool(action.macro_move_to_start)
-            action_data["start_x"] = int(action.macro_start_x)
-            action_data["start_y"] = int(action.macro_start_y)
-            action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
-        if action.action_type in (
-            ActionType.START_MACRO_RECORDING,
-            ActionType.STOP_MACRO_RECORDING,
-            ActionType.PLAY_MACRO_SLOT,
-        ) and action.macro_recording_slot:
-            action_data["recording_slot"] = int(action.macro_recording_slot)
-        if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
-            action_data["x"] = int(action.move_x)
-            action_data["y"] = int(action.move_y)
-        if action.action_type == ActionType.GAMEPAD_AXIS:
-            action_data["value"] = int(action.axis_value)
-        if action.action_type in (
-            ActionType.PROFILE_ENABLE,
-            ActionType.PROFILE_DISABLE,
-            ActionType.PROFILE_TOGGLE,
-        ):
-            action_data["target"] = action.profile_name or ""
-            action_data["profile_name"] = action.profile_name or ""
-            deactivation = normalize_profile_deactivation_policy(
-                action.action_type,
-                action.profile_deactivation,
-            )
-            deactivation_data = profile_deactivation_policy_to_dict(deactivation)
-            if deactivation_data is not None:
-                action_data["deactivation"] = deactivation_data
-        if action.action_type == ActionType.COMPOSITOR_DISPATCH:
-            if action.compositor_id:
-                action_data["compositor"] = action.compositor_id
-            action_data["dispatcher"] = action.compositor_dispatcher or ""
-            action_data["args"] = action.compositor_args or ""
-        if action.action_type == ActionType.REPEAT:
-            action_data["repeat_categories"] = list(action.repeat_categories or [])
-        (
-            rapidfire_enabled,
-            rapidfire_hold_ms,
-            rapidfire_wait_ms,
-            unsupported_rapidfire,
-        ) = resolve_rapidfire_fields(
-            action.action_type,
-            rapidfire_enabled=bool(action.rapidfire_enabled),
-            rapidfire_hold_ms=int(action.rapidfire_hold_ms),
-            rapidfire_wait_ms=int(action.rapidfire_wait_ms),
+        return mapping_action_to_toml(
+            action,
+            include_profile_refs=True,
+            logger=log,
+            rapidfire_warning_context="profile config",
         )
-        if unsupported_rapidfire:
-            log.warning(
-                "Dropping rapidfire for unsupported %s action while saving profile config",
-                action.action_type.value,
-            )
-        if rapidfire_enabled:
-            action_data["rapidfire_enabled"] = True
-            action_data["rapidfire_hold_ms"] = rapidfire_hold_ms
-            action_data["rapidfire_wait_ms"] = rapidfire_wait_ms
-        if action.tap_enabled:
-            action_data["tap_enabled"] = True
-            action_data["tap_hold_ms"] = action.tap_hold_ms
-        return action_data
 
     def _parse_combos(self, combos_data: object) -> list[ComboConfig]:
         if not isinstance(combos_data, list):

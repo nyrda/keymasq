@@ -1,5 +1,10 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+# ruff: noqa: I001
+from types import SimpleNamespace
+
+import pytest
+
+gi = pytest.importorskip("gi")
+
 
 def test_notify_session_reload_returns_false_without_shell_fallback(monkeypatch):
     from keymasq.gui import session_reload
@@ -1319,7 +1324,7 @@ def test_key_selector_dialog_gamepad_output_selector_lives_in_title(monkeypatch)
     from keymasq.gui.widgets import key_selector_dialog as dialog_module
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
-    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 2)
+    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 2)
     monkeypatch.setattr(
         dialog_module,
         "HardwareManager",
@@ -1356,7 +1361,7 @@ def test_key_selector_dialog_gamepad_output_labels_hardware_by_name(monkeypatch)
         buttons=[ButtonDefinition(id="btn_a", label="A", evdev="btn_a")],
         id="045e:028e@2",
     )
-    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
     monkeypatch.setattr(
         dialog_module,
         "HardwareManager",
@@ -1375,7 +1380,7 @@ def test_key_selector_dialog_gamepad_default_warns_when_virtual_count_zero(monke
     from keymasq.gui.widgets import key_selector_dialog as dialog_module
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
-    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 0)
+    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 0)
     monkeypatch.setattr(
         dialog_module,
         "HardwareManager",
@@ -1398,7 +1403,7 @@ def test_key_selector_dialog_explicit_missing_virtual_output_warns(monkeypatch):
     from keymasq.gui.widgets import key_selector_dialog as dialog_module
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
-    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
     monkeypatch.setattr(
         dialog_module,
         "HardwareManager",
@@ -1433,7 +1438,7 @@ def test_key_selector_dialog_explicit_first_virtual_output_uses_default_choice(m
     from keymasq.gui.widgets import key_selector_dialog as dialog_module
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
-    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
     monkeypatch.setattr(
         dialog_module,
         "HardwareManager",
@@ -1467,7 +1472,7 @@ def test_superkey_action_dialog_explicit_first_virtual_output_uses_default_choic
     from keymasq.gui.widgets import key_selector_dialog as dialog_module
     from keymasq.gui.widgets.key_selector_dialog import SuperkeyActionDialog
 
-    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
     monkeypatch.setattr(
         dialog_module,
         "HardwareManager",
@@ -1704,7 +1709,7 @@ def test_key_selector_dialog_gamepad_code_maps_and_routes(monkeypatch):
     from keymasq.gui.widgets import key_selector_dialog as dialog_module
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
-    monkeypatch.setattr(dialog_module, "load_virtual_gamepad_count", lambda: 2)
+    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 2)
     monkeypatch.setattr(
         dialog_module,
         "HardwareManager",
@@ -2400,6 +2405,70 @@ def test_compositor_action_helpers_resolve_kde_actions() -> None:
     assert describe_compositor_action(action) == "KDE Plasma → tile_left"
 
 
+def test_compositor_action_definitions_share_dispatch_behavior() -> None:
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.compositor_actions.compositors import (
+        COMPOSITOR_ACTION_DEFINITIONS,
+    )
+
+    for definition in COMPOSITOR_ACTION_DEFINITIONS:
+        action = MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id=definition.compositor_id,
+            compositor_dispatcher="test_dispatcher",
+            compositor_args="test args",
+        )
+
+        assert (
+            definition.is_available(
+                None,
+                {
+                    "listener_name": definition.compositor_id,
+                    "compositor_dispatch_available": True,
+                },
+            )
+            is True
+        )
+        assert (
+            definition.is_available(
+                None,
+                {
+                    "listener_name": definition.compositor_id,
+                    "compositor_dispatch_available": False,
+                },
+            )
+            is False
+        )
+        assert definition.extract_fields(action) == ("test_dispatcher", "test args")
+        assert definition.describe_action(action) == (
+            f"{definition.title} → test_dispatcher test args"
+        )
+
+        built = definition.build_action("test_dispatcher", "test args")
+        assert built.action_type == ActionType.COMPOSITOR_DISPATCH
+        assert built.compositor_id == definition.compositor_id
+        assert built.compositor_dispatcher == "test_dispatcher"
+        assert built.compositor_args == "test args"
+
+        legacy_action = MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_dispatcher="legacy_dispatcher",
+            compositor_args="legacy args",
+        )
+        assert definition.extract_fields(legacy_action) == (
+            "legacy_dispatcher",
+            "legacy args",
+        )
+
+        foreign_action = MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="foreign",
+            compositor_dispatcher="test_dispatcher",
+            compositor_args="test args",
+        )
+        assert definition.extract_fields(foreign_action) == ("", "")
+
+
 def test_compositor_action_helpers_resolve_niri_actions() -> None:
     from keymasq.common.models import ActionType, MappingAction
     from keymasq.gui.widgets.compositor_actions import (
@@ -2605,6 +2674,53 @@ def test_shared_media_picker_builds_icon_buttons():
     buttons[2].emit("clicked")
 
     assert owner.clicked == ["key_volumeup"]
+
+
+def test_shared_gamepad_picker_buttons_use_shared_metadata():
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.input_picker_shared import GAMEPAD_BUTTONS, build_gamepad_tab
+    from keymasq.gui.widgets.key_selector_dialog import EVDEV_TO_GAMEPAD
+
+    class _Owner:
+        def _create_key_button(
+            self,
+            label: str,
+            evdev: str,
+            width: float = 1,
+            large: bool = False,
+            protected: bool = False,
+        ) -> Gtk.Button:
+            button = Gtk.Button(label=label)
+            button._evdev_name = evdev
+            return button
+
+        def _on_gamepad_clicked(self, *_args) -> None:
+            return None
+
+        def _on_gamepad_axis_clicked(self, *_args) -> None:
+            return None
+
+    def collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
+        buttons: list[Gtk.Button] = []
+        if isinstance(widget, Gtk.Button):
+            buttons.append(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    widget = build_gamepad_tab(_Owner())
+    rendered_buttons: set[str] = set()
+    for button in collect_buttons(widget):
+        evdev_name = getattr(button, "_evdev_name", None)
+        if isinstance(evdev_name, str) and evdev_name.startswith("btn_"):
+            rendered_buttons.add(evdev_name)
+
+    metadata_buttons = set(GAMEPAD_BUTTONS.values())
+    assert rendered_buttons == metadata_buttons
+    assert {EVDEV_TO_GAMEPAD[evdev_id] for evdev_id in rendered_buttons} == set(GAMEPAD_BUTTONS)
 
 
 def test_key_selector_dialog_opens_media_tab_for_media_key_action():

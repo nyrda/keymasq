@@ -30,109 +30,140 @@ class _EofReader:
         return b""
 
 
-def test_gnome_probe_requires_shell_owner(monkeypatch, tmp_path) -> None:
+_UNSET = object()
+
+
+def _async_bool_probe_result(value: bool):
+    async def _probe(_cls, _dbus=None) -> bool:
+        return value
+
+    return classmethod(_probe)
+
+
+def _async_optional_probe_result(value: bool | None):
+    async def _probe(_cls, _dbus=None) -> bool | None:
+        return value
+
+    return classmethod(_probe)
+
+
+def _sync_bool_probe_result(value: bool):
+    def _probe(_cls) -> bool:
+        return value
+
+    return classmethod(_probe)
+
+
+def _set_gnome_probe_state(
+    monkeypatch,
+    tmp_path,
+    *,
+    desktop: str | None = "GNOME",
+    runtime_bus: bool = True,
+    missing_native_toplevel_protocols: bool = True,
+    shell_owner=_UNSET,
+    shell_process=_UNSET,
+    extension_available: bool | None = None,
+    extension_visible=_UNSET,
+    user_extensions_disabled=_UNSET,
+    extension_enabled=_UNSET,
+) -> None:
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
+    if runtime_bus:
+        (runtime_dir / "bus").touch()
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
     monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
     monkeypatch.delenv("XDG_SESSION_DESKTOP", raising=False)
     monkeypatch.delenv("DESKTOP_SESSION", raising=False)
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
+    if desktop is not None:
+        monkeypatch.setenv("XDG_CURRENT_DESKTOP", desktop)
     monkeypatch.setattr(
         GnomeListener,
         "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
+        _async_bool_probe_result(missing_native_toplevel_protocols),
     )
+    if shell_owner is not _UNSET:
+        monkeypatch.setattr(
+            GnomeListener,
+            "_probe_shell_owner",
+            _async_bool_probe_result(shell_owner),
+        )
+    if shell_process is not _UNSET:
+        monkeypatch.setattr(
+            GnomeListener,
+            "_probe_shell_process",
+            _async_bool_probe_result(shell_process),
+        )
+    if extension_available is not None:
+        monkeypatch.setattr(
+            GnomeListener,
+            "_bridge_extension_available",
+            _sync_bool_probe_result(extension_available),
+        )
+    if extension_visible is not _UNSET:
+        monkeypatch.setattr(
+            GnomeListener,
+            "_bridge_extension_visible_to_shell",
+            _async_optional_probe_result(extension_visible),
+        )
+    if user_extensions_disabled is not _UNSET:
+        monkeypatch.setattr(
+            GnomeListener,
+            "_user_extensions_globally_disabled",
+            _async_optional_probe_result(user_extensions_disabled),
+        )
+    if extension_enabled is not _UNSET:
+        monkeypatch.setattr(
+            GnomeListener,
+            "_bridge_extension_enabled",
+            _async_optional_probe_result(extension_enabled),
+        )
 
-    async def _owner_true(_cls, _dbus=None) -> bool:
-        return True
 
-    async def _owner_false(_cls, _dbus=None) -> bool:
-        return False
-
-    async def _shell_process_false(_cls) -> bool:
-        return False
-
-    monkeypatch.setattr(GnomeListener, "_probe_shell_owner", classmethod(_owner_true))
-    monkeypatch.setattr(GnomeListener, "_probe_shell_process", classmethod(_shell_process_false))
+def test_gnome_probe_requires_shell_owner(monkeypatch, tmp_path) -> None:
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        desktop=None,
+        shell_owner=True,
+        shell_process=False,
+    )
     assert asyncio.run(GnomeListener.probe_session()) is True
 
-    monkeypatch.setattr(GnomeListener, "_probe_shell_owner", classmethod(_owner_false))
+    monkeypatch.setattr(GnomeListener, "_probe_shell_owner", _async_bool_probe_result(False))
     assert asyncio.run(GnomeListener.probe_session()) is False
 
 
 def test_gnome_probe_requires_runtime_bus(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-
-    async def _owner_true(_cls, _dbus=None) -> bool:
-        return True
-
-    monkeypatch.setattr(GnomeListener, "_probe_shell_owner", classmethod(_owner_true))
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        desktop=None,
+        runtime_bus=False,
+        shell_owner=True,
+    )
     assert asyncio.run(GnomeListener.probe_session()) is False
 
 
 def test_gnome_runtime_prereqs(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+    _set_gnome_probe_state(monkeypatch, tmp_path, runtime_bus=False)
     assert GnomeListener._has_runtime_prereqs() is False
 
 
 def test_gnome_probe_prefers_desktop_hint(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
-    )
-
-    async def _owner_false(_cls, _dbus=None) -> bool:
-        return False
-
-    monkeypatch.setattr(GnomeListener, "_probe_shell_owner", classmethod(_owner_false))
+    _set_gnome_probe_state(monkeypatch, tmp_path, shell_owner=False)
     assert asyncio.run(GnomeListener.probe_session()) is True
 
 
 def test_gnome_probe_falls_back_to_shell_process(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
-    monkeypatch.delenv("XDG_SESSION_DESKTOP", raising=False)
-    monkeypatch.delenv("DESKTOP_SESSION", raising=False)
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        desktop=None,
+        shell_owner=False,
+        shell_process=True,
     )
-
-    async def _owner_false(_cls, _dbus=None) -> bool:
-        return False
-
-    async def _shell_process_true(_cls) -> bool:
-        return True
-
-    monkeypatch.setattr(GnomeListener, "_probe_shell_owner", classmethod(_owner_false))
-    monkeypatch.setattr(GnomeListener, "_probe_shell_process", classmethod(_shell_process_true))
     assert asyncio.run(GnomeListener.probe_session()) is True
 
 
@@ -155,100 +186,30 @@ def test_gnome_probe_shell_process_uses_to_thread(monkeypatch) -> None:
 
 
 def test_gnome_probe_requires_extension(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
-    )
-    monkeypatch.setattr(
-        GnomeListener, "_bridge_extension_available", classmethod(lambda cls: False)
-    )
+    _set_gnome_probe_state(monkeypatch, tmp_path, extension_available=False)
     assert asyncio.run(GnomeListener.probe_available()) is False
 
 
 def test_gnome_probe_available_requires_extension_enabled(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    async def _extensions_enabled(_cls, _dbus=None) -> bool | None:
-        return False
-
-    async def _extensions_not_globally_disabled(_cls, _dbus=None) -> bool | None:
-        return False
-
-    async def _extension_visible(_cls, _dbus=None) -> bool | None:
-        return True
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
-    )
-    monkeypatch.setattr(GnomeListener, "_bridge_extension_available", classmethod(lambda cls: True))
-    monkeypatch.setattr(
-        GnomeListener, "_bridge_extension_visible_to_shell", classmethod(_extension_visible)
-    )
-    monkeypatch.setattr(
-        GnomeListener,
-        "_user_extensions_globally_disabled",
-        classmethod(_extensions_not_globally_disabled),
-    )
-    monkeypatch.setattr(
-        GnomeListener, "_bridge_extension_enabled", classmethod(_extensions_enabled)
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        extension_available=True,
+        extension_visible=True,
+        user_extensions_disabled=False,
+        extension_enabled=False,
     )
     assert asyncio.run(GnomeListener.probe_available()) is False
 
 
 def test_gnome_support_details_reports_disabled_extension(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    async def _extensions_enabled(_cls, _dbus=None) -> bool | None:
-        return False
-
-    async def _extensions_not_globally_disabled(_cls, _dbus=None) -> bool | None:
-        return False
-
-    async def _extension_visible(_cls, _dbus=None) -> bool | None:
-        return True
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
-    )
-    monkeypatch.setattr(GnomeListener, "_bridge_extension_available", classmethod(lambda cls: True))
-    monkeypatch.setattr(
-        GnomeListener, "_bridge_extension_visible_to_shell", classmethod(_extension_visible)
-    )
-    monkeypatch.setattr(
-        GnomeListener,
-        "_user_extensions_globally_disabled",
-        classmethod(_extensions_not_globally_disabled),
-    )
-    monkeypatch.setattr(
-        GnomeListener, "_bridge_extension_enabled", classmethod(_extensions_enabled)
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        extension_available=True,
+        extension_visible=True,
+        user_extensions_disabled=False,
+        extension_enabled=False,
     )
 
     details = asyncio.run(GnomeListener.get_support_details())
@@ -263,28 +224,11 @@ def test_gnome_support_details_reports_disabled_extension(monkeypatch, tmp_path)
 
 
 def test_gnome_support_details_reports_shell_not_rescanned(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    async def _extension_not_visible(_cls, _dbus=None) -> bool | None:
-        return False
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
-    )
-    monkeypatch.setattr(GnomeListener, "_bridge_extension_available", classmethod(lambda cls: True))
-    monkeypatch.setattr(
-        GnomeListener,
-        "_bridge_extension_visible_to_shell",
-        classmethod(_extension_not_visible),
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        extension_available=True,
+        extension_visible=False,
     )
 
     details = asyncio.run(GnomeListener.get_support_details())
@@ -298,28 +242,11 @@ def test_gnome_support_details_reports_shell_not_rescanned(monkeypatch, tmp_path
 
 
 def test_gnome_support_details_reports_shell_dbus_unavailable(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    async def _extension_unknown(_cls, _dbus=None) -> bool | None:
-        return None
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
-    )
-    monkeypatch.setattr(GnomeListener, "_bridge_extension_available", classmethod(lambda cls: True))
-    monkeypatch.setattr(
-        GnomeListener,
-        "_bridge_extension_visible_to_shell",
-        classmethod(_extension_unknown),
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        extension_available=True,
+        extension_visible=None,
     )
 
     details = asyncio.run(GnomeListener.get_support_details())
@@ -331,44 +258,13 @@ def test_gnome_support_details_reports_shell_dbus_unavailable(monkeypatch, tmp_p
 
 
 def test_gnome_support_details_reports_ready(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    async def _extension_visible(_cls, _dbus=None) -> bool | None:
-        return True
-
-    async def _extensions_not_globally_disabled(_cls, _dbus=None) -> bool | None:
-        return False
-
-    async def _extension_enabled(_cls, _dbus=None) -> bool | None:
-        return True
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
-    )
-    monkeypatch.setattr(GnomeListener, "_bridge_extension_available", classmethod(lambda cls: True))
-    monkeypatch.setattr(
-        GnomeListener,
-        "_bridge_extension_visible_to_shell",
-        classmethod(_extension_visible),
-    )
-    monkeypatch.setattr(
-        GnomeListener,
-        "_user_extensions_globally_disabled",
-        classmethod(_extensions_not_globally_disabled),
-    )
-    monkeypatch.setattr(
-        GnomeListener,
-        "_bridge_extension_enabled",
-        classmethod(_extension_enabled),
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        extension_available=True,
+        extension_visible=True,
+        user_extensions_disabled=False,
+        extension_enabled=True,
     )
 
     details = asyncio.run(GnomeListener.get_support_details())
@@ -379,23 +275,7 @@ def test_gnome_support_details_reports_ready(monkeypatch, tmp_path) -> None:
 
 
 def test_gnome_support_details_reports_missing_extension(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-
-    async def _protocols_true(_cls) -> bool:
-        return True
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_true),
-    )
-    monkeypatch.setattr(
-        GnomeListener, "_bridge_extension_available", classmethod(lambda cls: False)
-    )
+    _set_gnome_probe_state(monkeypatch, tmp_path, extension_available=False)
 
     details = asyncio.run(GnomeListener.get_support_details())
     assert details["session_detected"] is True
@@ -480,20 +360,11 @@ async def test_gnome_setup_action_enable_bridge_uses_shell_dbus(monkeypatch) -> 
 
 
 def test_gnome_probe_requires_missing_native_toplevel_protocols(monkeypatch, tmp_path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    (runtime_dir / "bus").touch()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-    monkeypatch.setattr(GnomeListener, "_bridge_extension_available", classmethod(lambda cls: True))
-
-    async def _protocols_false(_cls) -> bool:
-        return False
-
-    monkeypatch.setattr(
-        GnomeListener,
-        "_probe_missing_native_toplevel_protocols",
-        classmethod(_protocols_false),
+    _set_gnome_probe_state(
+        monkeypatch,
+        tmp_path,
+        missing_native_toplevel_protocols=False,
+        extension_available=True,
     )
     assert asyncio.run(GnomeListener.probe_available()) is False
 

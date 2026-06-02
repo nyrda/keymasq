@@ -1,5 +1,10 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+# ruff: noqa: I001
+from types import SimpleNamespace
+
+import pytest
+
+pytest.importorskip("gi")
+
 
 class TestMainWindow:
     def test_main_window_seeds_default_profile_for_first_device(self, temp_config_dir):

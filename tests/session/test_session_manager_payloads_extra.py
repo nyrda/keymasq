@@ -1,7 +1,5 @@
-# ruff: noqa: F403, F405, I001
+from types import SimpleNamespace
 from typing import cast
-
-from tests.session.command_support import *
 
 
 def _manager_with_superkeys(*configs, analog_controls=()):
@@ -140,6 +138,90 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
     assert manager.exec_state.exec_refs[2].cmd == "notify-send launcher"
     assert manager.exec_state.exec_refs[2].owner == "device"
     assert manager.exec_state.exec_refs[2].hardware_id == "kbd"
+
+
+def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None:
+    from keymasq.common.models import (
+        ActionType,
+        MappingAction,
+        ProfileDeactivationPolicy,
+    )
+    from keymasq.session.manager import payloads
+
+    assert payloads.serialize_mapping_action(
+        MappingAction(
+            action_type=ActionType.MACRO,
+            macro_name="paste",
+            macro_replay_mouse_movement=False,
+            macro_speed=1.5,
+            macro_loop_mode="count",
+            macro_loop_count=2,
+            macro_move_to_start=True,
+            macro_start_x=10,
+            macro_start_y=20,
+        )
+    ) == {
+        "action": "macro",
+        "target": "paste",
+        "replay_mouse_movement": False,
+        "replay_mouse_clicks": True,
+        "speed": 1.5,
+        "loop_mode": "count",
+        "loop_count": 2,
+        "loop_stop_behavior": "finish_run",
+        "move_to_start": True,
+        "start_x": 10,
+        "start_y": 20,
+        "block_mouse_movement": False,
+    }
+    assert payloads.serialize_mapping_action(
+        MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Gaming",
+            source_profile_name="Runtime",
+            profile_deactivation=ProfileDeactivationPolicy(after_actions=1),
+        )
+    ) == {
+        "action": "profile_enable",
+        "source_profile_name": "Runtime",
+        "profile_name": "Gaming",
+        "target": "Gaming",
+        "deactivation": {"after_actions": 1},
+    }
+    assert payloads.serialize_mapping_action(
+        MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="x",
+            output_id="virtual-gamepad-2",
+            axis_value=123,
+        )
+    ) == {
+        "action": "gamepad_axis",
+        "target": "abs_x",
+        "output_id": "virtual-gamepad-2",
+        "value": 123,
+    }
+    assert payloads.serialize_mapping_action(
+        MappingAction(action_type=ActionType.REPEAT, repeat_categories=["keyboard"])
+    ) == {
+        "action": "repeat",
+        "repeat_categories": ["keyboard"],
+    }
+    assert payloads.serialize_mapping_action(
+        MappingAction(action_type=ActionType.PLAY_MACRO_SLOT, macro_recording_slot=2)
+    ) == {
+        "action": "play_macro_slot",
+        "recording_slot": 2,
+    }
+    analog_action = MappingAction(
+        action_type=ActionType.ANALOG_CONTROL,
+        analog_control_name="Legacy Control",
+    )
+    analog_action.analog_control_names = []
+    assert payloads.serialize_mapping_action(analog_action) == {
+        "action": "analog_control",
+        "analog_control_name": "Legacy Control",
+    }
 
 
 def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:

@@ -1,8 +1,12 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+# ruff: noqa: I001
+from types import SimpleNamespace
+
+import pytest
 
 
 def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None:
+    pytest.importorskip("gi")
+
     import keymasq.gui.application as application_module
     import keymasq.gui.widgets.diagnostics_dialog as diagnostics_module
     import keymasq.gui.widgets.feedback_dialog as feedback_module
@@ -76,6 +80,8 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
 
 
 def test_application_activate_and_main_use_configured_entrypoints(monkeypatch) -> None:
+    pytest.importorskip("gi")
+
     import keymasq.gui.application as application_module
     from keymasq.gui.application import Application
 
@@ -196,6 +202,8 @@ def test_session_reload_reports_sync_and_async_status(monkeypatch) -> None:
 
 
 def test_feedback_submit_reports_thanks_without_backend_detail(monkeypatch) -> None:
+    pytest.importorskip("gi")
+
     import keymasq.gui.widgets.feedback_dialog as feedback_module
 
     class _Response:
@@ -235,6 +243,8 @@ def test_feedback_submit_reports_rate_limit(monkeypatch) -> None:
     from io import BytesIO
     import urllib.error
 
+    pytest.importorskip("gi")
+
     import keymasq.gui.widgets.feedback_dialog as feedback_module
 
     def fake_urlopen(_request, timeout: float):
@@ -258,6 +268,7 @@ def test_feedback_submit_reports_rate_limit(monkeypatch) -> None:
 
 
 def test_feedback_dialog_includes_diagnostics_by_default(monkeypatch) -> None:
+    gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
@@ -301,6 +312,7 @@ def test_feedback_dialog_includes_diagnostics_by_default(monkeypatch) -> None:
 
 
 def test_feedback_dialog_can_opt_out_of_diagnostics(monkeypatch) -> None:
+    gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
@@ -322,6 +334,8 @@ def test_feedback_dialog_can_opt_out_of_diagnostics(monkeypatch) -> None:
 
 
 def test_feedback_distribution_name_uses_os_release_pretty_name(tmp_path) -> None:
+    pytest.importorskip("gi")
+
     import keymasq.gui.widgets.feedback_dialog as feedback_module
 
     os_release = tmp_path / "os-release"

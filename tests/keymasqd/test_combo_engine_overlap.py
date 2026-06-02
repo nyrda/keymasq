@@ -1,29 +1,36 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.combo_engine_support import *
+from keymasq.common.models import ActionType, MappingAction
+from keymasq.keymasqd.combo_engine import (
+    ComboEngine,
+    RuntimeCombo,
+    RuntimeComboBinding,
+    RuntimeComboStep,
+)
+from tests.keymasqd.combo_engine_support import binding, combo, handle_combo_event
+
 
 def test_wrong_key_between_steps_cancels_combo_and_passes_through():
     engine = ComboEngine()
-    ctrl = _binding("key_leftctrl")
-    key_x = _binding("key_x")
-    key_1 = _binding("key_1")
-    key_h = _binding("key_h")
-    engine.set_combos([_combo("combo-1", (ctrl, key_x), (key_1,))])
+    ctrl = binding("key_leftctrl")
+    key_x = binding("key_x")
+    key_1 = binding("key_1")
+    key_h = binding("key_h")
+    engine.set_combos([combo("combo-1", (ctrl, key_x), (key_1,))])
 
-    _handle(engine, ctrl, 1, 0.0)
-    _handle(engine, key_x, 1, 0.1)
-    _handle(engine, key_x, 0, 0.2)
-    _handle(engine, ctrl, 0, 0.3)
+    handle_combo_event(engine, ctrl, 1, 0.0)
+    handle_combo_event(engine, key_x, 1, 0.1)
+    handle_combo_event(engine, key_x, 0, 0.2)
+    handle_combo_event(engine, ctrl, 0, 0.3)
 
-    wrong = _handle(engine, key_h, 1, 0.4)
+    wrong = handle_combo_event(engine, key_h, 1, 0.4)
     assert wrong.passthrough_current_event is True
     assert wrong.reset_candidates is True
 
 
 def test_timeout_between_steps_cancels_silently():
     engine = ComboEngine()
-    ctrl = _binding("key_leftctrl")
-    key_x = _binding("key_x")
-    key_1 = _binding("key_1")
+    ctrl = binding("key_leftctrl")
+    key_x = binding("key_x")
+    key_1 = binding("key_1")
     engine.set_combos(
         [
             RuntimeCombo(
@@ -38,10 +45,10 @@ def test_timeout_between_steps_cancels_silently():
         ]
     )
 
-    _handle(engine, ctrl, 1, 0.0)
-    _handle(engine, key_x, 1, 0.1)
-    _handle(engine, key_x, 0, 0.2)
-    _handle(engine, ctrl, 0, 0.3)
+    handle_combo_event(engine, ctrl, 1, 0.0)
+    handle_combo_event(engine, key_x, 1, 0.1)
+    handle_combo_event(engine, key_x, 0, 0.2)
+    handle_combo_event(engine, ctrl, 0, 0.3)
 
     assert engine.expire_timeouts(0.41) is True
     assert engine.next_deadline() is None
@@ -49,16 +56,16 @@ def test_timeout_between_steps_cancels_silently():
 
 def test_double_tap_consumes_first_press_and_uses_second_press_for_action():
     engine = ComboEngine()
-    key_a = _binding("key_a")
-    engine.set_combos([_combo("combo-1", (key_a,), (key_a,))])
+    key_a = binding("key_a")
+    engine.set_combos([combo("combo-1", (key_a,), (key_a,))])
 
-    first_down = _handle(engine, key_a, 1, 0.0)
+    first_down = handle_combo_event(engine, key_a, 1, 0.0)
     assert first_down.consume_current_event is True
 
-    first_up = _handle(engine, key_a, 0, 0.1)
+    first_up = handle_combo_event(engine, key_a, 0, 0.1)
     assert first_up.consume_current_event is True
 
-    second_down = _handle(engine, key_a, 1, 0.2)
+    second_down = handle_combo_event(engine, key_a, 1, 0.2)
     assert second_down.consume_current_event is True
     assert second_down.action_transition is not None
     assert second_down.action_transition.kind == "press"
@@ -66,23 +73,23 @@ def test_double_tap_consumes_first_press_and_uses_second_press_for_action():
 
 def test_overlapping_first_step_combos_activate_independently():
     engine = ComboEngine()
-    alt = _binding("key_leftalt")
-    key_c = _binding("key_c")
-    key_v = _binding("key_v")
+    alt = binding("key_leftalt")
+    key_c = binding("key_c")
+    key_v = binding("key_v")
     engine.set_combos(
         [
-            _combo("alt-c", (alt, key_c)),
-            _combo("alt-v", (alt, key_v)),
-            _combo("alt-c-v", (alt, key_c, key_v)),
+            combo("alt-c", (alt, key_c)),
+            combo("alt-v", (alt, key_v)),
+            combo("alt-c-v", (alt, key_c, key_v)),
         ]
     )
 
-    _handle(engine, alt, 1, 0.0)
-    press_c = _handle(engine, key_c, 1, 0.1)
+    handle_combo_event(engine, alt, 1, 0.0)
+    press_c = handle_combo_event(engine, key_c, 1, 0.1)
     assert press_c.action_transition is not None
     assert press_c.action_transition.combo_id == "alt-c"
 
-    press_v = _handle(engine, key_v, 1, 0.2)
+    press_v = handle_combo_event(engine, key_v, 1, 0.2)
     transitions = []
     if press_v.action_transition is not None:
         transitions.append(press_v.action_transition.combo_id)
@@ -93,18 +100,18 @@ def test_overlapping_first_step_combos_activate_independently():
 
 def test_multiple_concurrent_candidates_resolve_to_matching_combo():
     engine = ComboEngine()
-    ctrl = _binding("key_leftctrl")
-    key_a = _binding("key_a")
-    key_b = _binding("key_b")
+    ctrl = binding("key_leftctrl")
+    key_a = binding("key_a")
+    key_b = binding("key_b")
     engine.set_combos(
         [
-            _combo("combo-a", (ctrl, key_a)),
-            _combo("combo-b", (ctrl, key_b)),
+            combo("combo-a", (ctrl, key_a)),
+            combo("combo-b", (ctrl, key_b)),
         ]
     )
 
-    _handle(engine, ctrl, 1, 0.0)
-    press_a = _handle(engine, key_a, 1, 0.1)
+    handle_combo_event(engine, ctrl, 1, 0.0)
+    press_a = handle_combo_event(engine, key_a, 1, 0.1)
 
     assert press_a.action_transition is not None
     assert press_a.action_transition.combo_id == "combo-a"
@@ -113,21 +120,21 @@ def test_multiple_concurrent_candidates_resolve_to_matching_combo():
 
 def test_exact_binding_matching_requires_hardware_and_source_match():
     engine = ComboEngine()
-    expected = _binding("key_a", hardware_id="1111:2222", source="kbd")
-    engine.set_combos([_combo("combo-1", (expected,))])
+    expected = binding("key_a", hardware_id="1111:2222", source="kbd")
+    engine.set_combos([combo("combo-1", (expected,))])
 
-    wrong_hardware = _handle(
+    wrong_hardware = handle_combo_event(
         engine,
-        _binding("key_a", hardware_id="3333:4444", source="kbd"),
+        binding("key_a", hardware_id="3333:4444", source="kbd"),
         1,
         0.0,
     )
     assert wrong_hardware.consume_current_event is False
     assert wrong_hardware.passthrough_current_event is False
 
-    wrong_source = _handle(
+    wrong_source = handle_combo_event(
         engine,
-        _binding("key_a", hardware_id="1111:2222", source="mouse"),
+        binding("key_a", hardware_id="1111:2222", source="mouse"),
         1,
         0.1,
     )
@@ -137,44 +144,44 @@ def test_exact_binding_matching_requires_hardware_and_source_match():
 
 def test_blank_hardware_id_matches_any_hardware_without_source_guessing():
     engine = ComboEngine()
-    expected = _binding("key_a", hardware_id="", source="kbd")
-    engine.set_combos([_combo("combo-1", (expected,))])
+    expected = binding("key_a", hardware_id="", source="kbd")
+    engine.set_combos([combo("combo-1", (expected,))])
 
-    first_hardware = _handle(
+    first_hardware = handle_combo_event(
         engine,
-        _binding("key_a", hardware_id="1111:2222", source="kbd"),
+        binding("key_a", hardware_id="1111:2222", source="kbd"),
         1,
         0.0,
     )
     assert first_hardware.consume_current_event is True
     assert first_hardware.action_transition is not None
     assert first_hardware.action_transition.combo_id == "combo-1"
-    _handle(
+    handle_combo_event(
         engine,
-        _binding("key_a", hardware_id="1111:2222", source="kbd"),
+        binding("key_a", hardware_id="1111:2222", source="kbd"),
         0,
         0.05,
     )
 
-    second_hardware = _handle(
+    second_hardware = handle_combo_event(
         engine,
-        _binding("key_a", hardware_id="5555:6666", source="kbd"),
+        binding("key_a", hardware_id="5555:6666", source="kbd"),
         1,
         0.1,
     )
     assert second_hardware.consume_current_event is True
     assert second_hardware.action_transition is not None
     assert second_hardware.action_transition.combo_id == "combo-1"
-    _handle(
+    handle_combo_event(
         engine,
-        _binding("key_a", hardware_id="5555:6666", source="kbd"),
+        binding("key_a", hardware_id="5555:6666", source="kbd"),
         0,
         0.15,
     )
 
-    wrong_source = _handle(
+    wrong_source = handle_combo_event(
         engine,
-        _binding("key_a", hardware_id="3333:4444", source="mouse"),
+        binding("key_a", hardware_id="3333:4444", source="mouse"),
         1,
         0.2,
     )
@@ -184,22 +191,22 @@ def test_blank_hardware_id_matches_any_hardware_without_source_guessing():
 
 def test_modifier_side_is_ignored_for_matching():
     engine = ComboEngine()
-    generic_ctrl = _binding("ctrl")
-    key_x = _binding("key_x")
-    engine.set_combos([_combo("combo-1", (generic_ctrl, key_x))])
+    generic_ctrl = binding("ctrl")
+    key_x = binding("key_x")
+    engine.set_combos([combo("combo-1", (generic_ctrl, key_x))])
 
-    press_right_ctrl = _handle(engine, _binding("key_rightctrl"), 1, 0.0)
+    press_right_ctrl = handle_combo_event(engine, binding("key_rightctrl"), 1, 0.0)
     assert press_right_ctrl.passthrough_current_event is True
 
-    press_x = _handle(engine, key_x, 1, 0.1)
+    press_x = handle_combo_event(engine, key_x, 1, 0.1)
     assert press_x.consume_current_event is True
     assert press_x.action_transition is not None
 
 
 def test_held_bindings_for_step_respects_source_specific_and_wildcard_matching():
     engine = ComboEngine()
-    held_aux = _binding("key_a", hardware_id="1111:2222", source="aux")
-    held_kbd = _binding("key_a", hardware_id="1111:2222", source="kbd")
+    held_aux = binding("key_a", hardware_id="1111:2222", source="aux")
+    held_kbd = binding("key_a", hardware_id="1111:2222", source="kbd")
     engine.prime_held_bindings({held_aux})
 
     exact_step = RuntimeComboStep(
@@ -224,8 +231,8 @@ def test_held_bindings_for_step_respects_source_specific_and_wildcard_matching()
 
 def test_held_bindings_for_step_respects_hardware_wildcard_matching():
     engine = ComboEngine()
-    held_first = _binding("key_leftalt", hardware_id="1111:2222", source="kbd")
-    held_second = _binding("key_leftalt", hardware_id="3333:4444", source="kbd")
+    held_first = binding("key_leftalt", hardware_id="1111:2222", source="kbd")
+    held_second = binding("key_leftalt", hardware_id="3333:4444", source="kbd")
     engine.prime_held_bindings({held_first, held_second})
 
     source_specific = RuntimeComboStep(

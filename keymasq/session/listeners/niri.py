@@ -9,10 +9,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from keymasq.common.slurp import SlurpMode, get_slurp_capture
+from keymasq.common.slurp import get_slurp_capture
 from keymasq.session.dbus import SessionDBus
+from keymasq.session.listeners._socket_helpers import unix_socket_connectable
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
-from keymasq.session.slurp import trigger_slurp_macro
+from keymasq.session.slurp import capture_slurp_cursor_position
 
 log = logging.getLogger("keymasq-session.listeners.niri")
 
@@ -236,14 +237,7 @@ class NiriListener(WindowListener):
 
     @classmethod
     async def _connectable(cls, path: Path, timeout_s: float = 0.2) -> bool:
-        try:
-            connect_coro = asyncio.open_unix_connection(path=str(path))
-            _reader, writer = await asyncio.wait_for(connect_coro, timeout=timeout_s)
-            writer.close()
-            await writer.wait_closed()
-            return True
-        except Exception:
-            return False
+        return await unix_socket_connectable(path, timeout_s=timeout_s)
 
     @classmethod
     async def probe_available(cls, dbus: SessionDBus | None = None) -> bool:
@@ -583,25 +577,7 @@ class NiriListener(WindowListener):
         return {"found": True, "id": window_id, "title": expected_title}
 
     async def get_cursor_position(self) -> tuple[int, int] | None:
-        if not self._slurp.available:
-            log.debug("Slurp cursor capture not available")
-            return None
-
-        client = self.client
-        if client is None:
-            log.debug("Slurp cursor capture requires client connection")
-            return None
-
-        try:
-            result = await self._slurp.capture_point_async(
-                mode=SlurpMode.POINT_IMMEDIATE,
-                on_ready=lambda: trigger_slurp_macro(client),
-            )
-            if result:
-                return (result.x, result.y)
-        except Exception as exc:
-            log.debug("Slurp cursor capture failed: %s", exc)
-        return None
+        return await capture_slurp_cursor_position(self._slurp, self.client, log)
 
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
         raw_dispatcher = str(dispatcher or "").strip()

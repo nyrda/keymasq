@@ -1,5 +1,28 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.device_manager_support import *
+import asyncio
+import logging
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import evdev
+import pytest
+
+from keymasq.common.ipc import CommandType
+from keymasq.common.models import (
+    ActionType,
+    DeviceType,
+    ProfileDeactivationPolicy,
+    SuperkeyMode,
+)
+from keymasq.keymasqd import device_manager as dm
+from keymasq.keymasqd.combo_engine import ComboDecision
+from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import grabbed_device_events as gde
+from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
+from tests.keymasqd.device_manager_support import (
+    FakeUInput,
+    grabbed_event_processing_deps,
+    make_grabbed_device,
+)
 
 
 class TestSuperkeys:
@@ -8,9 +31,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         decisions = [
             ComboDecision(passthrough_current_event=True, reset_candidates=True),
             None,
@@ -20,19 +40,18 @@ class TestSuperkeys:
         async def event_callback(*_args):
             return decisions.pop(0)
 
-        passthrough_uinput = _FakeUInput()
-        mapped_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        passthrough_uinput = FakeUInput()
+        mapped_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_1": "key_1"},
-            mapping_getter=lambda: mapping_state,
+            mapping=mapping_state,
             event_callback=event_callback,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=mapped_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=mapped_uinput,
+            passthrough_uinput=passthrough_uinput,
+            running=True,
         )
-        device._running = True
-        device.uinput = passthrough_uinput  # type: ignore[assignment]
 
         press_event = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -45,7 +64,7 @@ class TestSuperkeys:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, press_event)
+        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
 
         assert device.state.combo_passthrough_held == {"key_1"}
         assert "key_1" not in device.state.held_source_actions
@@ -59,7 +78,7 @@ class TestSuperkeys:
         assert device.state.combo_passthrough_held == set()
         assert device.state.held_source_actions["key_1"] is None
 
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert passthrough_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 1),
@@ -73,7 +92,7 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         device.state.combo_passthrough_held.add("key_x")
         device.state.combo_recalled_bindings.add("key_x")
 
@@ -87,8 +106,8 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch)
+        passthrough = FakeUInput()
+        device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
         device._running = True
         device.state.combo_passthrough_held.add("key_x")
@@ -100,14 +119,14 @@ class TestSuperkeys:
             value=2,
         )
 
-        await _runtime_process_grabbed_event(device, repeat_event)
+        await gde.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
 
         assert passthrough.writes == []
         assert device.state.combo_passthrough_held == {"key_x"}
         assert device.state.combo_recalled_bindings == {"key_x"}
 
         device.clear_combo_recalled_binding("key_x")
-        await _runtime_process_grabbed_event(device, repeat_event)
+        await gde.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
 
         assert passthrough.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 2),
@@ -118,8 +137,8 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch)
+        passthrough = FakeUInput()
+        device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
         device._running = True
         device.state.combo_passthrough_held.add("key_leftmeta")
@@ -136,8 +155,8 @@ class TestSuperkeys:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, repeat_event)
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert passthrough.writes == []
         assert device.state.combo_recalled_bindings == set()
@@ -149,8 +168,8 @@ class TestSuperkeys:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         callback = AsyncMock(return_value=None)
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch)
+        passthrough = FakeUInput()
+        device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
         device._running = True
         device.event_callback = callback
@@ -164,7 +183,7 @@ class TestSuperkeys:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert callback.await_count == 1
         assert passthrough.writes == []
@@ -177,8 +196,8 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch)
+        passthrough = FakeUInput()
+        device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
         device._running = True
         device.state.combo_passthrough_held.add("key_x")
@@ -199,7 +218,7 @@ class TestSuperkeys:
             value=1,
         )
 
-        await _runtime_process_grabbed_event(device, press_event)
+        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
 
         assert callback_calls["count"] == 1
         assert passthrough.writes == [
@@ -214,8 +233,8 @@ class TestSuperkeys:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch)
+        passthrough = FakeUInput()
+        device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
         device._running = True
         device.verbosity = 3
@@ -232,8 +251,8 @@ class TestSuperkeys:
         )
 
         with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
-            await _runtime_process_grabbed_event(device, key_event)
-            await _runtime_process_grabbed_event(device, rel_event)
+            await gde.process_event(device, key_event, deps=grabbed_event_processing_deps())
+            await gde.process_event(device, rel_event, deps=grabbed_event_processing_deps())
 
         assert "[hw 1234:5678 kbd] type=1 code=45 name=key_x value=2" in caplog.text
         assert "REL_X" not in caplog.text
@@ -244,9 +263,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
-
         mapping_state = {
             "btn_side": dm.MappingAction(
                 action_type=ActionType.SUPERKEY,
@@ -257,16 +273,14 @@ class TestSuperkeys:
             )
         }
 
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        device = make_grabbed_device(
+            monkeypatch,
+            interface_id="mouse",
             button_map={"btn_side": "btn_side"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.MOUSE,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            running=True,
         )
-        device._running = True
 
         press_event = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -279,13 +293,13 @@ class TestSuperkeys:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, press_event)
+        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
         assert "btn_side" in device.state.superkey_machines
 
         await device.reset_superkeys()
         assert device.state.superkey_machines == {}
 
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert device.state.superkey_machines == {}
 
@@ -294,9 +308,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
-
         shared_config = SuperkeyConfig(
             name="shared",
             hold_threshold_ms=0,
@@ -313,17 +324,16 @@ class TestSuperkeys:
             ),
         }
 
-        keyboard_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        keyboard_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            interface_id="mouse",
             button_map={"btn_side": "btn_side", "btn_extra": "btn_extra"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.MOUSE,
-            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=keyboard_uinput,
+            running=True,
         )
-        device._running = True
 
         side_press = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -346,10 +356,10 @@ class TestSuperkeys:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, side_press)
+        await gde.process_event(device, side_press, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         await asyncio.sleep(0)
-        await _runtime_process_grabbed_event(device, extra_press)
+        await gde.process_event(device, extra_press, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
@@ -360,7 +370,7 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
         ]
 
-        await _runtime_process_grabbed_event(device, side_release)
+        await gde.process_event(device, side_release, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert keyboard_uinput.writes == [
@@ -368,7 +378,7 @@ class TestSuperkeys:
         ]
         assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
 
-        await _runtime_process_grabbed_event(device, extra_release)
+        await gde.process_event(device, extra_release, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert keyboard_uinput.writes == [
@@ -382,9 +392,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         mapping_state = {
             "key_f13": dm.MappingAction(
                 action_type=ActionType.SUPERKEY,
@@ -399,29 +406,30 @@ class TestSuperkeys:
             )
         }
 
-        keyboard_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        keyboard_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_f13": "key_f13"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=keyboard_uinput,
+            running=True,
         )
-        device._running = True
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=2),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert device.state.superkey_machines == {}
@@ -441,9 +449,6 @@ class TestSuperkeys:
     ) -> None:
         from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_OVERLOAD
 
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         mapping_state = {
             "key_f13": dm.MappingAction(
                 action_type=ActionType.SUPERKEY,
@@ -459,25 +464,25 @@ class TestSuperkeys:
             "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
         }
 
-        keyboard_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        keyboard_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_f13": "key_f13", "key_f14": "key_f14"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=keyboard_uinput,
+            running=True,
         )
-        device._running = True
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         latest = device.repeat_state.history[-1]
@@ -485,13 +490,15 @@ class TestSuperkeys:
         assert latest.action.superkey_config is mapping_state["key_f13"].superkey_config
         assert latest.superkey_slot == SUPERKEY_SLOT_OVERLOAD
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert keyboard_uinput.writes == [
@@ -511,9 +518,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         mapping_state = {
             "key_f13": dm.MappingAction(
                 action_type=ActionType.SUPERKEY,
@@ -534,17 +538,15 @@ class TestSuperkeys:
             "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
         }
 
-        keyboard_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        keyboard_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_f13": "key_f13", "key_f14": "key_f14"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=keyboard_uinput,
+            running=True,
         )
-        device._running = True
 
         for code, value in (
             (evdev.ecodes.KEY_F13, 1),
@@ -552,9 +554,10 @@ class TestSuperkeys:
             (evdev.ecodes.KEY_F14, 1),
             (evdev.ecodes.KEY_F14, 0),
         ):
-            await _runtime_process_grabbed_event(
+            await gde.process_event(
                 device,
                 SimpleNamespace(type=evdev.ecodes.EV_KEY, code=code, value=value),
+                deps=grabbed_event_processing_deps(),
             )
 
         assert keyboard_uinput.writes == [
@@ -579,9 +582,6 @@ class TestSuperkeys:
     ) -> None:
         from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_DOUBLE_TAP
 
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         mapping_state = {
             "key_f13": dm.MappingAction(
                 action_type=ActionType.SUPERKEY,
@@ -598,22 +598,21 @@ class TestSuperkeys:
             "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
         }
 
-        keyboard_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        keyboard_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_f13": "key_f13", "key_f14": "key_f14"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=keyboard_uinput,
+            running=True,
         )
-        device._running = True
 
         for value in (1, 0, 1, 0):
-            await _runtime_process_grabbed_event(
+            await gde.process_event(
                 device,
                 SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=value),
+                deps=grabbed_event_processing_deps(),
             )
 
         latest = device.repeat_state.history[-1]
@@ -621,13 +620,15 @@ class TestSuperkeys:
         assert latest.action.superkey_config is mapping_state["key_f13"].superkey_config
         assert latest.superkey_slot == SUPERKEY_SLOT_DOUBLE_TAP
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert keyboard_uinput.writes == [
@@ -643,9 +644,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         action_triggers: list[dict[str, object]] = []
 
         async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
@@ -679,45 +677,46 @@ class TestSuperkeys:
             "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
         }
 
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_f13": "key_f13", "key_f14": "key_f14"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
             broadcast_callback=broadcast,
             profile_activation_trigger_start_observer=manager.observe_profile_trigger_start,
             profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+            running=True,
         )
-        device._running = True
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+            deps=grabbed_event_processing_deps(),
         )
         await asyncio.sleep(0.01)
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+            deps=grabbed_event_processing_deps(),
         )
         await asyncio.sleep(0.01)
 
         assert len(action_triggers) == 1
         assert list(device.repeat_state.history) == []
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=1),
+            deps=grabbed_event_processing_deps(),
         )
         await asyncio.sleep(0.01)
 
         assert len(action_triggers) == 1
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=0),
+            deps=grabbed_event_processing_deps(),
         )
         await asyncio.sleep(0.01)
 
@@ -728,9 +727,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         events: list[tuple[CommandType, dict[str, object]]] = []
         action_triggers: list[dict[str, object]] = []
 
@@ -764,23 +760,21 @@ class TestSuperkeys:
             )
         }
 
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_f13": "key_f13"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
             broadcast_callback=broadcast,
             profile_activation_trigger_start_observer=manager.observe_profile_trigger_start,
             profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+            running=True,
         )
-        device._running = True
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+            deps=grabbed_event_processing_deps(),
         )
         await asyncio.sleep(0.05)
 
@@ -800,9 +794,10 @@ class TestSuperkeys:
             event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
         ] == []
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+            deps=grabbed_event_processing_deps(),
         )
         await asyncio.sleep(0.05)
 
@@ -820,9 +815,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         mapping_state = {
             "key_f13": dm.MappingAction(
                 action_type=ActionType.SUPERKEY,
@@ -842,29 +834,30 @@ class TestSuperkeys:
             )
         }
 
-        keyboard_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        keyboard_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_f13": "key_f13"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=keyboard_uinput,
+            running=True,
         )
-        device._running = True
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=2),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert keyboard_uinput.writes == [
@@ -882,9 +875,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
-
         shared_config = SuperkeyConfig(
             name="overload_shared",
             mode=SuperkeyMode.OVERLOAD,
@@ -903,29 +893,31 @@ class TestSuperkeys:
             ),
         }
 
-        keyboard_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        keyboard_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            interface_id="mouse",
             button_map={"btn_side": "btn_side", "btn_extra": "btn_extra"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.MOUSE,
-            keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+            keyboard_uinput=keyboard_uinput,
+            running=True,
         )
-        device._running = True
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert keyboard_uinput.writes == [
@@ -933,9 +925,10 @@ class TestSuperkeys:
         ]
         assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert keyboard_uinput.writes == [
@@ -948,9 +941,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
-
         shared_config = SuperkeyConfig(
             name="overload_shared_axis",
             mode=SuperkeyMode.OVERLOAD,
@@ -973,29 +963,31 @@ class TestSuperkeys:
             ),
         }
 
-        gamepad_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        gamepad_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            interface_id="mouse",
             button_map={"btn_side": "btn_side", "btn_extra": "btn_extra"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.MOUSE,
-            gamepad_uinput=gamepad_uinput,  # type: ignore[arg-type]
+            gamepad_uinput=gamepad_uinput,
+            running=True,
         )
-        device._running = True
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert gamepad_uinput.writes == [
@@ -1003,9 +995,10 @@ class TestSuperkeys:
         ]
         assert device.state.held_output_abs["gamepad"] == {evdev.ecodes.ABS_X}
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert gamepad_uinput.writes == [
@@ -1019,9 +1012,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
-
         config = SuperkeyConfig(
             name="axis_hold",
             mode=SuperkeyMode.PATTERN,
@@ -1041,30 +1031,31 @@ class TestSuperkeys:
             ),
         }
 
-        gamepad_uinput = _FakeUInput()
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        gamepad_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            interface_id="mouse",
             button_map={"btn_side": "btn_side"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.MOUSE,
-            gamepad_uinput=gamepad_uinput,  # type: ignore[arg-type]
+            gamepad_uinput=gamepad_uinput,
+            running=True,
         )
-        device._running = True
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
+            deps=grabbed_event_processing_deps(),
         )
         await asyncio.sleep(0.01)
 
         assert gamepad_uinput.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255)]
         assert device.state.held_output_abs["gamepad"] == {evdev.ecodes.ABS_Z}
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert gamepad_uinput.writes == [
@@ -1078,9 +1069,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-
         mapping_state = {
             "key_f13": dm.MappingAction(
                 action_type=ActionType.KEYBOARD,
@@ -1088,16 +1076,13 @@ class TestSuperkeys:
             )
         }
 
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        device = make_grabbed_device(
+            monkeypatch,
             button_map={"key_f13": "key_f13"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            running=True,
         )
-        device._running = True
         device.device = SimpleNamespace(active_keys=lambda: [evdev.ecodes.KEY_F13])
 
         await device.reset_mapping_runtime_state()
@@ -1112,9 +1097,6 @@ class TestSuperkeys:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
-
         blocker = asyncio.Event()
 
         async def stalled_callback(_command, _data):
@@ -1130,17 +1112,15 @@ class TestSuperkeys:
             )
         }
 
-        device = GrabbedDevice(
-            path="/dev/input/event-test",
-            hardware_id="1234:5678",
+        device = make_grabbed_device(
+            monkeypatch,
+            interface_id="mouse",
             button_map={"btn_side": "btn_side"},
-            mapping_getter=lambda: mapping_state,
-            event_callback=AsyncMock(return_value=None),
+            mapping=mapping_state,
             device_type=DeviceType.MOUSE,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
             broadcast_callback=stalled_callback,
+            running=True,
         )
-        device._running = True
 
         press_event = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -1153,8 +1133,14 @@ class TestSuperkeys:
             value=0,
         )
 
-        await asyncio.wait_for(_runtime_process_grabbed_event(device, press_event), timeout=0.05)
-        await asyncio.wait_for(_runtime_process_grabbed_event(device, release_event), timeout=0.05)
+        await asyncio.wait_for(
+            gde.process_event(device, press_event, deps=grabbed_event_processing_deps()),
+            timeout=0.05,
+        )
+        await asyncio.wait_for(
+            gde.process_event(device, release_event, deps=grabbed_event_processing_deps()),
+            timeout=0.05,
+        )
 
         blocker.set()
         await asyncio.sleep(0)

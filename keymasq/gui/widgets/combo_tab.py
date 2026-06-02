@@ -9,24 +9,17 @@ from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttribut
 
 from keymasq.common.models import ComboConfig
 from keymasq.gui.icons import combo_icon_names, image_from_icon_names, resolve_icon_name
-from keymasq.gui.widgets.combo_editor_dialog import (
-    ComboEditorDialog,
+from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+from keymasq.gui.widgets.combo_list import SORT_ACTION, SORT_NAME, SORT_TRIGGER, SortableComboList
+from keymasq.gui.widgets.combo_presentation import (
     combo_default_name,
+    combo_search_text,
     combo_step_label,
     combo_trigger_label,
-    describe_mapping_action,
 )
-from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches, install_listbox_fuzzy_filter
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.profiles import ProfileManager
-
-_SORT_NONE = 0
-_SORT_NAME = 1
-_SORT_TRIGGER = 2
-_SORT_ACTION = 3
-
-_ARROW_UP = " \u25b4"
-_ARROW_DOWN = " \u25be"
 
 
 class ComboTab(ProfileManagedTab):
@@ -43,9 +36,6 @@ class ComboTab(ProfileManagedTab):
             demo_mode=demo_mode,
             compositor_capabilities=compositor_capabilities,
         )
-
-        self._sort_column = _SORT_NONE
-        self._sort_ascending = True
 
         self._setup_header()
         self._setup_profile_selector()
@@ -119,63 +109,35 @@ class ComboTab(ProfileManagedTab):
 
         self.combo_frame.append(toolbar)
 
-        self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("Search combos")
-        self.search_entry.set_tooltip_text(
-            "Filter combos by name, trigger, action, profile, device, or source"
+        self._combo_list = SortableComboList[ComboConfig](
+            search_placeholder="Search combos",
+            search_tooltip="Filter combos by name, trigger, action, profile, device, or source",
+            empty_text="No combos in this profile.",
+            no_match_text="No matching combos.",
+            get_items=self._selected_combos,
+            sort_keys={
+                SORT_NAME: lambda combo: combo.name or combo_default_name(combo),
+                SORT_TRIGGER: lambda combo: combo_trigger_label(combo.steps),
+                SORT_ACTION: lambda combo: describe_mapping_action_compact(combo.action),
+            },
+            create_row=self._create_combo_row,
+            is_available=lambda: self._selected_profile is not None,
+            row_activated=self._on_row_activated,
+            trailing_header_width=36,
         )
-        self.search_entry.set_visible(False)
-        self.search_entry.connect("stop-search", self._on_search_stop)
+        self.search_entry = self._combo_list.search_entry
+        self.section_label = self._combo_list.section_label
+        self.column_header = self._combo_list.column_header
+        self.combo_listbox = self._combo_list.listbox
+        self._name_header_btn = self._combo_list.name_header_btn
+        self._trigger_header_btn = self._combo_list.trigger_header_btn
+        self._action_header_btn = self._combo_list.action_header_btn
+
         self.combo_frame.append(self.search_entry)
 
-        self.section_label = Gtk.Label(label="")
-        self.section_label.add_css_class("heading")
-        self.section_label.set_hexpand(True)
-        self.section_label.set_halign(Gtk.Align.START)
-        self.section_label.set_visible(False)
         self.combo_frame.append(self.section_label)
 
-        col_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        col_header.add_css_class("combo-column-header")
-
-        self._name_header_btn = Gtk.Button(label="Name")
-        self._name_header_btn.add_css_class("flat")
-        self._name_header_btn.add_css_class("combo-col-btn")
-        self._name_header_btn.set_hexpand(True)
-        self._name_header_btn.set_halign(Gtk.Align.START)
-        self._name_header_btn.connect("clicked", self._on_column_header_clicked, _SORT_NAME)
-        col_header.append(self._name_header_btn)
-
-        self._trigger_header_btn = Gtk.Button(label="Trigger")
-        self._trigger_header_btn.add_css_class("flat")
-        self._trigger_header_btn.add_css_class("combo-col-btn")
-        self._trigger_header_btn.set_halign(Gtk.Align.START)
-        self._trigger_header_btn.connect("clicked", self._on_column_header_clicked, _SORT_TRIGGER)
-        col_header.append(self._trigger_header_btn)
-
-        self._action_header_btn = Gtk.Button(label="Action")
-        self._action_header_btn.add_css_class("flat")
-        self._action_header_btn.add_css_class("combo-col-btn")
-        self._action_header_btn.set_size_request(180, -1)
-        self._action_header_btn.connect("clicked", self._on_column_header_clicked, _SORT_ACTION)
-        col_header.append(self._action_header_btn)
-
-        spacer = Gtk.Box()
-        spacer.set_size_request(36, -1)
-        col_header.append(spacer)
-
-        self.column_header = col_header
-        self.combo_frame.append(col_header)
-
-        self.combo_listbox = Gtk.ListBox()
-        self.combo_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.combo_listbox.add_css_class("boxed-list")
-        self.combo_listbox.connect("row-activated", self._on_row_activated)
-        install_listbox_fuzzy_filter(
-            self.combo_listbox,
-            self.search_entry,
-            after_filter_changed=self._after_search_filter_changed,
-        )
+        self.combo_frame.append(self.column_header)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
@@ -194,60 +156,7 @@ class ComboTab(ProfileManagedTab):
         self.add_combo_button.set_sensitive(selected)
         self.search_button.set_sensitive(selected)
         self.combo_frame.set_sensitive(selected)
-        self._render_combo_list()
-
-    def _sorted_combos(self) -> list[ComboConfig]:
-        combos = self._selected_combos()
-        if self._sort_column == _SORT_NAME:
-            result = sorted(
-                combos,
-                key=lambda c: (c.name or combo_default_name(c)).casefold(),
-            )
-        elif self._sort_column == _SORT_TRIGGER:
-            result = sorted(
-                combos,
-                key=lambda c: combo_trigger_label(c.steps).casefold(),
-            )
-        elif self._sort_column == _SORT_ACTION:
-            result = sorted(
-                combos,
-                key=lambda c: describe_mapping_action(c.action).casefold(),
-            )
-        else:
-            return list(combos)
-        if not self._sort_ascending:
-            result.reverse()
-        return result
-
-    def _update_column_header_labels(self) -> None:
-        for col, btn in (
-            (_SORT_NAME, self._name_header_btn),
-            (_SORT_TRIGGER, self._trigger_header_btn),
-            (_SORT_ACTION, self._action_header_btn),
-        ):
-            base = {_SORT_NAME: "Name", _SORT_TRIGGER: "Trigger", _SORT_ACTION: "Action"}[col]
-            if self._sort_column == col:
-                arrow = _ARROW_UP if self._sort_ascending else _ARROW_DOWN
-                btn.set_label(f"{base}{arrow}")
-            else:
-                btn.set_label(base)
-
-    def _render_combo_list(self) -> None:
-        while row := self.combo_listbox.get_first_child():
-            self.combo_listbox.remove(row)
-
-        combos = self._sorted_combos()
-
-        if self._selected_profile is None:
-            self._hide_search()
-            self.section_label.set_visible(False)
-            self.combo_listbox.set_visible(False)
-            self.column_header.set_visible(False)
-            return
-
-        for combo in combos:
-            self.combo_listbox.append(self._create_combo_row(combo))
-        self._update_combo_list_state(has_combos=bool(combos))
+        self._combo_list.render()
 
     def _create_combo_row(self, combo: ComboConfig) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
@@ -280,7 +189,7 @@ class ComboTab(ProfileManagedTab):
                 trigger_box.append(arrow)
         box.append(trigger_box)
 
-        action_label = Gtk.Label(label=describe_mapping_action(combo.action))
+        action_label = Gtk.Label(label=describe_mapping_action_compact(combo.action))
         action_label.set_width_chars(22)
         action_label.set_max_width_chars(22)
         action_label.set_ellipsize(Pango.EllipsizeMode.END)
@@ -300,62 +209,8 @@ class ComboTab(ProfileManagedTab):
         row.set_child(box)
         return row
 
-    def _iter_combo_rows(self):
-        row = self.combo_listbox.get_first_child()
-        while row is not None:
-            yield row
-            row = row.get_next_sibling()
-
-    def _visible_combo_count(self) -> int:
-        query = self.search_entry.get_text()
-        return sum(
-            1
-            for row in self._iter_combo_rows()
-            if fuzzy_query_matches(query, getattr(row, "_search_text", ""))
-        )
-
-    def _update_combo_list_state(self, *, has_combos: bool | None = None) -> None:
-        if self._selected_profile is None:
-            self._hide_search()
-            self.section_label.set_visible(False)
-            self.combo_listbox.set_visible(False)
-            self.column_header.set_visible(False)
-            return
-
-        has_combos = has_combos if has_combos is not None else any(self._iter_combo_rows())
-        visible_count = self._visible_combo_count() if has_combos else 0
-        has_visible_rows = visible_count > 0
-        self.combo_listbox.set_visible(has_visible_rows)
-        self.column_header.set_visible(has_visible_rows)
-        if has_visible_rows:
-            self.section_label.set_visible(False)
-        elif has_combos and self.search_entry.get_text().strip():
-            self.section_label.set_text("No matching combos.")
-            self.section_label.set_visible(True)
-        else:
-            self.section_label.set_text("No combos in this profile.")
-            self.section_label.set_visible(True)
-
-    def _after_search_filter_changed(self) -> None:
-        self._update_combo_list_state()
-
-    def _show_search(self) -> None:
-        if self._selected_profile is None:
-            return
-        self.search_entry.set_visible(True)
-        self.search_entry.grab_focus()
-        self.search_entry.select_region(0, -1)
-
-    def _hide_search(self) -> None:
-        if self.search_entry.get_text():
-            self.search_entry.set_text("")
-        self.search_entry.set_visible(False)
-
     def _on_search_clicked(self, _button: Gtk.Button) -> None:
-        self._show_search()
-
-    def _on_search_stop(self, _entry: Gtk.SearchEntry) -> None:
-        self._hide_search()
+        self._combo_list.show_search()
 
     def _on_key_pressed(
         self,
@@ -365,10 +220,10 @@ class ComboTab(ProfileManagedTab):
         state: Gdk.ModifierType,
     ) -> bool:
         if keyval in (Gdk.KEY_f, Gdk.KEY_F) and state & Gdk.ModifierType.CONTROL_MASK:
-            self._show_search()
+            self._combo_list.show_search()
             return True
         if keyval == Gdk.KEY_Escape and self.search_entry.get_visible():
-            self._hide_search()
+            self._combo_list.hide_search()
             return True
         return False
 
@@ -377,15 +232,6 @@ class ComboTab(ProfileManagedTab):
         opener = getattr(root, "open_combo_inspector", None)
         if callable(opener):
             opener()
-
-    def _on_column_header_clicked(self, _button: Gtk.Button, column: int) -> None:
-        if self._sort_column == column:
-            self._sort_ascending = not self._sort_ascending
-        else:
-            self._sort_column = column
-            self._sort_ascending = True
-        self._update_column_header_labels()
-        self._render_combo_list()
 
     def _on_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         combo_id: str = row._combo_id  # type: ignore[attr-defined]
@@ -418,7 +264,7 @@ class ComboTab(ProfileManagedTab):
         else:
             combos.append(combo)
         self._save_profile()
-        self._render_combo_list()
+        self._combo_list.render()
 
     def _on_add_combo_clicked(self, _button: Gtk.Button) -> None:
         if self._selected_profile is None:
@@ -455,25 +301,4 @@ class ComboTab(ProfileManagedTab):
         combos = self._selected_combos()
         combos[:] = [combo for combo in combos if combo.id != combo_id]
         self._save_profile()
-        self._render_combo_list()
-
-
-def combo_search_text(combo: ComboConfig, *, profile_name: str = "") -> str:
-    parts = [
-        combo.name or combo_default_name(combo),
-        combo_trigger_label(combo.steps),
-        describe_mapping_action(combo.action),
-        profile_name,
-    ]
-    for step in combo.steps:
-        if step.timeout_ms is not None:
-            parts.append(f"{int(step.timeout_ms)}ms")
-        for event in step.events:
-            parts.extend([event.evdev, event.hardware_id, event.source or ""])
-    if combo.recall_trigger_keys:
-        parts.append("recall trigger keys")
-    if combo.restore_trigger_keys:
-        parts.extend(combo.restore_trigger_keys)
-    if combo.match_across_devices:
-        parts.append("any device across devices")
-    return " ".join(str(part) for part in parts if str(part or "").strip())
+        self._combo_list.render()

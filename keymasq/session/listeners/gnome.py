@@ -11,6 +11,10 @@ from keymasq.common.paths import GNOME_BRIDGE_SOCKET_PATH
 from keymasq.common.security import get_peer_credentials
 from keymasq.session.dbus import SessionDBus, name_has_owner
 from keymasq.session.gnome_shell import GnomeShellDBusError
+from keymasq.session.listeners._socket_helpers import (
+    candidate_wayland_sockets,
+    runtime_dir,
+)
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 from keymasq.session.wayland_protocols.registry_probe import list_registry_globals
 
@@ -89,8 +93,7 @@ class GnomeListener(WindowListener):
 
     @classmethod
     def _has_runtime_prereqs(cls) -> bool:
-        runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-        if not os.path.exists(os.path.join(runtime_dir, "bus")):
+        if not (runtime_dir() / "bus").exists():
             return False
         return True
 
@@ -194,16 +197,8 @@ class GnomeListener(WindowListener):
         return False, "Unsupported GNOME setup action."
 
     @classmethod
-    def _candidate_wayland_sockets(cls) -> list[Path]:
-        runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
-        if not runtime_dir.exists():
-            return []
-        sockets: list[Path] = []
-        for path in runtime_dir.glob("wayland-*"):
-            if path.is_socket():
-                sockets.append(path)
-        sockets.sort(key=lambda p: p.name)
-        return sockets
+    async def _candidate_wayland_sockets(cls) -> list[Path]:
+        return await candidate_wayland_sockets()
 
     @classmethod
     async def _probe_missing_native_toplevel_protocols(cls) -> bool:
@@ -212,7 +207,7 @@ class GnomeListener(WindowListener):
             "ext_foreign_toplevel_list_v1",
             "zcosmic_toplevel_info_v1",
         }
-        for socket_path in cls._candidate_wayland_sockets():
+        for socket_path in await cls._candidate_wayland_sockets():
             globals_found = await list_registry_globals(socket_path)
             if "xdg_wm_base" not in globals_found:
                 continue

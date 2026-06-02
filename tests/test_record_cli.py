@@ -68,6 +68,22 @@ def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert lease.exists() is False
 
 
+def test_write_lease_propagates_unexpected_user_lookup_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    lease = tmp_path / "lease"
+
+    def _raise(_name: str) -> None:
+        raise RuntimeError("lookup failed")
+
+    monkeypatch.setattr(record.pwd, "getpwnam", _raise)
+
+    with pytest.raises(RuntimeError, match="lookup failed"):
+        record._write_lease(lease, 42)
+
+    assert lease.exists() is False
+
+
 def test_write_lease_rejects_preexisting_symlink(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

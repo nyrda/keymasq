@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from keymasq.common.models import ActionType, MappingAction
 from keymasq.gui.widgets.compositor_actions.core import (
-    CompositorActionDefinition,
     CompositorActionPreset,
+    build_compositor_dispatch_definition,
 )
 
 KDE_DISPATCH_PRESETS = (
@@ -117,51 +116,14 @@ KDE_DISPATCH_PRESETS = (
     ),
 )
 
-def _kde_available(current_action: MappingAction | None, status: dict[str, object]) -> bool:
-    _ = current_action
-    return bool(
-        status.get("listener_name") == "kde"
-        and status.get("compositor_dispatch_available") is True
-    )
 
-
-def _kde_fields(current_action: MappingAction | None) -> tuple[str, str]:
-    if current_action is None or current_action.action_type != ActionType.COMPOSITOR_DISPATCH:
-        return "", ""
-    compositor_id = str(current_action.compositor_id or "").strip()
-    if compositor_id and compositor_id != "kde":
-        return "", ""
-    return (
-        str(current_action.compositor_dispatcher or ""),
-        str(current_action.compositor_args or ""),
-    )
-
-
-def _build_kde_action(dispatcher: str, args: str) -> MappingAction:
-    return MappingAction(
-        action_type=ActionType.COMPOSITOR_DISPATCH,
-        compositor_id="kde",
-        compositor_dispatcher=dispatcher,
-        compositor_args=args,
-    )
-
-
-def _describe_kde_action(action: MappingAction) -> str:
-    return f"KDE Plasma → {action.compositor_dispatcher or '?'}"
-
-
-KDE_ACTION_DEFINITION = CompositorActionDefinition(
+KDE_ACTION_DEFINITION = build_compositor_dispatch_definition(
     page_id="kde",
     compositor_id="kde",
     title="KDE Plasma",
     subtitle="Send a supported KWin action through the active KDE Plasma listener.",
     dispatcher_placeholder="e.g. tile_left",
     args_placeholder="No arguments supported",
-    action_type=ActionType.COMPOSITOR_DISPATCH,
     presets=KDE_DISPATCH_PRESETS,
     allow_custom=False,
-    is_available=_kde_available,
-    extract_fields=_kde_fields,
-    build_action=_build_kde_action,
-    describe_action=_describe_kde_action,
 )

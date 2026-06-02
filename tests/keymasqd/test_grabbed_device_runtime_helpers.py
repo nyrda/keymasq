@@ -1,5 +1,36 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.device_manager_support import *
+import asyncio
+import errno
+import logging
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock, Mock
+
+import evdev
+import pytest
+
+from keymasq.common.ipc import CommandType
+from keymasq.common.models import (
+    ActionType,
+    DeviceType,
+    MappingAction,
+    ProfileDeactivationPolicy,
+)
+from keymasq.keymasqd import device_manager as dm
+from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import grab_lifecycle as ldm
+from keymasq.keymasqd.runtime import grabbed_device as gdm
+from keymasq.keymasqd.runtime import grabbed_device_actions as gda
+from keymasq.keymasqd.runtime import grabbed_device_events as gde
+from keymasq.keymasqd.runtime import grabbed_device_grab as gdg
+from keymasq.keymasqd.runtime import grabbed_device_outputs as gdo
+from keymasq.keymasqd.runtime import grabbed_device_repeat as gdr
+from keymasq.keymasqd.runtime import grabbed_device_types as gdt
+from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
+from tests.keymasqd.device_manager_support import (
+    FakeUInput,
+    grabbed_event_processing_deps,
+    make_grabbed_device,
+)
 
 
 class _FakeGrabbedRecorder:
@@ -21,12 +52,12 @@ class _FakeGrabbedRecorder:
         self.calls.append((device_type, event))
 
 
-class _FailingWriteUInput(_FakeUInput):
+class _FailingWriteUInput(FakeUInput):
     def write(self, event_type: int, code: int, value: int) -> None:
         raise OSError("uinput disconnected")
 
 
-class _CountingUInput(_FakeUInput):
+class _CountingUInput(FakeUInput):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.syn_count = 0
@@ -59,7 +90,7 @@ class TestGrabbedDeviceHelpers:
                 deactivate_event.set()
 
         manager = DeviceManager(broadcast_callback=broadcast)
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"caps": "key_capslock"},
             profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
@@ -109,7 +140,7 @@ class TestGrabbedDeviceHelpers:
                 deactivate_event.set()
 
         manager = DeviceManager(broadcast_callback=broadcast)
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"f13": "key_f13"},
             profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
@@ -148,7 +179,7 @@ class TestGrabbedDeviceHelpers:
 
         starts: list[str | None] = []
         ends: list[str | None] = []
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"caps": "key_capslock"},
             profile_activation_trigger_start_observer=starts.append,
@@ -157,16 +188,18 @@ class TestGrabbedDeviceHelpers:
         device.mapping_getter = lambda: {"caps": action}
         device.event_callback = AsyncMock(side_effect=consume_release)
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 1),
+            deps=grabbed_event_processing_deps(),
         )
         assert "key_capslock" in device.state.held_source_keys
         assert "key_capslock" in device.state.held_source_actions
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert starts == ["1234:5678:key_capslock"]
@@ -197,8 +230,8 @@ class TestGrabbedDeviceHelpers:
                 deactivate_event.set()
 
         manager = DeviceManager(broadcast_callback=broadcast)
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             profile_activation_recorder=manager.record_profile_action,
         )
@@ -211,9 +244,10 @@ class TestGrabbedDeviceHelpers:
             {"after_actions": 1},
         )
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            deps=grabbed_event_processing_deps(),
         )
         await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
@@ -230,8 +264,8 @@ class TestGrabbedDeviceHelpers:
         disable_suppression = AsyncMock(
             return_value={"status": "ok", "suppressed": False, "reason": "key_esc"}
         )
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             inspector_event_callback=events.append,
             inspector_active_getter=lambda _hardware_id: True,
@@ -241,9 +275,10 @@ class TestGrabbedDeviceHelpers:
         )
         device.uinput = passthrough  # type: ignore[assignment]
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_ESC, 1),
+            deps=grabbed_event_processing_deps(),
         )
 
         disable_suppression.assert_awaited_once_with("1234:5678", "key_esc")
@@ -260,8 +295,8 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         diagnostics: list[str] = []
         disable_suppression = AsyncMock(return_value={"status": "ok"})
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             inspector_active_getter=lambda _hardware_id: False,
             inspector_suppression_getter=lambda _hardware_id: False,
@@ -271,9 +306,10 @@ class TestGrabbedDeviceHelpers:
         )
         device.uinput = passthrough  # type: ignore[assignment]
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_ESC, 1),
+            deps=grabbed_event_processing_deps(),
         )
 
         disable_suppression.assert_awaited_once_with("mouse-hid", "key_esc")
@@ -289,8 +325,8 @@ class TestGrabbedDeviceHelpers:
         events: list[dict[str, object]] = []
         diagnostics: list[str] = []
         disable_suppression = AsyncMock(return_value={"status": "ok"})
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             inspector_event_callback=events.append,
             inspector_active_getter=lambda _hardware_id: True,
@@ -300,13 +336,15 @@ class TestGrabbedDeviceHelpers:
         )
         device.uinput = passthrough  # type: ignore[assignment]
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_ESC, 0),
+            deps=grabbed_event_processing_deps(),
         )
 
         disable_suppression.assert_not_awaited()
@@ -320,7 +358,7 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"south": "btn_south"},
             button_codes={"south": evdev.ecodes.BTN_SOUTH},
@@ -334,7 +372,7 @@ class TestGrabbedDeviceHelpers:
             1,
         )
 
-        assert _runtime_find_grabbed_action_for_event(device, event, mapping) == mapping["south"]
+        assert gde.find_action_for_event(device, event, mapping) == mapping["south"]
 
     @pytest.mark.asyncio
     async def test_passthrough_preserves_source_syn_report_frame(
@@ -343,7 +381,7 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         passthrough = _CountingUInput()
         diagnostics: list[tuple[str, float]] = []
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             diagnostics_recorder=lambda label, duration_us: diagnostics.append(
                 (label, duration_us)
@@ -408,7 +446,7 @@ class TestGrabbedDeviceHelpers:
             pytest.skip("evdev does not expose SYN_MT_REPORT")
 
         passthrough = _CountingUInput()
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
         deps = gde.build_event_processing_deps(log=logging.getLogger("test"))
 
@@ -441,7 +479,7 @@ class TestGrabbedDeviceHelpers:
         def resolve_gamepad_output(_output_id: str | None, _context: str) -> SimpleNamespace:
             return SimpleNamespace(uinput=target_uinput, bucket="gamepad:target")
 
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             gamepad_output_resolver=resolve_gamepad_output,
         )
@@ -459,7 +497,7 @@ class TestGrabbedDeviceHelpers:
             action,
             event,
             "btn_south",
-            deps=gde.build_action_execution_deps(),
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert target_uinput.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 32767)]
@@ -478,10 +516,11 @@ class TestGrabbedDeviceHelpers:
             evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
         }
 
-        assert _runtime_device_has_mapped_buttons(
+        assert ldm.device_has_mapped_buttons(
             caps,
             {"btn_south"},
             {(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH)},
+            evdev_mod=dm.evdev,
         )
 
     def test_device_has_mapped_buttons_ignores_cross_type_code_collision(self) -> None:
@@ -489,17 +528,18 @@ class TestGrabbedDeviceHelpers:
             evdev.ecodes.EV_REL: [evdev.ecodes.REL_WHEEL],
         }
 
-        assert not _runtime_device_has_mapped_buttons(
+        assert not ldm.device_has_mapped_buttons(
             caps,
             {"key_7"},
             {(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_7)},
+            evdev_mod=dm.evdev,
         )
 
     def test_analog_axis_bindings_filter_by_interface_source(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             analog_inputs={
                 "left_stick": {
@@ -545,7 +585,7 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             analog_inputs={
                 "left_stick": {
@@ -571,7 +611,7 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             analog_inputs={
                 "left_trigger": {
@@ -597,7 +637,7 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch,
     ) -> None:
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             button_map={
                 "extra_13": "key_7",
@@ -620,10 +660,10 @@ class TestGrabbedDeviceHelpers:
             -1,
         )
 
-        assert _runtime_find_grabbed_action_for_event(device, event, mapping) is None
+        assert gde.find_action_for_event(device, event, mapping) is None
 
     def test_find_grabbed_action_for_event_distinguishes_wheel_direction(self, monkeypatch) -> None:
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             button_map={
                 "wheel_up": "rel_wheel",
@@ -654,22 +694,22 @@ class TestGrabbedDeviceHelpers:
         )
 
         assert (
-            _runtime_find_grabbed_action_for_event(
+            gde.find_action_for_event(
                 device,
                 down_event,
                 mapping,
             )
             == mapping["wheel_down"]
         )
-        assert _runtime_find_grabbed_action_for_event(device, up_event, mapping) is None
+        assert gde.find_action_for_event(device, up_event, mapping) is None
 
     @pytest.mark.asyncio
     async def test_process_grabbed_wheel_event_executes_mapped_action_as_pulse(
         self,
         monkeypatch,
     ) -> None:
-        keyboard = _FakeUInput()
-        device = _make_grabbed_device(
+        keyboard = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={
                 "wheel_up": "rel_wheel",
@@ -688,7 +728,7 @@ class TestGrabbedDeviceHelpers:
         }
         device.mapping_getter = lambda: mapping  # type: ignore[method-assign]
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -697,8 +737,9 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL,
                 -1,
             ),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -707,6 +748,7 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL,
                 1,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert keyboard.writes == [
@@ -721,8 +763,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch,
     ) -> None:
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={
                 "wheel_up": "rel_wheel",
@@ -740,7 +782,7 @@ class TestGrabbedDeviceHelpers:
             "wheel_down": MappingAction(action_type=ActionType.SUPPRESS),
         }
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -749,8 +791,9 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL,
                 1,
             ),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -759,6 +802,7 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL,
                 -1,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert passthrough.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1)]
@@ -768,9 +812,9 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch,
     ) -> None:
-        passthrough = _FakeUInput()
-        keyboard = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        keyboard = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={
                 "wheel_up": "rel_wheel",
@@ -788,7 +832,7 @@ class TestGrabbedDeviceHelpers:
             "wheel_down": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
         }
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -797,12 +841,13 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL_HI_RES,
                 -120,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert keyboard.writes == []
         assert passthrough.writes == []
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -811,6 +856,7 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL_HI_RES,
                 120,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert keyboard.writes == []
@@ -824,8 +870,8 @@ class TestGrabbedDeviceHelpers:
         monkeypatch,
     ) -> None:
         recorder = _FakeGrabbedRecorder()
-        keyboard = _FakeUInput()
-        device = _make_grabbed_device(
+        keyboard = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={
                 "wheel_up": "rel_wheel",
@@ -859,8 +905,8 @@ class TestGrabbedDeviceHelpers:
             evdev.ecodes.REL_WHEEL,
             -1,
         )
-        await _runtime_process_grabbed_event(device, up_event)
-        await _runtime_process_grabbed_event(device, down_event)
+        await gde.process_event(device, up_event, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, down_event, deps=grabbed_event_processing_deps())
 
         recorded_events = [
             (device_type, event.code, event.value) for device_type, event in recorder.calls
@@ -880,8 +926,8 @@ class TestGrabbedDeviceHelpers:
         monkeypatch,
     ) -> None:
         recorder = _FakeGrabbedRecorder()
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"wheel_down": "rel_wheel"},
             button_codes={"wheel_down": evdev.ecodes.REL_WHEEL},
@@ -894,7 +940,7 @@ class TestGrabbedDeviceHelpers:
             "wheel_down": MappingAction(action_type=ActionType.SUPPRESS),
         }
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -903,6 +949,7 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL_HI_RES,
                 -120,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert [
@@ -918,8 +965,8 @@ class TestGrabbedDeviceHelpers:
         monkeypatch,
     ) -> None:
         recorder = _FakeGrabbedRecorder()
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"wheel_up": "rel_wheel"},
             button_codes={"wheel_up": evdev.ecodes.REL_WHEEL},
@@ -932,7 +979,7 @@ class TestGrabbedDeviceHelpers:
             "wheel_up": MappingAction(action_type=ActionType.PASSTHROUGH),
         }
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -941,6 +988,7 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL,
                 1,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         recorded_events = [
@@ -957,8 +1005,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"key_a": "key_a"},
         )
@@ -967,7 +1015,7 @@ class TestGrabbedDeviceHelpers:
             "key_a": MappingAction(action_type=ActionType.PASSTHROUGH),
         }
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -976,6 +1024,7 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.KEY_A,
                 1,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
@@ -986,8 +1035,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch,
     ) -> None:
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"wheel_down": "rel_wheel"},
             button_codes={"wheel_down": evdev.ecodes.REL_WHEEL},
@@ -995,7 +1044,7 @@ class TestGrabbedDeviceHelpers:
         )
         device.uinput = passthrough  # type: ignore[assignment]
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -1004,6 +1053,7 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL_HI_RES,
                 -120,
             ),
+            deps=grabbed_event_processing_deps(),
         )
         assert len(device.repeat_state.history) == 1
         device.repeat_state.history.clear()
@@ -1011,7 +1061,7 @@ class TestGrabbedDeviceHelpers:
         device.mapping_getter = lambda: {  # type: ignore[method-assign]
             "wheel_down": MappingAction(action_type=ActionType.PASSTHROUGH),
         }
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(
                 0,
@@ -1020,6 +1070,7 @@ class TestGrabbedDeviceHelpers:
                 evdev.ecodes.REL_WHEEL_HI_RES,
                 -120,
             ),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert passthrough.writes == [
@@ -1029,12 +1080,12 @@ class TestGrabbedDeviceHelpers:
         assert list(device.repeat_state.history) == []
 
     def test_bucket_tracking_and_release_all_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        device = _make_grabbed_device(monkeypatch)
-        passthrough = _FakeUInput()
-        keyboard = _FakeUInput()
-        mouse = _FakeUInput()
-        gamepad = _FakeUInput()
-        second_gamepad = _FakeUInput()
+        device = make_grabbed_device(monkeypatch)
+        passthrough = FakeUInput()
+        keyboard = FakeUInput()
+        mouse = FakeUInput()
+        gamepad = FakeUInput()
+        second_gamepad = FakeUInput()
         canceled = Mock()
         task = SimpleNamespace(done=lambda: False, cancel=canceled)
 
@@ -1111,7 +1162,7 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         keyboard = _FailingWriteUInput()
         gamepad = _FailingWriteUInput()
         device.keyboard_uinput = keyboard  # type: ignore[assignment]
@@ -1134,7 +1185,7 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         keyboard = _FailingWriteUInput()
         device.keyboard_uinput = keyboard  # type: ignore[assignment]
         device.state.held_output_keys["keyboard"].add(evdev.ecodes.KEY_A)
@@ -1157,7 +1208,7 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
 
         class _FakeLoop:
             def add_reader(self, _fd: int, _callback) -> None:
@@ -1197,10 +1248,28 @@ class TestGrabbedDeviceHelpers:
 
         monkeypatch.setattr(gdm.asyncio, "wait_for", fake_wait_for)
 
-        assert await _runtime_wait_for_grabbed_active_key_activity(device, 0.1) is False
+        assert (
+            await gdg.wait_for_active_key_activity(
+                device,
+                0.1,
+                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                errno_mod=errno,
+                log=gdm.log,
+            )
+            is False
+        )
 
         with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
-            assert await _runtime_wait_for_grabbed_active_key_activity(device, 0.1) is True
+            assert (
+                await gdg.wait_for_active_key_activity(
+                    device,
+                    0.1,
+                    asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                    errno_mod=errno,
+                    log=gdm.log,
+                )
+                is True
+            )
 
         assert "failed to drain pending events before grab" in caplog.text
 
@@ -1211,10 +1280,10 @@ class TestGrabbedDeviceHelpers:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         callback = AsyncMock(side_effect=RuntimeError("boom"))
-        keyboard = _FakeUInput()
-        mouse = _FakeUInput()
-        gamepad = _FakeUInput()
-        device = _make_grabbed_device(
+        keyboard = FakeUInput()
+        mouse = FakeUInput()
+        gamepad = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"left": "key_a", "right": "key_b"},
             broadcast_callback=callback,
@@ -1256,7 +1325,7 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"south": "btn_south"},
             button_codes={"south": evdev.ecodes.BTN_SOUTH},
@@ -1280,8 +1349,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
-        gamepad = _FakeUInput()
+        device = make_grabbed_device(monkeypatch)
+        gamepad = FakeUInput()
         device.gamepad_uinput = gamepad  # type: ignore[assignment]
 
         gdg.reconcile_startup_held_action(
@@ -1307,30 +1376,42 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
-        passthrough = _FakeUInput()
-        gamepad = _FakeUInput()
+        device = make_grabbed_device(monkeypatch)
+        passthrough = FakeUInput()
+        gamepad = FakeUInput()
         device.uinput = passthrough  # type: ignore[assignment]
         device.gamepad_uinput = gamepad  # type: ignore[assignment]
 
         monkeypatch.setattr(gdm.asyncio, "sleep", AsyncMock())
 
-        await _runtime_tap_grabbed_key(
+        await gdr.tap_key(
             device,
             evdev.ecodes.KEY_A,
             25,
             "tap",
             device.keyboard_uinput,  # type: ignore[arg-type]
+            asyncio_mod=gdm.ASYNCIO_RUNTIME,
         )
         device.state.tap_active["trigger"] = True
-        await _runtime_tap_grabbed_axis(device, evdev.ecodes.ABS_Z, 25, "trigger")
+        await gdr.tap_abs_axis(
+            device,
+            evdev.ecodes.ABS_Z,
+            255,
+            0,
+            25,
+            "trigger",
+            device.gamepad_uinput,
+            asyncio_mod=gdm.ASYNCIO_RUNTIME,
+            evdev_mod=evdev,
+            uinput_writer=gdt.identity_uinput_writer,
+        )
         move_action = dm.MappingAction(
             action_type=ActionType.MOUSE_MOVE_REL,
             move_x=4,
             move_y=-3,
         )
         device.state.tap_active["move"] = True
-        await _runtime_tap_grabbed_move(device, move_action, "move", 25)
+        await gdr.tap_move(device, move_action, "move", 25, asyncio_mod=gdm.ASYNCIO_RUNTIME)
         device.emit_combo_release("key_b")
         device.emit_combo_release("missing")
 
@@ -1349,8 +1430,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
-        passthrough = _FakeUInput()
+        device = make_grabbed_device(monkeypatch)
+        passthrough = FakeUInput()
         device.uinput = passthrough  # type: ignore[assignment]
 
         device.emit_combo_press("key_b")
@@ -1367,9 +1448,9 @@ class TestGrabbedDeviceHelpers:
         callback = AsyncMock()
         macro_player = AsyncMock(return_value={"status": "ok"})
         emergency_resetter = AsyncMock(return_value={"status": "ok", "reset": True})
-        mouse = _FakeUInput()
-        gamepad = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        gamepad = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             broadcast_callback=callback,
             macro_player=macro_player,
@@ -1403,37 +1484,42 @@ class TestGrabbedDeviceHelpers:
         press = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=1, value=1)
         release = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=1, value=0)
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.PASSTHROUGH),
             press,
             "btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
             press,
             "mouse_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
             release,
             "mouse_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="rel_wheel:1"),
             press,
             "mouse_wheel",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="rel_wheel:1"),
             release,
             "mouse_wheel",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.GAMEPAD_AXIS,
@@ -1442,8 +1528,9 @@ class TestGrabbedDeviceHelpers:
             ),
             press,
             "axis_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.GAMEPAD_AXIS,
@@ -1452,26 +1539,30 @@ class TestGrabbedDeviceHelpers:
             ),
             release,
             "axis_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_south"),
             press,
             "pad_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.GAMEPAD, target="btn_south"),
             release,
             "pad_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.EXEC, exec_ref=7),
             press,
             "exec_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.COMPOSITOR_DISPATCH,
@@ -1480,60 +1571,70 @@ class TestGrabbedDeviceHelpers:
             ),
             press,
             "dispatch_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.START_MACRO_RECORDING),
             press,
             "start_rec",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.STOP_MACRO_RECORDING),
             press,
             "stop_rec",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK),
             press,
             "cancel_macro",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.EMERGENCY_RESET),
             press,
             "emergency_reset",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
             press,
             "toggle_profile",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MACRO, macro_name="demo"),
             press,
             "macro_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MACRO, macro_name="demo"),
             release,
             "macro_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE_MOVE_REL, move_x=5, move_y=-2),
             press,
             "move_rel",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE_MOVE_ABS, move_x=10, move_y=20),
             press,
             "move_abs",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         if fire_tasks:
@@ -1569,16 +1670,17 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         callback = AsyncMock()
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             broadcast_callback=callback,
         )
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.EMERGENCY_RESET),
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=1, value=1),
             "emergency_reset",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
         await asyncio.sleep(0)
 
@@ -1589,55 +1691,62 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        keyboard = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch, keyboard_uinput=keyboard)
+        keyboard = FakeUInput()
+        device = make_grabbed_device(monkeypatch, keyboard_uinput=keyboard)
         source_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
         source_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
         repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
         repeat_hold = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 2)
         repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0)
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
             source_press,
             "source",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
             source_release,
             "source",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_press,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_hold,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_release,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_press,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_release,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert keyboard.writes == [
@@ -1656,8 +1765,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        gamepad = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        gamepad = FakeUInput()
+        device = make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
         source_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
         source_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
         repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
@@ -1668,19 +1777,33 @@ class TestGrabbedDeviceHelpers:
             axis_value=255,
         )
 
-        await _runtime_execute_grabbed_action(device, axis_action, source_press, "source")
-        await _runtime_execute_grabbed_action(device, axis_action, source_release, "source")
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
+            device,
+            axis_action,
+            source_press,
+            "source",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
+        await gda.execute_action(
+            device,
+            axis_action,
+            source_release,
+            "source",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_press,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_release,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert gamepad.writes == [
@@ -1697,7 +1820,7 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry
 
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         device.repeat_state.history.append(
             RepeatHistoryEntry(
                 category="special",
@@ -1707,11 +1830,12 @@ class TestGrabbedDeviceHelpers:
             )
         )
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         latest = device.repeat_state.history[-1]
@@ -1730,7 +1854,7 @@ class TestGrabbedDeviceHelpers:
             refresh_repeated_exec_source,
         )
 
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         selected_entry = RepeatHistoryEntry(
             category="special",
             action=dm.MappingAction(action_type=ActionType.EXEC, exec_ref=7),
@@ -1763,7 +1887,7 @@ class TestGrabbedDeviceHelpers:
             RepeatHistoryEntry,
         )
 
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         superkey_config = SuperkeyConfig(
             name="exec-superkey",
             tap_actions=[SuperkeyActionData(action_type="exec", exec_ref=7)],
@@ -1781,11 +1905,12 @@ class TestGrabbedDeviceHelpers:
             )
         )
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         latest = device.repeat_state.history[-1]
@@ -1815,7 +1940,7 @@ class TestGrabbedDeviceHelpers:
                 )
 
         manager = DeviceManager(broadcast_callback=broadcast)
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"repeat": "key_f13"},
             broadcast_callback=broadcast,
@@ -1839,12 +1964,12 @@ class TestGrabbedDeviceHelpers:
         repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
         repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
 
-        await _runtime_process_grabbed_event(device, repeat_press)
+        await gde.process_event(device, repeat_press, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert events == []
 
-        await _runtime_process_grabbed_event(device, repeat_release)
+        await gde.process_event(device, repeat_release, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
@@ -1855,9 +1980,9 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        keyboard = _FakeUInput()
-        mouse = _FakeUInput()
-        device = _make_grabbed_device(
+        keyboard = FakeUInput()
+        mouse = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             keyboard_uinput=keyboard,
             mouse_uinput=mouse,
@@ -1865,31 +1990,35 @@ class TestGrabbedDeviceHelpers:
         press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
         release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
             press,
             "mouse",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
             release,
             "mouse",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
             press,
             "keyboard",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
             release,
             "keyboard",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.REPEAT,
@@ -1897,8 +2026,9 @@ class TestGrabbedDeviceHelpers:
             ),
             press,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.REPEAT,
@@ -1906,6 +2036,7 @@ class TestGrabbedDeviceHelpers:
             ),
             release,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert keyboard.writes == [
@@ -1924,28 +2055,30 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        keyboard = _FakeUInput()
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch, keyboard_uinput=keyboard)
+        keyboard = FakeUInput()
+        passthrough = FakeUInput()
+        device = make_grabbed_device(monkeypatch, keyboard_uinput=keyboard)
         device.uinput = passthrough  # type: ignore[assignment]
         source_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1)
         source_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)
         repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
         repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0)
 
-        await _runtime_process_grabbed_event(device, source_press)
-        await _runtime_process_grabbed_event(device, source_release)
-        await _runtime_execute_grabbed_action(
+        await gde.process_event(device, source_press, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, source_release, deps=grabbed_event_processing_deps())
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_press,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             repeat_release,
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert passthrough.writes == [
@@ -1962,9 +2095,9 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        mouse = _FakeUInput()
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"left": "btn_left", "repeat": "key_f13"},
             mouse_uinput=mouse,
@@ -1976,12 +2109,12 @@ class TestGrabbedDeviceHelpers:
         repeat_press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
         repeat_release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
 
-        await _runtime_process_grabbed_event(device, left_press)
-        await _runtime_process_grabbed_event(device, left_release)
-        await _runtime_process_grabbed_event(device, repeat_press)
-        await _runtime_process_grabbed_event(device, repeat_release)
-        await _runtime_process_grabbed_event(device, repeat_press)
-        await _runtime_process_grabbed_event(device, repeat_release)
+        await gde.process_event(device, left_press, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, left_release, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, repeat_press, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, repeat_release, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, repeat_press, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, repeat_release, deps=grabbed_event_processing_deps())
 
         assert passthrough.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
@@ -2001,10 +2134,10 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         from keymasq.keymasqd.runtime.repeat import remember_passthrough_event
 
-        source_gamepad = _FakeUInput()
-        default_gamepad = _FakeUInput()
+        source_gamepad = FakeUInput()
+        default_gamepad = FakeUInput()
         resolved_output_ids: list[str | None] = []
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             device_type=DeviceType.GAMEPAD,
             device_types=[DeviceType.GAMEPAD.value],
@@ -2032,17 +2165,19 @@ class TestGrabbedDeviceHelpers:
         assert remembered.action_type == ActionType.GAMEPAD
         assert remembered.output_id == "1234:5678"
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert resolved_output_ids == ["1234:5678", "1234:5678"]
@@ -2059,10 +2194,10 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         from keymasq.keymasqd.runtime.repeat import remember_passthrough_event
 
-        source_gamepad = _FakeUInput()
-        default_gamepad = _FakeUInput()
+        source_gamepad = FakeUInput()
+        default_gamepad = FakeUInput()
         resolved_output_ids: list[str | None] = []
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             device_type=DeviceType.GAMEPAD,
             device_types=[DeviceType.GAMEPAD.value],
@@ -2091,17 +2226,19 @@ class TestGrabbedDeviceHelpers:
         assert remembered.target == "btn_tl2"
         assert remembered.output_id == "1234:5678"
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.REPEAT),
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert resolved_output_ids == ["1234:5678", "1234:5678"]
@@ -2119,9 +2256,9 @@ class TestGrabbedDeviceHelpers:
         rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)
         if rel_wheel_hi_res is None:
             pytest.skip("kernel headers do not expose REL_WHEEL_HI_RES")
-        mouse = _FakeUInput()
-        passthrough = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             button_map={"repeat": "key_f13"},
             mouse_uinput=mouse,
@@ -2129,17 +2266,20 @@ class TestGrabbedDeviceHelpers:
         device.uinput = passthrough  # type: ignore[assignment]
         device.mapping_getter = lambda: {"repeat": dm.MappingAction(action_type=ActionType.REPEAT)}
 
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, int(rel_wheel_hi_res), -120),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            deps=grabbed_event_processing_deps(),
         )
-        await _runtime_process_grabbed_event(
+        await gde.process_event(
             device,
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+            deps=grabbed_event_processing_deps(),
         )
 
         assert passthrough.writes == [(evdev.ecodes.EV_REL, int(rel_wheel_hi_res), -120)]
@@ -2153,21 +2293,22 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        mouse = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             mouse_uinput=mouse,
         )
         device._running = True
         wheel_source = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE, target="rel_wheel:1"),
             wheel_source,
             "wheel",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.REPEAT,
@@ -2177,9 +2318,10 @@ class TestGrabbedDeviceHelpers:
             ),
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
         await asyncio.sleep(0.01)
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.REPEAT,
@@ -2189,6 +2331,7 @@ class TestGrabbedDeviceHelpers:
             ),
             evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
             "repeat_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         wheel_writes = [
@@ -2267,9 +2410,9 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
-        default_gamepad = _FakeUInput()
-        second_gamepad = _FakeUInput()
+        device = make_grabbed_device(monkeypatch)
+        default_gamepad = FakeUInput()
+        second_gamepad = FakeUInput()
         device.gamepad_uinput = default_gamepad  # type: ignore[assignment]
         device._gamepad_output_resolver = lambda output_id, context: SimpleNamespace(  # type: ignore[method-assign, reportPrivateUsage]
             output_id=output_id,
@@ -2279,7 +2422,7 @@ class TestGrabbedDeviceHelpers:
         )
         press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.GAMEPAD_AXIS,
@@ -2289,6 +2432,7 @@ class TestGrabbedDeviceHelpers:
             ),
             press,
             "axis_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert second_gamepad.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255)]
@@ -2308,8 +2452,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        gamepad = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        gamepad = FakeUInput()
+        device = make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
         press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
         release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0)
         action = dm.MappingAction(
@@ -2318,8 +2462,20 @@ class TestGrabbedDeviceHelpers:
             axis_value=-32768,
         )
 
-        await _runtime_execute_grabbed_action(device, action, press, "axis_btn")
-        await _runtime_execute_grabbed_action(device, action, release, "axis_btn")
+        await gda.execute_action(
+            device,
+            action,
+            press,
+            "axis_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
+        await gda.execute_action(
+            device,
+            action,
+            release,
+            "axis_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
 
         assert gamepad.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
@@ -2331,11 +2487,11 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        gamepad = _FakeUInput()
-        device = _make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        gamepad = FakeUInput()
+        device = make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
         press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.GAMEPAD_AXIS,
@@ -2346,6 +2502,7 @@ class TestGrabbedDeviceHelpers:
             ),
             press,
             "axis_tap",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
         await asyncio.sleep(0.01)
 
@@ -2358,9 +2515,9 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
-        default_gamepad = _FakeUInput()
-        second_gamepad = _FakeUInput()
+        device = make_grabbed_device(monkeypatch)
+        default_gamepad = FakeUInput()
+        second_gamepad = FakeUInput()
         device.gamepad_uinput = default_gamepad  # type: ignore[assignment]
         device._gamepad_output_resolver = lambda output_id, context: SimpleNamespace(  # type: ignore[method-assign, reportPrivateUsage]
             output_id=output_id,
@@ -2398,10 +2555,15 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        device = _make_grabbed_device(monkeypatch)
+        device = make_grabbed_device(monkeypatch)
         device._gamepad_output_resolver = lambda output_id, context: None  # type: ignore[method-assign, reportPrivateUsage]
-        device.state.held_output_abs["gamepad:virtual-gamepad-2"] = {evdev.ecodes.ABS_Z}
-        device.state.held_output_keys.pop("gamepad:virtual-gamepad-2", None)
+        bucket = "gamepad:virtual-gamepad-2"
+        device.state.held_output_abs[bucket] = {evdev.ecodes.ABS_Z}
+        device.state.held_output_keys.pop(bucket, None)
+        device.state.superkey_output_refcounts[bucket] = {evdev.ecodes.BTN_SOUTH: 1}
+        device.state.analog_threshold_output_refcounts[bucket] = {evdev.ecodes.BTN_EAST: 1}
+        device.state.superkey_abs_refcounts[bucket] = {evdev.ecodes.ABS_Z: 1}
+        device.state.analog_threshold_abs_refcounts[bucket] = {evdev.ecodes.ABS_RZ: 1}
 
         gdo.release_all_keys(
             device,
@@ -2409,8 +2571,12 @@ class TestGrabbedDeviceHelpers:
             uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
         )
 
-        assert "gamepad:virtual-gamepad-2" not in device.state.held_output_keys
-        assert device.state.held_output_abs["gamepad:virtual-gamepad-2"] == set()
+        assert bucket not in device.state.held_output_keys
+        assert device.state.held_output_abs[bucket] == set()
+        assert device.state.superkey_output_refcounts[bucket] == {}
+        assert device.state.analog_threshold_output_refcounts[bucket] == {}
+        assert device.state.superkey_abs_refcounts[bucket] == {}
+        assert device.state.analog_threshold_abs_refcounts[bucket] == {}
 
     @pytest.mark.asyncio
     async def test_execute_action_mouse_move_abs_uses_cursor_position_setter(
@@ -2418,18 +2584,19 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         cursor_position_setter = AsyncMock(return_value={"status": "ok"})
-        mouse = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             cursor_position_setter=cursor_position_setter,
             mouse_uinput=mouse,  # type: ignore[arg-type]
         )
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(action_type=ActionType.MOUSE_MOVE_ABS, move_x=10, move_y=20),
             SimpleNamespace(value=1),
             "move_abs",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         cursor_position_setter.assert_awaited_once_with(10, 20)
@@ -2441,8 +2608,8 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         cursor_position_setter = AsyncMock(return_value={"status": "ok"})
-        mouse = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             cursor_position_setter=cursor_position_setter,
             mouse_uinput=mouse,  # type: ignore[arg-type]
@@ -2479,8 +2646,8 @@ class TestGrabbedDeviceHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         cursor_position_setter = AsyncMock(return_value={"status": "ok"})
-        mouse = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             cursor_position_setter=cursor_position_setter,
             mouse_uinput=mouse,  # type: ignore[arg-type]
@@ -2491,7 +2658,7 @@ class TestGrabbedDeviceHelpers:
             move_y=20,
         )
 
-        await _runtime_tap_grabbed_move(device, action, "move_abs", 1)
+        await gdr.tap_move(device, action, "move_abs", 1, asyncio_mod=gdm.ASYNCIO_RUNTIME)
 
         cursor_position_setter.assert_awaited_once_with(10, 20)
         assert mouse.writes == []
@@ -2503,7 +2670,7 @@ class TestGrabbedDeviceHelpers:
     ) -> None:
         cursor_position_setter = AsyncMock(return_value={"status": "ok"})
         cancel_macro_playback = AsyncMock(return_value={"status": "ok"})
-        device = _make_grabbed_device(
+        device = make_grabbed_device(
             monkeypatch,
             cursor_position_setter=cursor_position_setter,
         )
@@ -2561,11 +2728,19 @@ class TestGrabbedDeviceHelpers:
             deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
             cancel_macro_playback=cancel_macro_playback,
         )
-        await _runtime_execute_grabbed_action(
-            device, superkey_action, SimpleNamespace(value=0), "super_btn"
+        await gda.execute_action(
+            device,
+            superkey_action,
+            SimpleNamespace(value=0),
+            "super_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
-            device, tap_move_action, SimpleNamespace(value=1), "move_btn"
+        await gda.execute_action(
+            device,
+            tap_move_action,
+            SimpleNamespace(value=1),
+            "move_btn",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
         await asyncio.sleep(0)
 
@@ -2581,14 +2756,14 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        mouse = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             mouse_uinput=mouse,  # type: ignore[arg-type]
         )
         device._running = True
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.MOUSE,
@@ -2599,9 +2774,10 @@ class TestGrabbedDeviceHelpers:
             ),
             SimpleNamespace(value=1),
             "wheel_rf",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
         await asyncio.sleep(0.01)
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             dm.MappingAction(
                 action_type=ActionType.MOUSE,
@@ -2612,6 +2788,7 @@ class TestGrabbedDeviceHelpers:
             ),
             SimpleNamespace(value=0),
             "wheel_rf",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         assert any(
@@ -2623,8 +2800,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        mouse = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             mouse_uinput=mouse,  # type: ignore[arg-type]
         )
@@ -2634,23 +2811,26 @@ class TestGrabbedDeviceHelpers:
             target="rel_wheel:1",
         )
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             action,
             SimpleNamespace(value=1),
             "wheel_plain",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             action,
             SimpleNamespace(value=2),
             "wheel_plain",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             action,
             SimpleNamespace(value=0),
             "wheel_plain",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
 
         rel_wheel_hi_res = evdev.ecodes.REL_WHEEL_HI_RES  # type: ignore[attr-defined]
@@ -2664,8 +2844,8 @@ class TestGrabbedDeviceHelpers:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        mouse = _FakeUInput()
-        device = _make_grabbed_device(
+        mouse = FakeUInput()
+        device = make_grabbed_device(
             monkeypatch,
             mouse_uinput=mouse,  # type: ignore[arg-type]
         )
@@ -2677,18 +2857,20 @@ class TestGrabbedDeviceHelpers:
             tap_hold_ms=1,
         )
 
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             action,
             SimpleNamespace(value=1),
             "wheel_tap",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
         await asyncio.sleep(0)
-        await _runtime_execute_grabbed_action(
+        await gda.execute_action(
             device,
             action,
             SimpleNamespace(value=2),
             "wheel_tap",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
         )
         await asyncio.sleep(0.01)
 

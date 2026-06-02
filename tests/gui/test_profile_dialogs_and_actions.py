@@ -1,5 +1,7 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+import pytest
+
+pytest.importorskip("gi")
+
 
 class TestProfileCreateDialog:
     def test_new_profile_defaults_to_permanent(self, temp_config_dir):

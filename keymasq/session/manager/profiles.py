@@ -50,9 +50,10 @@ async def set_profile_enabled(
         }
 
     if profile.enabled is False:
-        await _cancel_runtime_profile_activation_for_profile(
+        await cancel_runtime_profile_activation(
             manager,
             profile.name,
+            reevaluate=False,
         )
 
     await reevaluate_profiles(manager, reason=f"profile {profile_name} enabled={profile.enabled}")
@@ -64,9 +65,11 @@ async def set_profile_enabled(
     }
 
 
-async def _cancel_runtime_profile_activation_for_profile(
+async def cancel_runtime_profile_activation(
     manager: "SessionManager",
     profile_name: str,
+    *,
+    reevaluate: bool = True,
 ) -> bool:
     activation = manager.profile_state.runtime_profile_activations.pop(profile_name, None)
     if activation is None:
@@ -87,6 +90,11 @@ async def _cancel_runtime_profile_activation_for_profile(
             profile_name,
             activation.activation_id,
             exc,
+        )
+    if reevaluate:
+        await reevaluate_profiles(
+            manager,
+            reason=f"runtime profile activation cancelled {profile_name}",
         )
     return True
 

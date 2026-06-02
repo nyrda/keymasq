@@ -40,6 +40,7 @@ from keymasq.keymasqd.runtime.action_runner import (
     is_hold_macro_action,
     source_trigger_id,
 )
+from keymasq.keymasqd.runtime.grabbed_device_outputs import track_refcounted_output_bucket
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
     ActionRuntime,
@@ -620,31 +621,13 @@ def track_combo_superkey_output(
     code: int,
     value: int,
 ) -> bool:
-    bucket = action_type
-    manager.combo_state.superkey_output_refcounts.setdefault(bucket, {})
-    manager.combo_state.held_output_keys.setdefault(bucket, set())
-
-    refcounts = manager.combo_state.superkey_output_refcounts[bucket]
-    current = refcounts.get(int(code), 0)
-
-    if int(value) == 1:
-        refcounts[int(code)] = current + 1
-        manager.combo_state.held_output_keys[bucket].add(int(code))
-        return current == 0
-
-    if int(value) == 0:
-        if current <= 1:
-            # `current == 0` means this release was already balanced elsewhere, so
-            # there is no final key-up to emit. Only a 1 -> 0 transition should
-            # propagate a release event to the output layer.
-            refcounts.pop(int(code), None)
-            manager.combo_state.held_output_keys[bucket].discard(int(code))
-            return current == 1
-
-        refcounts[int(code)] = current - 1
-        return False
-
-    return True
+    return track_refcounted_output_bucket(
+        manager.combo_state.superkey_output_refcounts,
+        manager.combo_state.held_output_keys,
+        action_type,
+        code,
+        value,
+    )
 
 
 def _combo_step_count(manager: _ComboManager, combo_id: str) -> int:

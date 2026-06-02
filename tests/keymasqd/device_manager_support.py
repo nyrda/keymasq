@@ -1,48 +1,20 @@
-# pyright: reportUnusedImport=false, reportUnusedFunction=false, reportUnusedClass=false
-# ruff: noqa: F401, I001
-import asyncio
-import contextlib
-import errno
-import logging
-import os
-from collections import deque
-from types import SimpleNamespace
-from typing import cast
-from unittest.mock import AsyncMock, Mock
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from typing import TypedDict
+from unittest.mock import AsyncMock
 
-import evdev
 import pytest
 
-from keymasq.common.ipc import CommandType
-from keymasq.common.models import (
-    ActionType,
-    DeviceType,
-    MappingAction,
-    ProfileDeactivationPolicy,
-    SuperkeyMode,
-)
-from keymasq.keymasqd import device_manager as dm
+from keymasq.common.models import DeviceType
 from keymasq.keymasqd import daemon_helpers
-from keymasq.keymasqd.combo_engine import ComboDecision
-from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
-from keymasq.keymasqd.runtime import actions as adm
+from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.runtime import combos as cdm
-from keymasq.keymasqd.runtime import grab_lifecycle as ldm
 from keymasq.keymasqd.runtime import grabbed_device as gdm
-from keymasq.keymasqd.runtime import grabbed_device_actions as gda
 from keymasq.keymasqd.runtime import grabbed_device_events as gde
-from keymasq.keymasqd.runtime import grabbed_device_grab as gdg
-from keymasq.keymasqd.runtime import grabbed_device_outputs as gdo
-from keymasq.keymasqd.runtime import grabbed_device_repeat as gdr
-from keymasq.keymasqd.runtime import grabbed_device_types as gdt
-from keymasq.keymasqd.runtime import macros as mdm
-from keymasq.keymasqd.runtime import topology as tdm
 from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
-from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 
-
-class _FakeUInput:
+class FakeUInput:
     def __init__(self, *args, **kwargs) -> None:
         self.args = args
         self.kwargs = kwargs
@@ -58,34 +30,161 @@ class _FakeUInput:
         return
 
 
-def _make_grabbed_device(
+@dataclass
+class ComboRuntimeSetup:
+    manager: dm.DeviceManager
+    device: GrabbedDevice
+    passthrough: FakeUInput
+    keyboard: FakeUInput
+    hardware_id: str
+
+
+def make_grabbed_device(
     monkeypatch: pytest.MonkeyPatch,
     **kwargs,
 ) -> GrabbedDevice:
-    monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-    monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+    def resolve_stable_path_fn(path: str) -> str:
+        return path
+
+    monkeypatch.setattr(gdm, "resolve_stable_path", resolve_stable_path_fn)
+    monkeypatch.setattr(dm, "resolve_stable_path", resolve_stable_path_fn)
+    interface_id = kwargs.pop("interface_id", "kbd")
+
+    def get_interface_id_fn(_path: str) -> str:
+        return interface_id
+
+    monkeypatch.setattr(gdm, "get_interface_id", get_interface_id_fn)
+    monkeypatch.setattr(dm, "get_interface_id", get_interface_id_fn)
+    path = kwargs.pop("path", "/dev/input/event-test")
+    hardware_id = kwargs.pop("hardware_id", "1234:5678")
     button_map = kwargs.pop("button_map", {})
     button_codes = kwargs.pop("button_codes", None)
     button_values = kwargs.pop("button_values", None)
-    keyboard_uinput = kwargs.pop("keyboard_uinput", _FakeUInput())
-    mouse_uinput = kwargs.pop("mouse_uinput", _FakeUInput())
-    gamepad_uinput = kwargs.pop("gamepad_uinput", _FakeUInput())
-    return GrabbedDevice(
-        path="/dev/input/event-test",
-        hardware_id="1234:5678",
+    mapping = kwargs.pop("mapping", None)
+    mapping_getter = kwargs.pop("mapping_getter", None)
+    if mapping_getter is None:
+        active_mapping = {} if mapping is None else mapping
+
+        def mapping_getter():
+            return active_mapping
+
+    event_callback = kwargs.pop("event_callback", AsyncMock(return_value=None))
+    keyboard_uinput = kwargs.pop("keyboard_uinput", FakeUInput())
+    mouse_uinput = kwargs.pop("mouse_uinput", FakeUInput())
+    gamepad_uinput = kwargs.pop("gamepad_uinput", FakeUInput())
+    passthrough_uinput = kwargs.pop("passthrough_uinput", None)
+    running = kwargs.pop("running", False)
+    device = GrabbedDevice(
+        path=path,
+        hardware_id=hardware_id,
         button_map=button_map,
         button_codes=button_codes,
         button_values=button_values,
-        mapping_getter=lambda: {},
-        event_callback=AsyncMock(return_value=None),
+        mapping_getter=mapping_getter,
+        event_callback=event_callback,
+        interface_id=interface_id,
         keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
         mouse_uinput=mouse_uinput,  # type: ignore[arg-type]
         gamepad_uinput=gamepad_uinput,  # type: ignore[arg-type]
         **kwargs,
     )
+    if passthrough_uinput is not None:
+        device.uinput = passthrough_uinput  # type: ignore[assignment]
+    if running:
+        device._running = True
+    return device
 
 
-def _combo_runtime_deps(
+def make_combo_grabbed_device(
+    monkeypatch: pytest.MonkeyPatch,
+    manager: dm.DeviceManager,
+    *,
+    button_map: dict[str, str],
+    hardware_id: str = "1234:5678",
+    path: str = "/dev/input/event-test",
+    source: str = "kbd",
+    device_type: DeviceType = DeviceType.KEYBOARD,
+    mapping: dict[str, dm.MappingAction] | None = None,
+    mapping_getter: Callable[[], dict[str, dm.MappingAction]] | None = None,
+    passthrough_uinput: object | None = None,
+    keyboard_uinput: object | None = None,
+    mouse_uinput: object | None = None,
+    gamepad_uinput: object | None = None,
+    register: bool = True,
+) -> GrabbedDevice:
+    if passthrough_uinput is None:
+        passthrough_uinput = FakeUInput()
+
+    device = make_grabbed_device(
+        monkeypatch,
+        path=path,
+        hardware_id=hardware_id,
+        button_map=button_map,
+        mapping_getter=mapping_getter,
+        mapping=mapping,
+        event_callback=lambda *args, **kwargs: cdm.on_device_event(
+            manager,
+            *args,
+            **kwargs,
+            **combo_event_runtime_kwargs(),
+        ),
+        device_type=device_type,
+        keyboard_uinput=keyboard_uinput,  # type: ignore[arg-type]
+        mouse_uinput=mouse_uinput,  # type: ignore[arg-type]
+        gamepad_uinput=gamepad_uinput,  # type: ignore[arg-type]
+        interface_id=source,
+        passthrough_uinput=passthrough_uinput,
+        running=True,
+    )
+    if register:
+        manager.grabbed_devices.setdefault(hardware_id, []).append(device)
+    return device
+
+
+async def make_combo_runtime_setup(
+    monkeypatch: pytest.MonkeyPatch,
+    combos: Sequence[object],
+    *,
+    button_map: dict[str, str],
+    hardware_id: str = "1234:5678",
+    mapping: dict[str, dm.MappingAction] | None = None,
+    passthrough_uinput: FakeUInput | None = None,
+    keyboard_uinput: FakeUInput | None = None,
+) -> ComboRuntimeSetup:
+    manager = dm.DeviceManager()
+    passthrough = passthrough_uinput or FakeUInput()
+    keyboard = keyboard_uinput or FakeUInput()
+
+    await manager.set_combos(combos)
+    manager.output_state.keyboard_uinput = keyboard
+
+    device = make_combo_grabbed_device(
+        monkeypatch,
+        manager,
+        hardware_id=hardware_id,
+        button_map=button_map,
+        mapping=mapping,
+        passthrough_uinput=passthrough,
+        keyboard_uinput=keyboard,
+    )
+    return ComboRuntimeSetup(
+        manager=manager,
+        device=device,
+        passthrough=passthrough,
+        keyboard=keyboard,
+        hardware_id=hardware_id,
+    )
+
+
+class ComboEventRuntimeKwargs(TypedDict):
+    resolve_stable_path_fn: cdm.ResolveStablePathFn
+    get_interface_id_fn: cdm.GetInterfaceIdFn
+    int_value_fn: cdm.IntValueFn
+    str_value_fn: cdm.StrValueFn
+    deps: cdm.ComboRuntimeDeps
+
+
+def combo_runtime_deps(
     *,
     resolve_code_fn: cdm.ResolveCodeFn = dm.resolve_output_code,
     fire_and_observe_fn: cdm.FireAndObserve = dm._fire_and_observe,
@@ -99,380 +198,15 @@ def _combo_runtime_deps(
     )
 
 
-async def _runtime_on_device_event(
-    manager: DeviceManager,
-    hardware_id: str,
-    evdev_path: str,
-    event_type: int,
-    event_code: int,
-    event_value: int,
-    stable_path: str | None = None,
-    source: str | None = None,
-):
-    return await cdm.on_device_event(
-        manager,
-        hardware_id,
-        evdev_path,
-        event_type,
-        event_code,
-        event_value,
-        stable_path,
-        source,
-        resolve_stable_path_fn=dm.resolve_stable_path,
-        get_interface_id_fn=dm.get_interface_id,
-        int_value_fn=daemon_helpers.int_like,
-        str_value_fn=daemon_helpers.str_value,
-        deps=_combo_runtime_deps(),
-    )
+def combo_event_runtime_kwargs() -> ComboEventRuntimeKwargs:
+    return {
+        "resolve_stable_path_fn": dm.resolve_stable_path,
+        "get_interface_id_fn": dm.get_interface_id,
+        "int_value_fn": daemon_helpers.int_like,
+        "str_value_fn": daemon_helpers.str_value,
+        "deps": combo_runtime_deps(),
+    }
 
 
-async def _runtime_clear_combo_runtime(manager: DeviceManager) -> None:
-    await cdm.clear_combo_runtime(
-        manager,
-        deps=_combo_runtime_deps(),
-    )
-
-
-async def _runtime_clear_combo_scope(
-    manager: DeviceManager, hardware_id: str, source: str | None = None
-) -> None:
-    await cdm.clear_combo_runtime_for_binding_scope(
-        manager,
-        hardware_id,
-        source,
-        deps=_combo_runtime_deps(),
-    )
-
-
-def _runtime_refresh_combo_watchdog(manager: DeviceManager) -> None:
-    cdm.refresh_combo_timeout_watchdog(
-        manager,
-        deps=_combo_runtime_deps(),
-    )
-
-
-async def _runtime_combo_timeout_watchdog(manager: DeviceManager, deadline: float) -> None:
-    await cdm.combo_timeout_watchdog(
-        manager,
-        deadline,
-        deps=_combo_runtime_deps(),
-    )
-
-
-async def _runtime_run_macro_control_action(
-    manager: DeviceManager,
-    ev: dict[str, object],
-    *,
-    renew_mouse_suppression: bool = False,
-) -> float:
-    return await mdm.run_macro_control_action(
-        manager,
-        ev,
-        renew_mouse_suppression=renew_mouse_suppression,
-        deps=dm._macro_runtime_deps(),
-    )
-
-
-async def _runtime_process_grabbed_event(device: GrabbedDevice, event: evdev.InputEvent) -> None:
-    await gde.process_event(
-        device,
-        event,
-        deps=gde.build_event_processing_deps(log=gdm.log),
-    )
-
-
-async def _runtime_execute_grabbed_action(
-    device: GrabbedDevice,
-    action: MappingAction,
-    event: evdev.InputEvent | SimpleNamespace,
-    event_name: str,
-) -> None:
-    await gda.execute_action(
-        device,
-        action,
-        event,
-        event_name,
-        deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
-    )
-
-
-async def _runtime_recover_grabbed_event_processing_error(device: GrabbedDevice) -> None:
-    await gde.recover_from_event_processing_error(device)
-
-
-async def _runtime_wait_for_grabbed_active_key_activity(
-    device: GrabbedDevice,
-    timeout_s: float,
-) -> bool:
-    return await gdg.wait_for_active_key_activity(
-        device,
-        timeout_s,
-        asyncio_mod=gdm.ASYNCIO_RUNTIME,
-        errno_mod=errno,
-        log=gdm.log,
-    )
-
-
-async def _runtime_wait_for_grabbed_active_keys_to_clear(device: GrabbedDevice) -> None:
-    await gdg.wait_for_active_keys_to_clear(
-        device,
-        asyncio_mod=gdm.ASYNCIO_RUNTIME,
-        time_mod=gdm.time,
-        log=gdm.log,
-        active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
-        active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
-    )
-
-
-def _runtime_find_grabbed_action_for_event(
-    device: GrabbedDevice,
-    event: evdev.InputEvent,
-    mapping: dict[str, MappingAction],
-) -> MappingAction | None:
-    return gde.find_action_for_event(device, event, mapping)
-
-
-def _runtime_write_grabbed_key(
-    device: GrabbedDevice,
-    uinput_dev: object | None,
-    code: int,
-    value: int,
-) -> None:
-    gdo.write_key(
-        device,
-        uinput_dev,
-        code,
-        value,
-        evdev_mod=evdev,
-        uinput_writer=gdt.identity_uinput_writer,
-    )
-
-
-async def _runtime_tap_grabbed_key(
-    device: GrabbedDevice,
-    code: int,
-    hold_ms: int,
-    event_name: str,
-    uinput_dev: object,
-) -> None:
-    await gdr.tap_key(
-        device,
-        code,
-        hold_ms,
-        event_name,
-        uinput_dev,
-        asyncio_mod=gdm.ASYNCIO_RUNTIME,
-    )
-
-
-async def _runtime_tap_grabbed_axis(
-    device: GrabbedDevice,
-    axis_code: int,
-    hold_ms: int,
-    event_name: str,
-) -> None:
-    await gdr.tap_abs_axis(
-        device,
-        axis_code,
-        255,
-        0,
-        hold_ms,
-        event_name,
-        device.gamepad_uinput,
-        asyncio_mod=gdm.ASYNCIO_RUNTIME,
-        evdev_mod=evdev,
-        uinput_writer=gdt.identity_uinput_writer,
-    )
-
-
-async def _runtime_tap_grabbed_move(
-    device: GrabbedDevice,
-    action: MappingAction,
-    event_name: str,
-    hold_ms: int,
-) -> None:
-    await gdr.tap_move(device, action, event_name, hold_ms, asyncio_mod=gdm.ASYNCIO_RUNTIME)
-
-
-async def _runtime_topology_watch_loop(manager: DeviceManager) -> None:
-    await tdm.topology_watch_loop(
-        manager,
-        log=dm.log,
-        deps=dm._topology_runtime_deps(),
-    )
-
-
-def _runtime_schedule_topology_reconcile(
-    manager: DeviceManager,
-    snapshot: dict[str, dm.LiveInterfaceInfo],
-) -> None:
-    tdm.schedule_topology_reconcile(
-        manager,
-        snapshot,
-        log=dm.log,
-        deps=dm._topology_runtime_deps(),
-    )
-
-
-def _runtime_parse_action(manager: DeviceManager, action: object) -> MappingAction:
-    return adm.parse_action(
-        manager,
-        action,
-        str_value=daemon_helpers.str_value,
-        optional_str=dm._optional_str,
-        int_value=daemon_helpers.int_like,
-        int_or_none=dm._int_or_none,
-        float_value=daemon_helpers.float_like,
-    )
-
-
-def _runtime_schedule_hardware_release(
-    manager: DeviceManager,
-    hardware_id: str,
-    grace_s: float | None,
-) -> dict[str, object]:
-    return ldm.schedule_hardware_release_unlocked(
-        manager,
-        hardware_id,
-        grace_s,
-        asyncio_mod=ldm.ASYNCIO_RUNTIME,
-        log=dm.log,
-    )
-
-
-async def _runtime_release_device_unlocked(
-    manager: DeviceManager,
-    hardware_id: str,
-) -> dict[str, object]:
-    return await ldm.release_device_unlocked(manager, hardware_id, log=dm.log)
-
-
-async def _runtime_delayed_interface_release(
-    manager: DeviceManager,
-    hardware_id: str,
-    path: str,
-    delay: float,
-) -> None:
-    await ldm.delayed_interface_release(
-        manager,
-        hardware_id,
-        path,
-        delay,
-        asyncio_mod=ldm.ASYNCIO_RUNTIME,
-    )
-
-
-async def _runtime_release_interface_unlocked(
-    manager: DeviceManager,
-    hardware_id: str,
-    path: str,
-) -> None:
-    await ldm.release_interface_unlocked(manager, hardware_id, path)
-
-
-def _runtime_device_has_mapped_buttons(
-    caps: dict[int, object],
-    mapped_evdev_names: set[str],
-    mapped_bindings: set[tuple[int, int]] | None,
-) -> bool:
-    return ldm.device_has_mapped_buttons(
-        caps,
-        mapped_evdev_names,
-        mapped_bindings,
-        evdev_mod=dm.evdev,
-    )
-
-
-async def _runtime_start_combo_action(
-    manager: DeviceManager,
-    combo_id: str,
-    action: MappingAction,
-    binding: dm.RuntimeComboBinding,
-    *,
-    trigger_bindings: tuple[dm.RuntimeComboBinding, ...] | None = None,
-    resolve_code_fn: object = dm.resolve_output_code,
-) -> None:
-    await cdm.start_combo_action(
-        manager,
-        combo_id,
-        action,
-        binding,
-        trigger_bindings or (binding,),
-        deps=_combo_runtime_deps(resolve_code_fn=cast(cdm.ResolveCodeFn, resolve_code_fn)),
-    )
-
-
-async def _runtime_stop_combo_action(manager: DeviceManager, combo_id: str) -> None:
-    await cdm.stop_combo_action(
-        manager,
-        combo_id,
-        deps=_combo_runtime_deps(),
-    )
-
-__all__ = [
-    'asyncio',
-    'contextlib',
-    'errno',
-    'logging',
-    'os',
-    'deque',
-    'SimpleNamespace',
-    'cast',
-    'AsyncMock',
-    'Mock',
-    'evdev',
-    'pytest',
-    'CommandType',
-    'ActionType',
-    'DeviceType',
-    'MappingAction',
-    'ProfileDeactivationPolicy',
-    'SuperkeyMode',
-    'dm',
-    'ComboDecision',
-    'DesiredGrabConfig',
-    'DeviceManager',
-    'adm',
-    'cdm',
-    'ldm',
-    'gdm',
-    'gda',
-    'gde',
-    'gdg',
-    'gdo',
-    'gdr',
-    'gdt',
-    'mdm',
-    'tdm',
-    'GrabbedDevice',
-    'SuperkeyActionData',
-    'SuperkeyConfig',
-    '_FakeUInput',
-    '_make_grabbed_device',
-    '_runtime_on_device_event',
-    '_runtime_clear_combo_runtime',
-    '_runtime_clear_combo_scope',
-    '_runtime_refresh_combo_watchdog',
-    '_runtime_combo_timeout_watchdog',
-    '_runtime_run_macro_control_action',
-    '_runtime_process_grabbed_event',
-    '_runtime_execute_grabbed_action',
-    '_runtime_recover_grabbed_event_processing_error',
-    '_runtime_wait_for_grabbed_active_key_activity',
-    '_runtime_wait_for_grabbed_active_keys_to_clear',
-    '_runtime_find_grabbed_action_for_event',
-    '_runtime_write_grabbed_key',
-    '_runtime_tap_grabbed_key',
-    '_runtime_tap_grabbed_axis',
-    '_runtime_tap_grabbed_move',
-    '_runtime_topology_watch_loop',
-    '_runtime_schedule_topology_reconcile',
-    '_runtime_parse_action',
-    '_runtime_schedule_hardware_release',
-    '_runtime_release_device_unlocked',
-    '_runtime_delayed_interface_release',
-    '_runtime_release_interface_unlocked',
-    '_runtime_device_has_mapped_buttons',
-    '_runtime_start_combo_action',
-    '_runtime_stop_combo_action',
-]
+def grabbed_event_processing_deps() -> gde.EventProcessingDeps:
+    return gde.build_event_processing_deps(log=gdm.log)

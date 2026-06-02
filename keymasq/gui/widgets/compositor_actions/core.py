@@ -47,6 +47,71 @@ class CompositorActionPage:
     widget: Gtk.Widget
 
 
+def build_compositor_dispatch_definition(
+    *,
+    page_id: str,
+    compositor_id: str,
+    title: str,
+    subtitle: str,
+    dispatcher_placeholder: str,
+    args_placeholder: str,
+    presets: tuple[CompositorActionPreset, ...],
+    allow_custom: bool,
+    listener_name: str | None = None,
+) -> CompositorActionDefinition:
+    resolved_listener_name = listener_name or compositor_id
+
+    def is_available(
+        current_action: MappingAction | None,
+        status: dict[str, object],
+    ) -> bool:
+        _ = current_action
+        return bool(
+            status.get("listener_name") == resolved_listener_name
+            and status.get("compositor_dispatch_available") is True
+        )
+
+    def extract_fields(current_action: MappingAction | None) -> tuple[str, str]:
+        if current_action is None or current_action.action_type != ActionType.COMPOSITOR_DISPATCH:
+            return "", ""
+        current_compositor_id = str(current_action.compositor_id or "").strip()
+        if current_compositor_id and current_compositor_id != compositor_id:
+            return "", ""
+        return (
+            str(current_action.compositor_dispatcher or ""),
+            str(current_action.compositor_args or ""),
+        )
+
+    def build_action(dispatcher: str, args: str) -> MappingAction:
+        return MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id=compositor_id,
+            compositor_dispatcher=dispatcher,
+            compositor_args=args,
+        )
+
+    def describe_action(action: MappingAction) -> str:
+        args = str(action.compositor_args or "").strip()
+        suffix = f" {args}" if args else ""
+        return f"{title} → {action.compositor_dispatcher or '?'}{suffix}"
+
+    return CompositorActionDefinition(
+        page_id=page_id,
+        compositor_id=compositor_id,
+        title=title,
+        subtitle=subtitle,
+        dispatcher_placeholder=dispatcher_placeholder,
+        args_placeholder=args_placeholder,
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        presets=presets,
+        allow_custom=allow_custom,
+        is_available=is_available,
+        extract_fields=extract_fields,
+        build_action=build_action,
+        describe_action=describe_action,
+    )
+
+
 class _CompositorDispatchPage(Gtk.Box):
     def __init__(
         self,

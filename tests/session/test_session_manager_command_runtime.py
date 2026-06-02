@@ -1,13 +1,24 @@
-# ruff: noqa: F403, F405, I001
+import asyncio
 import json
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock, Mock
 
-from tests.session.command_support import *
-from keymasq.common import paths
-from keymasq.common.ipc import CommandType
-from keymasq.common.settings import GlobalSettings
-import keymasq.session.settings as session_settings
+import pytest
+
 import keymasq.session.manager.commands as session_commands_module
+import keymasq.session.manager.compositor as session_compositor_module
 import keymasq.session.manager.device_inspector as session_device_inspector_module
+import keymasq.session.manager.events as session_events_module
+import keymasq.session.manager.profiles as session_profiles_module
+import keymasq.session.manager.recording as session_recording_module
+import keymasq.session.settings as session_settings
+from keymasq.common import paths
+from keymasq.common.ipc import CommandType, Response
+from keymasq.common.security import PeerCredentials
+from keymasq.common.settings import GlobalSettings
+from keymasq.session.listeners.kde import KDEListener
+from keymasq.session.manager import SessionManager
 
 
 @pytest.mark.asyncio
@@ -2038,14 +2049,15 @@ async def test_begin_capture_for_numbered_hardware_requires_configured_paths() -
 
 
 @pytest.mark.asyncio
-async def test_handle_session_request_create_macro_broadcasts_saved_event() -> None:
+async def test_handle_session_request_create_macro_broadcasts_saved_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(
         return_value=Response(status="ok", data={"macro": {"name": "Speedrun"}})
     )
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     refresh_macro_bindings = AsyncMock()
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_profiles_module,
         "refresh_macro_bindings",
@@ -2053,15 +2065,12 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event() -> N
     )
 
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
-    try:
-        result = await manager._handle_session_request(
-            {"command": "create_macro", "macro": {"name": "Speedrun"}},
-            "client",
-            peer,
-            object(),
-        )
-    finally:
-        monkeypatch.undo()
+    result = await manager._handle_session_request(
+        {"command": "create_macro", "macro": {"name": "Speedrun"}},
+        "client",
+        peer,
+        object(),
+    )
 
     assert result == {"status": "ok", "macro": {"name": "Speedrun"}}
     refresh_macro_bindings.assert_awaited_once_with(manager)
@@ -2247,14 +2256,15 @@ async def test_delete_recording_slot_clears_pending_macro_save_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_session_request_update_macro_refreshes_runtime_bindings() -> None:
+async def test_handle_session_request_update_macro_refreshes_runtime_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(
         return_value=Response(status="ok", data={"macro": {"name": "Speedrun"}})
     )
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     refresh_macro_bindings = AsyncMock()
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_profiles_module,
         "refresh_macro_bindings",
@@ -2262,15 +2272,12 @@ async def test_handle_session_request_update_macro_refreshes_runtime_bindings() 
     )
 
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
-    try:
-        result = await manager._handle_session_request(
-            {"command": "update_macro", "name": "Speedrun", "macro": {"name": "Speedrun"}},
-            "client",
-            peer,
-            object(),
-        )
-    finally:
-        monkeypatch.undo()
+    result = await manager._handle_session_request(
+        {"command": "update_macro", "name": "Speedrun", "macro": {"name": "Speedrun"}},
+        "client",
+        peer,
+        object(),
+    )
 
     assert result == {"status": "ok", "macro": {"name": "Speedrun"}}
     refresh_macro_bindings.assert_awaited_once_with(manager)
@@ -2280,12 +2287,13 @@ async def test_handle_session_request_update_macro_refreshes_runtime_bindings() 
 
 
 @pytest.mark.asyncio
-async def test_handle_session_request_delete_macro_broadcasts_deleted_event() -> None:
+async def test_handle_session_request_delete_macro_broadcasts_deleted_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={}))
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     refresh_macro_bindings = AsyncMock()
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_profiles_module,
         "refresh_macro_bindings",
@@ -2293,15 +2301,12 @@ async def test_handle_session_request_delete_macro_broadcasts_deleted_event() ->
     )
 
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
-    try:
-        result = await manager._handle_session_request(
-            {"command": "delete_macro", "name": "Speedrun"},
-            "client",
-            peer,
-            object(),
-        )
-    finally:
-        monkeypatch.undo()
+    result = await manager._handle_session_request(
+        {"command": "delete_macro", "name": "Speedrun"},
+        "client",
+        peer,
+        object(),
+    )
 
     assert result == {"status": "ok"}
     refresh_macro_bindings.assert_awaited_once_with(manager)

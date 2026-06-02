@@ -13,6 +13,10 @@ from keymasq.session.listeners.niri import (
 LISTENER_LAB_APP_ID = "tools.keymasq.ListenerLab"
 
 
+async def _noop_callback(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+    return
+
+
 class _FakeWriter:
     def __init__(self) -> None:
         self.payloads: list[str] = []
@@ -123,10 +127,7 @@ def test_probe_available_checks_socket_connectivity(monkeypatch, tmp_path) -> No
 
 @pytest.mark.asyncio
 async def test_send_cmd_request_retries_after_eof(monkeypatch) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     pairs = [
         (_FakeReader([b""]), _FakeWriter()),
         (_FakeReader([b'{"Ok":"Handled"}\n']), _FakeWriter()),
@@ -149,10 +150,7 @@ async def test_send_cmd_request_retries_after_eof(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_send_event_stream_request_writes_event_stream_request() -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     listener.reader = _FakeReader([b'{"Ok":"Handled"}\n'])  # type: ignore[assignment]
     listener.writer = _FakeWriter()  # type: ignore[assignment]
 
@@ -259,9 +257,6 @@ async def test_window_focus_changed_to_none_clears_active_window() -> None:
 
 @pytest.mark.asyncio
 async def test_get_active_window_refreshes_from_focused_window_request(monkeypatch) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
     async def _send_cmd_request(_request: object, timeout_s: float) -> tuple[bool, object | None]:
         _ = timeout_s
         return (
@@ -276,7 +271,7 @@ async def test_get_active_window_refreshes_from_focused_window_request(monkeypat
             }
         )
 
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     listener.running = True
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 
@@ -285,9 +280,6 @@ async def test_get_active_window_refreshes_from_focused_window_request(monkeypat
 
 @pytest.mark.asyncio
 async def test_get_active_window_falls_back_to_windows_snapshot(monkeypatch) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
     requests: list[object] = []
 
     async def _send_cmd_request(_request: object, timeout_s: float) -> tuple[bool, object | None]:
@@ -308,7 +300,7 @@ async def test_get_active_window_falls_back_to_windows_snapshot(monkeypatch) -> 
             }
         return False, None
 
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     listener.running = True
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 
@@ -363,10 +355,7 @@ async def test_activate_window_by_title_updates_cached_window_state(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_dispatch_requires_socket_for_custom_niri_actions() -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     ok, message = await listener.dispatch("toggle-overview")
     assert ok is False
     assert message == "NIRI_SOCKET is not available"
@@ -374,9 +363,6 @@ async def test_dispatch_requires_socket_for_custom_niri_actions() -> None:
 
 @pytest.mark.asyncio
 async def test_dispatch_sends_action_request(monkeypatch) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
     requests: list[tuple[object, float]] = []
 
     async def _send_cmd_request(
@@ -386,7 +372,7 @@ async def test_dispatch_sends_action_request(monkeypatch) -> None:
         requests.append((request, timeout_s))
         return True, "Handled"
 
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 
     ok, message = await listener.dispatch("focus-workspace", "2")
@@ -400,9 +386,6 @@ async def test_dispatch_sends_action_request(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_dispatch_uses_cached_window_id_for_focused_window_actions(monkeypatch) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
     requests: list[tuple[object, float]] = []
 
     async def _send_cmd_request(
@@ -412,7 +395,7 @@ async def test_dispatch_uses_cached_window_id_for_focused_window_actions(monkeyp
         requests.append((request, timeout_s))
         return True, "Handled"
 
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     listener._focused_window_id = 9
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 
@@ -427,9 +410,6 @@ async def test_dispatch_uses_cached_window_id_for_focused_window_actions(monkeyp
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_to_niri_msg_action_for_custom_dispatchers(monkeypatch) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
     recorded: dict[str, object] = {}
 
     class _FakeProcess:
@@ -443,7 +423,7 @@ async def test_dispatch_falls_back_to_niri_msg_action_for_custom_dispatchers(mon
         recorded["env"] = kwargs.get("env")
         return _FakeProcess()
 
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     listener.socket_path = "/tmp/niri.sock"
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
 
@@ -458,9 +438,6 @@ async def test_dispatch_falls_back_to_niri_msg_action_for_custom_dispatchers(mon
 
 @pytest.mark.asyncio
 async def test_dispatch_accepts_prefixed_niri_msg_action_syntax(monkeypatch) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
     recorded: dict[str, object] = {}
 
     class _FakeProcess:
@@ -473,7 +450,7 @@ async def test_dispatch_accepts_prefixed_niri_msg_action_syntax(monkeypatch) -> 
         recorded["cmd"] = cmd
         return _FakeProcess()
 
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     listener.socket_path = "/tmp/niri.sock"
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
 
@@ -488,9 +465,6 @@ async def test_dispatch_accepts_prefixed_niri_msg_action_syntax(monkeypatch) -> 
 async def test_dispatch_accepts_full_niri_msg_action_command_in_dispatcher_field(
     monkeypatch,
 ) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
     requests: list[tuple[object, float]] = []
 
     async def _send_cmd_request(
@@ -500,7 +474,7 @@ async def test_dispatch_accepts_full_niri_msg_action_command_in_dispatcher_field
         requests.append((request, timeout_s))
         return True, "Handled"
 
-    listener = NiriListener(_cb)
+    listener = NiriListener(_noop_callback)
     listener.socket_path = "/tmp/niri.sock"
     monkeypatch.setattr(listener, "_send_cmd_request", _send_cmd_request)
 

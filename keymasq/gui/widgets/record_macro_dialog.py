@@ -12,21 +12,13 @@ from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAcces
 from keymasq import __version__
 from keymasq.common.devices import input_class_label, normalize_input_classes
 from keymasq.gui.session_client import session_request
+from keymasq.gui.widgets.docs_links import docs_page_url
 
 log = logging.getLogger("keymasq.gui.widgets.record_macro_dialog")
 
 
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version:
-        return "master"
-    if "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
 def _macro_recording_docs_url() -> str:
-    return f"https://keymasq.tools/docs/{_docs_version()}/MACROS/#live-recording"
+    return docs_page_url("MACROS", anchor="live-recording", version=__version__)
 
 
 class RecordMacroDialog(Adw.Dialog):

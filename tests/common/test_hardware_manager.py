@@ -1,5 +1,5 @@
-# ruff: noqa: F403, F405, I001
-from tests.common.support import *
+from keymasq.session.hardware import HardwareManager
+
 
 class TestHardwareManager:
     def test_save_and_load_hardware(self, temp_config_dir, sample_hardware_config):
@@ -32,5 +32,4 @@ class TestHardwareManager:
 
     def test_hardware_id_format(self, sample_hardware_config):
         assert sample_hardware_config.hardware_id == "1234:5678"
-
 

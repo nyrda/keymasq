@@ -1,5 +1,30 @@
-# ruff: noqa: F403, F405, I001
-from tests.keymasqd.device_manager_support import *
+import asyncio
+import contextlib
+import logging
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import evdev
+import pytest
+
+from keymasq.common.models import ActionType, DeviceType, MappingAction
+from keymasq.keymasqd import device_manager as dm
+from keymasq.keymasqd.combo_engine import ComboDecision
+from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
+from keymasq.keymasqd.runtime import combos as cdm
+from keymasq.keymasqd.runtime import grab_lifecycle as ldm
+from keymasq.keymasqd.runtime import grabbed_device as gdm
+from keymasq.keymasqd.runtime import grabbed_device_actions as gda
+from keymasq.keymasqd.runtime import grabbed_device_events as gde
+from keymasq.keymasqd.runtime import grabbed_device_grab as gdg
+from keymasq.keymasqd.runtime import grabbed_device_repeat as gdr
+from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from tests.keymasqd.device_manager_support import (
+    FakeUInput,
+    combo_runtime_deps,
+    grabbed_event_processing_deps,
+)
+
 
 class TestRapidfireRelease:
     @pytest.mark.asyncio
@@ -149,7 +174,7 @@ class TestRapidfireRelease:
         monkeypatch.setattr(
             gdm.evdev,
             "UInput",
-            lambda *args, **kwargs: call_order.append("uinput") or _FakeUInput(*args, **kwargs),
+            lambda *args, **kwargs: call_order.append("uinput") or FakeUInput(*args, **kwargs),
         )
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
@@ -166,7 +191,7 @@ class TestRapidfireRelease:
             mapping_getter=lambda: {},
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
 
         await device.grab()
@@ -178,9 +203,10 @@ class TestRapidfireRelease:
             fake_input.active_keys,
         ]
         assert fake_input.grab_calls == 1
-        assert isinstance(device.uinput, _FakeUInput)
+        assert isinstance(device.uinput, FakeUInput)
         assert call_order == ["uinput", "active_keys", "active_keys", "grab"]
         assert created_tasks
+
     @pytest.mark.asyncio
     async def test_wait_for_active_keys_logs_progress_while_delaying_grab(
         self,
@@ -240,12 +266,19 @@ class TestRapidfireRelease:
             mapping_getter=lambda: {},
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
         device.device = fake_input  # type: ignore[assignment]
 
         with caplog.at_level(logging.INFO, logger="keymasqd.devices"):
-            await _runtime_wait_for_grabbed_active_keys_to_clear(device)
+            await gdg.wait_for_active_keys_to_clear(
+                device,
+                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                time_mod=gdm.time,
+                log=gdm.log,
+                active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+            )
 
         assert wait_timeouts == pytest.approx([1.0, 0.8, 1.0])
         assert len(to_thread_calls) == 4
@@ -253,6 +286,7 @@ class TestRapidfireRelease:
         assert "delaying grab until keys are released: key_l" in caplog.text
         assert "still waiting to grab; active keys still down: key_l" in caplog.text
         assert "active keys cleared, proceeding with grab" in caplog.text
+
     @pytest.mark.asyncio
     async def test_wait_for_active_keys_logs_read_failure_and_proceeds(
         self,
@@ -281,16 +315,24 @@ class TestRapidfireRelease:
             mapping_getter=lambda: {},
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
         device.device = _FakeInputDevice()  # type: ignore[assignment]
 
         with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
-            await _runtime_wait_for_grabbed_active_keys_to_clear(device)
+            await gdg.wait_for_active_keys_to_clear(
+                device,
+                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                time_mod=gdm.time,
+                log=gdm.log,
+                active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+            )
 
         assert [call[0] for call in to_thread_calls] == [device.device.active_keys]
         assert "failed to read active keys before grab: broken active_keys" in caplog.text
         assert "proceeding with grab" in caplog.text
+
     @pytest.mark.asyncio
     async def test_wait_for_active_keys_times_out_with_clear_error(
         self,
@@ -338,16 +380,24 @@ class TestRapidfireRelease:
             mapping_getter=lambda: {},
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
         device.device = _FakeInputDevice()  # type: ignore[assignment]
 
         with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
             with pytest.raises(TimeoutError, match="timed out waiting 60.0s"):
-                await _runtime_wait_for_grabbed_active_keys_to_clear(device)
+                await gdg.wait_for_active_keys_to_clear(
+                    device,
+                    asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                    time_mod=gdm.time,
+                    log=gdm.log,
+                    active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                    active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+                )
 
         assert wait_timeouts == []
         assert "timed out waiting 60.0s for active keys to clear before grab" in caplog.text
+
     @pytest.mark.asyncio
     async def test_grab_closes_precreated_uinput_when_wait_times_out(
         self,
@@ -367,7 +417,7 @@ class TestRapidfireRelease:
             def active_keys(self) -> list[int]:
                 return [evdev.ecodes.KEY_L]
 
-        class _ClosableUInput(_FakeUInput):
+        class _ClosableUInput(FakeUInput):
             def __init__(self, *args, **kwargs) -> None:
                 super().__init__(*args, **kwargs)
                 self.close_calls = 0
@@ -406,7 +456,7 @@ class TestRapidfireRelease:
             mapping_getter=lambda: {},
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
 
         with pytest.raises(TimeoutError, match="timed out waiting 60.0s"):
@@ -415,6 +465,7 @@ class TestRapidfireRelease:
         assert len(created_uinputs) == 1
         assert created_uinputs[0].close_calls == 1
         assert device.uinput is None
+
     @pytest.mark.asyncio
     async def test_grab_uses_explicit_passthrough_test_uinput_identity(
         self,
@@ -450,7 +501,7 @@ class TestRapidfireRelease:
             return task
 
         monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", _FakeUInput)
+        monkeypatch.setattr(gdm.evdev, "UInput", FakeUInput)
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
 
@@ -461,13 +512,13 @@ class TestRapidfireRelease:
             mapping_getter=lambda: {},
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
 
         await device.grab()
         await asyncio.sleep(0)
 
-        assert isinstance(device.uinput, _FakeUInput)
+        assert isinstance(device.uinput, FakeUInput)
         assert device.uinput.kwargs["name"] == "keymasq-test-passthrough-1234:5678"
         assert device.uinput.kwargs["vendor"] == 0x4B46
         assert device.uinput.kwargs["product"] == 0x1004
@@ -529,7 +580,7 @@ class TestRapidfireRelease:
             return task
 
         monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", _FakeUInput)
+        monkeypatch.setattr(gdm.evdev, "UInput", FakeUInput)
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
 
@@ -541,13 +592,13 @@ class TestRapidfireRelease:
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.GAMEPAD,
             device_types=["gamepad"],
-            gamepad_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            gamepad_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
 
         await device.grab()
         await asyncio.sleep(0)
 
-        assert isinstance(device.uinput, _FakeUInput)
+        assert isinstance(device.uinput, FakeUInput)
         assert device.uinput.kwargs["name"] == "Xbox 360 Wireless Controller"
         assert device.uinput.kwargs["vendor"] == 0x045E
         assert device.uinput.kwargs["product"] == 0x02A1
@@ -598,9 +649,9 @@ class TestRapidfireRelease:
             created_tasks.append(task)
             return task
 
-        def fake_uinput(*_args, **kwargs) -> _FakeUInput:
+        def fake_uinput(*_args, **kwargs) -> FakeUInput:
             created_kwargs.append(kwargs)
-            return _FakeUInput(**kwargs)
+            return FakeUInput(**kwargs)
 
         monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
         monkeypatch.setattr(gdm.evdev, "UInput", fake_uinput)
@@ -614,7 +665,7 @@ class TestRapidfireRelease:
             mapping_getter=lambda: {},
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
 
         await device.grab()
@@ -686,7 +737,7 @@ class TestRapidfireRelease:
             return task
 
         monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", _FakeUInput)
+        monkeypatch.setattr(gdm.evdev, "UInput", FakeUInput)
         monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
 
@@ -698,13 +749,13 @@ class TestRapidfireRelease:
             event_callback=AsyncMock(return_value=None),
             device_type=DeviceType.GAMEPAD,
             device_types=["gamepad"],
-            gamepad_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            gamepad_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
 
         await device.grab()
         await asyncio.sleep(0)
 
-        assert isinstance(device.uinput, _FakeUInput)
+        assert isinstance(device.uinput, FakeUInput)
         assert device.uinput.kwargs["name"] == "Bad Gamepad"
         assert device.uinput.kwargs["vendor"] == 0x045E
         assert device.uinput.kwargs["product"] == 0x02A1
@@ -795,7 +846,7 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
 
-        fake_uinput = _FakeUInput()
+        fake_uinput = FakeUInput()
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
@@ -827,6 +878,7 @@ class TestRapidfireRelease:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
+
     @pytest.mark.asyncio
     async def test_start_rapidfire_task_stops_existing_state_before_creating_new_task(
         self,
@@ -835,7 +887,7 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
 
-        fake_uinput = _FakeUInput()
+        fake_uinput = FakeUInput()
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
@@ -872,6 +924,7 @@ class TestRapidfireRelease:
         gdr.stop_rapidfire(device, "btn_side")
 
         assert calls[:2] == ["stop:btn_side", "factory"]
+
     @pytest.mark.asyncio
     async def test_rapidfire_quick_release_and_repress_does_not_leave_task_or_key_stuck(
         self,
@@ -880,7 +933,7 @@ class TestRapidfireRelease:
         monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
 
-        fake_uinput = _FakeUInput()
+        fake_uinput = FakeUInput()
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
@@ -902,14 +955,38 @@ class TestRapidfireRelease:
         press_event = SimpleNamespace(value=1)
         release_event = SimpleNamespace(value=0)
 
-        await _runtime_execute_grabbed_action(device, action, press_event, "btn_side")
-        await _runtime_execute_grabbed_action(device, action, release_event, "btn_side")
-        await _runtime_execute_grabbed_action(device, action, press_event, "btn_side")
+        await gda.execute_action(
+            device,
+            action,
+            press_event,
+            "btn_side",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
+        await gda.execute_action(
+            device,
+            action,
+            release_event,
+            "btn_side",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
+        await gda.execute_action(
+            device,
+            action,
+            press_event,
+            "btn_side",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
         await asyncio.sleep(0)
 
         assert len(device.state.rapidfire_tasks) == 1
 
-        await _runtime_execute_grabbed_action(device, action, release_event, "btn_side")
+        await gda.execute_action(
+            device,
+            action,
+            release_event,
+            "btn_side",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
         await asyncio.sleep(0.01)
 
         assert device.state.rapidfire_tasks == {}
@@ -920,6 +997,7 @@ class TestRapidfireRelease:
             evdev.ecodes.KEY_A,
             0,
         )
+
     @pytest.mark.asyncio
     async def test_combo_passthrough_release_still_stops_active_rapidfire(
         self,
@@ -936,7 +1014,7 @@ class TestRapidfireRelease:
         async def event_callback(*_args):
             return decisions.pop(0)
 
-        fake_uinput = _FakeUInput()
+        fake_uinput = FakeUInput()
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
@@ -967,11 +1045,11 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, press_event)
+        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         assert "btn_side" in device.state.held_source_actions
 
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0.01)
 
         assert device.state.rapidfire_tasks == {}
@@ -983,6 +1061,7 @@ class TestRapidfireRelease:
             evdev.ecodes.KEY_A,
             0,
         )
+
     @pytest.mark.asyncio
     async def test_combo_passthrough_keydown_forces_matching_passthrough_keyup(
         self,
@@ -999,8 +1078,8 @@ class TestRapidfireRelease:
         async def event_callback(*_args):
             return decisions.pop(0)
 
-        passthrough_uinput = _FakeUInput()
-        mapped_uinput = _FakeUInput()
+        passthrough_uinput = FakeUInput()
+        mapped_uinput = FakeUInput()
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
@@ -1024,8 +1103,8 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, press_event)
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough_uinput.writes == [
@@ -1034,6 +1113,7 @@ class TestRapidfireRelease:
         ]
         assert mapped_uinput.writes == []
         assert device.state.combo_passthrough_held == set()
+
     @pytest.mark.asyncio
     async def test_combo_passthrough_does_not_bypass_unrelated_mapping_action(
         self,
@@ -1050,8 +1130,8 @@ class TestRapidfireRelease:
         async def event_callback(*_args):
             return decisions.pop(0)
 
-        passthrough_uinput = _FakeUInput()
-        mapped_uinput = _FakeUInput()
+        passthrough_uinput = FakeUInput()
+        mapped_uinput = FakeUInput()
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
@@ -1080,8 +1160,8 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, press_event)
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert passthrough_uinput.writes == []
         assert mapped_uinput.writes == [
@@ -1089,6 +1169,7 @@ class TestRapidfireRelease:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
         ]
         assert device.state.combo_passthrough_held == set()
+
     @pytest.mark.asyncio
     async def test_combo_consumed_modifier_release_still_passthroughs_when_held(
         self,
@@ -1105,7 +1186,7 @@ class TestRapidfireRelease:
         async def event_callback(*_args):
             return decisions.pop(0)
 
-        passthrough_uinput = _FakeUInput()
+        passthrough_uinput = FakeUInput()
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
@@ -1113,7 +1194,7 @@ class TestRapidfireRelease:
             mapping_getter=lambda: {},
             event_callback=event_callback,
             device_type=DeviceType.KEYBOARD,
-            keyboard_uinput=_FakeUInput(),  # type: ignore[arg-type]
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
         device._running = True
         device.uinput = passthrough_uinput  # type: ignore[assignment]
@@ -1129,14 +1210,15 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, press_event)
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert passthrough_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 0),
         ]
         assert device.state.combo_passthrough_held == set()
+
     @pytest.mark.asyncio
     async def test_combo_consumed_release_still_stops_existing_rapidfire_action(
         self,
@@ -1153,7 +1235,7 @@ class TestRapidfireRelease:
         async def event_callback(*_args):
             return decisions.pop(0)
 
-        fake_uinput = _FakeUInput()
+        fake_uinput = FakeUInput()
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
@@ -1184,11 +1266,11 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await _runtime_process_grabbed_event(device, press_event)
+        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         assert "key_f5" in device.state.held_source_actions
 
-        await _runtime_process_grabbed_event(device, release_event)
+        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0.01)
 
         assert device.state.rapidfire_tasks == {}
@@ -1200,12 +1282,15 @@ class TestRapidfireRelease:
             evdev.ecodes.KEY_B,
             0,
         )
+
     @pytest.mark.asyncio
-    async def test_release_interface_skipped_when_path_still_desired(self):
+    async def test_release_interface_skipped_when_path_still_desired(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
         manager = DeviceManager(release_grace_s=0.001)
         fake_device = type("Device", (), {})()
         fake_device.release = AsyncMock()
-        monkeypatch = pytest.MonkeyPatch()
 
         async def release_interface(_hardware_id: str, _path: str) -> None:
             await fake_device.release()
@@ -1214,10 +1299,16 @@ class TestRapidfireRelease:
         manager.grab_state.desired_paths["hw"] = {"/dev/input/event0"}
         monkeypatch.setattr(ldm, "release_interface_unlocked", release_interface)
 
-        await _runtime_delayed_interface_release(manager, "hw", "/dev/input/event0", 0.001)
+        await ldm.delayed_interface_release(
+            manager,
+            "hw",
+            "/dev/input/event0",
+            0.001,
+            asyncio_mod=ldm.ASYNCIO_RUNTIME,
+        )
 
         fake_device.release.assert_not_awaited()
-        monkeypatch.undo()
+
     @pytest.mark.asyncio
     async def test_release_interface_clears_scoped_combo_runtime_before_device_teardown(
         self,
@@ -1236,12 +1327,13 @@ class TestRapidfireRelease:
         monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
         monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
 
-        await _runtime_release_interface_unlocked(manager, "hw", "/dev/input/event0")
+        await ldm.release_interface_unlocked(manager, "hw", "/dev/input/event0")
 
         clear_combo_scope.assert_awaited_once()
         clear_combo_runtime.assert_not_awaited()
         fake_device.release_tracked_outputs.assert_called_once()
         fake_device.release.assert_awaited_once()
+
     @pytest.mark.asyncio
     async def test_release_interface_preserves_desired_state_for_missing_managed_device(
         self,
@@ -1264,12 +1356,13 @@ class TestRapidfireRelease:
         )
         monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", AsyncMock())
 
-        await _runtime_release_interface_unlocked(manager, "hw", "/dev/input/event0")
+        await ldm.release_interface_unlocked(manager, "hw", "/dev/input/event0")
 
         assert manager.grabbed_devices == {}
         assert manager.active_mappings["hw"] == {"btn_side": action}
         assert manager.grab_state.desired_paths["hw"] == {"/dev/input/event0"}
         assert manager.grab_state.desired_grabs["hw"].paths == {"/dev/input/event0"}
+
     @pytest.mark.asyncio
     async def test_release_device_clears_scoped_combo_runtime_before_releasing_hardware(
         self,
@@ -1285,12 +1378,13 @@ class TestRapidfireRelease:
         monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
         monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
 
-        result = await _runtime_release_device_unlocked(manager, "hw")
+        result = await ldm.release_device_unlocked(manager, "hw", log=dm.log)
 
         assert result == {"released": True, "hardware_id": "hw"}
         clear_combo_scope.assert_awaited_once()
         clear_combo_runtime.assert_not_awaited()
         fake_device.release.assert_awaited_once()
+
     @pytest.mark.asyncio
     async def test_clear_combo_runtime_for_binding_scope_stops_only_affected_actions(
         self,
@@ -1305,7 +1399,9 @@ class TestRapidfireRelease:
         monkeypatch.setattr(cdm, "stop_combo_action", stop_combo_action)
         monkeypatch.setattr(cdm, "refresh_combo_timeout_watchdog", refresh_combo_timeout_watchdog)
 
-        await _runtime_clear_combo_scope(manager, "1234:5678", "mouse")
+        await cdm.clear_combo_runtime_for_binding_scope(
+            manager, "1234:5678", "mouse", deps=combo_runtime_deps()
+        )
 
         manager.combo_state.engine.drop_candidates_for_binding_scope.assert_called_once_with(
             "1234:5678",

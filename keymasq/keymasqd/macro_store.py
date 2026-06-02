@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
-from keymasq.common.models import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.keymasqd.macro_file import (
     MACRO_FILE_SUFFIX,
     MacroFileMeta,
@@ -99,29 +98,7 @@ class MacroStore:
     def get_meta(self, name: str) -> MacroPayload:
         if name in self._internal_macros:
             data = self._internal_macros[name]
-            return {
-                "name": _payload_str(data, "name", name),
-                "duration_us": _payload_int(data, "duration_us", 0),
-                "device_types": _payload_list(data, "device_types"),
-                "created_at": _payload_str(data, "created_at"),
-                "event_count": _payload_int(
-                    data,
-                    "event_count",
-                    len(_payload_list(data, "events")),
-                ),
-                "revision": _payload_int(data, "revision", 1),
-                "move_to_start": bool(data.get("move_to_start", False)),
-                "start_x": _payload_int(data, "start_x", 0),
-                "start_y": _payload_int(data, "start_y", 0),
-                "block_mouse_movement": bool(data.get("block_mouse_movement", False)),
-                "loop_mode": _payload_str(data, "loop_mode", "none") or "none",
-                "loop_count": _payload_int(data, "loop_count", 1),
-                "loop_stop_behavior": _payload_str(
-                    data,
-                    "loop_stop_behavior",
-                    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
-                ),
-            }
+            return MacroFileMeta.from_payload(data, name=name).to_payload()
         path = self._macro_path(name)
         if not path.exists():
             raise FileNotFoundError(f"Macro '{name}' not found")

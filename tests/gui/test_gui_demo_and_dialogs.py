@@ -1,8 +1,14 @@
-# ruff: noqa: F403, F405, I001
+# ruff: noqa: I001
 import threading
 import time
+from types import SimpleNamespace
 
-from tests.gui.support import *
+import pytest
+
+from tests.gui.support import collect_widgets
+
+gi = pytest.importorskip("gi")
+
 
 class TestRecordMacroDialog:
     def test_record_dialog_uses_unlock_and_owner_state(self, monkeypatch):
@@ -74,20 +80,11 @@ class TestRecordMacroDialog:
                 on_success()
 
         def button_label(button: Gtk.Button) -> str:
-            labels: list[str] = []
-
-            def collect(widget) -> None:
-                if isinstance(widget, Gtk.Label):
-                    labels.append(widget.get_text())
-                child = widget.get_first_child()
-                while child is not None:
-                    collect(child)
-                    child = child.get_next_sibling()
-
             child = button.get_child()
-            if child is not None:
-                collect(child)
-            return " ".join(labels)
+            return " ".join(
+                label.get_text()
+                for label in collect_widgets(child, Gtk.Label, include_self=True)
+            )
 
         dialog = RecordMacroDialog(Parent())
         monkeypatch.setattr(dialog, "_refresh_unlock_state_async", lambda: None)
@@ -155,20 +152,11 @@ class TestRecordMacroDialog:
 
         dialog = RecordMacroDialog(Gtk.Window())
 
-        labels: list[str] = []
-
-        def collect_button_labels(widget) -> None:
-            if isinstance(widget, Gtk.Button):
-                label = widget.get_label()
-                if label:
-                    labels.append(label)
-
-            child = widget.get_first_child()
-            while child is not None:
-                collect_button_labels(child)
-                child = child.get_next_sibling()
-
-        collect_button_labels(dialog.get_child())
+        labels = [
+            button.get_label()
+            for button in collect_widgets(dialog.get_child(), Gtk.Button, include_self=True)
+            if button.get_label()
+        ]
 
         assert "Done" in labels
         assert "Cancel" not in labels

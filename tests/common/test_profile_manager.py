@@ -1,5 +1,54 @@
-# ruff: noqa: F403, F405, I001
-from tests.common.support import *
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
+import tomli_w
+
+from keymasq.common.models import (
+    ActionType,
+    ComboConfig,
+    ComboEvent,
+    ComboStep,
+    DeviceProfileLayer,
+    MappingAction,
+    ProfileConfig,
+    ProfileDeactivationPolicy,
+    WindowRule,
+)
+from keymasq.session.profiles import ProfileManager
+
+
+def _write_profile_toml(
+    config_dir: Path,
+    filename: str,
+    *,
+    name: str,
+    enabled: bool = True,
+    is_permanent: bool = True,
+    priority: int = 0,
+    notify_on_activation: bool = True,
+    created_at: str = "2026-05-18T12:00:00",
+    extra_sections: str = "",
+) -> Path:
+    path = config_dir / "profiles" / filename
+    content = tomli_w.dumps(
+        {
+            "profile": {
+                "name": name,
+                "enabled": enabled,
+                "is_permanent": is_permanent,
+                "priority": priority,
+                "notify_on_activation": notify_on_activation,
+                "created_at": created_at,
+            }
+        }
+    )
+    if extra_sections:
+        content = f"{content}\n{extra_sections.strip()}\n"
+
+    path.write_text(content, encoding="utf-8")
+    return path
+
 
 class TestProfileManager:
     def test_auto_create_default_profile_seeds_editable_startup_profile(self, temp_config_dir):
@@ -47,17 +96,13 @@ class TestProfileManager:
         assert 'deactivation_macro = "game_leave"' in content
 
     def test_profile_macro_action_accepts_macro_name_alias(self, temp_config_dir):
-        profile_path = Path(temp_config_dir) / "profiles" / "macro-alias.toml"
-        profile_path.write_text(
-            """
-[profile]
-name = "Macro Alias"
-enabled = true
-is_permanent = false
-priority = 0
-notify_on_activation = true
-created_at = "2026-05-29T12:00:00"
-
+        _write_profile_toml(
+            temp_config_dir,
+            "macro-alias.toml",
+            name="Macro Alias",
+            is_permanent=False,
+            created_at="2026-05-29T12:00:00",
+            extra_sections="""
 [devices."1234:5678"]
 always_grab_all = false
 
@@ -65,7 +110,6 @@ always_grab_all = false
 action = "macro"
 macro_name = "Example"
 """,
-            encoding="utf-8",
         )
 
         manager = ProfileManager()
@@ -516,18 +560,10 @@ macro_name = "Example"
 
     def test_save_existing_loaded_profile_updates_original_path(self, temp_config_dir):
         profiles_dir = temp_config_dir / "profiles"
-        fixture_path = profiles_dir / "analog-gamepad.toml"
-        fixture_path.write_text(
-            """
-[profile]
-name = "Integration Analog Gamepad"
-enabled = true
-is_permanent = true
-priority = 0
-notify_on_activation = true
-created_at = "2026-05-18T12:00:00"
-""".lstrip(),
-            encoding="utf-8",
+        fixture_path = _write_profile_toml(
+            temp_config_dir,
+            "analog-gamepad.toml",
+            name="Integration Analog Gamepad",
         )
 
         manager = ProfileManager()
@@ -546,32 +582,16 @@ created_at = "2026-05-18T12:00:00"
         temp_config_dir,
         caplog,
     ):
-        profiles_dir = temp_config_dir / "profiles"
-        canonical_path = profiles_dir / "Integration_Analog_Gamepad.toml"
-        duplicate_path = profiles_dir / "analog-gamepad.toml"
-        canonical_path.write_text(
-            """
-[profile]
-name = "Integration Analog Gamepad"
-enabled = false
-is_permanent = true
-priority = 0
-notify_on_activation = true
-created_at = "2026-05-18T12:00:00"
-""".lstrip(),
-            encoding="utf-8",
+        canonical_path = _write_profile_toml(
+            temp_config_dir,
+            "Integration_Analog_Gamepad.toml",
+            name="Integration Analog Gamepad",
+            enabled=False,
         )
-        duplicate_path.write_text(
-            """
-[profile]
-name = "Integration Analog Gamepad"
-enabled = true
-is_permanent = true
-priority = 0
-notify_on_activation = true
-created_at = "2026-05-18T12:00:00"
-""".lstrip(),
-            encoding="utf-8",
+        _write_profile_toml(
+            temp_config_dir,
+            "analog-gamepad.toml",
+            name="Integration Analog Gamepad",
         )
 
         manager = ProfileManager()

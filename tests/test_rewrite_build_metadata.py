@@ -9,6 +9,7 @@ import pytest
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts/rewrite-build-metadata.py"
 )
+SCRIPT_DIR = SCRIPT_PATH.parent
 
 
 def _load_script() -> ModuleType:
@@ -17,9 +18,12 @@ def _load_script() -> ModuleType:
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
+    sys.path.insert(0, str(SCRIPT_DIR))
     try:
         spec.loader.exec_module(module)
     finally:
+        sys.path.remove(str(SCRIPT_DIR))
+        sys.modules.pop("build_metadata_rewrite", None)
         sys.modules.pop(spec.name, None)
     return module
 
@@ -71,3 +75,53 @@ def test_rewrite_build_metadata_accepts_ci_version_suffixes(
     validator = getattr(script, validator_name)
 
     assert validator(value) == value
+
+
+def test_rewrite_build_metadata_uses_shared_metadata_rules(tmp_path: Path) -> None:
+    script = _load_script()
+    (tmp_path / "keymasq").mkdir()
+    (tmp_path / "debian").mkdir()
+    (tmp_path / "packaging/rpm").mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text('version = "0.1.0"\n', encoding="utf-8")
+    (tmp_path / "keymasq/_version.py").write_text(
+        '__version__ = "0.1.0"\n', encoding="utf-8"
+    )
+    (tmp_path / "debian/changelog").write_text(
+        "keymasq (0.1.0-1) unstable; urgency=medium\n", encoding="utf-8"
+    )
+    (tmp_path / "packaging/rpm/metadata.env").write_text(
+        'VERSION="0.1.0"\n', encoding="utf-8"
+    )
+
+    rules = script._build_rules(
+        tmp_path,
+        python_version="0.2.0+ci.1",
+        debian_version="0.2.0~ci-1",
+        rpm_version="0.2.0_ci",
+    )
+
+    assert [rule.path.relative_to(tmp_path) for rule in rules] == [
+        Path("pyproject.toml"),
+        Path("keymasq/_version.py"),
+        Path("debian/changelog"),
+        Path("packaging/rpm/metadata.env"),
+    ]
+    assert script.apply_rules(tmp_path, rules) == [
+        Path("pyproject.toml"),
+        Path("keymasq/_version.py"),
+        Path("debian/changelog"),
+        Path("packaging/rpm/metadata.env"),
+    ]
+
+    assert (tmp_path / "pyproject.toml").read_text(encoding="utf-8") == (
+        'version = "0.2.0+ci.1"\n'
+    )
+    assert (tmp_path / "keymasq/_version.py").read_text(encoding="utf-8") == (
+        '__version__ = "0.2.0+ci.1"\n'
+    )
+    assert (tmp_path / "debian/changelog").read_text(encoding="utf-8") == (
+        "keymasq (0.2.0~ci-1) unstable; urgency=medium\n"
+    )
+    assert (tmp_path / "packaging/rpm/metadata.env").read_text(encoding="utf-8") == (
+        'VERSION="0.2.0_ci"\n'
+    )

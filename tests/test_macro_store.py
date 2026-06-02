@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from keymasq.common.models import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.keymasqd import macro_store as macro_store_module
 from keymasq.keymasqd.macro_file import MacroFileMeta
 from keymasq.keymasqd.macro_store import MacroStore
@@ -262,13 +261,22 @@ def test_macro_store_recomputes_meta_when_replacing_explicit_events(tmp_path: Pa
     assert list_meta[0]["device_types"] == ["mouse"]
 
 
-def test_macro_store_internal_meta_uses_shared_loop_stop_default(tmp_path: Path) -> None:
+def test_macro_store_internal_meta_uses_macro_file_meta_payload(tmp_path: Path) -> None:
     store = MacroStore(tmp_path / "macros")
-    store.register_internal("__internal", [{"type": 1, "code": 30, "value": 1, "t_us": 0}])
+    store.register_internal(
+        "__internal",
+        [{"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}],
+        created_at="2026-05-31T20:00:00",
+        loop_count="2",
+        loop_mode="",
+    )
 
     meta = store.get_meta("__internal")
 
-    assert meta["loop_stop_behavior"] == DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+    assert meta == MacroFileMeta.from_payload(
+        store.get("__internal"),
+        name="__internal",
+    ).to_payload()
 
 
 def test_macro_store_list_meta_logs_unreadable_files(

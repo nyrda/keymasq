@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from keymasq.session.profiles import ResolvedCombo
 
 from .common import JsonObject
-from .device_inspector import serialize_mapping_action
+from .payloads import serialize_mapping_action
 
 if TYPE_CHECKING:
     from .core import SessionManager

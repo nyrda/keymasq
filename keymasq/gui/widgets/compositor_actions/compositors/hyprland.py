@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from keymasq.common.models import ActionType, MappingAction
 from keymasq.gui.widgets.compositor_actions.core import (
-    CompositorActionDefinition,
     CompositorActionPreset,
+    build_compositor_dispatch_definition,
 )
 
 HYPRLAND_DISPATCH_PRESETS = (
@@ -125,53 +124,13 @@ HYPRLAND_DISPATCH_PRESETS = (
 )
 
 
-def _hyprland_available(current_action: MappingAction | None, status: dict[str, object]) -> bool:
-    _ = current_action
-    return bool(
-        status.get("listener_name") == "hyprland"
-        and status.get("compositor_dispatch_available") is True
-    )
-
-
-def _hyprland_fields(current_action: MappingAction | None) -> tuple[str, str]:
-    if current_action is None or current_action.action_type != ActionType.COMPOSITOR_DISPATCH:
-        return "", ""
-    compositor_id = str(current_action.compositor_id or "").strip()
-    if compositor_id and compositor_id != "hyprland":
-        return "", ""
-    return (
-        str(current_action.compositor_dispatcher or ""),
-        str(current_action.compositor_args or ""),
-    )
-
-
-def _build_hyprland_action(dispatcher: str, args: str) -> MappingAction:
-    return MappingAction(
-        action_type=ActionType.COMPOSITOR_DISPATCH,
-        compositor_id="hyprland",
-        compositor_dispatcher=dispatcher,
-        compositor_args=args,
-    )
-
-
-def _describe_hyprland_action(action: MappingAction) -> str:
-    args = str(action.compositor_args or "").strip()
-    suffix = f" {args}" if args else ""
-    return f"Hyprland → {action.compositor_dispatcher or '?'}{suffix}"
-
-
-HYPRLAND_ACTION_DEFINITION = CompositorActionDefinition(
+HYPRLAND_ACTION_DEFINITION = build_compositor_dispatch_definition(
     page_id="hyprland",
     compositor_id="hyprland",
     title="Hyprland",
     subtitle="Send a Hyprland dispatcher through the active Hyprland listener.",
     dispatcher_placeholder="e.g. togglefloating",
     args_placeholder="e.g. e+1, l, special",
-    action_type=ActionType.COMPOSITOR_DISPATCH,
     presets=HYPRLAND_DISPATCH_PRESETS,
     allow_custom=True,
-    is_available=_hyprland_available,
-    extract_fields=_hyprland_fields,
-    build_action=_build_hyprland_action,
-    describe_action=_describe_hyprland_action,
 )

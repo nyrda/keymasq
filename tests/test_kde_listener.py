@@ -11,6 +11,10 @@ from keymasq.session.listeners.kde import (
 )
 
 
+async def _noop_callback(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+    return
+
+
 def test_parse_kde_window_payload_valid() -> None:
     payload = '{"class":"org.kde.konsole","title":"Konsole"}'
     assert parse_kde_window_payload(payload) == ("org.kde.konsole", "Konsole")
@@ -56,10 +60,7 @@ def test_parse_kde_dispatch_payload_accepts_wrapped_json_string() -> None:
 
 
 def test_kde_window_script_tracks_metadata_changes() -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = KDEListener(_cb)
+    listener = KDEListener(_noop_callback)
     script = listener._build_window_script_source()
 
     assert 'connectSignal(workspace, "windowActivated"' in script
@@ -72,10 +73,7 @@ def test_kde_window_script_tracks_metadata_changes() -> None:
 
 
 def test_kde_cursor_script_uses_cursor_position_method() -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = KDEListener(_cb)
+    listener = KDEListener(_noop_callback)
     script = listener._build_cursor_script_source("req1")
 
     assert "workspace.cursorPos" in script
@@ -83,10 +81,7 @@ def test_kde_cursor_script_uses_cursor_position_method() -> None:
 
 
 def test_kde_dispatch_script_uses_workspace_method_and_reply_hook() -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = KDEListener(_cb)
+    listener = KDEListener(_noop_callback)
     script = listener._build_dispatch_script_source("req1", KDE_DISPATCH_METHODS["tile_left"])
 
     assert 'const METHOD_NAME = "slotWindowQuickTileLeft"' in script
@@ -95,10 +90,7 @@ def test_kde_dispatch_script_uses_workspace_method_and_reply_hook() -> None:
 
 
 def test_kde_ignored_payload_logging_is_rate_limited(monkeypatch) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = KDEListener(_cb)
+    listener = KDEListener(_noop_callback)
 
     monkeypatch.setattr(kde_listener_module.time, "monotonic", lambda: 100.0)
     listener._log_ignored_payload("window", "a")
@@ -154,10 +146,7 @@ def test_probe_available_true_when_kwin_owner_present(monkeypatch, tmp_path) -> 
 
 
 def test_dispatch_rejects_args() -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = KDEListener(_cb)
+    listener = KDEListener(_noop_callback)
     listener.running = True
     listener._kwin_scripting = object()
 
@@ -168,10 +157,7 @@ def test_dispatch_rejects_args() -> None:
 
 
 def test_dispatch_rejects_unsupported_dispatcher() -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
-    listener = KDEListener(_cb)
+    listener = KDEListener(_noop_callback)
     listener.running = True
     listener._kwin_scripting = object()
 
@@ -182,9 +168,6 @@ def test_dispatch_rejects_unsupported_dispatcher() -> None:
 
 
 def test_dispatch_runs_one_shot_kwin_script(monkeypatch, tmp_path) -> None:
-    async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
-        return
-
     class _Uuid:
         hex = "abc12345def67890"
 
@@ -206,7 +189,7 @@ def test_dispatch_runs_one_shot_kwin_script(monkeypatch, tmp_path) -> None:
     async def _unload_script(plugin_name: str) -> None:
         unloaded.append(plugin_name)
 
-    listener = KDEListener(_cb)
+    listener = KDEListener(_noop_callback)
     listener.running = True
     listener._kwin_scripting = object()
     script_path = tmp_path / "dispatch.js"
@@ -227,3 +210,140 @@ def test_dispatch_runs_one_shot_kwin_script(monkeypatch, tmp_path) -> None:
     assert message == "ok"
     assert listener._dispatch_waiters == {}
     assert unloaded == [f"keymasq-kde-dispatch-{kde_listener_module.os.getpid()}-abc12345"]
+
+
+class _CompletingKWinScriptIface:
+    def __init__(self, future: asyncio.Future[tuple[str, str]], calls: list[str]) -> None:
+        self._future = future
+        self._calls = calls
+
+    async def call_run(self) -> None:
+        await asyncio.sleep(0)
+        self._calls.append("run")
+        self._future.set_result(("ok", "done"))
+
+    async def call_stop(self) -> None:
+        self._calls.append("stop")
+
+
+class _HangingKWinScriptIface:
+    def __init__(self, _future: asyncio.Future[tuple[str, str]], calls: list[str]) -> None:
+        self._calls = calls
+
+    async def call_run(self) -> None:
+        self._calls.append("run")
+
+    async def call_stop(self) -> None:
+        self._calls.append("stop")
+
+
+class _NoRunKWinScriptIface:
+    def __init__(self, _future: asyncio.Future[tuple[str, str]], calls: list[str]) -> None:
+        self._calls = calls
+
+    async def call_stop(self) -> None:
+        self._calls.append("stop")
+
+
+async def _run_fake_ephemeral_kwin_script(
+    monkeypatch,
+    tmp_path,
+    script_iface_factory,
+    *,
+    script_id: int = 42,
+    timeout: float = 0.1,
+) -> tuple[object, list[str], bool]:
+    listener = KDEListener(_noop_callback)
+    listener._kwin_scripting = object()
+    script_path = tmp_path / "ephemeral.js"
+    calls: list[str] = []
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[tuple[str, str]] = loop.create_future()
+    script_iface = script_iface_factory(future, calls)
+
+    def _write_script_file(source: str):
+        calls.append(f"write:{source}")
+        script_path.write_text(source)
+        return script_path
+
+    async def _load_script(file_path: str, plugin_name: str) -> int:
+        assert file_path == str(script_path)
+        assert plugin_name == "plugin"
+        calls.append("load")
+        return script_id
+
+    async def _get_script_interface(loaded_script_id: int):
+        assert loaded_script_id == script_id
+        calls.append("iface")
+        return script_iface
+
+    async def _unload_script(plugin_name: str) -> None:
+        assert plugin_name == "plugin"
+        calls.append("unload")
+
+    monkeypatch.setattr(listener, "_write_script_file", _write_script_file)
+    monkeypatch.setattr(listener, "_call_load_script", _load_script)
+    monkeypatch.setattr(listener, "_get_script_interface", _get_script_interface)
+    monkeypatch.setattr(listener, "_call_unload_script", _unload_script)
+
+    try:
+        result = await listener._run_ephemeral_kwin_script(
+            source="source",
+            plugin_name="plugin",
+            result_future=future,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        result = exc
+
+    return result, calls, script_path.exists()
+
+
+def test_ephemeral_kwin_script_helper_runs_and_cleans_up(monkeypatch, tmp_path) -> None:
+    result, calls, path_exists = asyncio.run(
+        _run_fake_ephemeral_kwin_script(monkeypatch, tmp_path, _CompletingKWinScriptIface)
+    )
+
+    assert result == ("ok", "done")
+    assert calls == ["write:source", "load", "iface", "run", "stop", "unload"]
+    assert path_exists is False
+
+
+def test_ephemeral_kwin_script_helper_cleans_up_on_timeout(monkeypatch, tmp_path) -> None:
+    result, calls, path_exists = asyncio.run(
+        _run_fake_ephemeral_kwin_script(
+            monkeypatch,
+            tmp_path,
+            _HangingKWinScriptIface,
+            timeout=0.01,
+        )
+    )
+
+    assert isinstance(result, TimeoutError)
+    assert calls == ["write:source", "load", "iface", "run", "stop", "unload"]
+    assert path_exists is False
+
+
+def test_ephemeral_kwin_script_helper_cleans_up_on_load_failure(monkeypatch, tmp_path) -> None:
+    result, calls, path_exists = asyncio.run(
+        _run_fake_ephemeral_kwin_script(
+            monkeypatch,
+            tmp_path,
+            _CompletingKWinScriptIface,
+            script_id=-1,
+        )
+    )
+
+    assert isinstance(result, kde_listener_module._KDEEphemeralScriptLoadError)
+    assert calls == ["write:source", "load", "unload"]
+    assert path_exists is False
+
+
+def test_ephemeral_kwin_script_helper_stops_on_run_failure(monkeypatch, tmp_path) -> None:
+    result, calls, path_exists = asyncio.run(
+        _run_fake_ephemeral_kwin_script(monkeypatch, tmp_path, _NoRunKWinScriptIface)
+    )
+
+    assert isinstance(result, kde_listener_module._KDEEphemeralScriptRunError)
+    assert calls == ["write:source", "load", "iface", "stop", "unload"]
+    assert path_exists is False

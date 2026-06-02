@@ -9,10 +9,132 @@ from keymasq.common.models import (
     HardwareConfig,
     MappingAction,
     ProfileConfig,
+    ProfileDeactivationPolicy,
     WindowRule,
+)
+from keymasq.session.action_toml import (
+    MACRO_RECORDING_SLOT_ACTION_TYPES,
+    PROFILE_REF_ACTION_TYPES,
+    mapping_action_from_toml,
+    mapping_action_to_toml,
+    mapping_action_type_from_toml,
 )
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileManager
+
+
+def _parse_mapping_action_toml(data: dict[str, object]) -> MappingAction:
+    action_type, action_data = mapping_action_type_from_toml(data, unknown_action="raise")
+    return mapping_action_from_toml(
+        action_data,
+        action_type,
+        rapidfire_warning_context="test config",
+    )
+
+
+@pytest.mark.parametrize("action_type", MACRO_RECORDING_SLOT_ACTION_TYPES)
+def test_mapping_action_toml_round_trips_macro_recording_slot_actions(
+    action_type: ActionType,
+) -> None:
+    parsed = _parse_mapping_action_toml(
+        {"action": action_type.value, "recording_slot": 2}
+    )
+    emitted = mapping_action_to_toml(parsed, rapidfire_warning_context="test config")
+
+    assert parsed.action_type == action_type
+    assert parsed.macro_recording_slot == 2
+    assert emitted["recording_slot"] == 2
+
+
+@pytest.mark.parametrize("action_type", PROFILE_REF_ACTION_TYPES)
+def test_mapping_action_toml_round_trips_profile_ref_actions(
+    action_type: ActionType,
+) -> None:
+    parsed = _parse_mapping_action_toml({"action": action_type.value, "target": "Gaming"})
+    emitted = mapping_action_to_toml(parsed, rapidfire_warning_context="test config")
+
+    assert parsed.action_type == action_type
+    assert parsed.profile_name == "Gaming"
+    assert emitted["target"] == "Gaming"
+    assert emitted["profile_name"] == "Gaming"
+
+
+def test_mapping_action_toml_helper_round_trips_shared_fields() -> None:
+    macro_data = mapping_action_to_toml(
+        MappingAction(
+            action_type=ActionType.MACRO,
+            macro_name="launch",
+            macro_replay_mouse_movement=False,
+            macro_replay_mouse_clicks=True,
+            macro_speed=1.5,
+            macro_loop_mode="count",
+            macro_loop_count=3,
+            macro_loop_stop_behavior="cancel_run",
+            macro_move_to_start=True,
+            macro_start_x=10,
+            macro_start_y=20,
+            macro_block_mouse_movement=True,
+        ),
+        rapidfire_warning_context="test config",
+    )
+    macro = _parse_mapping_action_toml(macro_data)
+
+    assert macro.macro_name == "launch"
+    assert macro.macro_speed == 1.5
+    assert macro.macro_loop_count == 3
+    assert macro.macro_loop_stop_behavior == "cancel_run"
+    assert macro.macro_move_to_start is True
+    assert macro.macro_start_x == 10
+    assert macro.macro_start_y == 20
+    assert macro.macro_block_mouse_movement is True
+
+    axis_data = mapping_action_to_toml(
+        MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="abs_rx",
+            output_id="virtual-gamepad-2",
+            axis_value=12345,
+            rapidfire_enabled=True,
+            rapidfire_hold_ms=12,
+            rapidfire_wait_ms=34,
+            tap_enabled=True,
+            tap_hold_ms=15,
+        ),
+        rapidfire_warning_context="test config",
+    )
+    axis = _parse_mapping_action_toml(axis_data)
+
+    assert axis.action_type == ActionType.GAMEPAD_AXIS
+    assert axis.target == "abs_rx"
+    assert axis.output_id == "virtual-gamepad-2"
+    assert axis.axis_value == 12345
+    assert axis.rapidfire_enabled is True
+    assert axis.rapidfire_hold_ms == 12
+    assert axis.rapidfire_wait_ms == 34
+    assert axis.tap_enabled is True
+    assert axis.tap_hold_ms == 15
+
+    profile_data = mapping_action_to_toml(
+        MappingAction(
+            action_type=ActionType.PROFILE_ENABLE,
+            profile_name="Gaming",
+            profile_deactivation=ProfileDeactivationPolicy(
+                on_trigger_end=True,
+                after_actions=2,
+                timeout_ms=500,
+            ),
+        ),
+        rapidfire_warning_context="test config",
+    )
+    profile = _parse_mapping_action_toml(profile_data)
+
+    assert profile.action_type == ActionType.PROFILE_ENABLE
+    assert profile.profile_name == "Gaming"
+    assert profile.profile_deactivation == ProfileDeactivationPolicy(
+        on_trigger_end=True,
+        after_actions=2,
+        timeout_ms=500,
+    )
 
 
 class TestHardwareTOML:

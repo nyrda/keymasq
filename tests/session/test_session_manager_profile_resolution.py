@@ -1,8 +1,31 @@
-# ruff: noqa: F403, F405, I001
-from tests.session.profile_support import *
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+import keymasq.session.manager as session_manager_module
+import keymasq.session.manager.payloads as session_payloads_module
+import keymasq.session.manager.profiles as session_profiles_module
+from keymasq.common.ipc import CommandType, Response
+from keymasq.common.models import (
+    ActionType,
+    ComboEvent,
+    ComboStep,
+    DeviceProfileLayer,
+    MappingAction,
+    ProfileConfig,
+    SuperkeyAction,
+    SuperkeyConfig,
+)
+from keymasq.session.manager import SessionManager
+from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile, ResolvedProfiles
+
 
 @pytest.mark.asyncio
-async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_profile() -> None:
+async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"
 
@@ -70,7 +93,6 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
         )
         manager.profile_state.resolved_devices[hwid] = resolved
 
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_profiles_module,
         "apply_resolved_device_profile",
@@ -79,11 +101,8 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
     monkeypatch.setattr(session_profiles_module, "update_combos", AsyncMock())
     manager.send_notification = lambda _title, _message: None  # type: ignore[method-assign]
 
-    try:
-        await manager.on_window_change("app", "game", [])
-        await manager.on_window_change("app", "browser", [])
-    finally:
-        monkeypatch.undo()
+    await manager.on_window_change("app", "game", [])
+    await manager.on_window_change("app", "browser", [])
 
     assert actions == [
         ("activate", "Game"),
@@ -93,7 +112,9 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
 
 
 @pytest.mark.asyncio
-async def test_profile_reevaluation_interrupts_stale_apply() -> None:
+async def test_profile_reevaluation_interrupts_stale_apply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"
     profile_game = ProfileConfig(
@@ -147,7 +168,6 @@ async def test_profile_reevaluation_interrupts_stale_apply() -> None:
             await release_game.wait()
         manager.profile_state.resolved_devices[hwid] = resolved
 
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         session_profiles_module,
         "apply_resolved_device_profile",
@@ -155,17 +175,14 @@ async def test_profile_reevaluation_interrupts_stale_apply() -> None:
     )
     monkeypatch.setattr(session_profiles_module, "update_combos", AsyncMock())
 
-    try:
-        manager.compositor_state.current_window = {"title": "game"}
-        stale_task = asyncio.create_task(session_profiles_module.reevaluate_profiles(manager))
-        await asyncio.wait_for(game_started.wait(), timeout=1.0)
+    manager.compositor_state.current_window = {"title": "game"}
+    stale_task = asyncio.create_task(session_profiles_module.reevaluate_profiles(manager))
+    await asyncio.wait_for(game_started.wait(), timeout=1.0)
 
-        manager.compositor_state.current_window = {"title": "browser"}
-        await session_profiles_module.reevaluate_profiles(manager)
-        release_game.set()
-        await stale_task
-    finally:
-        monkeypatch.undo()
+    manager.compositor_state.current_window = {"title": "browser"}
+    await session_profiles_module.reevaluate_profiles(manager)
+    release_game.set()
+    await stale_task
 
     assert manager.profile_state.resolved_devices[hardware_id].active_profile_names == ["Base"]
 

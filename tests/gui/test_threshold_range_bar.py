@@ -1,5 +1,6 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+import pytest
+
+pytest.importorskip("gi")
 
 
 def test_threshold_range_bar_reclamps_ranges_when_domain_changes() -> None:

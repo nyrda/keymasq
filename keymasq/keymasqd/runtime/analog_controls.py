@@ -20,6 +20,7 @@ from keymasq.keymasqd.runtime.action_runner import source_trigger_id
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     syn_if_passthrough_frame_closed,
     track_abs_state,
+    track_refcounted_output_bucket,
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
@@ -550,21 +551,13 @@ def _track_threshold_output(
     code: int,
     value: int,
 ) -> bool:
-    refcounts = device_runtime.state.analog_threshold_output_refcounts.setdefault(bucket, {})
-    held = device_runtime.state.held_output_keys.setdefault(bucket, set())
-    current = refcounts.get(int(code), 0)
-    if int(value) == 1:
-        refcounts[int(code)] = current + 1
-        held.add(int(code))
-        return current == 0
-    if int(value) == 0:
-        if current <= 1:
-            refcounts.pop(int(code), None)
-            held.discard(int(code))
-            return current == 1
-        refcounts[int(code)] = current - 1
-        return False
-    return True
+    return track_refcounted_output_bucket(
+        device_runtime.state.analog_threshold_output_refcounts,
+        device_runtime.state.held_output_keys,
+        bucket,
+        code,
+        value,
+    )
 
 
 def _track_threshold_abs_output(
@@ -573,19 +566,14 @@ def _track_threshold_abs_output(
     axis_code: int,
     value: int,
 ) -> bool:
-    refcounts = device_runtime.state.analog_threshold_abs_refcounts.setdefault(bucket, {})
-    held = device_runtime.state.held_output_abs.setdefault(bucket, set())
-    current = refcounts.get(int(axis_code), 0)
-    if int(value) != 0:
-        refcounts[int(axis_code)] = current + 1
-        held.add(int(axis_code))
-        return current == 0
-    if current <= 1:
-        refcounts.pop(int(axis_code), None)
-        held.discard(int(axis_code))
-        return current == 1
-    refcounts[int(axis_code)] = current - 1
-    return False
+    return track_refcounted_output_bucket(
+        device_runtime.state.analog_threshold_abs_refcounts,
+        device_runtime.state.held_output_abs,
+        bucket,
+        axis_code,
+        value,
+        pressed_value=None,
+    )
 
 
 def _ensure_mouse_task(

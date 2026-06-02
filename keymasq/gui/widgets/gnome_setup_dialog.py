@@ -10,18 +10,12 @@ from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue
 
 from keymasq import __version__
 from keymasq.gui.session_client import JsonDict, session_request_async
+from keymasq.gui.widgets.docs_links import docs_page_url
 
 GNOME_BRIDGE_UUID = "gnome-bridge@keymasq.tools"
 
 
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version or "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
-GNOME_SETUP_DOCS_URL = f"https://keymasq.tools/docs/{_docs_version()}/GNOME/"
+GNOME_SETUP_DOCS_URL = docs_page_url("GNOME", version=__version__)
 
 
 @dataclass(frozen=True)

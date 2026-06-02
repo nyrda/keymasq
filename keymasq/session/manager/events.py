@@ -406,7 +406,7 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
         action_type in {"profile_disable", "profile_toggle"}
         and profile_name in manager.profile_state.runtime_profile_activations
     ):
-        await _cancel_runtime_profile_activation(manager, profile_name)
+        await runtime_profiles.cancel_runtime_profile_activation(manager, profile_name)
 
     result = await runtime_profiles.set_profile_enabled(manager, profile_name, enabled)
     if result.get("status") != "ok":
@@ -421,7 +421,7 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
     if action_type == "profile_disable" or (
         action_type == "profile_toggle" and result.get("enabled") is False
     ):
-        await _cancel_runtime_profile_activation(manager, profile_name)
+        await runtime_profiles.cancel_runtime_profile_activation(manager, profile_name)
 
 
 def _trigger_deactivation_policy(
@@ -458,12 +458,12 @@ async def _handle_lifetime_profile_trigger(
         return
 
     if action_type == ActionType.PROFILE_TOGGLE.value:
-        if await _cancel_runtime_profile_activation(manager, profile_name):
+        if await runtime_profiles.cancel_runtime_profile_activation(manager, profile_name):
             return
     elif action_type != ActionType.PROFILE_ENABLE.value:
         result = await runtime_profiles.set_profile_enabled(manager, profile_name, False)
         if result.get("status") == "ok":
-            await _cancel_runtime_profile_activation(manager, profile_name)
+            await runtime_profiles.cancel_runtime_profile_activation(manager, profile_name)
         return
 
     manager.profile_state.runtime_profile_activation_seq += 1
@@ -543,37 +543,6 @@ async def _track_runtime_profile_activation(
             activation.activation_id,
         )
         return False
-    return True
-
-
-async def _cancel_runtime_profile_activation(
-    manager: "SessionManager",
-    profile_name: str,
-) -> bool:
-    activation = manager.profile_state.runtime_profile_activations.pop(profile_name, None)
-    if activation is None:
-        return False
-    try:
-        await manager.client.send_command(
-            Command(
-                command=CommandType.CANCEL_PROFILE_ACTIVATION,
-                data={
-                    "profile_name": profile_name,
-                    "activation_id": activation.activation_id,
-                },
-            )
-        )
-    except Exception as exc:
-        log.debug(
-            "Failed to cancel runtime profile activation profile=%s activation=%s: %s",
-            profile_name,
-            activation.activation_id,
-            exc,
-        )
-    await runtime_profiles.reevaluate_profiles(
-        manager,
-        reason=f"runtime profile activation cancelled {profile_name}",
-    )
     return True
 
 

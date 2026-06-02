@@ -30,7 +30,6 @@ class SaveMacroDialog(Adw.Dialog):
         self._later_btn: Gtk.Button | None = None
         self._build_ui()
         GLib.idle_add(self._load_existing_macro_names)
-        self.connect("closed", self._on_dialog_closed)
 
     def _build_ui(self) -> None:
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -436,9 +435,6 @@ class SaveMacroDialog(Adw.Dialog):
 
     def _on_later_clicked(self, btn: Gtk.Button) -> None:
         self._close_for_later()
-
-    def _on_dialog_closed(self, dialog) -> None:
-        return
 
     def _close_for_later(self) -> None:
         self._closing_after_resolution = True

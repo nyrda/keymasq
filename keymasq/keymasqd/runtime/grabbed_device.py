@@ -46,9 +46,6 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ManagedInputDevice as _ManagedInputDevice,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import (
-    WritableUInput as _WritableUInput,
-)
 from keymasq.keymasqd.runtime.outputs import uinput_identity
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 
@@ -78,10 +75,6 @@ def _device_input(path: str) -> _ManagedInputDevice:
     device = cast(object, evdev.InputDevice(path))
     set_evdev_clock_monotonic(device, device_path=path, logger=log)
     return cast(_ManagedInputDevice, device)
-
-
-def _uinput_writer(device: object | None) -> _WritableUInput | None:
-    return identity_uinput_writer(device)
 
 
 def _is_gamepad_passthrough(device_type: DeviceType, device_types: Sequence[str]) -> bool:
@@ -490,7 +483,11 @@ class GrabbedDevice:
         await self.reset_analog_controls()
         await self.reset_superkeys()
         runtime_events.observe_profile_trigger_end_for_held_sources(self)
-        runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
+        runtime_outputs.release_all_keys(
+            self,
+            evdev_mod=evdev,
+            uinput_writer=identity_uinput_writer,
+        )
         self.state.held_source_keys.clear()
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
@@ -527,7 +524,11 @@ class GrabbedDevice:
         log.info("Released %s", self.path)
 
     def release_tracked_outputs(self) -> None:
-        runtime_outputs.release_all_keys(self, evdev_mod=evdev, uinput_writer=_uinput_writer)
+        runtime_outputs.release_all_keys(
+            self,
+            evdev_mod=evdev,
+            uinput_writer=identity_uinput_writer,
+        )
 
     def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None:
         if self._gamepad_output_resolver is None:
@@ -611,7 +612,7 @@ class GrabbedDevice:
             code,
             0,
             evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
             bucket=bucket,
         )
 
@@ -626,7 +627,7 @@ class GrabbedDevice:
             code,
             1,
             evdev_mod=evdev,
-            uinput_writer=_uinput_writer,
+            uinput_writer=identity_uinput_writer,
             bucket=bucket,
         )
         if bucket == "passthrough":

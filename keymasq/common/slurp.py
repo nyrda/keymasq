@@ -59,23 +59,18 @@ class SlurpCapture:
         if self._available is not None:
             return self._available
 
-        if not self._slurp_path:
-            log.debug("slurp binary not found")
-            self._available = False
-            return False
+        unavailable_reason = self._get_unavailable_reason()
+        self._available = unavailable_reason is None
 
-        if not self._compositor_id or self._compositor_id not in SLURP_COMPATIBLE_COMPOSITORS:
-            log.debug(
-                "compositor %s does not support wlr-layer-shell-unstable-v1",
-                self._compositor_id,
-            )
-            self._available = False
-            return False
+        if unavailable_reason:
+            log.debug("slurp capture unavailable: %s", unavailable_reason)
 
-        self._available = True
-        return True
+        return self._available
 
     def get_unavailable_reason(self) -> str | None:
+        return self._get_unavailable_reason()
+
+    def _get_unavailable_reason(self) -> str | None:
         if not self._slurp_path:
             return "slurp is not installed"
         if not self._compositor_id or self._compositor_id not in SLURP_COMPATIBLE_COMPOSITORS:

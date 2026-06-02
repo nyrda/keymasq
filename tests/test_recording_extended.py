@@ -18,6 +18,34 @@ async def _recorded_events(
     return list(snapshot.iter_events())
 
 
+def _add_pending_recording_snapshot(
+    recorder: RecordingManager,
+    tmp_path: Path,
+    *,
+    recording_id: str = "recording-1",
+    t_us: int = 0,
+    event_count: int = 1,
+    device_types: list[str] | None = None,
+) -> tuple[RecordingSnapshot, Path]:
+    path_id = (
+        recording_id
+        if recording_id.startswith("recording-")
+        else f"recording-{recording_id}"
+    )
+    path = tmp_path / f"{path_id}.jsonl"
+    path.write_text(f'{{"t_us":{t_us}}}\n' * event_count, encoding="utf-8")
+    snapshot = RecordingSnapshot(
+        recording_id=recording_id,
+        duration_ms=0,
+        device_types=list(device_types) if device_types is not None else ["keyboard"],
+        event_count=event_count,
+        spool_path=path,
+        memory_events=(),
+    )
+    recorder._pending_recordings[snapshot.recording_id] = snapshot
+    return snapshot, path
+
+
 @pytest.mark.asyncio
 async def test_recording_event_filtering_for_mouse_controls():
     recorder = RecordingManager()
@@ -226,17 +254,7 @@ async def test_recording_spool_duration_uses_latest_event_time(tmp_path: Path) -
 @pytest.mark.asyncio
 async def test_pending_recording_claim_prevents_concurrent_discard(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
-    path = tmp_path / "recording-test.jsonl"
-    path.write_text('{"t_us":0}\n')
-    snapshot = RecordingSnapshot(
-        recording_id="recording-1",
-        duration_ms=0,
-        device_types=["keyboard"],
-        event_count=1,
-        spool_path=path,
-        memory_events=(),
-    )
-    recorder._pending_recordings[snapshot.recording_id] = snapshot
+    snapshot, path = _add_pending_recording_snapshot(recorder, tmp_path)
 
     claimed = await recorder.claim_pending_recording(snapshot.recording_id)
     await recorder.discard_pending_recording(snapshot.recording_id)
@@ -251,17 +269,7 @@ async def test_pending_recording_claim_prevents_concurrent_discard(tmp_path: Pat
 @pytest.mark.asyncio
 async def test_pending_recording_claim_restores_on_failed_save(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
-    path = tmp_path / "recording-test.jsonl"
-    path.write_text('{"t_us":0}\n')
-    snapshot = RecordingSnapshot(
-        recording_id="recording-1",
-        duration_ms=0,
-        device_types=["keyboard"],
-        event_count=1,
-        spool_path=path,
-        memory_events=(),
-    )
-    recorder._pending_recordings[snapshot.recording_id] = snapshot
+    snapshot, path = _add_pending_recording_snapshot(recorder, tmp_path)
 
     claimed = await recorder.claim_pending_recording(snapshot.recording_id)
     await recorder.release_pending_recording_claim(snapshot.recording_id, saved=False)
@@ -276,17 +284,7 @@ async def test_pending_recording_claim_restores_on_failed_save(tmp_path: Path) -
 @pytest.mark.asyncio
 async def test_pending_recording_claim_honors_discard_on_failed_save(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
-    path = tmp_path / "recording-test.jsonl"
-    path.write_text('{"t_us":0}\n')
-    snapshot = RecordingSnapshot(
-        recording_id="recording-1",
-        duration_ms=0,
-        device_types=["keyboard"],
-        event_count=1,
-        spool_path=path,
-        memory_events=(),
-    )
-    recorder._pending_recordings[snapshot.recording_id] = snapshot
+    snapshot, path = _add_pending_recording_snapshot(recorder, tmp_path)
 
     await recorder.claim_pending_recording(snapshot.recording_id)
     await recorder.discard_pending_recording(snapshot.recording_id)
@@ -329,31 +327,20 @@ async def test_recording_spool_finish_cleans_spool_file_on_fatal_error(
 @pytest.mark.asyncio
 async def test_recording_manager_discards_expired_pending_recordings(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
-    expired_path = tmp_path / "recording-expired.jsonl"
-    fresh_path = tmp_path / "recording-fresh.jsonl"
-    expired_path.write_text('{"t_us":0}\n', encoding="utf-8")
-    fresh_path.write_text('{"t_us":1}\n', encoding="utf-8")
-    expired = RecordingSnapshot(
+    expired, expired_path = _add_pending_recording_snapshot(
+        recorder,
+        tmp_path,
         recording_id="expired",
-        duration_ms=0,
         device_types=[],
-        event_count=1,
-        spool_path=expired_path,
-        memory_events=(),
     )
-    fresh = RecordingSnapshot(
+    fresh, fresh_path = _add_pending_recording_snapshot(
+        recorder,
+        tmp_path,
         recording_id="fresh",
-        duration_ms=0,
+        t_us=1,
         device_types=[],
-        event_count=1,
-        spool_path=fresh_path,
-        memory_events=(),
     )
     now = asyncio.get_running_loop().time()
-    recorder._pending_recordings = {
-        expired.recording_id: expired,
-        fresh.recording_id: fresh,
-    }
     recorder._pending_recording_created_at = {
         expired.recording_id: now - 10,
         fresh.recording_id: now,
@@ -372,18 +359,13 @@ async def test_expired_pending_recording_claim_survives_pending_cleanup(
     tmp_path: Path,
 ) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
-    path = tmp_path / "recording-claimed.jsonl"
-    path.write_text('{"t_us":0}\n', encoding="utf-8")
-    snapshot = RecordingSnapshot(
+    snapshot, path = _add_pending_recording_snapshot(
+        recorder,
+        tmp_path,
         recording_id="claimed",
-        duration_ms=0,
         device_types=[],
-        event_count=1,
-        spool_path=path,
-        memory_events=(),
     )
     now = asyncio.get_running_loop().time()
-    recorder._pending_recordings[snapshot.recording_id] = snapshot
     recorder._pending_recording_created_at[snapshot.recording_id] = now - 10
 
     claimed = await recorder.claim_pending_recording(snapshot.recording_id)
@@ -400,18 +382,13 @@ async def test_expired_pending_recording_claim_survives_pending_cleanup(
 @pytest.mark.asyncio
 async def test_recording_manager_discards_expired_claimed_recordings(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
-    path = tmp_path / "recording-claimed.jsonl"
-    path.write_text('{"t_us":0}\n', encoding="utf-8")
-    snapshot = RecordingSnapshot(
+    snapshot, path = _add_pending_recording_snapshot(
+        recorder,
+        tmp_path,
         recording_id="claimed",
-        duration_ms=0,
         device_types=[],
-        event_count=1,
-        spool_path=path,
-        memory_events=(),
     )
     now = asyncio.get_running_loop().time()
-    recorder._pending_recordings[snapshot.recording_id] = snapshot
     recorder._pending_recording_created_at[snapshot.recording_id] = now - 10
 
     await recorder.claim_pending_recording(snapshot.recording_id)

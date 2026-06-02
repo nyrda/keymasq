@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 
 import gi
@@ -9,12 +10,51 @@ from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 from keymasq.common.models import analog_gamepad_output_distance
 
 
+@dataclass(frozen=True, slots=True)
+class AnalogCurveTuning:
+    default: float
+    lower: float
+    upper: float
+    step: float
+    page_step: float
+    digits: int
+
+    def clamp(self, value: float) -> float:
+        return max(self.lower, min(self.upper, float(value)))
+
+
+ANALOG_CURVE_DEADZONE = AnalogCurveTuning(
+    default=0.0,
+    lower=0.0,
+    upper=0.95,
+    step=0.01,
+    page_step=0.05,
+    digits=2,
+)
+ANALOG_CURVE_SENSITIVITY = AnalogCurveTuning(
+    default=1.0,
+    lower=0.1,
+    upper=2.0,
+    step=0.05,
+    page_step=0.25,
+    digits=2,
+)
+ANALOG_CURVE_RESPONSE_CURVE = AnalogCurveTuning(
+    default=1.0,
+    lower=0.25,
+    upper=4.0,
+    step=0.05,
+    page_step=0.25,
+    digits=2,
+)
+
+
 class AnalogCurveGraph(Gtk.DrawingArea):
     def __init__(self) -> None:
         super().__init__()
-        self._deadzone = 0.0
-        self._sensitivity = 1.0
-        self._response_curve = 1.0
+        self._deadzone = ANALOG_CURVE_DEADZONE.default
+        self._sensitivity = ANALOG_CURVE_SENSITIVITY.default
+        self._response_curve = ANALOG_CURVE_RESPONSE_CURVE.default
         self.set_content_width(260)
         self.set_content_height(160)
         self.set_hexpand(True)
@@ -27,9 +67,9 @@ class AnalogCurveGraph(Gtk.DrawingArea):
         sensitivity: float,
         response_curve: float,
     ) -> None:
-        self._deadzone = max(0.0, min(0.95, float(deadzone)))
-        self._sensitivity = max(0.1, min(2.0, float(sensitivity)))
-        self._response_curve = max(0.25, min(4.0, float(response_curve)))
+        self._deadzone = ANALOG_CURVE_DEADZONE.clamp(deadzone)
+        self._sensitivity = ANALOG_CURVE_SENSITIVITY.clamp(sensitivity)
+        self._response_curve = ANALOG_CURVE_RESPONSE_CURVE.clamp(response_curve)
         self.queue_draw()
 
     def _output_for_input(self, value: float) -> float:

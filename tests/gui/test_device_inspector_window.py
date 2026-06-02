@@ -1,20 +1,9 @@
-# ruff: noqa: F403, F405
-from tests.gui.support import *
+import pytest
 
+from tests.gui.support import collect_child_widgets
+
+gi = pytest.importorskip("gi")
 gi.require_version("Gtk", "4.0")
-
-
-def test_inspector_label_sort_key_orders_trailing_numbers_numerically() -> None:
-    from keymasq.gui.widgets.device_inspector_window import _label_sort_key
-
-    labels = ["Extra Button 1", "Extra Button 10", "Extra Button 2", "Back"]
-
-    assert sorted(labels, key=_label_sort_key) == [
-        "Back",
-        "Extra Button 1",
-        "Extra Button 2",
-        "Extra Button 10",
-    ]
 
 
 def test_inspector_keeps_many_keyboard_backed_mouse_buttons_in_mouse_layout() -> None:
@@ -114,16 +103,11 @@ def test_inspector_keeps_many_keyboard_backed_mouse_buttons_in_mouse_layout() ->
 
     window._render_mapping(snapshot)
 
-    section_titles: list[str] = []
-    child = window._mapping_box.get_first_child()
-    while child is not None:
-        if (
-            isinstance(child, Gtk.Label)
-            and child.has_css_class("button-section-title")
-            and child.get_text() != "Resolved Mapping"
-        ):
-            section_titles.append(child.get_text())
-        child = child.get_next_sibling()
+    section_titles = [
+        label.get_text()
+        for label in collect_child_widgets(window._mapping_box, Gtk.Label)
+        if label.has_css_class("button-section-title") and label.get_text() != "Resolved Mapping"
+    ]
 
     assert section_titles == ["Extra Buttons", "Main Buttons", "Scroll", "Side Buttons"]
     assert "key_extra_14" in window._control_widgets

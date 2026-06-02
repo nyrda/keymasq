@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from keymasq.session.dbus import SessionDBus
+from keymasq.session.listeners._socket_helpers import runtime_dir, unix_socket_connectable
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 
 log = logging.getLogger("keymasq-session.listeners.hyprland")
@@ -32,21 +33,11 @@ class HyprlandListener(WindowListener):
 
     @classmethod
     def _runtime_dir(cls) -> Path:
-        env_dir = os.environ.get("XDG_RUNTIME_DIR")
-        if env_dir:
-            return Path(env_dir)
-        return Path(f"/run/user/{os.getuid()}")
+        return runtime_dir()
 
     @classmethod
     async def _connectable(cls, path: Path, timeout_s: float = 0.2) -> bool:
-        try:
-            connect_coro = asyncio.open_unix_connection(path=str(path))
-            _reader, writer = await asyncio.wait_for(connect_coro, timeout=timeout_s)
-            writer.close()
-            await writer.wait_closed()
-            return True
-        except Exception:
-            return False
+        return await unix_socket_connectable(path, timeout_s=timeout_s)
 
     @classmethod
     async def _resolve_socket_paths(cls) -> tuple[str | None, str | None]:

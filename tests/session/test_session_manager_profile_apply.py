@@ -1,7 +1,24 @@
-# ruff: noqa: F403, F405, I001
 import logging
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
-from tests.session.profile_support import *
+import pytest
+
+import keymasq.session.manager as session_manager_module
+import keymasq.session.manager.payloads as session_payloads_module
+import keymasq.session.manager.profiles as session_profiles_module
+from keymasq.common.ipc import CommandType, Response
+from keymasq.common.models import (
+    ActionType,
+    ComboEvent,
+    ComboStep,
+    DeviceProfileLayer,
+    MappingAction,
+    ProfileConfig,
+)
+from keymasq.session.manager import SessionManager
+from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile, ResolvedProfiles
+
 
 @pytest.mark.asyncio
 async def test_reevaluate_profiles_skips_unchanged_mapping_and_combos() -> None:
@@ -254,7 +271,9 @@ def test_grab_device_payload_signature_normalizes_interface_capability_order() -
 
 
 @pytest.mark.asyncio
-async def test_apply_resolved_device_profile_retries_after_grab_timeout() -> None:
+async def test_apply_resolved_device_profile_retries_after_grab_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"
     resolved = ResolvedDeviceProfile(
@@ -271,13 +290,9 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout() -> Non
     manager.client.send_command = AsyncMock(side_effect=TimeoutError())
     manager.send_notification = Mock()  # type: ignore[method-assign]
     schedule_grab_retry = Mock()
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(session_profiles_module, "schedule_grab_retry", schedule_grab_retry)
 
-    try:
-        await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
-    finally:
-        monkeypatch.undo()
+    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
         "Keymasq: Grab Timed Out",
@@ -501,6 +516,7 @@ async def test_apply_resolved_device_profile_does_not_grab_empty_interface_selec
 @pytest.mark.asyncio
 async def test_apply_resolved_device_profile_skips_same_interface_noop_without_mapping_log(
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"
@@ -537,19 +553,15 @@ async def test_apply_resolved_device_profile_skips_same_interface_noop_without_m
     ] = session_payloads_module.resolved_mapping_signature(manager, resolved, hardware_id)
     update_mapping = AsyncMock(return_value=True)
     maybe_notify = Mock()
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(session_profiles_module, "update_mapping", update_mapping)
     monkeypatch.setattr(session_profiles_module, "maybe_notify_profile_activation", maybe_notify)
 
-    try:
-        with caplog.at_level("INFO", logger="keymasq-session"):
-            await session_profiles_module.apply_resolved_device_profile(
-                manager,
-                hardware_id,
-                resolved,
-            )
-    finally:
-        monkeypatch.undo()
+    with caplog.at_level("INFO", logger="keymasq-session"):
+        await session_profiles_module.apply_resolved_device_profile(
+            manager,
+            hardware_id,
+            resolved,
+        )
 
     update_mapping.assert_not_awaited()
     maybe_notify.assert_called_once_with(manager, "Test Mouse", ["Desktop"], resolved)
@@ -559,6 +571,7 @@ async def test_apply_resolved_device_profile_skips_same_interface_noop_without_m
 @pytest.mark.asyncio
 async def test_apply_resolved_device_profile_skips_profile_only_change_without_mapping_log(
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"
@@ -596,19 +609,15 @@ async def test_apply_resolved_device_profile_skips_profile_only_change_without_m
     ] = session_payloads_module.resolved_mapping_signature(manager, resolved, hardware_id)
     update_mapping = AsyncMock(return_value=True)
     maybe_notify = Mock()
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(session_profiles_module, "update_mapping", update_mapping)
     monkeypatch.setattr(session_profiles_module, "maybe_notify_profile_activation", maybe_notify)
 
-    try:
-        with caplog.at_level("INFO", logger="keymasq-session"):
-            await session_profiles_module.apply_resolved_device_profile(
-                manager,
-                hardware_id,
-                resolved,
-            )
-    finally:
-        monkeypatch.undo()
+    with caplog.at_level("INFO", logger="keymasq-session"):
+        await session_profiles_module.apply_resolved_device_profile(
+            manager,
+            hardware_id,
+            resolved,
+        )
 
     update_mapping.assert_not_awaited()
     maybe_notify.assert_called_once_with(manager, "Test Mouse", ["Desktop"], resolved)

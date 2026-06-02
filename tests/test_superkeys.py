@@ -38,6 +38,28 @@ def _parse_manager() -> object:
     )
 
 
+def _ignore_superkey_action(*_args: object, **_kwargs: object) -> None:
+    return None
+
+
+def _parse_runtime_superkey_payload(
+    payload: object,
+    *,
+    superkey_action_parser=_ignore_superkey_action,
+):
+    return parse_superkey_config(
+        _parse_manager(),
+        payload,
+        json_object=lambda value: value if isinstance(value, dict) else None,
+        str_value=lambda value, default="": default if value is None else str(value),
+        optional_str=lambda value: None if value is None else str(value),
+        int_value=lambda value, default=0: default if value is None else int(value),
+        int_or_none=lambda value: None if value is None else int(value),
+        float_value=lambda value, default=0.0: default if value is None else float(value),
+        parse_superkey_action=superkey_action_parser,
+    )
+
+
 def _pattern_superkey(name: str, target: str = "key_a") -> SuperkeyConfig:
     return SuperkeyConfig(
         name=name,
@@ -462,17 +484,7 @@ def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
     )
 
     payload = serialize_superkey(manager, config, "1234:5678")
-    parsed = parse_superkey_config(
-        _parse_manager(),
-        payload,
-        json_object=lambda value: value if isinstance(value, dict) else None,
-        str_value=lambda value, default="": default if value is None else str(value),
-        optional_str=lambda value: None if value is None else str(value),
-        int_value=lambda value, default=0: default if value is None else int(value),
-        int_or_none=lambda value: None if value is None else int(value),
-        float_value=lambda value, default=0.0: default if value is None else float(value),
-        parse_superkey_action=lambda *_args, **_kwargs: None,
-    )
+    parsed = _parse_runtime_superkey_payload(payload)
 
     assert parsed.mode == SuperkeyMode.OVERLOAD
     assert [action.action_type for action in parsed.overload_actions] == [
@@ -507,17 +519,7 @@ def test_superkey_runtime_payload_round_trips_split_overload_actions() -> None:
     )
 
     payload = serialize_superkey(manager, config, "1234:5678")
-    parsed = parse_superkey_config(
-        _parse_manager(),
-        payload,
-        json_object=lambda value: value if isinstance(value, dict) else None,
-        str_value=lambda value, default="": default if value is None else str(value),
-        optional_str=lambda value: None if value is None else str(value),
-        int_value=lambda value, default=0: default if value is None else int(value),
-        int_or_none=lambda value: None if value is None else int(value),
-        float_value=lambda value, default=0.0: default if value is None else float(value),
-        parse_superkey_action=lambda *_args, **_kwargs: None,
-    )
+    parsed = _parse_runtime_superkey_payload(payload)
 
     assert parsed.mode == SuperkeyMode.OVERLOAD
     assert [action.target for action in parsed.overload_actions] == ["key_leftctrl"]
@@ -637,92 +639,51 @@ def test_clear_combo_exec_refs_clears_combo_owned_exec_refs() -> None:
 
 def test_superkey_runtime_payload_requires_explicit_mode() -> None:
     with pytest.raises(TypeError, match="include a mode"):
-        parse_superkey_config(
-            _parse_manager(),
-            {"name": "missing_mode"},
-            json_object=lambda value: value if isinstance(value, dict) else None,
-            str_value=lambda value, default="": default if value is None else str(value),
-            optional_str=lambda value: None if value is None else str(value),
-            int_value=lambda value, default=0: default if value is None else int(value),
-            int_or_none=lambda value: None if value is None else int(value),
-            float_value=lambda value, default=0.0: default if value is None else float(value),
-            parse_superkey_action=lambda *_args, **_kwargs: None,
-        )
+        _parse_runtime_superkey_payload({"name": "missing_mode"})
 
 
 def test_superkey_runtime_payload_requires_bundle_lists() -> None:
     with pytest.raises(TypeError, match="must be a list"):
-        parse_superkey_config(
-            _parse_manager(),
+        _parse_runtime_superkey_payload(
             {
                 "name": "bad_bundle",
                 "mode": "pattern",
                 "tap_actions": {"action": "keyboard", "target": "key_a"},
-            },
-            json_object=lambda value: value if isinstance(value, dict) else None,
-            str_value=lambda value, default="": default if value is None else str(value),
-            optional_str=lambda value: None if value is None else str(value),
-            int_value=lambda value, default=0: default if value is None else int(value),
-            int_or_none=lambda value: None if value is None else int(value),
-            float_value=lambda value, default=0.0: default if value is None else float(value),
-            parse_superkey_action=lambda *_args, **_kwargs: None,
+            }
         )
 
 
 def test_superkey_runtime_payload_rejects_nested_pattern_superkey() -> None:
     with pytest.raises(ValueError, match="nested superkeys are not allowed"):
-        parse_superkey_config(
-            _parse_manager(),
+        _parse_runtime_superkey_payload(
             {
                 "name": "bad_pattern_nested",
                 "mode": "pattern",
                 "tap_actions": [{"action": "superkey", "superkey_name": "other"}],
             },
-            json_object=lambda value: value if isinstance(value, dict) else None,
-            str_value=lambda value, default="": default if value is None else str(value),
-            optional_str=lambda value: None if value is None else str(value),
-            int_value=lambda value, default=0: default if value is None else int(value),
-            int_or_none=lambda value: None if value is None else int(value),
-            float_value=lambda value, default=0.0: default if value is None else float(value),
-            parse_superkey_action=parse_superkey_action,
+            superkey_action_parser=parse_superkey_action,
         )
 
 
 def test_superkey_runtime_payload_rejects_nested_overload_superkey() -> None:
     with pytest.raises(ValueError, match="nested superkeys are not allowed"):
-        parse_superkey_config(
-            _parse_manager(),
+        _parse_runtime_superkey_payload(
             {
                 "name": "bad_overload_nested",
                 "mode": "overload",
                 "overload_actions": [{"action": "superkey", "superkey_name": "other"}],
-            },
-            json_object=lambda value: value if isinstance(value, dict) else None,
-            str_value=lambda value, default="": default if value is None else str(value),
-            optional_str=lambda value: None if value is None else str(value),
-            int_value=lambda value, default=0: default if value is None else int(value),
-            int_or_none=lambda value: None if value is None else int(value),
-            float_value=lambda value, default=0.0: default if value is None else float(value),
-            parse_superkey_action=lambda *_args, **_kwargs: None,
+            }
         )
 
 
 def test_superkey_runtime_payload_rejects_repeat_overload_superkey() -> None:
     with pytest.raises(ValueError, match="repeat is not allowed inside overload superkeys"):
-        parse_superkey_config(
-            _parse_manager(),
+        _parse_runtime_superkey_payload(
             {
                 "name": "bad_overload_repeat",
                 "mode": "overload",
                 "overload_actions": [{"action": "repeat"}],
-            },
-            json_object=lambda value: value if isinstance(value, dict) else None,
-            str_value=lambda value, default="": default if value is None else str(value),
-            optional_str=lambda value: None if value is None else str(value),
-            int_value=lambda value, default=0: default if value is None else int(value),
-            int_or_none=lambda value: None if value is None else int(value),
-            float_value=lambda value, default=0.0: default if value is None else float(value),
-            parse_superkey_action=lambda *_args, **_kwargs: None,
+            }
         )
 
 

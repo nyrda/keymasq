@@ -1,5 +1,6 @@
-# ruff: noqa: F403, F405, I001
-from tests.gui.support import *
+import pytest
+
+gi = pytest.importorskip("gi")
 
 
 def test_settings_dialog_constructs(monkeypatch, temp_config_dir) -> None:

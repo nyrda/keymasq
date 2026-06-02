@@ -444,57 +444,33 @@ class HardwareSetupDialog(Adw.Dialog):
         box.append(mode_row)
         self.mode_row = mode_row
 
-        self.keyboard_mode_info = Gtk.Label(
-            label="Keyboard template creates a full standard keyboard hardware profile."
-        )
-        self.keyboard_mode_info.add_css_class("dim-label")
-        self.keyboard_mode_info.set_wrap(True)
-        self.keyboard_mode_info.set_halign(Gtk.Align.START)
-        box.append(self.keyboard_mode_info)
+        def add_mode_info_label(label: str) -> Gtk.Label:
+            info_label = Gtk.Label(label=label)
+            info_label.add_css_class("dim-label")
+            info_label.set_wrap(True)
+            info_label.set_halign(Gtk.Align.START)
+            box.append(info_label)
+            return info_label
 
-        self.mouse_mode_info = Gtk.Label(
-            label=(
-                "Mouse template creates standard mouse buttons and scroll wheel directions."
-            )
+        self.keyboard_mode_info = add_mode_info_label(
+            "Keyboard template creates a full standard keyboard hardware profile."
         )
-        self.mouse_mode_info.add_css_class("dim-label")
-        self.mouse_mode_info.set_wrap(True)
-        self.mouse_mode_info.set_halign(Gtk.Align.START)
-        box.append(self.mouse_mode_info)
-
-        self.mouse_keyboard_mode_info = Gtk.Label(
-            label=(
-                "Mouse + Keyboard template creates a full standard keyboard profile plus a "
-                "standard mouse with scroll wheel directions."
-            )
+        self.mouse_mode_info = add_mode_info_label(
+            "Mouse template creates standard mouse buttons and scroll wheel directions."
         )
-        self.mouse_keyboard_mode_info.add_css_class("dim-label")
-        self.mouse_keyboard_mode_info.set_wrap(True)
-        self.mouse_keyboard_mode_info.set_halign(Gtk.Align.START)
-        box.append(self.mouse_keyboard_mode_info)
-
-        self.gamepad_mode_info = Gtk.Label(
-            label=(
-                "Gamepad template includes detected digital buttons and standard stick "
-                "inputs. Use Learn Analog from the device tab to add triggers or other "
-                "analog axes."
-            )
+        self.mouse_keyboard_mode_info = add_mode_info_label(
+            "Mouse + Keyboard template creates a full standard keyboard profile plus a "
+            "standard mouse with scroll wheel directions."
         )
-        self.gamepad_mode_info.add_css_class("dim-label")
-        self.gamepad_mode_info.set_wrap(True)
-        self.gamepad_mode_info.set_halign(Gtk.Align.START)
-        box.append(self.gamepad_mode_info)
-
-        self.custom_mode_info = Gtk.Label(
-            label=(
-                "Custom profile saves the selected raw evdev interface without preset "
-                "buttons. Add controls later with Learn Buttons."
-            )
+        self.gamepad_mode_info = add_mode_info_label(
+            "Gamepad template includes detected digital buttons and standard stick "
+            "inputs. Use Learn Analog from the device tab to add triggers or other "
+            "analog axes."
         )
-        self.custom_mode_info.add_css_class("dim-label")
-        self.custom_mode_info.set_wrap(True)
-        self.custom_mode_info.set_halign(Gtk.Align.START)
-        box.append(self.custom_mode_info)
+        self.custom_mode_info = add_mode_info_label(
+            "Custom profile saves the selected raw evdev interface without preset "
+            "buttons. Add controls later with Learn Buttons."
+        )
 
         self.stack.add_titled(box, "describe", "Describe Device")
 

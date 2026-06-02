@@ -209,14 +209,20 @@ class _ConnectFailingSocket:
         self.closed = True
 
 
-def _install_fake_glib(monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_fake_glib(
+    monkeypatch: pytest.MonkeyPatch,
+    idle_add: Callable[..., bool] | None = None,
+) -> types.ModuleType:
     glib_module = types.ModuleType("GLib")
 
-    def _idle_add(callback: Callable[..., Any], *args: Any) -> bool:
-        callback(*args)
-        return True
+    if idle_add is None:
+        def _idle_add(callback: Callable[..., Any], *args: Any) -> bool:
+            callback(*args)
+            return True
 
-    glib_module.idle_add = _idle_add
+        idle_add = _idle_add
+
+    glib_module.idle_add = idle_add
 
     repository_module = types.ModuleType("repository")
     repository_module.GLib = glib_module
@@ -226,6 +232,7 @@ def _install_fake_glib(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "gi", gi_module)
     monkeypatch.setitem(sys.modules, "gi.repository", repository_module)
     monkeypatch.setitem(sys.modules, "gi.repository.GLib", glib_module)
+    return glib_module
 
 
 def test_persistent_session_dispatch_event_callback_fallback(
@@ -245,21 +252,13 @@ def test_persistent_session_dispatch_event_callback_fallback(
 def test_persistent_session_dispatch_event_callback_is_one_shot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    glib_module = types.ModuleType("GLib")
     idle_returns: list[bool] = []
 
     def _idle_add(callback: Callable[..., Any], *args: Any) -> bool:
         idle_returns.append(bool(callback(*args)))
         return True
 
-    glib_module.idle_add = _idle_add
-    repository_module = types.ModuleType("repository")
-    repository_module.GLib = glib_module
-    gi_module = types.ModuleType("gi")
-    gi_module.repository = repository_module
-    monkeypatch.setitem(sys.modules, "gi", gi_module)
-    monkeypatch.setitem(sys.modules, "gi.repository", repository_module)
-    monkeypatch.setitem(sys.modules, "gi.repository.GLib", glib_module)
+    _install_fake_glib(monkeypatch, idle_add=_idle_add)
 
     connection = gui_session_client._PersistentSessionConnection()
     calls: list[dict[str, Any]] = []

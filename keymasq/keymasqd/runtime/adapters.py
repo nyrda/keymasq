@@ -77,6 +77,17 @@ def identity_uinput_writer(device: object | None) -> WritableUInput | None:
     return cast(WritableUInput | None, device)
 
 
+def close_device(device: object) -> None:
+    """Close evdev-style devices synchronously; this is intended as fd-close cleanup."""
+    close = getattr(device, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception:
+        pass
+
+
 class _ComboEcodesByType(Mapping[int, Mapping[int, object]]):
     def __getitem__(self, key: int) -> Mapping[int, object]:
         return cast(Mapping[int, object], evdev.ecodes.bytype[int(key)])

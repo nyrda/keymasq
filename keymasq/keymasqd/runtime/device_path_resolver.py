@@ -18,6 +18,7 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.models import DeviceType
+from keymasq.keymasqd.runtime.adapters import close_device
 
 log = logging.getLogger("keymasqd.device_path_resolver")
 type JsonObject = dict[str, object]
@@ -114,7 +115,7 @@ class DeviceCache:
                 continue
             finally:
                 if device is not None:
-                    _close_device(device)
+                    close_device(device)
 
         with self._lock:
             self._devices.clear()
@@ -393,7 +394,7 @@ def _probe_cached_device(
         return None
     finally:
         if device is not None:
-            _close_device(device)
+            close_device(device)
 
 
 def _is_excluded_path(
@@ -432,16 +433,6 @@ def _numbered_hardware_instance_index(
         return None
 
     return int(instance_text) - 1
-
-
-def _close_device(device: object) -> None:
-    close = getattr(device, "close", None)
-    if not callable(close):
-        return
-    try:
-        close()
-    except Exception:
-        pass
 
 
 def _is_keymasq_virtual_device(device: object) -> bool:

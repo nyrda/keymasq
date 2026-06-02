@@ -1,141 +1,67 @@
 import asyncio
-import socket
-import struct
 from pathlib import Path
 
+from keymasq.session.wayland_protocols import client_transport as _transport
 
-def _decode_registry_interface(payload: bytes) -> str | None:
-    name_len = struct.unpack_from("<I", payload, 4)[0]
-    cursor = 8
-    if cursor + name_len > len(payload):
-        return None
 
-    raw = payload[cursor : cursor + name_len]
-    if raw.endswith(b"\x00"):
-        raw = raw[:-1]
-    interface_name = raw.decode("utf-8", errors="replace")
-    return interface_name or None
+class _RegistryProbeTransport(_transport.WaylandClientTransport):
+    def __init__(self, socket_path: Path) -> None:
+        super().__init__(str(socket_path))
+        self._globals_found: set[str] = set()
+
+    async def collect(self, timeout_s: float) -> set[str]:
+        try:
+            await self._connect_and_request_registry()
+            sync_id = await self._request_sync()
+            await self._pump_until_sync(sync_id, timeout=timeout_s)
+        finally:
+            self._close_socket()
+        return set(self._globals_found)
+
+    def _check_required_globals(self) -> None:
+        pass
+
+    async def _handle_registry_event(self, object_id: int, opcode: int, payload: bytes) -> None:
+        try:
+            await super()._handle_registry_event(object_id, opcode, payload)
+        except Exception:
+            return
+
+    async def _handle_registry_global(
+        self,
+        registry_id: int,
+        global_name: int,
+        interface_name: str,
+        version: int,
+    ) -> None:
+        del registry_id, global_name, version
+        if interface_name:
+            self._globals_found.add(interface_name)
+
+    async def _dispatch_protocol_event(
+        self,
+        interface: str,
+        object_id: int,
+        opcode: int,
+        payload: bytes,
+    ) -> None:
+        del interface, object_id, opcode, payload
 
 
 def list_registry_globals_sync(socket_path: Path, timeout_s: float = 0.6) -> set[str]:
-    registry_id = 2
-    callback_id = 3
-    globals_found: set[str] = set()
-
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(timeout_s)
     try:
-        sock.connect(str(socket_path))
-
-        def _send_request(object_id: int, opcode: int, payload: bytes) -> None:
-            size = 8 + len(payload)
-            header = struct.pack("<II", int(object_id), ((size & 0xFFFF) << 16) | (opcode & 0xFFFF))
-            sock.sendall(header + payload)
-
-        _send_request(1, 1, struct.pack("<I", registry_id))
-        _send_request(1, 0, struct.pack("<I", callback_id))
-
-        buffer = bytearray()
-        done = False
-        while not done:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            buffer.extend(chunk)
-
-            while len(buffer) >= 8:
-                object_id, size_opcode = struct.unpack_from("<II", buffer, 0)
-                size = size_opcode >> 16
-                opcode = size_opcode & 0xFFFF
-                if size < 8 or len(buffer) < size:
-                    break
-
-                payload = bytes(buffer[8:size])
-                del buffer[:size]
-
-                if object_id == registry_id and opcode == 0:
-                    try:
-                        interface_name = _decode_registry_interface(payload)
-                        if interface_name:
-                            globals_found.add(interface_name)
-                    except Exception:
-                        pass
-                elif object_id == callback_id and opcode == 0:
-                    done = True
-                    break
-    except Exception:
-        return set()
-    finally:
-        try:
-            sock.close()
-        except Exception:
-            pass
-
-    return globals_found
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(list_registry_globals(socket_path, timeout_s=timeout_s))
+    raise RuntimeError(
+        "list_registry_globals_sync cannot be called from a running event loop; "
+        "use await list_registry_globals(...)"
+    )
 
 
 async def list_registry_globals(socket_path: Path, timeout_s: float = 0.6) -> set[str]:
-    registry_id = 2
-    callback_id = 3
-    globals_found: set[str] = set()
-
+    transport = _RegistryProbeTransport(socket_path)
     try:
-        connect_coro = asyncio.open_unix_connection(path=str(socket_path))
-        reader, writer = await asyncio.wait_for(connect_coro, timeout=timeout_s)
+        return await asyncio.wait_for(transport.collect(timeout_s), timeout=timeout_s)
     except Exception:
         return set()
-
-    try:
-
-        def _build_request(object_id: int, opcode: int, payload: bytes) -> bytes:
-            size = 8 + len(payload)
-            header = struct.pack(
-                "<II",
-                int(object_id),
-                ((size & 0xFFFF) << 16) | (opcode & 0xFFFF),
-            )
-            return header + payload
-
-        writer.write(_build_request(1, 1, struct.pack("<I", registry_id)))
-        writer.write(_build_request(1, 0, struct.pack("<I", callback_id)))
-        await writer.drain()
-
-        buffer = bytearray()
-        done = False
-        while not done:
-            try:
-                chunk = await asyncio.wait_for(reader.read(4096), timeout=timeout_s)
-            except Exception:
-                break
-            if not chunk:
-                break
-            buffer.extend(chunk)
-
-            while len(buffer) >= 8:
-                object_id, size_opcode = struct.unpack_from("<II", buffer, 0)
-                size = size_opcode >> 16
-                opcode = size_opcode & 0xFFFF
-                if size < 8 or len(buffer) < size:
-                    break
-
-                payload = bytes(buffer[8:size])
-                del buffer[:size]
-
-                if object_id == registry_id and opcode == 0:
-                    try:
-                        interface_name = _decode_registry_interface(payload)
-                        if interface_name:
-                            globals_found.add(interface_name)
-                    except Exception:
-                        pass
-                elif object_id == callback_id and opcode == 0:
-                    done = True
-                    break
-    finally:
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except Exception:
-            pass
-
-    return globals_found

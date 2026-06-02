@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import os
 import pwd
 import sys
@@ -42,7 +43,7 @@ def _require_privileged_caller() -> int:
 
 def _authorize_target_uid(target_uid: int, caller_euid: int | None) -> None:
     pkexec_uid = os.environ.get("PKEXEC_UID", "").strip()
-    if pkexec_uid:
+    if caller_euid == 0 and pkexec_uid:
         try:
             authorized_uid = int(pkexec_uid)
         except ValueError as exc:
@@ -61,25 +62,32 @@ def _runtime_expires_at(ttl: int) -> int:
     ttl = int(ttl)
     if ttl < 1:
         raise ValueError("runtime ttl must be at least 1 second")
-    return int(time.time()) + ttl
+    return math.ceil(time.time() + ttl)
 
 
-def _write_lease(path: Path, expires_at: int) -> None:
-    owner_uid = None
-    owner_gid = None
+def _write_lease(path: Path, expires_at: int, target_uid: int) -> None:
+    owner_uid = os.geteuid()
+    owner_gid = os.getegid()
+    target_gid = owner_gid
     try:
         keymasq_user = pwd.getpwnam("keymasq")
         owner_uid = keymasq_user.pw_uid
         owner_gid = keymasq_user.pw_gid
     except KeyError:
-        pass
+        if owner_uid == 0:
+            owner_gid = 0
+
+    try:
+        target_gid = pwd.getpwuid(int(target_uid)).pw_gid
+    except KeyError:
+        target_gid = owner_gid
 
     write_unlock_expires_at(
         path,
         expires_at,
         owner_uid=owner_uid,
-        owner_gid=owner_gid,
-        mode=0o644,
+        owner_gid=target_gid,
+        mode=0o440,
     )
 
 
@@ -94,14 +102,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="keymasq-record")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    status_parser = subparsers.add_parser("status", help="Show unlock status")
+    status_parser = subparsers.add_parser("status", help="Show capture unlock status")
     status_parser.add_argument("--uid", type=int, required=True)
 
-    runtime_unlock_parser = subparsers.add_parser("unlock-runtime", help="Set runtime unlock")
+    runtime_unlock_parser = subparsers.add_parser(
+        "unlock-runtime",
+        help="Set runtime capture unlock",
+    )
     runtime_unlock_parser.add_argument("--uid", type=int, required=True)
     runtime_unlock_parser.add_argument("--ttl", type=int, default=900)
 
-    runtime_lock_parser = subparsers.add_parser("lock-runtime", help="Clear runtime unlock")
+    runtime_lock_parser = subparsers.add_parser(
+        "lock-runtime",
+        help="Clear runtime capture unlock",
+    )
     runtime_lock_parser.add_argument("--uid", type=int, required=True)
 
     macro_recording_status_parser = subparsers.add_parser(
@@ -138,7 +152,7 @@ def main() -> None:
 
     try:
         caller_euid = _require_privileged_caller()
-        if args.command in _MUTATING_COMMANDS:
+        if hasattr(args, "uid"):
             _authorize_target_uid(int(args.uid), caller_euid)
 
         if args.command == "status":
@@ -149,7 +163,7 @@ def main() -> None:
         if args.command == "unlock-runtime":
             runtime_path = runtime_unlock_path(args.uid)
             expires_at = _runtime_expires_at(args.ttl)
-            _write_lease(runtime_path, expires_at)
+            _write_lease(runtime_path, expires_at, args.uid)
             print(json.dumps({"status": "ok", "scope": "runtime", "expires_at": expires_at}))
             return
 
@@ -166,7 +180,7 @@ def main() -> None:
         if args.command == "enable-macro-recording-runtime":
             runtime_path = runtime_macro_recording_path(args.uid)
             expires_at = _runtime_expires_at(args.ttl)
-            _write_lease(runtime_path, expires_at)
+            _write_lease(runtime_path, expires_at, args.uid)
             print(
                 json.dumps(
                     {
@@ -179,7 +193,7 @@ def main() -> None:
             return
 
         if args.command == "enable-macro-recording-persistent":
-            _write_lease(persistent_macro_recording_path(args.uid), 0)
+            _write_lease(persistent_macro_recording_path(args.uid), 0, args.uid)
             print(
                 json.dumps(
                     {

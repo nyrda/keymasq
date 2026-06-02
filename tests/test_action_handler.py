@@ -11,6 +11,16 @@ import pytest
 from keymasq.session.action_handler import ActionHandler
 
 
+@pytest.mark.asyncio
+async def test_execute_command_returns_nonzero_code_with_non_utf8_stderr() -> None:
+    script = "import sys\nsys.stderr.buffer.write(b'\\xff')\nsys.exit(7)\n"
+    cmd = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+
+    result = await ActionHandler().execute_command(cmd)
+
+    assert result == 7
+
+
 def _process_exists(pid: int) -> bool:
     try:
         os.kill(pid, 0)

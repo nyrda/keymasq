@@ -5,6 +5,7 @@ gi.require_version("Adw", "1")
 
 import logging
 from datetime import datetime
+from typing import cast
 
 from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -319,8 +320,7 @@ class MacroManagerDialog(Adw.Dialog):
             if self._slot_dropdown is not None:
                 self._slot_dropdown.set_selected(active_slot - 1)
         self._sync_record_button_state()
-        self._macros = (macros or {}).get("macros", [])
-        self._populate_list()
+        self._apply_macros_response(macros)
         return False
 
     def _load_macros(self) -> bool:
@@ -331,9 +331,33 @@ class MacroManagerDialog(Adw.Dialog):
         return False
 
     def _on_macros_loaded(self, result: JsonDict | None) -> bool:
-        self._macros = (result or {}).get("macros", [])
-        self._populate_list()
+        self._apply_macros_response(result)
         return False
+
+    def _apply_macros_response(self, result: JsonDict | None) -> bool:
+        if not isinstance(result, dict):
+            self._show_macro_load_error("Failed to load macros")
+            return False
+
+        if result.get("status") not in (None, "ok"):
+            self._show_macro_load_error(result.get("message", "Failed to load macros"))
+            return False
+
+        macros = result.get("macros")
+        if not isinstance(macros, list):
+            self._show_macro_load_error(result.get("message", "Failed to load macros"))
+            return False
+
+        self._macros = cast(list[JsonDict], macros)
+        self._populate_list()
+        return True
+
+    def _show_macro_load_error(self, message: object) -> None:
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Load Macros")
+        dialog.set_body(str(message or "Failed to load macros"))
+        dialog.add_response("ok", "OK")
+        dialog.present(self._parent)
 
     def _populate_list(self) -> None:
         while self._listbox.get_first_child():

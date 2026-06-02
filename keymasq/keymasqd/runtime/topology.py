@@ -215,6 +215,10 @@ async def reconcile_topology_unlocked(
                 removed.append((hardware_id, device.path))
                 continue
 
+            if not live_interface_matches_desired(live_info, {hardware_id}):
+                removed.append((hardware_id, device.path))
+                continue
+
             live_path = str(getattr(live_info, "path", "") or "")
             grabbed_path = str(
                 getattr(device, "resolved_event_path", "") or device.path
@@ -236,7 +240,7 @@ def build_topology_events(
 
     for stable_path in sorted(previous.keys() - current.keys()):
         info = previous[stable_path]
-        if not hardware_id_matches_desired(info.hardware_id, desired_hardware_ids):
+        if not live_interface_matches_desired(info, desired_hardware_ids):
             continue
         events.append(
             (
@@ -250,14 +254,14 @@ def build_topology_events(
         current_info = current[stable_path]
         if not live_interface_changed(previous_info, current_info):
             continue
-        if hardware_id_matches_desired(previous_info.hardware_id, desired_hardware_ids):
+        if live_interface_matches_desired(previous_info, desired_hardware_ids):
             events.append(
                 (
                     manager._command_type.DEVICE_DISCONNECTED,
                     live_interface_payload(previous_info),
                 )
             )
-        if hardware_id_matches_desired(current_info.hardware_id, desired_hardware_ids):
+        if live_interface_matches_desired(current_info, desired_hardware_ids):
             events.append(
                 (
                     manager._command_type.DEVICE_CONNECTED,
@@ -267,7 +271,7 @@ def build_topology_events(
 
     for stable_path in sorted(current.keys() - previous.keys()):
         info = current[stable_path]
-        if not hardware_id_matches_desired(info.hardware_id, desired_hardware_ids):
+        if not live_interface_matches_desired(info, desired_hardware_ids):
             continue
         events.append(
             (
@@ -281,21 +285,56 @@ def build_topology_events(
 
 def live_interface_changed(previous_info: Any, current_info: Any) -> bool:
     return (
-        str(previous_info.path) != str(current_info.path)
+        normalize_hardware_id(previous_info.hardware_id)
+        != normalize_hardware_id(current_info.hardware_id)
+        or str(previous_info.path) != str(current_info.path)
         or str(previous_info.interface_id) != str(current_info.interface_id)
     )
 
 
-def hardware_id_matches_desired(hardware_id: str, desired_hardware_ids: set[str]) -> bool:
-    normalized = str(hardware_id or "").strip().lower()
+def normalize_hardware_id(hardware_id: object) -> str:
+    return str(hardware_id or "").strip().lower()
+
+
+def live_interface_matches_desired(info: Any, desired_hardware_ids: set[str]) -> bool:
+    return hardware_id_matches_desired(
+        info.hardware_id,
+        desired_hardware_ids,
+        interface_id=getattr(info, "interface_id", ""),
+    )
+
+
+def hardware_id_matches_desired(
+    hardware_id: str,
+    desired_hardware_ids: set[str],
+    *,
+    interface_id: str | None = None,
+) -> bool:
+    normalized = normalize_hardware_id(hardware_id)
     if not normalized:
         return False
-    if normalized in desired_hardware_ids:
-        return True
-    return any(
-        str(desired or "").strip().lower().startswith(f"{normalized}@")
-        for desired in desired_hardware_ids
-    )
+    normalized_interface = normalize_hardware_id(interface_id)
+    for desired in desired_hardware_ids:
+        desired_base, desired_interface = split_desired_hardware_id(desired)
+        if desired_base != normalized:
+            continue
+        # hardware_id_matches_desired compares parts produced by
+        # split_desired_hardware_id/normalize_hardware_id: numeric "@N" suffixes
+        # identify a device instance and intentionally wildcard the live
+        # interface, while named suffixes must match the normalized interface.
+        if not desired_interface or desired_interface.isdecimal():
+            return True
+        if desired_interface == normalized_interface:
+            return True
+    return False
+
+
+def split_desired_hardware_id(desired_hardware_id: object) -> tuple[str, str]:
+    normalized = normalize_hardware_id(desired_hardware_id)
+    desired_base, separator, desired_interface = normalized.partition("@")
+    if not separator:
+        return desired_base, ""
+    return desired_base, desired_interface
 
 
 def live_interface_payload(info: Any) -> JsonObject:

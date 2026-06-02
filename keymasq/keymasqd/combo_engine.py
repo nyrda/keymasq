@@ -322,6 +322,7 @@ class ComboEngine:
         matching_ids: list[str] = []
         repeated_ids: list[str] = []
         scoped_ids: list[str] = []
+        scoped_nonmatching_ids: list[str] = []
         for combo_id, candidate in waiting_candidates.items():
             if event.binding in candidate.pressed_bindings:
                 repeated_ids.append(combo_id)
@@ -333,6 +334,7 @@ class ComboEngine:
                 continue
             if self._step_matches_scope(candidate.current_step(), event.binding):
                 scoped_ids.append(combo_id)
+                scoped_nonmatching_ids.append(combo_id)
 
         if repeated_ids and not matching_ids:
             return ComboDecision(consume_current_event=True)
@@ -346,6 +348,9 @@ class ComboEngine:
                 passthrough_current_event=True,
                 reset_candidates=not self._candidates,
             )
+
+        for combo_id in scoped_nonmatching_ids:
+            self._candidates.pop(combo_id, None)
 
         decision = ComboDecision()
         transitions: list[ComboActionTransition] = []
@@ -444,9 +449,18 @@ class ComboEngine:
         decision = ComboDecision()
         kept: dict[str, ActiveCandidate] = {}
         matched_step_binding = False
+        dropped_before_completion = False
+        released_was_passthrough = False
         transitions: list[ComboActionTransition] = []
         for combo_id, candidate in self._candidates.items():
             if not candidate.releasing:
+                if event.binding in candidate.pressed_bindings:
+                    dropped_before_completion = True
+                    released_was_passthrough = (
+                        released_was_passthrough
+                        or self._binding_was_passed_through(candidate, event.binding)
+                    )
+                    continue
                 kept[combo_id] = candidate
                 continue
             step = candidate.current_step()
@@ -495,6 +509,14 @@ class ComboEngine:
         self._candidates = kept
         if matched_step_binding:
             decision.consume_current_event = True
+        if dropped_before_completion:
+            if released_was_passthrough:
+                decision.passthrough_current_event = True
+            else:
+                decision.consume_current_event = True
+        if decision.consume_current_event:
+            decision.passthrough_current_event = False
+        if matched_step_binding or dropped_before_completion:
             if not self._candidates:
                 decision.reset_candidates = True
             return decision

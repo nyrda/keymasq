@@ -6,6 +6,7 @@ from tests.gui.support import collect_listbox_row_labels
 pytest.importorskip("gi")
 
 
+
 class TestComboTabWidget:
     def test_combo_tab_does_not_start_active_profile_polling(self, monkeypatch):
         from keymasq.gui.widgets.combo_tab import ComboTab
@@ -201,6 +202,229 @@ class TestComboTabWidget:
 
         assert tab._selected_combos() == []
         assert tab.section_label.get_text() == "No combos in this profile."
+
+    def test_combo_tab_rejects_stale_duplicate_combo_save(self, temp_config_dir, monkeypatch):
+        from keymasq.common.models import (
+            ActionType,
+            ComboConfig,
+            ComboEvent,
+            ComboStep,
+            MappingAction,
+            ProfileConfig,
+        )
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
+
+        def combo(combo_id: str, name: str) -> ComboConfig:
+            return ComboConfig(
+                id=combo_id,
+                name=name,
+                steps=[
+                    ComboStep(
+                        events=[
+                            ComboEvent(
+                                evdev="key_s",
+                                hardware_id="1234:5678",
+                                source="kbd",
+                            )
+                        ]
+                    )
+                ],
+                action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+            )
+
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(ProfileConfig(name="Desktop"))
+
+        tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
+        tab.refresh_profiles(preferred_profile_name="Desktop", publish_selection=False)
+        assert tab._selected_profile is not None
+        errors: list[str] = []
+        monkeypatch.setattr(tab, "_show_profile_error_dialog", errors.append)
+
+        target_profile = tab._selected_profile
+        tab._on_combo_saved(None, combo("combo-1", "First"), target_profile)
+        tab._on_combo_saved(None, combo("combo-2", "Second"), target_profile)
+
+        assert [combo.id for combo in target_profile.config.combos] == ["combo-1"]
+        assert errors == ["A combo with the same trigger already exists in this profile."]
+
+    def test_combo_tab_save_uses_profile_selected_when_editor_opened(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.common.models import (
+            ActionType,
+            ComboConfig,
+            ComboEvent,
+            ComboStep,
+            MappingAction,
+            ProfileConfig,
+        )
+        import keymasq.gui.widgets.combo_tab as combo_tab_module
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
+
+        def combo(name: str) -> ComboConfig:
+            return ComboConfig(
+                id="shared-combo",
+                name=name,
+                steps=[
+                    ComboStep(
+                        events=[
+                            ComboEvent(
+                                evdev="key_s",
+                                hardware_id="1234:5678",
+                                source="kbd",
+                            )
+                        ]
+                    )
+                ],
+                action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+            )
+
+        class FakeComboEditorDialog:
+            instances = []
+
+            def __init__(
+                self,
+                _parent,
+                _combo=None,
+                profile_name=None,
+                sibling_combos=None,
+                emergency_cancel_combo_enabled=True,
+            ):
+                self.profile_name = profile_name
+                self.sibling_combos = sibling_combos
+                self.emergency_cancel_combo_enabled = emergency_cancel_combo_enabled
+                self.handlers = []
+                FakeComboEditorDialog.instances.append(self)
+
+            def connect(self, signal, callback, *user_data):
+                self.handlers.append((signal, callback, user_data))
+
+            def present(self, _parent):
+                pass
+
+        monkeypatch.setattr(combo_tab_module, "ComboEditorDialog", FakeComboEditorDialog)
+
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(ProfileConfig(name="Desktop", combos=[combo("Desktop")]))
+        profile_manager.save_profile(ProfileConfig(name="Gaming", combos=[combo("Gaming")]))
+
+        tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
+        tab.refresh_profiles(preferred_profile_name="Desktop", publish_selection=False)
+        desktop_combo = profile_manager.get_profile("Desktop").config.combos[0]
+
+        tab._open_combo_editor(desktop_combo)
+
+        dialog = FakeComboEditorDialog.instances[0]
+        assert dialog.profile_name == "Desktop"
+        assert [combo.name for combo in dialog.sibling_combos] == ["Desktop"]
+
+        tab.refresh_profiles(preferred_profile_name="Gaming", publish_selection=False)
+        signal, callback, user_data = dialog.handlers[0]
+        assert signal == "combo-saved"
+
+        callback(None, combo("Desktop Updated"), *user_data)
+
+        assert profile_manager.get_profile("Desktop").config.combos[0].name == "Desktop Updated"
+        assert profile_manager.get_profile("Gaming").config.combos[0].name == "Gaming"
+        assert tab._selected_profile.config.name == "Gaming"
+
+    def test_combo_tab_delete_uses_profile_selected_when_dialog_opened(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.common.models import (
+            ActionType,
+            ComboConfig,
+            ComboEvent,
+            ComboStep,
+            MappingAction,
+            ProfileConfig,
+        )
+        import keymasq.gui.widgets.combo_tab as combo_tab_module
+        from keymasq.gui.widgets.combo_tab import ComboTab
+        from keymasq.session.profiles import ProfileManager
+
+        def combo(name: str) -> ComboConfig:
+            return ComboConfig(
+                id="shared-combo",
+                name=name,
+                steps=[
+                    ComboStep(
+                        events=[
+                            ComboEvent(
+                                evdev="key_s",
+                                hardware_id="1234:5678",
+                                source="kbd",
+                            )
+                        ]
+                    )
+                ],
+                action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
+            )
+
+        class FakeAlertDialog:
+            instances = []
+
+            def __init__(self):
+                self.handlers = []
+                FakeAlertDialog.instances.append(self)
+
+            def set_heading(self, heading):
+                self.heading = heading
+
+            def set_body(self, body):
+                self.body = body
+
+            def add_response(self, *_args):
+                pass
+
+            def set_response_appearance(self, *_args):
+                pass
+
+            def set_default_response(self, *_args):
+                pass
+
+            def set_close_response(self, *_args):
+                pass
+
+            def connect(self, signal, callback, *user_data):
+                self.handlers.append((signal, callback, user_data))
+
+            def present(self, _parent):
+                pass
+
+        monkeypatch.setattr(combo_tab_module.Adw, "AlertDialog", FakeAlertDialog)
+
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(ProfileConfig(name="Desktop", combos=[combo("Desktop")]))
+        profile_manager.save_profile(ProfileConfig(name="Gaming", combos=[combo("Gaming")]))
+
+        tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
+        tab.refresh_profiles(preferred_profile_name="Desktop", publish_selection=False)
+
+        tab._on_delete_combo_clicked(None, "shared-combo")
+
+        dialog = FakeAlertDialog.instances[0]
+        assert dialog.heading == "Delete Combo"
+        assert "Desktop" in dialog.body
+
+        tab.refresh_profiles(preferred_profile_name="Gaming", publish_selection=False)
+        signal, callback, user_data = dialog.handlers[0]
+        assert signal == "response"
+
+        callback(dialog, "delete", *user_data)
+
+        assert profile_manager.get_profile("Desktop").config.combos == []
+        assert [combo.name for combo in profile_manager.get_profile("Gaming").config.combos] == [
+            "Gaming"
+        ]
+        assert tab._selected_profile.config.name == "Gaming"
 
     def test_combo_tab_marks_active_profile_from_session_payload(self, temp_config_dir):
         from keymasq.common.models import ProfileConfig

@@ -84,7 +84,11 @@ class RecordingManager:
         await self.discard_expired_pending_recordings()
         previous = await self.stop()
         pending_id = previous.get("pending_recording_id")
-        if isinstance(pending_id, str) and pending_id:
+        if (
+            isinstance(pending_id, str)
+            and pending_id
+            and not normalize_macro_recording_slot(previous.get("recording_slot"))
+        ):
             await self.discard_pending_recording(pending_id)
 
         self._spool = RecordingSpool(self._spool_dir)

@@ -8,6 +8,7 @@ import re
 import sys
 import tomllib
 from datetime import UTC, datetime
+from email.utils import format_datetime
 from pathlib import Path
 from types import ModuleType
 
@@ -34,7 +35,7 @@ def _release_date() -> str:
 
 def _debian_timestamp(release_date: str) -> str:
     timestamp = datetime.strptime(release_date, "%Y-%m-%d").replace(tzinfo=UTC)
-    return timestamp.strftime("%a, %d %b %Y 00:00:00 +0000")
+    return format_datetime(timestamp)
 
 
 def _current_version(root: Path) -> str:
@@ -46,9 +47,7 @@ def _current_version(root: Path) -> str:
     return version
 
 
-def _build_rules(
-    root: Path, version: str, release_date: str, current_version: str
-) -> list[RewriteRule]:
+def _build_rules(root: Path, version: str, release_date: str) -> list[RewriteRule]:
     rules = [
         *python_metadata_rules(root, version),
         rpm_metadata_rule(root, version),
@@ -59,14 +58,13 @@ def _build_rules(
         ),
         debian_changelog_upstream_version_rule(root, version),
     ]
-    if current_version != version:
-        rules.append(
-            RewriteRule(
-                root / "debian/changelog",
-                re.compile(r"(?m)^ -- nyrda <nyrda@keymasq.tools>  .+$"),
-                f" -- nyrda <nyrda@keymasq.tools>  {_debian_timestamp(release_date)}",
-            )
+    rules.append(
+        RewriteRule(
+            root / "debian/changelog",
+            re.compile(r"(?m)^ -- nyrda <nyrda@keymasq.tools>  .+$"),
+            f" -- nyrda <nyrda@keymasq.tools>  {_debian_timestamp(release_date)}",
         )
+    )
     return rules
 
 
@@ -78,7 +76,7 @@ def _rewrite_changelog(
     if current_version == version:
         return False
 
-    release_header = f"## {version}"
+    release_header = f"## {version} - {release_date}"
     release_pattern = re.compile(
         CHANGELOG_RELEASE_RE_TEMPLATE.format(version=re.escape(version))
     )
@@ -118,13 +116,9 @@ def _build_metainfo_release(version: str, release_date: str) -> str:
     )
 
 
-def _rewrite_metainfo(
-    root: Path, version: str, release_date: str, current_version: str, dry_run: bool
-) -> bool:
+def _rewrite_metainfo(root: Path, version: str, release_date: str, dry_run: bool) -> bool:
     path = root / "assets/tools.keymasq.keymasq.metainfo.xml"
     content = path.read_text(encoding="utf-8")
-    if current_version == version:
-        return False
 
     release_line = f'    <release version="{version}" date="{release_date}">'
     release_pattern = re.compile(
@@ -239,20 +233,22 @@ def main() -> int:
         parser.error("version must use the form X.Y.Z")
     release_date = str(args.release_date).strip()
     try:
-        datetime.strptime(release_date, "%Y-%m-%d")
+        parsed_release_date = datetime.strptime(release_date, "%Y-%m-%d").date()
     except ValueError as exc:
         parser.error(f"release date must use the form YYYY-MM-DD: {exc}")
+    if release_date != parsed_release_date.isoformat():
+        parser.error("release date must use the form YYYY-MM-DD")
 
     root = repo_root()
     current_version = _current_version(root)
     changed_paths = apply_rules(
         root,
-        _build_rules(root, version, release_date, current_version),
+        _build_rules(root, version, release_date),
         dry_run=args.dry_run,
     )
     if _rewrite_changelog(root, version, release_date, current_version, dry_run=args.dry_run):
         changed_paths.append(Path("CHANGELOG.md"))
-    if _rewrite_metainfo(root, version, release_date, current_version, dry_run=args.dry_run):
+    if _rewrite_metainfo(root, version, release_date, dry_run=args.dry_run):
         changed_paths.append(Path("assets/tools.keymasq.keymasq.metainfo.xml"))
     changed_paths.extend(_render_pacman_outputs(root, version, dry_run=args.dry_run))
     changed_paths = list(dict.fromkeys(changed_paths))

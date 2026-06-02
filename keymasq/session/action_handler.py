@@ -65,7 +65,8 @@ class ActionHandler:
             _, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_s)
 
             if process.returncode != 0:
-                log.warning(f"Command failed with code {process.returncode}: {stderr.decode()}")
+                stderr_text = stderr.decode(errors="replace")
+                log.warning(f"Command failed with code {process.returncode}: {stderr_text}")
             return int(process.returncode or 0)
 
         except TimeoutError:

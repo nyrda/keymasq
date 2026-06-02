@@ -3,9 +3,9 @@
 The Device Inspector is a floating read-only window for checking one configured
 device at runtime.
 
-Open it from a device tab with the inspect button. Keymasq uses the same
-recording unlock flow as macro recording and live input capture before the
-window can start, because the inspector observes original hardware events.
+Open it from a device tab with the inspect button. Keymasq uses the capture
+unlock flow before the window can start, because the inspector observes
+original hardware events.
 
 ## What It Shows
 

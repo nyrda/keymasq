@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import BinaryIO
 
 import pytest
@@ -13,6 +14,30 @@ from keymasq.common.models import (
     HardwareConfig,
 )
 from keymasq.session.hardware import HardwareManager
+
+
+def _write_minimal_hardware_config(
+    path: Path,
+    *,
+    name: str,
+    vendor_id: str = "1234",
+    product_id: str = "5678",
+) -> None:
+    path.write_text(
+        f"""
+[hardware]
+name = "{name}"
+vendor_id = "{vendor_id}"
+product_id = "{product_id}"
+
+[hardware.evdev]
+devices = []
+
+[hardware.layout]
+buttons = []
+""".strip(),
+        encoding="utf-8",
+    )
 
 
 def test_hardware_manager_loads_existing_configs(temp_config_dir) -> None:
@@ -193,6 +218,93 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
     assert manager.delete_hardware("1111:2222") is False
 
 
+def test_hardware_manager_delete_uses_loaded_noncanonical_path(temp_config_dir) -> None:
+    hardware_dir = temp_config_dir / "hardware"
+    custom_path = hardware_dir / "custom.toml"
+    _write_minimal_hardware_config(custom_path, name="Custom Mouse")
+
+    manager = HardwareManager()
+
+    assert manager.delete_hardware("1234:5678") is True
+    assert not custom_path.exists()
+    assert HardwareManager().get_hardware("1234:5678") is None
+
+
+def test_hardware_manager_save_updates_loaded_noncanonical_path(
+    temp_config_dir,
+) -> None:
+    hardware_dir = temp_config_dir / "hardware"
+    custom_path = hardware_dir / "custom.toml"
+    canonical_path = hardware_dir / "1234_5678.toml"
+    _write_minimal_hardware_config(custom_path, name="Custom Mouse")
+    manager = HardwareManager()
+    updated = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Updated Mouse",
+        evdev_devices=[],
+        buttons=[],
+    )
+
+    manager.save_hardware(updated)
+
+    assert custom_path.exists()
+    assert not canonical_path.exists()
+    assert 'name = "Updated Mouse"' in custom_path.read_text(encoding="utf-8")
+    assert sorted(path.name for path in hardware_dir.glob("*.toml")) == ["custom.toml"]
+    assert HardwareManager().get_hardware("1234:5678") == updated
+
+
+def test_hardware_manager_save_ignores_stale_cached_path(
+    temp_config_dir,
+) -> None:
+    hardware_dir = temp_config_dir / "hardware"
+    custom_path = hardware_dir / "custom.toml"
+    canonical_path = hardware_dir / "1234_5678.toml"
+    _write_minimal_hardware_config(custom_path, name="Custom Mouse")
+    manager = HardwareManager()
+    _write_minimal_hardware_config(
+        custom_path,
+        name="Other Device",
+        vendor_id="9999",
+        product_id="0001",
+    )
+    updated = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Updated Mouse",
+        evdev_devices=[],
+        buttons=[],
+    )
+
+    manager.save_hardware(updated)
+
+    assert 'name = "Other Device"' in custom_path.read_text(encoding="utf-8")
+    assert 'name = "Updated Mouse"' in canonical_path.read_text(encoding="utf-8")
+    assert HardwareManager().get_hardware("1234:5678") == updated
+    assert HardwareManager().get_hardware("9999:0001") is not None
+
+
+def test_hardware_manager_delete_ignores_stale_cached_path(
+    temp_config_dir,
+) -> None:
+    hardware_dir = temp_config_dir / "hardware"
+    custom_path = hardware_dir / "custom.toml"
+    _write_minimal_hardware_config(custom_path, name="Custom Mouse")
+    manager = HardwareManager()
+    _write_minimal_hardware_config(
+        custom_path,
+        name="Other Device",
+        vendor_id="9999",
+        product_id="0001",
+    )
+
+    assert manager.delete_hardware("1234:5678") is False
+    assert custom_path.exists()
+    assert manager.get_hardware("1234:5678") is None
+    assert HardwareManager().get_hardware("9999:0001") is not None
+
+
 def test_hardware_manager_preserves_keymasq_logical_path(temp_config_dir) -> None:
     manager = HardwareManager()
     config = HardwareConfig(
@@ -310,6 +422,39 @@ def test_hardware_manager_cleans_reserved_path_when_save_fails(
         manager.save_hardware(config)
 
     assert not (temp_config_dir / "hardware" / "1234_5678.toml").exists()
+
+
+def test_hardware_manager_failed_overwrite_preserves_existing_file_and_state(
+    temp_config_dir,
+    sample_hardware_config: HardwareConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = HardwareManager()
+    manager.save_hardware(sample_hardware_config)
+    path = temp_config_dir / "hardware" / "1234_5678.toml"
+    original_content = path.read_bytes()
+    updated_config = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Updated Mouse",
+        evdev_devices=[],
+        buttons=[],
+    )
+
+    def fail_dump(_data: object, config_file: BinaryIO) -> None:
+        config_file.write(b"[hardware]\nname = \"partial\"\n")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(hardware_module.tomli_w, "dump", fail_dump)
+
+    with pytest.raises(OSError, match="disk full"):
+        manager.save_hardware(updated_config)
+
+    assert path.read_bytes() == original_content
+    assert manager.get_hardware("1234:5678") == sample_hardware_config
+    assert sorted(item.name for item in (temp_config_dir / "hardware").iterdir()) == [
+        "1234_5678.toml"
+    ]
 
 
 def test_hardware_manager_rejects_mismatched_explicit_hardware_id(

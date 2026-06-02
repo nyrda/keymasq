@@ -476,6 +476,19 @@ type = "key"
         self.request({"command": "reevaluate_hardware"})
         self.reopen_outputs()
 
+    def enable_macro_recording_opt_in(self) -> None:
+        subprocess.run(
+            [
+                os.environ.get("KEYMASQ_INTEGRATION_SUDO", "sudo"),
+                os.environ.get("KEYMASQ_INTEGRATION_RECORD_HELPER", "keymasq-record"),
+                "enable-macro-recording-persistent",
+                "--uid",
+                str(os.getuid()),
+            ],
+            check=True,
+            timeout=10,
+        )
+
     def recreate_secondary_source(self) -> None:
         if self.source is None:
             raise AssertionError("primary source keyboard is not available")

@@ -17,6 +17,7 @@ let
       export PYTHONPATH="${testSource}"
       export KEYMASQ_INTEGRATION_SYSTEMCTL="${pkgs.systemd}/bin/systemctl"
       export KEYMASQ_INTEGRATION_SUDO="/run/wrappers/bin/sudo"
+      export KEYMASQ_INTEGRATION_RECORD_HELPER="${keymasqPackage}/bin/keymasq-record"
       exec ${testPython}/bin/python ${testSource}/runner.py
     '';
   };
@@ -27,11 +28,18 @@ let
     + "export XDG_RUNTIME_DIR=${runtimeDir}; "
     + "export DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDir}/bus; "
     + "${cmd}'";
-in
-{
-  checks = {
-    daemon-session-integration-test = pkgs.testers.runNixOSTest {
-      name = "daemon-session-integration-test";
+  mkDaemonSessionIntegrationTest =
+    {
+      name,
+      unlockRequired,
+      scenarioFilter ? "",
+    }:
+    let
+      scenarioEnv =
+        if scenarioFilter == "" then "" else "KEYMASQ_INTEGRATION_SCENARIOS=${scenarioFilter} ";
+    in
+    pkgs.testers.runNixOSTest {
+      inherit name;
 
       nodes.machine =
         { ... }:
@@ -58,7 +66,7 @@ in
               daemon_allowed_uids = [ vmUid ];
               session_allowed_uids = [ vmUid ];
               recording_guard = {
-                unlock_required = false;
+                unlock_required = unlockRequired;
                 macro_edit_requires_unlock = false;
               };
             };
@@ -86,6 +94,10 @@ in
                   commands = [
                     {
                       command = "${pkgs.systemd}/bin/systemctl restart keymasqd.service";
+                      options = [ "NOPASSWD" ];
+                    }
+                    {
+                      command = "${keymasqPackage}/bin/keymasq-record";
                       options = [ "NOPASSWD" ];
                     }
                   ];
@@ -188,7 +200,7 @@ in
             as_user(
                 f"rm -f {output_path} {status_path}; "
                 "set +e; "
-                "keymasq-daemon-session-integration-test "
+                "${scenarioEnv}keymasq-daemon-session-integration-test "
                 f"> {output_path} 2>&1; "
                 "status=$?; "
                 f"echo \"$status\" > {status_path}; "
@@ -206,6 +218,19 @@ in
             dump_debug("daemon/session integration test failed")
             raise Exception("daemon-session-integration-test failed")
       '';
+    };
+in
+{
+  checks = {
+    daemon-session-integration-test = mkDaemonSessionIntegrationTest {
+      name = "daemon-session-integration-test";
+      unlockRequired = false;
+    };
+
+    daemon-session-macro-slot-locked-playback-test = mkDaemonSessionIntegrationTest {
+      name = "daemon-session-macro-slot-locked-playback-test";
+      unlockRequired = true;
+      scenarioFilter = "mapped-macro-slot-playback-without-capture-unlock";
     };
   };
 }

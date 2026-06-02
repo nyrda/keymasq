@@ -1,5 +1,6 @@
 import asyncio
 import os
+from unittest.mock import Mock
 
 import evdev
 import pytest
@@ -60,7 +61,7 @@ class TestIntegrationLifecycle(IntegrationTestBase):
         await writer.wait_closed()
 
     async def test_event_passthrough(self, full_system, virtual_mouse):
-        _server, _manager = full_system
+        _server, manager = full_system
         mouse_path = virtual_mouse.device.path
 
         reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
@@ -73,15 +74,39 @@ class TestIntegrationLifecycle(IntegrationTestBase):
                 data={
                     "hardware_id": "1234:5678",
                     "evdev_paths": [mouse_path],
-                    "button_map": {},
+                    "button_map": {"btn_left": "btn_left"},
                 },
             ),
         )
 
+        grabbed = manager.grabbed_devices["1234:5678"][0]
+        original_passthrough = grabbed.uinput
+        assert original_passthrough is not None
+        passthrough = Mock()
+        grabbed.uinput = passthrough  # type: ignore[assignment]
+        original_passthrough.close()
+
         virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1)
         virtual_mouse.syn()
+        await self._wait_until(
+            lambda: any(
+                call.args == (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1)
+                for call in passthrough.write.call_args_list
+            ),
+            reason="BTN_LEFT passthrough press",
+        )
+        assert evdev.ecodes.BTN_LEFT in grabbed.state.held_output_keys["passthrough"]
+
         virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)
         virtual_mouse.syn()
+        await self._wait_until(
+            lambda: any(
+                call.args == (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)
+                for call in passthrough.write.call_args_list
+            ),
+            reason="BTN_LEFT passthrough release",
+        )
+        assert evdev.ecodes.BTN_LEFT not in grabbed.state.held_output_keys["passthrough"]
 
         await self._send_command(
             reader,
@@ -111,6 +136,10 @@ class TestIntegrationLifecycle(IntegrationTestBase):
             ),
         )
 
+        grabbed = manager.grabbed_devices["1234:5678"][0]
+        keyboard_output = Mock()
+        grabbed.keyboard_uinput = keyboard_output  # type: ignore[assignment]
+
         await self._send_command(
             reader,
             writer,
@@ -131,7 +160,40 @@ class TestIntegrationLifecycle(IntegrationTestBase):
             ),
         )
 
-        assert "1234:5678" in manager.grabbed_devices
+        def target_writes(value: int) -> list:
+            return [
+                call
+                for call in keyboard_output.write.call_args_list
+                if call.args == (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, value)
+            ]
+
+        virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
+        virtual_mouse.syn()
+        await self._wait_until(
+            lambda: grabbed.state.rapidfire_active.get("btn_side") is True,
+            reason="rapidfire active",
+        )
+        await self._wait_until(
+            lambda: len(target_writes(1)) >= 2,
+            reason="repeated BTN_LEFT rapidfire presses",
+        )
+        assert target_writes(0)
+
+        virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
+        virtual_mouse.syn()
+        await self._wait_until(
+            lambda: grabbed.state.rapidfire_active.get("btn_side", False) is False
+            and "btn_side" not in grabbed.state.rapidfire_tasks,
+            reason="rapidfire stop",
+        )
+        await self._wait_until(
+            lambda: evdev.ecodes.BTN_LEFT not in grabbed.state.held_output_keys["keyboard"],
+            reason="rapidfire output release",
+        )
+        stopped_write_count = len(keyboard_output.write.call_args_list)
+        await asyncio.sleep(0.08)
+        assert len(keyboard_output.write.call_args_list) == stopped_write_count
+        assert grabbed.state.rapidfire_outputs == {}
 
         await self._send_command(
             reader,

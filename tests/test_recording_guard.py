@@ -82,6 +82,34 @@ def test_resolve_unlock_status_none(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert status == {"unlocked": False, "source": "none", "expires_at": 0, "path": ""}
 
 
+def test_resolve_unlock_status_marks_existing_unreadable_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runtime_dir = tmp_path / "run"
+    persistent_dir = tmp_path / "etc"
+    runtime_dir.mkdir()
+    persistent_dir.mkdir()
+
+    monkeypatch.setattr(recording_guard, "RECORDING_UNLOCK_RUNTIME_DIR", runtime_dir)
+    monkeypatch.setattr(recording_guard, "RECORDING_UNLOCK_PERSISTENT_DIR", persistent_dir)
+
+    runtime_path = runtime_dir / "recording-unlock-1000"
+    runtime_path.write_text("105\n", encoding="utf-8")
+    runtime_path.chmod(0)
+    try:
+        status = recording_guard.resolve_unlock_status(1000, now=100)
+    finally:
+        runtime_path.chmod(0o600)
+
+    assert status == {
+        "unlocked": False,
+        "source": "none",
+        "expires_at": 0,
+        "path": "",
+        "unreadable": True,
+    }
+
+
 def test_resolve_macro_recording_status_uses_macro_recording_paths(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

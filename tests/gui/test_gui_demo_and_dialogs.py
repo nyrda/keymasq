@@ -1746,6 +1746,66 @@ class TestDialogConstruction:
 
         assert dialog._empty_label.get_visible() is True
 
+    def test_macro_manager_list_load_errors_keep_existing_rows(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.session_client import GuiTaskResult
+        import keymasq.gui.widgets.macro_manager_dialog as macro_manager_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        alerts: list[tuple[object, object]] = []
+        monkeypatch.setattr(
+            macro_manager_dialog_module.Adw.AlertDialog,
+            "present",
+            lambda alert, parent: alerts.append((alert, parent)),
+        )
+
+        parent = Gtk.Window()
+        dialog = MacroManagerDialog(parent)
+        dialog._on_macros_loaded(
+            {
+                "status": "ok",
+                "macros": [
+                    {
+                        "name": "stored",
+                        "duration_us": 250_000,
+                        "device_types": ["keyboard"],
+                        "event_count": 2,
+                    }
+                ],
+            }
+        )
+
+        assert dialog._listbox.get_row_at_index(0) is not None
+        assert dialog._empty_label.get_visible() is False
+
+        assert dialog._on_macros_loaded({"status": "error", "message": "boom"}) is False
+
+        assert dialog._macros[0]["name"] == "stored"
+        assert dialog._listbox.get_row_at_index(0) is not None
+        assert dialog._empty_label.get_visible() is False
+        assert len(alerts) == 1
+        alert, alert_parent = alerts[0]
+        assert alert_parent is parent
+        assert alert.get_heading() == "Load Macros"
+        assert alert.get_body() == "boom"
+
+        result = GuiTaskResult(
+            value=(
+                {"macro_recording_enabled": True},
+                {"status": "error", "message": "initial boom"},
+            )
+        )
+
+        assert dialog._on_initial_state_loaded(result) is False
+        assert dialog._macros[0]["name"] == "stored"
+        assert dialog._listbox.get_row_at_index(0) is not None
+        assert dialog._empty_label.get_visible() is False
+        assert len(alerts) == 2
+        assert alerts[1][0].get_body() == "initial boom"
+
     def test_macro_manager_duplicate_request_and_finish_paths(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk

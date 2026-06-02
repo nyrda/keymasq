@@ -230,3 +230,33 @@ async def test_claim_recording_unlock_refresh_blocks_reclaimed_runtime_lease(
             "unlock again to re-establish owner"
         ),
     }
+
+
+@pytest.mark.asyncio
+async def test_refresh_recording_unlock_clears_owner_when_daemon_rejects_lease() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=12, uid=303, gid=100)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-1",
+    }
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="error",
+            error="recording_refresh_denied: runtime unlock lease is not active",
+        )
+    )
+
+    result = await session_recording_module.refresh_recording_unlock(
+        manager,
+        peer,
+        writer,  # type: ignore[arg-type]
+        "lease-1",
+    )
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "recording_refresh_denied"
+    assert manager.unlock_state.refresh_owner is None

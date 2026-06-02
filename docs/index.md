@@ -44,7 +44,7 @@ and multi-step automation.
 
 ## Reference
 
-- [Security model](SECURITY.md) — daemon/session split, unlock flow,
+- [Security model](SECURITY.md) — daemon/session split, capture unlock flow,
   owner checks.
 - [Troubleshooting](TROUBLESHOOTING.md) — diagnostics for common problems.
 

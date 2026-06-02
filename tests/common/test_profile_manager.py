@@ -736,6 +736,52 @@ created_at = "not-a-date"
         assert 'created_at = "' in content
         assert 'created_at = "not-a-date"' not in content
 
+    def test_pending_created_at_repair_does_not_overwrite_newer_profile_save(
+        self,
+        temp_config_dir,
+    ):
+        profile_path = Path(temp_config_dir) / "profiles" / "missing-created-at.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Missing Created"
+enabled = true
+is_permanent = true
+priority = 1
+notify_on_activation = true
+
+[devices."1234:5678"]
+always_grab_all = false
+
+[devices."1234:5678".mapping.btn_back]
+action = "keyboard"
+target = "key_1"
+""".strip(),
+            encoding="utf-8",
+        )
+        manager = ProfileManager()
+        loaded = manager.get_profile("Missing Created")
+        assert loaded is not None
+
+        layer = loaded.config.device_layers["1234:5678"]
+        layer.mappings["btn_forward"] = MappingAction(
+            action_type=ActionType.KEYBOARD,
+            target="key_2",
+        )
+        manager.save_profile(loaded.config)
+
+        manager._repair_created_at_if_needed(
+            loaded.config.created_at or datetime.now(),
+            profile_path,
+        )
+
+        reloaded = ProfileManager()
+        saved = reloaded.get_profile("Missing Created")
+        assert saved is not None
+        mappings = saved.config.device_layers["1234:5678"].mappings
+        assert mappings["btn_back"].target == "key_1"
+        assert mappings["btn_forward"].target == "key_2"
+
     def test_remove_device_button_mappings_clears_matching_profile_entries(self, temp_config_dir):
         manager = ProfileManager()
         profile = ProfileConfig(

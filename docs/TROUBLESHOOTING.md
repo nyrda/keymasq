@@ -304,7 +304,7 @@ Current behavior:
 - Keymasq does not support touchpad remapping yet, so the GUI will not offer a
   touchpad as addable hardware
 
-### Polkit or recording unlock problems
+### Polkit or capture unlock problems
 
 Symptoms:
 

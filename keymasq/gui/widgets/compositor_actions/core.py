@@ -112,6 +112,16 @@ def build_compositor_dispatch_definition(
     )
 
 
+def _definition_matches_action(
+    definition: CompositorActionDefinition,
+    action: MappingAction | None,
+) -> bool:
+    if action is None or action.action_type != definition.action_type:
+        return False
+    compositor_id = str(action.compositor_id or "").strip()
+    return bool(compositor_id) and definition.compositor_id == compositor_id
+
+
 class _CompositorDispatchPage(Gtk.Box):
     def __init__(
         self,
@@ -343,7 +353,10 @@ def build_compositor_action_pages_for_definitions(
     resolved_status = dict(status or {})
     pages: list[CompositorActionPage] = []
     for definition in definitions:
-        if not definition.is_available(current_action, resolved_status):
+        if (
+            not _definition_matches_action(definition, current_action)
+            and not definition.is_available(current_action, resolved_status)
+        ):
             continue
         pages.append(
             CompositorActionPage(
@@ -372,11 +385,7 @@ def compositor_action_tab_name_for_definitions(
     compositor_id = str(action.compositor_id or "").strip()
     if compositor_id:
         for definition in definitions:
-            if (
-                action.action_type == definition.action_type
-                and definition.compositor_id == compositor_id
-                and definition.is_available(action, resolved_status)
-            ):
+            if _definition_matches_action(definition, action):
                 return definition.page_id
     for definition in definitions:
         if (

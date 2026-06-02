@@ -102,7 +102,7 @@ def main() -> None:
         action="store_true",
         help="Read canonical macro JSON instead of compact event tokens",
     )
-    play_parser.add_argument("--speed", type=_positive_float, default=1.0, help="Playback speed")
+    play_parser.add_argument("--speed", type=_positive_float, default=None, help="Playback speed")
     play_parser.add_argument(
         "--print-json",
         action="store_true",

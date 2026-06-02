@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import evdev
@@ -8,7 +9,12 @@ import pytest
 
 import keymasq.keymasqd.device_manager as dm
 import keymasq.keymasqd.recording as recording_module
-from keymasq.common.models import ActionType, DeviceType, MappingAction
+from keymasq.common.models import (
+    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+    ActionType,
+    DeviceType,
+    MappingAction,
+)
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import grabbed_device as gdm
@@ -16,7 +22,7 @@ from keymasq.keymasqd.runtime import grabbed_device_events as gde
 from keymasq.keymasqd.runtime import macros as mdm
 from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
 from tests.keymasqd.device_manager_support import grabbed_event_processing_deps
-from tests.keymasqd.macro_backend_support import FakeRecorder
+from tests.keymasqd.macro_backend_support import FakeRecorder, play_macro_task_helper
 
 
 async def _recorded_events(
@@ -80,6 +86,32 @@ async def test_recording_slot_survives_recording_manager_restart(tmp_path: Path)
 
     await restored.discard_pending_recording(recording_id)
     assert list(tmp_path.glob("slot-*")) == []
+
+
+@pytest.mark.asyncio
+async def test_starting_new_recording_preserves_implicit_slot_stop(
+    tmp_path: Path,
+) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.start([], recording_slot=2)
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+
+    await recorder.start([], recording_slot=3)
+    try:
+        recordings = await recorder.list_pending_recordings()
+        assert len(recordings) == 1
+        assert recordings[0]["recording_slot"] == 2
+
+        snapshot = await recorder.pending_recording(
+            str(recordings[0]["pending_recording_id"])
+        )
+        assert snapshot.recording_slot == 2
+        assert list(snapshot.iter_events())[0]["code"] == evdev.ecodes.KEY_A
+    finally:
+        await recorder.stop()
 
 
 @pytest.mark.asyncio
@@ -611,6 +643,51 @@ async def test_play_macro_can_skip_stored_lookup_for_empty_explicit_events() -> 
 
     assert result == {"status": "ok"}
     get_meta.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_play_macro_task_helper_preserves_loop_stop_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    observed: list[str] = []
+
+    async def fake_play_macro_task(
+        observed_manager: DeviceManager,
+        **kwargs: object,
+    ) -> None:
+        instance_id = cast(int, kwargs["instance_id"])
+        meta = observed_manager.macro_state.instance_meta[instance_id]
+        observed.append(str(meta["loop_stop_behavior"]))
+
+    monkeypatch.setattr(mdm, "play_macro_task", fake_play_macro_task)
+
+    base_kwargs = {
+        "macro_events": [],
+        "macro_name": "loop",
+        "replay_mouse_movement": True,
+        "replay_mouse_clicks": True,
+        "speed": 1.0,
+        "loop_mode": "hold",
+        "loop_count": 1,
+        "move_to_start": False,
+        "start_x": 0,
+        "start_y": 0,
+        "block_mouse_movement": False,
+    }
+    await play_macro_task_helper(
+        manager,
+        instance_id=1,
+        loop_stop_behavior="cancel_run",
+        **base_kwargs,
+    )
+    await play_macro_task_helper(
+        manager,
+        instance_id=2,
+        **base_kwargs,
+    )
+
+    assert observed == ["cancel_run", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR]
 
 
 @pytest.mark.asyncio

@@ -94,6 +94,31 @@ class TestMainWindow:
         assert tab2._selected_profile is not None
         assert tab2._selected_profile.config.name == "Profile 2"
 
+    def test_main_window_demo_mode_uses_sample_startup_without_system_probe(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
+
+        def fail_system_probe(*args, **kwargs):
+            raise AssertionError("demo startup should not probe the real system")
+
+        monkeypatch.setattr(window_module, "detect_compositor_sync", fail_system_probe)
+        monkeypatch.setattr(window_module.HardwareManager, "list_hardware", fail_system_probe)
+        monkeypatch.setattr(window_module, "run_gui_task", fail_system_probe)
+        monkeypatch.setattr(
+            window_module.GLib,
+            "idle_add",
+            lambda callback, *args: callback(*args),
+        )
+
+        window = MainWindow(demo_mode=True)
+        demo_tab = window._child_for_hardware_id("1234:5678")
+
+        assert window._startup_probe_done is True
+        assert demo_tab is not None
+        assert demo_tab.device.name == "Demo Mouse"
+
     def test_main_window_add_device_action_does_not_require_unlock(self, temp_config_dir):
         from keymasq.gui.window import MainWindow
 
@@ -972,6 +997,38 @@ class TestMainWindow:
         assert registered == [("*", window._on_session_event)]
         assert removed == [11, 22]
         assert unregistered == [("*", window._on_session_event)]
+
+    def test_main_window_macro_recording_dialog_refreshes_session_status(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
+
+        requests: list[tuple[dict[str, object], float]] = []
+
+        def fake_session_request(payload, timeout=5.0):
+            requests.append((payload, timeout))
+            return {
+                "status": "ok",
+                "macro_recording_enabled": True,
+                "macro_recording_source": "persistent",
+                "macro_recording_expires_at": 0,
+            }
+
+        monkeypatch.setattr(window_module, "session_request", fake_session_request)
+
+        window = MainWindow(demo_mode=True)
+        requests.clear()
+        window._macro_recording_enabled = False
+        called: list[bool] = []
+
+        window.present_macro_recording_enable_dialog(on_success=lambda: called.append(True))
+
+        assert requests == [({"command": "get_status"}, 1.0)]
+        assert window._macro_recording_enabled is True
+        assert called == [True]
 
     def test_main_window_status_error_keeps_last_runtime_profile_state(self, temp_config_dir):
         from keymasq.common.models import (

@@ -203,6 +203,7 @@ class SessionManager:
         self.running = False
 
         self._shutdown_event.set()
+        await runtime_profiles.cancel_all_grab_retries(self)
 
         if self.compositor_state.supervisor_task:
             self.compositor_state.supervisor_task.cancel()

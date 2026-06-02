@@ -145,6 +145,29 @@ class TestSocketServer:
 
         await server.stop()
 
+    async def test_start_cleans_up_when_socket_hardening_fails(
+        self,
+        monkeypatch,
+        temp_socket_dir,
+    ):
+        real_chmod = os.chmod
+        server = SocketServer(str(paths.SOCKET_PATH), _ok_handler)
+
+        def fail_chmod(_path: str, _mode: int) -> None:
+            raise OSError("chmod failed")
+
+        monkeypatch.setattr(os, "chmod", fail_chmod)
+
+        with pytest.raises(OSError, match="chmod failed"):
+            await server.start()
+
+        assert server.server is None
+        assert not paths.SOCKET_PATH.exists()
+
+        monkeypatch.setattr(os, "chmod", real_chmod)
+        await server.start()
+        await server.stop()
+
     async def test_denied_peer_is_disconnected(self, temp_socket_dir):
         cmd_handler = MockCommandHandler()
         server = SocketServer(
@@ -632,6 +655,7 @@ class TestSocketServer:
 
         await asyncio.wait_for(server.stop(), timeout=1.0)
 
+        assert not paths.SOCKET_PATH.exists()
         assert not server.clients
         assert not server._buffer
         assert not server._client_context

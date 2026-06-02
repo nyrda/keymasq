@@ -58,9 +58,7 @@ def test_parse_reconstruct_preserves_abs_and_repeat_events() -> None:
     editable, rel_events, passthrough, synthetic_moves, control_events = parse_events(raw)
     rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
 
-    assert any(e["type"] == evdev.ecodes.EV_ABS for e in rebuilt)
-    assert any(e["type"] == evdev.ecodes.EV_REL for e in rebuilt)
-    assert any(e["type"] == evdev.ecodes.EV_KEY and e["value"] == 2 for e in rebuilt)
+    assert rebuilt == raw
 
 
 def test_describe_passthrough_abs_event_uses_event_type_name() -> None:

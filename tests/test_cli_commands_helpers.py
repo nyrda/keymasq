@@ -240,7 +240,7 @@ def test_status_cli_prints_runtime_summary(
     assert "compositor: GNOME Shell (gnome)" in out
     assert "listener: active (gnome)" in out
     assert "macro recording: disabled" in out
-    assert "recording unlock: locked" in out
+    assert "capture unlock: locked" in out
     assert "active profiles: Base" in out
     assert "Example Keyboard (1234:5678)" in out
     assert "window: firefox - Example" in out
@@ -371,15 +371,39 @@ def test_play_adhoc_cli_reads_json_payload(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(commands, "_session_request", _session_request)
 
     commands.play_adhoc_cli(
-        ['{"events":[{"device_type":"keyboard","type":1,"code":30,"value":1,"t_us":0}]}'],
+        [
+            '{"events":[{"device_type":"keyboard","type":1,"code":30,"value":1,"t_us":0}],'
+            '"speed":2.0}'
+        ],
         input_json=True,
     )
 
     payload = sent[0]
     assert payload["command"] == "play_macro_payload"
+    assert payload["speed"] == 2.0
     assert payload["macro_events"] == [
         {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}
     ]
+
+
+def test_play_adhoc_cli_cli_speed_overrides_json_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(commands, "_session_request", _session_request)
+
+    commands.play_adhoc_cli(
+        ['{"events":[{"device_type":"keyboard","t_us":0}],"speed":2.0}'],
+        input_json=True,
+        speed=0.5,
+    )
+
+    assert sent[0]["speed"] == 0.5
 
 
 def test_play_adhoc_cli_rejects_non_object_json_event(

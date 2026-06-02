@@ -68,7 +68,7 @@ Desktop GUI stack:
 - libadwaita
 - GObject introspection data for GTK4 and libadwaita
 
-Privileged recording/unlock flow:
+Privileged capture unlock and macro recording opt-in flow:
 
 - `polkit`
 - `pkexec`
@@ -121,7 +121,7 @@ differentiator is the compositor/session environment itself.
 feature/runtime dependency for supported Wayland environments rather than just a
 GUI convenience.
 
-### Recording unlock helper
+### Capture unlock helper
 
 - `keymasq-record` must be installed alongside the rest of Keymasq
 - the matching Polkit policy must be installed

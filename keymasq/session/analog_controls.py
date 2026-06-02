@@ -1,7 +1,8 @@
 import logging
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import BinaryIO, cast
 
 import tomli_w
 
@@ -24,12 +25,19 @@ from keymasq.session.action_toml import (
     mapping_action_to_toml,
     mapping_action_type_from_toml,
 )
+from keymasq.session.config_files import write_config_atomically
 from keymasq.session.config_loading import load_config_files_sync
 
 log = logging.getLogger("keymasq-session.analog_controls")
 type TomlDict = dict[str, object]
 type _IntLike = int | float | str | bytes
 type _FloatLike = int | float | str | bytes
+
+
+@dataclass
+class _AnalogControlEntry:
+    path: Path
+    config: AnalogControlConfig
 
 
 def _as_toml_dict(value: object) -> TomlDict | None:
@@ -52,12 +60,12 @@ def _float_value(value: object, default: float = 0.0) -> float:
 class AnalogControlManager:
     def __init__(self) -> None:
         paths.ensure_config_dirs()
-        self._analog_controls: dict[str, AnalogControlConfig] = {}
+        self._analog_controls: dict[str, _AnalogControlEntry] = {}
         self._load_all()
 
     def _load_all(self, *, strict: bool = False) -> None:
-        loaded_analog_controls: dict[str, AnalogControlConfig] = {}
-        for _config_file, config in load_config_files_sync(
+        loaded_analog_controls: dict[str, _AnalogControlEntry] = {}
+        for config_file, config in load_config_files_sync(
             paths.ANALOG_CONTROLS_DIR,
             config_kind="analog control",
             strict=strict,
@@ -66,9 +74,49 @@ class AnalogControlManager:
             failure_log_message="Failed to load analog control %s: %s",
         ):
             if config is not None:
-                loaded_analog_controls[config.name] = config
+                self._add_loaded_analog_control(
+                    config_file,
+                    config,
+                    loaded_analog_controls,
+                )
 
         self._analog_controls = loaded_analog_controls
+
+    def _add_loaded_analog_control(
+        self,
+        path: Path,
+        config: AnalogControlConfig,
+        analog_controls: dict[str, _AnalogControlEntry],
+    ) -> None:
+        entry = _AnalogControlEntry(path=path, config=config)
+        existing = analog_controls.get(config.name)
+        if existing is None:
+            analog_controls[config.name] = entry
+            return
+
+        selected = self._select_duplicate_analog_control(config.name, existing, entry)
+        ignored = entry if selected is existing else existing
+        analog_controls[config.name] = selected
+        log.warning(
+            "Ignoring duplicate analog control name '%s' from %s; using %s",
+            config.name,
+            ignored.path,
+            selected.path,
+        )
+
+    def _select_duplicate_analog_control(
+        self,
+        name: str,
+        first: _AnalogControlEntry,
+        second: _AnalogControlEntry,
+    ) -> _AnalogControlEntry:
+        first_is_canonical = self._is_canonical_storage_path(name, first.path)
+        second_is_canonical = self._is_canonical_storage_path(name, second.path)
+        if first_is_canonical and not second_is_canonical:
+            return first
+        if second_is_canonical and not first_is_canonical:
+            return second
+        return first
 
     def _load_analog_control(self, path: Path) -> AnalogControlConfig | None:
         with open(path, "rb") as f:
@@ -170,20 +218,21 @@ class AnalogControlManager:
         )
 
     def get_analog_control(self, name: str) -> AnalogControlConfig | None:
-        return self._analog_controls.get(name)
+        entry = self._analog_controls.get(name)
+        return entry.config if entry is not None else None
 
     def list_analog_controls(self) -> list[str]:
         return sorted(self._analog_controls.keys())
 
     def get_all_analog_controls(self) -> dict[str, AnalogControlConfig]:
-        return self._analog_controls.copy()
+        return {name: entry.config for name, entry in self._analog_controls.items()}
 
-    def snapshot_analog_controls(self) -> dict[str, AnalogControlConfig]:
+    def snapshot_analog_controls(self) -> dict[str, _AnalogControlEntry]:
         return self._analog_controls.copy()
 
     def restore_analog_controls(
         self,
-        analog_controls: dict[str, AnalogControlConfig],
+        analog_controls: dict[str, _AnalogControlEntry],
     ) -> None:
         self._analog_controls = analog_controls.copy()
 
@@ -196,7 +245,15 @@ class AnalogControlManager:
         paths.ensure_config_dirs()
         config = normalize_analog_control_features(config)
         validate_analog_control_config(config)
-        path = self._path_for_name(config.name)
+        existing_entry = self._analog_controls.get(config.name)
+        if replacing_name and replacing_name != config.name:
+            if existing_entry is not None:
+                raise ValueError(f"Analog control '{config.name}' already exists")
+            path = self._path_for_name(config.name)
+        else:
+            path = existing_entry.path if existing_entry is not None else self._path_for_name(
+                config.name
+            )
         self._ensure_storage_path_available(config.name, path, replacing_name=replacing_name)
 
         data: dict[str, object] = {
@@ -259,14 +316,19 @@ class AnalogControlManager:
                 self._serialize_threshold(threshold) for threshold in config.thresholds
             ]
 
-        with open(path, "wb") as f:
-            tomli_w.dump(data, f)
+        def write_config(config_file: BinaryIO) -> None:
+            tomli_w.dump(data, config_file)
+
+        write_config_atomically(path, write_config)
         if replacing_name and replacing_name != config.name:
-            old_path = self._path_for_name(replacing_name)
+            old_entry = self._analog_controls.get(replacing_name)
+            old_path = old_entry.path if old_entry is not None else self._path_for_name(
+                replacing_name
+            )
             if old_path != path and old_path.exists():
                 old_path.unlink()
             self._analog_controls.pop(replacing_name, None)
-        self._analog_controls[config.name] = config
+        self._analog_controls[config.name] = _AnalogControlEntry(path=path, config=config)
         log.info("Saved analog control: %s", config.name)
 
     def _serialize_threshold(self, threshold: AnalogActionThreshold) -> TomlDict:
@@ -287,24 +349,26 @@ class AnalogControlManager:
         )
 
     def delete_analog_control(self, name: str) -> bool:
-        if name not in self._analog_controls:
+        entry = self._analog_controls.get(name)
+        if entry is None:
             return False
-        path = self._path_for_name(name)
-        if path.exists():
-            path.unlink()
+        if entry.path.exists():
+            entry.path.unlink()
         del self._analog_controls[name]
         log.info("Deleted analog control: %s", name)
         return True
 
     def rename_analog_control(self, old_name: str, new_name: str) -> bool:
-        if old_name not in self._analog_controls:
+        entry = self._analog_controls.get(old_name)
+        if entry is None:
             return False
+        if old_name == new_name:
+            return True
         if new_name in self._analog_controls and new_name != old_name:
             log.warning("Analog control '%s' already exists", new_name)
             return False
 
-        config = self._analog_controls[old_name]
-        old_path = self._path_for_name(old_name)
+        config = entry.config
         new_path = self._path_for_name(new_name)
         self._ensure_storage_path_available(new_name, new_path, replacing_name=old_name)
         config.name = new_name
@@ -313,9 +377,6 @@ class AnalogControlManager:
         except Exception:
             config.name = old_name
             raise
-        if old_path != new_path and old_path.exists():
-            old_path.unlink()
-        self._analog_controls.pop(old_name, None)
         log.info("Renamed analog control: %s -> %s", old_name, new_name)
         return True
 
@@ -325,6 +386,9 @@ class AnalogControlManager:
 
     def _path_for_name(self, name: str) -> Path:
         return paths.ANALOG_CONTROLS_DIR / f"{self._sanitize_name(name)}.toml"
+
+    def _is_canonical_storage_path(self, name: str, path: Path) -> bool:
+        return path == self._path_for_name(name)
 
     def _storage_file_name(self, path: Path) -> str | None:
         if not path.exists():

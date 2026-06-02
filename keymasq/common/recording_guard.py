@@ -74,6 +74,7 @@ def _resolve_status_from_paths(
     *,
     now: int | None = None,
 ) -> UnlockStatus:
+    unreadable = False
     runtime_expires = parse_unlock_expires_at(runtime_path)
     if runtime_expires is not None and is_unlock_value_active(runtime_expires, now=now):
         return {
@@ -82,6 +83,8 @@ def _resolve_status_from_paths(
             "expires_at": int(runtime_expires),
             "path": str(runtime_path),
         }
+    if runtime_expires is None and _path_exists_unreadable(runtime_path):
+        unreadable = True
 
     persistent_expires = parse_unlock_expires_at(persistent_path)
     if persistent_expires is not None and is_unlock_value_active(persistent_expires, now=now):
@@ -91,13 +94,28 @@ def _resolve_status_from_paths(
             "expires_at": int(persistent_expires),
             "path": str(persistent_path),
         }
+    if persistent_expires is None and _path_exists_unreadable(persistent_path):
+        unreadable = True
 
-    return {
+    status: UnlockStatus = {
         "unlocked": False,
         "source": "none",
         "expires_at": 0,
         "path": "",
     }
+    if unreadable:
+        status["unreadable"] = True
+    return status
+
+
+def _path_exists_unreadable(path: Path) -> bool:
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return not os.access(path, os.R_OK)
 
 
 def _validate_unlock_parent(path: Path) -> None:
@@ -142,7 +160,7 @@ def write_unlock_expires_at(
     expires_at: int,
     owner_uid: int | None = None,
     owner_gid: int | None = None,
-    mode: int = 0o644,
+    mode: int = 0o600,
 ) -> None:
     _validate_unlock_parent(path)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)

@@ -9,6 +9,7 @@ import keymasq.session.manager.recording as session_recording_module
 from keymasq.common.security import PeerCredentials, SecurityPolicy
 from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.manager import SessionManager
+from tests.session.support import grant_recording_refresh_owner
 
 
 @pytest.mark.asyncio
@@ -22,12 +23,13 @@ async def test_sensitive_command_requires_active_recording_owner(
 
     lock_recording_unlock = AsyncMock(return_value={"status": "ok"})
     monkeypatch.setattr(session_recording_module, "lock_recording_unlock", lock_recording_unlock)
-    manager.unlock_state.refresh_owner = {
-        "uid": 1000,
-        "pid": 111,
-        "writer_id": id(owner_writer),
-        "lease_id": "lease-1",
-    }
+    grant_recording_refresh_owner(
+        manager,
+        peer,
+        owner_writer,
+        monkeypatch,
+        lease_id="lease-1",
+    )
 
     denied = await manager._handle_session_request(
         {"command": "lock_recording_unlock"},
@@ -46,6 +48,44 @@ async def test_sensitive_command_requires_active_recording_owner(
     )
     assert allowed["status"] == "ok"
     lock_recording_unlock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_sensitive_command_rejects_refresh_owner_when_unlock_expired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.security_policy.macro_edit_requires_unlock = True
+    manager.client.send_command = AsyncMock()
+    peer = PeerCredentials(pid=111, uid=1000, gid=1000)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-1",
+    }
+    resolve_unlock_status_async = AsyncMock(
+        return_value={"unlocked": False, "source": "none", "expires_at": 0}
+    )
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_unlock_status_async",
+        resolve_unlock_status_async,
+    )
+
+    result = await manager._handle_session_request(
+        {"command": "get_macro", "name": "Secret"},
+        "client",
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "sensitive_command_denied"
+    assert manager.unlock_state.refresh_owner is None
+    manager.client.send_command.assert_not_awaited()
+    resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
 
 
 @pytest.mark.asyncio

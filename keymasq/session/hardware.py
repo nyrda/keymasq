@@ -2,8 +2,9 @@ import contextlib
 import logging
 import re
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, BinaryIO, cast
 
 import tomli_w
 
@@ -17,10 +18,24 @@ from keymasq.common.models import (
     EvdevDevice,
     HardwareConfig,
 )
+from keymasq.session.config_files import write_config_atomically
 from keymasq.session.config_loading import load_config_files_sync
 
 log = logging.getLogger("keymasq-session.hardware")
 MAX_HARDWARE_PATH_ATTEMPTS = 10000
+KEYBOARD_LAYOUT_FOOTER = (
+    b"\n"
+    b"# Optional special keys (not shown in GUI by default)\n"
+    b"# Add entries below into [hardware.layout.buttons] if needed\n"
+    b"# Example entries:\n"
+    b'# { id = "key_volumedown", label = "Volume Down", '
+    b'evdev = "key_volumedown", type = "key" }\n'
+    b'# { id = "key_volumeup", label = "Volume Up", '
+    b'evdev = "key_volumeup", type = "key" }\n'
+    b'# { id = "key_mute", label = "Mute", evdev = "key_mute", type = "key" }\n'
+    b'# { id = "key_playpause", label = "Play Pause", '
+    b'evdev = "key_playpause", type = "key" }\n'
+)
 
 
 def _valid_hardware_id_for_model(hardware_id: str, model_id: str) -> bool:
@@ -32,22 +47,31 @@ def _hardware_storage_stem(hardware_id: str) -> str:
     return (safe or "hardware").lower()
 
 
+@dataclass
+class _HardwareEntry:
+    path: Path
+    config: HardwareConfig
+
+
 class HardwareManager:
     def __init__(self) -> None:
         paths.ensure_config_dirs()
-        self._cache: dict[str, HardwareConfig] = {}
+        self._cache: dict[str, _HardwareEntry] = {}
         self._load_all()
 
     def _load_all(self, *, strict: bool = False) -> None:
-        loaded_cache: dict[str, HardwareConfig] = {}
-        for _config_file, config in load_config_files_sync(
+        loaded_cache: dict[str, _HardwareEntry] = {}
+        for config_file, config in load_config_files_sync(
             paths.HARDWARE_DIR,
             config_kind="hardware",
             strict=strict,
             load_config=self._load_config,
             logger=log,
         ):
-            loaded_cache[config.hardware_id] = config
+            self._add_loaded_hardware(
+                _HardwareEntry(path=config_file, config=config),
+                loaded_cache,
+            )
 
         self._cache = loaded_cache
 
@@ -136,17 +160,53 @@ class HardwareManager:
             id=hardware_id or None,
         )
 
-    def get_hardware(self, hardware_id: str) -> HardwareConfig | None:
-        return self._cache.get(hardware_id)
+    def _add_loaded_hardware(
+        self,
+        entry: _HardwareEntry,
+        hardware: dict[str, _HardwareEntry],
+    ) -> None:
+        hardware_id = entry.config.hardware_id
+        existing = hardware.get(hardware_id)
+        if existing is None:
+            hardware[hardware_id] = entry
+            return
 
-    def snapshot_hardware(self) -> dict[str, HardwareConfig]:
+        selected = self._select_duplicate_hardware(existing, entry)
+        ignored = entry if selected is existing else existing
+        hardware[hardware_id] = selected
+        log.warning(
+            "Ignoring duplicate hardware_id '%s' from %s; using %s",
+            hardware_id,
+            ignored.path,
+            selected.path,
+        )
+
+    def _select_duplicate_hardware(
+        self,
+        first: _HardwareEntry,
+        second: _HardwareEntry,
+    ) -> _HardwareEntry:
+        hardware_id = first.config.hardware_id
+        first_is_canonical = self._is_canonical_storage_path(hardware_id, first.path)
+        second_is_canonical = self._is_canonical_storage_path(hardware_id, second.path)
+        if first_is_canonical and not second_is_canonical:
+            return first
+        if second_is_canonical and not first_is_canonical:
+            return second
+        return first
+
+    def get_hardware(self, hardware_id: str) -> HardwareConfig | None:
+        entry = self._cache.get(hardware_id)
+        return entry.config if entry is not None else None
+
+    def snapshot_hardware(self) -> dict[str, _HardwareEntry]:
         return self._cache.copy()
 
-    def restore_hardware(self, hardware: dict[str, HardwareConfig]) -> None:
+    def restore_hardware(self, hardware: dict[str, _HardwareEntry]) -> None:
         self._cache = hardware.copy()
 
     def list_hardware(self) -> list[HardwareConfig]:
-        return list(self._cache.values())
+        return [entry.config for entry in self._cache.values()]
 
     def list_hardware_ids(self) -> list[str]:
         return list(self._cache.keys())
@@ -164,7 +224,19 @@ class HardwareManager:
                 f"Hardware storage path '{path.name}' already exists but could not be read"
             ) from exc
 
+    def _storage_path_matches_hardware_id(self, path: Path, hardware_id: str) -> bool:
+        try:
+            return self._load_config(path).hardware_id == hardware_id
+        except Exception:
+            return False
+
     def _path_for_hardware_id(self, hardware_id: str) -> tuple[Path, bool]:
+        existing_entry = self._cache.get(hardware_id)
+        if existing_entry is not None:
+            if self._storage_path_matches_hardware_id(existing_entry.path, hardware_id):
+                return existing_entry.path, False
+            self._cache.pop(hardware_id, None)
+
         existing_path = self._existing_path_for_hardware_id(hardware_id)
         if existing_path is not None:
             return existing_path, False
@@ -179,11 +251,17 @@ class HardwareManager:
             return path, True
         raise ValueError(f"Could not allocate storage path for hardware '{hardware_id}'")
 
+    def _is_canonical_storage_path(self, hardware_id: str, path: Path) -> bool:
+        stem = _hardware_storage_stem(hardware_id)
+        if not path.stem.startswith(stem):
+            return False
+        suffix = path.stem.removeprefix(stem)
+        return not suffix or (suffix.startswith("_") and suffix[1:].isdigit())
+
     def _existing_path_for_hardware_id(self, hardware_id: str) -> Path | None:
         stem = _hardware_storage_stem(hardware_id)
         for path in sorted(paths.HARDWARE_DIR.glob(f"{stem}*.toml")):
-            suffix = path.stem.removeprefix(stem)
-            if suffix and not (suffix.startswith("_") and suffix[1:].isdigit()):
+            if not self._is_canonical_storage_path(hardware_id, path):
                 continue
             if self._storage_file_hardware_id(path) == hardware_id:
                 return path
@@ -293,46 +371,32 @@ class HardwareManager:
 
         path, reserved_path = self._path_for_hardware_id(config.hardware_id)
         try:
-            with open(path, "wb") as f:
-                tomli_w.dump(data, f)
+            def write_config(config_file: BinaryIO) -> None:
+                tomli_w.dump(data, config_file)
+                if is_keyboard_layout:
+                    config_file.write(KEYBOARD_LAYOUT_FOOTER)
 
-            if is_keyboard_layout:
-                with open(path, "a", encoding="utf-8") as f:
-                    f.write("\n")
-                    f.write("# Optional special keys (not shown in GUI by default)\n")
-                    f.write("# Add entries below into [hardware.layout.buttons] if needed\n")
-                    f.write("# Example entries:\n")
-                    f.write(
-                        '# { id = "key_volumedown", label = "Volume Down", '
-                        'evdev = "key_volumedown", type = "key" }\n'
-                    )
-                    f.write(
-                        '# { id = "key_volumeup", label = "Volume Up", '
-                        'evdev = "key_volumeup", type = "key" }\n'
-                    )
-                    f.write(
-                        '# { id = "key_mute", label = "Mute", evdev = "key_mute", type = "key" }\n'
-                    )
-                    f.write(
-                        '# { id = "key_playpause", label = "Play Pause", '
-                        'evdev = "key_playpause", type = "key" }\n'
-                    )
+            write_config_atomically(path, write_config)
         except Exception:
             if reserved_path:
                 with contextlib.suppress(OSError):
                     path.unlink()
             raise
 
-        self._cache[config.hardware_id] = config
+        self._cache[config.hardware_id] = _HardwareEntry(path=path, config=config)
         log.info(f"Saved hardware config: {path}")
 
     def delete_hardware(self, hardware_id: str) -> bool:
-        if hardware_id not in self._cache:
+        entry = self._cache.get(hardware_id)
+        if entry is None:
             return False
 
-        path = self._existing_path_for_hardware_id(hardware_id)
+        path = entry.path
 
-        if path is not None and path.exists():
+        if path.exists():
+            if not self._storage_path_matches_hardware_id(path, hardware_id):
+                del self._cache[hardware_id]
+                return False
             try:
                 path.unlink()
             except Exception as e:

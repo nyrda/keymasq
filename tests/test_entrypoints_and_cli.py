@@ -296,6 +296,24 @@ def test_cli_main_play_routes_json_input_to_helper(monkeypatch: pytest.MonkeyPat
     ]
 
 
+def test_cli_main_play_omits_speed_override_when_not_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
+
+    calls: list[dict[str, object]] = []
+
+    def _play_cli(events: list[str], **kwargs: object) -> None:
+        calls.append({"events": events, **kwargs})
+
+    monkeypatch.setattr(commands, "play_adhoc_cli", _play_cli)
+    monkeypatch.setattr(sys, "argv", ["keymasq", "play", "--json", '{"events":[],"speed":2}'])
+
+    cli_main.main()
+    assert calls[0]["speed"] is None
+
+
 @pytest.mark.parametrize(
     "argv",
     [

@@ -1,5 +1,6 @@
 import logging
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -29,6 +30,12 @@ log = logging.getLogger("keymasq-session.superkeys")
 type TomlDict = dict[str, object]
 type _IntLike = int | float | str | bytes
 type _FloatLike = int | float | str | bytes
+
+
+@dataclass(frozen=True)
+class SuperkeySnapshot:
+    superkeys: dict[str, SuperkeyConfig]
+    paths: dict[str, Path]
 
 
 class UnknownActionTypeError(ValueError):
@@ -70,14 +77,17 @@ class SuperkeyManager:
     def __init__(self) -> None:
         paths.ensure_config_dirs()
         self._superkeys: dict[str, SuperkeyConfig] = {}
+        self._superkey_paths: dict[str, Path] = {}
         self._load_all()
 
     def _load_all(self, *, strict: bool = False) -> None:
         loaded_superkeys: dict[str, SuperkeyConfig] = {}
+        loaded_paths: dict[str, Path] = {}
         failures: list[ConfigLoadFailure] = []
 
         if not paths.SUPERKEYS_DIR.exists():
             self._superkeys = loaded_superkeys
+            self._superkey_paths = loaded_paths
             return
 
         for superkey_file in paths.SUPERKEYS_DIR.glob("*.toml"):
@@ -85,6 +95,7 @@ class SuperkeyManager:
                 config = self._load_superkey(superkey_file)
                 if config:
                     loaded_superkeys[config.name] = config
+                    loaded_paths[config.name] = superkey_file
             except Exception as e:
                 log.error(f"Failed to load superkey {superkey_file}: {e}")
                 failures.append(ConfigLoadFailure(superkey_file, str(e)))
@@ -93,6 +104,7 @@ class SuperkeyManager:
             raise ConfigLoadError("superkey", failures)
 
         self._superkeys = loaded_superkeys
+        self._superkey_paths = loaded_paths
 
     def _load_superkey(self, path: Path) -> SuperkeyConfig | None:
         with open(path, "rb") as f:
@@ -334,11 +346,26 @@ class SuperkeyManager:
     def get_all_superkeys(self) -> dict[str, SuperkeyConfig]:
         return self._superkeys.copy()
 
-    def snapshot_superkeys(self) -> dict[str, SuperkeyConfig]:
-        return self._superkeys.copy()
+    def snapshot_superkeys(self) -> SuperkeySnapshot:
+        return SuperkeySnapshot(
+            superkeys=self._superkeys.copy(),
+            paths=self._superkey_paths.copy(),
+        )
 
-    def restore_superkeys(self, superkeys: dict[str, SuperkeyConfig]) -> None:
-        self._superkeys = superkeys.copy()
+    def restore_superkeys(
+        self,
+        snapshot: SuperkeySnapshot | dict[str, SuperkeyConfig],
+    ) -> None:
+        if isinstance(snapshot, SuperkeySnapshot):
+            self._superkeys = snapshot.superkeys.copy()
+            self._superkey_paths = snapshot.paths.copy()
+            return
+
+        self._superkeys = snapshot.copy()
+        self._superkey_paths = {
+            name: self._superkey_paths.get(name, self._path_for_name(config.name))
+            for name, config in self._superkeys.items()
+        }
 
     def save_superkey(self, config: SuperkeyConfig, *, replacing_name: str | None = None) -> None:
         paths.ensure_config_dirs()
@@ -403,6 +430,7 @@ class SuperkeyManager:
             tomli_w.dump(data, f)
 
         self._superkeys[config.name] = config
+        self._superkey_paths[config.name] = path
         log.info("Saved superkey: %s", config.name)
 
     def _validate_before_save(self, config: SuperkeyConfig) -> None:
@@ -519,13 +547,13 @@ class SuperkeyManager:
             return False
 
         config = self._superkeys[name]
-        safe_name = self._sanitize_name(config.name)
-        path = paths.SUPERKEYS_DIR / f"{safe_name}.toml"
+        path = self._superkey_paths.get(name, self._path_for_name(config.name))
 
         if path.exists():
             path.unlink()
 
         del self._superkeys[name]
+        self._superkey_paths.pop(name, None)
         log.info("Deleted superkey: %s", name)
         return True
 
@@ -541,7 +569,7 @@ class SuperkeyManager:
             return False
 
         config = self._superkeys[old_name]
-        old_path = self._path_for_name(old_name)
+        old_path = self._superkey_paths.get(old_name, self._path_for_name(old_name))
         new_path = self._path_for_name(new_name)
         self._ensure_storage_path_available(new_name, new_path, replacing_name=old_name)
 
@@ -556,6 +584,7 @@ class SuperkeyManager:
             old_path.unlink()
 
         del self._superkeys[old_name]
+        self._superkey_paths.pop(old_name, None)
 
         log.info("Renamed superkey: %s -> %s", old_name, new_name)
         return True

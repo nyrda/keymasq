@@ -192,6 +192,17 @@ def cancel_grab_retry(manager: "SessionManager", hardware_id: str) -> None:
         task.cancel()
 
 
+async def cancel_all_grab_retries(manager: "SessionManager") -> None:
+    tasks = list(manager.profile_state.grab_retry_tasks.values())
+    if not tasks:
+        return
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    manager.profile_state.grab_retry_tasks.clear()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
 def schedule_grab_retry(
     manager: "SessionManager",
     hardware_id: str,

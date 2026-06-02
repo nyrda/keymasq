@@ -233,6 +233,99 @@ def test_superkey_manager_rename_to_same_name_keeps_active_config(
     assert (superkeys_dir / "work.toml").exists()
 
 
+def test_superkey_manager_delete_removes_loaded_noncanonical_path(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+    legacy_path = superkeys_dir / "legacy.toml"
+    legacy_path.write_text(
+        """
+name = "Work Mode"
+mode = "pattern"
+
+[[actions.tap]]
+action = "keyboard"
+target = "key_a"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    manager = SuperkeyManager()
+
+    assert manager.delete_superkey("Work Mode") is True
+    assert not legacy_path.exists()
+    assert SuperkeyManager().get_superkey("Work Mode") is None
+
+
+def test_superkey_manager_rename_removes_loaded_noncanonical_path(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+    legacy_path = superkeys_dir / "legacy.toml"
+    legacy_path.write_text(
+        """
+name = "Work Mode"
+mode = "pattern"
+
+[[actions.tap]]
+action = "keyboard"
+target = "key_a"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    manager = SuperkeyManager()
+
+    assert manager.rename_superkey("Work Mode", "Focus Mode") is True
+    assert not legacy_path.exists()
+    assert (superkeys_dir / "focus_mode.toml").exists()
+    assert SuperkeyManager().get_superkey("Work Mode") is None
+    assert SuperkeyManager().get_superkey("Focus Mode") is not None
+
+
+def test_superkey_manager_restore_preserves_snapshot_storage_paths(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+    legacy_path = superkeys_dir / "legacy.toml"
+    legacy_path.write_text(
+        """
+name = "Work Mode"
+mode = "pattern"
+
+[[actions.tap]]
+action = "keyboard"
+target = "key_a"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    manager = SuperkeyManager()
+    snapshot = manager.snapshot_superkeys()
+    canonical_path = superkeys_dir / "work_mode.toml"
+    manager.save_superkey(_pattern_superkey("Work Mode", "key_b"))
+
+    assert canonical_path.exists()
+
+    manager.restore_superkeys(snapshot)
+
+    assert manager.delete_superkey("Work Mode") is True
+    assert not legacy_path.exists()
+    assert canonical_path.exists()
+
+
 def test_superkey_action_roundtrip_preserves_shared_fields() -> None:
     action = MappingAction(
         action_type=ActionType.KEYBOARD,

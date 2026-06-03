@@ -20,6 +20,7 @@ def grant_recording_refresh_owner(
         "pid": peer.pid,
         "writer_id": id(writer),
         "lease_id": lease_id,
+        "source": "runtime",
     }
     resolve_unlock_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "runtime", "expires_at": 9999999999}

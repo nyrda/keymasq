@@ -19,6 +19,7 @@ async def test_owner_disconnect_cleans_runtime_unlock() -> None:
         "pid": 111,
         "writer_id": id(writer),
         "lease_id": "lease-1",
+        "source": "runtime",
     }
     manager.client.send_command = AsyncMock(return_value=Response(status="ok"))
 
@@ -35,6 +36,31 @@ async def test_owner_disconnect_cleans_runtime_unlock() -> None:
             data={"uid": 1000, "cleanup": True},
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_owner_disconnect_clears_persistent_owner_without_daemon_cleanup() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=111, uid=1000, gid=1000)
+    writer = object()
+    owner = {
+        "uid": 1000,
+        "pid": 111,
+        "writer_id": id(writer),
+        "lease_id": "lease-1",
+        "source": "persistent",
+    }
+    manager.unlock_state.refresh_owner = owner
+    manager.client.send_command = AsyncMock()
+
+    await session_recording_module.clear_recording_refresh_owner_if_writer(
+        manager,
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert manager.unlock_state.refresh_owner is None
+    manager.client.send_command.assert_not_awaited()
 
 
 def test_owner_disconnect_clears_active_recording_owner() -> None:
@@ -201,6 +227,7 @@ async def test_claim_recording_unlock_refresh_creates_runtime_lease(
     assert result["recording_refresh_owner"] is True
     assert manager.unlock_state.refresh_owner is not None
     assert manager.unlock_state.refresh_owner["uid"] == peer.uid
+    assert manager.unlock_state.refresh_owner["source"] == "runtime"
     assert manager.unlock_state.runtime_refresh_claim_consumed_until[peer.uid] == 2000
     assert resolve_unlock_status_async.await_count == 2
     manager.client.send_command.assert_awaited_once()
@@ -242,6 +269,7 @@ async def test_refresh_recording_unlock_clears_owner_when_daemon_rejects_lease()
         "pid": peer.pid,
         "writer_id": id(writer),
         "lease_id": "lease-1",
+        "source": "runtime",
     }
     manager.client.send_command = AsyncMock(
         return_value=Response(
@@ -260,3 +288,40 @@ async def test_refresh_recording_unlock_clears_owner_when_daemon_rejects_lease()
     assert result["status"] == "error"
     assert result["error_code"] == "recording_refresh_denied"
     assert manager.unlock_state.refresh_owner is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_recording_unlock_skips_daemon_for_persistent_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=12, uid=404, gid=100)
+    writer = object()
+    manager.unlock_state.refresh_owner = {
+        "uid": peer.uid,
+        "pid": peer.pid,
+        "writer_id": id(writer),
+        "lease_id": "lease-1",
+        "source": "persistent",
+    }
+    resolve_unlock_status_async = AsyncMock(
+        return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
+    )
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_unlock_status_async",
+        resolve_unlock_status_async,
+    )
+    manager.client.send_command = AsyncMock()
+
+    result = await session_recording_module.refresh_recording_unlock(
+        manager,
+        peer,
+        writer,  # type: ignore[arg-type]
+        "lease-1",
+    )
+
+    assert result["status"] == "ok"
+    assert result["recording_refresh_owner"] is True
+    manager.client.send_command.assert_not_awaited()
+    resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)

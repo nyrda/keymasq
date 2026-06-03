@@ -63,7 +63,7 @@ def queue_recording_settings_save(
     settings: JsonObject,
 ) -> None:
     manager.recording_state.settings_pending_save = settings
-    save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
+    save_task = manager.recording_state.settings_save_task
     if save_task is not None and not save_task.done():
         return
     manager.recording_state.settings_save_task = asyncio.create_task(

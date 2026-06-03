@@ -503,7 +503,12 @@ class TestDeviceManagerHelpers:
     def test_forget_exec_actions_prunes_superkey_history_with_nested_exec_refs(
         self,
     ) -> None:
-        from keymasq.keymasqd.runtime.repeat import RepeatHistoryEntry, forget_exec_actions
+        from keymasq.keymasqd.runtime.repeat import (
+            SUPERKEY_SLOT_OVERLOAD,
+            SUPERKEY_SLOT_TAP,
+            RepeatHistoryEntry,
+            forget_exec_actions,
+        )
 
         manager = DeviceManager()
         manager.repeat_state.history.extend(
@@ -521,6 +526,7 @@ class TestDeviceManagerHelpers:
                     ),
                     source_device="kbd",
                     source_button="key_f13",
+                    superkey_slot=SUPERKEY_SLOT_TAP,
                 ),
                 RepeatHistoryEntry(
                     category="special",
@@ -535,6 +541,7 @@ class TestDeviceManagerHelpers:
                     ),
                     source_device="mouse",
                     source_button="btn_side",
+                    superkey_slot=SUPERKEY_SLOT_TAP,
                 ),
                 RepeatHistoryEntry(
                     category="special",
@@ -550,6 +557,7 @@ class TestDeviceManagerHelpers:
                     ),
                     source_device="kbd",
                     source_button="combo:launch",
+                    superkey_slot=SUPERKEY_SLOT_OVERLOAD,
                 ),
                 RepeatHistoryEntry(
                     category="special",
@@ -567,6 +575,7 @@ class TestDeviceManagerHelpers:
                     ),
                     source_device="kbd",
                     source_button="key_f14",
+                    superkey_slot=SUPERKEY_SLOT_TAP,
                 ),
                 RepeatHistoryEntry(
                     category="special",
@@ -587,6 +596,51 @@ class TestDeviceManagerHelpers:
             "btn_side",
             "combo:launch",
             "key_f14",
+        ]
+
+    def test_forget_exec_actions_checks_remembered_superkey_slot(self) -> None:
+        from keymasq.keymasqd.runtime.repeat import (
+            SUPERKEY_SLOT_HOLD,
+            SUPERKEY_SLOT_TAP,
+            RepeatHistoryEntry,
+            forget_exec_actions,
+        )
+
+        manager = DeviceManager()
+        superkey_config = SuperkeyConfig(
+            name="mixed",
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+            hold_actions=[SuperkeyActionData(action_type="exec", exec_ref=14)],
+        )
+        manager.repeat_state.history.extend(
+            [
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(
+                        action_type=ActionType.SUPERKEY,
+                        superkey_config=superkey_config,
+                    ),
+                    source_device="kbd",
+                    source_button="key_f16",
+                    superkey_slot=SUPERKEY_SLOT_TAP,
+                ),
+                RepeatHistoryEntry(
+                    category="special",
+                    action=dm.MappingAction(
+                        action_type=ActionType.SUPERKEY,
+                        superkey_config=superkey_config,
+                    ),
+                    source_device="kbd",
+                    source_button="key_f17",
+                    superkey_slot=SUPERKEY_SLOT_HOLD,
+                ),
+            ]
+        )
+
+        forget_exec_actions(manager.repeat_state, source_device="kbd")
+
+        assert [entry.superkey_slot for entry in manager.repeat_state.history] == [
+            SUPERKEY_SLOT_TAP,
         ]
 
     def test_parse_action_warns_and_strips_unsupported_rapidfire(

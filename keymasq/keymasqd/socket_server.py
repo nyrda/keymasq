@@ -69,16 +69,19 @@ class SocketServer:
         self._client_context: dict[asyncio.StreamWriter, ClientContext] = {}
         self._next_connection_id = 1
         self._owner_context: ClientContext | None = None
+        self._socket_stat: os.stat_result | None = None
 
     @property
     def owner_context(self) -> ClientContext | None:
         return self._owner_context
 
     async def start(self) -> None:
-        self.server = await asyncio.start_unix_server(
+        server = await asyncio.start_unix_server(
             self._handle_client,
             path=self.socket_path,
         )
+        self.server = server
+        socket_stat = self._socket_path_stat()
 
         try:
             os.chown(self.socket_path, os.geteuid(), os.getegid())
@@ -91,13 +94,68 @@ class SocketServer:
                 )
         except (PermissionError, OSError, RuntimeError) as exc:
             log.error(f"Failed to secure daemon socket: {exc}")
+            await self._cleanup_failed_start(server, socket_stat)
             raise
 
+        self._socket_stat = socket_stat
         log.info(f"Listening on {self.socket_path}")
 
+    def _socket_path_stat(self) -> os.stat_result | None:
+        try:
+            return os.lstat(self.socket_path)
+        except OSError:
+            return None
+
+    async def _cleanup_failed_start(
+        self,
+        server: asyncio.Server,
+        socket_stat: os.stat_result | None,
+    ) -> None:
+        server.close()
+        try:
+            await server.wait_closed()
+        except Exception as exc:
+            log.warning(f"Failed to close unsecured daemon socket: {exc}")
+        finally:
+            if self.server is server:
+                self.server = None
+
+        self._unlink_socket_path(socket_stat, "unsecured daemon socket")
+
+    def _unlink_socket_path(
+        self,
+        socket_stat: os.stat_result | None,
+        description: str,
+    ) -> None:
+        if socket_stat is None:
+            return
+
+        try:
+            current_stat = os.lstat(self.socket_path)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            log.warning(f"Failed to inspect {description}: {exc}")
+            return
+
+        if (
+            current_stat.st_dev != socket_stat.st_dev
+            or current_stat.st_ino != socket_stat.st_ino
+        ):
+            return
+
+        try:
+            os.unlink(self.socket_path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            log.warning(f"Failed to remove {description}: {exc}")
+
     async def stop(self) -> None:
-        if self.server:
-            self.server.close()
+        server = self.server
+        socket_stat = self._socket_stat
+        if server:
+            server.close()
 
         writers = set(self.clients) | set(self._buffer) | set(self._client_context)
         for writer in writers:
@@ -108,13 +166,18 @@ class SocketServer:
             return_exceptions=True,
         )
 
-        if self.server:
-            await self.server.wait_closed()
+        if server:
+            await server.wait_closed()
+            if self.server is server:
+                self.server = None
+
+        self._unlink_socket_path(socket_stat, "daemon socket")
 
         self.clients.clear()
         self._buffer.clear()
         self._client_context.clear()
         self._owner_context = None
+        self._socket_stat = None
 
     async def _handle_client(
         self,

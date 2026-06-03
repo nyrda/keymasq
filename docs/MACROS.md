@@ -423,7 +423,7 @@ could be misused as a keylogger.
   and exists so slots survive daemon restarts, not as a macro library API.
 
 - **Saving a slot requires unlock.** Persisting a temporary recording into the
-  macro library goes through the recording unlock flow even after macro
+  macro library goes through the capture unlock flow even after macro
   recording has been enabled.
 
 - **Macros are stored in `/var/lib/keymasq/macros/`**, owned by the `keymasq`

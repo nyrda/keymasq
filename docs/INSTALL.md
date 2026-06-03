@@ -293,7 +293,7 @@ a warning when this happens so the missing optimization is visible.
 Packaged installs handle this automatically. Macro recording is enabled by a
 Polkit-backed `keymasq-record` opt-in from the GUI. Capture flows such as
 button/key capture, combo capture, and Device Inspector suppression use the
-separate recording unlock lease.
+separate capture unlock lease.
 
 For manual installs, if capture unlock requests do not appear or fail, you can
 disable the capture unlock requirement in `/etc/keymasq/security.toml`:

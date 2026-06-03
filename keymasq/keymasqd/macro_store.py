@@ -1,7 +1,11 @@
+import copy
+import fcntl
 import logging
 import os
 import re
+import threading
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -17,6 +21,8 @@ from keymasq.keymasqd.macro_file import (
 )
 
 INTERNAL_MACRO_PREFIX = "__"
+_MUTATION_LOCK_NAME = ".macro-store.lock"
+_PROCESS_MUTATION_LOCK = threading.Lock()
 log = logging.getLogger("keymasqd.macros")
 type MacroEvent = dict[str, object]
 type MacroPayload = dict[str, object]
@@ -60,10 +66,12 @@ class MacroStore:
     def register_internal(self, name: str, events: list[MacroEvent], **extra: object) -> None:
         if not name.startswith(INTERNAL_MACRO_PREFIX):
             raise ValueError(f"Internal macro names must start with {INTERNAL_MACRO_PREFIX}")
-        self._internal_macros[name] = macro_payload_from_events(
-            {"name": name, "internal": True, **extra},
-            events,
-            name=name,
+        self._internal_macros[name] = copy.deepcopy(
+            macro_payload_from_events(
+                {"name": name, "internal": True, **extra},
+                events,
+                name=name,
+            )
         )
 
     def is_internal(self, name: str) -> bool:
@@ -89,7 +97,7 @@ class MacroStore:
 
     def get(self, name: str) -> MacroPayload:
         if name in self._internal_macros:
-            return dict(self._internal_macros[name])
+            return copy.deepcopy(self._internal_macros[name])
         path = self._macro_path(name)
         if not path.exists():
             raise FileNotFoundError(f"Macro '{name}' not found")
@@ -107,7 +115,7 @@ class MacroStore:
     def iter_events(self, name: str) -> Iterator[MacroEvent]:
         if name in self._internal_macros:
             events = _payload_events(self._internal_macros[name])
-            return iter(events)
+            return iter(copy.deepcopy(events))
         path = self._macro_path(name)
         if not path.exists():
             raise FileNotFoundError(f"Macro '{name}' not found")
@@ -143,77 +151,70 @@ class MacroStore:
     ) -> MacroPayload:
         if name in self._internal_macros:
             raise PermissionError(f"Cannot modify internal macro '{name}'")
-        current = self.get(name)
-        current_revision = _payload_int(current, "revision", 1)
-        if expected_revision is not None and expected_revision != current_revision:
-            raise ValueError(
-                f"Revision conflict: expected {expected_revision}, current {current_revision}"
-            )
+        with self._mutation_guard():
+            current = self.get(name)
+            current_revision = _payload_int(current, "revision", 1)
+            _raise_revision_conflict(expected_revision, current_revision)
 
-        data: MacroPayload = dict(current)
-        events_changed = "events" in payload
-        for key, value in payload.items():
-            if key in {"name", "created_at", "revision"}:
-                continue
-            data[key] = value
+            data: MacroPayload = dict(current)
+            events_changed = "events" in payload
+            for key, value in payload.items():
+                if key in {"name", "created_at", "revision"}:
+                    continue
+                data[key] = value
 
-        data["revision"] = current_revision + 1
-        data["event_count"] = len(_payload_events(data))
-        if events_changed:
-            if "duration_us" not in payload:
-                data.pop("duration_us", None)
-            if "device_types" not in payload:
-                data.pop("device_types", None)
-        self._write_payload(self._macro_path(name), data)
-        return self.get(name)
+            data["revision"] = current_revision + 1
+            data["event_count"] = len(_payload_events(data))
+            if events_changed:
+                if "duration_us" not in payload:
+                    data.pop("duration_us", None)
+                if "device_types" not in payload:
+                    data.pop("device_types", None)
+            self._write_payload(self._macro_path(name), data)
+            return self.get(name)
 
     def rename(self, old_name: str, new_name: str, expected_revision: int | None) -> MacroPayload:
         if old_name in self._internal_macros:
             raise PermissionError(f"Cannot rename internal macro '{old_name}'")
         if new_name.startswith(INTERNAL_MACRO_PREFIX):
             raise ValueError(f"Macro names starting with {INTERNAL_MACRO_PREFIX} are reserved")
-        current = self.get(old_name)
-        current_revision = _payload_int(current, "revision", 1)
-        if expected_revision is not None and expected_revision != current_revision:
-            raise ValueError(
-                f"Revision conflict: expected {expected_revision}, current {current_revision}"
-            )
-
         safe_new = self._sanitize_name(new_name)
         if not safe_new:
             raise ValueError("Invalid macro name")
 
         old_path = self._macro_path(old_name)
         new_path = self._macro_path(safe_new)
-        if new_path.exists():
-            raise FileExistsError(f"Macro '{safe_new}' already exists")
+        with self._mutation_guard():
+            current = self.get(old_name)
+            current_revision = _payload_int(current, "revision", 1)
+            _raise_revision_conflict(expected_revision, current_revision)
+            if new_path.exists():
+                raise FileExistsError(f"Macro '{safe_new}' already exists")
 
-        current["name"] = safe_new
-        current["revision"] = current_revision + 1
-        current["event_count"] = len(_payload_events(current))
-        try:
-            self._write_payload(new_path, current, overwrite=False)
-            renamed = self.get(safe_new)
-            if renamed != current:
-                raise ValueError(f"Renamed macro '{safe_new}' failed validation")
-        except FileExistsError:
-            raise
-        except Exception:
-            new_path.unlink(missing_ok=True)
-            raise
-        old_path.unlink(missing_ok=True)
-        return renamed
+            current["name"] = safe_new
+            current["revision"] = current_revision + 1
+            current["event_count"] = len(_payload_events(current))
+            try:
+                self._write_payload(new_path, current, overwrite=False)
+                renamed = self.get(safe_new)
+                if renamed != current:
+                    raise ValueError(f"Renamed macro '{safe_new}' failed validation")
+            except FileExistsError:
+                raise
+            except Exception:
+                new_path.unlink(missing_ok=True)
+                raise
+            old_path.unlink(missing_ok=True)
+            return renamed
 
     def delete(self, name: str, expected_revision: int | None) -> None:
         if name in self._internal_macros:
             raise PermissionError(f"Cannot delete internal macro '{name}'")
-        current = self.get_meta(name)
-        current_revision = _payload_int(current, "revision", 1)
-        if expected_revision is not None and expected_revision != current_revision:
-            raise ValueError(
-                f"Revision conflict: expected {expected_revision}, current {current_revision}"
-            )
-        self._macro_path(name).unlink(missing_ok=True)
+        with self._mutation_guard():
+            current = self.get_meta(name)
+            current_revision = _payload_int(current, "revision", 1)
+            _raise_revision_conflict(expected_revision, current_revision)
+            self._macro_path(name).unlink(missing_ok=True)
 
     def _create_from_events(
         self,
@@ -258,7 +259,36 @@ class MacroStore:
         meta = MacroFileMeta.from_payload(payload)
         write_macro(path, meta, events, overwrite=overwrite)
 
+    @contextmanager
+    def _mutation_guard(self) -> Iterator[None]:
+        self.ensure()
+        with _PROCESS_MUTATION_LOCK:
+            fd = self._open_mutation_lock()
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
+    def _open_mutation_lock(self) -> int:
+        flags = os.O_CREAT | os.O_RDWR | os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(self.base_dir / _MUTATION_LOCK_NAME, flags, 0o600)
+        os.fchmod(fd, 0o600)
+        return fd
+
 
 def _payload_events(payload: MacroPayload) -> list[MacroEvent]:
     events = _payload_list(payload, "events")
     return [cast(MacroEvent, event) for event in events if isinstance(event, dict)]
+
+
+def _raise_revision_conflict(expected_revision: int | None, current_revision: int) -> None:
+    if expected_revision is not None and expected_revision != current_revision:
+        raise ValueError(
+            f"Revision conflict: expected {expected_revision}, current {current_revision}"
+        )

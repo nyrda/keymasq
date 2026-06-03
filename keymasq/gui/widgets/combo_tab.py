@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -10,7 +12,7 @@ from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttribut
 from keymasq.common.models import ComboConfig
 from keymasq.gui.icons import combo_icon_names, image_from_icon_names, resolve_icon_name
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
-from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog, combo_trigger_signature
 from keymasq.gui.widgets.combo_list import SORT_ACTION, SORT_NAME, SORT_TRIGGER, SortableComboList
 from keymasq.gui.widgets.combo_presentation import (
     combo_default_name,
@@ -19,7 +21,15 @@ from keymasq.gui.widgets.combo_presentation import (
     combo_trigger_label,
 )
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
-from keymasq.session.profiles import ProfileManager
+from keymasq.session.profiles import ProfileInfo, ProfileManager
+
+_DUPLICATE_COMBO_TRIGGER_MESSAGE = "A combo with the same trigger already exists in this profile."
+_STALE_COMBO_EDIT_MESSAGE = (
+    "This combo changed before it could be saved. Reopen the combo editor and try again."
+)
+_DELETED_COMBO_EDIT_MESSAGE = (
+    "This combo was deleted before it could be saved. Reopen the combo editor and try again."
+)
 
 
 class ComboTab(ProfileManagedTab):
@@ -151,6 +161,22 @@ class ComboTab(ProfileManagedTab):
             return []
         return self._selected_profile.config.combos
 
+    def _resolve_combo_target_profile(
+        self,
+        target_profile: ProfileInfo | None,
+    ) -> ProfileInfo | None:
+        target_profile = target_profile or self._selected_profile
+        if target_profile is None:
+            return None
+        if self.profile_manager is None or self.demo_mode:
+            return target_profile
+        return self.profile_manager.get_profile(target_profile.config.name)
+
+    def _show_missing_combo_target_profile(self, profile_name: str) -> None:
+        self._show_profile_error_dialog(
+            f"Profile '{profile_name}' is no longer available. Select a profile and try again."
+        )
+
     def _after_profile_selection_applied(self) -> None:
         selected = self._selected_profile is not None
         self.add_combo_button.set_sensitive(selected)
@@ -241,6 +267,9 @@ class ComboTab(ProfileManagedTab):
         self._open_combo_editor(combo)
 
     def _open_combo_editor(self, combo: ComboConfig | None = None) -> None:
+        target_profile = self._selected_profile
+        if target_profile is None:
+            return
         emergency_cancel_combo_enabled = True
         policy_getter = getattr(self.main_window, "emergency_cancel_combo_enabled", None)
         if callable(policy_getter):
@@ -248,23 +277,85 @@ class ComboTab(ProfileManagedTab):
         dialog = ComboEditorDialog(
             self,
             combo,
-            profile_name=self.selected_profile_name(),
-            sibling_combos=self._selected_combos(),
+            profile_name=target_profile.config.name,
+            sibling_combos=target_profile.config.combos,
             emergency_cancel_combo_enabled=emergency_cancel_combo_enabled,
         )
-        dialog.connect("combo-saved", self._on_combo_saved)
+        dialog.connect(
+            "combo-saved",
+            self._on_combo_saved,
+            target_profile,
+            deepcopy(combo) if combo is not None else None,
+        )
         dialog.present(self)
 
-    def _on_combo_saved(self, _dialog: ComboEditorDialog, combo: ComboConfig) -> None:
-        combos = self._selected_combos()
-        for index, existing in enumerate(combos):
-            if existing.id == combo.id:
-                combos[index] = combo
-                break
-        else:
+    def _on_combo_saved(
+        self,
+        _dialog: ComboEditorDialog,
+        combo: ComboConfig,
+        target_profile: ProfileInfo | None = None,
+        original_combo: ComboConfig | None = None,
+    ) -> None:
+        profile_name = target_profile.config.name if target_profile is not None else ""
+        target_profile = self._resolve_combo_target_profile(target_profile)
+        if target_profile is None:
+            if profile_name:
+                self._show_missing_combo_target_profile(profile_name)
+            self._combo_list.render()
+            return
+        combos = target_profile.config.combos
+        existing_index = self._combo_index(combos, combo.id)
+        if original_combo is not None:
+            existing_index = self._combo_index(combos, original_combo.id)
+            if existing_index is None:
+                self._show_profile_error_dialog(_DELETED_COMBO_EDIT_MESSAGE)
+                self._combo_list.render()
+                return
+            if combos[existing_index] != original_combo:
+                self._show_profile_error_dialog(_STALE_COMBO_EDIT_MESSAGE)
+                self._combo_list.render()
+                return
+        ignore_combo_id = original_combo.id if original_combo is not None else combo.id
+        if self._has_duplicate_combo_trigger(combo, combos, ignore_combo_id=ignore_combo_id):
+            self._show_profile_error_dialog(_DUPLICATE_COMBO_TRIGGER_MESSAGE)
+            self._combo_list.render()
+            return
+        if existing_index is None:
             combos.append(combo)
-        self._save_profile()
+        else:
+            combos[existing_index] = combo
+        self._save_specific_profile(target_profile)
         self._combo_list.render()
+
+    def _combo_index(self, combos: list[ComboConfig], combo_id: str) -> int | None:
+        for index, combo in enumerate(combos):
+            if combo.id == combo_id:
+                return index
+        return None
+
+    def _has_duplicate_combo_trigger(
+        self,
+        combo: ComboConfig,
+        combos: list[ComboConfig],
+        *,
+        ignore_combo_id: str,
+    ) -> bool:
+        current_steps = combo_trigger_signature(
+            combo,
+            match_across_devices=bool(combo.match_across_devices),
+        )
+        if not current_steps:
+            return False
+        for existing in combos:
+            if existing.id == ignore_combo_id:
+                continue
+            existing_steps = combo_trigger_signature(
+                existing,
+                match_across_devices=bool(existing.match_across_devices),
+            )
+            if existing_steps == current_steps:
+                return True
+        return False
 
     def _on_add_combo_clicked(self, _button: Gtk.Button) -> None:
         if self._selected_profile is None:
@@ -272,7 +363,12 @@ class ComboTab(ProfileManagedTab):
         self._open_combo_editor()
 
     def _on_delete_combo_clicked(self, _button: Gtk.Button, combo_id: str) -> None:
-        combo = next((combo for combo in self._selected_combos() if combo.id == combo_id), None)
+        target_profile = self._selected_profile
+        if target_profile is None:
+            return
+        combo = next(
+            (combo for combo in target_profile.config.combos if combo.id == combo_id), None
+        )
         if combo is None:
             return
 
@@ -284,7 +380,7 @@ class ComboTab(ProfileManagedTab):
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
-        dialog.connect("response", self._on_delete_combo_response, combo_id)
+        dialog.connect("response", self._on_delete_combo_response, combo_id, target_profile)
         dialog.present(self.get_root())
 
     def _on_delete_combo_response(
@@ -292,13 +388,25 @@ class ComboTab(ProfileManagedTab):
         _dialog: Adw.AlertDialog,
         response: str,
         combo_id: str,
+        target_profile: ProfileInfo | None = None,
     ) -> None:
         if response != "delete":
             return
-        self._delete_combo(combo_id)
+        self._delete_combo(combo_id, target_profile)
 
-    def _delete_combo(self, combo_id: str) -> None:
-        combos = self._selected_combos()
+    def _delete_combo(
+        self,
+        combo_id: str,
+        target_profile: ProfileInfo | None = None,
+    ) -> None:
+        profile_name = target_profile.config.name if target_profile is not None else ""
+        target_profile = self._resolve_combo_target_profile(target_profile)
+        if target_profile is None:
+            if profile_name:
+                self._show_missing_combo_target_profile(profile_name)
+            self._combo_list.render()
+            return
+        combos = target_profile.config.combos
         combos[:] = [combo for combo in combos if combo.id != combo_id]
-        self._save_profile()
+        self._save_specific_profile(target_profile)
         self._combo_list.render()

@@ -79,17 +79,21 @@ def run(ctx: ScenarioContext) -> None:
     assert_recording_slot_listed(ctx, RECORDING_SLOT)
 
     saved_name = "integration-recorded-macro"
-    ctx.request(
-        {
-            "command": "save_recording",
-            "name": saved_name,
-            "recording_slot": RECORDING_SLOT,
-            "pending_save_token": token,
-        }
-    )
-    assert_recording_slot_listed(ctx, RECORDING_SLOT)
-    ctx.request({"command": "play_macro", "name": saved_name})
-    ctx.expect_keys([(evdev.ecodes.KEY_Q, 1), (evdev.ecodes.KEY_Q, 0)])
+    ctx.request({"command": "delete_macro", "name": saved_name}, ok=False)
+    try:
+        ctx.request(
+            {
+                "command": "save_recording",
+                "name": saved_name,
+                "recording_slot": RECORDING_SLOT,
+                "pending_save_token": token,
+            }
+        )
+        assert_recording_slot_listed(ctx, RECORDING_SLOT)
+        ctx.request({"command": "play_macro", "name": saved_name})
+        ctx.expect_keys([(evdev.ecodes.KEY_Q, 1), (evdev.ecodes.KEY_Q, 0)])
+    finally:
+        ctx.request({"command": "delete_macro", "name": saved_name}, ok=False)
 
 
 def run_mapped_slot_actions(ctx: ScenarioContext) -> None:
@@ -105,6 +109,34 @@ def run_mapped_slot_actions(ctx: ScenarioContext) -> None:
         ctx.tap_source(evdev.ecodes.KEY_F23)
         wait_for_recording_state(ctx, active=False, recording_slot=0)
         assert_recording_slot_listed(ctx, RECORDING_SLOT)
+
+        ctx.drain_outputs()
+        ctx.tap_source(evdev.ecodes.KEY_F24)
+        ctx.expect_keys([(evdev.ecodes.KEY_Q, 1), (evdev.ecodes.KEY_Q, 0)])
+    finally:
+        ctx.request({"command": "stop_recording", "recording_slot": RECORDING_SLOT}, ok=False)
+        ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=False)
+
+
+def run_mapped_slot_playback_without_unlock(ctx: ScenarioContext) -> None:
+    try:
+        ctx.enable_macro_recording_opt_in()
+        assert_macro_recording_enabled(ctx)
+        assert_recording_locked_if_required(ctx)
+
+        ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=True)
+        assert_macro_recording_enabled(ctx)
+
+        ctx.tap_source(evdev.ecodes.KEY_F23)
+        wait_for_recording_state(ctx, active=True, recording_slot=RECORDING_SLOT)
+
+        ctx.tap_source(evdev.ecodes.KEY_Q)
+
+        ctx.tap_source(evdev.ecodes.KEY_F23)
+        wait_for_recording_state(ctx, active=False, recording_slot=0)
+        assert_recording_slot_listed(ctx, RECORDING_SLOT)
+
+        assert_recording_locked_if_required(ctx)
 
         ctx.drain_outputs()
         ctx.tap_source(evdev.ecodes.KEY_F24)
@@ -134,6 +166,13 @@ def wait_for_recording_state(
 
     label = f"recording active={active} slot={recording_slot}"
     ctx.wait_until(label, matches, timeout_s=5)
+
+
+def assert_recording_locked_if_required(ctx: ScenarioContext) -> None:
+    status = ctx.request({"command": "get_status"})
+    if status.get("recording_unlock_required") is True:
+        if status.get("recording_unlocked") is not False:
+            raise AssertionError(f"capture unlock was unexpectedly active: {status}")
 
 
 def assert_recording_slot_listed(ctx: ScenarioContext, recording_slot: int) -> None:

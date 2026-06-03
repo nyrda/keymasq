@@ -1,6 +1,7 @@
 import logging
 import lzma
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,26 @@ import pytest
 from keymasq.keymasqd import macro_store as macro_store_module
 from keymasq.keymasqd.macro_file import MacroFileMeta
 from keymasq.keymasqd.macro_store import MacroStore
+
+
+def _run_before_mutation_guard(
+    store: MacroStore,
+    monkeypatch: pytest.MonkeyPatch,
+    callback: Callable[[], None],
+) -> None:
+    original_guard = store._mutation_guard
+    callback_ran = False
+
+    @contextmanager
+    def mutation_guard() -> Iterator[None]:
+        nonlocal callback_ran
+        if not callback_ran:
+            callback_ran = True
+            callback()
+        with original_guard():
+            yield
+
+    monkeypatch.setattr(store, "_mutation_guard", mutation_guard)
 
 
 def test_macro_store_crud_and_revision(tmp_path: Path) -> None:
@@ -48,6 +69,73 @@ def test_macro_store_revision_conflict(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         store.update("macro_a", {"duration_us": 10_000}, expected_revision=7)
+
+
+def test_macro_store_update_rechecks_revision_under_mutation_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MacroStore(tmp_path / "macros")
+    contender = MacroStore(tmp_path / "macros")
+    store.create({"name": "macro_a", "events": [], "duration_us": 0})
+
+    _run_before_mutation_guard(
+        store,
+        monkeypatch,
+        lambda: contender.update("macro_a", {"duration_us": 50_000}, expected_revision=1),
+    )
+
+    with pytest.raises(ValueError, match="Revision conflict"):
+        store.update("macro_a", {"duration_us": 10_000}, expected_revision=1)
+
+    current = store.get("macro_a")
+    assert current["duration_us"] == 50_000
+    assert current["revision"] == 2
+
+
+def test_macro_store_rename_rechecks_revision_under_mutation_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MacroStore(tmp_path / "macros")
+    contender = MacroStore(tmp_path / "macros")
+    store.create({"name": "macro_a", "events": [], "duration_us": 0})
+
+    _run_before_mutation_guard(
+        store,
+        monkeypatch,
+        lambda: contender.update("macro_a", {"duration_us": 50_000}, expected_revision=1),
+    )
+
+    with pytest.raises(ValueError, match="Revision conflict"):
+        store.rename("macro_a", "macro_b", expected_revision=1)
+
+    current = store.get("macro_a")
+    assert current["duration_us"] == 50_000
+    assert current["revision"] == 2
+    assert not (tmp_path / "macros" / "macro_b.kmacro.xz").exists()
+
+
+def test_macro_store_delete_rechecks_revision_under_mutation_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MacroStore(tmp_path / "macros")
+    contender = MacroStore(tmp_path / "macros")
+    store.create({"name": "macro_a", "events": [], "duration_us": 0})
+
+    _run_before_mutation_guard(
+        store,
+        monkeypatch,
+        lambda: contender.update("macro_a", {"duration_us": 50_000}, expected_revision=1),
+    )
+
+    with pytest.raises(ValueError, match="Revision conflict"):
+        store.delete("macro_a", expected_revision=1)
+
+    current = store.get("macro_a")
+    assert current["duration_us"] == 50_000
+    assert current["revision"] == 2
 
 
 def test_macro_store_rename_keeps_source_when_destination_validation_fails(

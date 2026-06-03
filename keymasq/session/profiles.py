@@ -3,6 +3,7 @@ import copy
 import io
 import logging
 import re
+import threading
 import tomllib
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -120,6 +121,7 @@ class ProfileManager:
         self._auto_create_default_if_empty = auto_create_default_if_empty
         self._profiles: dict[str, ProfileInfo] = {}
         self._pending_repairs: set[asyncio.Task[None]] = set()
+        self._profile_file_lock = threading.RLock()
         self._load_all()
         self._ensure_default_profile_exists()
 
@@ -283,9 +285,9 @@ class ProfileManager:
         path: Path,
         reason: str,
     ) -> None:
-        repair_config = copy.deepcopy(config)
+        created_at = config.created_at or datetime.now()
         log.warning(
-            "Profile %s has %s; rewriting created_at with current time",
+            "Profile %s has %s; repairing created_at with current time",
             path,
             reason,
         )
@@ -293,25 +295,45 @@ class ProfileManager:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             try:
-                self._write_profile_file(repair_config, path, validate_window_rules=False)
+                self._repair_created_at_if_needed(created_at, path)
             except Exception as exc:
                 log.error("Failed to repair created_at for %s: %s", path, exc)
             return
 
-        task = loop.create_task(self._repair_created_at_async(repair_config, path))
+        task = loop.create_task(self._repair_created_at_async(created_at, path))
         self._pending_repairs.add(task)
         task.add_done_callback(self._pending_repairs.discard)
 
-    async def _repair_created_at_async(self, config: ProfileConfig, path: Path) -> None:
+    async def _repair_created_at_async(self, created_at: datetime, path: Path) -> None:
         try:
             await asyncio.to_thread(
-                self._write_profile_file,
-                config,
+                self._repair_created_at_if_needed,
+                created_at,
                 path,
-                False,
             )
         except Exception as exc:
             log.error("Failed to repair created_at for %s: %s", path, exc)
+
+    def _repair_created_at_if_needed(self, created_at: datetime, path: Path) -> None:
+        with self._profile_file_lock:
+            data = cast(TomlDict, tomllib.load(io.BytesIO(path.read_bytes())))
+            profile = _as_toml_dict(data.get("profile"))
+            if profile is None:
+                profile = {}
+                data["profile"] = profile
+
+            current_created_at = profile.get("created_at")
+            if isinstance(current_created_at, str):
+                try:
+                    datetime.fromisoformat(current_created_at)
+                except ValueError:
+                    pass
+                else:
+                    return
+
+            profile["created_at"] = created_at.isoformat()
+            with open(path, "wb") as f:
+                tomli_w.dump(data, f)
 
     def _parse_action(self, action_data: TomlDict | str) -> MappingAction:
         if isinstance(action_data, str):
@@ -855,15 +877,17 @@ class ProfileManager:
                 for combo in config.combos
             ]
 
-        if exclusive:
-            buffer = io.BytesIO()
-            tomli_w.dump(data, buffer)
-            with open(path, "xb") as f:
-                f.write(buffer.getvalue())
-            return
+        with self._profile_file_lock:
+            if exclusive:
+                buffer = io.BytesIO()
+                tomli_w.dump(data, buffer)
+                with open(path, "xb") as f:
+                    f.write(buffer.getvalue())
+                return
 
-        with open(path, "wb") as f:
-            tomli_w.dump(data, f)
+            with open(path, "wb") as f:
+                tomli_w.dump(data, f)
+            return
 
     def delete_profile(self, name: str) -> bool:
         profile = self._profiles.get(name)

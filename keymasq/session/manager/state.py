@@ -58,6 +58,10 @@ class RecordingRuntimeState:
 class UnlockRuntimeState:
     refresh_owner: JsonObject | None = None
     runtime_refresh_claim_consumed_until: dict[int, int] = field(default_factory=dict)
+    unlock_status_cache: dict[int, dict[str, bool | int | str]] = field(default_factory=dict)
+    macro_recording_status_cache: dict[int, dict[str, bool | int | str]] = field(
+        default_factory=dict
+    )
     refresh_ttl_s: int = 60
 
 
@@ -96,6 +100,7 @@ class RuntimeProfileActivation:
     activation_id: str
     sequence: int
     deactivation: ProfileDeactivationPolicy
+    tracked: bool = False
     source_device: str = ""
     source_button: str = ""
     trigger_id: str = ""

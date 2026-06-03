@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -37,6 +38,58 @@ async def test_set_diagnostics_forwards_categories(daemon_testbed):
         3.25,
         ["mainline", "combo"],
     )
+
+
+@pytest.mark.asyncio
+async def test_macro_recording_status_uses_requested_uid(daemon_testbed, monkeypatch):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    resolved_uids: list[int] = []
+
+    def fake_resolve_macro_recording_status(uid: int) -> dict[str, object]:
+        resolved_uids.append(uid)
+        status: dict[str, object] = {"unlocked": True, "source": "persistent", "expires_at": 0}
+        return status
+
+    monkeypatch.setattr(
+        daemon_module,
+        "resolve_macro_recording_status",
+        fake_resolve_macro_recording_status,
+    )
+
+    result = await daemon._handle_command(
+        CommandType.MACRO_RECORDING_STATUS,
+        {"uid": 9999},
+        client=client_context(uid=1000),
+    )
+
+    assert result == {"unlocked": True, "source": "persistent", "expires_at": 0}
+    assert resolved_uids == [9999]
+
+
+@pytest.mark.asyncio
+async def test_recording_unlock_status_uses_requested_uid(daemon_testbed, monkeypatch):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    resolved_uids: list[int] = []
+
+    def fake_resolve_unlock_status(uid: int) -> dict[str, object]:
+        resolved_uids.append(uid)
+        status: dict[str, object] = {"unlocked": True, "source": "runtime", "expires_at": 123}
+        return status
+
+    monkeypatch.setattr(
+        daemon_module,
+        "resolve_unlock_status",
+        fake_resolve_unlock_status,
+    )
+
+    result = await daemon._handle_command(
+        CommandType.RECORDING_UNLOCK_STATUS,
+        {"uid": 9999},
+        client=client_context(uid=1000),
+    )
+
+    assert result == {"unlocked": True, "source": "runtime", "expires_at": 123}
+    assert resolved_uids == [9999]
 
 
 @pytest.mark.asyncio
@@ -101,6 +154,41 @@ async def test_macro_save_recording_requires_recording_unlock(daemon_testbed, mo
             {"pending_recording_id": "recording-1", "name": "saved"},
             client=client_context(),
         )
+
+
+@pytest.mark.asyncio
+async def test_macro_play_recording_does_not_require_recording_unlock(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
+    class Snapshot:
+        recording_id = "recording-1"
+        duration_ms = 5
+        device_types = ["keyboard"]
+        event_count = 1
+
+        def iter_events(self):
+            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
+
+    recording_manager.claim_pending_recording.return_value = Snapshot()
+
+    result = await daemon._handle_command(
+        CommandType.MACRO_PLAY_RECORDING,
+        {"pending_recording_id": "recording-1"},
+        client=client_context(),
+    )
+
+    assert result == {"played": True}
+    recording_manager.claim_pending_recording.assert_awaited_once_with("recording-1")
+    recording_manager.release_pending_recording_claim.assert_awaited_once_with(
+        "recording-1",
+        saved=False,
+    )
+    device_manager.play_macro.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -242,7 +330,13 @@ async def test_refresh_then_lock_runtime_unlock_updates_owner_cache_and_file(
     assert refreshed["expires_at"] == 1001
     assert daemon._recording_refresh_owners[uid] == (600, 9)
     assert daemon._unlock_cache[uid] == (500.0, True, 1001, "runtime")
-    write_unlock.assert_called_once()
+    write_unlock.assert_called_once_with(
+        unlock_file,
+        1001,
+        owner_uid=os.geteuid(),
+        owner_gid=os.getegid(),
+        mode=0o600,
+    )
 
     locked = daemon._lock_runtime_unlock(uid, client)
     assert locked == {"status": "ok", "uid": uid, "source": "runtime", "locked": True}
@@ -269,6 +363,50 @@ def test_expired_unlocked_cache_entry_is_re_resolved(daemon_testbed, monkeypatch
     assert daemon._recording_unlocked_for_uid(uid) == (False, 0, "none")
     assert resolved_uids == [uid]
     assert daemon._unlock_cache[uid] == (500.25, False, 0, "none")
+
+
+@pytest.mark.asyncio
+async def test_stale_unlocked_cache_entry_is_re_resolved_before_sensitive_command(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    daemon._unlock_cache_interval_s = 0.25
+    uid = 5555
+    now_mono = 500.0
+    statuses: list[dict[str, object]] = [
+        {"unlocked": True, "source": "runtime", "expires_at": 2000},
+        {"unlocked": False, "source": "none", "expires_at": 0},
+    ]
+    resolved_uids: list[int] = []
+
+    def fake_resolve_unlock_status(requested_uid: int) -> dict[str, object]:
+        resolved_uids.append(requested_uid)
+        return statuses[min(len(resolved_uids) - 1, len(statuses) - 1)]
+
+    monkeypatch.setattr(daemon_module, "resolve_unlock_status", fake_resolve_unlock_status)
+    monkeypatch.setattr(daemon_module.time, "time", lambda: 1000)
+    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: now_mono)
+
+    client = client_context(uid=uid, pid=600, connection_id=9)
+    result = await daemon._handle_command(
+        CommandType.CAPTURE_BEGIN,
+        {"hardware_id": "1234:5678"},
+        client=client,
+    )
+    assert result == {"token": "cap-token"}
+
+    now_mono = 500.3
+    with pytest.raises(PermissionError, match="recording_locked"):
+        await daemon._handle_command(
+            CommandType.CAPTURE_READ,
+            {"token": "cap-token"},
+            client=client,
+        )
+
+    assert resolved_uids == [uid, uid]
+    capture_manager.read.assert_not_called()
 
 
 @pytest.mark.asyncio

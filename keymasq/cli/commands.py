@@ -133,7 +133,7 @@ def status_cli(*, json_output: bool = False) -> None:
         unlock_state = f"unlocked ({source})"
     else:
         unlock_state = "locked"
-    print(f"recording unlock: {unlock_state}")
+    print(f"capture unlock: {unlock_state}")
 
     if "active_profiles" in result:
         print(f"active profiles: {_names(result.get('active_profiles'))}")
@@ -262,7 +262,7 @@ def play_adhoc_cli(
     tokens: list[str],
     *,
     input_json: bool = False,
-    speed: float = 1.0,
+    speed: float | None = None,
     print_json: bool = False,
     json_output: bool = False,
 ) -> None:
@@ -277,10 +277,15 @@ def play_adhoc_cli(
             if not isinstance(raw_events, list):
                 raise ValueError("macro JSON events must be a list")
             events = _macro_events_from_json(raw_events)
+            playback_speed = (
+                float(speed)
+                if speed is not None
+                else float(cast(IntLike, macro_data.get("speed", 1.0)))
+            )
             payload = build_macro_payload(
                 events,
                 name=str(macro_data.get("name", "") or ""),
-                speed=float(speed),
+                speed=playback_speed,
                 loop_mode=str(macro_data.get("loop_mode", "none") or "none"),
                 loop_count=int(cast(IntLike, macro_data.get("loop_count", 1) or 1)),
                 loop_stop_behavior=str(
@@ -300,13 +305,16 @@ def play_adhoc_cli(
                 )
 
                 events = build_compact_macro_events(event_tokens)
-                payload = build_macro_payload(events, speed=float(speed))
+                payload = build_macro_payload(
+                    events,
+                    speed=1.0 if speed is None else float(speed),
+                )
             else:
                 result = _request_or_error(
                     {
                         "command": "play_compact_macro",
                         "tokens": event_tokens,
-                        "speed": float(speed),
+                        "speed": 1.0 if speed is None else float(speed),
                     }
                 )
                 if _handled_json_or_error(result, json_output):

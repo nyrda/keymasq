@@ -154,6 +154,26 @@ async def test_stop_cancels_tracked_event_tasks() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stop_cancels_grab_retry_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = SessionManager()
+    manager.running = True
+    manager.client.disconnect = AsyncMock()  # type: ignore[method-assign]
+    manager.dbus.disconnect = AsyncMock()  # type: ignore[method-assign]
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    session_profiles_module.schedule_grab_retry(manager, "1234:5678", delay_s=0.05)
+    retry_task = manager.profile_state.grab_retry_tasks["1234:5678"]
+
+    await manager.stop()
+    await asyncio.sleep(0.1)
+
+    assert manager.profile_state.grab_retry_tasks == {}
+    assert retry_task.done()
+    reevaluate_profiles.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_stop_times_out_hanging_session_client_wait_closed() -> None:
     manager = SessionManager()
     manager.running = True

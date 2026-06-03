@@ -169,11 +169,8 @@ class Daemon:
 
         if self.socket_server:
             await self._run_async_cleanup("stop socket server", self.socket_server.stop)
-
-        try:
+        else:
             self._cleanup_socket_path()
-        except RuntimeError as exc:
-            log.warning("Failed to remove daemon socket path %s: %s", SOCKET_PATH, exc)
 
     async def _run_async_cleanup(
         self,
@@ -269,6 +266,16 @@ class Daemon:
         if command_type == CommandType.PING:
             return {"pong": True}
 
+        if command_type == CommandType.MACRO_RECORDING_STATUS:
+            fallback_uid = int(client.uid) if client is not None else os.getuid()
+            uid = int_like(data.get("uid"), fallback_uid)
+            return cast(JsonObject, await asyncio.to_thread(resolve_macro_recording_status, uid))
+
+        if command_type == CommandType.RECORDING_UNLOCK_STATUS:
+            fallback_uid = int(client.uid) if client is not None else os.getuid()
+            uid = int_like(data.get("uid"), fallback_uid)
+            return cast(JsonObject, await asyncio.to_thread(resolve_unlock_status, uid))
+
         macro_result = await daemon_macro_commands.handle_macro_command(
             cast(daemon_macro_commands.MacroCommandDaemon, self),
             command_type,
@@ -352,7 +359,7 @@ class Daemon:
 
         if source == "none":
             raise PermissionError(
-                "recording_locked: unlock required for capture/recording features"
+                "recording_locked: capture unlock required for input capture features"
             )
         raise PermissionError(f"recording_locked: unlock lease expired at {expires_at}")
 
@@ -427,9 +434,10 @@ class Daemon:
 
         if cached is not None:
             checked_mono, unlocked, expires_at, source = cached
-            if unlocked and (expires_at == 0 or expires_at >= now_wall):
+            cache_fresh = (now_mono - checked_mono) < self._unlock_cache_interval_s
+            if unlocked and cache_fresh and (expires_at == 0 or expires_at >= now_wall):
                 return unlocked, expires_at, source
-            if not unlocked and (now_mono - checked_mono) < self._unlock_cache_interval_s:
+            if not unlocked and cache_fresh:
                 return unlocked, expires_at, source
 
         status = resolve_unlock_status(uid)
@@ -537,7 +545,7 @@ class Daemon:
             expires_at,
             owner_uid=os.geteuid(),
             owner_gid=os.getegid(),
-            mode=0o644,
+            mode=0o600,
         )
         self._unlock_cache[uid] = (time.monotonic(), True, expires_at, "runtime")
         self._log_unlock_state_change(uid, True, "runtime", expires_at, reason="refresh")

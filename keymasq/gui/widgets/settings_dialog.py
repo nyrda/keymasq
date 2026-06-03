@@ -31,7 +31,12 @@ class SettingsDialog(Adw.Dialog):
         self._parent = parent
         self._settings = load_global_settings()
         self._gamepad_count = self._settings.virtual_gamepad_count
+        self._applied_gamepad_count = self._gamepad_count
         self._save_seq = 0
+        self._applied_save_seq = 0
+        self._save_inflight = False
+        self._save_applied = False
+        self._latest_save_failed = False
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -115,7 +120,7 @@ class SettingsDialog(Adw.Dialog):
         dialog.present(self._parent)
 
     def _on_loaded(self, response: dict[str, object] | None) -> bool:
-        if self._save_seq > 0:
+        if self._save_inflight or self._save_applied:
             return False
         if isinstance(response, dict) and response.get("status") == "ok":
             try:
@@ -127,6 +132,7 @@ class SettingsDialog(Adw.Dialog):
                 self._gamepad_count = clamp_virtual_gamepad_count(count)
             except (TypeError, ValueError):
                 self._gamepad_count = self._settings.virtual_gamepad_count
+            self._applied_gamepad_count = self._gamepad_count
             self._sync_gamepad_count_controls()
         return False
 
@@ -156,19 +162,40 @@ class SettingsDialog(Adw.Dialog):
         self._sync_gamepad_count_controls()
         self._save_seq += 1
         save_seq = self._save_seq
+        self._save_inflight = True
+        self._latest_save_failed = False
         self._status.set_text("")
 
         def on_response(response: dict[str, object] | None) -> bool:
-            if save_seq != self._save_seq:
-                return False
             if isinstance(response, dict) and response.get("status") == "ok":
                 raw_saved = response.get("virtual_gamepad_count", count)
                 saved_count = _count_value(raw_saved, count)
-                self._gamepad_count = clamp_virtual_gamepad_count(saved_count)
+                applied_count = clamp_virtual_gamepad_count(saved_count)
+                if save_seq != self._save_seq:
+                    if save_seq > self._applied_save_seq:
+                        self._applied_gamepad_count = applied_count
+                        self._applied_save_seq = save_seq
+                        self._save_applied = True
+                    if self._latest_save_failed and save_seq == self._applied_save_seq:
+                        self._gamepad_count = applied_count
+                        self._sync_gamepad_count_controls()
+                    return False
+                self._save_inflight = False
+                self._latest_save_failed = False
+                self._applied_gamepad_count = applied_count
+                self._applied_save_seq = save_seq
+                self._save_applied = True
+                self._gamepad_count = applied_count
                 self._sync_gamepad_count_controls()
                 return False
+            if save_seq != self._save_seq:
+                return False
+            self._save_inflight = False
             if isinstance(response, dict):
+                self._latest_save_failed = True
                 message = str(response.get("message") or "Failed to apply settings")
+                self._gamepad_count = self._applied_gamepad_count
+                self._sync_gamepad_count_controls()
                 self._status.set_text(message)
                 return False
             saved = save_global_settings(
@@ -177,7 +204,11 @@ class SettingsDialog(Adw.Dialog):
                 )
             )
             self._gamepad_count = saved.virtual_gamepad_count
+            self._applied_gamepad_count = self._gamepad_count
+            self._applied_save_seq = save_seq
             self._sync_gamepad_count_controls()
+            self._save_applied = True
+            self._latest_save_failed = False
             return False
 
         session_request_async(

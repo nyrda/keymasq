@@ -22,7 +22,7 @@ def _ecode_value(name: str) -> int | None:
         tuple_code = cast(tuple[object, ...], code)
         first = tuple_code[0] if tuple_code else None
         return first if isinstance(first, int) else None
-    return int(code)
+    return code if isinstance(code, int) else None
 
 
 def resolve_output_code(target: str | None) -> int | None:

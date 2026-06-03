@@ -2122,7 +2122,7 @@ def test_key_selector_dialog_profile_lifetime_requires_disabled_profile(monkeypa
     assert results[0].profile_deactivation is None
 
 
-def test_key_selector_dialog_only_shows_hyprland_actions_for_active_hyprland_listener():
+def test_key_selector_dialog_shows_hyprland_actions_for_active_listener_or_saved_action():
     from gi.repository import Gtk
 
     from keymasq.common.models import ActionType, MappingAction
@@ -2138,7 +2138,7 @@ def test_key_selector_dialog_only_shows_hyprland_actions_for_active_hyprland_lis
     )
     assert active_dialog.stack.get_child_by_name("hyprland") is not None
 
-    hidden_dialog = KeySelectorDialog(
+    saved_dialog = KeySelectorDialog(
         Gtk.Box(),
         "Back",
         MappingAction(
@@ -2152,10 +2152,11 @@ def test_key_selector_dialog_only_shows_hyprland_actions_for_active_hyprland_lis
             "compositor_dispatch_available": False,
         },
     )
-    assert hidden_dialog.stack.get_child_by_name("hyprland") is None
+    assert saved_dialog.stack.get_child_by_name("hyprland") is not None
+    assert saved_dialog.stack.get_visible_child_name() == "hyprland"
 
 
-def test_key_selector_dialog_only_shows_niri_dispatch_for_active_niri_listener():
+def test_key_selector_dialog_shows_niri_dispatch_for_active_listener_or_saved_action():
     from gi.repository import Gtk
 
     from keymasq.common.models import ActionType, MappingAction
@@ -2179,7 +2180,7 @@ def test_key_selector_dialog_only_shows_niri_dispatch_for_active_niri_listener()
     assert page._dispatcher_entry.get_editable() is True
     assert page._args_entry.get_editable() is True
 
-    hidden_dialog = KeySelectorDialog(
+    saved_dialog = KeySelectorDialog(
         Gtk.Box(),
         "Back",
         MappingAction(
@@ -2193,7 +2194,8 @@ def test_key_selector_dialog_only_shows_niri_dispatch_for_active_niri_listener()
             "compositor_dispatch_available": False,
         },
     )
-    assert hidden_dialog.stack.get_child_by_name("niri") is None
+    assert saved_dialog.stack.get_child_by_name("niri") is not None
+    assert saved_dialog.stack.get_visible_child_name() == "niri"
 
 
 def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
@@ -2227,6 +2229,23 @@ def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
     assert page._args_entry.get_text() == "2"
     assert page._dispatcher_entry.get_editable() is False
     assert page._args_entry.get_editable() is False
+
+    saved_dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="gnome",
+            compositor_dispatcher="workspace",
+            compositor_args="2",
+        ),
+        compositor_action_status={
+            "listener_name": "x11",
+            "compositor_dispatch_available": False,
+        },
+    )
+    assert saved_dialog.stack.get_child_by_name("gnome") is not None
+    assert saved_dialog.stack.get_visible_child_name() == "gnome"
 
 
 def test_key_selector_dialog_compositor_set_cursor_reuses_position_capture(monkeypatch):
@@ -2317,7 +2336,7 @@ def test_key_selector_dialog_reopens_set_cursor_with_captured_coordinates():
     assert page._capture_row.get_visible() is True
 
 
-def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
+def test_key_selector_dialog_shows_kde_dispatch_for_active_listener_or_saved_action():
     from gi.repository import Gtk
 
     from keymasq.common.models import ActionType, MappingAction
@@ -2342,7 +2361,7 @@ def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
     assert page._dispatcher_entry.get_editable() is False
     assert page._args_entry.get_editable() is False
 
-    hidden_dialog = KeySelectorDialog(
+    saved_dialog = KeySelectorDialog(
         Gtk.Box(),
         "Back",
         MappingAction(
@@ -2356,7 +2375,8 @@ def test_key_selector_dialog_only_shows_kde_dispatch_for_active_kde_listener():
             "compositor_dispatch_available": False,
         },
     )
-    assert hidden_dialog.stack.get_child_by_name("kde") is None
+    assert saved_dialog.stack.get_child_by_name("kde") is not None
+    assert saved_dialog.stack.get_visible_child_name() == "kde"
 
 
 def test_key_selector_dialog_keeps_hyprland_custom_dispatch_enabled():
@@ -2721,6 +2741,54 @@ def test_shared_gamepad_picker_buttons_use_shared_metadata():
     metadata_buttons = set(GAMEPAD_BUTTONS.values())
     assert rendered_buttons == metadata_buttons
     assert {EVDEV_TO_GAMEPAD[evdev_id] for evdev_id in rendered_buttons} == set(GAMEPAD_BUTTONS)
+
+
+def test_shared_gamepad_picker_falls_back_without_axis_handler():
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.input_picker_shared import build_gamepad_tab
+
+    class _Owner:
+        def __init__(self) -> None:
+            self.clicked: list[str] = []
+
+        def _create_key_button(
+            self,
+            label: str,
+            evdev: str,
+            width: float = 1,
+            large: bool = False,
+            protected: bool = False,
+        ) -> Gtk.Button:
+            return Gtk.Button(label=label)
+
+        def _on_gamepad_clicked(self, _btn, evdev_id: str) -> None:
+            self.clicked.append(evdev_id)
+
+    def collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
+        buttons: list[Gtk.Button] = []
+        if isinstance(widget, Gtk.Button):
+            buttons.append(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    owner = _Owner()
+    widget = build_gamepad_tab(owner)
+
+    assert isinstance(widget, Gtk.Box)
+    buttons_by_label = {
+        button.get_label(): button
+        for button in collect_buttons(widget)
+        if button.get_label()
+    }
+
+    for label in ("LT", "LX+", "RY-", "RT"):
+        buttons_by_label[label].emit("clicked")
+
+    assert owner.clicked == ["abs_z", "abs_x", "abs_ry", "abs_rz"]
 
 
 def test_key_selector_dialog_opens_media_tab_for_media_key_action():

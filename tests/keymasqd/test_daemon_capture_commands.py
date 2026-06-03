@@ -244,6 +244,36 @@ async def test_macro_save_recording_releases_unslotted_snapshot_as_saved(daemon_
 
 
 @pytest.mark.asyncio
+async def test_macro_save_recording_keeps_failed_unslotted_snapshot_retryable(
+    daemon_testbed,
+):
+    daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
+
+    class Snapshot:
+        recording_id = "recording-1"
+        duration_ms = 5
+        device_types = ["keyboard"]
+        event_count = 1
+
+        def iter_events(self):
+            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
+
+    recording_manager.claim_pending_recording.return_value = Snapshot()
+    macro_store.create_from_events.side_effect = RuntimeError("duplicate macro")
+
+    with pytest.raises(RuntimeError, match="duplicate macro"):
+        await daemon._handle_command(
+            CommandType.MACRO_SAVE_RECORDING,
+            {"pending_recording_id": "recording-1", "name": "saved"},
+        )
+
+    recording_manager.release_pending_recording_claim.assert_awaited_once_with(
+        "recording-1",
+        saved=False,
+    )
+
+
+@pytest.mark.asyncio
 async def test_macro_play_recording_claims_snapshot_and_releases_without_saving(
     daemon_testbed,
 ):
@@ -862,6 +892,25 @@ async def test_start_cleans_up_resources_when_socket_start_fails(
     device_manager.stop_topology_watcher.assert_awaited_once()
     device_manager.cancel_macro_playback.assert_awaited_once()
     device_manager.release_all_devices.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stop_lets_socket_server_own_socket_path_cleanup(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    socket_server = SimpleNamespace(stop=AsyncMock())
+    cleanup_socket_path = Mock()
+    daemon.running = True
+    daemon.socket_server = socket_server
+    monkeypatch.setattr(daemon, "_cleanup_socket_path", cleanup_socket_path)
+
+    await daemon.stop()
+
+    socket_server.stop.assert_awaited_once()
+    cleanup_socket_path.assert_not_called()
+    device_manager.shutdown_output_devices.assert_called_once()
 
 
 @pytest.mark.asyncio

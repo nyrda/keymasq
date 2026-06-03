@@ -76,8 +76,12 @@ Use the integration helper from the repository root:
 ```bash
 ./scripts/integration.sh cosmic
 ./scripts/integration.sh gnome
+./scripts/integration.sh cosmic --repeat 3
 ./scripts/integration.sh listeners
 ```
+
+`--repeat N` applies to every selected integration check, including individual
+listener shortcuts and the `listeners` group.
 
 List every shortcut with:
 

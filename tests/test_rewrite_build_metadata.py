@@ -1,4 +1,5 @@
 import importlib.util
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -30,6 +31,26 @@ def _load_script() -> ModuleType:
 
 def _fail_build_rules(*_args: object, **_kwargs: object) -> NoReturn:
     pytest.fail("_build_rules should not be called for invalid version input")
+
+
+def test_rewrite_build_metadata_apply_rules_limits_duplicate_matches(
+    tmp_path: Path,
+) -> None:
+    script = _load_script()
+    target = tmp_path / "metadata.env"
+    target.write_text('VERSION="1.0.0"\nVERSION="1.0.0"\n', encoding="utf-8")
+    rule = script.RewriteRule(
+        target,
+        re.compile(r'(?m)^VERSION=".*"$'),
+        'VERSION="2.0.0"',
+    )
+
+    changed_paths = script.apply_rules(tmp_path, [rule])
+
+    assert changed_paths == [Path("metadata.env")]
+    assert target.read_text(encoding="utf-8") == (
+        'VERSION="2.0.0"\nVERSION="1.0.0"\n'
+    )
 
 
 @pytest.mark.parametrize(

@@ -1148,6 +1148,97 @@ class TestListDevices:
             )
         ]
 
+    def test_topology_events_match_interface_qualified_desired_hardware_id(
+        self,
+    ) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        snapshot = {
+            "/dev/input/by-id/test-kbd": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-kbd",
+                path="/dev/input/event10",
+                interface_id="kbd",
+            ),
+            "/dev/input/by-id/test-mouse": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-mouse",
+                path="/dev/input/event11",
+                interface_id="mouse",
+            ),
+        }
+
+        events = tdm.build_topology_events(
+            manager,
+            {},
+            snapshot,
+            {"1234:5678@kbd"},
+        )
+
+        assert events == [
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/test-kbd",
+                    "interface_id": "kbd",
+                },
+            )
+        ]
+
+    def test_hardware_id_matches_desired_normalizes_desired_ids(self) -> None:
+        assert tdm.hardware_id_matches_desired("abcd:1234", {"ABCD:1234"})
+        assert tdm.hardware_id_matches_desired(
+            "abcd:1234",
+            {"ABCD:1234@interface"},
+            interface_id="INTERFACE",
+        )
+        assert not tdm.hardware_id_matches_desired(
+            "abcd:1234",
+            {"ABCD:1234@interface"},
+            interface_id="other",
+        )
+
+    def test_hardware_id_matches_desired_numeric_instance_wildcards_interface(
+        self,
+    ) -> None:
+        desired = {tdm.normalize_hardware_id("046D:C08B@2")}
+        hardware_id = tdm.normalize_hardware_id("046d:c08b")
+
+        assert tdm.hardware_id_matches_desired(
+            hardware_id,
+            desired,
+            interface_id=tdm.normalize_hardware_id("kbd"),
+        )
+        assert tdm.hardware_id_matches_desired(
+            hardware_id,
+            desired,
+            interface_id=tdm.normalize_hardware_id("mouse"),
+        )
+
+    def test_hardware_id_matches_desired_named_interface_requires_exact_match(
+        self,
+    ) -> None:
+        desired = {tdm.normalize_hardware_id("046D:C08B@eth0")}
+        hardware_id = tdm.normalize_hardware_id("046d:c08b")
+
+        assert tdm.hardware_id_matches_desired(
+            hardware_id,
+            desired,
+            interface_id=tdm.normalize_hardware_id("ETH0"),
+        )
+        assert not tdm.hardware_id_matches_desired(
+            hardware_id,
+            desired,
+            interface_id=tdm.normalize_hardware_id("wlan0"),
+        )
+
     def test_topology_events_report_reconnect_for_same_stable_path(self) -> None:
         manager = SimpleNamespace(_command_type=CommandType)
         stable_path = "/dev/input/by-id/test-pad"
@@ -1204,6 +1295,53 @@ class TestListDevices:
             ),
         ]
 
+    def test_topology_events_report_disconnect_when_stable_path_hardware_changes(
+        self,
+    ) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        stable_path = "/dev/input/by-id/test-pad"
+        previous = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event10",
+                interface_id="gamepad",
+            )
+        }
+        current = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="8765:4321",
+                vendor_id="8765",
+                product_id="4321",
+                stable_path=stable_path,
+                path="/dev/input/event10",
+                interface_id="gamepad",
+            )
+        }
+
+        events = tdm.build_topology_events(
+            manager,
+            previous,
+            current,
+            {"1234:5678"},
+        )
+
+        assert events == [
+            (
+                CommandType.DEVICE_DISCONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": stable_path,
+                    "interface_id": "gamepad",
+                },
+            )
+        ]
+
     @pytest.mark.asyncio
     async def test_reconcile_topology_releases_stale_grab_when_live_event_path_changes(
         self,
@@ -1238,6 +1376,82 @@ class TestListDevices:
         release_interface.assert_awaited_once_with(
             manager,
             "1234:5678",
+            "/dev/input/event5",
+        )
+
+    @pytest.mark.asyncio
+    async def test_reconcile_topology_releases_stale_grab_when_live_hardware_changes(
+        self,
+    ) -> None:
+        stable_path = "/dev/input/by-id/test-kbd"
+        manager = SimpleNamespace(
+            grabbed_devices={
+                "1234:5678": [
+                    SimpleNamespace(
+                        path="/dev/input/event5",
+                        stable_path=stable_path,
+                        resolved_event_path="/dev/input/event5",
+                        interface_id="kbd",
+                    )
+                ]
+            }
+        )
+        snapshot = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="8765:4321",
+                vendor_id="8765",
+                product_id="4321",
+                stable_path=stable_path,
+                path="/dev/input/event5",
+                interface_id="kbd",
+            )
+        }
+        release_interface = AsyncMock()
+        deps = SimpleNamespace(release_interface_fn=release_interface)
+
+        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+
+        release_interface.assert_awaited_once_with(
+            manager,
+            "1234:5678",
+            "/dev/input/event5",
+        )
+
+    @pytest.mark.asyncio
+    async def test_reconcile_topology_releases_interface_qualified_grab_on_mismatch(
+        self,
+    ) -> None:
+        stable_path = "/dev/input/by-id/test-kbd"
+        manager = SimpleNamespace(
+            grabbed_devices={
+                "1234:5678@kbd": [
+                    SimpleNamespace(
+                        path="/dev/input/event5",
+                        stable_path=stable_path,
+                        resolved_event_path="/dev/input/event5",
+                        interface_id="kbd",
+                    )
+                ]
+            }
+        )
+        snapshot = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event5",
+                interface_id="mouse",
+            )
+        }
+        release_interface = AsyncMock()
+        deps = SimpleNamespace(release_interface_fn=release_interface)
+
+        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+
+        release_interface.assert_awaited_once_with(
+            manager,
+            "1234:5678@kbd",
             "/dev/input/event5",
         )
 

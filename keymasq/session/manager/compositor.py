@@ -161,22 +161,12 @@ async def run_compositor_setup_action(
 
 
 async def get_active_window_payload(manager: "SessionManager") -> JsonObject:
-    if manager.compositor_state.window_listener is not None:
-        try:
-            window_class, window_title, window_tags = (
-                await manager.compositor_state.window_listener.get_active_window()
-            )
-            window_info = normalize_window_info(window_class, window_title, window_tags)
-            if window_info["class"] or window_info["title"] or window_info["tags"]:
-                manager.compositor_state.current_window = cast(JsonObject, window_info)
-                return {"status": "ok", **window_info}
-        except Exception as e:
-            log.debug(
-                "Active window query failed (compositor_id=%s listener=%s): %s",
-                manager.compositor_state.compositor_id,
-                getattr(manager.compositor_state.window_listener, "name", "unknown"),
-                e,
-            )
+    previous_window = dict(manager.compositor_state.current_window)
+    window_info = await refresh_current_window_from_listener(manager)
+    if previous_window != manager.compositor_state.current_window:
+        await runtime_profiles.reevaluate_profiles(manager, reason="active window changed")
+    if window_info is not None:
+        return {"status": "ok", **window_info}
 
     if manager.compositor_state.current_window:
         return {
@@ -210,6 +200,38 @@ def normalize_window_info_from_dict(
         str_value(window_info.get("title"), ""),
         [str(tag) for tag in json_list(window_info.get("tags")) if str(tag or "").strip()],
     )
+
+
+def clear_current_window(manager: "SessionManager") -> bool:
+    if not manager.compositor_state.current_window:
+        return False
+    manager.compositor_state.current_window = {}
+    return True
+
+
+async def refresh_current_window_from_listener(
+    manager: "SessionManager",
+) -> JsonObject | None:
+    listener = manager.compositor_state.window_listener
+    if listener is None:
+        return None
+    try:
+        window_class, window_title, window_tags = await listener.get_active_window()
+    except Exception as e:
+        log.debug(
+            "Active window query failed (compositor_id=%s listener=%s): %s",
+            manager.compositor_state.compositor_id,
+            getattr(listener, "name", "unknown"),
+            e,
+        )
+        return None
+
+    window_info = normalize_window_info(window_class, window_title, window_tags)
+    if not (window_info["class"] or window_info["title"] or window_info["tags"]):
+        manager.compositor_state.current_window = {}
+        return None
+    manager.compositor_state.current_window = cast(JsonObject, window_info)
+    return cast(JsonObject, window_info)
 
 
 async def activate_title(manager: "SessionManager", title: str) -> JsonObject:
@@ -303,8 +325,7 @@ async def ensure_compositor_listener(manager: "SessionManager") -> None:
 
     if manager.compositor_state.window_listener is not None and not current_healthy:
         log.warning("Window listener became unhealthy, restarting compositor binding")
-        await stop_window_listener(manager)
-        manager.compositor_state.compositor_id = None
+        await switch_compositor(manager, None)
 
     if manager.compositor_state.candidate_hits < 2:
         return
@@ -332,9 +353,16 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
         and manager.compositor_state.window_listener is None
     ):
         if not listener_retry_ready(manager, compositor_id):
+            if clear_current_window(manager):
+                await runtime_profiles.reevaluate_profiles(
+                    manager,
+                    reason="compositor changed",
+                )
             return
 
     previous = manager.compositor_state.compositor_id
+    previous_capabilities = list(manager.compositor_state.compositor_capabilities)
+    had_listener = manager.compositor_state.window_listener is not None
     await stop_window_listener(manager)
 
     manager.compositor_state.compositor_id = compositor_id
@@ -343,10 +371,17 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     manager.compositor_state.compositor_capabilities = get_compositor_capabilities(
         manager.compositor_state.compositor_id
     )
+    binding_changed = (
+        previous != compositor_id
+        or previous_capabilities != manager.compositor_state.compositor_capabilities
+    )
+    window_cleared = clear_current_window(manager)
 
     if compositor_id is None:
         if previous is not None:
             log.info("Compositor transitioned %s -> none (headless mode)", previous)
+        if binding_changed or had_listener or window_cleared:
+            await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
         return
 
     compositor_name = get_compositor_name(compositor_id)
@@ -366,6 +401,8 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
                 or f"listener support unavailable for {compositor_name}"
             ),
         )
+        if binding_changed or had_listener or window_cleared:
+            await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
         return
 
     await start_window_listener(manager)
@@ -375,11 +412,19 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
             compositor_id,
             manager.compositor_state.last_listener_start_error,
         )
+        if binding_changed or had_listener or window_cleared:
+            await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
         return
 
     manager.compositor_state.listener_retry_after.pop(compositor_id, None)
     manager.compositor_state.listener_last_error.pop(compositor_id, None)
     manager.compositor_state.listener_last_log_at.pop(compositor_id, None)
+    previous_window = dict(manager.compositor_state.current_window)
+    await refresh_current_window_from_listener(manager)
+    window_changed = previous_window != manager.compositor_state.current_window
+    listener_changed = not had_listener
+    if binding_changed or listener_changed or window_cleared or window_changed:
+        await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
 
     if previous != compositor_id:
         log.info("Compositor transitioned %s -> %s", previous or "none", compositor_id)

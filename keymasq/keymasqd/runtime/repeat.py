@@ -274,24 +274,13 @@ def _superkey_slot_action_lists(config: Any, slot: str | None) -> Iterable[Itera
         yield config.overload_up_actions
 
 
-def _superkey_all_action_lists(config: Any) -> Iterable[Iterable[Any]]:
-    for slot in (
-        SUPERKEY_SLOT_TAP,
-        SUPERKEY_SLOT_DOUBLE_TAP,
-        SUPERKEY_SLOT_HOLD,
-        SUPERKEY_SLOT_TAP_HOLD,
-        SUPERKEY_SLOT_OVERLOAD,
-    ):
-        yield from _superkey_slot_action_lists(config, slot)
-
-
-def _superkey_action_contains_exec(action: MappingAction) -> bool:
+def _superkey_slot_contains_exec_action(action: MappingAction, slot: str | None) -> bool:
     config = action.superkey_config
     if action.action_type != ActionType.SUPERKEY or config is None:
         return False
     return any(
         _is_exec_action_type(child.action_type)
-        for actions in _superkey_all_action_lists(config)
+        for actions in _superkey_slot_action_lists(config, slot)
         for child in actions
     )
 
@@ -327,8 +316,8 @@ def _is_profile_action_type(action_type: object) -> bool:
 
 
 def _repeat_entry_contains_exec_action(entry: RepeatHistoryEntry) -> bool:
-    return entry.action.action_type == ActionType.EXEC or _superkey_action_contains_exec(
-        entry.action
+    return entry.action.action_type == ActionType.EXEC or _superkey_slot_contains_exec_action(
+        entry.action, entry.superkey_slot
     )
 
 

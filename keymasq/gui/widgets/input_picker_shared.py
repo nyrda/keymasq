@@ -412,7 +412,10 @@ def _build_gamepad_left_col(owner) -> Gtk.Box:
         (1, 2, "LY+", "abs_y", 32767),
     ]:
         btn = owner._create_key_button(label, target)
-        btn.connect("clicked", owner._on_gamepad_axis_clicked, target, value)
+        if hasattr(owner, "_on_gamepad_axis_clicked"):
+            btn.connect("clicked", owner._on_gamepad_axis_clicked, target, value)
+        else:
+            btn.connect("clicked", owner._on_gamepad_clicked, target)
         lstick.attach(btn, gc, gr, 1, 1)
 
     ls_label, ls_evdev = _gamepad_button("LS")
@@ -548,7 +551,10 @@ def _build_gamepad_right_col(owner) -> Gtk.Box:
         (1, 2, "RY+", "abs_ry", 32767),
     ]:
         btn = owner._create_key_button(label, target)
-        btn.connect("clicked", owner._on_gamepad_axis_clicked, target, value)
+        if hasattr(owner, "_on_gamepad_axis_clicked"):
+            btn.connect("clicked", owner._on_gamepad_axis_clicked, target, value)
+        else:
+            btn.connect("clicked", owner._on_gamepad_clicked, target)
         rstick.attach(btn, gc, gr, 1, 1)
 
     rs_label, rs_evdev = _gamepad_button("RS")

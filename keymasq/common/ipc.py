@@ -40,6 +40,7 @@ class CommandType(Enum):
     MACRO_RENAME = "macro_rename"
     MACRO_DELETE = "macro_delete"
     MACRO_SAVE_RECORDING = "macro_save_recording"
+    MACRO_RECORDING_STATUS = "macro_recording_status"
     MACRO_LIST_RECORDINGS = "macro_list_recordings"
     MACRO_DELETE_RECORDING = "macro_delete_recording"
     MACRO_PLAY_RECORDING = "macro_play_recording"
@@ -62,6 +63,7 @@ class CommandType(Enum):
     DEVICE_INSPECTOR_STATUS = "device_inspector_status"
     REFRESH_RECORDING_UNLOCK = "refresh_recording_unlock"
     LOCK_RECORDING_UNLOCK = "lock_recording_unlock"
+    RECORDING_UNLOCK_STATUS = "recording_unlock_status"
 
 
 @dataclass

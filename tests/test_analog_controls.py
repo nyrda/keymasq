@@ -1,5 +1,9 @@
+from pathlib import Path
+from typing import BinaryIO
+
 import pytest
 
+import keymasq.session.analog_controls as analog_controls_module
 from keymasq.common.models import (
     SAME_DEVICE_OUTPUT_ID,
     ActionType,
@@ -14,6 +18,10 @@ from keymasq.session.analog_controls import (
     analog_control_mouse_wheel_template,
     analog_control_wasd_template,
 )
+
+
+def _write_analog_control(path: Path, name: str) -> None:
+    path.write_text(f'name = "{name}"\n', encoding="utf-8")
 
 
 def test_gamepad_output_deadzone_defaults_to_zero() -> None:
@@ -63,6 +71,86 @@ def test_analog_control_save_replacing_name_removes_old_config(temp_config_dir) 
     assert sorted(path.name for path in (temp_config_dir / "analog_controls").glob("*.toml")) == [
         "new_name.toml"
     ]
+
+
+def test_analog_control_failed_overwrite_preserves_existing_file_and_state(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(name="Saved Control", description="original")
+    )
+    path = temp_config_dir / "analog_controls" / "saved_control.toml"
+    original_content = path.read_bytes()
+
+    def fail_dump(_data: object, config_file: BinaryIO) -> None:
+        config_file.write(b'name = "partial"\n')
+        raise OSError("disk full")
+
+    monkeypatch.setattr(analog_controls_module.tomli_w, "dump", fail_dump)
+
+    with pytest.raises(OSError, match="disk full"):
+        manager.save_analog_control(
+            AnalogControlConfig(name="Saved Control", description="updated")
+        )
+
+    loaded = manager.get_analog_control("Saved Control")
+    assert path.read_bytes() == original_content
+    assert loaded is not None
+    assert loaded.description == "original"
+    assert sorted(item.name for item in (temp_config_dir / "analog_controls").iterdir()) == [
+        "saved_control.toml"
+    ]
+
+
+def test_analog_control_delete_uses_loaded_noncanonical_path(temp_config_dir) -> None:
+    analog_controls_dir = temp_config_dir / "analog_controls"
+    _write_analog_control(analog_controls_dir / "custom.toml", "FPS Mouse")
+    _write_analog_control(analog_controls_dir / "fps_mouse.toml", "Other Control")
+
+    manager = AnalogControlManager()
+
+    assert manager.delete_analog_control("FPS Mouse") is True
+    assert not (analog_controls_dir / "custom.toml").exists()
+    assert (analog_controls_dir / "fps_mouse.toml").exists()
+    assert AnalogControlManager().list_analog_controls() == ["Other Control"]
+
+
+def test_analog_control_rename_uses_loaded_noncanonical_path(temp_config_dir) -> None:
+    analog_controls_dir = temp_config_dir / "analog_controls"
+    _write_analog_control(analog_controls_dir / "custom.toml", "FPS Mouse")
+    _write_analog_control(analog_controls_dir / "fps_mouse.toml", "Other Control")
+
+    manager = AnalogControlManager()
+
+    assert manager.rename_analog_control("FPS Mouse", "Look Mouse") is True
+    assert not (analog_controls_dir / "custom.toml").exists()
+    assert (analog_controls_dir / "fps_mouse.toml").exists()
+    assert (analog_controls_dir / "look_mouse.toml").exists()
+    assert AnalogControlManager().list_analog_controls() == ["Look Mouse", "Other Control"]
+
+
+def test_analog_control_replacing_save_removes_loaded_noncanonical_path(
+    temp_config_dir,
+) -> None:
+    analog_controls_dir = temp_config_dir / "analog_controls"
+    _write_analog_control(analog_controls_dir / "custom.toml", "Old Name")
+    _write_analog_control(analog_controls_dir / "old_name.toml", "Other Control")
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(name="New Name"),
+        replacing_name="Old Name",
+    )
+
+    assert not (analog_controls_dir / "custom.toml").exists()
+    assert (analog_controls_dir / "old_name.toml").exists()
+    assert sorted(path.name for path in analog_controls_dir.glob("*.toml")) == [
+        "new_name.toml",
+        "old_name.toml",
+    ]
+    assert AnalogControlManager().list_analog_controls() == ["New Name", "Other Control"]
 
 
 def test_analog_control_manager_normalizes_obsolete_mouse_plus_digital(

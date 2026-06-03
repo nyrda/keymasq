@@ -248,15 +248,18 @@ async def save_pending_recording(
         _PendingRecording,
         await daemon.recording_manager.claim_pending_recording(recording_id),
     )
+    save_succeeded = False
     try:
-        return await asyncio.to_thread(_save_pending_recording_sync, daemon, data, snapshot)
+        result = await asyncio.to_thread(_save_pending_recording_sync, daemon, data, snapshot)
+        save_succeeded = True
+        return result
     finally:
         is_slot_backed = bool(
             normalize_macro_recording_slot(getattr(snapshot, "recording_slot", 0))
         )
         await daemon.recording_manager.release_pending_recording_claim(
             recording_id,
-            saved=not is_slot_backed,
+            saved=save_succeeded and not is_slot_backed,
         )
 
 

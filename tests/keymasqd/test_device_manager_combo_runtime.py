@@ -113,7 +113,7 @@ class TestCombos:
         ]
 
     @pytest.mark.asyncio
-    async def test_combo_overlapping_multistep_first_step_releases_outputs_cleanly(
+    async def test_combo_overlapping_multistep_first_step_drops_sibling_sequence_branch(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -206,12 +206,12 @@ class TestCombos:
         assert passthrough.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_2, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_2, 0),
         ]
         assert keyboard.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
         ]
         assert manager.combo_state.active_actions == {}
         assert manager.combo_state.engine._candidates == {}
@@ -220,7 +220,7 @@ class TestCombos:
         assert device.state.held_output_keys["keyboard"] == set()
 
     @pytest.mark.asyncio
-    async def test_combo_overlapping_multistep_first_step_can_hold_second_step_outputs_together(
+    async def test_combo_overlapping_multistep_first_step_passes_through_dropped_sibling(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -313,12 +313,12 @@ class TestCombos:
         assert passthrough.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTMETA, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_2, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_2, 0),
         ]
         assert keyboard.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
         ]
         assert manager.combo_state.active_actions == {}
         assert manager.combo_state.engine._candidates == {}

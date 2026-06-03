@@ -63,6 +63,14 @@ Run the VM check from the repository root:
 ./scripts/integration.sh daemon-session
 ```
 
+Run one or more scenarios by kebab-case scenario key, and repeat selected
+scenarios when chasing flakes:
+
+```bash
+./scripts/integration.sh daemon-session --scenario hotplug-replug
+./scripts/integration.sh daemon-session --scenario profile-lifetime-direct-actions,hotplug-replug --repeat 10
+```
+
 This is equivalent to running the Nix check directly:
 
 ```bash

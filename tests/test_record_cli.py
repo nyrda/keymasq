@@ -1,4 +1,5 @@
 import json
+import stat
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,6 +46,18 @@ def test_authorize_target_uid_rejects_non_root_caller_mismatch(
         record._authorize_target_uid(1001, 777)
 
 
+def test_runtime_expires_at_rounds_up_fractional_now(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 100.999
+    monkeypatch.setattr(record.time, "time", lambda: now)
+
+    expires_at = record._runtime_expires_at(1)
+
+    assert expires_at == 102
+    assert expires_at >= now + 1
+
+
 def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     lease = tmp_path / "lease"
     monkeypatch.setattr(
@@ -52,6 +65,7 @@ def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path:
         "getpwnam",
         lambda _: SimpleNamespace(pw_uid=1000, pw_gid=1000),
     )
+    monkeypatch.setattr(record.pwd, "getpwuid", lambda _: SimpleNamespace(pw_gid=1235))
 
     calls: list[tuple[int, int]] = []
 
@@ -60,9 +74,10 @@ def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     monkeypatch.setattr(record.os, "fchown", _chown)
 
-    record._write_lease(lease, 42)
+    record._write_lease(lease, 42, 1234)
     assert lease.read_text(encoding="utf-8") == "42\n"
-    assert calls == [(1000, 1000)]
+    assert stat.S_IMODE(lease.stat().st_mode) == 0o440
+    assert calls == [(1000, 1235)]
 
     record._remove_lease(lease)
     assert lease.exists() is False
@@ -79,7 +94,7 @@ def test_write_lease_propagates_unexpected_user_lookup_error(
     monkeypatch.setattr(record.pwd, "getpwnam", _raise)
 
     with pytest.raises(RuntimeError, match="lookup failed"):
-        record._write_lease(lease, 42)
+        record._write_lease(lease, 42, 1234)
 
     assert lease.exists() is False
 
@@ -98,7 +113,7 @@ def test_write_lease_rejects_preexisting_symlink(
     )
 
     with pytest.raises(PermissionError, match="symlink"):
-        record._write_lease(lease, 42)
+        record._write_lease(lease, 42, 1234)
 
     assert target.read_text(encoding="utf-8") == "keep\n"
     assert lease.is_symlink()
@@ -121,7 +136,7 @@ def test_write_lease_keeps_existing_lease_when_replace_fails(
     monkeypatch.setattr(record.os, "replace", _replace)
 
     with pytest.raises(OSError, match="replace failed"):
-        record._write_lease(lease, 42)
+        record._write_lease(lease, 42, 1234)
 
     assert lease.read_text(encoding="utf-8") == "41\n"
     assert list(tmp_path.glob(".lease.tmp-*")) == []
@@ -146,12 +161,49 @@ def test_main_status_prints_json(
     assert payload["source"] == "runtime"
 
 
+@pytest.mark.parametrize(
+    ("argv", "resolver_name"),
+    [
+        (["keymasq-record", "status", "--uid", "1001"], "resolve_unlock_status"),
+        (
+            ["keymasq-record", "macro-recording-status", "--uid", "1001"],
+            "resolve_macro_recording_status",
+        ),
+    ],
+)
+def test_main_status_commands_reject_pkexec_uid_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    resolver_name: str,
+) -> None:
+    resolved: list[int] = []
+
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 0)
+    monkeypatch.setenv("PKEXEC_UID", "1000")
+    monkeypatch.setattr(
+        record,
+        resolver_name,
+        lambda uid: resolved.append(uid) or {"unlocked": True},
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        record.main()
+
+    assert excinfo.value.code == 1
+    assert resolved == []
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["status"] == "error"
+    assert "Target uid" in payload["message"]
+
+
 def test_main_unlock_runtime_replaces_previous_expiry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runtime_path = tmp_path / "runtime-lease"
     runtime_path.write_text("20\n", encoding="utf-8")
-    writes: list[tuple[Path, int]] = []
+    writes: list[tuple[Path, int, int]] = []
 
     monkeypatch.setattr(
         sys,
@@ -162,14 +214,14 @@ def test_main_unlock_runtime_replaces_previous_expiry(
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
     monkeypatch.setattr(record.time, "time", lambda: 10)
 
-    def _write(path: Path, expires_at: int) -> None:
-        writes.append((path, expires_at))
+    def _write(path: Path, expires_at: int, target_uid: int) -> None:
+        writes.append((path, expires_at, target_uid))
 
     monkeypatch.setattr(record, "_write_lease", _write)
 
     record.main()
 
-    assert writes == [(runtime_path, 15)]
+    assert writes == [(runtime_path, 15, 1000)]
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["expires_at"] == 15
 
@@ -179,7 +231,7 @@ def test_main_unlock_runtime_extends_with_requested_ttl(
 ) -> None:
     runtime_path = tmp_path / "runtime-lease"
     runtime_path.write_text("12\n", encoding="utf-8")
-    writes: list[tuple[Path, int]] = []
+    writes: list[tuple[Path, int, int]] = []
 
     monkeypatch.setattr(
         sys,
@@ -190,14 +242,14 @@ def test_main_unlock_runtime_extends_with_requested_ttl(
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
     monkeypatch.setattr(record.time, "time", lambda: 10)
 
-    def _write(path: Path, expires_at: int) -> None:
-        writes.append((path, expires_at))
+    def _write(path: Path, expires_at: int, target_uid: int) -> None:
+        writes.append((path, expires_at, target_uid))
 
     monkeypatch.setattr(record, "_write_lease", _write)
 
     record.main()
 
-    assert writes == [(runtime_path, 30)]
+    assert writes == [(runtime_path, 30, 1000)]
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["expires_at"] == 30
 
@@ -206,7 +258,7 @@ def test_main_unlock_runtime_ttl_zero_rejected(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runtime_path = tmp_path / "runtime-lease"
-    writes: list[tuple[Path, int]] = []
+    writes: list[tuple[Path, int, int]] = []
 
     monkeypatch.setattr(
         sys,
@@ -216,8 +268,8 @@ def test_main_unlock_runtime_ttl_zero_rejected(
     monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
 
-    def _write(path: Path, expires_at: int) -> None:
-        writes.append((path, expires_at))
+    def _write(path: Path, expires_at: int, target_uid: int) -> None:
+        writes.append((path, expires_at, target_uid))
 
     monkeypatch.setattr(record, "_write_lease", _write)
 
@@ -247,7 +299,7 @@ def test_main_macro_recording_runtime_ttl_zero_rejected(
     monkeypatch.setattr(
         record,
         "_write_lease",
-        lambda path, expires_at: writes.append((path, expires_at)),
+        lambda path, expires_at, target_uid: writes.append((path, expires_at, target_uid)),
     )
 
     with pytest.raises(SystemExit) as excinfo:
@@ -264,7 +316,7 @@ def test_main_mutation_rejects_pkexec_uid_mismatch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runtime_path = tmp_path / "runtime-lease"
-    writes: list[tuple[Path, int]] = []
+    writes: list[tuple[Path, int, int]] = []
 
     monkeypatch.setattr(
         sys,
@@ -277,7 +329,37 @@ def test_main_mutation_rejects_pkexec_uid_mismatch(
     monkeypatch.setattr(
         record,
         "_write_lease",
-        lambda path, expires_at: writes.append((path, expires_at)),
+        lambda path, expires_at, target_uid: writes.append((path, expires_at, target_uid)),
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        record.main()
+
+    assert excinfo.value.code == 1
+    assert writes == []
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["status"] == "error"
+    assert "Target uid" in payload["message"]
+
+
+def test_main_mutation_rejects_non_root_forged_pkexec_uid(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runtime_path = tmp_path / "runtime-lease"
+    writes: list[tuple[Path, int, int]] = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["keymasq-record", "unlock-runtime", "--uid", "1001", "--ttl", "5"],
+    )
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 777)
+    monkeypatch.setenv("PKEXEC_UID", "1001")
+    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(
+        record,
+        "_write_lease",
+        lambda path, expires_at, target_uid: writes.append((path, expires_at, target_uid)),
     )
 
     with pytest.raises(SystemExit) as excinfo:
@@ -313,7 +395,7 @@ def test_main_enable_and_disable_macro_recording_persistent(
 ) -> None:
     persistent_path = tmp_path / "macro-enabled"
     runtime_path = tmp_path / "macro-runtime"
-    writes: list[tuple[Path, int]] = []
+    writes: list[tuple[Path, int, int]] = []
 
     monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
     monkeypatch.setattr(record, "persistent_macro_recording_path", lambda uid: persistent_path)
@@ -321,7 +403,7 @@ def test_main_enable_and_disable_macro_recording_persistent(
     monkeypatch.setattr(
         record,
         "_write_lease",
-        lambda path, expires_at: writes.append((path, expires_at)),
+        lambda path, expires_at, target_uid: writes.append((path, expires_at, target_uid)),
     )
 
     monkeypatch.setattr(
@@ -331,7 +413,7 @@ def test_main_enable_and_disable_macro_recording_persistent(
     )
     record.main()
 
-    assert writes == [(persistent_path, 0)]
+    assert writes == [(persistent_path, 0, 1000)]
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["scope"] == "macro_recording_persistent"
 

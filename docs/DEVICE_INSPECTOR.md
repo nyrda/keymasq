@@ -3,9 +3,9 @@
 The Device Inspector is a floating read-only window for checking one configured
 device at runtime.
 
-Open it from a device tab with the inspect button. Keymasq uses the same
-recording unlock flow as macro recording and live input capture before the
-window can start, because the inspector observes original hardware events.
+Open it from a device tab with the inspect button. Keymasq uses the capture
+unlock flow before the window can start, because the inspector observes
+original hardware events.
 
 ## What It Shows
 
@@ -49,7 +49,8 @@ the normal profile grab state again.
 
 Starting the inspector and enabling suppression are sensitive session commands
 when `[recording_guard].unlock_required = true`. They require the active GUI
-recording-unlock owner, just like macro recording and live input capture.
+that owns the capture unlock flow, just like macro recording and live input
+capture.
 
 The inspector force-grabs configured interfaces for the selected device while it
 is open so raw events can be observed even if the current profile has no mapping

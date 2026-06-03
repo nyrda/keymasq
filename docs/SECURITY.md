@@ -60,7 +60,7 @@ Both layers enforce authorization. Session-side checks are not advisory; daemon-
 
 ## Privileged Helper Path Pinning
 
-The GUI recording unlock flow uses `pkexec` to run the `keymasq-record` helper.
+The GUI capture unlock flow uses `pkexec` to run the `keymasq-record` helper.
 
 - Keymasq does not resolve that helper from `$PATH` during privileged execution
 - The helper path is treated as a trusted absolute executable path
@@ -121,7 +121,7 @@ daemon-private storage so slots survive daemon restarts. Saving a slot copies
 it into normal macro storage and leaves the slot in place; deleting or
 overwriting a slot removes the pending recording.
 
-Saving a temporary slot into the macro library requires the recording unlock
+Saving a temporary slot into the macro library requires the capture unlock
 flow when `unlock_required = true`. This is enforced in the GUI, the
 session broker, and the daemon command handler.
 

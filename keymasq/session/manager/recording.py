@@ -18,6 +18,7 @@ from keymasq.common.models import (
     normalize_macro_recording_slot,
 )
 from keymasq.common.recording_guard import (
+    is_unlock_value_active,
     resolve_macro_recording_status,
     resolve_unlock_status,
 )
@@ -424,14 +425,17 @@ def replace_pending_macro_slots_from_daemon(
 
         existing = old_slots.get(slot) or {}
         existing_id = str_value(existing.get("pending_recording_id"), "")
+        same_pending_recording = existing_id == pending_recording_id
         merged: JsonObject = {}
-        if existing_id == pending_recording_id:
+        if same_pending_recording:
             merged.update(existing)
         merged.update(data)
-        token = old_tokens.get(slot, "") or str_value(
-            merged.get("pending_save_token"),
-            "",
-        )
+        token = ""
+        if same_pending_recording:
+            token = old_tokens.get(slot, "") or str_value(
+                merged.get("pending_save_token"),
+                "",
+            )
         if not token:
             token = secrets.token_urlsafe(16)
 
@@ -440,10 +444,16 @@ def replace_pending_macro_slots_from_daemon(
         merged["pending_save_token"] = token
         state.pending_slots[slot] = merged
         state.pending_slot_tokens[slot] = token
-        state.pending_slot_owner_writer_ids[slot] = old_owner_writer_ids.get(slot)
-        state.pending_slot_owner_pids[slot] = old_owner_pids.get(slot)
-        state.pending_slot_owner_uids[slot] = old_owner_uids.get(slot)
-        state.pending_slot_created_at[slot] = old_created_at.get(slot, monotonic())
+        if same_pending_recording:
+            state.pending_slot_owner_writer_ids[slot] = old_owner_writer_ids.get(slot)
+            state.pending_slot_owner_pids[slot] = old_owner_pids.get(slot)
+            state.pending_slot_owner_uids[slot] = old_owner_uids.get(slot)
+            state.pending_slot_created_at[slot] = old_created_at.get(slot, monotonic())
+        else:
+            state.pending_slot_owner_writer_ids[slot] = None
+            state.pending_slot_owner_pids[slot] = None
+            state.pending_slot_owner_uids[slot] = None
+            state.pending_slot_created_at[slot] = monotonic()
 
     _sync_legacy_pending_macro_save(manager)
 
@@ -455,18 +465,93 @@ def pending_macro_save_token_matches(
     return bool(pending_macro_save_slot_for_token(manager, token))
 
 
+def _status_is_active(status: dict[str, bool | int | str] | None) -> bool:
+    if status is None or not bool(status.get("unlocked", False)):
+        return False
+    return is_unlock_value_active(int_value(status.get("expires_at"), 0))
+
+
+def _cache_or_fallback_status(
+    cache: dict[int, dict[str, bool | int | str]],
+    uid: int,
+    status: dict[str, bool | int | str],
+) -> dict[str, bool | int | str]:
+    uid = int(uid)
+    if _status_is_active(status):
+        cache[uid] = dict(status)
+        return status
+
+    if bool(status.get("unreadable", False)):
+        cached = cache.get(uid)
+        if cached is not None and _status_is_active(cached):
+            return dict(cached)
+
+    cache.pop(uid, None)
+    return status
+
+
 async def resolve_unlock_status_async(
-    _manager: "SessionManager",
+    manager: "SessionManager",
     uid: int,
 ) -> dict[str, bool | int | str]:
-    return await asyncio.to_thread(resolve_unlock_status, uid)
+    if manager.connected:
+        try:
+            response = await manager.client.send_command(
+                Command(CommandType.RECORDING_UNLOCK_STATUS, data={"uid": int(uid)}),
+                timeout=3.0,
+            )
+        except Exception as exc:
+            log.warning("Failed to query daemon recording unlock status: %s", exc)
+        else:
+            if response.status == "ok" and isinstance(response.data, dict):
+                status = cast(dict[str, bool | int | str], response.data)
+                return _cache_or_fallback_status(
+                    manager.unlock_state.unlock_status_cache,
+                    uid,
+                    status,
+                )
+            log.warning(
+                "Daemon recording unlock status query failed: status=%s error=%s",
+                response.status,
+                response.error,
+            )
+
+    status = await asyncio.to_thread(resolve_unlock_status, uid)
+    return _cache_or_fallback_status(manager.unlock_state.unlock_status_cache, uid, status)
 
 
 async def resolve_macro_recording_status_async(
-    _manager: "SessionManager",
+    manager: "SessionManager",
     uid: int,
 ) -> dict[str, bool | int | str]:
-    return await asyncio.to_thread(resolve_macro_recording_status, uid)
+    if manager.connected:
+        try:
+            response = await manager.client.send_command(
+                Command(CommandType.MACRO_RECORDING_STATUS, data={"uid": int(uid)}),
+                timeout=3.0,
+            )
+        except Exception as exc:
+            log.warning("Failed to query daemon macro recording status: %s", exc)
+        else:
+            if response.status == "ok" and isinstance(response.data, dict):
+                status = cast(dict[str, bool | int | str], response.data)
+                return _cache_or_fallback_status(
+                    manager.unlock_state.macro_recording_status_cache,
+                    uid,
+                    status,
+                )
+            log.warning(
+                "Daemon macro recording status query failed: status=%s error=%s",
+                response.status,
+                response.error,
+            )
+
+    status = await asyncio.to_thread(resolve_macro_recording_status, uid)
+    return _cache_or_fallback_status(
+        manager.unlock_state.macro_recording_status_cache,
+        uid,
+        status,
+    )
 
 
 def serialize_recording_unlock_state(
@@ -514,6 +599,42 @@ def is_refresh_owner_request(
         and owner.get("pid") == int(peer.pid)
         and owner.get("writer_id") == id(writer)
     )
+
+
+def _clear_refresh_owner_for_uid(manager: "SessionManager", uid: int) -> None:
+    owner = manager.unlock_state.refresh_owner
+    if owner is None or owner.get("uid") != int(uid):
+        return
+    manager.unlock_state.refresh_owner = None
+    manager.unlock_state.runtime_refresh_claim_consumed_until.pop(int(uid), None)
+
+
+def is_active_refresh_owner_request(
+    manager: "SessionManager",
+    peer: PeerCredentials,
+    writer: asyncio.StreamWriter,
+    unlock_status: dict[str, bool | int | str],
+) -> bool:
+    if not is_refresh_owner_request(manager, peer, writer):
+        return False
+    if bool(unlock_status.get("unlocked", False)):
+        return True
+    _clear_refresh_owner_for_uid(manager, int(peer.uid))
+    return False
+
+
+async def authorize_sensitive_session_command(
+    manager: "SessionManager",
+    command: str,
+    peer: PeerCredentials,
+    writer: asyncio.StreamWriter,
+) -> bool:
+    if not is_refresh_owner_request(manager, peer, writer):
+        return False
+    if command == "end_capture":
+        return True
+    unlock_status = await resolve_unlock_status_async(manager, peer.uid)
+    return is_active_refresh_owner_request(manager, peer, writer, unlock_status)
 
 
 def _has_other_session_client_for_uid(
@@ -601,7 +722,7 @@ async def claim_recording_unlock_refresh(
         return {
             "status": "error",
             "error_code": "recording_locked",
-            "message": "recording_locked: unlock required before claiming refresh",
+            "message": "recording_locked: capture unlock required before claiming refresh",
         }
 
     source = str(unlock_status.get("source", "none") or "none")
@@ -651,10 +772,11 @@ async def claim_recording_unlock_refresh(
             return {
                 "status": "error",
                 "error_code": "recording_refresh_denied",
-                "message": refresh_result.error or "Failed to establish recording refresh lease",
+                "message": refresh_result.error or "Failed to establish capture unlock lease",
             }
 
     unlock_status = await resolve_unlock_status_async(manager, peer.uid)
+    refresh_owner = is_active_refresh_owner_request(manager, peer, writer, unlock_status)
     return {
         "status": "ok",
         "lease_id": lease_id,
@@ -665,7 +787,7 @@ async def claim_recording_unlock_refresh(
                 "source": source,
                 "expires_at": int(unlock_status.get("expires_at", expires_at) or expires_at),
             },
-            refresh_owner=True,
+            refresh_owner=refresh_owner,
         ),
     }
 
@@ -717,10 +839,11 @@ async def refresh_recording_unlock(
         return {"status": "error", "message": "Daemon unavailable"}
 
     if result.status != "ok":
+        _clear_refresh_owner_for_uid(manager, int(peer.uid))
         return {
             "status": "error",
             "error_code": "recording_refresh_denied",
-            "message": result.error or "Failed to refresh recording unlock",
+            "message": result.error or "Failed to refresh capture unlock",
         }
 
     unlock_status = await resolve_unlock_status_async(manager, peer.uid)
@@ -731,15 +854,17 @@ async def refresh_recording_unlock(
         )
         if expires_at > consumed_until:
             manager.unlock_state.runtime_refresh_claim_consumed_until[int(peer.uid)] = expires_at
-    if not bool(unlock_status.get("unlocked", False)):
-        manager.unlock_state.refresh_owner = None
-
     return {
         "status": "ok",
         **serialize_recording_unlock_state(
             manager,
             unlock_status,
-            refresh_owner=is_refresh_owner_request(manager, peer, writer),
+            refresh_owner=is_active_refresh_owner_request(
+                manager,
+                peer,
+                writer,
+                unlock_status,
+            ),
         ),
     }
 
@@ -791,7 +916,7 @@ async def lock_recording_unlock(
         return {
             "status": "error",
             "error_code": "recording_lock_denied",
-            "message": result.error or "Failed to lock recording unlock",
+            "message": result.error or "Failed to lock capture unlock",
         }
 
     manager.unlock_state.refresh_owner = None
@@ -1879,6 +2004,6 @@ def notify_recording_unlock_required(
         return
 
     manager.send_notification(
-        "Keymasq: Recording Locked",
-        "Recording/capture requires unlock in Keymasq GUI.",
+        "Keymasq: Capture Unlock Required",
+        "Capture unlock is required in Keymasq GUI.",
     )

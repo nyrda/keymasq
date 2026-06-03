@@ -56,7 +56,12 @@ async def handle_session_request(
     if runtime_recording.is_sensitive_session_command(
         manager,
         command, policy
-    ) and not runtime_recording.is_refresh_owner_request(manager, peer, writer):
+    ) and not await runtime_recording.authorize_sensitive_session_command(
+        manager,
+        command,
+        peer,
+        writer,
+    ):
         return {
             "status": "error",
             "error_code": "sensitive_command_denied",
@@ -416,7 +421,12 @@ async def _handle_compositor_commands(
             **runtime_recording.serialize_recording_unlock_state(
                 manager,
                 unlock_status,
-                refresh_owner=runtime_recording.is_refresh_owner_request(manager, peer, writer),
+                refresh_owner=runtime_recording.is_active_refresh_owner_request(
+                    manager,
+                    peer,
+                    writer,
+                    unlock_status,
+                ),
             ),
             **runtime_recording.serialize_macro_recording_state(macro_recording_status),
         }
@@ -476,7 +486,12 @@ async def _handle_recording_commands(
             **runtime_recording.serialize_recording_unlock_state(
                 manager,
                 unlock_status,
-                refresh_owner=runtime_recording.is_refresh_owner_request(manager, peer, writer),
+                refresh_owner=runtime_recording.is_active_refresh_owner_request(
+                    manager,
+                    peer,
+                    writer,
+                    unlock_status,
+                ),
             ),
             **runtime_recording.serialize_macro_recording_state(macro_recording_status),
             **manager.recording_state.settings,

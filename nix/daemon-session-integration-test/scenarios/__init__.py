@@ -36,6 +36,9 @@ from .profile_toggle import run as profile_toggle
 from .rapidfire_keyboard import run as rapidfire_keyboard
 from .recording_capture import run as recording_capture
 from .recording_capture import run_mapped_slot_actions as macro_slot_actions
+from .recording_capture import (
+    run_mapped_slot_playback_without_unlock as macro_slot_playback_without_unlock,
+)
 from .repeat_combo_superkey import run as repeat_combo_superkey
 from .repeat_direct_actions import run as repeat_direct_actions
 from .repeat_passthrough import run as repeat_passthrough
@@ -92,4 +95,8 @@ SCENARIOS = [
     ScenarioCase("recording and capture", recording_capture),
     ScenarioCase("restart recovery", restart_recovery),
     ScenarioCase("hotplug replug", hotplug_replug),
+    ScenarioCase(
+        "mapped macro slot playback without capture unlock",
+        macro_slot_playback_without_unlock,
+    ),
 ]

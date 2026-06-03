@@ -6,7 +6,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.ipc import Command, CommandType
-from keymasq.common.models import ActionType, HardwareConfig, ProfileConfig
+from keymasq.common.models import (
+    ActionType,
+    HardwareConfig,
+    ProfileConfig,
+    profile_deactivation_policy_to_dict,
+)
 from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
 from . import payloads as runtime_payloads
@@ -120,19 +125,51 @@ def build_active_profiles_payload(manager: "SessionManager") -> JsonObject:
         inspector_suppressed = bool(
             inspector_state is not None and hardware_id in suppressed_hardware_ids
         )
+        mapping_count = int(getattr(resolved, "mapping_count", 0))
+        if hasattr(resolved, "mappings"):
+            mapping_signature = runtime_payloads.resolved_mapping_signature(
+                manager,
+                resolved,
+                hardware_id,
+            )
+            mapping_applied = (
+                mapping_count <= 0
+                or manager.profile_state.last_sent_mapping_signatures.get(hardware_id)
+                == mapping_signature
+            )
+        else:
+            mapping_applied = (
+                mapping_count <= 0
+                or hardware_id in manager.profile_state.last_sent_mapping_signatures
+            )
         devices[hardware_id] = {
             "device_name": hardware.name if hardware else hardware_id,
             "profiles": list(resolved.active_profile_names),
-            "mapping_count": resolved.mapping_count,
+            "mapping_count": mapping_count,
             "always_grab_all": resolved.always_grab_all,
+            "grabbed": hardware_id in manager.profile_state.grabbed_devices,
+            "waiting_for_device": hardware_id in manager.profile_state.grab_waiting_devices,
+            "grabbed_interfaces": dict(
+                manager.profile_state.grabbed_interfaces.get(hardware_id, {})
+            ),
+            "mapping_applied": mapping_applied,
             "device_inspector_active": inspector_active,
             "device_inspector_suppressed": inspector_suppressed,
+        }
+
+    runtime_activations: dict[str, JsonObject] = {}
+    for name, activation in sorted(manager.profile_state.runtime_profile_activations.items()):
+        runtime_activations[name] = {
+            "activation_id": activation.activation_id,
+            "tracked": activation.tracked,
+            "deactivation": profile_deactivation_policy_to_dict(activation.deactivation),
         }
 
     return {
         "status": "ok",
         "active_profiles": list(manager.profile_state.active_profile_names),
         "devices": devices,
+        "runtime_profile_activations": runtime_activations,
     }
 
 
@@ -190,6 +227,17 @@ def cancel_grab_retry(manager: "SessionManager", hardware_id: str) -> None:
     task = manager.profile_state.grab_retry_tasks.pop(hardware_id, None)
     if task is not None and not task.done():
         task.cancel()
+
+
+async def cancel_all_grab_retries(manager: "SessionManager") -> None:
+    tasks = list(manager.profile_state.grab_retry_tasks.values())
+    if not tasks:
+        return
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    manager.profile_state.grab_retry_tasks.clear()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def schedule_grab_retry(

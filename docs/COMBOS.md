@@ -136,7 +136,7 @@ output. This means:
   grabbed interface in scope.
 
 Capture uses the same security model as macro recording — it observes original
-input and requires the recording unlock flow.
+input and requires the capture unlock flow.
 
 ## Trigger Scope
 
@@ -340,7 +340,7 @@ values are preserved but ignored at runtime.
   (e.g. Hyprland). These interact with your desktop environment directly, so
   review what they do before assigning them to a combo.
 - **Combo capture** uses the same security model as macro recording — it
-  observes original input and requires the recording unlock flow.
+  observes original input and requires the capture unlock flow.
 
 ## Troubleshooting
 

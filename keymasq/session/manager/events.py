@@ -494,6 +494,10 @@ async def _handle_lifetime_profile_trigger(
                 manager,
                 reason=f"runtime profile activation tracking failed {profile_name}",
             )
+    else:
+        current = manager.profile_state.runtime_profile_activations.get(profile_name)
+        if current is not None and current.activation_id == activation.activation_id:
+            current.tracked = True
 
 
 async def _track_runtime_profile_activation(

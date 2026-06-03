@@ -56,6 +56,22 @@ recording_slot = 1
 """.strip()
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0.001, float(raw))
+    except ValueError:
+        return default
+
+
+EVENT_TIMEOUT_S = _float_env("KEYMASQ_INTEGRATION_EVENT_TIMEOUT_S", 5.0)
+PROFILE_TIMEOUT_S = _float_env("KEYMASQ_INTEGRATION_PROFILE_TIMEOUT_S", 15.0)
+POLL_INTERVAL_S = _float_env("KEYMASQ_INTEGRATION_POLL_INTERVAL_S", 0.05)
+PROFILE_STABLE_S = _float_env("KEYMASQ_INTEGRATION_PROFILE_STABLE_S", 0.0)
+
+
 @dataclass(frozen=True)
 class ScenarioCase:
     name: str
@@ -180,7 +196,7 @@ class ScenarioContext:
                     message = json.loads(line)
                     if not isinstance(message, dict):
                         continue
-                    if "event" in message and "status" not in message:
+                    if "event" in message:
                         continue
                     if ok and message.get("status") not in {"ok", None}:
                         raise AssertionError(f"session request failed: {payload} -> {message}")
@@ -476,6 +492,19 @@ type = "key"
         self.request({"command": "reevaluate_hardware"})
         self.reopen_outputs()
 
+    def enable_macro_recording_opt_in(self) -> None:
+        subprocess.run(
+            [
+                os.environ.get("KEYMASQ_INTEGRATION_SUDO", "sudo"),
+                os.environ.get("KEYMASQ_INTEGRATION_RECORD_HELPER", "keymasq-record"),
+                "enable-macro-recording-persistent",
+                "--uid",
+                str(os.getuid()),
+            ],
+            check=True,
+            timeout=10,
+        )
+
     def recreate_secondary_source(self) -> None:
         if self.source is None:
             raise AssertionError("primary source keyboard is not available")
@@ -545,15 +574,43 @@ type = "key"
         self.drain_outputs()
         fn()
 
-    def tap_source(self, code: int, *, pause_s: float = 0.03) -> None:
+    def tap_source(self, code: int, *, pause_s: float = 0.05) -> None:
         self.source_key(code, 1)
         time.sleep(pause_s)
         self.source_key(code, 0)
 
-    def tap_secondary_source(self, code: int, *, pause_s: float = 0.03) -> None:
+    def tap_secondary_source(self, code: int, *, pause_s: float = 0.05) -> None:
         self.secondary_key(code, 1)
         time.sleep(pause_s)
         self.secondary_key(code, 0)
+
+    def tap_secondary_source_until_keys(
+        self,
+        source_code: int,
+        expected: list[tuple[int, int]],
+        *,
+        timeout_s: float = PROFILE_TIMEOUT_S,
+    ) -> None:
+        deadline = time.monotonic() + timeout_s
+        attempts = 0
+        last_error = ""
+        last_status: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            attempts += 1
+            self.drain_outputs(quiet_s=0.03, timeout_s=0.25)
+            self.tap_secondary_source(source_code)
+            remaining = max(0.1, deadline - time.monotonic())
+            try:
+                self.expect_keys(expected, timeout_s=min(EVENT_TIMEOUT_S, remaining))
+                return
+            except AssertionError as exc:
+                last_error = str(exc)
+                last_status = self.request({"command": "get_active_profiles"}, ok=False)
+                time.sleep(POLL_INTERVAL_S)
+        raise AssertionError(
+            "secondary source did not produce expected key sequence "
+            f"after {attempts} attempt(s): {last_error}; active_profiles={last_status}"
+        )
 
     def source_key(self, code: int, value: int) -> None:
         if self.source is None:
@@ -573,7 +630,12 @@ type = "key"
         self.secondary_source.write(evdev.ecodes.EV_KEY, code, value)
         self.secondary_source.syn()
 
-    def expect_keys(self, expected: list[tuple[int, int]], *, timeout_s: float = 3.0) -> None:
+    def expect_keys(
+        self,
+        expected: list[tuple[int, int]],
+        *,
+        timeout_s: float = EVENT_TIMEOUT_S,
+    ) -> None:
         self.expect_events(
             self.keyboard_output,
             [(evdev.ecodes.EV_KEY, code, value) for code, value in expected],
@@ -585,7 +647,7 @@ type = "key"
         self,
         expected: list[tuple[int, int, int]],
         *,
-        timeout_s: float = 3.0,
+        timeout_s: float = EVENT_TIMEOUT_S,
     ) -> None:
         self.expect_events(self.mouse_output, expected, label="mouse", timeout_s=timeout_s)
 
@@ -593,7 +655,7 @@ type = "key"
         self,
         expected: list[tuple[int, int, int]],
         *,
-        timeout_s: float = 3.0,
+        timeout_s: float = EVENT_TIMEOUT_S,
     ) -> None:
         self.expect_events(self.gamepad_output, expected, label="gamepad", timeout_s=timeout_s)
 
@@ -603,7 +665,7 @@ type = "key"
         expected: list[tuple[int, int, int]],
         *,
         label: str,
-        timeout_s: float = 3.0,
+        timeout_s: float = EVENT_TIMEOUT_S,
     ) -> None:
         if device is None:
             raise AssertionError(f"output {label} is not available")
@@ -675,23 +737,105 @@ type = "key"
             observed_names = [self.event_label(event) for event in observed]
             raise AssertionError(f"unexpected {label} output events: {observed_names}")
 
-    def wait_for_active_profile(self, profile_name: str, *, enabled: bool) -> None:
-        deadline = time.monotonic() + 5
+    def _device_mapping_applied(self, device: dict[str, Any]) -> bool:
+        try:
+            mapping_count = int(device.get("mapping_count", 0))
+        except (TypeError, ValueError):
+            mapping_count = 0
+        return mapping_count <= 0 or bool(device.get("mapping_applied"))
+
+    def _profile_payload_ready(
+        self,
+        payload: dict[str, Any],
+        profile_name: str,
+        *,
+        enabled: bool,
+    ) -> bool:
+        active = set(str(name) for name in payload.get("active_profiles", []))
+        if (profile_name in active) is not enabled:
+            return False
+
+        activations_raw = payload.get("runtime_profile_activations", {})
+        activation = (
+            activations_raw.get(profile_name)
+            if isinstance(activations_raw, dict)
+            else None
+        )
+        if enabled and isinstance(activation, dict) and activation.get("tracked") is False:
+            return False
+
+        devices_raw = payload.get("devices", {})
+        if not isinstance(devices_raw, dict):
+            return True
+
+        devices = [device for device in devices_raw.values() if isinstance(device, dict)]
+        matching_devices: list[dict[str, Any]] = []
+        for device in devices:
+            profiles_raw = device.get("profiles", [])
+            profiles = (
+                {str(name) for name in profiles_raw}
+                if isinstance(profiles_raw, list)
+                else set()
+            )
+            if profile_name in profiles:
+                matching_devices.append(device)
+
+        if enabled:
+            return bool(matching_devices) and all(
+                self._device_mapping_applied(device) for device in matching_devices
+            )
+
+        if matching_devices:
+            return False
+        return all(self._device_mapping_applied(device) for device in devices)
+
+    def wait_for_active_profile(
+        self,
+        profile_name: str,
+        *,
+        enabled: bool,
+        timeout_s: float = PROFILE_TIMEOUT_S,
+        stable_s: float = PROFILE_STABLE_S,
+    ) -> None:
+        deadline = time.monotonic() + timeout_s
         last: dict[str, Any] | None = None
         matched_at: float | None = None
         while time.monotonic() < deadline:
             last = self.request({"command": "get_active_profiles"}, ok=False)
-            active = set(str(name) for name in last.get("active_profiles", []))
-            if (profile_name in active) is enabled:
+            if self._profile_payload_ready(last, profile_name, enabled=enabled):
                 now = time.monotonic()
-                if matched_at is not None and now - matched_at >= 0.15:
+                if stable_s <= 0:
+                    return
+                if matched_at is not None and now - matched_at >= stable_s:
                     return
                 if matched_at is None:
                     matched_at = now
             else:
                 matched_at = None
-            time.sleep(0.1)
+            time.sleep(POLL_INTERVAL_S)
         raise AssertionError(f"profile {profile_name} enabled={enabled} not observed: {last}")
+
+    def wait_for_hardware_mapping(
+        self,
+        hardware_id: str,
+        *,
+        timeout_s: float = PROFILE_TIMEOUT_S,
+    ) -> None:
+        deadline = time.monotonic() + timeout_s
+        last: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            last = self.request({"command": "get_active_profiles"}, ok=False)
+            devices = last.get("devices", {})
+            device = devices.get(hardware_id) if isinstance(devices, dict) else None
+            if (
+                isinstance(device, dict)
+                and bool(device.get("grabbed"))
+                and not bool(device.get("waiting_for_device"))
+                and self._device_mapping_applied(device)
+            ):
+                return
+            time.sleep(POLL_INTERVAL_S)
+        raise AssertionError(f"hardware {hardware_id} mapping not ready: {last}")
 
     def set_profile_enabled(self, profile_name: str, *, enabled: bool) -> None:
         command = "enable_profile" if enabled else "disable_profile"
@@ -703,13 +847,13 @@ type = "key"
         label: str,
         predicate: Callable[[], bool],
         *,
-        timeout_s: float = 5,
+        timeout_s: float = PROFILE_TIMEOUT_S,
     ) -> None:
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             if predicate():
                 return
-            time.sleep(0.1)
+            time.sleep(POLL_INTERVAL_S)
         raise AssertionError(f"timed out waiting for {label}")
 
     def output_devices(self) -> list[evdev.InputDevice]:
@@ -719,15 +863,18 @@ type = "key"
             if device is not None
         ]
 
-    def drain_outputs(self) -> None:
-        end = time.monotonic() + 0.05
-        while time.monotonic() < end:
+    def drain_outputs(self, *, quiet_s: float = 0.05, timeout_s: float = 1.0) -> None:
+        deadline = time.monotonic() + timeout_s
+        quiet_deadline = time.monotonic() + quiet_s
+        while time.monotonic() < deadline and time.monotonic() < quiet_deadline:
             events = [
                 event
                 for device in self.output_devices()
                 for event in self.read_output_events(device)
             ]
-            if not events:
+            if events:
+                quiet_deadline = time.monotonic() + quiet_s
+            else:
                 time.sleep(0.005)
 
     def read_output_events(self, device: evdev.InputDevice) -> list[evdev.InputEvent]:

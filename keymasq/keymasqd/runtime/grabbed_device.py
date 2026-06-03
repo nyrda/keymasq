@@ -25,6 +25,7 @@ from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import grabbed_device_events as runtime_events
 from keymasq.keymasqd.runtime import grabbed_device_grab as runtime_grab
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
+from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     AsyncioModule as _AsyncioModule,
 )
@@ -41,7 +42,6 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceState,
     MacroPlayer,
     MappingGetter,
-    identity_uinput_writer,
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ManagedInputDevice as _ManagedInputDevice,

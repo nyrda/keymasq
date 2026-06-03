@@ -23,20 +23,16 @@ from keymasq.common.devices import (
 )
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.runtime import device_path_resolver
+from keymasq.keymasqd.runtime.adapters import DeviceInfo
 
 log = logging.getLogger("keymasq.keymasqd.capture_manager")
-
-
-class _DeviceInfo(Protocol):
-    vendor: int
-    product: int
 
 
 class _CaptureInputDevice(Protocol):
     path: str
     name: str
     fd: int
-    info: _DeviceInfo
+    info: DeviceInfo
 
     def grab(self) -> None: ...
 

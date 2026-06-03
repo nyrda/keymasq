@@ -17,6 +17,7 @@ from keymasq.common.models import (
 )
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import grab_lifecycle as ldm
 from keymasq.keymasqd.runtime import grabbed_device as gdm
 from keymasq.keymasqd.runtime import grabbed_device_actions as gda
@@ -505,7 +506,7 @@ class TestGrabbedDeviceHelpers:
 
         gdo.flush_passthrough_frame(
             target_uinput,
-            uinput_writer=gdt.identity_uinput_writer,
+            uinput_writer=runtime_adapters.identity_uinput_writer,
         )
 
         assert target_uinput.syn_count == 1
@@ -1140,7 +1141,9 @@ class TestGrabbedDeviceHelpers:
         gdo.release_all_keys(
             device,
             evdev_mod=evdev,
-            uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+            uinput_writer=lambda device: cast(
+                runtime_adapters.WritableUInput | None, device
+            ),
         )
 
         assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)]
@@ -1174,7 +1177,9 @@ class TestGrabbedDeviceHelpers:
                 device,
                 evdev.ecodes.ABS_Z,
                 evdev_mod=evdev,
-                uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+                uinput_writer=lambda device: cast(
+                    runtime_adapters.WritableUInput | None, device
+                ),
             )
 
         assert "Failed to release output key" in caplog.text
@@ -1195,7 +1200,9 @@ class TestGrabbedDeviceHelpers:
             gdo.release_all_keys(
                 device,
                 evdev_mod=evdev,
-                uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+                uinput_writer=lambda device: cast(
+                    runtime_adapters.WritableUInput | None, device
+                ),
             )
 
         assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
@@ -1403,7 +1410,7 @@ class TestGrabbedDeviceHelpers:
             device.gamepad_uinput,
             asyncio_mod=gdm.ASYNCIO_RUNTIME,
             evdev_mod=evdev,
-            uinput_writer=gdt.identity_uinput_writer,
+            uinput_writer=runtime_adapters.identity_uinput_writer,
         )
         move_action = dm.MappingAction(
             action_type=ActionType.MOUSE_MOVE_REL,
@@ -2441,7 +2448,9 @@ class TestGrabbedDeviceHelpers:
         gdo.release_all_keys(
             device,
             evdev_mod=evdev,
-            uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+            uinput_writer=lambda device: cast(
+                runtime_adapters.WritableUInput | None, device
+            ),
         )
 
         assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 0) in second_gamepad.writes
@@ -2568,7 +2577,9 @@ class TestGrabbedDeviceHelpers:
         gdo.release_all_keys(
             device,
             evdev_mod=evdev,
-            uinput_writer=lambda device: cast(gdt.WritableUInput | None, device),
+            uinput_writer=lambda device: cast(
+                runtime_adapters.WritableUInput | None, device
+            ),
         )
 
         assert bucket not in device.state.held_output_keys

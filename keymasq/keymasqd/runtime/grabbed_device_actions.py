@@ -13,6 +13,7 @@ from keymasq.keymasqd.runtime.action_runner import (
     ResolveCodeFn,
     source_trigger_id,
 )
+from keymasq.keymasqd.runtime.adapters import WritableUInput
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     track_superkey_abs_output,
     track_superkey_output,
@@ -22,7 +23,6 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionRuntime,
     GrabbedDeviceRuntime,
     InputEventLike,
-    WritableUInput,
 )
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_OVERLOAD,

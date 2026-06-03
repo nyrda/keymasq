@@ -89,15 +89,10 @@ type MacroPlayer = Callable[..., Awaitable[JsonObject]]
 type RapidfireTaskFactory = Callable[[], asyncio.Task[None]]
 
 
-class _DeviceInfo(Protocol):
-    vendor: int
-    product: int
-
-
 class _ManagedInputDevice(Protocol):
     path: str
     name: str | None
-    info: _DeviceInfo
+    info: runtime_adapters.DeviceInfo
 
     def grab(self) -> None: ...
 
@@ -262,19 +257,19 @@ class DesiredGrabConfig:
 @dataclass
 class OutputRuntimeState:
     device_count: int = 0
-    keyboard_uinput: runtime_adapters.WritableUInput | None = None
-    mouse_uinput: runtime_adapters.WritableUInput | None = None
-    virtual_gamepad_uinputs: dict[str, runtime_adapters.WritableUInput] = field(
+    keyboard_uinput: runtime_adapters.ClosableUInput | None = None
+    mouse_uinput: runtime_adapters.ClosableUInput | None = None
+    virtual_gamepad_uinputs: dict[str, runtime_adapters.ClosableUInput] = field(
         default_factory=dict
     )
     virtual_gamepad_count: int = DEFAULT_VIRTUAL_GAMEPADS
 
     @property
-    def gamepad_uinput(self) -> runtime_adapters.WritableUInput | None:
+    def gamepad_uinput(self) -> runtime_adapters.ClosableUInput | None:
         return self.virtual_gamepad_uinputs.get("virtual-gamepad-1")
 
     @gamepad_uinput.setter
-    def gamepad_uinput(self, value: runtime_adapters.WritableUInput | None) -> None:
+    def gamepad_uinput(self, value: runtime_adapters.ClosableUInput | None) -> None:
         if value is None:
             self.virtual_gamepad_uinputs.pop("virtual-gamepad-1", None)
         else:

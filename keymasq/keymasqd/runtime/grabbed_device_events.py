@@ -24,6 +24,7 @@ from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
 from keymasq.keymasqd.runtime import repeat as runtime_repeat
 from keymasq.keymasqd.runtime.action_runner import source_trigger_id
+from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
     AsyncioModule,
@@ -33,7 +34,6 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceRuntime,
     InputEventLike,
     TimeModule,
-    identity_uinput_writer,
     runtime_is_running,
 )
 

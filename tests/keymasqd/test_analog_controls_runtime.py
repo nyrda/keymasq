@@ -16,6 +16,7 @@ from keymasq.common.models import (
     ProfileDeactivationPolicy,
 )
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog_controls import (
     _axis_motion_delta,
     _motion_delta,
@@ -29,7 +30,6 @@ from keymasq.keymasqd.runtime.grabbed_device_outputs import release_all_keys
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
     GrabbedDeviceState,
-    identity_uinput_writer,
 )
 
 

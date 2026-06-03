@@ -10,15 +10,30 @@ _T = TypeVar("_T")
 log = logging.getLogger("keymasqd.runtime.adapters")
 
 
+class DeviceInfo(Protocol):
+    vendor: int
+    product: int
+
+
 class WritableUInput(Protocol):
     def write(self, event_type: int, code: int, value: int) -> None: ...
 
     def syn(self) -> None: ...
 
+
+class ClosableUInput(WritableUInput, Protocol):
     def close(self) -> None: ...
 
 
 type UInputWriter = Callable[[object | None], WritableUInput | None]
+
+
+class ErrnoModule(Protocol):
+    EAGAIN: Final[int]
+    EWOULDBLOCK: Final[int]
+    ENOENT: Final[int]
+    ENODEV: Final[int]
+    EBUSY: Final[int]
 
 
 class AsyncioEvent(Protocol):

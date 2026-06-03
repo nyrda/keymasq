@@ -5,13 +5,15 @@ import evdev
 
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.output_helpers import emit_mouse_move
+from keymasq.keymasqd.runtime.adapters import (
+    UInputWriter,
+    WritableUInput,
+    identity_uinput_writer,
+)
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionRuntime,
     EvdevModule,
     InputEventLike,
-    UInputWriter,
-    WritableUInput,
-    identity_uinput_writer,
 )
 
 log = logging.getLogger("keymasqd.devices")

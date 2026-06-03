@@ -1,11 +1,16 @@
 import logging
 import os
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from hashlib import blake2b
 from typing import Any, Final, Protocol, cast
 
 from keymasq.common.virtual_devices import clamp_virtual_gamepad_count, virtual_gamepad_output_id
+from keymasq.keymasqd.runtime.adapters import (
+    ClosableUInput,
+    UInputWriter,
+    WritableUInput,
+)
 
 TEST_UINPUT_ENV = "KEYMASQ_TEST_UINPUT"
 TEST_UINPUT_PREFIX = "keymasq-test"
@@ -19,25 +24,12 @@ TEST_UINPUT_PRODUCTS = {
 }
 
 
-class _ClosableUInput(Protocol):
-    def close(self) -> None: ...
-
-
-class _WritableUInput(_ClosableUInput, Protocol):
-    def write(self, event_type: int, code: int, value: int) -> None: ...
-
-    def syn(self) -> None: ...
-
-
-type UInputWriter = Callable[[_ClosableUInput | None], _WritableUInput | None]
-
-
 class _OutputState(Protocol):
     device_count: int
-    keyboard_uinput: _ClosableUInput | None
-    mouse_uinput: _ClosableUInput | None
-    gamepad_uinput: _ClosableUInput | None
-    virtual_gamepad_uinputs: dict[str, _ClosableUInput]
+    keyboard_uinput: ClosableUInput | None
+    mouse_uinput: ClosableUInput | None
+    gamepad_uinput: ClosableUInput | None
+    virtual_gamepad_uinputs: dict[str, ClosableUInput]
     virtual_gamepad_count: int
 
 
@@ -61,7 +53,7 @@ class _UInputFactory(Protocol):
         product: int = ...,
         version: int = ...,
         bustype: int = ...,
-    ) -> _ClosableUInput: ...
+    ) -> ClosableUInput: ...
 
 
 class _Ecodes(Protocol):
@@ -326,7 +318,7 @@ def gamepad_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
 
 
 def _initialize_gamepad_axes(
-    uinput_dev: _WritableUInput | None,
+    uinput_dev: WritableUInput | None,
     evdev_mod: _EvdevModule,
 ) -> None:
     if uinput_dev is None:
@@ -351,7 +343,7 @@ def create_virtual_gamepad(
     index: int,
     evdev_mod: _EvdevModule,
     uinput_writer: UInputWriter,
-) -> _ClosableUInput:
+) -> ClosableUInput:
     normal_name = "keymasq-gamepad" if index == 1 else f"keymasq-gamepad-{index}"
     gamepad_name, gamepad_vendor, gamepad_product = uinput_identity(
         normal_name,
@@ -382,7 +374,7 @@ def configure_virtual_gamepads(
     output_state = cast(Any, manager.output_state)
     if not hasattr(output_state, "virtual_gamepad_uinputs"):
         output_state.virtual_gamepad_uinputs = {}
-    current = cast(dict[str, _ClosableUInput], output_state.virtual_gamepad_uinputs)
+    current = cast(dict[str, ClosableUInput], output_state.virtual_gamepad_uinputs)
     desired_ids = {virtual_gamepad_output_id(index) for index in range(1, count + 1)}
 
     for output_id in sorted(set(current) - desired_ids):

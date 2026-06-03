@@ -401,23 +401,34 @@ def _macro_runtime_options(
     payload: JsonObject,
     *,
     defaults: MacroRuntimeOptions | None = None,
+    lenient: bool = True,
 ) -> MacroRuntimeOptions:
     if defaults is None:
         defaults = MacroRuntimeOptions()
+    int_value = int_like if lenient else _strict_int_like
     return MacroRuntimeOptions(
         loop_mode=str_value(payload.get("loop_mode", defaults.loop_mode), defaults.loop_mode)
         or defaults.loop_mode,
-        loop_count=int_like(payload.get("loop_count", defaults.loop_count), defaults.loop_count),
+        loop_count=int_value(payload.get("loop_count", defaults.loop_count), defaults.loop_count),
         loop_stop_behavior=normalize_macro_loop_stop_behavior(
             payload.get("loop_stop_behavior", defaults.loop_stop_behavior)
         ),
         move_to_start=bool(payload.get("move_to_start", defaults.move_to_start)),
-        start_x=int_like(payload.get("start_x", defaults.start_x), defaults.start_x),
-        start_y=int_like(payload.get("start_y", defaults.start_y), defaults.start_y),
+        start_x=int_value(payload.get("start_x", defaults.start_x), defaults.start_x),
+        start_y=int_value(payload.get("start_y", defaults.start_y), defaults.start_y),
         block_mouse_movement=bool(
             payload.get("block_mouse_movement", defaults.block_mouse_movement)
         ),
     )
+
+
+def _strict_int_like(value: object, default: int = 0) -> int:
+    """Convert value to int, returning default when value is None or "".
+
+    Unlike coercion.int_value, this treats empty strings like missing JSON/form fields;
+    otherwise it returns int(value) or lets conversion errors propagate.
+    """
+    return default if value in {None, ""} else int(cast(int | float | str, value))
 
 
 def _macro_playback_options(
@@ -446,7 +457,7 @@ def _macro_playback_options(
 
 def apply_macro_definition(action_data: JsonObject, macro: JsonObject) -> JsonObject:
     updated: JsonObject = dict(action_data)
-    runtime_options = _macro_runtime_options(macro)
+    runtime_options = _macro_runtime_options(macro, lenient=False)
     updated["macro_loop_mode"] = runtime_options.loop_mode
     updated["macro_loop_count"] = runtime_options.loop_count
     updated["macro_loop_stop_behavior"] = runtime_options.loop_stop_behavior

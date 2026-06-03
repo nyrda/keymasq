@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from keymasq.common.ipc import CommandType
+from keymasq.common.types import JsonObject
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import device_path_resolver
 
-type JsonObject = dict[str, object]
 type Snapshot = dict[str, Any]
 type _TopologyManager = Any
 type ClearDevicePathCacheFn = Callable[[], None]

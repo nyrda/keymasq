@@ -7,14 +7,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO, cast
 
+from keymasq.common.coercion import require_json_object as _json_object
 from keymasq.common.config_files import write_config_atomically
 from keymasq.common.models import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+from keymasq.common.types import JsonObject
 
 MACRO_FILE_SUFFIX = ".kmacro.xz"
 MACRO_FILE_FORMAT = "keymasq-macro"
 MACRO_FILE_VERSION = 1
 
-type JsonObject = dict[str, object]
 type MacroEvent = dict[str, object]
 
 
@@ -162,13 +163,6 @@ def _open_text(path: Path, mode: str) -> io.TextIOWrapper:
 
 def _json_line(value: JsonObject) -> str:
     return json.dumps(value, separators=(",", ":")) + "\n"
-
-
-def _json_object(value: object) -> JsonObject:
-    if not isinstance(value, dict):
-        raise ValueError("Expected JSON object")
-    return cast(JsonObject, value)
-
 
 def _validate_meta_record(record: JsonObject) -> None:
     if record.get("format") != MACRO_FILE_FORMAT:

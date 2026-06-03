@@ -58,7 +58,6 @@ from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
 log = logging.getLogger("keymasqd.runtime.combos")
 
-type JsonObject = dict[str, object]
 type IntValueFn = Callable[..., int]
 type StrValueFn = Callable[..., str]
 type ResolveStablePathFn = Callable[[str], str]

@@ -11,6 +11,10 @@ from typing import Any, Protocol, cast
 import evdev
 
 from keymasq.common import devices as common_devices
+from keymasq.common.coercion import int_or_none
+from keymasq.common.coercion import json_list as _json_list
+from keymasq.common.coercion import json_object as _json_object
+from keymasq.common.coercion import str_or_none as _optional_str
 from keymasq.common.combos import (
     EMERGENCY_CANCEL_COMBO_EVDEVS,
     is_emergency_cancel_combo_evdevs,
@@ -31,6 +35,7 @@ from keymasq.common.models import (
     SuperkeyMode,
     parse_profile_deactivation_policy,
 )
+from keymasq.common.types import JsonObject
 from keymasq.common.virtual_devices import (
     DEFAULT_VIRTUAL_GAMEPADS,
     clamp_virtual_gamepad_count,
@@ -77,7 +82,6 @@ EMERGENCY_CANCEL_COMBO_PROFILE = "__keymasq_internal"
 EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS = 200
 TOPOLOGY_POLL_INTERVAL_S = 0.5
 TOPOLOGY_DEBOUNCE_S = 0.5
-type JsonObject = dict[str, object]
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
 type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
@@ -117,20 +121,8 @@ class _ManagedInputDevice(Protocol):
 ASYNCIO_RUNTIME = runtime_adapters.ASYNCIO_RUNTIME
 
 
-def _json_object(value: object) -> JsonObject | None:
-    return cast(JsonObject, value) if isinstance(value, dict) else None
-
-
-def _json_list(value: object) -> list[object]:
-    return cast(list[object], value) if isinstance(value, list) else []
-
-
-def _optional_str(value: object) -> str | None:
-    return None if value is None else str(value)
-
-
 def _int_or_none(value: object) -> int | None:
-    return None if value is None else _int_value(value)
+    return int_or_none(value, reject_bool=False)
 
 
 def _device_input(path: str) -> _ManagedInputDevice:

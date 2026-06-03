@@ -15,11 +15,11 @@ from dbus_next.constants import MessageType
 from dbus_next.message import Message
 from dbus_next.service import ServiceInterface, method
 
+from keymasq.common.types import JsonObject
 from keymasq.session.dbus import SessionDBus, name_has_owner
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 
 log = logging.getLogger("keymasq-session.listeners.kde")
-type JsonObject = dict[str, object]
 s = str
 
 KDE_DBUS_INTERFACE = "keymasq.kde.Listener"

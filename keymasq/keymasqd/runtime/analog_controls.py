@@ -2,7 +2,6 @@ import asyncio
 import logging
 import math
 import time
-from dataclasses import dataclass
 from typing import cast
 
 from keymasq.common.devices import resolve_evdev_code
@@ -15,6 +14,7 @@ from keymasq.common.models import (
     analog_control_primary_mode,
     analog_gamepad_output_distance,
 )
+from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime.action_runner import source_trigger_id
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
@@ -42,14 +42,6 @@ TRIGGER_OUTPUT_AXES = {
     "left_trigger": "ABS_Z",
     "right_trigger": "ABS_RZ",
 }
-
-
-@dataclass
-class _SyntheticInputEvent:
-    type: int
-    code: int
-    value: int
-
 
 def normalize_axis_value(
     raw_value: int,

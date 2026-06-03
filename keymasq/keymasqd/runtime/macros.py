@@ -13,7 +13,6 @@ from keymasq.common.models import (
 )
 from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
 
-type JsonObject = dict[str, object]
 type IntValueFn = Callable[[object, int], int]
 type StrValueFn = Callable[[object, str], str]
 type _MacroManager = Any

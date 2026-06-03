@@ -4,7 +4,8 @@ from typing import cast
 
 import evdev
 
-JsonObject = dict[str, object]
+from keymasq.common.types import JsonObject
+
 IntLike = int | float | str | bytes
 
 _TYPE_MACRO_TEXT_TRANSLATION = str.maketrans(

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import keymasq.session.manager.recording as session_recording_module
+from keymasq.common import config_files as config_files_module
 from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.session.manager import SessionManager
 
@@ -187,7 +188,7 @@ def test_recording_settings_save_logs_errors(tmp_path, caplog, monkeypatch) -> N
     def raise_dump_error(_data, _fp) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(session_recording_module.tomli_w, "dump", raise_dump_error)
+    monkeypatch.setattr(config_files_module.tomli_w, "dump", raise_dump_error)
     caplog.set_level(logging.ERROR, logger="keymasq-session")
 
     session_recording_module.save_recording_settings_to_disk(manager)

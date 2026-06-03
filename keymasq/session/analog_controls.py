@@ -7,6 +7,7 @@ from typing import BinaryIO, cast
 import tomli_w
 
 from keymasq.common import paths
+from keymasq.common.config_files import write_config_atomically
 from keymasq.common.models import (
     ActionType,
     AnalogActionThreshold,
@@ -25,7 +26,6 @@ from keymasq.session.action_toml import (
     mapping_action_to_toml,
     mapping_action_type_from_toml,
 )
-from keymasq.session.config_files import write_config_atomically
 from keymasq.session.config_loading import load_config_files_sync
 
 log = logging.getLogger("keymasq-session.analog_controls")

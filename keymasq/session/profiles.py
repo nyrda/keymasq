@@ -10,10 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-import tomli_w
-
 from keymasq.common import paths
 from keymasq.common.combos import normalize_combo_evdev, normalize_combo_restore_keys
+from keymasq.common.config_files import write_toml_atomically
 from keymasq.common.models import (
     ActionType,
     ComboConfig,
@@ -332,8 +331,7 @@ class ProfileManager:
                     return
 
             profile["created_at"] = created_at.isoformat()
-            with open(path, "wb") as f:
-                tomli_w.dump(data, f)
+            write_toml_atomically(path, data)
 
     def _parse_action(self, action_data: TomlDict | str) -> MappingAction:
         if isinstance(action_data, str):
@@ -878,15 +876,7 @@ class ProfileManager:
             ]
 
         with self._profile_file_lock:
-            if exclusive:
-                buffer = io.BytesIO()
-                tomli_w.dump(data, buffer)
-                with open(path, "xb") as f:
-                    f.write(buffer.getvalue())
-                return
-
-            with open(path, "wb") as f:
-                tomli_w.dump(data, f)
+            write_toml_atomically(path, data, overwrite=not exclusive)
             return
 
     def delete_profile(self, name: str) -> bool:

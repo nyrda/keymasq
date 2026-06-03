@@ -3,9 +3,8 @@ import tomllib
 from pathlib import Path
 from typing import Literal, cast
 
-import tomli_w
-
 from keymasq.common import paths
+from keymasq.common.config_files import write_toml_atomically
 
 log = logging.getLogger(__name__)
 
@@ -36,8 +35,7 @@ def _load_settings() -> dict[str, object]:
 
 def _save_settings(data: dict[str, object]) -> None:
     paths.ensure_config_dirs()
-    with _settings_path().open("wb") as f:
-        tomli_w.dump(data, f)
+    write_toml_atomically(_settings_path(), data)
 
 
 def load_appearance_mode() -> AppearanceMode:

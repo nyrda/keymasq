@@ -1,14 +1,10 @@
-import contextlib
 import logging
-import os
-import tempfile
 import tomllib
 from pathlib import Path
 from typing import cast
 
-import tomli_w
-
 from keymasq.common import paths
+from keymasq.common.config_files import write_toml_atomically
 from keymasq.common.settings import (
     GlobalSettings,
     global_settings_from_toml,
@@ -51,24 +47,7 @@ def save_global_settings(settings: GlobalSettings) -> GlobalSettings:
     )
     paths.ensure_config_dirs()
     settings_path = _settings_path()
-    temp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(
-            "wb",
-            dir=settings_path.parent,
-            prefix=f".{settings_path.name}.",
-            delete=False,
-        ) as config_file:
-            temp_path = config_file.name
-            tomli_w.dump(global_settings_to_toml(normalized), config_file)
-            config_file.flush()
-            os.fsync(config_file.fileno())
-        os.replace(temp_path, settings_path)
-        temp_path = ""
-    finally:
-        if temp_path:
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(temp_path)
+    write_toml_atomically(settings_path, global_settings_to_toml(normalized))
     return normalized
 
 

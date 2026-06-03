@@ -1,14 +1,13 @@
 import io
 import json
 import lzma
-import os
-import secrets
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import BinaryIO, cast
 
+from keymasq.common.config_files import write_config_atomically
 from keymasq.common.models import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 
 MACRO_FILE_SUFFIX = ".kmacro.xz"
@@ -121,28 +120,15 @@ def write_macro(
     *,
     overwrite: bool = True,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = _open_private_temp(path)
-    fileobj: io.BufferedWriter | None = None
-    try:
-        fileobj = os.fdopen(fd, "wb")
+    def write(fileobj: BinaryIO) -> None:
         with lzma.LZMAFile(fileobj, "wb") as raw:
             with io.TextIOWrapper(raw, encoding="utf-8", newline="\n") as f:
                 f.write(_json_line(meta.to_record()))
                 for event in events:
                     f.write(_json_line(event))
-        fileobj.flush()
-        os.fsync(fd)
-        _commit_temp_macro(tmp_path, path, overwrite=overwrite)
-        path.chmod(0o600)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
-    finally:
-        if fileobj is None:
-            os.close(fd)
-        else:
-            fileobj.close()
+
+    write_config_atomically(path, write, overwrite=overwrite, temp_suffix=".tmp")
+    path.chmod(0o600)
 
 
 def macro_payload_from_events(
@@ -172,32 +158,6 @@ def macro_payload_from_events(
 def _open_text(path: Path, mode: str) -> io.TextIOWrapper:
     raw = lzma.LZMAFile(path, mode)
     return io.TextIOWrapper(raw, encoding="utf-8", newline="\n")
-
-
-def _open_private_temp(path: Path) -> tuple[int, Path]:
-    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
-    if hasattr(os, "O_CLOEXEC"):
-        flags |= os.O_CLOEXEC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-
-    for _ in range(100):
-        tmp_path = path.with_name(f".{path.name}.{secrets.token_hex(16)}.tmp")
-        try:
-            fd = os.open(tmp_path, flags, 0o600)
-        except FileExistsError:
-            continue
-        os.fchmod(fd, 0o600)
-        return fd, tmp_path
-    raise FileExistsError(f"Could not create temporary macro file for {path}")
-
-
-def _commit_temp_macro(tmp_path: Path, path: Path, *, overwrite: bool) -> None:
-    if overwrite:
-        os.replace(tmp_path, path)
-        return
-    os.link(tmp_path, path)
-    tmp_path.unlink()
 
 
 def _json_line(value: JsonObject) -> str:

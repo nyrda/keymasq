@@ -1,4 +1,3 @@
-import contextlib
 import logging
 import re
 import tomllib
@@ -9,6 +8,7 @@ from typing import Any, BinaryIO, cast
 import tomli_w
 
 from keymasq.common import paths
+from keymasq.common.config_files import write_config_atomically
 from keymasq.common.devices import is_gamepad_button_name
 from keymasq.common.models import (
     AnalogAxisDefinition,
@@ -18,7 +18,6 @@ from keymasq.common.models import (
     EvdevDevice,
     HardwareConfig,
 )
-from keymasq.session.config_files import write_config_atomically
 from keymasq.session.config_loading import load_config_files_sync
 
 log = logging.getLogger("keymasq-session.hardware")
@@ -243,10 +242,7 @@ class HardwareManager:
 
         for attempt in range(1, MAX_HARDWARE_PATH_ATTEMPTS + 1):
             path = self._hardware_storage_path_candidate(hardware_id, attempt)
-            try:
-                with path.open("x", encoding="utf-8"):
-                    pass
-            except FileExistsError:
+            if path.exists():
                 continue
             return path, True
         raise ValueError(f"Could not allocate storage path for hardware '{hardware_id}'")
@@ -369,19 +365,14 @@ class HardwareManager:
         if config.image:
             data["hardware"]["image"] = config.image
 
-        path, reserved_path = self._path_for_hardware_id(config.hardware_id)
-        try:
-            def write_config(config_file: BinaryIO) -> None:
-                tomli_w.dump(data, config_file)
-                if is_keyboard_layout:
-                    config_file.write(KEYBOARD_LAYOUT_FOOTER)
+        path, new_path = self._path_for_hardware_id(config.hardware_id)
 
-            write_config_atomically(path, write_config)
-        except Exception:
-            if reserved_path:
-                with contextlib.suppress(OSError):
-                    path.unlink()
-            raise
+        def write_config(config_file: BinaryIO) -> None:
+            tomli_w.dump(data, config_file)
+            if is_keyboard_layout:
+                config_file.write(KEYBOARD_LAYOUT_FOOTER)
+
+        write_config_atomically(path, write_config, overwrite=not new_path)
 
         self._cache[config.hardware_id] = _HardwareEntry(path=path, config=config)
         log.info(f"Saved hardware config: {path}")

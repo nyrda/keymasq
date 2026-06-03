@@ -423,6 +423,11 @@ def _macro_runtime_options(
 
 
 def _strict_int_like(value: object, default: int = 0) -> int:
+    """Convert value to int, returning default when value is None or "".
+
+    Unlike coercion.int_value, this treats empty strings like missing JSON/form fields;
+    otherwise it returns int(value) or lets conversion errors propagate.
+    """
     return default if value in {None, ""} else int(cast(int | float | str, value))
 
 

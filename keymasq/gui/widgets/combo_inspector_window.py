@@ -476,10 +476,7 @@ def _snapshot_signature(snapshot: JsonDict) -> str:
             ]
             steps.append(
                 {
-                    "timeout_ms": _int_or_none(
-                        step_payload.get("timeout_ms"),
-                        reject_bool=False,
-                    ),
+                    "timeout_ms": _int_or_none(step_payload.get("timeout_ms")),
                     "events": events,
                 }
             )
@@ -564,7 +561,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
             search_parts.extend([evdev, hardware_id, source, device_name])
         if not events:
             continue
-        timeout_ms = _int_or_none(step_payload.get("timeout_ms"), reject_bool=False)
+        timeout_ms = _int_or_none(step_payload.get("timeout_ms"))
         if timeout_ms is not None:
             search_parts.append(f"{timeout_ms}ms")
         steps.append(ComboStep(events=events, timeout_ms=timeout_ms))

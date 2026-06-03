@@ -66,15 +66,15 @@ def int_or_none(value: object, *, reject_bool: bool = True) -> int | None:
         return None
     try:
         return int(cast(IntLike, value))
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return None
 
 
 def int_value_or_default(value: object, default: int = 0) -> int:
-    """Return int(value), or default for TypeError and ValueError conversion failures."""
+    """Return int(value), or default for OverflowError, TypeError, and ValueError."""
     try:
         return int(cast(IntLike, value))
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return default
 
 
@@ -84,10 +84,10 @@ def int_or_none_value(value: object) -> int | None:
 
 
 def float_value_or_default(value: object, default: float = 0.0) -> float:
-    """Return float(value), or default for TypeError and ValueError conversion failures."""
+    """Return float(value), or default for OverflowError, TypeError, and ValueError."""
     try:
         return float(cast(FloatLike, value))
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return default
 
 
@@ -97,7 +97,7 @@ def int_like(value: object, default: int = 0) -> int:
         return default
     try:
         return int(cast(int | float | str, value))
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return default
 
 
@@ -107,7 +107,7 @@ def float_like(value: object, default: float = 0.0) -> float:
         return default
     try:
         return float(cast(int | float | str, value))
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return default
 
 

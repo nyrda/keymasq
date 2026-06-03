@@ -62,7 +62,7 @@ def sd_notify(state: str) -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
             sock.connect(notify_socket)
             sock.sendall(f"{state}\n".encode())
-    except Exception:
+    except (OSError, RuntimeError):
         log.debug("Failed to send sd_notify state", exc_info=True)
 
 
@@ -179,14 +179,14 @@ class Daemon:
     ) -> None:
         try:
             await cleanup()
-        except Exception as exc:
-            log.warning("Failed to %s during daemon cleanup: %s", label, exc, exc_info=True)
+        except Exception:
+            log.exception("Failed to %s during daemon cleanup", label)
 
     def _run_sync_cleanup(self, label: str, cleanup: Callable[[], object]) -> None:
         try:
             cleanup()
-        except Exception as exc:
-            log.warning("Failed to %s during daemon cleanup: %s", label, exc, exc_info=True)
+        except Exception:
+            log.exception("Failed to %s during daemon cleanup", label)
 
     def _prepare_macro_store(self) -> None:
         self.macro_store.ensure()
@@ -781,8 +781,8 @@ def main() -> None:
         asyncio.run(daemon.start())
     except KeyboardInterrupt:
         pass
-    except Exception as e:
-        log.error(f"Fatal error: {e}")
+    except Exception:
+        log.exception("Fatal error")
         sys.exit(1)
 
 

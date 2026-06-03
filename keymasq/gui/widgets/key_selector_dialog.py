@@ -1349,7 +1349,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
                 key_name = evdev.ecodes.KEY.get(code)
                 if isinstance(key_name, str) and key_name.startswith("KEY_"):
                     evdev_name = key_name.lower()
-            except Exception:
+            except (TypeError, ValueError):
                 evdev_name = None
         if not evdev_name:
             self.kb_code_entry.set_text("")
@@ -1560,7 +1560,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         count = virtual_gamepad_count()
         try:
             hardware_configs = list(HardwareManager().list_hardware())
-        except Exception:
+        except (OSError, RuntimeError) as exc:
+            log.debug("Unable to load hardware configs for gamepad outputs: %s", exc)
             hardware_configs = []
         return gamepad_output_choices_for(
             self._selected_gamepad_output_id,
@@ -1765,8 +1766,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)
-        except Exception as exc:
-            log.warning("Could not open action documentation %s: %s", url, exc)
+        except Exception:
+            log.exception("Could not open action documentation %s", url)
 
     def _warn_and_clear_unsupported_rapidfire(self, action_type: ActionType) -> None:
         if not self._rapidfire_enabled or action_type_supports_rapidfire(action_type):
@@ -3526,8 +3527,8 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)
-        except Exception as exc:
-            log.warning("Could not open action documentation %s: %s", url, exc)
+        except Exception:
+            log.exception("Could not open action documentation %s", url)
 
     def _warn_and_clear_unsupported_rapidfire(self, action_type: ActionType) -> None:
         if not self._rapidfire_enabled or action_type_supports_rapidfire(action_type):
@@ -3836,7 +3837,8 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         count = virtual_gamepad_count()
         try:
             hardware_configs = list(HardwareManager().list_hardware())
-        except Exception:
+        except (OSError, RuntimeError) as exc:
+            log.debug("Unable to load hardware configs for gamepad outputs: %s", exc)
             hardware_configs = []
         return gamepad_output_choices_for(
             self._selected_gamepad_output_id,

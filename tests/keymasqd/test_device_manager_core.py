@@ -1064,6 +1064,54 @@ class TestListDevices:
             deps=dm._topology_runtime_deps(),
         )
 
+    def test_scan_live_interfaces_logs_snapshot_device_failures(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class _FakeDevice:
+            path = ""
+            name = "Test Device"
+            phys = ""
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {}
+
+        devices = {
+            "/dev/input/event0": _FakeDevice(),
+            "/dev/input/event1": _FakeDevice(),
+            "/dev/input/event2": _FakeDevice(),
+        }
+
+        def device_input(path: str) -> _FakeDevice:
+            return devices[path]
+
+        def resolve_stable_path(path: str) -> str:
+            if path.endswith("event0"):
+                raise OSError("stable path disappeared")
+            if path.endswith("event1"):
+                raise RuntimeError("stable resolver invalid")
+            return f"/dev/input/by-id/{path.rsplit('/', 1)[-1]}"
+
+        with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+            snapshot = tdm.scan_live_interfaces_sync(
+                clear_device_path_cache_fn=lambda: None,
+                device_paths_fn=lambda: list(devices),
+                device_input_fn=device_input,
+                detect_input_classes_fn=lambda _device: ["keyboard"],
+                primary_input_class_fn=lambda _classes: DeviceType.KEYBOARD,
+                resolve_stable_path_fn=resolve_stable_path,
+                get_interface_id_fn=lambda _stable_path: "kbd",
+                log=dm.log,
+            )
+
+        assert list(snapshot) == ["/dev/input/by-id/event2"]
+        assert snapshot["/dev/input/by-id/event2"].hardware_id == "1234:5678"
+        assert "Could not read live topology device /dev/input/event0" in caplog.text
+        assert "stable path disappeared" in caplog.text
+        assert "Unexpected failure reading live topology device /dev/input/event1" in caplog.text
+        assert "RuntimeError: stable resolver invalid" in caplog.text
+
     @pytest.mark.asyncio
     async def test_start_topology_watcher_reconciles_initial_snapshot_with_existing_grabs(
         self,

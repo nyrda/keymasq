@@ -44,8 +44,10 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
                 self._toplevel_handles.clear()
                 try:
                     await self._send_request(self._manager_id, 0, b"")
-                except Exception:
+                except (OSError, _transport.WaylandDisplayError):
                     log.debug("Failed to destroy wlr foreign toplevel manager", exc_info=True)
+                except Exception:
+                    log.exception("Unexpected failure destroying wlr foreign toplevel manager")
                 self._objects.pop(self._manager_id, None)
                 self._manager_id = None
             self._close_socket()
@@ -103,8 +105,13 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
     async def _destroy_toplevel_handle(self, object_id: int) -> None:
         try:
             await self._send_request(object_id, 7, b"")
-        except Exception:
+        except (OSError, _transport.WaylandDisplayError):
             log.debug("Failed to destroy wlr foreign toplevel handle", exc_info=True)
+        except Exception:
+            log.exception(
+                "Unexpected failure destroying wlr foreign toplevel handle %s",
+                object_id,
+            )
         self._objects.pop(object_id, None)
         self._toplevel_handles.discard(object_id)
 

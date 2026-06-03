@@ -40,7 +40,7 @@ def _session_request(payload: JsonObject, timeout: float = 5.0) -> JsonObject | 
         if isinstance(decoded, dict):
             return cast(JsonObject, decoded)
         return None
-    except Exception:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
 
 

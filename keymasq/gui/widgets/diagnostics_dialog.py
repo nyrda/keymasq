@@ -443,8 +443,8 @@ class DiagnosticsDialog(Adw.Dialog):
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)
-        except Exception as exc:
-            log.warning("Could not open Diagnostics documentation %s: %s", url, exc)
+        except Exception:
+            log.exception("Could not open Diagnostics documentation %s", url)
 
     def _update_status_tick(self) -> bool:
         if self._last_snapshot_time is None:

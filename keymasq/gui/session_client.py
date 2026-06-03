@@ -70,8 +70,8 @@ class _PersistentSessionConnection:
                     self._close_connection()
                     return None
                 return response
-            except Exception as e:
-                log.debug(f"persistent request failed: {e}")
+            except Exception:
+                log.exception("persistent request failed")
                 self._close_connection()
                 return None
             finally:
@@ -111,12 +111,12 @@ class _PersistentSessionConnection:
                 sock.settimeout(timeout)
                 sock.connect(str(SESSION_SOCKET_PATH))
                 sock.settimeout(None)
-            except Exception as e:
+            except OSError as e:
                 log.debug(f"persistent connect failed: {e}")
                 if sock is not None:
                     try:
                         sock.close()
-                    except Exception:
+                    except OSError:
                         pass
                 return False
 
@@ -172,8 +172,8 @@ class _PersistentSessionConnection:
                             response_queue.put_nowait(message)
                         except queue.Full:
                             pass
-            except Exception as e:
-                log.debug(f"persistent reader error: {e}")
+            except Exception:
+                log.exception("persistent reader error")
                 if sock is not None and self._close_connection_if_current(sock):
                     return
                 continue
@@ -189,17 +189,33 @@ class _PersistentSessionConnection:
         if not callbacks:
             return
 
+        idle_add: Callable[..., object] | None = None
         try:
             from gi.repository import GLib  # pyright: ignore[reportAttributeAccessIssue]
-
-            for callback in callbacks:
-                GLib.idle_add(self._dispatch_event_callback_once, callback, message)
+        except ImportError:
+            pass
         except Exception:
-            for callback in callbacks:
-                try:
-                    callback(message)
-                except Exception:
-                    pass
+            log.exception("Unexpected failure loading GLib for session event dispatch")
+        else:
+            raw_idle_add = getattr(GLib, "idle_add", None)
+            if callable(raw_idle_add):
+                idle_add = raw_idle_add
+            else:
+                log.warning("GLib.idle_add unavailable; dispatching session callbacks directly")
+
+        for callback in callbacks:
+            if idle_add is None:
+                self._dispatch_event_callback_once(callback, message)
+                continue
+
+            try:
+                idle_add(self._dispatch_event_callback_once, callback, message)
+            except (RuntimeError, TypeError) as exc:
+                log.warning("Failed to schedule session event callback with GLib: %s", exc)
+                self._dispatch_event_callback_once(callback, message)
+            except Exception:
+                log.exception("Unexpected failure scheduling session event callback")
+                self._dispatch_event_callback_once(callback, message)
 
     @staticmethod
     def _dispatch_event_callback_once(
@@ -220,7 +236,7 @@ class _PersistentSessionConnection:
         if sock is not None:
             try:
                 sock.close()
-            except Exception:
+            except OSError:
                 pass
 
         with self._state_lock:
@@ -228,7 +244,7 @@ class _PersistentSessionConnection:
         if response_queue is not None:
             try:
                 response_queue.put_nowait(None)
-            except Exception:
+            except queue.Full:
                 pass
 
     def _close_connection_if_current(self, sock: _socket.socket) -> bool:
@@ -244,13 +260,13 @@ class _PersistentSessionConnection:
 
         try:
             sock.close()
-        except Exception:
+        except OSError:
             pass
 
         if current and response_queue is not None:
             try:
                 response_queue.put_nowait(None)
-            except Exception:
+            except queue.Full:
                 pass
         return current
 

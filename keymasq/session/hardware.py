@@ -218,7 +218,12 @@ class HardwareManager:
     def _storage_file_hardware_id(self, path: Path) -> str:
         try:
             return self._load_config(path).hardware_id
+        except (OSError, ValueError, KeyError) as exc:
+            raise ValueError(
+                f"Hardware storage path '{path.name}' already exists but could not be read"
+            ) from exc
         except Exception as exc:
+            log.exception("Unexpected error while reading hardware storage path %s", path)
             raise ValueError(
                 f"Hardware storage path '{path.name}' already exists but could not be read"
             ) from exc
@@ -226,7 +231,16 @@ class HardwareManager:
     def _storage_path_matches_hardware_id(self, path: Path, hardware_id: str) -> bool:
         try:
             return self._load_config(path).hardware_id == hardware_id
+        except (OSError, ValueError, KeyError) as exc:
+            log.debug(
+                "Hardware storage path %s does not match %s: %s",
+                path,
+                hardware_id,
+                exc,
+            )
+            return False
         except Exception:
+            log.exception("Unexpected error while checking hardware storage path %s", path)
             return False
 
     def _path_for_hardware_id(self, hardware_id: str) -> tuple[Path, bool]:
@@ -397,8 +411,11 @@ class HardwareManager:
             return False
         try:
             path.unlink()
-        except Exception as e:
-            log.error(f"Failed to delete {path}: {e}")
+        except OSError as exc:
+            log.error("Failed to delete %s: %s", path, exc)
+            return False
+        except Exception:
+            log.exception("Unexpected error deleting hardware config %s", path)
             return False
 
         del self._cache[hardware_id]

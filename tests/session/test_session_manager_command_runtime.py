@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -323,6 +324,32 @@ async def test_recording_unlock_status_prefers_daemon_when_connected() -> None:
     sent_command = manager.client.send_command.await_args.args[0]
     assert sent_command.command == CommandType.RECORDING_UNLOCK_STATUS
     assert sent_command.data == {"uid": 1000}
+
+
+@pytest.mark.asyncio
+async def test_recording_unlock_status_logs_unexpected_daemon_query_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    manager.connected = True
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("status bug"))
+    fallback_status = {"unlocked": False, "source": "none", "expires_at": 0}
+    monkeypatch.setattr(
+        session_recording_module,
+        "resolve_unlock_status",
+        lambda _uid: fallback_status,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        result = await session_recording_module.resolve_unlock_status_async(
+            manager,
+            1000,
+        )
+
+    assert result == fallback_status
+    assert "Unexpected failure querying daemon recording unlock status" in caplog.text
+    assert "status bug" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -1421,8 +1448,34 @@ async def test_stop_device_inspector_preserves_state_on_daemon_error(
 
 
 @pytest.mark.asyncio
+async def test_device_inspector_reports_daemon_connection_errors() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=ConnectionError("daemon down"))
+
+    result = await session_device_inspector_module.disable_device_inspector_suppression(
+        manager,
+        "1234:5678",
+    )
+
+    assert result == {"status": "error", "message": "Daemon unavailable"}
+
+
+@pytest.mark.asyncio
+async def test_device_inspector_does_not_mask_runtime_errors() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("request bug"))
+
+    with pytest.raises(RuntimeError, match="request bug"):
+        await session_device_inspector_module.disable_device_inspector_suppression(
+            manager,
+            "1234:5678",
+        )
+
+
+@pytest.mark.asyncio
 async def test_clear_device_inspectors_for_writer_continues_after_stop_failure(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     manager = SessionManager()
     writer = object()
@@ -1448,13 +1501,18 @@ async def test_clear_device_inspectors_for_writer_continues_after_stop_failure(
 
     monkeypatch.setattr(session_device_inspector_module, "_stop_device_inspector_unlocked", stop)
 
-    await session_device_inspector_module.clear_device_inspectors_for_writer(
-        manager,
-        writer,  # type: ignore[arg-type]
-    )
+    with caplog.at_level("ERROR", logger="keymasq-session.device_inspector"):
+        await session_device_inspector_module.clear_device_inspectors_for_writer(
+            manager,
+            writer,  # type: ignore[arg-type]
+        )
 
     assert stopped == ["bad", "good"]
     assert manager.device_inspector_state.owners_by_hardware_id["bad"] == set()
+    assert (
+        "Failed to stop device inspector for disconnected owner hardware_id=bad" in caplog.text
+    )
+    assert "stop failed" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -2000,13 +2058,33 @@ async def test_capture_end_keeps_token_when_daemon_end_fails() -> None:
     hardware_id = "2dc8:3106"
     manager.capture_state.tokens[hardware_id] = "token-1"
     manager.capture_state.locks.add(hardware_id)
-    manager.client.send_command = AsyncMock(side_effect=RuntimeError("daemon down"))
+    manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
 
     result = await session_recording_module.capture_end(manager, hardware_id)
 
     assert result == {"status": "error", "message": "Daemon unavailable"}
     assert manager.capture_state.tokens[hardware_id] == "token-1"
     assert hardware_id in manager.capture_state.locks
+
+
+@pytest.mark.asyncio
+async def test_capture_end_logs_unexpected_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.capture_state.tokens[hardware_id] = "token-1"
+    manager.capture_state.locks.add(hardware_id)
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("capture bug"))
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        result = await session_recording_module.capture_end(manager, hardware_id)
+
+    assert result == {"status": "error", "message": "Failed to end capture"}
+    assert manager.capture_state.tokens[hardware_id] == "token-1"
+    assert hardware_id in manager.capture_state.locks
+    assert "Unexpected failure ending capture for hardware_id=2dc8:3106" in caplog.text
+    assert "capture bug" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -2020,7 +2098,7 @@ async def test_clear_captures_for_writer_forces_local_cleanup_on_daemon_failure(
     manager.capture_state.locks.add(hardware_id)
     manager.capture_state.owner_writer_ids[hardware_id] = id(writer)
     manager.capture_state.resume_profiles[hardware_id] = ["Default"]
-    manager.client.send_command = AsyncMock(side_effect=RuntimeError("daemon down"))
+    manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
 
@@ -2261,6 +2339,37 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event(
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "macro_saved", "name": "Speedrun"}
     )
+
+
+@pytest.mark.asyncio
+async def test_handle_session_request_list_macros_reports_daemon_connection_errors() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=ConnectionError("daemon down"))
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "list_macros"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "error", "message": "Daemon unavailable"}
+
+
+@pytest.mark.asyncio
+async def test_handle_session_request_list_macros_does_not_mask_runtime_errors() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("request bug"))
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    with pytest.raises(RuntimeError, match="request bug"):
+        await manager._handle_session_request(
+            {"command": "list_macros"},
+            "client",
+            peer,
+            object(),
+        )
 
 
 @pytest.mark.asyncio

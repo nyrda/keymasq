@@ -273,6 +273,30 @@ async def test_handle_event_macro_sync_exec_clamps_timeout_to_session_policy() -
 
 
 @pytest.mark.asyncio
+async def test_handle_event_macro_sync_exec_logs_unexpected_completion_report_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("report bug"))
+    manager.action_handler.execute_command = AsyncMock(return_value=0)
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        await session_events_module.handle_event(
+            manager,
+            CommandType.ACTION_TRIGGER,
+            {
+                "action_type": "exec",
+                "cmd": "echo macro",
+                "macro_exec_wait_id": "wait-1",
+            },
+        )
+        await asyncio.sleep(0)
+
+    assert "Unexpected failure reporting macro exec completion" in caplog.text
+    assert "report bug" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_handle_event_macro_trigger_forwards_full_playback_payload() -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(
@@ -399,7 +423,7 @@ async def test_lifetime_profile_enable_rolls_back_when_daemon_tracking_fails(
     temp_config_dir,
 ) -> None:
     manager = SessionManager()
-    manager.client.send_command = AsyncMock(side_effect=RuntimeError("daemon unavailable"))
+    manager.client.send_command = AsyncMock(side_effect=ConnectionError("daemon unavailable"))
     manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
 
     await session_events_module.handle_profile_trigger(
@@ -411,6 +435,32 @@ async def test_lifetime_profile_enable_rolls_back_when_daemon_tracking_fails(
         },
     )
 
+    assert "Nav" not in manager.profile_state.runtime_profile_activations
+    assert "Nav" not in manager.profile_state.active_profile_names
+    assert manager.profiles.get_profile("Nav").config.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_lifetime_profile_enable_logs_unexpected_tracking_failures(
+    temp_config_dir,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("tracking bug"))
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        await session_events_module.handle_profile_trigger(
+            manager,
+            {
+                "action_type": "profile_enable",
+                "profile_name": "Nav",
+                "deactivation": {"after_actions": 1},
+            },
+        )
+
+    assert "Unexpected failure tracking runtime profile activation" in caplog.text
+    assert "tracking bug" in caplog.text
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     assert "Nav" not in manager.profile_state.active_profile_names
     assert manager.profiles.get_profile("Nav").config.enabled is False

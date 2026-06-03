@@ -9,7 +9,6 @@ import signal
 import socket
 import struct
 import sys
-import traceback
 from pathlib import Path
 from typing import cast
 
@@ -66,6 +65,7 @@ from .state import (
 )
 
 log = logging.getLogger("keymasq-session")
+_TASK_SHUTDOWN_ERRORS = (asyncio.CancelledError, OSError, RuntimeError)
 GRAB_DEVICE_TIMEOUT_S = 330.0
 GRAB_RETRY_DELAY_S = 5.0
 TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
@@ -106,7 +106,7 @@ class SessionManager:
         async def _client_event_handler(event_type: CommandType, data: JsonObject) -> None:
             await runtime_events.handle_event(self, event_type, data)
 
-        self.client = KeymasqdClient(_client_event_handler)
+        self.client: KeymasqdClient = KeymasqdClient(_client_event_handler)
         self.superkeys = SuperkeyManager()
         self.analog_controls = AnalogControlManager()
         self.profiles = ProfileManager(
@@ -207,7 +207,7 @@ class SessionManager:
 
         if self.compositor_state.supervisor_task:
             self.compositor_state.supervisor_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            with contextlib.suppress(*_TASK_SHUTDOWN_ERRORS):
                 await self.compositor_state.supervisor_task
             self.compositor_state.supervisor_task = None
 
@@ -221,20 +221,20 @@ class SessionManager:
         profile_apply_task = self.profile_state.apply_task
         if profile_apply_task:
             profile_apply_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            with contextlib.suppress(*_TASK_SHUTDOWN_ERRORS):
                 await profile_apply_task
             self.profile_state.apply_task = None
 
         topology_task = self.profile_state.topology_refresh_task
         if topology_task:
             topology_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            with contextlib.suppress(*_TASK_SHUTDOWN_ERRORS):
                 await topology_task
             self.profile_state.topology_refresh_task = None
 
         save_task = cast(asyncio.Task[None] | None, self.recording_state.settings_save_task)
         if save_task:
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            with contextlib.suppress(*_TASK_SHUTDOWN_ERRORS):
                 await save_task
             self.recording_state.settings_save_task = None
 
@@ -274,8 +274,10 @@ class SessionManager:
                 await self.client.send_command(
                     Command(command=CommandType.CAPTURE_END, data={"token": token})
                 )
-            except Exception:
+            except OSError:
                 log.debug("Failed to end daemon capture during session shutdown", exc_info=True)
+            except Exception:
+                log.exception("Unexpected failure ending daemon capture during session shutdown")
         self.capture_state.tokens.clear()
 
         await self.client.disconnect()
@@ -285,7 +287,7 @@ class SessionManager:
 
         if self.connect_task:
             self.connect_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            with contextlib.suppress(*_TASK_SHUTDOWN_ERRORS):
                 await self.connect_task
             self.connect_task = None
 
@@ -403,13 +405,23 @@ class SessionManager:
                         await writer.drain()
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            log.debug(f"Session client error: {e}")
+        except OSError:
+            log.debug("Session client I/O error", exc_info=True)
+        except Exception:
+            log.exception(
+                "Unexpected session client error pid=%s uid=%s",
+                peer.pid,
+                peer.uid,
+            )
         finally:
-            with contextlib.suppress(Exception):
+            try:
                 await runtime_device_inspector.clear_device_inspectors_for_writer(self, writer)
-            with contextlib.suppress(Exception):
+            except Exception:
+                log.exception("Failed to clear device inspectors for disconnected session client")
+            try:
                 await runtime_recording.clear_captures_for_writer(self, writer)
+            except Exception:
+                log.exception("Failed to clear captures for disconnected session client")
             runtime_recording.clear_active_recording_owner_if_writer(self, writer)
             await runtime_recording.clear_recording_refresh_owner_if_writer(self, peer, writer)
             self._drop_session_client_writer(writer)
@@ -455,15 +467,27 @@ class SessionManager:
                     self.session_client_drain_tasks[writer] = asyncio.create_task(
                         self._drain_session_writer(writer)
                     )
-            except Exception:
+            except OSError:
+                peer = self.session_client_peers.get(writer)
                 self._drop_session_client_writer(writer)
+                asyncio.create_task(self._close_session_writer(writer, peer))
+            except Exception:
+                log.exception("Unexpected failure broadcasting to session client")
+                peer = self.session_client_peers.get(writer)
+                self._drop_session_client_writer(writer)
+                asyncio.create_task(self._close_session_writer(writer, peer))
 
     async def _drain_session_writer(self, writer: asyncio.StreamWriter) -> None:
         try:
             await asyncio.wait_for(writer.drain(), timeout=2.0)
         except asyncio.CancelledError:
             raise
+        except OSError:
+            peer = self.session_client_peers.get(writer)
+            self._drop_session_client_writer(writer)
+            await self._close_session_writer(writer, peer)
         except Exception:
+            log.exception("Unexpected failure draining session client writer")
             peer = self.session_client_peers.get(writer)
             self._drop_session_client_writer(writer)
             await self._close_session_writer(writer, peer)
@@ -495,10 +519,12 @@ class SessionManager:
             if transport is not None:
                 try:
                     transport.abort()
-                except Exception:
+                except (OSError, RuntimeError):
                     log.debug("Failed to abort session client transport", exc_info=True)
-        except Exception:
+        except OSError:
             log.debug("Failed while waiting for session client socket to close", exc_info=True)
+        except Exception:
+            log.exception("Unexpected failure closing session client socket")
 
     def _drop_session_client_writer(self, writer: asyncio.StreamWriter) -> None:
         self.session_clients.discard(writer)
@@ -616,7 +642,7 @@ class SessionManager:
         self._refresh_config_watches()
         try:
             asyncio.get_running_loop().add_reader(fd, self._handle_config_watch_events)
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             log.warning("Failed to register user config watcher: %s", exc)
             self._stop_config_watcher()
 
@@ -630,7 +656,7 @@ class SessionManager:
         if fd is None:
             return
 
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(RuntimeError, ValueError):
             asyncio.get_running_loop().remove_reader(fd)
         with contextlib.suppress(OSError):
             os.close(fd)
@@ -735,7 +761,7 @@ class SessionManager:
                 raw_count = data.get("count", self.virtual_gamepad_count)
                 if isinstance(raw_count, (int, float, str)):
                     self.virtual_gamepad_count = int(raw_count)
-        except Exception as exc:
+        except OSError as exc:
             log.warning("Failed to configure virtual gamepads in keymasqd: %s", exc)
 
     async def connect_loop(self) -> None:
@@ -754,9 +780,8 @@ class SessionManager:
 
                 try:
                     await runtime_profiles.activate_initial_profiles(self)
-                except Exception as e:
-                    log.error(f"Failed to activate initial profiles: {e}")
-                    traceback.print_exc()
+                except Exception:
+                    log.exception("Failed to activate initial profiles")
                 await runtime_recording.sync_pending_macro_slots_from_daemon(self)
                 await runtime_recording.refresh_recording_devices_cache(self)
 
@@ -769,8 +794,11 @@ class SessionManager:
                     self._shutdown_event.set()
                     return
 
-            except Exception as e:
+            except OSError as e:
                 log.warning(f"Connection failed: {e}")
+                self._handle_keymasqd_disconnect()
+            except Exception:
+                log.exception("Unexpected keymasqd connection loop failure")
                 self._handle_keymasqd_disconnect()
 
             if self.running:
@@ -833,8 +861,8 @@ class SessionManager:
     async def _send_notification_async(self, title: str, message: str) -> None:
         try:
             await self.dbus.notify(title, message, app_name="keymasq", timeout_ms=5000)
-        except Exception as e:
-            log.debug(f"Failed to send notification: {e}")
+        except Exception:
+            log.exception("Failed to send notification")
 
 
 def _inotify_init() -> int:
@@ -899,8 +927,8 @@ def main() -> None:
             sys.exit(75)
     except KeyboardInterrupt:
         pass
-    except Exception as e:
-        log.error(f"Fatal error: {e}")
+    except Exception:
+        log.exception("Fatal error")
         raise
 
 

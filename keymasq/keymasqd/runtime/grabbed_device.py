@@ -161,7 +161,11 @@ def _passthrough_input_props(device: _ManagedInputDevice) -> Sequence[int] | Non
                 return None
             converted.append(parsed)
         return converted
+    except OSError as exc:
+        log.debug("Failed to read passthrough input props: %s", exc)
+        return None
     except Exception:
+        log.exception("Unexpected failure reading passthrough input props")
         return None
 
 
@@ -369,23 +373,24 @@ class GrabbedDevice:
         if uinput is not None:
             try:
                 uinput.close()
-            except Exception:
+            except OSError:
                 log.debug("Failed to close uinput after failed grab", exc_info=True)
+            except Exception:
+                log.exception("Unexpected failure closing uinput after failed grab")
             try:
                 runtime_outputs.unregister_passthrough_frame_output(uinput)
             except Exception:
-                log.debug(
-                    "Failed to unregister passthrough output after failed grab",
-                    exc_info=True,
-                )
+                log.exception("Failed to unregister passthrough output after failed grab")
         self.uinput = None
 
         device = self.device
         if device is not None:
             try:
                 device.close()
-            except Exception:
+            except OSError:
                 log.debug("Failed to close input device after failed grab", exc_info=True)
+            except Exception:
+                log.exception("Unexpected failure closing input device after failed grab")
         self.device = None
 
     async def grab(self) -> None:
@@ -506,18 +511,24 @@ class GrabbedDevice:
         if self.device:
             try:
                 self.device.ungrab()
-            except Exception as exc:
+            except OSError as exc:
                 log.warning("Failed to ungrab %s: %s", self.path, exc)
+            except Exception:
+                log.exception("Unexpected failure ungrabbing %s", self.path)
             try:
                 self.device.close()
-            except Exception as exc:
+            except OSError as exc:
                 log.warning("Failed to close input device %s: %s", self.path, exc)
+            except Exception:
+                log.exception("Unexpected failure closing input device %s", self.path)
 
         if self.uinput:
             try:
                 self.uinput.close()
-            except Exception as exc:
+            except OSError as exc:
                 log.warning("Failed to close passthrough uinput for %s: %s", self.path, exc)
+            except Exception:
+                log.exception("Unexpected failure closing passthrough uinput for %s", self.path)
             finally:
                 runtime_outputs.unregister_passthrough_frame_output(self.uinput)
 
@@ -675,7 +686,13 @@ class GrabbedDevice:
         for (_event_type, code), (analog_id, role) in self.analog_axis_bindings.items():
             try:
                 info = self.device.absinfo(int(code))
+            except OSError as exc:
+                log.debug("Failed to read ABS info for %s code=%s: %s", self.path, code, exc)
+                info = None
             except Exception:
+                log.exception("Unexpected failure reading ABS info for %s code=%s", self.path, code)
+                info = None
+            if info is None:
                 continue
             minimum = getattr(info, "min", None)
             maximum = getattr(info, "max", None)

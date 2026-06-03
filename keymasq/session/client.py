@@ -42,18 +42,20 @@ class KeymasqdClient:
             self._listen_task = None
 
         if writer:
-            writer.close()
             try:
+                writer.close()
                 await writer.wait_closed()
-            except Exception:
+            except OSError:
                 log.debug("Failed while closing daemon client writer", exc_info=True)
+            except Exception:
+                log.exception("Unexpected failure while closing daemon client writer")
 
         self.reader = None
         self.writer = None
 
     async def send_command(self, command: Command, timeout: float = 10.0) -> Response:
         if not self.writer:
-            raise RuntimeError("Not connected to keymasqd")
+            raise ConnectionError("Not connected to keymasqd")
 
         self._request_counter += 1
         request_id = str(self._request_counter)
@@ -96,8 +98,10 @@ class KeymasqdClient:
 
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            log.error(f"Listen error: {e}")
+        except OSError as exc:
+            log.warning("Daemon client listen I/O error: %s", exc)
+        except Exception:
+            log.exception("Unexpected daemon client listen error")
         finally:
             self._finalize_disconnect()
 
@@ -116,7 +120,7 @@ class KeymasqdClient:
                 data = response.data.get("data", {})
                 await self.event_handler(event_type, data)
             except Exception as e:
-                log.error(f"Event handler error: {e}")
+                log.exception("Event handler error: %s", e)
 
     def _finalize_disconnect(self) -> None:
         error = ConnectionError("Disconnected from keymasqd")
@@ -132,7 +136,9 @@ class KeymasqdClient:
         if writer is not None:
             try:
                 writer.close()
-            except Exception:
+            except OSError:
                 log.debug("Failed to close daemon client writer after disconnect", exc_info=True)
+            except Exception:
+                log.exception("Unexpected failure closing daemon client writer after disconnect")
 
         self._disconnected_event.set()

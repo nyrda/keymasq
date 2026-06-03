@@ -236,7 +236,6 @@ def main() -> int:
         parser.error("release date must use the form YYYY-MM-DD")
 
     root = repo_root()
-    current_version = _current_version(root)
     changed_paths = apply_rules(
         root,
         _build_rules(root, version, release_date),

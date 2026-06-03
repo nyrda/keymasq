@@ -622,8 +622,8 @@ class MacroManagerDialog(Adw.Dialog):
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)
-        except Exception as exc:
-            log.warning("Could not open Macros documentation %s: %s", url, exc)
+        except Exception:
+            log.exception("Could not open Macros documentation %s", url)
 
     def _on_delete_clicked(self, btn: Gtk.Button, name: str) -> None:
         dialog = Adw.AlertDialog()

@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import cast
 
@@ -28,7 +28,7 @@ class GnomeShellDBusError(RuntimeError):
 
 
 @asynccontextmanager
-async def _dbus_context(dbus: SessionDBus | None) -> AsyncIterator[SessionDBus]:
+async def _dbus_context(dbus: SessionDBus | None) -> AsyncGenerator[SessionDBus]:
     if dbus is not None:
         yield dbus
         return

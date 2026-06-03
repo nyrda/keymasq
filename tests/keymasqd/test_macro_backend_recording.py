@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -1192,6 +1193,98 @@ def test_macro_cleanup_sync_uses_raw_uinput_with_non_identity_writer(
     writer.write.assert_called_once_with(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)
     assert sync_calls == [(raw_keyboard, writer)]
     assert manager.macro_state.held_refcount == {}
+
+
+def test_macro_cleanup_logs_expected_output_release_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = DeviceManager()
+    keyboard = MagicMock()
+    gamepad = MagicMock()
+    keyboard.write.side_effect = OSError("keyboard gone")
+    gamepad.write.side_effect = OSError("gamepad gone")
+    manager.output_state.keyboard_uinput = keyboard
+    manager.output_state.gamepad_uinput = gamepad
+    manager.macro_state.instance_held[1] = {("keyboard", evdev.ecodes.KEY_B)}
+    manager.macro_state.instance_held_abs[1] = {("gamepad", evdev.ecodes.ABS_Z)}
+    manager.macro_state.held_refcount[("keyboard", evdev.ecodes.KEY_B)] = 1
+    manager.macro_state.held_abs_refcount[("gamepad", evdev.ecodes.ABS_Z)] = 1
+
+    with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+        mdm.release_macro_held_for_instance(manager, 1, deps=dm._macro_runtime_deps())
+
+    assert manager.macro_state.held_refcount == {}
+    assert manager.macro_state.held_abs_refcount == {}
+    assert "Failed to release macro-held output key" in caplog.text
+    assert "Failed to release macro-held ABS output" in caplog.text
+
+
+def test_macro_cleanup_logs_unexpected_output_release_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = DeviceManager()
+    keyboard = MagicMock()
+    gamepad = MagicMock()
+    keyboard.write.side_effect = RuntimeError("keyboard writer invalid")
+    gamepad.write.side_effect = RuntimeError("gamepad writer invalid")
+    manager.output_state.keyboard_uinput = keyboard
+    manager.output_state.gamepad_uinput = gamepad
+    manager.macro_state.instance_held[1] = {("keyboard", evdev.ecodes.KEY_B)}
+    manager.macro_state.instance_held_abs[1] = {("gamepad", evdev.ecodes.ABS_Z)}
+    manager.macro_state.held_refcount[("keyboard", evdev.ecodes.KEY_B)] = 1
+    manager.macro_state.held_abs_refcount[("gamepad", evdev.ecodes.ABS_Z)] = 1
+
+    with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+        mdm.release_macro_held_for_instance(manager, 1, deps=dm._macro_runtime_deps())
+
+    assert manager.macro_state.held_refcount == {}
+    assert manager.macro_state.held_abs_refcount == {}
+    assert "Unexpected failure releasing macro-held output key" in caplog.text
+    assert "Unexpected failure releasing macro-held ABS output" in caplog.text
+    assert "RuntimeError: keyboard writer invalid" in caplog.text
+    assert "RuntimeError: gamepad writer invalid" in caplog.text
+
+
+def test_macro_cleanup_logs_sync_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def make_manager() -> DeviceManager:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = MagicMock()
+        manager.macro_state.instance_held[1] = {("keyboard", evdev.ecodes.KEY_B)}
+        manager.macro_state.held_refcount[("keyboard", evdev.ecodes.KEY_B)] = 1
+        return manager
+
+    monkeypatch.setattr(
+        mdm,
+        "syn_if_passthrough_frame_closed",
+        MagicMock(side_effect=OSError("sync failed")),
+    )
+    with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+        mdm.release_macro_held_for_instance(
+            make_manager(),
+            1,
+            deps=dm._macro_runtime_deps(),
+        )
+
+    assert "Failed to synchronize macro cleanup outputs" in caplog.text
+
+    caplog.clear()
+    monkeypatch.setattr(
+        mdm,
+        "syn_if_passthrough_frame_closed",
+        MagicMock(side_effect=RuntimeError("sync state invalid")),
+    )
+    with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+        mdm.release_macro_held_for_instance(
+            make_manager(),
+            1,
+            deps=dm._macro_runtime_deps(),
+        )
+
+    assert "Unexpected failure synchronizing macro cleanup outputs" in caplog.text
+    assert "RuntimeError: sync state invalid" in caplog.text
 
 
 @pytest.mark.asyncio

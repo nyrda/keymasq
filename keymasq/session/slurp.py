@@ -59,7 +59,12 @@ async def capture_slurp_cursor_position(
         )
         if result:
             return (result.x, result.y)
-    except Exception as exc:
+    except OSError as exc:
         if logger is not None:
             logger.debug("Slurp cursor capture failed: %s", exc)
+    except Exception:
+        if logger is not None:
+            logger.exception("Unexpected slurp cursor capture failure")
+        else:
+            log.exception("Unexpected slurp cursor capture failure")
     return None

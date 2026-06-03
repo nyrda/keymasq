@@ -1407,7 +1407,7 @@ class TimelineWidget(Gtk.DrawingArea):
     def _on_scroll(self, controller, dx, dy) -> bool:
         try:
             state = controller.get_current_event_state()
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             state = 0
         zoom_modifier = bool(state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK))
         if zoom_modifier:
@@ -1822,7 +1822,7 @@ class MacroEditorDialog(Adw.Dialog):
             status = session_request({"command": "get_status"}) or {}
             timeout_max = int(status.get("macro_exec_timeout_max_ms", 30000) or 30000)
             compositor_status = dict(status)
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             timeout_max = 30000
 
         macro: dict | None = None
@@ -1831,7 +1831,7 @@ class MacroEditorDialog(Adw.Dialog):
             loaded_macro = response.get("macro")
             if response.get("status") == "ok" and isinstance(loaded_macro, dict):
                 macro = loaded_macro
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             macro = None
 
         return {

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -30,6 +31,7 @@ SUPERKEY_ACTION_KEYS = (
     "overload_down_actions",
     "overload_up_actions",
 )
+log = logging.getLogger("keymasqd.macros")
 
 
 @dataclass(frozen=True)
@@ -385,7 +387,27 @@ async def load_macro_definitions(
     async def load_macro(name: str) -> tuple[str, JsonObject | None]:
         try:
             macro = await asyncio.to_thread(_load_macro_meta_sync, macro_store, name)
+        except FileNotFoundError as exc:
+            log.warning("Macro definition %s is referenced but not installed: %s", name, exc)
+            return name, None
+        except PermissionError as exc:
+            log.error(
+                "Could not load macro definition %s: %s. Check macro file ownership and "
+                "permissions for the keymasqd user.",
+                name,
+                exc,
+            )
+            return name, None
+        except OSError as exc:
+            log.error(
+                "Could not load macro definition %s due to a filesystem error: %s. Check "
+                "the macro directory and file permissions for the keymasqd user.",
+                name,
+                exc,
+            )
+            return name, None
         except Exception:
+            log.exception("Could not load macro definition %s", name)
             return name, None
         return name, macro
 

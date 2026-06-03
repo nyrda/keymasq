@@ -111,8 +111,13 @@ class CosmicToplevelInfoWaylandClient(ExtForeignToplevelListClientBase):
     async def _destroy_cosmic_handle(self, object_id: int) -> None:
         try:
             await self._send_request(object_id, 0, b"")
-        except Exception:
+        except (OSError, _transport.WaylandDisplayError):
             log.debug("Failed to destroy COSMIC toplevel info handle", exc_info=True)
+        except Exception:
+            log.exception(
+                "Unexpected failure destroying COSMIC toplevel info handle %s",
+                object_id,
+            )
         self._objects.pop(object_id, None)
         self._cosmic_handles.discard(object_id)
         ext_id = self._cosmic_to_ext.pop(object_id, None)

@@ -2,10 +2,13 @@
 
 import argparse
 import json
+import logging
 import os
 import socket
 import time
 import traceback
+
+log = logging.getLogger("gnome-bridge-probe")
 
 
 def append_debug(path: str | None, message: str) -> None:
@@ -133,6 +136,7 @@ def main() -> int:
         if not all(title in result["focus_titles"] for title in args.expect_title):
             exit_code = 1
     except Exception:
+        log.exception("GNOME bridge probe failed")
         result["exception"] = traceback.format_exc()
         append_debug(args.debug_output, result["exception"])
         exit_code = 1

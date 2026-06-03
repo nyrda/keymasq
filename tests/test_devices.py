@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -218,6 +219,38 @@ def test_find_all_interfaces_closes_devices_when_scan_raises(
 
     assert find_all_interfaces("1234", "5678") == []
     assert closed_paths == ["/dev/input/event1", "/dev/input/event2"]
+
+
+def test_find_all_interfaces_logs_unexpected_probe_failure(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed_paths: list[str] = []
+
+    class _FakeInputDevice:
+        def __init__(self, path: str) -> None:
+            self.path = path
+            self.info = SimpleNamespace(vendor=0x1234, product=0x5678)
+            self.name = "Device"
+
+        def close(self) -> None:
+            closed_paths.append(self.path)
+
+    monkeypatch.setattr("evdev.list_devices", lambda: ["/dev/input/event1"])
+    monkeypatch.setattr("evdev.InputDevice", _FakeInputDevice)
+    monkeypatch.setattr(
+        "keymasq.common.devices.resolve_stable_path",
+        lambda _path: "/dev/input/by-id/bad-device",
+    )
+    monkeypatch.setattr(
+        "keymasq.common.devices.get_interface_id",
+        lambda _stable_path: (_ for _ in ()).throw(ValueError("bad interface id")),
+    )
+    caplog.set_level(logging.ERROR, logger="keymasq.common.devices")
+
+    assert find_all_interfaces("1234", "5678") == []
+    assert closed_paths == ["/dev/input/event1"]
+    assert "Unexpected failure probing evdev interface /dev/input/event1" in caplog.text
 
 
 def test_detect_input_classes_reports_combo_keyboard_mouse_pointstick() -> None:

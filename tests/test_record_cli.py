@@ -484,3 +484,28 @@ def test_main_error_emits_json_and_exits(
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["status"] == "error"
     assert "denied" in payload["message"]
+
+
+def test_main_unexpected_error_logs_exception(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["keymasq-record", "status", "--uid", "1000"])
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+
+    def _raise(_uid: int) -> dict[str, object]:
+        raise RuntimeError("resolver broke")
+
+    monkeypatch.setattr(record, "resolve_unlock_status", _raise)
+
+    with caplog.at_level("ERROR", logger="keymasq.record"):
+        with pytest.raises(SystemExit) as excinfo:
+            record.main()
+
+    assert excinfo.value.code == 1
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["status"] == "error"
+    assert "resolver broke" in payload["message"]
+    assert "Unexpected keymasq-record failure" in caplog.text
+    assert "RuntimeError: resolver broke" in caplog.text

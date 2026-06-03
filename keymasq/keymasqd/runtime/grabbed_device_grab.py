@@ -40,8 +40,8 @@ async def broadcast_grab_status(
                 "waited_s": float(waited_s),
             },
         )
-    except Exception as exc:
-        log.warning("Failed to broadcast grab status for %s: %s", device_runtime.hardware_id, exc)
+    except Exception:
+        log.exception("Failed to broadcast grab status for %s", device_runtime.hardware_id)
 
 
 async def wait_for_active_key_activity(
@@ -81,11 +81,10 @@ async def wait_for_active_key_activity(
                 exc,
             )
             break
-        except Exception as exc:
-            log.warning(
-                "[%s] failed to drain pending events before grab: %s",
+        except Exception:
+            log.exception(
+                "[%s] unexpected failure draining pending events before grab",
                 device_runtime.hardware_id,
-                exc,
             )
             break
         if event is None:
@@ -114,11 +113,17 @@ async def wait_for_active_keys_to_clear(
             active_codes = list(
                 await asyncio_mod.to_thread(device_runtime.device.active_keys) or []
             )
-        except Exception as exc:
+        except OSError as exc:
             log.warning(
                 "[%s] failed to read active keys before grab: %s; proceeding with grab",
                 device_runtime.hardware_id,
                 exc,
+            )
+            return
+        except Exception:
+            log.exception(
+                "[%s] unexpected failure reading active keys before grab; proceeding with grab",
+                device_runtime.hardware_id,
             )
             return
 
@@ -217,7 +222,20 @@ def seed_startup_held_actions(device_runtime: GrabbedDeviceRuntime) -> None:
 
     try:
         active_codes = list(device_runtime.device.active_keys() or [])
+    except OSError as exc:
+        logging.getLogger("keymasqd.devices").warning(
+            "[%s] failed to read startup active keys; continuing without startup "
+            "held-state reconciliation: %s",
+            device_runtime.hardware_id,
+            exc,
+        )
+        return
     except Exception:
+        logging.getLogger("keymasqd.devices").exception(
+            "[%s] unexpected failure reading startup active keys; continuing without "
+            "startup held-state reconciliation",
+            device_runtime.hardware_id,
+        )
         return
 
     mapping = device_runtime.mapping_getter()

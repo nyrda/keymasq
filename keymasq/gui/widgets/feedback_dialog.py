@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import platform
 import urllib.error
@@ -20,6 +21,7 @@ from keymasq.gui.session_client import GuiTaskResult, run_gui_task
 
 DEFAULT_FEEDBACK_ENDPOINT = "https://feedback.keymasq.tools/api/feedback"
 OS_RELEASE_PATH = Path("/etc/os-release")
+log = logging.getLogger("keymasq.gui.widgets.feedback_dialog")
 
 
 @dataclass(frozen=True)
@@ -247,8 +249,9 @@ class FeedbackDialog(Adw.Dialog):
         if callable(list_hardware):
             try:
                 loaded_devices = list_hardware()
-            except Exception:
-                pass
+            except (OSError, RuntimeError) as exc:
+                log.debug("Unable to load hardware configs for feedback diagnostics: %s", exc)
+                loaded_devices = []
             else:
                 if isinstance(loaded_devices, Iterable):
                     for device in loaded_devices:

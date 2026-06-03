@@ -774,6 +774,90 @@ async def test_mouse_wheel_rapidfire_repeats_without_key_up() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rapidfire_loop_logs_expected_output_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(name="rapidfire_error_test"),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+    )
+    machine._rapidfire_active = True
+    action = SuperkeyActionData(
+        action_type="keyboard",
+        target="key_a",
+        rapidfire_enabled=True,
+    )
+    machine._execute_action_down = AsyncMock(side_effect=OSError("uinput disconnected"))  # type: ignore[method-assign]
+    machine._execute_action_up = AsyncMock()  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.DEBUG, logger="keymasqd.superkey"):
+        await machine._rapidfire_loop(action)
+
+    assert "Rapidfire loop stopped after error" in caplog.text
+    assert "uinput disconnected" in caplog.text
+    machine._execute_action_up.assert_awaited_once_with(action)
+
+
+@pytest.mark.asyncio
+async def test_rapidfire_loop_logs_unexpected_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(name="rapidfire_error_test"),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+    )
+    machine._rapidfire_active = True
+    action = SuperkeyActionData(
+        action_type="keyboard",
+        target="key_a",
+        rapidfire_enabled=True,
+    )
+    machine._execute_action_down = AsyncMock(side_effect=RuntimeError("action state invalid"))  # type: ignore[method-assign]
+    machine._execute_action_up = AsyncMock()  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.ERROR, logger="keymasqd.superkey"):
+        await machine._rapidfire_loop(action)
+
+    assert "Rapidfire loop stopped after unexpected error" in caplog.text
+    assert "RuntimeError: action state invalid" in caplog.text
+    machine._execute_action_up.assert_awaited_once_with(action)
+
+
+@pytest.mark.asyncio
+async def test_rapidfire_loop_logs_final_release_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(name="rapidfire_release_error_test"),
+        event_name="btn_side",
+        keyboard_uinput=MagicMock(),
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+    )
+    machine._rapidfire_active = True
+    action = SuperkeyActionData(
+        action_type="keyboard",
+        target="key_a",
+        rapidfire_enabled=True,
+    )
+    machine._execute_action_down = AsyncMock(side_effect=RuntimeError("action state invalid"))  # type: ignore[method-assign]
+    machine._execute_action_up = AsyncMock(side_effect=RuntimeError("release state invalid"))  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.ERROR, logger="keymasqd.superkey"):
+        await machine._rapidfire_loop(action)
+
+    assert "Rapidfire loop stopped after unexpected error" in caplog.text
+    assert "Unexpected failure releasing rapidfire action after loop stop" in caplog.text
+    assert "RuntimeError: release state invalid" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_tap_action_fires_after_double_tap_window_expires() -> None:
     keyboard_uinput = MagicMock()
     keyboard_uinput.write = MagicMock()

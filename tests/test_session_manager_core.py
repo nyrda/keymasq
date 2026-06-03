@@ -7,6 +7,7 @@ import pytest
 import keymasq.session.manager.core as session_manager_core_module
 import keymasq.session.manager.events as session_events_module
 import keymasq.session.manager.profiles as session_profiles_module
+from keymasq.common.ipc import Response
 from keymasq.common.models import ProfileConfig, SuperkeyConfig, SuperkeyMode
 from keymasq.common.security import PeerCredentials
 from keymasq.session.manager import SessionManager
@@ -25,6 +26,9 @@ class _FakeKeymasqdClient:
 
     async def disconnect(self) -> None:
         return
+
+    async def send_command(self, _command: object) -> Response:
+        return Response(status="ok", data={"count": 1})
 
 
 class _FakeSessionReader:
@@ -107,6 +111,49 @@ async def test_connect_loop_reconnect_reapplies_profiles_after_restart(
     assert status_events[:4] == [True, False, True, False]
     assert manager.profile_state.grabbed_devices == set()
     assert manager.profile_state.active_profile_names == []
+
+
+@pytest.mark.asyncio
+async def test_connect_loop_logs_unexpected_runtime_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FakeClient:
+        async def connect(self) -> None:
+            return None
+
+        async def wait_disconnected(self) -> None:
+            return None
+
+        async def send_command(self, _command: object) -> Response:
+            return Response(status="ok", data={"count": 1})
+
+    manager = SessionManager()
+    manager.client = FakeClient()  # type: ignore[assignment]
+    manager.running = True
+    manager._broadcast_keymasqd_status = Mock()  # type: ignore[method-assign]
+
+    async def _sync_pending_macro_slots(_manager: SessionManager) -> None:
+        manager.running = False
+        raise RuntimeError("sync bug")
+
+    monkeypatch.setattr(
+        session_profiles_module,
+        "activate_initial_profiles",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        session_manager_core_module.runtime_recording,
+        "sync_pending_macro_slots_from_daemon",
+        _sync_pending_macro_slots,
+    )
+
+    with caplog.at_level("ERROR", logger="keymasq-session"):
+        await manager.connect_loop()
+
+    assert "Unexpected keymasqd connection loop failure" in caplog.text
+    assert "sync bug" in caplog.text
+    assert manager.connected is False
 
 
 def test_signal_handler_only_sets_shutdown_state() -> None:

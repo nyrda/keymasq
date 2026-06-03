@@ -102,7 +102,7 @@ def close_device(device: object) -> None:
         return
     try:
         close()
-    except Exception:
+    except (OSError, RuntimeError, TypeError):
         log.debug("Failed to close evdev-style device", exc_info=True)
 
 

@@ -313,8 +313,8 @@ class RecordMacroDialog(Adw.Dialog):
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)
-        except Exception as exc:
-            log.warning("Could not open macro recording documentation %s: %s", url, exc)
+        except Exception:
+            log.exception("Could not open macro recording documentation %s", url)
 
     def _register_parent_events(self) -> None:
         register_event_handler = getattr(self._parent, "register_event_handler", None)
@@ -902,7 +902,7 @@ class RecordMacroDialog(Adw.Dialog):
             try:
                 session_request(self._settings_payload(), timeout=0.5)
             except Exception:
-                pass
+                log.exception("Failed to sync macro recording settings")
 
             with self._settings_sync_lock:
                 if generation == self._settings_sync_generation:

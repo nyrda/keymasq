@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Hashable, Mapping
 from typing import cast
 
 import evdev
@@ -82,6 +82,29 @@ def _evdev_code_name(raw_name: object, fallback: int) -> str:
         first: object = names[0] if names else str(fallback)
         return str(first).lower()
     return str(raw_name).lower()
+
+
+def _event_code_int(value: object) -> int | None:
+    try:
+        return int(cast(int | float | str | bytes, value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _evdev_code_names(
+    event_type: object, *, evdev_mod: EvdevModule
+) -> Mapping[object, object] | None:
+    if not isinstance(event_type, Hashable):
+        return None
+    ecodes = cast(object, getattr(evdev_mod, "ecodes", None))
+    raw_bytype = cast(object, getattr(ecodes, "bytype", None))
+    if not isinstance(raw_bytype, Mapping):
+        return None
+    bytype = cast(Mapping[object, object], raw_bytype)
+    raw_names = bytype.get(event_type)
+    if not isinstance(raw_names, Mapping):
+        return None
+    return cast(Mapping[object, object], raw_names)
 
 
 def _record_diagnostics(
@@ -243,13 +266,12 @@ async def event_loop(
                     deps=build_event_processing_deps(log=log),
                 )
                 error_backoff = 0.01
-            except Exception as exc:
+            except Exception:
                 if runtime_is_running(device_runtime):
                     await recover_from_event_processing_error(device_runtime)
-                    log.warning(
-                        "Event processing error on %s: %s (backoff %.3fs)",
+                    log.exception(
+                        "Event processing error on %s (backoff %.3fs)",
                         device_runtime.path,
-                        exc,
                         error_backoff,
                     )
                     await asyncio_mod.sleep(error_backoff)
@@ -271,26 +293,22 @@ async def cleanup_runtime_failure(
                 device_runtime.hardware_id,
                 device_runtime.interface_id,
             )
-        except Exception as exc:
-            log.warning(
-                "Failed to clear combo runtime after device error on %s: %s",
+        except Exception:
+            log.exception(
+                "Failed to clear combo runtime after device error on %s",
                 device_runtime.path,
-                exc,
             )
     try:
         await device_runtime.reset_analog_controls()
-    except Exception as exc:
-        log.warning(
-            "Failed to reset analog controls after event error on %s: %s",
+    except Exception:
+        log.exception(
+            "Failed to reset analog controls after event error on %s",
             device_runtime.path,
-            exc,
         )
     try:
         await device_runtime.reset_superkeys()
-    except Exception as exc:
-        log.warning(
-            "Failed to reset superkeys after event error on %s: %s", device_runtime.path, exc
-        )
+    except Exception:
+        log.exception("Failed to reset superkeys after event error on %s", device_runtime.path)
     observe_profile_trigger_end_for_held_sources(device_runtime)
     runtime_outputs.release_all_keys(
         device_runtime,
@@ -318,23 +336,25 @@ def observe_profile_trigger_end_for_held_sources(
 
 
 def get_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:
-    try:
-        raw_code_name: object = evdev_mod.ecodes.bytype[event.type].get(
-            event.code, str(event.code)
-        )
-        return _evdev_code_name(raw_code_name, int(event.code))
-    except Exception:
+    raw_code: object = event.code
+    code = _event_code_int(raw_code)
+    if code is None:
+        return str(raw_code)
+    names = _evdev_code_names(event.type, evdev_mod=evdev_mod)
+    if names is None:
         return str(event.code)
+    raw_code_name = names.get(raw_code, str(raw_code))
+    return _evdev_code_name(raw_code_name, code)
 
 
 def get_key_name(code: int, *, evdev_mod: EvdevModule) -> str | None:
-    try:
-        raw_code_name: object = evdev_mod.ecodes.bytype[evdev_mod.ecodes.EV_KEY].get(
-            code, str(code)
-        )
-        return _evdev_code_name(raw_code_name, code)
-    except Exception:
+    ecodes = cast(object, getattr(evdev_mod, "ecodes", None))
+    ev_key = cast(object, getattr(ecodes, "EV_KEY", None))
+    names = _evdev_code_names(ev_key, evdev_mod=evdev_mod)
+    if names is None:
         return None
+    raw_code_name = names.get(code, str(code))
+    return _evdev_code_name(raw_code_name, code)
 
 
 def _inspector_active(device_runtime: GrabbedDeviceRuntime) -> bool:

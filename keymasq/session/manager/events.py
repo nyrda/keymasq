@@ -359,22 +359,28 @@ async def handle_stop_macro_trigger(
             error_if_idle=False,
             recording_slot=recording_slot or active_slot,
         )
-    except Exception:
+    except OSError:
         log.debug("Failed to handle stop macro recording trigger", exc_info=True)
+    except Exception:
+        log.exception("Unexpected failure handling stop macro recording trigger")
 
 
 async def handle_cancel_macro_trigger(manager: "SessionManager") -> None:
     try:
         await manager.client.send_command(Command(command=CommandType.CANCEL_MACRO_PLAYBACK))
-    except Exception:
+    except OSError:
         log.debug("Failed to send cancel macro playback trigger", exc_info=True)
+    except Exception:
+        log.exception("Unexpected failure sending cancel macro playback trigger")
 
 
 async def handle_emergency_reset_trigger(manager: "SessionManager") -> None:
     try:
         await manager.client.send_command(Command(command=CommandType.EMERGENCY_RESET))
-    except Exception:
+    except OSError:
         log.debug("Failed to send emergency reset trigger", exc_info=True)
+    except Exception:
+        log.exception("Unexpected failure sending emergency reset trigger")
 
 
 async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) -> None:
@@ -519,12 +525,19 @@ async def _track_runtime_profile_activation(
                 },
             )
         )
-    except Exception as exc:
+    except OSError as exc:
         log.warning(
             "Failed to track runtime profile activation profile=%s activation=%s: %s",
             activation.profile_name,
             activation.activation_id,
             exc,
+        )
+        return False
+    except Exception:
+        log.exception(
+            "Unexpected failure tracking runtime profile activation profile=%s activation=%s",
+            activation.profile_name,
+            activation.activation_id,
         )
         return False
     if response.status != "ok":
@@ -598,8 +611,10 @@ async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> No
                     data={"wait_id": wait_id, "returncode": int(returncode)},
                 )
             )
-        except Exception:
+        except OSError:
             log.debug("Failed to report macro exec completion", exc_info=True)
+        except Exception:
+            log.exception("Unexpected failure reporting macro exec completion")
         return
 
     if is_async:
@@ -666,8 +681,14 @@ async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject
     manager.profile_state.runtime_profile_activations.clear()
     try:
         await runtime_profiles.reevaluate_profiles(manager, reason="runtime reset")
-    except Exception as exc:
+    except OSError as exc:
         log.warning("Failed to reapply profiles after runtime reset: %s", exc)
+        manager.send_notification(
+            "Keymasq: Reapply Failed",
+            "Emergency reset completed, but active profiles could not be reapplied.",
+        )
+    except Exception:
+        log.exception("Unexpected failure reapplying profiles after runtime reset")
         manager.send_notification(
             "Keymasq: Reapply Failed",
             "Emergency reset completed, but active profiles could not be reapplied.",

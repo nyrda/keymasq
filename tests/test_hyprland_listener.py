@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -49,6 +50,26 @@ async def test_hyprland_get_active_window_normalizes_tags() -> None:
     assert await listener.get_active_window() == ("term", "Shell", [])
 
 
+@pytest.mark.asyncio
+async def test_hyprland_active_window_logs_malformed_responses(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener._send_cmd = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            b"{not-json",
+            b"[]",
+        ]
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.hyprland"):
+        assert await listener.get_active_window() == ("", "", [])
+        assert await listener._get_window_tags() == []
+
+    assert "Hyprland active window response was malformed JSON" in caplog.text
+    assert "Hyprland active window tags response was not a JSON object" in caplog.text
+
+
 class _FakeWriter:
     def __init__(self) -> None:
         self.closed = False
@@ -65,6 +86,11 @@ class _FakeWriter:
 
     async def wait_closed(self) -> None:
         return None
+
+
+class _CloseFailWriter(_FakeWriter):
+    async def wait_closed(self) -> None:
+        raise RuntimeError("close bug")
 
 
 class _FakeReader:
@@ -128,3 +154,54 @@ async def test_hyprland_send_cmd_times_out_stalled_read(monkeypatch) -> None:
 
     assert response is None
     assert writer.closed is True
+
+
+@pytest.mark.asyncio
+async def test_hyprland_send_cmd_logs_unexpected_command_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener.cmd_socket_path = "/tmp/hypr.sock"
+
+    async def fake_open_unix_connection(path: str) -> tuple[_FakeReader, _FakeWriter]:
+        assert path == "/tmp/hypr.sock"
+        raise RuntimeError("connect bug")
+
+    monkeypatch.setattr(
+        hyprland_module.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.hyprland"):
+        assert await listener._send_cmd("cursorpos", read_size=256) is None
+
+    assert "Unexpected Hyprland command failure" in caplog.text
+    assert "connect bug" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_hyprland_send_cmd_logs_unexpected_close_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    listener = HyprlandListener(_noop_callback)
+    writer = _CloseFailWriter()
+    listener.cmd_socket_path = "/tmp/hypr.sock"
+
+    async def fake_open_unix_connection(path: str) -> tuple[_FakeReader, _CloseFailWriter]:
+        assert path == "/tmp/hypr.sock"
+        return _FakeReader([b"100,200"]), writer
+
+    monkeypatch.setattr(
+        hyprland_module.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.hyprland"):
+        assert await listener._send_cmd("cursorpos", read_size=256) == b"100,200"
+
+    assert "Unexpected failure while closing Hyprland command writer" in caplog.text
+    assert "close bug" in caplog.text

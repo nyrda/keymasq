@@ -45,8 +45,10 @@ class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
                 await self._destroy_toplevel_handle(handle_id)
             try:
                 await self._send_request(self._list_id, 1, b"")
-            except Exception:
+            except (OSError, _transport.WaylandDisplayError):
                 log.debug("Failed to destroy ext foreign toplevel list", exc_info=True)
+            except Exception:
+                log.exception("Unexpected failure destroying ext foreign toplevel list")
             self._objects.pop(self._list_id, None)
             self._list_id = None
 
@@ -135,8 +137,13 @@ class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
         await self._before_destroy_toplevel_handle(object_id)
         try:
             await self._send_request(object_id, 0, b"")
-        except Exception:
+        except (OSError, _transport.WaylandDisplayError):
             log.debug("Failed to destroy ext foreign toplevel handle", exc_info=True)
+        except Exception:
+            log.exception(
+                "Unexpected failure destroying ext foreign toplevel handle %s",
+                object_id,
+            )
         self._objects.pop(object_id, None)
         self._toplevel_handles.discard(object_id)
 

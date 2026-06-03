@@ -1271,7 +1271,7 @@ class AnalogControlDialog(Adw.Dialog):
     ) -> None:
         try:
             state = gesture.get_current_event_state()
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             state = Gdk.ModifierType(0)
         if state & _SPLIT_SPEED_DESYNC_MODIFIERS:
             self._request_split_mouse_speed_desync(axis)
@@ -1334,7 +1334,7 @@ class AnalogControlDialog(Adw.Dialog):
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
         try:
             state = gesture.get_current_event_state()
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             state = Gdk.ModifierType(0)
         if split_speed_axis and state & _SPLIT_SPEED_DESYNC_MODIFIERS:
             self._request_split_mouse_speed_desync(split_speed_axis)
@@ -1540,7 +1540,8 @@ class AnalogControlDialog(Adw.Dialog):
         count = virtual_gamepad_count()
         try:
             hardware_configs = list(HardwareManager().list_hardware())
-        except Exception:
+        except (OSError, RuntimeError) as exc:
+            log.debug("Unable to load hardware configs for gamepad outputs: %s", exc)
             hardware_configs = []
         self._hardware_output_configs = {
             str(getattr(config, "hardware_id", "") or ""): config
@@ -2339,8 +2340,8 @@ class AnalogControlDialog(Adw.Dialog):
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)
-        except Exception as exc:
-            log.warning("Could not open Analog Controls documentation %s: %s", url, exc)
+        except Exception:
+            log.exception("Could not open Analog Controls documentation %s", url)
 
     def _set_capture_status(
         self,

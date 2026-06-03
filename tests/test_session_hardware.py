@@ -334,6 +334,52 @@ def test_hardware_manager_delete_returns_false_for_only_stale_cached_path(
     assert manager.get_hardware("1234:5678") is None
 
 
+def test_hardware_manager_storage_path_match_logs_unexpected_load_errors(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = HardwareManager()
+    path = temp_config_dir / "hardware" / "1234_5678.toml"
+
+    def _raise_loader_bug(_path: Path) -> HardwareConfig:
+        raise RuntimeError("loader bug")
+
+    monkeypatch.setattr(manager, "_load_config", _raise_loader_bug)
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.hardware"):
+        assert manager._storage_path_matches_hardware_id(path, "1234:5678") is False
+
+    assert f"Unexpected error while checking hardware storage path {path}" in caplog.text
+    assert "loader bug" in caplog.text
+
+
+def test_hardware_manager_delete_logs_unexpected_unlink_errors(
+    temp_config_dir,
+    sample_hardware_config: HardwareConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = HardwareManager()
+    manager.save_hardware(sample_hardware_config)
+    path = temp_config_dir / "hardware" / "1234_5678.toml"
+    path_type = type(path)
+    original_unlink = path_type.unlink
+
+    def _raise_unlink_bug(self: Path, missing_ok: bool = False) -> None:
+        if self == path:
+            raise RuntimeError("unlink bug")
+        original_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(path_type, "unlink", _raise_unlink_bug)
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.hardware"):
+        assert manager.delete_hardware(sample_hardware_config.hardware_id) is False
+
+    assert f"Unexpected error deleting hardware config {path}" in caplog.text
+    assert "unlink bug" in caplog.text
+
+
 def test_hardware_manager_preserves_keymasq_logical_path(temp_config_dir) -> None:
     manager = HardwareManager()
     config = HardwareConfig(

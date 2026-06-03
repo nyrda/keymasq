@@ -1,23 +1,25 @@
 import asyncio
+import logging
 import queue
 import struct
 import sys
 import threading
 import types
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from keymasq.common.ipc import Command, CommandType, Response, encode_response
 from keymasq.gui import session_client as gui_session_client
+from keymasq.session import client as session_client_module
 from keymasq.session.client import KeymasqdClient
 
 
 def test_keymasqd_client_send_command_requires_connection() -> None:
     async def _run() -> None:
         client = KeymasqdClient(event_handler=lambda _event, _data: None)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ConnectionError, match="Not connected to keymasqd"):
             await client.send_command(Command(command=CommandType.PING, data={}))
 
     asyncio.run(_run())
@@ -89,6 +91,55 @@ def test_keymasqd_client_listen_loop_skips_discarded_response_frame() -> None:
         await client._listen_loop()
 
         assert calls == [(CommandType.PING, {"ok": True})]
+
+    asyncio.run(_run())
+
+
+class _RaisingAsyncReader:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def read(self, _size: int) -> bytes:
+        raise self.error
+
+
+def test_keymasqd_client_listen_loop_logs_read_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def _run() -> None:
+        client = KeymasqdClient(event_handler=lambda _event, _data: None)
+        client.reader = cast(asyncio.StreamReader, _RaisingAsyncReader(OSError("read failed")))
+
+        with caplog.at_level(logging.WARNING, logger="keymasq-session.client"):
+            await client._listen_loop()
+
+        assert "Daemon client listen I/O error: read failed" in caplog.text
+        assert client.reader is None
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_listen_loop_logs_unexpected_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def _run() -> None:
+        def _raise_decode_error(_data: bytes) -> tuple[Response | None, bytes]:
+            raise RuntimeError("decoder failed")
+
+        client = KeymasqdClient(event_handler=lambda _event, _data: None)
+        reader = asyncio.StreamReader()
+        reader.feed_data(encode_response(Response(status="ok")))
+        reader.feed_eof()
+        client.reader = reader
+        monkeypatch.setattr(session_client_module, "decode_response", _raise_decode_error)
+
+        with caplog.at_level(logging.ERROR, logger="keymasq-session.client"):
+            await client._listen_loop()
+
+        assert "Unexpected daemon client listen error" in caplog.text
+        assert "decoder failed" in caplog.text
+        assert client.reader is None
 
     asyncio.run(_run())
 
@@ -274,6 +325,25 @@ def test_persistent_session_dispatch_event_callback_is_one_shot(
     assert idle_returns == [False]
 
 
+def test_persistent_session_dispatch_event_falls_back_when_idle_add_fails(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _idle_add(_callback: Callable[..., Any], *_args: Any) -> bool:
+        raise RuntimeError("main loop unavailable")
+
+    _install_fake_glib(monkeypatch, idle_add=_idle_add)
+    connection = gui_session_client._PersistentSessionConnection()
+    calls: list[dict[str, Any]] = []
+    connection.register_callback("macro_saved", lambda message: calls.append(message))
+    caplog.set_level(logging.WARNING, logger="keymasq.gui.session_client")
+
+    connection._dispatch_event({"event": "macro_saved", "name": "example"})
+
+    assert [call["name"] for call in calls] == ["example"]
+    assert "Failed to schedule session event callback with GLib" in caplog.text
+
+
 def test_persistent_session_reader_loop_routes_events_and_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -352,7 +422,7 @@ def test_persistent_session_concurrent_first_connect_uses_one_socket(
             result = connection._ensure_connected(timeout=0.5)  # pyright: ignore[reportPrivateUsage]
             with results_lock:
                 results.append(result)
-        except BaseException as exc:
+        except (OSError, RuntimeError, TimeoutError, TypeError, ValueError, AssertionError) as exc:
             with results_lock:
                 errors.append(exc)
 

@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import logging
+import tomllib
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -31,6 +32,14 @@ def _config_files(config_dir: Path, *, sort_paths: bool) -> list[Path]:
     return files
 
 
+def _append_config_load_failure(
+    failures: list[ConfigLoadFailure],
+    path: Path,
+    exc: BaseException,
+) -> None:
+    failures.append(ConfigLoadFailure(path, str(exc) or type(exc).__name__))
+
+
 async def load_config_files[ConfigT](
     config_dir: Path,
     *,
@@ -50,9 +59,19 @@ async def load_config_files[ConfigT](
             if inspect.isawaitable(loaded_config):
                 loaded_config = await cast(Awaitable[ConfigT], loaded_config)
             loaded_configs.append((config_file, cast(ConfigT, loaded_config)))
-        except Exception as exc:
+        except tomllib.TOMLDecodeError as exc:
             logger.error(failure_log_message, config_file, exc)
-            failures.append(ConfigLoadFailure(config_file, str(exc)))
+            _append_config_load_failure(failures, config_file, exc)
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error(failure_log_message, config_file, exc)
+            _append_config_load_failure(failures, config_file, exc)
+        except Exception as exc:
+            logger.exception(
+                "Unexpected error while loading %s config %s",
+                config_kind,
+                config_file,
+            )
+            _append_config_load_failure(failures, config_file, exc)
 
     if strict and failures:
         raise ConfigLoadError(config_kind, failures)

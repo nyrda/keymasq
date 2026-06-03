@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import struct
 
@@ -561,7 +562,11 @@ class TestSocketServer:
         await writer.wait_closed()
         await server.stop()
 
-    async def test_broadcast_event_does_not_block_on_slow_client(self, temp_socket_dir):
+    async def test_broadcast_event_does_not_block_on_slow_client(
+        self,
+        temp_socket_dir,
+        caplog,
+    ):
         server = SocketServer(
             str(paths.SOCKET_PATH),
             _ok_handler,
@@ -571,10 +576,11 @@ class TestSocketServer:
         fast_writer = _BroadcastWriter()
         server.clients = {slow_writer, fast_writer}  # type: ignore[assignment]
 
-        await asyncio.wait_for(
-            server.broadcast_event(CommandType.PING, {"pong": True}),
-            timeout=1.0,
-        )
+        with caplog.at_level(logging.WARNING, logger="keymasqd.socket"):
+            await asyncio.wait_for(
+                server.broadcast_event(CommandType.PING, {"pong": True}),
+                timeout=1.0,
+            )
 
         assert len(fast_writer.writes) == 1
         assert fast_writer.drain_calls == 1
@@ -582,10 +588,12 @@ class TestSocketServer:
         assert slow_writer.wait_closed_calls == 1
         assert slow_writer not in server.clients  # type: ignore[operator]
         assert fast_writer in server.clients  # type: ignore[operator]
+        assert "Timed out sending event to client" in caplog.text
 
     async def test_broadcast_event_removes_failed_last_client_and_fires_disconnect_handler(
         self,
         temp_socket_dir,
+        caplog,
     ):
         disconnects: list[str] = []
 
@@ -601,12 +609,36 @@ class TestSocketServer:
         failed_writer = _BroadcastWriter(drain_error=ConnectionError("broken pipe"))
         server.clients = {failed_writer}  # type: ignore[assignment]
 
-        await server.broadcast_event(CommandType.PING, {"pong": True})
+        with caplog.at_level(logging.WARNING, logger="keymasqd.socket"):
+            await server.broadcast_event(CommandType.PING, {"pong": True})
 
         assert failed_writer.closed is True
         assert failed_writer.wait_closed_calls == 1
         assert not server.clients
         assert disconnects == ["done"]
+        assert "Failed to send event to client: broken pipe" in caplog.text
+
+    async def test_broadcast_event_logs_unexpected_send_failure(
+        self,
+        temp_socket_dir,
+        caplog,
+    ):
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            _ok_handler,
+            broadcast_drain_timeout_s=0.01,
+        )
+        failed_writer = _BroadcastWriter(drain_error=RuntimeError("writer state invalid"))
+        server.clients = {failed_writer}  # type: ignore[assignment]
+
+        with caplog.at_level(logging.ERROR, logger="keymasqd.socket"):
+            await server.broadcast_event(CommandType.PING, {"pong": True})
+
+        assert failed_writer.closed is True
+        assert failed_writer.wait_closed_calls == 1
+        assert not server.clients
+        assert "Unexpected failure sending event to client" in caplog.text
+        assert "RuntimeError: writer state invalid" in caplog.text
 
     async def test_server_stop_times_out_stuck_client_close(self, temp_socket_dir):
         server = SocketServer(

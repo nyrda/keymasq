@@ -293,7 +293,7 @@ async def _run_fake_ephemeral_kwin_script(
             result_future=future,
             timeout=timeout,
         )
-    except Exception as exc:
+    except (OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
         result = exc
 
     return result, calls, script_path.exists()

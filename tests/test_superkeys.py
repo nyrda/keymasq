@@ -93,6 +93,32 @@ tap = [{ action = "keyboard", target = "key_a" }]
     assert config is None
 
 
+def test_superkey_manager_logs_unexpected_load_failure(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    superkeys_dir = temp_config_dir / "superkeys"
+    superkeys_dir.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+    (superkeys_dir / "broken.toml").write_text(
+        'name = "broken"\nmode = "pattern"\n',
+        encoding="utf-8",
+    )
+
+    def fail_load(_self: SuperkeyManager, _path: object) -> SuperkeyConfig | None:
+        raise RuntimeError("loader bug")
+
+    monkeypatch.setattr(SuperkeyManager, "_load_superkey", fail_load)
+
+    with caplog.at_level("ERROR", logger="keymasq-session.superkeys"):
+        manager = SuperkeyManager()
+
+    assert manager.list_superkeys() == []
+    assert "Unexpected error while loading superkey" in caplog.text
+    assert "loader bug" in caplog.text
+
+
 def test_superkey_manager_rejects_single_table_pattern_slots(
     temp_config_dir,
     monkeypatch: pytest.MonkeyPatch,

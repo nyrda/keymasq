@@ -537,8 +537,8 @@ async def play_macro_task(
                 break
     except asyncio_mod.CancelledError:
         pass
-    except Exception as exc:
-        deps.log.warning("Macro playback aborted: %s", exc)
+    except Exception:
+        deps.log.exception("Macro playback aborted")
     finally:
         manager.macro_state.cancel_instance_ids.discard(instance_id)
         release_macro_held_for_instance(
@@ -732,8 +732,15 @@ def release_macro_held_for_instance(
             try:
                 writer.write(deps.evdev_mod.ecodes.EV_KEY, int(code), 0)
                 synced.add(device_class)
+            except OSError:
+                deps.log.debug("Failed to release macro-held output key", exc_info=True)
             except Exception:
-                continue
+                deps.log.exception(
+                    "Unexpected failure releasing macro-held output key "
+                    "device_class=%s code=%s",
+                    device_class,
+                    code,
+                )
         else:
             held_refcount[key] = count - 1
 
@@ -751,8 +758,15 @@ def release_macro_held_for_instance(
             try:
                 writer.write(deps.evdev_mod.ecodes.EV_ABS, int(code), 0)
                 synced.add(device_class)
+            except OSError:
+                deps.log.debug("Failed to release macro-held ABS output", exc_info=True)
             except Exception:
-                continue
+                deps.log.exception(
+                    "Unexpected failure releasing macro-held ABS output "
+                    "device_class=%s code=%s",
+                    device_class,
+                    code,
+                )
         else:
             held_abs_refcount[key] = count - 1
 
@@ -765,8 +779,13 @@ def release_macro_held_for_instance(
             continue
         try:
             syn_if_passthrough_frame_closed(raw_uinput, writer)
-        except Exception:
+        except OSError:
             deps.log.debug("Failed to synchronize macro cleanup outputs", exc_info=True)
+        except Exception:
+            deps.log.exception(
+                "Unexpected failure synchronizing macro cleanup outputs device_class=%s",
+                device_class,
+            )
 
 
 def acquire_macro_mouse_inhibit(

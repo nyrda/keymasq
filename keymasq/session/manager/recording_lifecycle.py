@@ -34,6 +34,15 @@ MACRO_RECORDING_DISABLED_MESSAGE = (
     "Macro recording is disabled. Enable macro recording in Keymasq before using "
     "recording triggers."
 )
+_RECORDING_MANAGER_ERRORS = (
+    OSError,
+    ConnectionError,
+    TimeoutError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    KeyError,
+)
 
 
 def _monotonic() -> float:
@@ -301,7 +310,7 @@ async def delete_pending_macro_slot(
                     data={"pending_recording_id": pending_recording_id},
                 )
             )
-        except Exception:
+        except _RECORDING_MANAGER_ERRORS:
             return False
         if result.status != "ok":
             return False
@@ -342,7 +351,7 @@ async def sync_pending_macro_slots_from_daemon(manager: "SessionManager") -> Non
         result = await manager.client.send_command(
             Command(command=CommandType.MACRO_LIST_RECORDINGS)
         )
-    except Exception:
+    except _RECORDING_MANAGER_ERRORS:
         return
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:
@@ -437,7 +446,7 @@ async def stop_recording(
     slot = normalize_pending_macro_recording_slot(slot, default=1)
     try:
         result = await manager.client.send_command(Command(command=CommandType.STOP_RECORDING))
-    except Exception:
+    except _RECORDING_MANAGER_ERRORS:
         return {"status": "error", "message": "Daemon unavailable"}
 
     if result.status == "ok":
@@ -537,7 +546,7 @@ async def play_macro_slot_trigger(manager: "SessionManager", data: JsonObject) -
         result = await manager.client.send_command(
             Command(command=CommandType.MACRO_PLAY_RECORDING, data=payload)
         )
-    except Exception:
+    except _RECORDING_MANAGER_ERRORS:
         return {"status": "error", "message": "Daemon unavailable"}
     if result.status == "ok":
         response_data = json_object(result.data)
@@ -708,7 +717,7 @@ async def start_recording(
                     recording_data,
                     recording_slot=slot,
                 )
-        except Exception:
+        except _RECORDING_MANAGER_ERRORS:
             log.debug("Failed to stop active recording before starting a new one", exc_info=True)
         manager.recording_state.active = False
         manager.recording_state.active_slot = 0
@@ -754,7 +763,7 @@ async def start_recording(
                     )
                 else:
                     log.debug("Recording start: get_cursor_position returned None")
-            except Exception as e:
+            except _RECORDING_MANAGER_ERRORS as e:
                 log.debug("Failed to get cursor position for recording start: %s", e)
         else:
             log.debug("Recording start: no window listener available")
@@ -775,7 +784,7 @@ async def start_recording(
                 },
             )
         )
-    except Exception:
+    except _RECORDING_MANAGER_ERRORS:
         return {"status": "error", "message": "Daemon unavailable"}
 
     if result.status == "ok":
@@ -848,7 +857,7 @@ async def save_recording(
         result = await manager.client.send_command(
             Command(command=CommandType.MACRO_SAVE_RECORDING, data=macro)
         )
-    except Exception:
+    except _RECORDING_MANAGER_ERRORS:
         return {"status": "error", "message": "Daemon unavailable"}
 
     if result.status != "ok":

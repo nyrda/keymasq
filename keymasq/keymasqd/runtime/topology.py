@@ -124,7 +124,7 @@ async def topology_watch_loop(
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                log.warning("Topology scan failed: %s", exc)
+                log.exception("Topology scan failed: %s", exc)
                 continue
 
             if snapshot != manager.topology_state.live_snapshot:
@@ -170,7 +170,7 @@ def schedule_topology_reconcile(
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            log.warning("Topology reconcile failed: %s", exc)
+            log.exception("Topology reconcile failed: %s", exc)
         finally:
             current = manager.topology_state.reconcile_task
             if current is asyncio_mod.current_task():
@@ -198,8 +198,8 @@ async def reconcile_topology(
             continue
         try:
             await manager.broadcast_callback(event_type, payload)
-        except Exception as exc:
-            log.warning("Failed to broadcast topology event %s: %s", event_type.value, exc)
+        except Exception:
+            log.exception("Failed to broadcast topology event %s", event_type.value)
 
 
 async def reconcile_topology_unlocked(
@@ -382,7 +382,9 @@ def scan_live_interfaces_sync(
                 path=path,
                 interface_id=str(get_interface_id_fn(stable_path) or "").lower(),
             )
-        except Exception as exc:
+        except OSError as exc:
             log.debug("Could not read live topology device %s: %s", path, exc)
+        except Exception:
+            log.exception("Unexpected failure reading live topology device %s", path)
 
     return snapshot

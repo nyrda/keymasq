@@ -182,14 +182,25 @@ class SlurpCapture:
         try:
             process.terminate()
             await asyncio.wait_for(process.wait(), timeout=1.0)
+            return
         except TimeoutError:
-            try:
-                process.kill()
-                await asyncio.wait_for(process.wait(), timeout=1.0)
-            except Exception:
-                log.debug("slurp process did not exit after kill", exc_info=True)
+            pass
+        except OSError as exc:
+            log.debug("failed to terminate slurp process: %s", exc)
+            return
         except Exception:
-            log.debug("failed to terminate slurp process", exc_info=True)
+            log.exception("Unexpected failure terminating slurp process")
+            return
+
+        try:
+            process.kill()
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+        except TimeoutError:
+            log.warning("slurp process did not exit after kill")
+        except OSError as exc:
+            log.debug("failed to kill slurp process: %s", exc)
+        except Exception:
+            log.exception("Unexpected failure killing slurp process")
 
     def _parse_output(self, output: str) -> SlurpResult | None:
         parts = output.split(",")

@@ -15,6 +15,7 @@ from keymasq.keymasqd.output_helpers import (
     resolve_gamepad_axis_code,
     resolve_output_code,
 )
+from keymasq.keymasqd.runtime.adapters import AsyncioEvent
 from keymasq.keymasqd.runtime.grabbed_device_outputs import (
     bucket_for_uinput,
     passthrough,
@@ -37,7 +38,6 @@ from keymasq.keymasqd.runtime.grabbed_device_repeat import (
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
     ActionRuntime,
-    AsyncioEvent,
     CursorPositionSetter,
     EmergencyResetter,
     GrabbedDeviceState,

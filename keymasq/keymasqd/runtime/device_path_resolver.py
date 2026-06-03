@@ -19,14 +19,9 @@ from keymasq.common.devices import (
 )
 from keymasq.common.models import DeviceType
 from keymasq.common.types import JsonObject
-from keymasq.keymasqd.runtime.adapters import close_device
+from keymasq.keymasqd.runtime.adapters import DeviceInfo, close_device
 
 log = logging.getLogger("keymasqd.device_path_resolver")
-
-
-class _DeviceInfo(Protocol):
-    vendor: int
-    product: int
 
 
 class InputDeviceLike(Protocol):
@@ -34,7 +29,7 @@ class InputDeviceLike(Protocol):
     name: str | None
 
     @property
-    def info(self) -> _DeviceInfo: ...
+    def info(self) -> DeviceInfo: ...
 
     def input_props(self) -> Iterable[int]: ...
 

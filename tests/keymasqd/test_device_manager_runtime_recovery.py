@@ -11,13 +11,13 @@ from keymasq.common.models import ActionType, DeviceType, SuperkeyMode
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import actions as adm
+from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import combos as cdm
 from keymasq.keymasqd.runtime import grab_lifecycle as ldm
 from keymasq.keymasqd.runtime import grabbed_device as gdm
 from keymasq.keymasqd.runtime import grabbed_device_actions as gda
 from keymasq.keymasqd.runtime import grabbed_device_events as gde
 from keymasq.keymasqd.runtime import grabbed_device_outputs as gdo
-from keymasq.keymasqd.runtime import grabbed_device_types as gdt
 from keymasq.keymasqd.runtime import topology as tdm
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 from tests.keymasqd.device_manager_support import (
@@ -113,7 +113,7 @@ class TestRuntimeFailureCleanup:
             evdev.ecodes.KEY_A,
             1,
             evdev_mod=evdev,
-            uinput_writer=gdt.identity_uinput_writer,
+            uinput_writer=runtime_adapters.identity_uinput_writer,
         )
 
         await gde.recover_from_event_processing_error(device)

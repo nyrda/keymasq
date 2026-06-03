@@ -30,7 +30,6 @@ type DesiredGrabConfigFactory = Callable[..., object]
 type GrabbedDeviceFactory = Callable[..., Any]
 type _ManagedGrabbedDevice = Any
 type _GrabManager = Any
-type _ErrnoModule = Any
 
 
 ASYNCIO_RUNTIME = runtime_adapters.ASYNCIO_RUNTIME
@@ -86,7 +85,7 @@ async def grab_device_unlocked(
     int_or_none_fn: IntOrNoneFn,
     float_value_fn: FloatValueFn,
     fire_and_observe_fn: FireAndObserve,
-    errno_mod: _ErrnoModule,
+    errno_mod: runtime_adapters.ErrnoModule,
 ) -> dict[str, object]:
     clear_device_path_cache_fn()
     cancel_pending_hardware_release(manager, hardware_id)
@@ -423,7 +422,7 @@ async def grab_with_retry(
     *,
     asyncio_mod: runtime_adapters.AsyncioRuntimeAdapter,
     log: logging.Logger,
-    errno_mod: _ErrnoModule,
+    errno_mod: runtime_adapters.ErrnoModule,
 ) -> None:
     delays = [0.05, 0.10, 0.20, 0.40, 0.80]
     last_error: Exception | None = None

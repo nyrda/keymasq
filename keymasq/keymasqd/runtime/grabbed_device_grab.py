@@ -11,12 +11,11 @@ from keymasq.keymasqd.output_helpers import (
 )
 from keymasq.keymasqd.runtime import grabbed_device_events as runtime_events
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
+from keymasq.keymasqd.runtime.adapters import ErrnoModule, identity_uinput_writer
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     AsyncioModule,
-    ErrnoModule,
     GrabbedDeviceRuntime,
     TimeModule,
-    identity_uinput_writer,
 )
 
 

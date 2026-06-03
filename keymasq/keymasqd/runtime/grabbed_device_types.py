@@ -10,7 +10,7 @@ from collections.abc import (
     Sequence,
 )
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Final, Protocol, TypeVar
 
 import evdev
 
@@ -18,6 +18,12 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.models import MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
+from keymasq.keymasqd.runtime.adapters import (
+    AsyncioEvent,
+    AsyncioLoop,
+    DeviceInfo,
+    UInputWriter,
+)
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 
 if TYPE_CHECKING:
@@ -48,11 +54,6 @@ class InputEventLike(Protocol):
     value: int
 
 
-class DeviceInfo(Protocol):
-    vendor: int
-    product: int
-
-
 class ManagedInputDevice(Protocol):
     path: str
     name: str | None
@@ -79,35 +80,9 @@ class ManagedInputDevice(Protocol):
     def close(self) -> None: ...
 
 
-class WritableUInput(Protocol):
-    def write(self, event_type: int, code: int, value: int) -> None: ...
-
-    def syn(self) -> None: ...
-
-    def close(self) -> None: ...
-
-
-type UInputWriter = Callable[[object | None], WritableUInput | None]
 type TaskFactory = Callable[[], asyncio.Task[None]]
 type RelativePulseEmitter = Callable[[], None]
 type RelativePulseActive = Callable[[], bool]
-
-
-class ErrnoModule(Protocol):
-    EAGAIN: Final[int]
-    EWOULDBLOCK: Final[int]
-
-
-class AsyncioEvent(Protocol):
-    def set(self) -> None: ...
-
-    async def wait(self) -> object: ...
-
-
-class AsyncioLoop(Protocol):
-    def add_reader(self, fd: int, callback: Callable[[], object], /) -> None: ...
-
-    def remove_reader(self, fd: int) -> bool: ...
 
 
 class AsyncioModule(Protocol):
@@ -157,10 +132,6 @@ class EvdevModule(Protocol):
 
 
 type ClassifyEventDeviceTypeFn = Callable[[evdev.InputEvent, list[str]], str]
-
-
-def identity_uinput_writer(device: object | None) -> WritableUInput | None:
-    return cast(WritableUInput | None, device)
 
 
 @dataclass(frozen=True)

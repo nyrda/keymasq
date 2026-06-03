@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Protocol, cast
+from typing import cast
 
 import evdev
 
 from keymasq.common.devices import resolve_evdev_event_type
 from keymasq.common.gamepad_axes import gamepad_axis_range, normalize_gamepad_axis_target
+from keymasq.keymasqd.runtime.adapters import WritableUInput
 
 log = logging.getLogger("keymasqd.output_helpers")
-
-
-class _WritableUInput(Protocol):
-    def write(self, event_type: int, code: int, value: int) -> None: ...
-
-    def syn(self) -> None: ...
 
 
 def _ecode_value(name: str) -> int | None:
@@ -84,7 +79,7 @@ def resolve_gamepad_axis_code(target: str | None) -> int | None:
 
 
 def emit_mouse_move(
-    uinput_dev: _WritableUInput | None,
+    uinput_dev: WritableUInput | None,
     move_x: int,
     move_y: int,
     *,

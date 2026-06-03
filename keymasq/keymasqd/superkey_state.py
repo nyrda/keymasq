@@ -4,7 +4,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import evdev
 
@@ -21,6 +21,7 @@ from keymasq.common.models import (
     superkey_action_shared_kwargs,
 )
 from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
+from keymasq.keymasqd.runtime.adapters import WritableUInput, identity_uinput_writer
 from keymasq.keymasqd.runtime.mouse_actions import (
     emit_relative_pulse,
     rapidfire_relative_pulses,
@@ -138,12 +139,6 @@ class SuperkeyConfig:
                 raise ValueError("nested superkeys are not allowed inside superkeys")
 
 
-class _WritableUInput(Protocol):
-    def write(self, event_type: int, code: int, value: int) -> None: ...
-
-    def syn(self) -> None: ...
-
-
 type CursorPositionSetter = Callable[[int, int], Awaitable[dict[str, object]]]
 type CancelMacroPlayback = Callable[[], Awaitable[dict[str, object]]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
@@ -153,7 +148,6 @@ type EmergencyResetter = Callable[[], Awaitable[dict[str, object]]]
 def _default_action_deps() -> "ActionExecutionDeps":
     from keymasq.keymasqd.runtime.grabbed_device_types import (
         ActionExecutionDeps,
-        identity_uinput_writer,
     )
 
     return ActionExecutionDeps(
@@ -169,9 +163,9 @@ class SuperkeyMachine:
         self,
         config: SuperkeyConfig,
         event_name: str,
-        keyboard_uinput: _WritableUInput,
-        mouse_uinput: _WritableUInput,
-        gamepad_uinput: _WritableUInput,
+        keyboard_uinput: WritableUInput,
+        mouse_uinput: WritableUInput,
+        gamepad_uinput: WritableUInput,
         source_device: str = "",
         broadcast_callback: Callable[[dict[str, object]], Awaitable[None]] | None = None,
         cursor_position_setter: CursorPositionSetter | None = None,

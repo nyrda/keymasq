@@ -7,19 +7,13 @@ from typing import Protocol
 import evdev
 
 from keymasq.keymasqd.output_helpers import parse_mouse_output_target
-
-
-class _WritableUInput(Protocol):
-    def write(self, event_type: int, code: int, value: int) -> None: ...
-
-    def syn(self) -> None: ...
+from keymasq.keymasqd.runtime.adapters import UInputWriter, WritableUInput
 
 
 class _AsyncioModule(Protocol):
     async def sleep(self, delay: float, /) -> None: ...
 
 
-type UInputWriter = Callable[[object | None], _WritableUInput | None]
 type RelativePulseEmitter = Callable[[], None]
 type RelativePulseActive = Callable[[], bool]
 
@@ -53,7 +47,7 @@ _HI_RES_SCROLL = (
 
 
 def emit_relative_pulse(
-    uinput: _WritableUInput | None,
+    uinput: WritableUInput | None,
     code: int,
     value: int,
     *,

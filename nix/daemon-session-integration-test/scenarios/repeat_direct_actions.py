@@ -5,6 +5,8 @@ from support import REPEAT_PROFILE_NAME, SECOND_PROFILE_NAME, ScenarioContext
 def run(ctx: ScenarioContext) -> None:
     try:
         ctx.set_profile_enabled(REPEAT_PROFILE_NAME, enabled=True)
+        ctx.tap_source(evdev.ecodes.KEY_T)
+        ctx.wait_for_active_profile(REPEAT_PROFILE_NAME, enabled=True)
         ctx.subtest("repeat has no output before history", lambda: _repeat_without_history(ctx))
         ctx.subtest(
             "repeat follows keyboard press/repeat/release",

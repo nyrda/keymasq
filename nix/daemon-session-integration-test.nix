@@ -18,9 +18,17 @@ let
       export KEYMASQ_INTEGRATION_SYSTEMCTL="${pkgs.systemd}/bin/systemctl"
       export KEYMASQ_INTEGRATION_SUDO="/run/wrappers/bin/sudo"
       export KEYMASQ_INTEGRATION_RECORD_HELPER="${keymasqPackage}/bin/keymasq-record"
-      exec ${testPython}/bin/python ${testSource}/runner.py
+      exec ${testPython}/bin/python ${testSource}/runner.py "$@"
     '';
   };
+  validScenarioFilter =
+    value:
+    value == "" || (builtins.match "[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+)*" value) != null;
+  validRepeatCount =
+    value:
+    value == "" || (builtins.match "[1-9][0-9]*" value) != null;
+  selectedScenarioFilter = builtins.getEnv "KEYMASQ_INTEGRATION_SCENARIOS";
+  selectedRepeatCount = builtins.getEnv "KEYMASQ_INTEGRATION_REPEAT";
 
   userCommand =
     cmd:
@@ -33,10 +41,31 @@ let
       name,
       unlockRequired,
       scenarioFilter ? "",
+      repeatCount ? "",
     }:
     let
+      checkedScenarioFilter =
+        assert validScenarioFilter scenarioFilter;
+        scenarioFilter;
+      checkedRepeatCount =
+        assert validRepeatCount repeatCount;
+        repeatCount;
       scenarioEnv =
-        if scenarioFilter == "" then "" else "KEYMASQ_INTEGRATION_SCENARIOS=${scenarioFilter} ";
+        if checkedScenarioFilter == "" then
+          ""
+        else
+          "KEYMASQ_INTEGRATION_SCENARIOS=${checkedScenarioFilter} ";
+      repeatEnv =
+        if checkedRepeatCount == "" then
+          ""
+        else
+          "KEYMASQ_INTEGRATION_REPEAT=${checkedRepeatCount} ";
+      repeatMultiplier =
+        if checkedRepeatCount == "" then
+          1
+        else
+          pkgs.lib.toInt checkedRepeatCount;
+      runnerTimeout = 300 * repeatMultiplier;
     in
     pkgs.testers.runNixOSTest {
       inherit name;
@@ -200,13 +229,13 @@ let
             as_user(
                 f"rm -f {output_path} {status_path}; "
                 "set +e; "
-                "${scenarioEnv}keymasq-daemon-session-integration-test "
+                "${scenarioEnv}${repeatEnv}keymasq-daemon-session-integration-test "
                 f"> {output_path} 2>&1; "
                 "status=$?; "
                 f"echo \"$status\" > {status_path}; "
                 "exit 0"
             ),
-            timeout=300,
+            timeout=${toString runnerTimeout},
         )
         if status_code != 0:
             raise Exception(f"failed to launch integration runner: {runner_output}")
@@ -225,6 +254,13 @@ in
     daemon-session-integration-test = mkDaemonSessionIntegrationTest {
       name = "daemon-session-integration-test";
       unlockRequired = false;
+    };
+
+    daemon-session-selected-integration-test = mkDaemonSessionIntegrationTest {
+      name = "daemon-session-selected-integration-test";
+      unlockRequired = false;
+      scenarioFilter = selectedScenarioFilter;
+      repeatCount = selectedRepeatCount;
     };
 
     daemon-session-macro-slot-locked-playback-test = mkDaemonSessionIntegrationTest {

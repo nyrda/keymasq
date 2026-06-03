@@ -100,6 +100,7 @@ class RuntimeProfileActivation:
     activation_id: str
     sequence: int
     deactivation: ProfileDeactivationPolicy
+    tracked: bool = False
     source_device: str = ""
     source_button: str = ""
     trigger_id: str = ""

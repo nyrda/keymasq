@@ -79,17 +79,21 @@ def run(ctx: ScenarioContext) -> None:
     assert_recording_slot_listed(ctx, RECORDING_SLOT)
 
     saved_name = "integration-recorded-macro"
-    ctx.request(
-        {
-            "command": "save_recording",
-            "name": saved_name,
-            "recording_slot": RECORDING_SLOT,
-            "pending_save_token": token,
-        }
-    )
-    assert_recording_slot_listed(ctx, RECORDING_SLOT)
-    ctx.request({"command": "play_macro", "name": saved_name})
-    ctx.expect_keys([(evdev.ecodes.KEY_Q, 1), (evdev.ecodes.KEY_Q, 0)])
+    ctx.request({"command": "delete_macro", "name": saved_name}, ok=False)
+    try:
+        ctx.request(
+            {
+                "command": "save_recording",
+                "name": saved_name,
+                "recording_slot": RECORDING_SLOT,
+                "pending_save_token": token,
+            }
+        )
+        assert_recording_slot_listed(ctx, RECORDING_SLOT)
+        ctx.request({"command": "play_macro", "name": saved_name})
+        ctx.expect_keys([(evdev.ecodes.KEY_Q, 1), (evdev.ecodes.KEY_Q, 0)])
+    finally:
+        ctx.request({"command": "delete_macro", "name": saved_name}, ok=False)
 
 
 def run_mapped_slot_actions(ctx: ScenarioContext) -> None:

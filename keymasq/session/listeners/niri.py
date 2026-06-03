@@ -9,7 +9,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
+from keymasq.common.coercion import int_or_none as _int_or_none
+from keymasq.common.coercion import json_object as _json_object
 from keymasq.common.slurp import get_slurp_capture
+from keymasq.common.types import JsonObject
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners._socket_helpers import unix_socket_connectable
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
@@ -17,18 +20,12 @@ from keymasq.session.slurp import capture_slurp_cursor_position
 
 log = logging.getLogger("keymasq-session.listeners.niri")
 
-type JsonObject = dict[str, object]
 type NiriDispatchBuilder = Callable[[str], tuple[bool, str, JsonObject | None]]
 
 NIRI_DISPATCH_TIMEOUT_SECONDS = 1.5
 NIRI_FOCUSED_WINDOW_TIMEOUT_SECONDS = 0.6
 NIRI_ACTIVATE_TIMEOUT_SECONDS = 2.0
 NIRI_CLI_DISPATCH_TIMEOUT_SECONDS = 3.0
-
-
-def _json_object(value: object) -> JsonObject | None:
-    return cast(JsonObject, value) if isinstance(value, dict) else None
-
 
 def _normalize_string(value: object) -> str:
     if isinstance(value, str):
@@ -362,7 +359,7 @@ class NiriListener(WindowListener):
             return
 
         if event_type == "WindowClosed":
-            window_id = self._int_value(body.get("id"))
+            window_id = _int_or_none(body.get("id"))
             if window_id is None:
                 return
             self._windows.pop(window_id, None)
@@ -372,20 +369,12 @@ class NiriListener(WindowListener):
             return
 
         if event_type == "WindowFocusChanged":
-            focused_window_id = self._int_value(body.get("id"))
+            focused_window_id = _int_or_none(body.get("id"))
             self._mark_window_focused(focused_window_id)
             await self._emit_current_window_if_changed()
 
     def _window_id(self, window: JsonObject) -> int | None:
-        return self._int_value(window.get("id"))
-
-    def _int_value(self, value: object) -> int | None:
-        if isinstance(value, bool) or value is None:
-            return None
-        try:
-            return int(cast(int | float | str, value))
-        except Exception:
-            return None
+        return _int_or_none(window.get("id"))
 
     def _window_info(self, window: JsonObject | None) -> tuple[str, str]:
         if window is None:

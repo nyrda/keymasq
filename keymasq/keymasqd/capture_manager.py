@@ -21,10 +21,10 @@ from keymasq.common.devices import (
     resolve_stable_path,
     wheel_button_id,
 )
+from keymasq.common.types import JsonObject
 from keymasq.keymasqd.runtime import device_path_resolver
 
 log = logging.getLogger("keymasq.keymasqd.capture_manager")
-type JsonObject = dict[str, object]
 
 
 class _DeviceInfo(Protocol):

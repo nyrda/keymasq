@@ -1,30 +1,22 @@
-from typing import cast
-
+from keymasq.common.coercion import (
+    float_value,
+    int_value,
+    json_list,
+    json_object,
+    str_value,
+)
+from keymasq.common.types import JsonObject
 from keymasq.session.listeners.base import WindowListener
 
-type JsonObject = dict[str, object]
-type IntLike = int | float | str | bytes
-type FloatLike = int | float | str | bytes
-
-
-def json_object(value: object) -> JsonObject | None:
-    return cast(JsonObject, value) if isinstance(value, dict) else None
-
-
-def json_list(value: object) -> list[object]:
-    return cast(list[object], value) if isinstance(value, list) else []
-
-
-def str_value(value: object, default: str = "") -> str:
-    return default if value is None else str(value)
-
-
-def int_value(value: object, default: int = 0) -> int:
-    return default if value is None else int(cast(IntLike, value))
-
-
-def float_value(value: object, default: float = 0.0) -> float:
-    return default if value is None else float(cast(FloatLike, value))
+__all__ = [
+    "JsonObject",
+    "float_value",
+    "int_value",
+    "json_list",
+    "json_object",
+    "merge_support_details",
+    "str_value",
+]
 
 
 def merge_support_details(

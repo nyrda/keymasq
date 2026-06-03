@@ -12,6 +12,8 @@ from typing import Protocol, cast
 
 import evdev
 
+from keymasq.common.coercion import int_value_or_default as _int_value
+from keymasq.common.coercion import str_value as _str_value
 from keymasq.common.devices import (
     classify_event_device_type,
     high_res_wheel_low_res_code,
@@ -663,18 +665,6 @@ def _is_wheel_event(event: evdev.InputEvent) -> bool:
     return event.code in (evdev.ecodes.REL_WHEEL, evdev.ecodes.REL_HWHEEL) or (
         high_res_wheel_low_res_code(int(event.code)) is not None
     )
-
-
-def _str_value(value: object, default: str = "") -> str:
-    return default if value is None else str(value)
-
-
-def _int_value(value: object, default: int = 0) -> int:
-    try:
-        return int(cast(int | float | str, value))
-    except (TypeError, ValueError):
-        return default
-
 
 def _physical_source_key(stable_path: str) -> str:
     return f"physical:{stable_path}"

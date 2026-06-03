@@ -5,8 +5,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from keymasq.common.models import ProfileDeactivationPolicy
+from keymasq.common.types import JsonObject
 
-type JsonObject = dict[str, object]
 type BroadcastDeactivateRequest = Callable[[JsonObject], None]
 
 log = logging.getLogger("keymasqd.runtime.profile_activation_tracker")

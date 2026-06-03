@@ -8,6 +8,8 @@ import tomli_w
 
 from keymasq.common import paths
 from keymasq.common.config_files import write_config_atomically
+from keymasq.common.coercion import float_value as _float_value
+from keymasq.common.coercion import int_value as _int_value
 from keymasq.common.models import (
     ActionType,
     AnalogActionThreshold,
@@ -30,8 +32,6 @@ from keymasq.session.config_loading import load_config_files_sync
 
 log = logging.getLogger("keymasq-session.analog_controls")
 type TomlDict = dict[str, object]
-type _IntLike = int | float | str | bytes
-type _FloatLike = int | float | str | bytes
 
 
 @dataclass
@@ -47,15 +47,6 @@ def _as_toml_dict(value: object) -> TomlDict | None:
 def _toml_str(data: TomlDict, key: str, default: str | None = None) -> str | None:
     value = data.get(key, default)
     return value if isinstance(value, str) else default
-
-
-def _int_value(value: object, default: int = 0) -> int:
-    return default if value is None else int(cast(_IntLike, value))
-
-
-def _float_value(value: object, default: float = 0.0) -> float:
-    return default if value is None else float(cast(_FloatLike, value))
-
 
 class AnalogControlManager:
     def __init__(self) -> None:

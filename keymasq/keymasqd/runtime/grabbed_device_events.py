@@ -3,7 +3,6 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import cast
 
 import evdev
@@ -18,6 +17,7 @@ from keymasq.common.devices import (
     wheel_button_id,
 )
 from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
@@ -36,13 +36,6 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     identity_uinput_writer,
     runtime_is_running,
 )
-
-
-@dataclass
-class _SyntheticInputEvent:
-    type: int
-    code: int
-    value: int
 
 
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:

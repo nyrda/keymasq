@@ -8,6 +8,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.coercion import bool_value as _bool_value
 from keymasq.common.models import ActionType, HardwareConfig, MappingAction
 from keymasq.gui.icons import device_icon_names, image_from_icon_names
 from keymasq.gui.session_client import (
@@ -159,15 +160,6 @@ def _int_or_none(value: object) -> int | None:
         return int(cast(int | float | str | bytes, value))
     except (TypeError, ValueError):
         return None
-
-
-def _bool_value(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
-
 
 def _mapping_action_from_payload(action: object) -> MappingAction | None:
     if not isinstance(action, dict):

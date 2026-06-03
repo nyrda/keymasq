@@ -12,9 +12,9 @@ from keymasq.common.ipc import (
     encode_response,
 )
 from keymasq.common.security import PeerCredentials, get_peer_credentials
+from keymasq.common.types import JsonObject
 
 log = logging.getLogger("keymasqd.socket")
-type JsonObject = dict[str, object]
 
 
 @dataclass

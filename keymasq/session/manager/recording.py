@@ -1557,7 +1557,7 @@ def load_recording_settings_from_disk(manager: "SessionManager") -> None:
         if not manager.RECORDING_SETTINGS_PATH.exists():
             return
         with manager.RECORDING_SETTINGS_PATH.open("rb") as f:
-            data = cast(JsonObject, tomllib.load(f))
+            data = tomllib.load(f)
         settings = manager.recording_state.settings
         if "include_mouse_movement" in data:
             settings["include_mouse_movement"] = bool(data.get("include_mouse_movement"))

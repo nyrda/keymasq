@@ -10,6 +10,7 @@ from keymasq.common.models import (
     normalize_macro_loop_stop_behavior,
     profile_deactivation_policy_to_dict,
 )
+from keymasq.common.types import JsonObject, SyntheticInputEvent
 from keymasq.keymasqd.output_helpers import (
     resolve_gamepad_axis_code,
     resolve_output_code,
@@ -55,12 +56,13 @@ from keymasq.keymasqd.runtime.repeat import (
     select_repeated_entry,
 )
 
-type JsonObject = dict[str, object]
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type OutputTracker = Callable[[str, int, int], bool]
 type ResolveCodeFn = Callable[[str], int | None]
 type CancelMacroPlayback = Callable[[], Awaitable[JsonObject]]
+
+_SyntheticInputEvent = SyntheticInputEvent
 
 
 class SuperkeyExecutor(Protocol):
@@ -631,14 +633,6 @@ def _dispatch_trigger_action(
     )
     register_action_task(execution_handle, task)
     return True
-
-
-class _SyntheticInputEvent:
-    def __init__(self, event_type: int, code: int, value: int) -> None:
-        self.type = int(event_type)
-        self.code = int(code)
-        self.value = int(value)
-
 
 async def _execute_repeat_action(
     device_runtime: ActionRuntime,

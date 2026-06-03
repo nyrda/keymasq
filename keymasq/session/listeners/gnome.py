@@ -4,11 +4,14 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import cast
 
 import keymasq.session.gnome_shell as gnome_shell
+from keymasq.common.coercion import int_value as _int_value
+from keymasq.common.coercion import json_object as _json_object
+from keymasq.common.coercion import str_value as _str_value
 from keymasq.common.paths import GNOME_BRIDGE_SOCKET_PATH
 from keymasq.common.security import get_peer_credentials
+from keymasq.common.types import JsonObject
 from keymasq.session.dbus import SessionDBus, name_has_owner
 from keymasq.session.gnome_shell import GnomeShellDBusError
 from keymasq.session.listeners._socket_helpers import (
@@ -19,19 +22,6 @@ from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 from keymasq.session.wayland_protocols.registry_probe import list_registry_globals
 
 log = logging.getLogger("keymasq-session.listeners.gnome")
-type JsonObject = dict[str, object]
-
-
-def _json_object(value: object) -> JsonObject | None:
-    return cast(JsonObject, value) if isinstance(value, dict) else None
-
-
-def _str_value(value: object, default: str = "") -> str:
-    return default if value is None else str(value)
-
-
-def _int_value(value: object, default: int = 0) -> int:
-    return default if value is None else int(cast(int | float | str | bytes, value))
 
 
 class GnomeListener(WindowListener):

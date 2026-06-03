@@ -1,11 +1,11 @@
 import json
 import socket
 import sys
-from typing import Any, cast
+from typing import cast
 
 from keymasq.common.paths import SESSION_SOCKET_PATH
+from keymasq.common.types import JsonObject
 
-JsonObject = dict[str, Any]
 IntLike = int | float | str | bytes
 DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "internal")
 

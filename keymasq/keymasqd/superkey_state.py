@@ -20,6 +20,7 @@ from keymasq.common.models import (
     normalize_profile_deactivation_policy,
     superkey_action_shared_kwargs,
 )
+from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
 from keymasq.keymasqd.runtime.mouse_actions import (
     emit_relative_pulse,
     rapidfire_relative_pulses,
@@ -558,10 +559,3 @@ class SuperkeyMachine:
             action_type=ActionType(action.action_type),
             **action_kwargs,
         )
-
-
-class _SyntheticInputEvent:
-    def __init__(self, event_type: int, code: int, value: int) -> None:
-        self.type = int(event_type)
-        self.code = int(code)
-        self.value = int(value)

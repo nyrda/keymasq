@@ -7,6 +7,7 @@ import evdev
 
 from keymasq.common.devices import resolve_evdev_code, resolve_evdev_event_type
 from keymasq.common.models import MappingAction
+from keymasq.common.types import JsonObject
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime import actions as runtime_actions
@@ -16,7 +17,6 @@ from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 
 log = logging.getLogger("keymasqd.devices")
-type JsonObject = dict[str, object]
 type JsonObjectFn = Callable[[object], JsonObject | None]
 type StrValueFn = Callable[..., str]
 type OptionalStrFn = Callable[..., str | None]

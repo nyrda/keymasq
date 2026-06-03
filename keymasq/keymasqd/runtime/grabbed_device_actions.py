@@ -4,6 +4,7 @@ from typing import cast
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
+from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime import action_runner as shared_action_runner
 from keymasq.keymasqd.runtime.action_runner import (
@@ -172,14 +173,6 @@ async def execute_action_pulse(
         shared_abs_output_tracker=shared_abs_output_tracker,
         record_repeat=False,
     )
-
-
-class _SyntheticInputEvent:
-    def __init__(self, event_type: int, code: int, value: int) -> None:
-        self.type = int(event_type)
-        self.code = int(code)
-        self.value = int(value)
-
 
 def _observe_overload_profile_trigger(
     device_runtime: GrabbedDeviceRuntime,

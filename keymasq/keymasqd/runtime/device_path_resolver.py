@@ -18,10 +18,10 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.models import DeviceType
+from keymasq.common.types import JsonObject
 from keymasq.keymasqd.runtime.adapters import close_device
 
 log = logging.getLogger("keymasqd.device_path_resolver")
-type JsonObject = dict[str, object]
 
 
 class _DeviceInfo(Protocol):

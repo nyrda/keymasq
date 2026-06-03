@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, cast
+from typing import cast
 
 import gi
 
@@ -10,6 +10,9 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.coercion import float_value_or_default as _float_value
+from keymasq.common.coercion import int_or_none_value as _int_or_none
+from keymasq.common.coercion import int_value_or_default as _int_value
 from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
     ActionType,
@@ -766,30 +769,3 @@ def _text(value: object, default: str = "") -> str:
 def _optional_text(value: object) -> str | None:
     text = _text(value).strip()
     return text or None
-
-
-def _int_value(value: object, default: int = 0) -> int:
-    if value is None:
-        return default
-    try:
-        return int(cast(Any, value))
-    except (TypeError, ValueError):
-        return default
-
-
-def _int_or_none(value: object) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(cast(Any, value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _float_value(value: object, default: float = 0.0) -> float:
-    if value is None:
-        return default
-    try:
-        return float(cast(Any, value))
-    except (TypeError, ValueError):
-        return default

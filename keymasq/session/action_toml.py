@@ -1,6 +1,8 @@
 import logging
 from typing import Literal, cast
 
+from keymasq.common.coercion import float_value as _float_value
+from keymasq.common.coercion import int_value as _int_value
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
     ActionType,
@@ -15,8 +17,6 @@ from keymasq.common.models import (
 )
 
 type TomlDict = dict[str, object]
-type _IntLike = int | float | str | bytes
-type _FloatLike = int | float | str | bytes
 type UnknownActionPolicy = Literal["raise", "passthrough"]
 
 MACRO_RECORDING_SLOT_ACTION_TYPES: tuple[ActionType, ...] = (
@@ -38,29 +38,6 @@ PROFILE_REF_ACTION_TYPES: tuple[ActionType, ...] = (
 
 class UnknownActionTypeError(ValueError):
     pass
-
-
-def _int_value(value: object, default: int) -> int:
-    if value is None:
-        return default
-    try:
-        return int(cast(_IntLike, value))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"Expected integer value, got {type(value).__name__}: {value!r}"
-        ) from exc
-
-
-def _float_value(value: object, default: float) -> float:
-    if value is None:
-        return default
-    try:
-        return float(cast(_FloatLike, value))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"Expected float value, got {type(value).__name__}: {value!r}"
-        ) from exc
-
 
 def mapping_action_type_from_toml(
     action_data: TomlDict,

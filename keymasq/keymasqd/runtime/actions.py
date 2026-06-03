@@ -21,9 +21,8 @@ from keymasq.common.models import (
 from keymasq.common.models import (
     SuperkeyConfig as CommonSuperkeyConfig,
 )
+from keymasq.common.types import JsonObject
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
-
-type JsonObject = dict[str, object]
 
 log = logging.getLogger("keymasqd.runtime.actions")
 

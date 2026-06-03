@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common import paths
+from keymasq.common.coercion import int_value as _int_value
+from keymasq.common.coercion import optional_str as _optional_str
 from keymasq.common.combos import normalize_combo_evdev, normalize_combo_restore_keys
 from keymasq.common.config_files import write_toml_atomically
 from keymasq.common.models import (
@@ -35,7 +37,6 @@ log = logging.getLogger("keymasq-session.profiles")
 MAX_PROFILE_PATH_ATTEMPTS = 10000
 DEFAULT_PROFILE_NAME = "Default"
 type TomlDict = dict[str, object]
-type _IntLike = int | float | str | bytes
 
 
 def _as_toml_dict(value: object) -> TomlDict | None:
@@ -44,18 +45,6 @@ def _as_toml_dict(value: object) -> TomlDict | None:
 
 def _as_toml_list(value: object) -> list[object]:
     return cast(list[object], value) if isinstance(value, list) else []
-
-
-def _int_value(value: object, default: int) -> int:
-    return default if value is None else int(cast(_IntLike, value))
-
-
-def _optional_str(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
 
 @dataclass
 class ProfileInfo:

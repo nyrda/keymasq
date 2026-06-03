@@ -2010,6 +2010,36 @@ async def test_capture_end_keeps_token_when_daemon_end_fails() -> None:
 
 
 @pytest.mark.asyncio
+async def test_clear_captures_for_writer_forces_local_cleanup_on_daemon_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    writer = object()
+    manager.capture_state.tokens[hardware_id] = "token-1"
+    manager.capture_state.locks.add(hardware_id)
+    manager.capture_state.owner_writer_ids[hardware_id] = id(writer)
+    manager.capture_state.resume_profiles[hardware_id] = ["Default"]
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("daemon down"))
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+
+    await session_recording_module.clear_captures_for_writer(
+        manager,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.owner_writer_ids == {}
+    assert manager.capture_state.resume_profiles == {}
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason=f"capture ended for {hardware_id}",
+    )
+
+
+@pytest.mark.asyncio
 async def test_begin_capture_with_paths_uses_configured_interfaces_when_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

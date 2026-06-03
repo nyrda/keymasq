@@ -166,7 +166,15 @@ async def clear_captures_for_writer(
     ]
     for hardware_id in hardware_ids:
         try:
-            await capture_end(manager, hardware_id)
+            result = await capture_end(manager, hardware_id)
+            if result.get("status") == "error":
+                log.warning(
+                    "Capture end failed for disconnected owner hardware_id=%s: %s",
+                    hardware_id,
+                    result,
+                )
+                manager.capture_state.tokens.pop(hardware_id, None)
+                await _end_capture(manager, hardware_id)
         except Exception as exc:
             log.warning(
                 "Failed to end capture for disconnected owner hardware_id=%s: %s",

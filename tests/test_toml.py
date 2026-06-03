@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import pytest
 
 from keymasq.common.models import (
@@ -30,6 +32,52 @@ def _parse_mapping_action_toml(data: dict[str, object]) -> MappingAction:
         action_type,
         rapidfire_warning_context="test config",
     )
+
+
+def test_mapping_action_type_from_toml_supports_legacy_rapidfire_alias() -> None:
+    action_type, action_data = mapping_action_type_from_toml(
+        {"action": "rapidfire", "target": "key_a"},
+        unknown_action="raise",
+    )
+
+    assert action_type == ActionType.KEYBOARD
+    assert action_data["action"] == "keyboard"
+    assert action_data["rapidfire_enabled"] is True
+
+
+def test_mapping_action_type_from_toml_can_passthrough_unknown_actions() -> None:
+    logger = Mock()
+
+    action_type, action_data = mapping_action_type_from_toml(
+        {"action": "future_action", "target": "key_a"},
+        unknown_action="passthrough",
+        logger=logger,
+    )
+
+    assert action_type == ActionType.PASSTHROUGH
+    assert action_data["target"] == "key_a"
+    logger.warning.assert_called_once()
+
+
+def test_mapping_action_toml_round_trips_repeat_and_keys_fields() -> None:
+    repeat = _parse_mapping_action_toml(
+        {"action": "repeat", "repeat_categories": ["keyboard", "mouse"]}
+    )
+    keyed = mapping_action_to_toml(
+        MappingAction(
+            action_type=ActionType.EXEC,
+            exec_ref=7,
+            keys=["key_a", "key_b"],
+        ),
+        rapidfire_warning_context="test config",
+    )
+
+    assert repeat.action_type == ActionType.REPEAT
+    assert mapping_action_to_toml(
+        repeat,
+        rapidfire_warning_context="test config",
+    )["repeat_categories"] == ["keyboard", "mouse"]
+    assert keyed["keys"] == ["key_a", "key_b"]
 
 
 @pytest.mark.parametrize("action_type", MACRO_RECORDING_SLOT_ACTION_TYPES)

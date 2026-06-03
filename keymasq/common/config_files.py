@@ -9,12 +9,11 @@ import tomli_w
 
 
 def fsync_parent_dir(path: Path) -> None:
-    with contextlib.suppress(OSError):
-        dir_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
+    dir_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
 
 
 def write_config_atomically(

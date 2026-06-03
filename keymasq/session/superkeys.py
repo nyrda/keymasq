@@ -372,8 +372,16 @@ class SuperkeyManager:
         paths.ensure_config_dirs()
         self._validate_before_save(config)
 
-        path = self._path_for_name(config.name)
+        tracked_name = replacing_name or config.name
+        path = self._superkey_paths.get(tracked_name, self._path_for_name(config.name))
         self._ensure_storage_path_available(config.name, path, replacing_name=replacing_name)
+        canonical_path = self._path_for_name(config.name)
+        if path != canonical_path:
+            self._ensure_storage_path_available(
+                config.name,
+                canonical_path,
+                replacing_name=replacing_name,
+            )
 
         data: dict[str, object] = {
             "name": config.name,
@@ -432,6 +440,9 @@ class SuperkeyManager:
 
         write_config_atomically(path, write_config)
 
+        if replacing_name is not None and replacing_name != config.name:
+            self._superkeys.pop(replacing_name, None)
+            self._superkey_paths.pop(replacing_name, None)
         self._superkeys[config.name] = config
         self._superkey_paths[config.name] = path
         log.info("Saved superkey: %s", config.name)
@@ -583,10 +594,11 @@ class SuperkeyManager:
             config.name = old_name
             raise
 
-        if old_path != new_path and old_path.exists():
+        saved_path = self._superkey_paths.get(new_name, new_path)
+        if old_path != saved_path and old_path.exists():
             old_path.unlink()
 
-        del self._superkeys[old_name]
+        self._superkeys.pop(old_name, None)
         self._superkey_paths.pop(old_name, None)
 
         log.info("Renamed superkey: %s -> %s", old_name, new_name)

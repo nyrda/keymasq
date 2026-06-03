@@ -363,6 +363,209 @@ class TestDeviceManagerHelpers:
 
         assert raw_device.close_count == 1
 
+    @pytest.mark.asyncio
+    async def test_grab_with_retry_waits_for_busy_device_then_succeeds(self) -> None:
+        sleep_calls: list[float] = []
+
+        class _Asyncio:
+            async def sleep(self, delay: float) -> None:
+                sleep_calls.append(delay)
+
+        class _BusyThenAvailableDevice:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            async def grab(self) -> None:
+                self.attempts += 1
+                if self.attempts < 3:
+                    raise OSError(errno.EBUSY, "busy")
+
+        device = _BusyThenAvailableDevice()
+
+        await ldm.grab_with_retry(
+            device,
+            "/dev/input/event0",
+            asyncio_mod=_Asyncio(),
+            log=logging.getLogger("test"),
+            errno_mod=errno,
+        )
+
+        assert device.attempts == 3
+        assert sleep_calls == [0.05, 0.10]
+
+    @pytest.mark.asyncio
+    async def test_grab_with_retry_reraises_last_busy_error_after_retries(self) -> None:
+        sleep_calls: list[float] = []
+
+        class _Asyncio:
+            async def sleep(self, delay: float) -> None:
+                sleep_calls.append(delay)
+
+        class _AlwaysBusyDevice:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            async def grab(self) -> None:
+                self.attempts += 1
+                raise OSError(errno.EBUSY, "busy")
+
+        device = _AlwaysBusyDevice()
+
+        with pytest.raises(OSError, match="busy"):
+            await ldm.grab_with_retry(
+                device,
+                "/dev/input/event0",
+                asyncio_mod=_Asyncio(),
+                log=logging.getLogger("test"),
+                errno_mod=errno,
+            )
+
+        assert device.attempts == 5
+        assert sleep_calls == [0.05, 0.10, 0.20, 0.40]
+
+    def test_pending_interface_release_cancellation_helpers_cancel_live_tasks(self) -> None:
+        class _FakeTask:
+            def __init__(self, *, done: bool = False) -> None:
+                self._done = done
+                self.cancelled = False
+
+            def done(self) -> bool:
+                return self._done
+
+            def cancel(self) -> None:
+                self.cancelled = True
+
+        manager = DeviceManager()
+        path_task = _FakeTask()
+        done_task = _FakeTask(done=True)
+        hardware_task = _FakeTask()
+        other_hardware_task = _FakeTask()
+
+        manager.grab_state.pending_interface_release[("hw", "/dev/input/event0")] = path_task
+        manager.grab_state.pending_interface_release[("hw", "/dev/input/event1")] = done_task
+        manager.grab_state.pending_interface_release[("hw", "/dev/input/event2")] = hardware_task
+        manager.grab_state.pending_interface_release[("other", "/dev/input/event3")] = (
+            other_hardware_task
+        )
+
+        ldm.cancel_pending_interface_release(manager, "hw", "/dev/input/event0")
+        ldm.cancel_pending_interface_releases_for_hardware(manager, "hw")
+
+        assert path_task.cancelled is True
+        assert done_task.cancelled is False
+        assert hardware_task.cancelled is True
+        assert other_hardware_task.cancelled is False
+        assert manager.grab_state.pending_interface_release == {
+            ("other", "/dev/input/event3"): other_hardware_task,
+        }
+
+    @pytest.mark.asyncio
+    async def test_delayed_interface_release_keeps_currently_desired_path(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        release_interface = AsyncMock()
+        key = ("hw", "/dev/input/event0")
+        manager.grab_state.desired_paths["hw"] = {key[1]}
+        monkeypatch.setattr(ldm, "release_interface_unlocked", release_interface)
+
+        task = asyncio.create_task(
+            ldm.delayed_interface_release(
+                manager,
+                key[0],
+                key[1],
+                0.001,
+                asyncio_mod=ldm.ASYNCIO_RUNTIME,
+            )
+        )
+        manager.grab_state.pending_interface_release[key] = task
+
+        await task
+
+        release_interface.assert_not_awaited()
+        assert key not in manager.grab_state.pending_interface_release
+
+    @pytest.mark.asyncio
+    async def test_delayed_interface_release_cleans_up_after_cancellation(self) -> None:
+        manager = DeviceManager()
+        key = ("hw", "/dev/input/event0")
+        task = asyncio.create_task(
+            ldm.delayed_interface_release(
+                manager,
+                key[0],
+                key[1],
+                60.0,
+                asyncio_mod=ldm.ASYNCIO_RUNTIME,
+            )
+        )
+        manager.grab_state.pending_interface_release[key] = task
+
+        await asyncio.sleep(0)
+        task.cancel()
+        await task
+
+        assert key not in manager.grab_state.pending_interface_release
+
+    @pytest.mark.asyncio
+    async def test_release_interface_keeps_remaining_managed_devices(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        removed = SimpleNamespace(
+            path="/dev/input/event0",
+            interface_id="kbd",
+            release_tracked_outputs=Mock(),
+            release=AsyncMock(),
+        )
+        kept = SimpleNamespace(
+            path="/dev/input/event1",
+            interface_id="mouse",
+            release_tracked_outputs=Mock(),
+            release=AsyncMock(),
+        )
+        manager = DeviceManager()
+        manager.grabbed_devices = {"hw": [removed, kept]}
+        clear_combo_scope = AsyncMock()
+        monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
+
+        await ldm.release_interface_unlocked(manager, "hw", "/dev/input/event0")
+
+        assert manager.grabbed_devices == {"hw": [kept]}
+        clear_combo_scope.assert_awaited_once()
+        removed.release_tracked_outputs.assert_called_once()
+        removed.release.assert_awaited_once()
+        kept.release.assert_not_awaited()
+
+    def test_grab_lifecycle_helpers_ignore_malformed_capabilities_and_analog_inputs(
+        self,
+    ) -> None:
+        caps = {
+            evdev.ecodes.EV_SYN: [evdev.ecodes.SYN_REPORT],
+            evdev.ecodes.EV_KEY: [
+                (),
+                ("not-an-int",),
+                "not-a-code",
+                (evdev.ecodes.KEY_A,),
+                evdev.ecodes.KEY_B,
+            ],
+        }
+        analog_inputs = {
+            "not-a-table": "bad",
+            "axes-not-list": {"axes": "bad"},
+            "axis-not-table": {"axes": ["bad"]},
+            "bad-code": {"axes": [{"evdev_code": "not-an-int"}]},
+            "hex-code": {"axes": [{"evdev_code": "0x1"}]},
+            "named-code": {"axes": [{"evdev": "abs_x"}]},
+        }
+
+        assert ldm.device_has_mapped_buttons(caps, {"key_b"}, None, evdev_mod=dm.evdev)
+        assert not ldm.device_has_mapped_buttons({999999: [1]}, set(), None, evdev_mod=dm.evdev)
+        assert ldm.analog_input_bindings(analog_inputs) == {
+            (evdev.ecodes.EV_ABS, 1),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X),
+        }
+
     def test_parse_action_supports_string_and_compositor_dispatch(self) -> None:
         manager = DeviceManager()
         string_action = adm.parse_action(

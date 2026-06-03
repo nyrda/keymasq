@@ -341,9 +341,15 @@ async def clear_recording_refresh_owner_if_writer(
     uid = int(peer.uid)
 
     if owner is not None and owner.get("writer_id") == id(writer):
+        runtime_owner = str(owner.get("source", "") or "") == "runtime"
         manager.unlock_state.refresh_owner = None
         manager.unlock_state.runtime_refresh_claim_consumed_until.pop(uid, None)
-        await _cleanup_runtime_unlock_for_uid(manager, uid, reason="refresh_owner_disconnect")
+        if runtime_owner:
+            await _cleanup_runtime_unlock_for_uid(
+                manager,
+                uid,
+                reason="refresh_owner_disconnect",
+            )
         return
 
     if owner is not None and owner.get("uid") == uid:
@@ -398,6 +404,7 @@ async def claim_recording_unlock_refresh(
         "pid": int(peer.pid),
         "writer_id": id(writer),
         "lease_id": lease_id,
+        "source": source,
     }
     if source == "runtime":
         manager.unlock_state.runtime_refresh_claim_consumed_until[int(peer.uid)] = expires_at
@@ -475,29 +482,31 @@ async def refresh_recording_unlock(
             "message": "recording_refresh_denied: caller is not active refresh owner",
         }
 
-    try:
-        result = await manager.client.send_command(
-            Command(
-                command=CommandType.REFRESH_RECORDING_UNLOCK,
-                data={
-                    "uid": int(peer.uid),
-                    "ttl": int(manager.unlock_state.refresh_ttl_s),
-                },
+    runtime_owner = str(owner.get("source", "") or "") == "runtime"
+    if runtime_owner:
+        try:
+            result = await manager.client.send_command(
+                Command(
+                    command=CommandType.REFRESH_RECORDING_UNLOCK,
+                    data={
+                        "uid": int(peer.uid),
+                        "ttl": int(manager.unlock_state.refresh_ttl_s),
+                    },
+                )
             )
-        )
-    except Exception:
-        return {"status": "error", "message": "Daemon unavailable"}
+        except Exception:
+            return {"status": "error", "message": "Daemon unavailable"}
 
-    if result.status != "ok":
-        _clear_refresh_owner_for_uid(manager, int(peer.uid))
-        return {
-            "status": "error",
-            "error_code": "recording_refresh_denied",
-            "message": result.error or "Failed to refresh capture unlock",
-        }
+        if result.status != "ok":
+            _clear_refresh_owner_for_uid(manager, int(peer.uid))
+            return {
+                "status": "error",
+                "error_code": "recording_refresh_denied",
+                "message": result.error or "Failed to refresh capture unlock",
+            }
 
     unlock_status = await _call_facade_resolve_unlock_status_async(manager, peer.uid)
-    if str(unlock_status.get("source", "none") or "none") == "runtime":
+    if runtime_owner and str(unlock_status.get("source", "none") or "none") == "runtime":
         expires_at = int(unlock_status.get("expires_at", 0) or 0)
         consumed_until = int(
             manager.unlock_state.runtime_refresh_claim_consumed_until.get(int(peer.uid), 0) or 0

@@ -139,14 +139,18 @@ async def capture_read(manager: "SessionManager", hardware_id: str) -> JsonObjec
 
 
 async def capture_end(manager: "SessionManager", hardware_id: str) -> JsonObject:
-    token = manager.capture_state.tokens.pop(hardware_id, "")
+    token = manager.capture_state.tokens.get(hardware_id, "")
     if token:
         try:
-            await manager.client.send_command(
+            result = await manager.client.send_command(
                 Command(command=CommandType.CAPTURE_END, data={"token": token})
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("Failed to end capture for hardware_id=%s: %s", hardware_id, exc)
+            return {"status": "error", "message": "Daemon unavailable"}
+        if result.status != "ok":
+            return {"status": "error", "message": result.error or "Failed to end capture"}
+        manager.capture_state.tokens.pop(hardware_id, None)
     return await _end_capture(manager, hardware_id)
 
 

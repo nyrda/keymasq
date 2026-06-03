@@ -1100,6 +1100,7 @@ async def test_list_macros_include_slots_syncs_slots_from_daemon() -> None:
     assert macros[0]["name"] == "stored"
     assert macros[1]["kind"] == "recording_slot"
     assert macros[1]["recording_slot"] == 3
+    assert macros[1]["playable"] is True
 
 
 @pytest.mark.asyncio
@@ -1994,6 +1995,21 @@ async def test_begin_capture_default_lifetime_survives_request_writer_disconnect
 
 
 @pytest.mark.asyncio
+async def test_capture_end_keeps_token_when_daemon_end_fails() -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.capture_state.tokens[hardware_id] = "token-1"
+    manager.capture_state.locks.add(hardware_id)
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("daemon down"))
+
+    result = await session_recording_module.capture_end(manager, hardware_id)
+
+    assert result == {"status": "error", "message": "Daemon unavailable"}
+    assert manager.capture_state.tokens[hardware_id] == "token-1"
+    assert hardware_id in manager.capture_state.locks
+
+
+@pytest.mark.asyncio
 async def test_begin_capture_with_paths_uses_configured_interfaces_when_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2282,6 +2298,40 @@ async def test_save_recording_keeps_pending_macro_save_slot(
         "start_y": 200,
         "block_mouse_movement": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_save_recording_rejects_empty_sanitized_macro_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.recording_state.pending_data = {
+        "pending_recording_id": "recording-1",
+        "duration_ms": 10,
+    }
+    manager.recording_state.pending_save_token = "pending-1"
+    manager.client.send_command = AsyncMock()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    grant_recording_refresh_owner(manager, peer, writer, monkeypatch)
+
+    result = await manager._handle_session_request(
+        {
+            "command": "save_recording",
+            "name": "!!!",
+            "pending_save_token": "pending-1",
+        },
+        "client",
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result == {
+        "status": "error",
+        "error_code": "invalid_macro_name",
+        "message": "Macro name is invalid or empty",
+    }
+    manager.client.send_command.assert_not_awaited()
 
 
 @pytest.mark.asyncio

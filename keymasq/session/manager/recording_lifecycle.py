@@ -816,7 +816,11 @@ async def save_recording(
 ) -> JsonObject:
     safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", name).strip("._")
     if not safe_name:
-        raise ValueError("Invalid macro name")
+        return {
+            "status": "error",
+            "error_code": "invalid_macro_name",
+            "message": "Macro name is invalid or empty",
+        }
 
     slot = pending_macro_save_slot(
         manager,
@@ -877,6 +881,8 @@ def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]
         duration_us = int_value(data.get("duration_us"), duration_ms * 1000)
         device_types = [str(value) for value in json_list(data.get("device_types"))]
         event_count = int_value(data.get("event_count"), 0)
+        pending = True
+        playable = bool(pending or token)
         out.append(
             {
                 "kind": "recording_slot",
@@ -884,9 +890,9 @@ def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]
                 "display_name": f"Slot {slot}",
                 "recording_slot": int(slot),
                 "pending_save_token": token,
-                "pending": True,
+                "pending": pending,
                 "editable": False,
-                "playable": False,
+                "playable": playable,
                 "duration_us": duration_us,
                 "duration_ms": duration_ms,
                 "device_types": device_types,

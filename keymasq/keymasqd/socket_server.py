@@ -388,7 +388,7 @@ class SocketServer:
 
             await self._wait_writer_closed(writer, context)
         except Exception:
-            pass
+            log.debug("Failed while disconnecting daemon client", exc_info=True)
 
         if self.disconnect_handler and not is_owner and not self.clients:
             await self.disconnect_handler()
@@ -397,7 +397,7 @@ class SocketServer:
         try:
             writer.close()
         except Exception:
-            pass
+            log.debug("Failed to request daemon client writer close", exc_info=True)
 
     async def _wait_writer_closed(
         self,
@@ -422,6 +422,6 @@ class SocketServer:
                 try:
                     transport.abort()
                 except Exception:
-                    pass
+                    log.debug("Failed to abort daemon client transport", exc_info=True)
         except Exception:
-            pass
+            log.debug("Failed while waiting for daemon client socket to close", exc_info=True)

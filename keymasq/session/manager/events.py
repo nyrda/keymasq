@@ -360,21 +360,21 @@ async def handle_stop_macro_trigger(
             recording_slot=recording_slot or active_slot,
         )
     except Exception:
-        pass
+        log.debug("Failed to handle stop macro recording trigger", exc_info=True)
 
 
 async def handle_cancel_macro_trigger(manager: "SessionManager") -> None:
     try:
         await manager.client.send_command(Command(command=CommandType.CANCEL_MACRO_PLAYBACK))
     except Exception:
-        pass
+        log.debug("Failed to send cancel macro playback trigger", exc_info=True)
 
 
 async def handle_emergency_reset_trigger(manager: "SessionManager") -> None:
     try:
         await manager.client.send_command(Command(command=CommandType.EMERGENCY_RESET))
     except Exception:
-        pass
+        log.debug("Failed to send emergency reset trigger", exc_info=True)
 
 
 async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) -> None:
@@ -599,7 +599,7 @@ async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> No
                 )
             )
         except Exception:
-            pass
+            log.debug("Failed to report macro exec completion", exc_info=True)
         return
 
     if is_async:

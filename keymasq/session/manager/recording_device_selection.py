@@ -171,7 +171,7 @@ async def refresh_recording_devices_cache(manager: "SessionManager") -> None:
         manager.recording_state.devices_cache_ready = True
         update_selected_recording_devices_cache(manager)
     except Exception:
-        pass
+        log.debug("Failed to refresh recording devices cache", exc_info=True)
 
 
 def update_selected_recording_devices_cache(manager: "SessionManager") -> None:

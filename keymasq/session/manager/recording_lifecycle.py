@@ -709,7 +709,7 @@ async def start_recording(
                     recording_slot=slot,
                 )
         except Exception:
-            pass
+            log.debug("Failed to stop active recording before starting a new one", exc_info=True)
         manager.recording_state.active = False
         manager.recording_state.active_slot = 0
         _clear_active_recording_owner(manager)

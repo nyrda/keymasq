@@ -46,7 +46,7 @@ class KeymasqdClient:
             try:
                 await writer.wait_closed()
             except Exception:
-                pass
+                log.debug("Failed while closing daemon client writer", exc_info=True)
 
         self.reader = None
         self.writer = None
@@ -133,6 +133,6 @@ class KeymasqdClient:
             try:
                 writer.close()
             except Exception:
-                pass
+                log.debug("Failed to close daemon client writer after disconnect", exc_info=True)
 
         self._disconnected_event.set()

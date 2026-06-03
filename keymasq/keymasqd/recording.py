@@ -180,7 +180,7 @@ class RecordingManager:
             async for event in device.async_read_loop():
                 self.record_event(classify_event_device_type(event, device_types), event)
         except Exception:
-            pass
+            log.debug("Extra recording device reader stopped after error", exc_info=True)
 
     async def stop(self) -> RecordingPayload:
         was_recording = not self._stopped
@@ -198,7 +198,7 @@ class RecordingManager:
             try:
                 device.close()
             except Exception:
-                pass
+                log.debug("Failed to close extra recording device", exc_info=True)
         self._extra_devices = []
         self._record_grabbed_source_keys = set()
         recording_slot = int(self._recording_slot)

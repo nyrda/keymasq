@@ -497,7 +497,7 @@ async def resolve_unlock_status_async(
     if manager.connected:
         try:
             response = await manager.client.send_command(
-                Command(CommandType.RECORDING_UNLOCK_STATUS),
+                Command(CommandType.RECORDING_UNLOCK_STATUS, data={"uid": int(uid)}),
                 timeout=3.0,
             )
         except Exception as exc:
@@ -527,7 +527,7 @@ async def resolve_macro_recording_status_async(
     if manager.connected:
         try:
             response = await manager.client.send_command(
-                Command(CommandType.MACRO_RECORDING_STATUS),
+                Command(CommandType.MACRO_RECORDING_STATUS, data={"uid": int(uid)}),
                 timeout=3.0,
             )
         except Exception as exc:

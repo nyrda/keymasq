@@ -68,7 +68,7 @@ scenarios when chasing flakes:
 
 ```bash
 ./scripts/integration.sh daemon-session --scenario hotplug-replug
-./scripts/integration.sh --scenario profile-lifetime-direct-actions,hotplug-replug --repeat 10
+./scripts/integration.sh daemon-session --scenario profile-lifetime-direct-actions,hotplug-replug --repeat 10
 ```
 
 This is equivalent to running the Nix check directly:

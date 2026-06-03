@@ -161,7 +161,10 @@ async def run_compositor_setup_action(
 
 
 async def get_active_window_payload(manager: "SessionManager") -> JsonObject:
+    previous_window = dict(manager.compositor_state.current_window)
     window_info = await refresh_current_window_from_listener(manager)
+    if previous_window != manager.compositor_state.current_window:
+        await runtime_profiles.reevaluate_profiles(manager, reason="active window changed")
     if window_info is not None:
         return {"status": "ok", **window_info}
 
@@ -416,9 +419,11 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     manager.compositor_state.listener_retry_after.pop(compositor_id, None)
     manager.compositor_state.listener_last_error.pop(compositor_id, None)
     manager.compositor_state.listener_last_log_at.pop(compositor_id, None)
-    window_refreshed = await refresh_current_window_from_listener(manager)
+    previous_window = dict(manager.compositor_state.current_window)
+    await refresh_current_window_from_listener(manager)
+    window_changed = previous_window != manager.compositor_state.current_window
     listener_changed = not had_listener
-    if binding_changed or listener_changed or window_cleared or window_refreshed is not None:
+    if binding_changed or listener_changed or window_cleared or window_changed:
         await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
 
     if previous != compositor_id:

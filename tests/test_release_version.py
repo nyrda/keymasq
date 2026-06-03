@@ -111,7 +111,11 @@ def test_release_version_refreshes_same_version_dated_metadata(
             encoding="utf-8"
         )
     )
+    assert "## 1.2.3 - 2026-05-31" in (tmp_path / "CHANGELOG.md").read_text(
+        encoding="utf-8"
+    )
     output = capsys.readouterr().out
+    assert "Updated: CHANGELOG.md" in output
     assert "Updated: debian/changelog" in output
     assert "Updated: assets/tools.keymasq.keymasq.metainfo.xml" in output
 
@@ -123,9 +127,7 @@ def test_rewrite_changelog_refreshes_dated_release_header(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    changed = script._rewrite_changelog(
-        tmp_path, "1.2.3", "2026-06-01", "1.2.2", dry_run=False
-    )
+    changed = script._rewrite_changelog(tmp_path, "1.2.3", "2026-06-01", dry_run=False)
 
     assert changed is True
     assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == (
@@ -140,9 +142,7 @@ def test_rewrite_changelog_stamps_undated_release_header(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    changed = script._rewrite_changelog(
-        tmp_path, "1.2.3", "2026-06-01", "1.2.2", dry_run=False
-    )
+    changed = script._rewrite_changelog(tmp_path, "1.2.3", "2026-06-01", dry_run=False)
 
     assert changed is True
     assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == (

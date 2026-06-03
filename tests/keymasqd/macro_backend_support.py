@@ -3,10 +3,6 @@ from typing import cast
 import evdev
 
 import keymasq.keymasqd.device_manager as dm
-from keymasq.common.models import (
-    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
-    normalize_macro_loop_stop_behavior,
-)
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import macros as mdm
 
@@ -22,12 +18,6 @@ class FakeRecorder:
 
 async def play_macro_task_helper(manager: DeviceManager, **kwargs: object) -> None:
     instance_id = int(kwargs["instance_id"])
-    loop_stop_behavior = normalize_macro_loop_stop_behavior(
-        kwargs.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
-    )
-    manager.macro_state.instance_meta.setdefault(instance_id, {})[
-        "loop_stop_behavior"
-    ] = loop_stop_behavior
     await mdm.play_macro_task(
         manager,
         instance_id=instance_id,

@@ -237,8 +237,7 @@ def _category_for_test_path(item_path: Path) -> str | None:
         subtree = parts[tests_index + 1]
         if subtree in _CATEGORY_SUBTREES:
             return subtree
-        if "tests" in parts[:tests_index]:
-            return _CATEGORY_BY_FILE.get(item_path.name)
+        return _CATEGORY_BY_FILE.get(item_path.name)
     return None
 
 

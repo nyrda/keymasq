@@ -267,11 +267,13 @@ class Daemon:
             return {"pong": True}
 
         if command_type == CommandType.MACRO_RECORDING_STATUS:
-            uid = int(client.uid) if client is not None else int_like(data.get("uid"), os.getuid())
+            fallback_uid = int(client.uid) if client is not None else os.getuid()
+            uid = int_like(data.get("uid"), fallback_uid)
             return cast(JsonObject, await asyncio.to_thread(resolve_macro_recording_status, uid))
 
         if command_type == CommandType.RECORDING_UNLOCK_STATUS:
-            uid = int(client.uid) if client is not None else int_like(data.get("uid"), os.getuid())
+            fallback_uid = int(client.uid) if client is not None else os.getuid()
+            uid = int_like(data.get("uid"), fallback_uid)
             return cast(JsonObject, await asyncio.to_thread(resolve_unlock_status, uid))
 
         macro_result = await daemon_macro_commands.handle_macro_command(

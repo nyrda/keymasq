@@ -871,10 +871,19 @@ class MainWindow(Adw.ApplicationWindow):
     def macro_recording_enabled(self) -> bool:
         return bool(self._macro_recording_enabled)
 
-    def _refresh_macro_recording_state_from_session(self) -> None:
-        status = session_request({"command": "get_status"}, timeout=1.0)
-        if isinstance(status, dict):
-            self._update_macro_recording_state(status)
+    def _refresh_macro_recording_state_from_session(
+        self,
+        on_status: Callable[[dict | None], None] | None = None,
+    ) -> None:
+        def _on_status(status: dict | None) -> bool:
+            status_data = status if isinstance(status, dict) else None
+            if status_data is not None:
+                self._update_macro_recording_state(status_data)
+            if on_status is not None:
+                on_status(status_data)
+            return False
+
+        session_request_async({"command": "get_status"}, _on_status, timeout=1.0)
 
     def emergency_cancel_combo_enabled(self) -> bool:
         return bool(self._emergency_cancel_combo_enabled)
@@ -1661,49 +1670,53 @@ class MainWindow(Adw.ApplicationWindow):
         self._start_recording_unlock(on_success=on_success)
 
     def present_macro_recording_enable_dialog(self, on_success=None) -> None:
-        self._refresh_macro_recording_state_from_session()
-        if self._macro_recording_enabled:
-            if callable(on_success):
-                on_success()
-            return
+        def _after_refresh(_status: dict | None) -> None:
+            if self._macro_recording_enabled:
+                if callable(on_success):
+                    on_success()
+                return
 
-        dialog = Adw.AlertDialog(
-            heading="Enable Macro Recording",
-            body=(
-                "Macro recording is disabled until you opt in. Enabling it allows "
-                "recording triggers and the Macro Manager record button to create "
-                "temporary recording slots."
-            ),
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("enable", "Enable")
-        dialog.set_default_response("enable")
-        dialog.set_close_response("cancel")
-        dialog.set_response_appearance("enable", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", self._on_macro_recording_enable_response, on_success)
-        dialog.present(self)
+            dialog = Adw.AlertDialog(
+                heading="Enable Macro Recording",
+                body=(
+                    "Macro recording is disabled until you opt in. Enabling it allows "
+                    "recording triggers and the Macro Manager record button to create "
+                    "temporary recording slots."
+                ),
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("enable", "Enable")
+            dialog.set_default_response("enable")
+            dialog.set_close_response("cancel")
+            dialog.set_response_appearance("enable", Adw.ResponseAppearance.SUGGESTED)
+            dialog.connect("response", self._on_macro_recording_enable_response, on_success)
+            dialog.present(self)
+
+        self._refresh_macro_recording_state_from_session(_after_refresh)
 
     def present_macro_recording_disable_dialog(self, on_success=None) -> None:
-        self._refresh_macro_recording_state_from_session()
-        if not self._macro_recording_enabled:
-            if callable(on_success):
-                on_success()
-            return
+        def _after_refresh(_status: dict | None) -> None:
+            if not self._macro_recording_enabled:
+                if callable(on_success):
+                    on_success()
+                return
 
-        dialog = Adw.AlertDialog(
-            heading="Disable Macro Recording",
-            body=(
-                "This turns off macro recording opt-in. Existing saved macros can still "
-                "be played."
-            ),
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("disable", "Disable")
-        dialog.set_default_response("cancel")
-        dialog.set_close_response("cancel")
-        dialog.set_response_appearance("disable", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.connect("response", self._on_macro_recording_disable_response, on_success)
-        dialog.present(self)
+            dialog = Adw.AlertDialog(
+                heading="Disable Macro Recording",
+                body=(
+                    "This turns off macro recording opt-in. Existing saved macros can still "
+                    "be played."
+                ),
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("disable", "Disable")
+            dialog.set_default_response("cancel")
+            dialog.set_close_response("cancel")
+            dialog.set_response_appearance("disable", Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.connect("response", self._on_macro_recording_disable_response, on_success)
+            dialog.present(self)
+
+        self._refresh_macro_recording_state_from_session(_after_refresh)
 
     def _on_quit_clicked(self, _button: Gtk.Button) -> None:
         self.get_application().quit()

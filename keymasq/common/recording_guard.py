@@ -110,10 +110,12 @@ def _resolve_status_from_paths(
 
 def _path_exists_unreadable(path: Path) -> bool:
     try:
-        path.stat()
+        path_stat = path.stat()
     except FileNotFoundError:
         return False
     except OSError:
+        return True
+    if not stat.S_ISREG(path_stat.st_mode):
         return True
     return not os.access(path, os.R_OK)
 

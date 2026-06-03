@@ -348,7 +348,16 @@ class MacroManagerDialog(Adw.Dialog):
             self._show_macro_load_error(result.get("message", "Failed to load macros"))
             return False
 
-        self._macros = cast(list[JsonDict], macros)
+        validated_macros: list[JsonDict] = []
+        for index, macro in enumerate(macros):
+            if not isinstance(macro, dict) or not isinstance(macro.get("name"), str):
+                self._show_macro_load_error(
+                    f"Invalid macro entry at index {index}: expected an object with a name"
+                )
+                return False
+            validated_macros.append(cast(JsonDict, macro))
+
+        self._macros = validated_macros
         self._populate_list()
         return True
 

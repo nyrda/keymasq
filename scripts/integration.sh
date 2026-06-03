@@ -259,7 +259,7 @@ for index in "${!resolved_tests[@]}"; do
     echo "integration: ${test} scenarios=${scenario_filter:-all} repeat=${run_count} -> ${target}"
     (
       export KEYMASQ_INTEGRATION_SCENARIOS="$scenario_filter"
-      export KEYMASQ_INTEGRATION_REPEAT="$repeat_count"
+      export KEYMASQ_INTEGRATION_REPEAT="${repeat_count:-$run_count}"
       build_or_rebuild "$target" "$repeat_requested" "${nix_args[@]}"
     )
   else

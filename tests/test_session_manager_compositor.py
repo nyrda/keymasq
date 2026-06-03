@@ -152,6 +152,62 @@ async def test_refresh_current_window_clears_stale_window_on_empty_listener_data
 
 
 @pytest.mark.asyncio
+async def test_get_active_window_reevaluates_when_listener_updates_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.compositor_state.window_listener = SimpleNamespace(
+        get_active_window=AsyncMock(return_value=("steam", "Game", ["fullscreen"]))
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.runtime_profiles,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    result = await session_compositor_module.get_active_window_payload(manager)
+
+    assert result == {
+        "status": "ok",
+        "class": "steam",
+        "title": "Game",
+        "tags": ["fullscreen"],
+    }
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="active window changed")
+
+
+@pytest.mark.asyncio
+async def test_get_active_window_reevaluates_when_listener_clears_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.compositor_state.window_listener = SimpleNamespace(
+        get_active_window=AsyncMock(return_value=("", "", []))
+    )
+    manager.compositor_state.current_window = {
+        "class": "Game",
+        "title": "stale",
+        "tags": [],
+    }
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.runtime_profiles,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    result = await session_compositor_module.get_active_window_payload(manager)
+
+    assert result == {
+        "status": "error",
+        "message": "Active window is unavailable on this compositor",
+    }
+    assert manager.compositor_state.current_window == {}
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="active window changed")
+
+
+@pytest.mark.asyncio
 async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -95,11 +95,20 @@ def test_resolve_unlock_status_marks_existing_unreadable_lease(
 
     runtime_path = runtime_dir / "recording-unlock-1000"
     runtime_path.write_text("105\n", encoding="utf-8")
-    runtime_path.chmod(0)
-    try:
-        status = recording_guard.resolve_unlock_status(1000, now=100)
-    finally:
-        runtime_path.chmod(0o600)
+    original_read_text = Path.read_text
+
+    def read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == runtime_path:
+            raise PermissionError("permission denied")
+        return original_read_text(path, *args, **kwargs)
+
+    def access(path: object, mode: int) -> bool:
+        return Path(path) != runtime_path
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(recording_guard.os, "access", access)
+
+    status = recording_guard.resolve_unlock_status(1000, now=100)
 
     assert status == {
         "unlocked": False,

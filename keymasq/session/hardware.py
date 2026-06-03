@@ -393,15 +393,22 @@ class HardwareManager:
 
         path = entry.path
 
-        if path.exists():
-            if not self._storage_path_matches_hardware_id(path, hardware_id):
+        if not path.exists():
+            resolved_path = self._existing_path_for_hardware_id(hardware_id)
+            if resolved_path is None:
                 del self._cache[hardware_id]
+                log.info(f"Dropped stale hardware cache entry: {hardware_id}")
                 return False
-            try:
-                path.unlink()
-            except Exception as e:
-                log.error(f"Failed to delete {path}: {e}")
-                return False
+            path = resolved_path
+
+        if not self._storage_path_matches_hardware_id(path, hardware_id):
+            del self._cache[hardware_id]
+            return False
+        try:
+            path.unlink()
+        except Exception as e:
+            log.error(f"Failed to delete {path}: {e}")
+            return False
 
         del self._cache[hardware_id]
         log.info(f"Deleted hardware config: {hardware_id}")

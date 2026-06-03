@@ -261,7 +261,7 @@ async def test_macro_recording_status_prefers_daemon_when_connected() -> None:
     assert result == {"unlocked": True, "source": "persistent", "expires_at": 0}
     sent_command = manager.client.send_command.await_args.args[0]
     assert sent_command.command == CommandType.MACRO_RECORDING_STATUS
-    assert sent_command.data == {}
+    assert sent_command.data == {"uid": 1000}
 
 
 @pytest.mark.asyncio
@@ -322,7 +322,7 @@ async def test_recording_unlock_status_prefers_daemon_when_connected() -> None:
     assert result == {"unlocked": True, "source": "runtime", "expires_at": 123}
     sent_command = manager.client.send_command.await_args.args[0]
     assert sent_command.command == CommandType.RECORDING_UNLOCK_STATUS
-    assert sent_command.data == {}
+    assert sent_command.data == {"uid": 1000}
 
 
 @pytest.mark.asyncio

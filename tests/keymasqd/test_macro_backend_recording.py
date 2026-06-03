@@ -646,10 +646,14 @@ async def test_play_macro_can_skip_stored_lookup_for_empty_explicit_events() -> 
 
 
 @pytest.mark.asyncio
-async def test_play_macro_task_helper_preserves_loop_stop_behavior(
+async def test_play_macro_task_helper_uses_existing_loop_stop_behavior_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = DeviceManager()
+    manager.macro_state.instance_meta[1] = {"loop_stop_behavior": "cancel_run"}
+    manager.macro_state.instance_meta[2] = {
+        "loop_stop_behavior": DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+    }
     observed: list[str] = []
 
     async def fake_play_macro_task(
@@ -678,7 +682,6 @@ async def test_play_macro_task_helper_preserves_loop_stop_behavior(
     await play_macro_task_helper(
         manager,
         instance_id=1,
-        loop_stop_behavior="cancel_run",
         **base_kwargs,
     )
     await play_macro_task_helper(

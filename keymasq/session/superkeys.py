@@ -2,7 +2,7 @@ import logging
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import BinaryIO, cast
 
 import tomli_w
 
@@ -24,6 +24,7 @@ from keymasq.common.models import (
     resolve_rapidfire_fields,
     superkey_action_to_mapping_action,
 )
+from keymasq.session.config_files import write_config_atomically
 from keymasq.session.config_loading import ConfigLoadError, ConfigLoadFailure
 
 log = logging.getLogger("keymasq-session.superkeys")
@@ -426,8 +427,10 @@ class SuperkeyManager:
         if actions:
             data["actions"] = actions
 
-        with open(path, "wb") as f:
-            tomli_w.dump(data, f)
+        def write_config(config_file: BinaryIO) -> None:
+            tomli_w.dump(data, config_file)
+
+        write_config_atomically(path, write_config)
 
         self._superkeys[config.name] = config
         self._superkey_paths[config.name] = path

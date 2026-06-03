@@ -305,6 +305,35 @@ def test_hardware_manager_delete_ignores_stale_cached_path(
     assert HardwareManager().get_hardware("9999:0001") is not None
 
 
+def test_hardware_manager_delete_re_resolves_missing_cached_path(
+    temp_config_dir,
+) -> None:
+    hardware_dir = temp_config_dir / "hardware"
+    custom_path = hardware_dir / "custom.toml"
+    canonical_path = hardware_dir / "1234_5678.toml"
+    _write_minimal_hardware_config(custom_path, name="Custom Mouse")
+    manager = HardwareManager()
+    custom_path.unlink()
+    _write_minimal_hardware_config(canonical_path, name="Canonical Mouse")
+
+    assert manager.delete_hardware("1234:5678") is True
+    assert not canonical_path.exists()
+    assert HardwareManager().get_hardware("1234:5678") is None
+
+
+def test_hardware_manager_delete_returns_false_for_only_stale_cached_path(
+    temp_config_dir,
+) -> None:
+    hardware_dir = temp_config_dir / "hardware"
+    custom_path = hardware_dir / "custom.toml"
+    _write_minimal_hardware_config(custom_path, name="Custom Mouse")
+    manager = HardwareManager()
+    custom_path.unlink()
+
+    assert manager.delete_hardware("1234:5678") is False
+    assert manager.get_hardware("1234:5678") is None
+
+
 def test_hardware_manager_preserves_keymasq_logical_path(temp_config_dir) -> None:
     manager = HardwareManager()
     config = HardwareConfig(

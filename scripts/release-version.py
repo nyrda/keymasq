@@ -68,13 +68,9 @@ def _build_rules(root: Path, version: str, release_date: str) -> list[RewriteRul
     return rules
 
 
-def _rewrite_changelog(
-    root: Path, version: str, release_date: str, current_version: str, dry_run: bool
-) -> bool:
+def _rewrite_changelog(root: Path, version: str, release_date: str, dry_run: bool) -> bool:
     path = root / "CHANGELOG.md"
     content = path.read_text(encoding="utf-8")
-    if current_version == version:
-        return False
 
     release_header = f"## {version} - {release_date}"
     release_pattern = re.compile(
@@ -246,7 +242,7 @@ def main() -> int:
         _build_rules(root, version, release_date),
         dry_run=args.dry_run,
     )
-    if _rewrite_changelog(root, version, release_date, current_version, dry_run=args.dry_run):
+    if _rewrite_changelog(root, version, release_date, dry_run=args.dry_run):
         changed_paths.append(Path("CHANGELOG.md"))
     if _rewrite_metainfo(root, version, release_date, dry_run=args.dry_run):
         changed_paths.append(Path("assets/tools.keymasq.keymasq.metainfo.xml"))

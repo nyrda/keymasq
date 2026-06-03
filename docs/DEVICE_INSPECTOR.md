@@ -49,7 +49,8 @@ the normal profile grab state again.
 
 Starting the inspector and enabling suppression are sensitive session commands
 when `[recording_guard].unlock_required = true`. They require the active GUI
-recording-unlock owner, just like macro recording and live input capture.
+that owns the capture unlock flow, just like macro recording and live input
+capture.
 
 The inspector force-grabs configured interfaces for the selected device while it
 is open so raw events can be observed even if the current profile has no mapping

@@ -41,7 +41,7 @@ async def test_set_diagnostics_forwards_categories(daemon_testbed):
 
 
 @pytest.mark.asyncio
-async def test_macro_recording_status_uses_peer_uid(daemon_testbed, monkeypatch):
+async def test_macro_recording_status_uses_requested_uid(daemon_testbed, monkeypatch):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     resolved_uids: list[int] = []
 
@@ -63,11 +63,11 @@ async def test_macro_recording_status_uses_peer_uid(daemon_testbed, monkeypatch)
     )
 
     assert result == {"unlocked": True, "source": "persistent", "expires_at": 0}
-    assert resolved_uids == [1000]
+    assert resolved_uids == [9999]
 
 
 @pytest.mark.asyncio
-async def test_recording_unlock_status_uses_peer_uid(daemon_testbed, monkeypatch):
+async def test_recording_unlock_status_uses_requested_uid(daemon_testbed, monkeypatch):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     resolved_uids: list[int] = []
 
@@ -89,7 +89,7 @@ async def test_recording_unlock_status_uses_peer_uid(daemon_testbed, monkeypatch
     )
 
     assert result == {"unlocked": True, "source": "runtime", "expires_at": 123}
-    assert resolved_uids == [1000]
+    assert resolved_uids == [9999]
 
 
 @pytest.mark.asyncio

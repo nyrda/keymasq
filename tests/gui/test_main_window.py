@@ -1008,16 +1008,16 @@ class TestMainWindow:
 
         requests: list[tuple[dict[str, object], float]] = []
 
-        def fake_session_request(payload, timeout=5.0):
+        def fake_session_request_async(payload, callback, timeout=5.0):
             requests.append((payload, timeout))
-            return {
+            callback({
                 "status": "ok",
                 "macro_recording_enabled": True,
                 "macro_recording_source": "persistent",
                 "macro_recording_expires_at": 0,
-            }
+            })
 
-        monkeypatch.setattr(window_module, "session_request", fake_session_request)
+        monkeypatch.setattr(window_module, "session_request_async", fake_session_request_async)
 
         window = MainWindow(demo_mode=True)
         requests.clear()

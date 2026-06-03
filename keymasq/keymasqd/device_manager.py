@@ -11,7 +11,7 @@ from typing import Any, Protocol, cast
 import evdev
 
 from keymasq.common import devices as common_devices
-from keymasq.common.coercion import int_or_none_value as _int_or_none
+from keymasq.common.coercion import int_or_none
 from keymasq.common.coercion import json_list as _json_list
 from keymasq.common.coercion import json_object as _json_object
 from keymasq.common.coercion import str_or_none as _optional_str
@@ -119,6 +119,10 @@ class _ManagedInputDevice(Protocol):
 
 
 ASYNCIO_RUNTIME = runtime_adapters.ASYNCIO_RUNTIME
+
+
+def _int_or_none(value: object) -> int | None:
+    return int_or_none(value, reject_bool=False)
 
 
 def _device_input(path: str) -> _ManagedInputDevice:

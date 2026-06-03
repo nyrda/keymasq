@@ -5,7 +5,7 @@ type JsonObject = dict[str, Any]
 type JsonObjectList = list[JsonObject]
 
 
-@dataclass
+@dataclass(init=False)
 class SyntheticInputEvent:
     type: int
     code: int

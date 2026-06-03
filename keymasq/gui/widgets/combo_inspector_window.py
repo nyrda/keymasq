@@ -11,7 +11,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.coercion import float_value_or_default as _float_value
-from keymasq.common.coercion import int_or_none_value as _int_or_none
+from keymasq.common.coercion import int_or_none as _int_or_none
 from keymasq.common.coercion import int_value_or_default as _int_value
 from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
@@ -476,7 +476,10 @@ def _snapshot_signature(snapshot: JsonDict) -> str:
             ]
             steps.append(
                 {
-                    "timeout_ms": _int_or_none(step_payload.get("timeout_ms")),
+                    "timeout_ms": _int_or_none(
+                        step_payload.get("timeout_ms"),
+                        reject_bool=False,
+                    ),
                     "events": events,
                 }
             )
@@ -561,7 +564,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
             search_parts.extend([evdev, hardware_id, source, device_name])
         if not events:
             continue
-        timeout_ms = _int_or_none(step_payload.get("timeout_ms"))
+        timeout_ms = _int_or_none(step_payload.get("timeout_ms"), reject_bool=False)
         if timeout_ms is not None:
             search_parts.append(f"{timeout_ms}ms")
         steps.append(ComboStep(events=events, timeout_ms=timeout_ms))

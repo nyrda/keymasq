@@ -4,7 +4,7 @@ from typing import BinaryIO
 
 import pytest
 
-from keymasq.session.config_files import write_config_atomically
+from keymasq.common.config_files import write_config_atomically
 
 
 def test_write_config_atomically_fsyncs_file_then_parent_directory(
@@ -104,3 +104,35 @@ def test_write_config_atomically_keeps_replaced_file_when_parent_fsync_fails(
     write_config_atomically(target_path, write_config)
 
     assert target_path.read_bytes() == b"name = \"Test\"\n"
+
+
+def test_write_config_atomically_exclusive_create_preserves_existing_file(
+    tmp_path: Path,
+) -> None:
+    target_path = tmp_path / "config.toml"
+    target_path.write_bytes(b'name = "Existing"\n')
+
+    def write_config(config_file: BinaryIO) -> None:
+        config_file.write(b'name = "Replacement"\n')
+
+    with pytest.raises(FileExistsError):
+        write_config_atomically(target_path, write_config, overwrite=False)
+
+    assert target_path.read_bytes() == b'name = "Existing"\n'
+    assert list(tmp_path.glob(f".{target_path.name}.*")) == []
+
+
+def test_write_config_atomically_exclusive_create_cleans_temp_on_write_failure(
+    tmp_path: Path,
+) -> None:
+    target_path = tmp_path / "config.toml"
+
+    def write_config(config_file: BinaryIO) -> None:
+        config_file.write(b'name = "Partial"\n')
+        raise OSError("disk full")
+
+    with pytest.raises(OSError, match="disk full"):
+        write_config_atomically(target_path, write_config, overwrite=False)
+
+    assert not target_path.exists()
+    assert list(tmp_path.glob(f".{target_path.name}.*")) == []

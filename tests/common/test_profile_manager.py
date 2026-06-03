@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import BinaryIO
 
 import pytest
 import tomli_w
 
+from keymasq.common import config_files as config_files_module
 from keymasq.common.models import (
     ActionType,
     ComboConfig,
@@ -94,6 +96,35 @@ class TestProfileManager:
         content = profile.path.read_text(encoding="utf-8")
         assert 'activation_macro = "game_enter"' in content
         assert 'deactivation_macro = "game_leave"' in content
+
+    def test_profile_failed_overwrite_preserves_existing_file_and_state(
+        self,
+        temp_config_dir,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = ProfileManager()
+        manager.save_profile(ProfileConfig(name="Saved Profile", enabled=True))
+        saved = manager.get_profile("Saved Profile")
+        assert saved is not None
+        original_content = saved.path.read_bytes()
+
+        def fail_dump(_data: object, config_file: BinaryIO) -> None:
+            config_file.write(b'[profile]\nname = "partial"\n')
+            raise OSError("disk full")
+
+        monkeypatch.setattr(config_files_module.tomli_w, "dump", fail_dump)
+
+        with pytest.raises(OSError, match="disk full"):
+            manager.save_profile(
+                ProfileConfig(name="Saved Profile", enabled=False),
+                path=saved.path,
+            )
+
+        loaded = manager.get_profile("Saved Profile")
+        assert saved.path.read_bytes() == original_content
+        assert loaded is not None
+        assert loaded.config.enabled is True
+        assert list((temp_config_dir / "profiles").glob(f".{saved.path.name}.*")) == []
 
     def test_profile_macro_action_accepts_macro_name_alias(self, temp_config_dir):
         _write_profile_toml(

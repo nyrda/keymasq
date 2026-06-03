@@ -7,8 +7,7 @@ from datetime import datetime
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
-import tomli_w
-
+from keymasq.common.config_files import write_toml_atomically
 from keymasq.common.devices import normalize_input_classes
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
@@ -1596,9 +1595,7 @@ def save_recording_settings_to_disk(
             },
         }
 
-        manager.RECORDING_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with manager.RECORDING_SETTINGS_PATH.open("wb") as f:
-            tomli_w.dump(data, f)
+        write_toml_atomically(manager.RECORDING_SETTINGS_PATH, data)
     except Exception:
         log.exception(
             "Failed to save recording settings to %s",

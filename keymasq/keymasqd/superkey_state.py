@@ -440,7 +440,7 @@ class SuperkeyMachine:
                     await self._execute_action_up(action)
                     await asyncio.sleep(wait)
         except Exception:
-            pass
+            log.debug("Rapidfire loop stopped after error", exc_info=True)
         finally:
             current_task = asyncio.current_task()
             if current_task is not None:

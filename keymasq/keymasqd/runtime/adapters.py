@@ -1,10 +1,13 @@
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from typing import Final, Protocol, TypeVar, cast
 
 import evdev
 
 _T = TypeVar("_T")
+
+log = logging.getLogger("keymasqd.runtime.adapters")
 
 
 class WritableUInput(Protocol):
@@ -85,7 +88,7 @@ def close_device(device: object) -> None:
     try:
         close()
     except Exception:
-        pass
+        log.debug("Failed to close evdev-style device", exc_info=True)
 
 
 class _ComboEcodesByType(Mapping[int, Mapping[int, object]]):

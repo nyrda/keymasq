@@ -1,3 +1,5 @@
+import logging
+
 from keymasq.session.wayland_protocols import client_transport as _transport
 from keymasq.session.wayland_protocols.ext_foreign_toplevel_list import (
     ExtForeignToplevelListTracker,
@@ -16,6 +18,8 @@ _pack_uint = _transport.pack_uint
 _encode_string = _transport.encode_string
 _decode_array = _transport.decode_array
 _decode_uint_array = _transport.decode_uint_array
+
+log = logging.getLogger("keymasq-session.wayland.cosmic_toplevel_info")
 
 
 class CosmicToplevelInfoWaylandClient(ExtForeignToplevelListClientBase):
@@ -108,7 +112,7 @@ class CosmicToplevelInfoWaylandClient(ExtForeignToplevelListClientBase):
         try:
             await self._send_request(object_id, 0, b"")
         except Exception:
-            pass
+            log.debug("Failed to destroy COSMIC toplevel info handle", exc_info=True)
         self._objects.pop(object_id, None)
         self._cosmic_handles.discard(object_id)
         ext_id = self._cosmic_to_ext.pop(object_id, None)

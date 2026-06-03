@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Protocol, cast
 
 import evdev
 
 from keymasq.common.devices import resolve_evdev_event_type
 from keymasq.common.gamepad_axes import gamepad_axis_range, normalize_gamepad_axis_target
+
+log = logging.getLogger("keymasqd.output_helpers")
 
 
 class _WritableUInput(Protocol):
@@ -100,4 +103,4 @@ def emit_mouse_move(
         uinput_dev.write(evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, int(move_y))
         uinput_dev.syn()
     except Exception:
-        pass
+        log.debug("Failed to emit mouse movement", exc_info=True)

@@ -324,11 +324,11 @@ class CaptureManager:
                 try:
                     device.ungrab()
                 except Exception:
-                    pass
+                    log.debug("Failed to ungrab capture device during capture end", exc_info=True)
             try:
                 device.close()
             except Exception:
-                pass
+                log.debug("Failed to close capture device during capture end", exc_info=True)
 
         log.info("Ended capture %s hardware_id=%s", token, session.hardware_id)
         return {"status": "ok", "ended": True}

@@ -1,3 +1,4 @@
+import logging
 import struct
 
 from keymasq.session.wayland_protocols import client_transport as _transport
@@ -12,6 +13,8 @@ _encode_string = _transport.encode_string
 _decode_string = _transport.decode_string
 _decode_array = _transport.decode_array
 _decode_uint_array = _transport.decode_uint_array
+
+log = logging.getLogger("keymasq-session.wayland.wlr_foreign_toplevel")
 
 
 class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
@@ -42,7 +45,7 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
                 try:
                     await self._send_request(self._manager_id, 0, b"")
                 except Exception:
-                    pass
+                    log.debug("Failed to destroy wlr foreign toplevel manager", exc_info=True)
                 self._objects.pop(self._manager_id, None)
                 self._manager_id = None
             self._close_socket()
@@ -101,7 +104,7 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
         try:
             await self._send_request(object_id, 7, b"")
         except Exception:
-            pass
+            log.debug("Failed to destroy wlr foreign toplevel handle", exc_info=True)
         self._objects.pop(object_id, None)
         self._toplevel_handles.discard(object_id)
 

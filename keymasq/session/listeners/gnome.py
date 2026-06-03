@@ -224,7 +224,8 @@ class GnomeListener(WindowListener):
         proc_dir = "/proc"
         try:
             entries = os.listdir(proc_dir)
-        except Exception:
+        except OSError:
+            log.debug("Unable to list processes while probing GNOME Shell", exc_info=True)
             return False
 
         for entry in entries:
@@ -234,7 +235,8 @@ class GnomeListener(WindowListener):
             try:
                 if os.stat(base).st_uid != uid:
                     continue
-            except Exception:
+            except OSError:
+                log.debug("Skipping process while probing GNOME Shell", exc_info=True)
                 continue
 
             comm_path = os.path.join(base, "comm")
@@ -244,16 +246,19 @@ class GnomeListener(WindowListener):
                     comm = handle.read().strip().lower()
                 if comm == "gnome-shell":
                     return True
-            except Exception:
-                pass
+            except OSError:
+                log.debug("Unable to read process comm while probing GNOME Shell", exc_info=True)
 
             try:
                 with open(cmdline_path, "rb") as handle:
                     raw = handle.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
                 if "gnome-shell" in raw.lower():
                     return True
-            except Exception:
-                pass
+            except OSError:
+                log.debug(
+                    "Unable to read process cmdline while probing GNOME Shell",
+                    exc_info=True,
+                )
         return False
 
     @classmethod
@@ -458,7 +463,7 @@ class GnomeListener(WindowListener):
                 self._writer.close()
                 await self._writer.wait_closed()
             except Exception:
-                pass
+                log.debug("Failed while closing GNOME bridge writer", exc_info=True)
             self._writer = None
 
         if self._server is not None:
@@ -515,7 +520,7 @@ class GnomeListener(WindowListener):
                 self._writer.close()
                 await self._writer.wait_closed()
             except Exception:
-                pass
+                log.debug("Failed while replacing GNOME bridge writer", exc_info=True)
 
         self._writer = writer
         self._bridge_protocol = None
@@ -546,7 +551,7 @@ class GnomeListener(WindowListener):
         except asyncio.CancelledError:
             raise
         except Exception:
-            pass
+            log.debug("GNOME bridge read loop stopped after error", exc_info=True)
         finally:
             if self._writer is writer:
                 self._writer = None
@@ -560,7 +565,7 @@ class GnomeListener(WindowListener):
                 writer.close()
                 await writer.wait_closed()
             except Exception:
-                pass
+                log.debug("Failed while closing GNOME bridge client writer", exc_info=True)
 
     async def _handle_bridge_message(self, payload: JsonObject) -> None:
         msg_type = _str_value(payload.get("type"), "")

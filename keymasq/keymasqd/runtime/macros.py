@@ -766,7 +766,7 @@ def release_macro_held_for_instance(
         try:
             syn_if_passthrough_frame_closed(raw_uinput, writer)
         except Exception:
-            pass
+            deps.log.debug("Failed to synchronize macro cleanup outputs", exc_info=True)
 
 
 def acquire_macro_mouse_inhibit(

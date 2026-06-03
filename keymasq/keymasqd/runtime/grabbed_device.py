@@ -370,11 +370,14 @@ class GrabbedDevice:
             try:
                 uinput.close()
             except Exception:
-                pass
+                log.debug("Failed to close uinput after failed grab", exc_info=True)
             try:
                 runtime_outputs.unregister_passthrough_frame_output(uinput)
             except Exception:
-                pass
+                log.debug(
+                    "Failed to unregister passthrough output after failed grab",
+                    exc_info=True,
+                )
         self.uinput = None
 
         device = self.device
@@ -382,7 +385,7 @@ class GrabbedDevice:
             try:
                 device.close()
             except Exception:
-                pass
+                log.debug("Failed to close input device after failed grab", exc_info=True)
         self.device = None
 
     async def grab(self) -> None:

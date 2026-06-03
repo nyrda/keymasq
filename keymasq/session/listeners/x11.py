@@ -247,7 +247,7 @@ class X11Listener(WindowListener):
                 try:
                     self._loop.remove_reader(self._display_fd)
                 except Exception:
-                    pass
+                    log.debug("Failed to remove X11 display reader", exc_info=True)
             self._fd_event = None
             self._loop = None
             self._display_fd = None
@@ -295,12 +295,12 @@ class X11Listener(WindowListener):
                         event_mask=int(getattr(X, "NoEventMask", 0))
                     )
                 except Exception:
-                    pass
+                    log.debug("Failed to clear X11 active window event mask", exc_info=True)
 
             try:
                 self._xdisplay.close()
             except Exception:
-                pass
+                log.debug("Failed to close X11 display", exc_info=True)
 
             self._xdisplay = None
             self._root = None
@@ -377,7 +377,7 @@ class X11Listener(WindowListener):
                     event_mask=int(getattr(X, "NoEventMask", 0))
                 )
             except Exception:
-                pass
+                log.debug("Failed to clear previous X11 active window event mask", exc_info=True)
 
         self._active_window = None
         self._active_window_id = None

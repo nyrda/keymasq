@@ -486,8 +486,8 @@ def device_has_mapped_buttons(
                 )
                 if code_name.lower() in mapped_evdev_names:
                     return True
-            except Exception:
-                pass
+            except (KeyError, TypeError):
+                log.debug("Unable to resolve evdev capability name", exc_info=True)
     return False
 
 

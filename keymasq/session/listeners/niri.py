@@ -270,7 +270,7 @@ class NiriListener(WindowListener):
             try:
                 await self.writer.wait_closed()
             except Exception:
-                pass
+                log.debug("Failed while closing Niri event writer", exc_info=True)
             self.writer = None
             self.reader = None
 
@@ -279,7 +279,7 @@ class NiriListener(WindowListener):
             try:
                 await self._cmd_writer.wait_closed()
             except Exception:
-                pass
+                log.debug("Failed while closing Niri command writer", exc_info=True)
             self._cmd_writer = None
             self._cmd_reader = None
 
@@ -728,7 +728,7 @@ class NiriListener(WindowListener):
                             cmd_writer.close()
                             await cmd_writer.wait_closed()
                     except Exception:
-                        pass
+                        log.debug("Failed while closing failed Niri command writer", exc_info=True)
                     self._cmd_reader = None
                     self._cmd_writer = None
             return False, None

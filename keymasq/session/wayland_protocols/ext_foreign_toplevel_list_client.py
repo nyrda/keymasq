@@ -1,3 +1,4 @@
+import logging
 import struct
 
 from keymasq.session.wayland_protocols import client_transport as _transport
@@ -11,6 +12,8 @@ EXT_FOREIGN_TOPLEVEL_HANDLE_INTERFACE = "ext_foreign_toplevel_handle_v1"
 _pack_uint = _transport.pack_uint
 _encode_string = _transport.encode_string
 _decode_string = _transport.decode_string
+
+log = logging.getLogger("keymasq-session.wayland.ext_foreign_toplevel")
 
 
 class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
@@ -43,7 +46,7 @@ class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
             try:
                 await self._send_request(self._list_id, 1, b"")
             except Exception:
-                pass
+                log.debug("Failed to destroy ext foreign toplevel list", exc_info=True)
             self._objects.pop(self._list_id, None)
             self._list_id = None
 
@@ -133,7 +136,7 @@ class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
         try:
             await self._send_request(object_id, 0, b"")
         except Exception:
-            pass
+            log.debug("Failed to destroy ext foreign toplevel handle", exc_info=True)
         self._objects.pop(object_id, None)
         self._toplevel_handles.discard(object_id)
 

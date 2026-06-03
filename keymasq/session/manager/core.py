@@ -275,7 +275,7 @@ class SessionManager:
                     Command(command=CommandType.CAPTURE_END, data={"token": token})
                 )
             except Exception:
-                pass
+                log.debug("Failed to end daemon capture during session shutdown", exc_info=True)
         self.capture_state.tokens.clear()
 
         await self.client.disconnect()
@@ -292,8 +292,8 @@ class SessionManager:
         if self._session_socket_owned and SESSION_SOCKET_PATH.exists():
             try:
                 SESSION_SOCKET_PATH.unlink()
-            except Exception:
-                pass
+            except OSError:
+                log.debug("Failed to remove owned session socket", exc_info=True)
             self._session_socket_owned = False
 
     async def _start_session_server(self) -> None:
@@ -305,8 +305,8 @@ class SessionManager:
                 raise RuntimeError(msg)
             try:
                 SESSION_SOCKET_PATH.unlink()
-            except Exception:
-                pass
+            except OSError:
+                log.debug("Failed to remove stale session socket", exc_info=True)
 
         self.session_server = await asyncio.start_unix_server(
             self._handle_session_client,
@@ -493,10 +493,12 @@ class SessionManager:
                 )
             transport = getattr(writer, "transport", None)
             if transport is not None:
-                with contextlib.suppress(Exception):
+                try:
                     transport.abort()
+                except Exception:
+                    log.debug("Failed to abort session client transport", exc_info=True)
         except Exception:
-            pass
+            log.debug("Failed while waiting for session client socket to close", exc_info=True)
 
     def _drop_session_client_writer(self, writer: asyncio.StreamWriter) -> None:
         self.session_clients.discard(writer)

@@ -63,10 +63,7 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last(
         manager,
         {"include_mouse_movement": True},
     )
-    first_save_task = cast(
-        asyncio.Task[None] | None,
-        manager.recording_state.settings_save_task,
-    )
+    first_save_task = manager.recording_state.settings_save_task
     assert first_save_task is not None
     await wait_for_event(stale_started, "stale settings save did not start")
 
@@ -75,10 +72,7 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last(
         {"include_mouse_movement": False, "include_mouse_clicks": True},
     )
 
-    current_save_task = cast(
-        asyncio.Task[None] | None,
-        manager.recording_state.settings_save_task,
-    )
+    current_save_task = manager.recording_state.settings_save_task
     if current_save_task is not first_save_task:
         await wait_for_event(latest_finished, "latest settings save did not finish")
     release_stale.set()
@@ -388,7 +382,7 @@ async def test_update_recording_settings_recomputes_selected_devices_cache() -> 
         device["recording_id"] for device in manager.recording_state.selected_devices_cache
     ] == ["keymasq:output:keyboard", "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse"]
 
-    save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
+    save_task = manager.recording_state.settings_save_task
     if save_task is not None:
         await save_task
 
@@ -427,7 +421,7 @@ async def test_update_recording_settings_prunes_stale_device_overrides() -> None
         "keymasq:output:keyboard": False
     }
 
-    save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
+    save_task = manager.recording_state.settings_save_task
     if save_task is not None:
         await save_task
 
@@ -459,7 +453,7 @@ async def test_update_recording_settings_preserves_overrides_when_cache_is_empty
         "physical:/dev/input/by-id/stale-mouse": True,
     }
 
-    save_task = cast(asyncio.Task[None] | None, manager.recording_state.settings_save_task)
+    save_task = manager.recording_state.settings_save_task
     if save_task is not None:
         await save_task
 
@@ -503,11 +497,11 @@ async def test_start_recording_replaces_pending_recording_in_selected_slot() -> 
         return Response(status="ok", data={"status": "ok"})
 
     manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
-    manager.recording_state.pending_data = {
-        "pending_recording_id": "recording-old",
-        "recording_slot": 1,
-    }
-    manager.recording_state.pending_save_token = "pending-1"
+    session_recording_module.begin_pending_macro_save(
+        manager,
+        {"pending_recording_id": "recording-old"},
+        recording_slot=1,
+    )
 
     result = await session_recording_module.start_recording(manager)
 
@@ -518,8 +512,8 @@ async def test_start_recording_replaces_pending_recording_in_selected_slot() -> 
     ]
     assert sent_commands[0].data["recording_slot"] == 1
     assert sent_commands[1].data == {"pending_recording_id": "recording-old"}
-    assert manager.recording_state.pending_data is None
-    assert manager.recording_state.pending_save_token is None
+    assert manager.recording_state.pending_slots == {}
+    assert manager.recording_state.pending_save is None
 
 
 @pytest.mark.asyncio

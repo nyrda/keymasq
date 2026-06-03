@@ -27,28 +27,38 @@ class CaptureRuntimeState:
 
 
 @dataclass
+class PendingSave:
+    data: JsonObject
+    token: str
+    owner_writer_id: int | None = None
+    owner_pid: int | None = None
+    owner_uid: int | None = None
+    created_at: float = 0.0
+
+
+@dataclass
+class PendingSlot:
+    data: JsonObject
+    token: str
+    owner_writer_id: int | None = None
+    owner_pid: int | None = None
+    owner_uid: int | None = None
+    created_at: float = 0.0
+
+
+@dataclass
 class RecordingRuntimeState:
     active: bool = False
     active_slot: int = 0
-    pending_data: JsonObject | None = None
-    pending_slots: dict[int, JsonObject] = field(default_factory=dict)
-    pending_slot_tokens: dict[int, str] = field(default_factory=dict)
-    pending_slot_owner_writer_ids: dict[int, int | None] = field(default_factory=dict)
-    pending_slot_owner_pids: dict[int, int | None] = field(default_factory=dict)
-    pending_slot_owner_uids: dict[int, int | None] = field(default_factory=dict)
-    pending_slot_created_at: dict[int, float] = field(default_factory=dict)
-    pending_save_token: str | None = None
-    pending_save_owner_writer_id: int | None = None
-    pending_save_owner_pid: int | None = None
-    pending_save_owner_uid: int | None = None
-    pending_save_created_at: float = 0.0
+    pending_slots: dict[int, PendingSlot] = field(default_factory=dict)
+    pending_save: PendingSave | None = None
     active_owner_writer_id: int | None = None
     active_owner_pid: int | None = None
     active_owner_uid: int | None = None
     start_cursor: tuple[int, int] | None = None
     settings: JsonObject = field(default_factory=default_recording_settings)
     settings_pending_save: JsonObject | None = None
-    settings_save_task: object | None = None
+    settings_save_task: asyncio.Task[None] | None = None
     devices_cache: list[JsonObject] = field(default_factory=list)
     selected_devices_cache: list[JsonObject] = field(default_factory=list)
     devices_cache_ready: bool = False

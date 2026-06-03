@@ -101,7 +101,7 @@ async def test_start_recording_keeps_pending_slot_when_daemon_start_fails() -> N
         "message": "recording_locked",
         "error_code": "recording_locked",
     }
-    assert manager.recording_state.pending_slots[1]["pending_recording_id"] == "recording-1"
+    assert manager.recording_state.pending_slots[1].data["pending_recording_id"] == "recording-1"
     sent_command = manager.client.send_command.await_args.args[0]
     assert sent_command.command == CommandType.START_RECORDING
 

@@ -232,7 +232,7 @@ class SessionManager:
                 await topology_task
             self.profile_state.topology_refresh_task = None
 
-        save_task = cast(asyncio.Task[None] | None, self.recording_state.settings_save_task)
+        save_task = self.recording_state.settings_save_task
         if save_task:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await save_task

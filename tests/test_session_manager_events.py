@@ -26,6 +26,129 @@ def _sent_daemon_commands(
 
 
 @pytest.mark.asyncio
+async def test_handle_event_dispatches_action_trigger_variants(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager(verbosity=1)
+    manager.exec_state.exec_refs[9] = ExecBinding(
+        cmd="echo hardware",
+        owner="combo",
+        hardware_id="1234:5678",
+    )
+    handlers = {
+        "start": AsyncMock(),
+        "stop": AsyncMock(),
+        "slot": AsyncMock(return_value={"status": "ok"}),
+        "cancel": AsyncMock(),
+        "reset": AsyncMock(),
+        "profile": AsyncMock(),
+    }
+    monkeypatch.setattr(session_events_module, "handle_start_macro_trigger", handlers["start"])
+    monkeypatch.setattr(session_events_module, "handle_stop_macro_trigger", handlers["stop"])
+    monkeypatch.setattr(
+        session_events_module.runtime_recording,
+        "play_macro_slot_trigger",
+        handlers["slot"],
+    )
+    monkeypatch.setattr(session_events_module, "handle_cancel_macro_trigger", handlers["cancel"])
+    monkeypatch.setattr(session_events_module, "handle_emergency_reset_trigger", handlers["reset"])
+    monkeypatch.setattr(session_events_module, "handle_profile_trigger", handlers["profile"])
+    manager.action_handler.execute_command = AsyncMock(return_value=0)
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session"):
+        for action_type in (
+            "start_macro_recording",
+            "stop_macro_recording",
+            "play_macro_slot",
+            "cancel_macro_playback",
+            "emergency_reset",
+            "profile_enable",
+        ):
+            await session_events_module.handle_event(
+                manager,
+                CommandType.ACTION_TRIGGER,
+                {"action_type": action_type, "events": [{"type": 1}]},
+            )
+        await session_events_module.handle_event(
+            manager,
+            CommandType.ACTION_TRIGGER,
+            {"action_type": "exec", "exec_ref": 9},
+        )
+        await session_events_module.handle_event(
+            manager,
+            CommandType.ACTION_TRIGGER,
+            {"action_type": "exec", "exec_ref": 404},
+        )
+        await asyncio.sleep(0)
+
+    assert "Event: action_trigger ->" in caplog.text
+    assert "<1 events>" in caplog.text
+    for handler in handlers.values():
+        handler.assert_awaited()
+    manager.action_handler.execute_command.assert_awaited_once_with("echo hardware")
+    assert "Unknown exec_ref: 404" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_handle_event_dispatches_device_and_runtime_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    connected = AsyncMock()
+    disconnected = AsyncMock()
+    grab_status = Mock()
+    runtime_reset = AsyncMock()
+    deactivate_requested = AsyncMock()
+    monkeypatch.setattr(session_events_module, "on_device_connected", connected)
+    monkeypatch.setattr(session_events_module, "on_device_disconnected", disconnected)
+    monkeypatch.setattr(session_events_module, "handle_device_grab_status_event", grab_status)
+    monkeypatch.setattr(session_events_module, "handle_runtime_reset_event", runtime_reset)
+    monkeypatch.setattr(
+        session_events_module,
+        "handle_profile_deactivate_requested",
+        deactivate_requested,
+    )
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.DEVICE_CONNECTED,
+        {"vendor_id": "1234", "product_id": "5678"},
+    )
+    await session_events_module.handle_event(
+        manager,
+        CommandType.DEVICE_DISCONNECTED,
+        {"hardware_id": "1234:5678"},
+    )
+    await session_events_module.handle_event(
+        manager,
+        CommandType.DEVICE_GRAB_STATUS,
+        {"hardware_id": "1234:5678", "state": "ready"},
+    )
+    await session_events_module.handle_event(
+        manager,
+        CommandType.RUNTIME_RESET,
+        {"reason": "test"},
+    )
+    await session_events_module.handle_event(
+        manager,
+        CommandType.PROFILE_DEACTIVATE_REQUESTED,
+        {"profile_name": "Nav"},
+    )
+    await asyncio.sleep(0)
+
+    connected.assert_awaited_once_with(manager, {"vendor_id": "1234", "product_id": "5678"})
+    disconnected.assert_awaited_once_with(manager, {"hardware_id": "1234:5678"})
+    grab_status.assert_called_once_with(
+        manager,
+        {"hardware_id": "1234:5678", "state": "ready"},
+    )
+    runtime_reset.assert_awaited_once_with(manager, {"reason": "test"})
+    deactivate_requested.assert_awaited_once_with(manager, {"profile_name": "Nav"})
+
+
+@pytest.mark.asyncio
 async def test_handle_event_compositor_dispatch_uses_listener() -> None:
     manager = SessionManager()
     manager.action_handler = AsyncMock()
@@ -135,6 +258,29 @@ async def test_cancel_event_tasks_cancels_tracked_background_task() -> None:
     assert cancelled.is_set()
     assert task.cancelled()
     assert manager.event_state.tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_create_event_task_tracks_extra_task_set() -> None:
+    manager = SessionManager()
+    extra_tasks = set()
+
+    async def done() -> None:
+        return None
+
+    task = session_events_module.create_event_task(
+        manager,
+        done(),
+        name="extra",
+        extra_task_set=extra_tasks,
+    )
+
+    assert task in manager.event_state.tasks
+    assert task in extra_tasks
+    await task
+    await asyncio.sleep(0)
+    assert task not in manager.event_state.tasks
+    assert task not in extra_tasks
 
 
 @pytest.mark.asyncio
@@ -294,6 +440,40 @@ async def test_handle_event_macro_sync_exec_logs_unexpected_completion_report_fa
 
     assert "Unexpected failure reporting macro exec completion" in caplog.text
     assert "report bug" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_handle_exec_trigger_ignores_missing_command_or_handler() -> None:
+    manager = SessionManager()
+    manager.action_handler.execute_command = AsyncMock()
+
+    await session_events_module.handle_exec_trigger(manager, {"cmd": ""})
+
+    manager.action_handler.execute_command.assert_not_awaited()
+    manager.action_handler = None
+
+    await session_events_module.handle_exec_trigger(manager, {"cmd": "echo missing"})
+
+
+@pytest.mark.asyncio
+async def test_handle_event_macro_sync_exec_tolerates_daemon_os_errors() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
+    manager.action_handler.execute_command = AsyncMock(return_value=0)
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.ACTION_TRIGGER,
+        {
+            "action_type": "exec",
+            "cmd": "echo macro",
+            "macro_exec_wait_id": "wait-1",
+        },
+    )
+    await asyncio.sleep(0)
+
+    manager.action_handler.execute_command.assert_awaited_once()
+    manager.client.send_command.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -633,6 +813,240 @@ async def test_runtime_activation_replacement_ignores_stale_expiry(
         {"profile_name": "Nav", "activation_id": new_id, "reason": "timeout"},
     )
     assert "Nav" not in manager.profile_state.runtime_profile_activations
+
+
+@pytest.mark.asyncio
+async def test_macro_recording_trigger_edge_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_events_module.handle_start_macro_trigger(manager, {})
+
+    manager.recording_state.active = True
+    manager.recording_state.active_slot = 2
+    stop_trigger = AsyncMock()
+    monkeypatch.setattr(session_events_module, "handle_stop_macro_trigger", stop_trigger)
+
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 2})
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 3})
+
+    manager.recording_state.active = False
+    monkeypatch.setattr(
+        session_events_module.runtime_recording,
+        "resolve_macro_recording_status_async",
+        AsyncMock(return_value={"unlocked": False, "source": "disabled"}),
+    )
+    notify_disabled = Mock()
+    monkeypatch.setattr(
+        session_events_module.runtime_recording,
+        "notify_macro_recording_disabled",
+        notify_disabled,
+    )
+
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 1})
+
+    assert manager.send_notification.call_count == 2  # type: ignore[attr-defined]
+    stop_trigger.assert_awaited_once_with(manager, {"recording_slot": 2})
+    notify_disabled.assert_called_once_with(manager)
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {
+            "event": "macro_recording_disabled",
+            "macro_recording_enabled": False,
+            "macro_recording_source": "disabled",
+            "macro_recording_expires_at": 0,
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_macro_recording_trigger_reports_failed_start_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        session_events_module.runtime_recording,
+        "resolve_macro_recording_status_async",
+        AsyncMock(return_value={"unlocked": True}),
+    )
+    start_recording = AsyncMock(
+        side_effect=[
+            {"status": "error", "error_code": "macro_recording_disabled"},
+            {"status": "error", "error_code": "sensitive_command_denied"},
+        ]
+    )
+    notify_disabled = Mock()
+    notify_unlock = Mock()
+    monkeypatch.setattr(session_events_module.runtime_recording, "start_recording", start_recording)
+    monkeypatch.setattr(
+        session_events_module.runtime_recording,
+        "notify_macro_recording_disabled",
+        notify_disabled,
+    )
+    monkeypatch.setattr(
+        session_events_module.runtime_recording,
+        "notify_recording_unlock_required",
+        notify_unlock,
+    )
+
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 1})
+    await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 1})
+
+    notify_disabled.assert_called_once_with(manager)
+    notify_unlock.assert_called_once_with(
+        manager,
+        {"status": "error", "error_code": "sensitive_command_denied"},
+    )
+    assert manager.broadcast_to_session_clients.call_args_list == [  # type: ignore[attr-defined]
+        call({"event": "macro_recording_disabled"}),
+        call({"event": "recording_auth_requested"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stop_macro_trigger_edge_and_error_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    stop_recording = AsyncMock(side_effect=[OSError("daemon down"), RuntimeError("bug")])
+    monkeypatch.setattr(
+        session_events_module.runtime_recording,
+        "stop_recording",
+        stop_recording,
+    )
+
+    await session_events_module.handle_stop_macro_trigger(manager, {"recording_slot": 1})
+
+    manager.recording_state.active = True
+    manager.recording_state.active_slot = 2
+    await session_events_module.handle_stop_macro_trigger(manager, {"recording_slot": 3})
+    await session_events_module.handle_stop_macro_trigger(manager, {"recording_slot": 2})
+    await session_events_module.handle_stop_macro_trigger(manager, {"recording_slot": 2})
+
+    assert stop_recording.await_count == 2
+    assert stop_recording.await_args_list[0].kwargs == {
+        "error_if_idle": False,
+        "recording_slot": 2,
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancel_and_emergency_triggers_tolerate_daemon_failures() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(
+        side_effect=[
+            OSError("daemon down"),
+            RuntimeError("bug"),
+            OSError("daemon down"),
+            RuntimeError("bug"),
+        ]
+    )
+
+    await session_events_module.handle_cancel_macro_trigger(manager)
+    await session_events_module.handle_cancel_macro_trigger(manager)
+    await session_events_module.handle_emergency_reset_trigger(manager)
+    await session_events_module.handle_emergency_reset_trigger(manager)
+
+    assert [
+        call_args.args[0].command
+        for call_args in manager.client.send_command.await_args_list
+    ] == [
+        CommandType.CANCEL_MACRO_PLAYBACK,
+        CommandType.CANCEL_MACRO_PLAYBACK,
+        CommandType.EMERGENCY_RESET,
+        CommandType.EMERGENCY_RESET,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_runtime_reset_reports_reapply_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        session_profiles_module,
+        "reevaluate_profiles",
+        AsyncMock(side_effect=OSError("daemon down")),
+    )
+
+    await session_events_module.handle_runtime_reset_event(manager, {"reason": "test"})
+
+    monkeypatch.setattr(
+        session_profiles_module,
+        "reevaluate_profiles",
+        AsyncMock(side_effect=RuntimeError("bug")),
+    )
+    await session_events_module.handle_runtime_reset_event(manager, {"reason": "test"})
+
+    assert manager.broadcast_to_session_clients.call_count == 2  # type: ignore[attr-defined]
+    assert manager.send_notification.call_args_list[-1] == call(  # type: ignore[attr-defined]
+        "Keymasq: Reapply Failed",
+        "Emergency reset completed, but active profiles could not be reapplied.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_device_topology_events_schedule_known_hardware_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.hardware.get_hardware = Mock(  # type: ignore[method-assign]
+        side_effect=lambda hardware_id: (
+            SimpleNamespace(name="Keyboard") if hardware_id == "1234:5678" else None
+        )
+    )
+    manager.hardware.list_hardware = Mock(  # type: ignore[method-assign]
+        return_value=[SimpleNamespace(model_id="abcd:ef01")]
+    )
+    schedule_topology_refresh = Mock()
+    created_tasks = []
+
+    def create_event_task(_manager, coro, **kwargs):
+        coro.close()
+        created_tasks.append(kwargs)
+        return Mock()
+
+    monkeypatch.setattr(
+        session_profiles_module,
+        "schedule_topology_refresh",
+        schedule_topology_refresh,
+    )
+    monkeypatch.setattr(session_events_module, "create_event_task", create_event_task)
+
+    await session_events_module.on_device_connected(
+        manager,
+        {"vendor_id": "1234", "product_id": "5678"},
+    )
+    await session_events_module.on_device_disconnected(
+        manager,
+        {"vendor_id": "abcd", "product_id": "ef01"},
+    )
+    await session_events_module.on_device_connected(
+        manager,
+        {"vendor_id": "0000", "product_id": "0000"},
+    )
+    await session_events_module.on_device_disconnected(manager, {})
+
+    assert schedule_topology_refresh.call_count == 2
+    assert [task["name"] for task in created_tasks] == [
+        "recording_devices_refresh",
+        "recording_devices_refresh",
+    ]
+    assert session_events_module.device_name_for_hardware(manager, "missing:id") == "missing:id"
+    assert session_events_module._hardware_or_model_known(manager, "abcd:ef01") is True
+    assert session_events_module.event_log_view({"events": [1, 2]}) == {
+        "events": "<2 events>",
+        "event_count": 2,
+    }
+    assert session_events_module.event_log_view({"events": [1], "event_count": 9}) == {
+        "events": "<1 events>",
+        "event_count": 9,
+    }
 
 
 @pytest.mark.asyncio

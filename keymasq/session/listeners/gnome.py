@@ -130,7 +130,7 @@ class GnomeListener(WindowListener):
     ) -> bool | None:
         try:
             return await gnome_shell.extension_visible(cls._EXTENSION_UUID, dbus)
-        except Exception:
+        except GnomeShellDBusError:
             return None
 
     @classmethod
@@ -140,14 +140,14 @@ class GnomeListener(WindowListener):
     ) -> bool | None:
         try:
             return not await gnome_shell.user_extensions_enabled(dbus)
-        except Exception:
+        except GnomeShellDBusError:
             return None
 
     @classmethod
     async def _bridge_extension_enabled(cls, dbus: SessionDBus | None = None) -> bool | None:
         try:
             return await gnome_shell.extension_enabled(cls._EXTENSION_UUID, dbus)
-        except Exception:
+        except GnomeShellDBusError:
             return None
 
     @classmethod
@@ -179,9 +179,7 @@ class GnomeListener(WindowListener):
             if action == "refresh":
                 return True, "GNOME bridge status refreshed."
 
-        except GnomeShellDBusError as exc:
-            return False, str(exc)
-        except Exception as exc:
+        except (GnomeShellDBusError, OSError, RuntimeError) as exc:
             return False, str(exc)
 
         return False, "Unsupported GNOME setup action."
@@ -419,25 +417,19 @@ class GnomeListener(WindowListener):
             )
 
         GNOME_BRIDGE_SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(GNOME_BRIDGE_SOCKET_PATH.parent, 0o700)
-        except OSError:
-            pass
 
         if GNOME_BRIDGE_SOCKET_PATH.exists():
-            try:
+            with contextlib.suppress(OSError):
                 GNOME_BRIDGE_SOCKET_PATH.unlink()
-            except OSError:
-                pass
 
         self._server = await asyncio.start_unix_server(
             self._handle_bridge_client,
             path=str(GNOME_BRIDGE_SOCKET_PATH),
         )
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(GNOME_BRIDGE_SOCKET_PATH, 0o600)
-        except OSError:
-            pass
 
         self.running = True
         log.info("GNOME bridge listener started on %s", GNOME_BRIDGE_SOCKET_PATH)
@@ -454,7 +446,7 @@ class GnomeListener(WindowListener):
 
         if self._reader_task is not None:
             self._reader_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            with contextlib.suppress(asyncio.CancelledError, OSError, RuntimeError):
                 await self._reader_task
             self._reader_task = None
 
@@ -462,8 +454,10 @@ class GnomeListener(WindowListener):
             try:
                 self._writer.close()
                 await self._writer.wait_closed()
+            except OSError as exc:
+                log.debug("Failed while closing GNOME bridge writer: %s", exc)
             except Exception:
-                log.debug("Failed while closing GNOME bridge writer", exc_info=True)
+                log.exception("Unexpected failure while closing GNOME bridge writer")
             self._writer = None
 
         if self._server is not None:
@@ -497,10 +491,8 @@ class GnomeListener(WindowListener):
         self._pending_dispatch.clear()
 
         if GNOME_BRIDGE_SOCKET_PATH.exists():
-            try:
+            with contextlib.suppress(OSError):
                 GNOME_BRIDGE_SOCKET_PATH.unlink()
-            except OSError:
-                pass
 
         log.info("GNOME bridge listener stopped")
 
@@ -519,8 +511,10 @@ class GnomeListener(WindowListener):
             try:
                 self._writer.close()
                 await self._writer.wait_closed()
+            except OSError as exc:
+                log.debug("Failed while replacing GNOME bridge writer: %s", exc)
             except Exception:
-                log.debug("Failed while replacing GNOME bridge writer", exc_info=True)
+                log.exception("Unexpected failure while replacing GNOME bridge writer")
 
         self._writer = writer
         self._bridge_protocol = None
@@ -543,15 +537,24 @@ class GnomeListener(WindowListener):
                     break
                 try:
                     payload = _json_object(json.loads(raw.decode("utf-8")))
-                except Exception:
+                except UnicodeDecodeError as exc:
+                    log.debug("Ignoring GNOME bridge message with invalid UTF-8: %s", exc)
+                    continue
+                except json.JSONDecodeError as exc:
+                    log.debug("Ignoring malformed GNOME bridge JSON message: %s", exc)
                     continue
                 if payload is None:
+                    log.debug("Ignoring GNOME bridge JSON message that is not an object")
                     continue
                 await self._handle_bridge_message(payload)
         except asyncio.CancelledError:
             raise
+        except asyncio.IncompleteReadError as exc:
+            log.debug("GNOME bridge read loop stopped after incomplete read: %s", exc)
+        except OSError as exc:
+            log.debug("GNOME bridge read loop stopped after I/O error: %s", exc)
         except Exception:
-            log.debug("GNOME bridge read loop stopped after error", exc_info=True)
+            log.exception("Unexpected GNOME bridge read loop error")
         finally:
             if self._writer is writer:
                 self._writer = None
@@ -564,8 +567,10 @@ class GnomeListener(WindowListener):
             try:
                 writer.close()
                 await writer.wait_closed()
+            except OSError as exc:
+                log.debug("Failed while closing GNOME bridge client writer: %s", exc)
             except Exception:
-                log.debug("Failed while closing GNOME bridge client writer", exc_info=True)
+                log.exception("Unexpected failure while closing GNOME bridge client writer")
 
     async def _handle_bridge_message(self, payload: JsonObject) -> None:
         msg_type = _str_value(payload.get("type"), "")
@@ -719,6 +724,19 @@ class GnomeListener(WindowListener):
                 )
         return details
 
+    def _pending_bridge_requests_for(
+        self,
+        msg_type: str,
+    ) -> dict[int, asyncio.Future[JsonObject | None]] | None:
+        pending_by_type = {
+            "get_active_window": self._pending_window,
+            "get_pointer": self._pending_pointer,
+            "set_pointer": self._pending_pointer_set,
+            "activate_title": self._pending_activate,
+            "dispatch": self._pending_dispatch,
+        }
+        return pending_by_type.get(msg_type)
+
     async def _send_request(self, payload: JsonObject, timeout: float) -> JsonObject | None:
         if self._writer is None:
             return None
@@ -729,31 +747,26 @@ class GnomeListener(WindowListener):
         request_payload["request_id"] = request_id
         future: asyncio.Future[JsonObject | None] = asyncio.get_running_loop().create_future()
         msg_type = _str_value(request_payload.get("type"), "")
-
-        if msg_type == "get_active_window":
-            self._pending_window[request_id] = future
-        elif msg_type == "get_pointer":
-            self._pending_pointer[request_id] = future
-        elif msg_type == "set_pointer":
-            self._pending_pointer_set[request_id] = future
-        elif msg_type == "activate_title":
-            self._pending_activate[request_id] = future
-        elif msg_type == "dispatch":
-            self._pending_dispatch[request_id] = future
-        else:
+        pending_requests = self._pending_bridge_requests_for(msg_type)
+        if pending_requests is None:
             return None
+        pending_requests[request_id] = future
 
         try:
             self._writer.write((json.dumps(request_payload) + "\n").encode("utf-8"))
             await self._writer.drain()
             result = await asyncio.wait_for(future, timeout=timeout)
-        except Exception:
-            self._pending_window.pop(request_id, None)
-            self._pending_pointer.pop(request_id, None)
-            self._pending_pointer_set.pop(request_id, None)
-            self._pending_activate.pop(request_id, None)
-            self._pending_dispatch.pop(request_id, None)
+        except TimeoutError as exc:
+            log.debug("Timed out waiting for GNOME bridge %s response: %s", msg_type, exc)
             return None
+        except OSError as exc:
+            log.debug("GNOME bridge %s request failed: %s", msg_type, exc)
+            return None
+        except Exception:
+            log.exception("Unexpected GNOME bridge %s request failure", msg_type)
+            return None
+        finally:
+            pending_requests.pop(request_id, None)
 
         return result
 

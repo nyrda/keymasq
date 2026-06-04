@@ -154,7 +154,7 @@ NIRI_DISPATCH_BUILDERS: dict[str, NiriDispatchBuilder] = {
 def parse_niri_event(payload: str) -> tuple[str, JsonObject] | None:
     try:
         data = cast(object, json.loads(payload))
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         return None
 
     event = _json_object(data)
@@ -269,7 +269,7 @@ class NiriListener(WindowListener):
             self.writer.close()
             try:
                 await self.writer.wait_closed()
-            except Exception:
+            except (OSError, ConnectionError, RuntimeError):
                 log.debug("Failed while closing Niri event writer", exc_info=True)
             self.writer = None
             self.reader = None
@@ -278,7 +278,7 @@ class NiriListener(WindowListener):
             self._cmd_writer.close()
             try:
                 await self._cmd_writer.wait_closed()
-            except Exception:
+            except (OSError, ConnectionError, RuntimeError):
                 log.debug("Failed while closing Niri command writer", exc_info=True)
             self._cmd_writer = None
             self._cmd_reader = None
@@ -309,8 +309,8 @@ class NiriListener(WindowListener):
                 await self._handle_event(*event)
         except asyncio.CancelledError:
             pass
-        except Exception as exc:
-            log.error("Niri listener error: %s", exc)
+        except (OSError, ConnectionError, RuntimeError, UnicodeDecodeError):
+            log.exception("Niri listener error")
 
     async def _send_event_stream_request(self) -> None:
         writer = self.writer
@@ -659,7 +659,7 @@ class NiriListener(WindowListener):
             )
         except FileNotFoundError:
             return False, "niri command is not installed"
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             return False, f"failed to launch niri msg: {exc}"
 
         try:
@@ -667,10 +667,10 @@ class NiriListener(WindowListener):
                 process.communicate(),
                 timeout=NIRI_CLI_DISPATCH_TIMEOUT_SECONDS,
             )
-        except Exception:
+        except TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError, RuntimeError):
                 await process.communicate()
             return False, f"niri msg action timed out: {dispatcher}"
 
@@ -690,10 +690,26 @@ class NiriListener(WindowListener):
                 self.socket_path
             )
             return True
-        except Exception:
+        except (OSError, ConnectionError, RuntimeError):
             self._cmd_reader = None
             self._cmd_writer = None
             return False
+
+    async def _reset_failed_cmd_connection(self) -> None:
+        cmd_writer = self._cmd_writer
+        self._cmd_reader = None
+        self._cmd_writer = None
+
+        if cmd_writer is None:
+            return
+
+        try:
+            cmd_writer.close()
+            await cmd_writer.wait_closed()
+        except OSError as exc:
+            log.debug("Failed while closing failed Niri command writer: %s", exc)
+        except Exception:
+            log.exception("Unexpected failure while closing failed Niri command writer")
 
     async def _send_cmd_request(
         self,
@@ -721,14 +737,16 @@ class NiriListener(WindowListener):
                         return True, body
                     log.debug("Niri request failed: %s", body)
                     return False, body
+                except TimeoutError as exc:
+                    log.debug("Niri command request timed out: %s", exc)
+                    await self._reset_failed_cmd_connection()
+                except OSError as exc:
+                    log.debug("Niri command request failed: %s", exc)
+                    await self._reset_failed_cmd_connection()
+                except (json.JSONDecodeError, ValueError) as exc:
+                    log.debug("Niri command reply was invalid: %s", exc)
+                    await self._reset_failed_cmd_connection()
                 except Exception:
-                    try:
-                        cmd_writer = self._cmd_writer
-                        if cmd_writer is not None:
-                            cmd_writer.close()
-                            await cmd_writer.wait_closed()
-                    except Exception:
-                        log.debug("Failed while closing failed Niri command writer", exc_info=True)
-                    self._cmd_reader = None
-                    self._cmd_writer = None
+                    log.exception("Unexpected Niri command request failure")
+                    await self._reset_failed_cmd_connection()
             return False, None

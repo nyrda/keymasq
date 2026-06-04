@@ -106,8 +106,10 @@ class DeviceCache:
                     ),
                     is_virtual=_is_keymasq_virtual_device(device),
                 )
+            except OSError as exc:
+                log.debug("Skipping device path resolver cache entry %s: %s", path, exc)
             except Exception:
-                continue
+                log.exception("Unexpected failure caching device path resolver entry %s", path)
             finally:
                 if device is not None:
                     close_device(device)
@@ -385,7 +387,11 @@ def _probe_cached_device(
             ),
             is_virtual=_is_keymasq_virtual_device(device),
         )
+    except OSError as exc:
+        log.debug("Skipping device path resolver probe for %s: %s", path, exc)
+        return None
     except Exception:
+        log.exception("Unexpected failure probing device path resolver candidate %s", path)
         return None
     finally:
         if device is not None:
@@ -404,7 +410,11 @@ def _is_excluded_path(
         return False
     try:
         stable_path = resolve_stable_path_fn(path)
+    except OSError as exc:
+        log.debug("Unable to resolve stable path for excluded candidate %s: %s", path, exc)
+        return False
     except Exception:
+        log.exception("Unexpected failure resolving stable path for excluded candidate %s", path)
         return False
     return stable_path in excluded_paths
 

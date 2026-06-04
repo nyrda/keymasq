@@ -14,7 +14,9 @@ COMMON_METADATA = {
     "maintainer": "nyrda <nyrda@keymasq.tools>",
     "pkgname": "keymasq",
     "pkgrel": "1",
-    "pkgdesc": "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros",
+    "pkgdesc": (
+        "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros"
+    ),
     "arch": ["any"],
     "url": "https://keymasq.tools",
     "license": ["MIT"],

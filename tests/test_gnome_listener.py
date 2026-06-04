@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -28,6 +29,27 @@ class _FakeWriter:
 class _EofReader:
     async def readline(self) -> bytes:
         return b""
+
+
+class _ScriptedReader:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+
+    async def readline(self) -> bytes:
+        if not self._chunks:
+            return b""
+        return self._chunks.pop(0)
+
+
+class _CloseFailWriter(_FakeWriter):
+    async def wait_closed(self) -> None:
+        raise RuntimeError("close bug")
+
+
+class _WriteFailWriter(_FakeWriter):
+    def write(self, data: bytes) -> None:
+        _ = data
+        raise RuntimeError("write bug")
 
 
 _UNSET = object()
@@ -321,6 +343,94 @@ async def test_gnome_stale_bridge_reader_does_not_clear_new_connection() -> None
 
 
 @pytest.mark.asyncio
+async def test_gnome_bridge_read_loop_logs_and_skips_malformed_frames(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    observed: list[tuple[str, str, list[str]]] = []
+
+    async def _callback(window_class: str, window_title: str, tags: list[str]) -> None:
+        observed.append((window_class, window_title, tags))
+
+    listener = GnomeListener(_callback)
+    listener.running = True
+    writer = _FakeWriter()
+    listener._writer = writer
+    listener._bridge_connected = True
+    reader = _ScriptedReader(
+        [
+            b"\xff\n",
+            b"{not-json\n",
+            b"[]\n",
+            gnome_module.json.dumps(
+                {
+                    "type": "focus_changed",
+                    "app_id": "org.gnome.Nautilus",
+                    "title": "Home",
+                }
+            ).encode("utf-8")
+            + b"\n",
+        ]
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.gnome"):
+        await listener._bridge_read_loop(reader, writer)
+
+    assert observed == [("org.gnome.Nautilus", "Home", [])]
+    assert "Ignoring GNOME bridge message with invalid UTF-8" in caplog.text
+    assert "Ignoring malformed GNOME bridge JSON message" in caplog.text
+    assert "Ignoring GNOME bridge JSON message that is not an object" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_gnome_bridge_read_loop_logs_unexpected_handler_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def _callback(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        raise RuntimeError("callback bug")
+
+    listener = GnomeListener(_callback)
+    listener.running = True
+    writer = _FakeWriter()
+    listener._writer = writer
+    listener._bridge_connected = True
+    reader = _ScriptedReader(
+        [
+            gnome_module.json.dumps(
+                {
+                    "type": "focus_changed",
+                    "app_id": "org.gnome.Nautilus",
+                    "title": "Home",
+                }
+            ).encode("utf-8")
+            + b"\n",
+        ]
+    )
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.gnome"):
+        await listener._bridge_read_loop(reader, writer)
+
+    assert "Unexpected GNOME bridge read loop error" in caplog.text
+    assert "callback bug" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_gnome_bridge_read_loop_logs_unexpected_close_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener.running = True
+    writer = _CloseFailWriter()
+    listener._writer = writer
+    listener._bridge_connected = True
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.gnome"):
+        await listener._bridge_read_loop(_EofReader(), writer)
+
+    assert "Unexpected failure while closing GNOME bridge client writer" in caplog.text
+    assert "close bug" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_gnome_hello_reports_stale_bridge_protocol_warning() -> None:
     listener = GnomeListener(lambda *_args: asyncio.sleep(0))
     listener.running = True
@@ -395,6 +505,21 @@ async def test_gnome_get_active_window_queries_bridge_when_cache_empty() -> None
     assert await listener.get_active_window() == ("tools.keymasq.ListenerLab", "Alpha", [])
     assert observed == [("tools.keymasq.ListenerLab", "Alpha", [])]
     assert listener._writer.payloads == [{"type": "get_active_window", "request_id": 1}]
+
+
+@pytest.mark.asyncio
+async def test_gnome_send_request_logs_unexpected_writer_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    listener = GnomeListener(lambda *_args: asyncio.sleep(0))
+    listener._writer = _WriteFailWriter()
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.gnome"):
+        assert await listener._send_request({"type": "get_active_window"}, timeout=0.1) is None
+
+    assert "Unexpected GNOME bridge get_active_window request failure" in caplog.text
+    assert "write bug" in caplog.text
+    assert listener._pending_window == {}
 
 
 @pytest.mark.asyncio

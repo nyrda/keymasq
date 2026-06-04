@@ -932,7 +932,7 @@ EOF
   #          | xargs -I{} grep -n 'is_software' {}/src/backend/tty.rs
   #   3. If the guard moved or changed, update the sed pattern below.
   #   4. Run: nix build 'path:.#checks.x86_64-linux.listener-vm-niri'
-  niriExpectedVersion = "25.11";
+  niriExpectedVersion = "26.04";
 
   niriPatched = assert pkgs.niri.version == niriExpectedVersion; pkgs.niri.overrideAttrs (old: {
     postPatch = (old.postPatch or "") + ''

@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import subprocess
@@ -57,6 +58,7 @@ from keymasq.session.hardware import HardwareManager
 DetectedDevice = dict[str, Any]
 DetectedInterface = dict[str, Any]
 DetectedButton = dict[str, Any]
+log = logging.getLogger("keymasq.gui.hardware_setup")
 
 
 def _make_capture_status_row(status_label: Gtk.Label) -> tuple[Gtk.Box, Gtk.Widget]:
@@ -778,7 +780,7 @@ class HardwareSetupDialog(Adw.Dialog):
         def local_sort_key(path: str) -> str:
             try:
                 return resolve_stable_path(path)
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 return path
 
         for path in sorted(evdev.list_devices(), key=local_sort_key):
@@ -869,7 +871,7 @@ class HardwareSetupDialog(Adw.Dialog):
                     )
 
             except Exception:
-                pass
+                log.exception("Skipping local input device %s", path)
 
     def _detect_devices_via_session(self, detected_devices: dict[str, dict]) -> bool:
         result = session_request(
@@ -1045,6 +1047,7 @@ class HardwareSetupDialog(Adw.Dialog):
             try:
                 configured_ids = list_ids()
             except Exception:
+                log.exception("Unable to list configured hardware IDs")
                 configured_ids = []
             if isinstance(configured_ids, list):
                 return {str(item) for item in configured_ids}
@@ -1058,6 +1061,7 @@ class HardwareSetupDialog(Adw.Dialog):
                     if str(getattr(config, "hardware_id", "") or "")
                 }
             except Exception:
+                log.exception("Unable to list configured hardware")
                 return set()
 
         return set()
@@ -1072,6 +1076,7 @@ class HardwareSetupDialog(Adw.Dialog):
         try:
             configs = cast(list[object], list_hardware())
         except Exception:
+            log.exception("Unable to list configured hardware identity keys")
             return {}
 
         keys: dict[str, str] = {}
@@ -1102,15 +1107,12 @@ class HardwareSetupDialog(Adw.Dialog):
 
     def _configured_raw_identity_keys(self, path: str) -> set[str]:
         candidates = {str(path or "")}
-        try:
-            stable_path = self._configured_device_stable_path(path)
-        except Exception:
-            stable_path = ""
+        stable_path = self._configured_device_stable_path(path)
         if stable_path:
             candidates.add(stable_path)
         try:
             real_path = os.path.realpath(path)
-        except Exception:
+        except OSError:
             real_path = ""
         if real_path:
             candidates.add(real_path)
@@ -1123,7 +1125,7 @@ class HardwareSetupDialog(Adw.Dialog):
         candidates = [path]
         try:
             real_path = os.path.realpath(path)
-        except Exception:
+        except OSError:
             real_path = ""
         if real_path and real_path != path:
             candidates.append(real_path)
@@ -1131,9 +1133,10 @@ class HardwareSetupDialog(Adw.Dialog):
         for candidate in candidates:
             try:
                 stable_path = resolve_stable_path(candidate)
-            except Exception:
-                continue
-            if _looks_like_by_id_path(stable_path):
+            except (OSError, RuntimeError, ValueError) as exc:
+                log.debug("Unable to resolve configured device path %s: %s", candidate, exc)
+                stable_path = ""
+            if stable_path and _looks_like_by_id_path(stable_path):
                 return stable_path
         return path
 
@@ -1148,15 +1151,16 @@ class HardwareSetupDialog(Adw.Dialog):
 
         try:
             input_device = evdev.InputDevice(path)
-        except Exception:
+        except (OSError, RuntimeError) as exc:
+            log.debug("Unable to read configured input device %s: %s", path, exc)
             return ""
         try:
             return str(getattr(input_device, "phys", "") or "")
         finally:
             try:
                 input_device.close()
-            except Exception:
-                pass
+            except (OSError, RuntimeError) as exc:
+                log.debug("Failed to close configured input device %s: %s", path, exc)
 
     def _allocate_hardware_id(self, model_id: str, used_hardware_ids: set[str]) -> str:
         if model_id not in used_hardware_ids:
@@ -1340,7 +1344,8 @@ class HardwareSetupDialog(Adw.Dialog):
     def _get_lsusb_name_map(self) -> dict[str, dict[str, str]]:
         try:
             output = subprocess.check_output(["lsusb"], text=True, stderr=subprocess.DEVNULL)
-        except Exception:
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.debug("Unable to read USB device names with lsusb: %s", exc)
             return {}
 
         result: dict[str, dict[str, str]] = {}
@@ -2031,18 +2036,20 @@ class HardwareSetupDialog(Adw.Dialog):
 
         try:
             device = evdev.InputDevice(raw_path)
-        except Exception:
+        except (OSError, RuntimeError) as exc:
+            log.debug("Unable to open interface capability probe device %s: %s", raw_path, exc)
             return ([], {})
 
         try:
             raw_capabilities = cast(dict[int, list[object]], device.capabilities())
         except Exception:
+            log.exception("Unable to read capabilities from %s", raw_path)
             raw_capabilities = {}
         finally:
             try:
                 device.close()
-            except Exception:
-                pass
+            except (OSError, RuntimeError) as exc:
+                log.debug("Failed to close capability probe device %s: %s", raw_path, exc)
 
         return (capability_names_from_capabilities(raw_capabilities), raw_capabilities)
 

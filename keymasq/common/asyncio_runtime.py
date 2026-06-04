@@ -30,9 +30,13 @@ def ensure_uvloop(logger: logging.Logger | None = None) -> bool:
                 asyncio.set_event_loop_policy(uvloop_policy_type())
             _runtime_status = _STATUS_UVLOOP
             _runtime_detail = "uvloop.EventLoopPolicy installed"
+        except (ImportError, AttributeError, RuntimeError) as exc:
+            _runtime_status = _STATUS_DEFAULT
+            _runtime_detail = str(exc).strip() or exc.__class__.__name__
         except Exception as exc:
             _runtime_status = _STATUS_DEFAULT
             _runtime_detail = str(exc).strip() or exc.__class__.__name__
+            log.exception("Unexpected failure configuring uvloop")
 
     if logger is not None and _runtime_status not in _logged_statuses:
         if _runtime_status == _STATUS_UVLOOP:

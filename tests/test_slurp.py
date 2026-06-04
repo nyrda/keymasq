@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -439,4 +440,48 @@ def test_cancel_async_kills_and_waits_again_when_terminate_wait_times_out(
     assert process.terminated is True
     assert process.killed is True
     assert process.wait_calls == 2
+    assert capture._process is None
+
+
+def test_cancel_async_warns_when_process_survives_kill(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capture = SlurpCapture()
+    process = _FakeSlurpProcess()
+    capture._process = process  # type: ignore[assignment]
+
+    async def _wait_for(awaitable: Awaitable[object], timeout: float) -> object:
+        awaitable.close()
+        raise TimeoutError
+
+    monkeypatch.setattr(asyncio, "wait_for", _wait_for)
+    caplog.set_level(logging.WARNING, logger="keymasq.slurp")
+
+    asyncio.run(capture.cancel_async())
+
+    assert process.terminated is True
+    assert process.killed is True
+    assert process.wait_calls == 2
+    assert "slurp process did not exit after kill" in caplog.text
+    assert capture._process is None
+
+
+def test_cancel_async_logs_unexpected_terminate_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    capture = SlurpCapture()
+
+    class _BrokenProcess(_FakeSlurpProcess):
+        def terminate(self) -> None:
+            raise RuntimeError("terminate failed")
+
+    process = _BrokenProcess()
+    capture._process = process  # type: ignore[assignment]
+    caplog.set_level(logging.ERROR, logger="keymasq.slurp")
+
+    asyncio.run(capture.cancel_async())
+
+    assert "Unexpected failure terminating slurp process" in caplog.text
+    assert process.killed is False
     assert capture._process is None

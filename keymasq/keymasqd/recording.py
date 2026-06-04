@@ -109,22 +109,28 @@ class RecordingManager:
                 continue
             try:
                 input_dev = await asyncio.to_thread(_open_recording_input_device, path_value)
-                self._extra_devices.append(input_dev)
-                raw_classes = dev.get("device_types")
-                classes = (
-                    [str(value) for value in cast(list[object], raw_classes)]
-                    if isinstance(raw_classes, list)
-                    else None
-                )
-                primary = dev.get("device_type", "other")
-                device_types = normalize_input_classes(
-                    classes,
-                    primary if isinstance(primary, str) else "other",
-                )
-                task = asyncio.create_task(self._read_extra_device(input_dev, device_types))
-                self._monitoring_tasks.append(task)
+            except OSError:
+                log.debug("Failed to open extra recording device %s", path_value, exc_info=True)
+                input_dev = None
             except Exception:
+                log.exception("Unexpected failure opening extra recording device %s", path_value)
+                input_dev = None
+            if input_dev is None:
                 continue
+            self._extra_devices.append(input_dev)
+            raw_classes = dev.get("device_types")
+            classes = (
+                [str(value) for value in cast(list[object], raw_classes)]
+                if isinstance(raw_classes, list)
+                else None
+            )
+            primary = dev.get("device_type", "other")
+            device_types = normalize_input_classes(
+                classes,
+                primary if isinstance(primary, str) else "other",
+            )
+            task = asyncio.create_task(self._read_extra_device(input_dev, device_types))
+            self._monitoring_tasks.append(task)
 
         self._progress_task = asyncio.create_task(self._monitor_progress())
 
@@ -179,8 +185,10 @@ class RecordingManager:
         try:
             async for event in device.async_read_loop():
                 self.record_event(classify_event_device_type(event, device_types), event)
+        except OSError:
+            log.debug("Extra recording device reader stopped after device error", exc_info=True)
         except Exception:
-            log.debug("Extra recording device reader stopped after error", exc_info=True)
+            log.exception("Extra recording device reader stopped after unexpected error")
 
     async def stop(self) -> RecordingPayload:
         was_recording = not self._stopped
@@ -195,10 +203,7 @@ class RecordingManager:
             self._progress_task = None
 
         for device in self._extra_devices:
-            try:
-                device.close()
-            except Exception:
-                log.debug("Failed to close extra recording device", exc_info=True)
+            _close_recording_input_device(device)
         self._extra_devices = []
         self._record_grabbed_source_keys = set()
         recording_slot = int(self._recording_slot)
@@ -414,12 +419,40 @@ class RecordingManager:
                 self._pending_recordings[recording_id] = snapshot
                 self._pending_recording_created_at[recording_id] = time.monotonic()
                 loaded_event_paths.add(event_path)
-            except Exception as exc:
+            except FileNotFoundError as exc:
+                log.debug(
+                    "Recording slot metadata disappeared while loading %s: %s",
+                    meta_path,
+                    exc,
+                )
+            except PermissionError as exc:
+                log.warning(
+                    "Ignoring unreadable recording slot metadata %s: %s. Check recording "
+                    "spool ownership and permissions for the keymasqd user.",
+                    meta_path,
+                    exc,
+                )
+            except OSError as exc:
+                log.warning("Ignoring unreadable recording slot metadata %s: %s", meta_path, exc)
+            except json.JSONDecodeError as exc:
+                log.warning(
+                    "Ignoring invalid recording slot metadata %s: invalid JSON: %s",
+                    meta_path,
+                    exc,
+                )
+                _remove_invalid_slot_metadata(meta_path)
+            except UnicodeDecodeError as exc:
+                log.warning(
+                    "Ignoring invalid recording slot metadata %s: invalid UTF-8: %s",
+                    meta_path,
+                    exc,
+                )
+                _remove_invalid_slot_metadata(meta_path)
+            except ValueError as exc:
                 log.warning("Ignoring invalid recording slot metadata %s: %s", meta_path, exc)
-                try:
-                    meta_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                _remove_invalid_slot_metadata(meta_path)
+            except Exception:
+                log.exception("Unexpected failure loading recording slot metadata %s", meta_path)
 
         try:
             event_paths = list(self._spool_dir.glob("slot-*-*.jsonl"))
@@ -657,6 +690,24 @@ def _open_recording_input_device(path: str) -> _RecordingInputDevice:
     device = cast(object, evdev.InputDevice(path))
     set_evdev_clock_monotonic(device, device_path=path, logger=log)
     return cast(_RecordingInputDevice, device)
+
+
+def _close_recording_input_device(device: _RecordingInputDevice) -> None:
+    try:
+        device.close()
+    except OSError:
+        log.debug("Failed to close extra recording device", exc_info=True)
+    except Exception:
+        log.exception("Unexpected failure closing extra recording device")
+
+
+def _remove_invalid_slot_metadata(meta_path: Path) -> None:
+    try:
+        meta_path.unlink(missing_ok=True)
+    except OSError as exc:
+        log.debug("Failed to remove invalid recording slot metadata %s: %s", meta_path, exc)
+    except Exception:
+        log.exception("Unexpected failure removing invalid recording slot metadata %s", meta_path)
 
 
 def _is_wheel_event(event: evdev.InputEvent) -> bool:

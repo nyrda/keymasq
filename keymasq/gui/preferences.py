@@ -26,8 +26,11 @@ def _load_settings() -> dict[str, object]:
     try:
         with settings_path.open("rb") as f:
             data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        log.warning("Failed to load GUI settings %s: %s", settings_path, exc)
+        return {}
     except Exception:
-        log.warning("Failed to load GUI settings: %s", settings_path, exc_info=True)
+        log.exception("Unexpected failure loading GUI settings: %s", settings_path)
         return {}
 
     return dict(data)

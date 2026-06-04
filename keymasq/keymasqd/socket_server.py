@@ -114,7 +114,7 @@ class SocketServer:
         server.close()
         try:
             await server.wait_closed()
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             log.warning(f"Failed to close unsecured daemon socket: {exc}")
         finally:
             if self.server is server:
@@ -199,6 +199,7 @@ class SocketServer:
             try:
                 allowed, client_class, deny_reason = self.peer_validator(peer)
             except Exception as exc:
+                log.exception("Peer validator failed")
                 allowed = False
                 deny_reason = f"peer validator exception: {exc}"
 
@@ -286,8 +287,8 @@ class SocketServer:
 
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            log.error(f"Error handling client: {e}")
+        except Exception:
+            log.exception("Error handling client")
         finally:
             log.info(f"Client disconnected: {addr}")
             await self._drop_client(writer)
@@ -301,7 +302,7 @@ class SocketServer:
                 request_id=cmd.request_id,
             )
         except Exception as e:
-            log.error(f"Command error: {e}")
+            log.exception("Command error")
             return Response(
                 status="error",
                 error=str(e),
@@ -348,8 +349,14 @@ class SocketServer:
                 timeout=self.broadcast_drain_timeout_s,
             )
             return None
-        except Exception as e:
-            log.warning(f"Failed to send event to client: {e}")
+        except TimeoutError:
+            log.warning("Timed out sending event to client")
+            return writer
+        except OSError as exc:
+            log.warning("Failed to send event to client: %s", exc)
+            return writer
+        except Exception:
+            log.exception("Unexpected failure sending event to client")
             return writer
 
     async def _drop_client(self, writer: asyncio.StreamWriter) -> None:
@@ -388,7 +395,7 @@ class SocketServer:
 
             await self._wait_writer_closed(writer, context)
         except Exception:
-            log.debug("Failed while disconnecting daemon client", exc_info=True)
+            log.exception("Failed while disconnecting daemon client")
 
         if self.disconnect_handler and not is_owner and not self.clients:
             await self.disconnect_handler()
@@ -396,7 +403,7 @@ class SocketServer:
     def _request_writer_close(self, writer: asyncio.StreamWriter) -> None:
         try:
             writer.close()
-        except Exception:
+        except (OSError, RuntimeError):
             log.debug("Failed to request daemon client writer close", exc_info=True)
 
     async def _wait_writer_closed(
@@ -421,7 +428,7 @@ class SocketServer:
             if transport is not None:
                 try:
                     transport.abort()
-                except Exception:
+                except (OSError, RuntimeError):
                     log.debug("Failed to abort daemon client transport", exc_info=True)
-        except Exception:
+        except (OSError, ConnectionError, RuntimeError):
             log.debug("Failed while waiting for daemon client socket to close", exc_info=True)

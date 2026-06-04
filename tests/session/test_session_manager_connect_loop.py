@@ -73,6 +73,9 @@ async def test_connect_loop_requests_session_restart_after_established_disconnec
         async def wait_disconnected(self) -> None:
             return None
 
+        async def send_command(self, _command: object) -> Response:
+            return Response(status="ok", data={"count": 1})
+
     manager = SessionManager()
     manager.running = True
     manager.restart_on_daemon_disconnect = True

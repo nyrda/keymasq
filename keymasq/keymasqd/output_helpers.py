@@ -97,5 +97,7 @@ def emit_mouse_move(
         uinput_dev.write(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, int(move_x))
         uinput_dev.write(evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, int(move_y))
         uinput_dev.syn()
-    except Exception:
+    except OSError:
         log.debug("Failed to emit mouse movement", exc_info=True)
+    except Exception:
+        log.exception("Unexpected failure emitting mouse movement")

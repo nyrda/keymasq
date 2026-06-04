@@ -433,15 +433,22 @@ class SuperkeyMachine:
 
                     await self._execute_action_up(action)
                     await asyncio.sleep(wait)
-        except Exception:
+        except OSError:
             log.debug("Rapidfire loop stopped after error", exc_info=True)
+        except Exception:
+            log.exception("Rapidfire loop stopped after unexpected error")
         finally:
             current_task = asyncio.current_task()
             if current_task is not None:
                 with contextlib.suppress(ValueError):
                     self._rapidfire_tasks.remove(cast(asyncio.Task[None], current_task))
             if not is_relative_mouse:
-                await self._execute_action_up(action)
+                try:
+                    await self._execute_action_up(action)
+                except OSError:
+                    log.debug("Failed to release rapidfire action after loop stop", exc_info=True)
+                except Exception:
+                    log.exception("Unexpected failure releasing rapidfire action after loop stop")
 
     async def _stop_rapidfire_tasks(self) -> None:
         if not self._rapidfire_tasks:

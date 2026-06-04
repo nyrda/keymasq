@@ -468,8 +468,8 @@ class ProfileManagedTab(Gtk.Box):
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)
-        except Exception as exc:
-            log.warning("Could not open Profiles documentation %s: %s", url, exc)
+        except Exception:
+            log.exception("Could not open Profiles documentation %s", url)
 
     def _on_delete_profile(
         self,

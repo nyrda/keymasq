@@ -33,6 +33,25 @@ def test_parse_unlock_expires_at_invalid_or_missing(tmp_path: Path) -> None:
     assert recording_guard.parse_unlock_expires_at(invalid) is None
 
 
+def test_parse_unlock_expires_at_logs_read_failure(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    lease = tmp_path / "lease"
+    lease.touch()
+    original_read_text = Path.read_text
+
+    def read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == lease:
+            raise PermissionError("permission denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    caplog.set_level(logging.WARNING, logger=recording_guard.__name__)
+
+    assert recording_guard.parse_unlock_expires_at(lease) is None
+    assert "Failed to read recording unlock file" in caplog.text
+
+
 def test_parse_unlock_expires_at_valid(tmp_path: Path) -> None:
     lease = tmp_path / "lease"
     lease.write_text("1234\n", encoding="utf-8")

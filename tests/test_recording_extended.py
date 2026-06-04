@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -143,6 +144,44 @@ async def test_recording_start_ignores_invalid_device_path(monkeypatch):
     stop_result = await recorder.stop()
 
     assert stop_result["event_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_recording_start_logs_expected_device_open_error(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def _bad_device(_path: str):
+        raise OSError("bad path")
+
+    monkeypatch.setattr(evdev, "InputDevice", _bad_device)
+
+    recorder = RecordingManager()
+    with caplog.at_level(logging.DEBUG, logger="keymasqd.recording"):
+        result = await recorder.start([{"path": "/does/not/exist"}])
+
+    assert result == {"status": "ok"}
+    assert "Failed to open extra recording device /does/not/exist" in caplog.text
+    await recorder.stop()
+
+
+@pytest.mark.asyncio
+async def test_recording_start_logs_unexpected_device_open_error(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def _broken_device(_path: str):
+        raise RuntimeError("driver bug")
+
+    monkeypatch.setattr(evdev, "InputDevice", _broken_device)
+
+    recorder = RecordingManager()
+    with caplog.at_level(logging.ERROR, logger="keymasqd.recording"):
+        result = await recorder.start([{"path": "/dev/input/event99"}])
+
+    assert result == {"status": "ok"}
+    assert "Unexpected failure opening extra recording device /dev/input/event99" in caplog.text
+    await recorder.stop()
 
 
 @pytest.mark.asyncio
@@ -322,6 +361,25 @@ async def test_recording_spool_finish_cleans_spool_file_on_fatal_error(
         await spool.finish()
 
     assert list(tmp_path.glob("recording-*.jsonl")) == []
+
+
+@pytest.mark.asyncio
+async def test_recording_spool_records_unexpected_flush_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spool = RecordingSpool(tmp_path, memory_event_limit=1)
+
+    def fail_write(_chunk: list[dict[str, object]]) -> None:
+        raise AssertionError("bad recording event")
+
+    monkeypatch.setattr(spool, "_write_chunk", fail_write)
+    spool.append({"device_type": "keyboard", "t_us": 0})
+
+    with pytest.raises(RuntimeError, match="Recording spool failed"):
+        await spool.finish()
+
+    assert isinstance(spool.failed, AssertionError)
 
 
 @pytest.mark.asyncio

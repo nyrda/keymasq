@@ -58,6 +58,11 @@ class _FailingWriteUInput(FakeUInput):
         raise OSError("uinput disconnected")
 
 
+class _UnexpectedFailingWriteUInput(FakeUInput):
+    def write(self, event_type: int, code: int, value: int) -> None:
+        raise RuntimeError("writer state invalid")
+
+
 class _CountingUInput(FakeUInput):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -68,6 +73,27 @@ class _CountingUInput(FakeUInput):
 
 
 class TestGrabbedDeviceHelpers:
+    def test_event_name_helpers_handle_missing_ecode_tables(self) -> None:
+        evdev_mod = SimpleNamespace(ecodes=SimpleNamespace(EV_KEY=evdev.ecodes.EV_KEY))
+        event = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_A, value=1)
+
+        assert gde.get_event_name(cast(gdt.InputEventLike, event), evdev_mod=evdev_mod) == str(
+            evdev.ecodes.KEY_A
+        )
+        assert gde.get_key_name(evdev.ecodes.KEY_A, evdev_mod=evdev_mod) is None
+
+    def test_event_name_helpers_use_available_ecode_tables(self) -> None:
+        evdev_mod = SimpleNamespace(
+            ecodes=SimpleNamespace(
+                EV_KEY=evdev.ecodes.EV_KEY,
+                bytype={evdev.ecodes.EV_KEY: {evdev.ecodes.KEY_A: ("KEY_A", "KEY_Q")}},
+            )
+        )
+        event = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_A, value=1)
+
+        assert gde.get_event_name(cast(gdt.InputEventLike, event), evdev_mod=evdev_mod) == "key_a"
+        assert gde.get_key_name(evdev.ecodes.KEY_A, evdev_mod=evdev_mod) == "key_a"
+
     @pytest.mark.asyncio
     async def test_device_release_ends_held_profile_trigger_state(
         self,
@@ -1185,6 +1211,32 @@ class TestGrabbedDeviceHelpers:
         assert "Failed to release output key" in caplog.text
         assert "Failed to release gamepad ABS axis" in caplog.text
 
+    def test_release_helpers_log_unexpected_uinput_release_failures(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch)
+        keyboard = _UnexpectedFailingWriteUInput()
+        gamepad = _UnexpectedFailingWriteUInput()
+        device.keyboard_uinput = keyboard  # type: ignore[assignment]
+        device.gamepad_uinput = gamepad  # type: ignore[assignment]
+
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            gdo.ensure_key_released(device, evdev.ecodes.KEY_A, device.keyboard_uinput)
+            gdo.ensure_abs_axis_released(
+                device,
+                evdev.ecodes.ABS_Z,
+                evdev_mod=evdev,
+                uinput_writer=lambda device: cast(
+                    runtime_adapters.WritableUInput | None, device
+                ),
+            )
+
+        assert "Unexpected failure releasing output key" in caplog.text
+        assert "Unexpected failure releasing gamepad ABS axis" in caplog.text
+        assert "RuntimeError: writer state invalid" in caplog.text
+
     def test_release_all_keys_keeps_tracking_after_failed_release(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1208,6 +1260,38 @@ class TestGrabbedDeviceHelpers:
         assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
         assert device.state.superkey_output_refcounts["keyboard"] == {evdev.ecodes.KEY_A: 1}
         assert "Failed to release held output keys" in caplog.text
+
+    def test_release_all_keys_logs_unexpected_release_failures(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch)
+        keyboard = _UnexpectedFailingWriteUInput()
+        gamepad = _UnexpectedFailingWriteUInput()
+        device.keyboard_uinput = keyboard  # type: ignore[assignment]
+        device.gamepad_uinput = gamepad  # type: ignore[assignment]
+        device.state.held_output_keys["keyboard"].add(evdev.ecodes.KEY_A)
+        device.state.superkey_output_refcounts["keyboard"][evdev.ecodes.KEY_A] = 1
+        device.state.held_output_abs["gamepad"].add(evdev.ecodes.ABS_Z)
+        device.state.superkey_abs_refcounts["gamepad"][evdev.ecodes.ABS_Z] = 1
+
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            gdo.release_all_keys(
+                device,
+                evdev_mod=evdev,
+                uinput_writer=lambda device: cast(
+                    runtime_adapters.WritableUInput | None, device
+                ),
+            )
+
+        assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
+        assert device.state.superkey_output_refcounts["keyboard"] == {evdev.ecodes.KEY_A: 1}
+        assert device.state.held_output_abs["gamepad"] == {evdev.ecodes.ABS_Z}
+        assert device.state.superkey_abs_refcounts["gamepad"] == {evdev.ecodes.ABS_Z: 1}
+        assert "Unexpected failure releasing held output keys" in caplog.text
+        assert "Unexpected failure releasing gamepad ABS axes" in caplog.text
+        assert "RuntimeError: writer state invalid" in caplog.text
 
     @pytest.mark.asyncio
     async def test_wait_for_active_key_activity_handles_timeouts_and_drain_errors(
@@ -1235,6 +1319,8 @@ class TestGrabbedDeviceHelpers:
                 self.calls += 1
                 if self.calls == 1:
                     raise OSError(errno.EIO, "drain failed")
+                if self.calls == 2:
+                    raise RuntimeError("broken read_one")
                 return None
 
         fake_input = _FakeInputDevice()
@@ -1242,7 +1328,7 @@ class TestGrabbedDeviceHelpers:
 
         monkeypatch.setattr(gdm.asyncio, "get_running_loop", lambda: _FakeLoop())
 
-        outcomes = iter([TimeoutError(), None])
+        outcomes = iter([TimeoutError(), None, None])
 
         async def fake_wait_for(awaitable, _timeout: float):
             close = getattr(awaitable, "close", None)
@@ -1279,6 +1365,22 @@ class TestGrabbedDeviceHelpers:
             )
 
         assert "failed to drain pending events before grab" in caplog.text
+
+        caplog.clear()
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            assert (
+                await gdg.wait_for_active_key_activity(
+                    device,
+                    0.1,
+                    asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                    errno_mod=errno,
+                    log=gdm.log,
+                )
+                is True
+            )
+
+        assert "unexpected failure draining pending events before grab" in caplog.text
+        assert "RuntimeError: broken read_one" in caplog.text
 
     @pytest.mark.asyncio
     async def test_broadcast_grab_status_and_startup_held_actions(
@@ -1327,6 +1429,35 @@ class TestGrabbedDeviceHelpers:
         assert device.state.held_source_actions["key_b"] == mapping_state["right"]
         assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_Z, 0)]
         assert mouse.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0)]
+
+    def test_seed_startup_held_actions_logs_read_failures(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch)
+
+        class _FailingInputDevice:
+            def __init__(self, exc: Exception) -> None:
+                self.exc = exc
+
+            def active_keys(self) -> list[int]:
+                raise self.exc
+
+        device.device = _FailingInputDevice(OSError("device gone"))  # type: ignore[assignment]
+        with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
+            gdg.seed_startup_held_actions(device)
+
+        assert "failed to read startup active keys" in caplog.text
+        assert "device gone" in caplog.text
+
+        caplog.clear()
+        device.device = _FailingInputDevice(RuntimeError("broken active_keys"))  # type: ignore[assignment]
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            gdg.seed_startup_held_actions(device)
+
+        assert "unexpected failure reading startup active keys" in caplog.text
+        assert "RuntimeError: broken active_keys" in caplog.text
 
     def test_seed_startup_held_actions_matches_gamepad_alias_by_code(
         self,

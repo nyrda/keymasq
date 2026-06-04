@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -11,6 +12,7 @@ from keymasq.common.models import DeviceType
 
 INPUT_CLASS_ORDER = ("mouse", "touchpad", "keyboard", "gamepad", "pointstick", "other")
 KEYMASQ_DEVICE_PATH_PREFIX = "keymasq:"
+log = logging.getLogger("keymasq.common.devices")
 INPUT_CLASS_LABELS = {
     "mouse": "Mouse",
     "touchpad": "Touchpad",
@@ -392,7 +394,7 @@ def detect_input_classes_from_capabilities(
 def detect_input_classes(device: _CapabilityDevice) -> list[str]:
     try:
         input_props = list(device.input_props())
-    except Exception:
+    except (OSError, RuntimeError, AttributeError):
         input_props = []
     return detect_input_classes_from_capabilities(device.capabilities(), input_props)
 
@@ -631,13 +633,15 @@ def find_all_interfaces(vendor_id: str, product_id: str) -> list[dict[str, str]]
                         "phys": str(getattr(device, "phys", "") or ""),
                     }
                 )
+        except OSError as exc:
+            log.debug("Skipping evdev interface %s during VID:PID probe: %s", path, exc)
         except Exception:
-            continue
+            log.exception("Unexpected failure probing evdev interface %s for VID:PID match", path)
         finally:
             if device is not None:
                 try:
                     device.close()
-                except Exception:
-                    pass
+                except (OSError, RuntimeError) as exc:
+                    log.debug("Failed to close evdev interface %s: %s", path, exc)
 
     return interfaces

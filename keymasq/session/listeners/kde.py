@@ -64,7 +64,7 @@ def _parse_json_object(payload: str) -> JsonObject | None:
         data = json.loads(payload)
         if isinstance(data, str):
             data = json.loads(data)
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         return None
     return cast(JsonObject, data) if isinstance(data, dict) else None
 
@@ -101,7 +101,7 @@ def parse_kde_cursor_payload(payload: str) -> tuple[str, int, int] | None:
     try:
         x = int(float(str(x_raw)))
         y = int(float(str(y_raw)))
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
     return request_id, x, y
@@ -237,6 +237,7 @@ class KDEListener(WindowListener):
                 raise RuntimeError("KDE script interface returned a non-awaitable run result")
             await cast(Awaitable[object], result)
         except Exception:
+            log.exception("KDE Wayland listener failed to start")
             await self.stop()
             raise
 
@@ -261,7 +262,7 @@ class KDEListener(WindowListener):
             self._dispatch_waiters.pop(request_id, None)
 
         if self._window_script_iface:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
                 call_stop = getattr(self._window_script_iface, "call_stop", None)
                 if callable(call_stop):
                     result = call_stop()
@@ -270,7 +271,7 @@ class KDEListener(WindowListener):
             self._window_script_iface = None
 
         if self._kwin_scripting and self._plugin_name:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError, RuntimeError):
                 await self._call_unload_script(self._plugin_name)
 
         self._script_id = None
@@ -278,12 +279,12 @@ class KDEListener(WindowListener):
         self._plugin_name = ""
 
         if self._script_path:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError):
                 self._script_path.unlink(missing_ok=True)
             self._script_path = None
 
         if self._bus and self._bridge:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError, RuntimeError, TypeError):
                 self._bus.unexport(KDE_DBUS_OBJECT_PATH, self._bridge)
         self._bridge = None
         self._bus = None
@@ -320,7 +321,7 @@ class KDEListener(WindowListener):
         except TimeoutError:
             log.debug("KDE cursor get timed out waiting for response")
             return None
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             log.debug("KDE cursor get failed", exc_info=True)
             return None
         finally:
@@ -363,7 +364,7 @@ class KDEListener(WindowListener):
         except TimeoutError:
             log.debug("KDE dispatch timed out waiting for response")
             return False, "timed out waiting for KDE dispatch response"
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             log.debug("KDE dispatch failed", exc_info=True)
             return False, "KDE dispatch failed"
         finally:
@@ -399,17 +400,17 @@ class KDEListener(WindowListener):
             return await asyncio.wait_for(result_future, timeout=timeout)
         finally:
             if script_iface is not None:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
                     call_stop = getattr(script_iface, "call_stop", None)
                     if callable(call_stop):
                         result = call_stop()
                         if inspect.isawaitable(result):
                             await cast(Awaitable[object], result)
             if self._kwin_scripting:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(OSError, RuntimeError):
                     await self._call_unload_script(plugin_name)
             if script_path:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(OSError):
                     await asyncio.to_thread(script_path.unlink, missing_ok=True)
 
     def handle_window_payload(self, payload: str) -> None:

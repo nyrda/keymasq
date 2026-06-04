@@ -2130,7 +2130,7 @@ class DeviceTab(ProfileManagedTab):
         try:
             code = int(cast(int, code_raw))
             value = int(cast(int, value_raw))
-        except Exception:
+        except (TypeError, ValueError):
             return
         source = str(captured.get("source", "") or "")
         key = f"{source}:{code}"
@@ -2228,7 +2228,7 @@ class DeviceTab(ProfileManagedTab):
             return "y"
         try:
             code = int(cast(int, candidate.get("code")))
-        except Exception:
+        except (TypeError, ValueError):
             return None
         if code in {0, 3, 16}:
             return "x"
@@ -2953,11 +2953,11 @@ class DeviceTab(ProfileManagedTab):
     ) -> bool:
         try:
             captured_code = int(cast(int, evdev_code)) if evdev_code is not None else None
-        except Exception:
+        except (TypeError, ValueError):
             captured_code = None
         try:
             captured_value = int(cast(int, evdev_value)) if evdev_value is not None else None
-        except Exception:
+        except (TypeError, ValueError):
             captured_value = None
 
         captured_name = canonical_gamepad_button_name(evdev_name)

@@ -57,7 +57,7 @@ class ActionHandler:
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
             )
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             log.error(f"Failed to execute command: {e}")
             return -1
 
@@ -77,7 +77,7 @@ class ActionHandler:
             log.debug("Command task cancelled, killing: %s", cmd)
             await _kill_and_drain_process(process)
             raise
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             log.error(f"Failed to execute command: {e}")
             return -1
 

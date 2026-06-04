@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 
 from keymasq.common.devices import is_gamepad_button_name
@@ -7,11 +8,14 @@ from keymasq.common.virtual_devices import (
 )
 from keymasq.session.settings import load_virtual_gamepad_count
 
+log = logging.getLogger("keymasq.gui.widgets.gamepad_output_choices")
+
 
 def virtual_gamepad_count() -> int:
     try:
         return max(0, int(load_virtual_gamepad_count()))
     except Exception:
+        log.exception("Unable to load virtual gamepad count; using default of 1")
         return 1
 
 

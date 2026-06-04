@@ -1,6 +1,6 @@
 import logging
 import lzma
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -20,7 +20,7 @@ def _run_before_mutation_guard(
     callback_ran = False
 
     @contextmanager
-    def mutation_guard() -> Iterator[None]:
+    def mutation_guard() -> Generator[None, None, None]:
         nonlocal callback_ran
         if not callback_ran:
             callback_ran = True
@@ -379,5 +379,5 @@ def test_macro_store_list_meta_logs_unreadable_files(
     with caplog.at_level(logging.WARNING, logger="keymasqd.macros"):
         assert store.list_meta() == []
 
-    assert "Skipping unreadable macro file" in caplog.text
+    assert "Skipping corrupt compressed macro file" in caplog.text
     assert "broken.kmacro.xz" in caplog.text

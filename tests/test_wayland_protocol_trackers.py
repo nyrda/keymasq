@@ -3,7 +3,7 @@ import socket
 import struct
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -133,7 +133,7 @@ def test_wayland_transport_display_error_raises_protocol_error() -> None:
 
 
 @contextmanager
-def _short_socket_path(name: str) -> Iterator[Path]:
+def _short_socket_path(name: str) -> Generator[Path, None, None]:
     with tempfile.TemporaryDirectory(prefix="kmq-", dir="/tmp") as temp_dir:
         yield Path(temp_dir) / name
 
@@ -243,7 +243,16 @@ def _serve_registry_probe_response(
                     conn.recv(4096)
                     conn.sendall(response)
                     conn.recv(4096)
-        except BaseException as exc:
+        except (
+            OSError,
+            RuntimeError,
+            TimeoutError,
+            TypeError,
+            ValueError,
+            AssertionError,
+            AttributeError,
+            KeyError,
+        ) as exc:
             errors.append(exc)
             ready.set()
 
@@ -377,6 +386,23 @@ def test_registry_probe_ignores_truncated_global_interface_async() -> None:
     assert asyncio.run(run_probe()) == {EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE}
 
 
+def test_registry_probe_logs_unexpected_collect_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def fail_collect(_self: object, _timeout_s: float) -> set[str]:
+        raise RuntimeError("probe bug")
+
+    monkeypatch.setattr(registry_probe._RegistryProbeTransport, "collect", fail_collect)
+
+    with caplog.at_level("ERROR", logger="keymasq-session.wayland.registry_probe"):
+        result = asyncio.run(registry_probe.list_registry_globals(Path("/tmp/wayland-test")))
+
+    assert result == set()
+    assert "Unexpected Wayland registry probe failure" in caplog.text
+    assert "probe bug" in caplog.text
+
+
 def test_wayland_clients_send_requests_with_loop_sock_sendall() -> None:
     async def send_requests() -> None:
         clients = (
@@ -465,6 +491,39 @@ def test_ext_wayland_client_stop_destroys_handles_before_list() -> None:
     assert fake_socket.closed is True
 
 
+def test_ext_wayland_client_stop_logs_unexpected_destroy_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    tracker = ExtForeignToplevelListTracker()
+    client = ExtForeignToplevelListWaylandClient(tracker)
+    fake_socket = _FakeWaylandSocket()
+    client._socket = fake_socket
+
+    list_id = client._allocate_object_id(EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE)
+    handle_id = client._allocate_object_id("ext_foreign_toplevel_handle_v1")
+    client._list_id = list_id
+    client._toplevel_handles.add(handle_id)
+
+    async def fail_send_request(
+        _object_id: int,
+        _opcode: int,
+        _payload: bytes,
+    ) -> None:
+        raise RuntimeError("destroy bug")
+
+    client._send_request = fail_send_request
+
+    with caplog.at_level("ERROR", logger="keymasq-session.wayland.ext_foreign_toplevel"):
+        asyncio.run(client.stop())
+
+    assert fake_socket.closed is True
+    assert client._list_id is None
+    assert client._toplevel_handles == set()
+    assert "Unexpected failure destroying ext foreign toplevel handle" in caplog.text
+    assert "Unexpected failure destroying ext foreign toplevel list" in caplog.text
+    assert "destroy bug" in caplog.text
+
+
 def test_wlr_wayland_client_dispatches_manager_and_toplevel_events() -> None:
     tracker = WlrForeignToplevelManagerTracker()
     client = wlr_client_module.WlrForeignToplevelWaylandClient(tracker)
@@ -528,6 +587,43 @@ def test_wlr_wayland_client_stop_removes_tracker_handles() -> None:
     assert tracker.get_active_window() == ("", "")
     assert client._toplevel_handles == set()
     assert fake_socket.closed is True
+
+
+def test_wlr_wayland_client_stop_logs_unexpected_destroy_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    tracker = WlrForeignToplevelManagerTracker()
+    client = wlr_client_module.WlrForeignToplevelWaylandClient(tracker)
+    fake_socket = _FakeWaylandSocket()
+    client._socket = fake_socket
+
+    manager_id = client._allocate_object_id(
+        wlr_client_module.WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE
+    )
+    handle_id = client._allocate_object_id("zwlr_foreign_toplevel_handle_v1")
+    client._manager_id = manager_id
+    client._toplevel_handles.add(handle_id)
+    tracker.add_toplevel(str(handle_id))
+
+    async def fail_send_request(
+        _object_id: int,
+        _opcode: int,
+        _payload: bytes,
+    ) -> None:
+        raise RuntimeError("destroy bug")
+
+    client._send_request = fail_send_request
+
+    with caplog.at_level("ERROR", logger="keymasq-session.wayland.wlr_foreign_toplevel"):
+        asyncio.run(client.stop())
+
+    assert fake_socket.closed is True
+    assert client._manager_id is None
+    assert client._toplevel_handles == set()
+    assert str(handle_id) not in tracker._windows
+    assert "Unexpected failure destroying wlr foreign toplevel handle" in caplog.text
+    assert "Unexpected failure destroying wlr foreign toplevel manager" in caplog.text
+    assert "destroy bug" in caplog.text
 
 
 def test_cosmic_wayland_client_links_ext_handles_to_cosmic_state() -> None:
@@ -628,6 +724,40 @@ def test_cosmic_wayland_client_stop_destroys_handles_before_list() -> None:
         (list_id, 1),
     ]
     assert fake_socket.closed is True
+
+
+def test_cosmic_wayland_client_logs_unexpected_cosmic_handle_destroy_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    tracker = ExtForeignToplevelListTracker()
+    client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
+    cosmic_handle_id = client._allocate_object_id("zcosmic_toplevel_handle_v1")
+    ext_handle_id = client._allocate_object_id("ext_foreign_toplevel_handle_v1")
+    client._cosmic_handles.add(cosmic_handle_id)
+    client._ext_to_cosmic[ext_handle_id] = cosmic_handle_id
+    client._cosmic_to_ext[cosmic_handle_id] = ext_handle_id
+
+    async def fail_send_request(
+        _object_id: int,
+        _opcode: int,
+        _payload: bytes,
+    ) -> None:
+        raise RuntimeError("destroy bug")
+
+    client._send_request = fail_send_request
+
+    with caplog.at_level(
+        "ERROR",
+        logger="keymasq-session.wayland.cosmic_toplevel_info",
+    ):
+        asyncio.run(client._destroy_cosmic_handle(cosmic_handle_id))
+
+    assert cosmic_handle_id not in client._cosmic_handles
+    assert cosmic_handle_id not in client._objects
+    assert ext_handle_id not in client._ext_to_cosmic
+    assert cosmic_handle_id not in client._cosmic_to_ext
+    assert "Unexpected failure destroying COSMIC toplevel info handle" in caplog.text
+    assert "destroy bug" in caplog.text
 
 
 def test_cosmic_wayland_client_skips_unsupported_registry_version() -> None:

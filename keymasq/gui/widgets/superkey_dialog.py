@@ -5,7 +5,12 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
+    Adw,  # pyright: ignore[reportAttributeAccessIssue]
+    Gdk,  # pyright: ignore[reportAttributeAccessIssue]
+    GObject,  # pyright: ignore[reportAttributeAccessIssue]
+    Gtk,  # pyright: ignore[reportAttributeAccessIssue]
+)
 
 from keymasq import __version__
 from keymasq.common.models import (
@@ -1305,5 +1310,5 @@ class SuperkeyDialog(Adw.Dialog):
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)
-        except Exception as exc:
-            log.warning("Could not open Super Keys documentation %s: %s", url, exc)
+        except Exception:
+            log.exception("Could not open Super Keys documentation %s", url)

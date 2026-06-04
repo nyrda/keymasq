@@ -320,13 +320,19 @@ def ensure_abs_axis_released(
             uinput_writer=uinput_writer,
             bucket=bucket,
         )
-    except Exception as exc:
+    except OSError as exc:
         log.debug(
             "Failed to release gamepad ABS axis %s on %s: %s",
             axis_code,
             device_runtime.path,
             exc,
             exc_info=True,
+        )
+    except Exception:
+        log.exception(
+            "Unexpected failure releasing gamepad ABS axis %s on %s",
+            axis_code,
+            device_runtime.path,
         )
 
 
@@ -348,7 +354,7 @@ def ensure_key_released(
                 uinput_writer=identity_uinput_writer,
                 bucket=bucket,
             )
-    except Exception as exc:
+    except OSError as exc:
         log.debug(
             "Failed to release output key %s on %s bucket=%s: %s",
             code,
@@ -356,6 +362,13 @@ def ensure_key_released(
             bucket_for_uinput(device_runtime, uinput_dev) or "unknown",
             exc,
             exc_info=True,
+        )
+    except Exception:
+        log.exception(
+            "Unexpected failure releasing output key %s on %s bucket=%s",
+            code,
+            device_runtime.path,
+            bucket_for_uinput(device_runtime, uinput_dev) or "unknown",
         )
 
 
@@ -436,7 +449,7 @@ def release_all_keys(
             for code in held:
                 writer.write(evdev_mod.ecodes.EV_KEY, int(code), 0)
             writer.syn()
-        except Exception as exc:
+        except OSError as exc:
             log.debug(
                 "Failed to release held output keys on %s bucket=%s keys=%s: %s",
                 device_runtime.path,
@@ -444,6 +457,13 @@ def release_all_keys(
                 held,
                 exc,
                 exc_info=True,
+            )
+        except Exception:
+            log.exception(
+                "Unexpected failure releasing held output keys on %s bucket=%s keys=%s",
+                device_runtime.path,
+                bucket,
+                held,
             )
         else:
             _clear_held_output_bucket(device_runtime, bucket, held_abs=False)
@@ -466,13 +486,19 @@ def release_all_keys(
             for axis_code in sorted(axes):
                 writer.write(evdev_mod.ecodes.EV_ABS, int(axis_code), 0)
             writer.syn()
-        except Exception as exc:
+        except OSError as exc:
             log.debug(
                 "Failed to release gamepad ABS axes on %s bucket=%s: %s",
                 device_runtime.path,
                 bucket,
                 exc,
                 exc_info=True,
+            )
+        except Exception:
+            log.exception(
+                "Unexpected failure releasing gamepad ABS axes on %s bucket=%s",
+                device_runtime.path,
+                bucket,
             )
         else:
             _clear_held_output_bucket(

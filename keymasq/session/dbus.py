@@ -1,10 +1,12 @@
 import asyncio
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from dbus_next.aio.message_bus import MessageBus
 from dbus_next.constants import MessageType
+from dbus_next.errors import AuthError, DBusError, InterfaceNotFoundError, InvalidAddressError
 from dbus_next.message import Message
 
 DBUS_SERVICE = "org.freedesktop.DBus"
@@ -13,6 +15,7 @@ DBUS_INTERFACE = "org.freedesktop.DBus"
 NOTIFICATIONS_SERVICE = "org.freedesktop.Notifications"
 NOTIFICATIONS_PATH = "/org/freedesktop/Notifications"
 NOTIFICATIONS_INTERFACE = "org.freedesktop.Notifications"
+log = logging.getLogger("keymasq-session.dbus")
 
 
 class SessionDBus:
@@ -107,7 +110,7 @@ class SessionDBus:
 
 
 @asynccontextmanager
-async def temporary_session_dbus() -> AsyncIterator[SessionDBus]:
+async def temporary_session_dbus() -> AsyncGenerator[SessionDBus]:
     dbus = SessionDBus()
     try:
         await dbus.connect()
@@ -127,5 +130,15 @@ async def name_has_owner(
             return await dbus.name_has_owner(name, timeout=timeout)
         async with temporary_session_dbus() as temporary_dbus:
             return await temporary_dbus.name_has_owner(name, timeout=timeout)
+    except TimeoutError as exc:
+        log.debug("Timed out while checking D-Bus owner %s: %s", name, exc)
+        return False
+    except OSError as exc:
+        log.debug("D-Bus owner lookup transport error for %s: %s", name, exc)
+        return False
+    except (AuthError, DBusError, InterfaceNotFoundError, InvalidAddressError) as exc:
+        log.debug("D-Bus owner lookup failed for %s: %s", name, exc)
+        return False
     except Exception:
+        log.exception("Unexpected D-Bus owner lookup failure for %s", name)
         return False

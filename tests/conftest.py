@@ -36,7 +36,7 @@ def _create_virtual_uinput(
             vendor=vendor,
             product=product,
         )
-    except Exception as exc:
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         pytest.skip(f"Virtual uinput device unavailable: {exc}")
 
     backing_device = getattr(device, "device", None)

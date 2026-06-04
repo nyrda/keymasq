@@ -1299,12 +1299,16 @@ class DeviceManager:
                         **(grabbed_source or {}),
                     }
                 )
-            except Exception as e:
-                log.debug(f"Could not read device {path}: {e}")
+            except OSError as exc:
+                log.debug("Skipping unreadable device %s: %s", path, exc)
+            except Exception:
+                log.exception("Could not read device %s", path)
             finally:
                 if device is not None:
-                    with contextlib.suppress(Exception):
-                        device.close()
+                    close = getattr(device, "close", None)
+                    if callable(close):
+                        with contextlib.suppress(OSError, RuntimeError):
+                            close()
 
         return {"devices": devices}
 

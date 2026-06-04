@@ -32,7 +32,16 @@ def persistent_macro_recording_path(uid: int) -> Path:
 def parse_unlock_expires_at(path: Path) -> int | None:
     try:
         text = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        log.warning("Failed to read recording unlock file %s: %s", path, exc)
+        return None
+    except UnicodeDecodeError as exc:
+        log.warning("Failed to decode recording unlock file %s: %s", path, exc)
+        return None
     except Exception:
+        log.exception("Unexpected failure reading recording unlock file %s", path)
         return None
 
     if not text:
@@ -40,7 +49,8 @@ def parse_unlock_expires_at(path: Path) -> int | None:
 
     try:
         value = int(text)
-    except (TypeError, ValueError):
+    except ValueError:
+        log.debug("Ignoring invalid recording unlock value in %s: %r", path, text)
         return None
 
     return value

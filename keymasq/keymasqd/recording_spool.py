@@ -182,7 +182,7 @@ class RecordingSpool:
                 await asyncio.to_thread(self._write_chunk, chunk)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - command handling logs the recorded fatal error.
             self._fatal_error = exc
         finally:
             if self._flush_task is asyncio.current_task():

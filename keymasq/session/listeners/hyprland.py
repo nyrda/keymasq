@@ -107,11 +107,13 @@ class HyprlandListener(WindowListener):
                 pass
 
         if self.writer:
-            self.writer.close()
             try:
+                self.writer.close()
                 await self.writer.wait_closed()
+            except OSError as exc:
+                log.debug("Failed while closing Hyprland listener writer: %s", exc)
             except Exception:
-                log.debug("Failed while closing Hyprland listener writer", exc_info=True)
+                log.exception("Unexpected failure while closing Hyprland listener writer")
 
         log.info("Hyprland listener stopped")
 
@@ -134,8 +136,12 @@ class HyprlandListener(WindowListener):
 
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            log.error(f"Hyprland listener error: {e}")
+        except UnicodeDecodeError as exc:
+            log.debug("Hyprland listener received invalid UTF-8 event data: %s", exc)
+        except OSError as exc:
+            log.debug("Hyprland listener stopped after I/O error: %s", exc)
+        except Exception:
+            log.exception("Unexpected Hyprland listener error")
 
     async def _handle_event(self, event_line: str) -> None:
         if ">>" not in event_line:
@@ -157,43 +163,53 @@ class HyprlandListener(WindowListener):
         elif event_type == "activewindowv2":
             log.debug(f"Active window address: {data}")
 
-    async def _get_window_tags(self) -> list[str]:
+    @staticmethod
+    def _parse_active_window_response(
+        response: bytes,
+        *,
+        context: str,
+    ) -> tuple[str, str, list[str]] | None:
         try:
-            response = await self._send_cmd("j/activewindow", read_size=8192)
-            if response is None:
-                return []
+            payload = json.loads(response.decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            log.debug("Hyprland %s response was not UTF-8: %s", context, exc)
+            return None
+        except json.JSONDecodeError as exc:
+            log.debug("Hyprland %s response was malformed JSON: %s", context, exc)
+            return None
 
-            data = json.loads(response.decode())
-            tags = data.get("tags", [])
-            if not isinstance(tags, list):
-                return []
-            tag_items = cast(list[object], tags)
-            return [str(tag) for tag in tag_items]
+        if not isinstance(payload, dict):
+            log.debug("Hyprland %s response was not a JSON object", context)
+            return None
 
-        except Exception as e:
-            log.debug(f"Failed to get window tags: {e}")
+        data = cast(dict[str, object], payload)
+        tags = data.get("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+        tag_items = cast(list[object], tags)
+        window_class = data.get("class", "")
+        window_title = data.get("title", "")
+        return (
+            str(window_class) if window_class is not None else "",
+            str(window_title) if window_title is not None else "",
+            [str(tag) for tag in tag_items],
+        )
+
+    async def _get_window_tags(self) -> list[str]:
+        response = await self._send_cmd("j/activewindow", read_size=8192)
+        if response is None:
             return []
 
+        parsed = self._parse_active_window_response(response, context="active window tags")
+        return parsed[2] if parsed is not None else []
+
     async def get_active_window(self) -> tuple[str, str, list[str]]:
-        try:
-            response = await self._send_cmd("j/activewindow", read_size=8192)
-            if response is None:
-                return "", "", []
-
-            data = json.loads(response.decode())
-            tags = data.get("tags", [])
-            if not isinstance(tags, list):
-                tags = []
-            tag_items = cast(list[object], tags)
-            return (
-                data.get("class", ""),
-                data.get("title", ""),
-                [str(tag) for tag in tag_items],
-            )
-
-        except Exception as e:
-            log.error(f"Failed to get active window: {e}")
+        response = await self._send_cmd("j/activewindow", read_size=8192)
+        if response is None:
             return "", "", []
+
+        parsed = self._parse_active_window_response(response, context="active window")
+        return parsed if parsed is not None else ("", "", [])
 
     async def get_cursor_position(self) -> tuple[int, int] | None:
         try:
@@ -205,7 +221,7 @@ class HyprlandListener(WindowListener):
             if len(parts) != 2:
                 return None
             return int(float(parts[0])), int(float(parts[1]))
-        except Exception:
+        except (OSError, UnicodeDecodeError, ValueError):
             return None
 
     async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
@@ -263,16 +279,24 @@ class HyprlandListener(WindowListener):
                 if not response:
                     return None
                 return response
-            except Exception as exc:
+            except TimeoutError as exc:
+                log.debug("Hyprland command timed out: %s", exc)
+                return None
+            except OSError as exc:
                 log.debug("Hyprland command failed: %s", exc)
+                return None
+            except Exception:
+                log.exception("Unexpected Hyprland command failure")
                 return None
             finally:
                 if cmd_writer is not None:
                     try:
                         cmd_writer.close()
                         await cmd_writer.wait_closed()
+                    except OSError as exc:
+                        log.debug("Failed while closing Hyprland command writer: %s", exc)
                     except Exception:
-                        log.debug("Failed while closing Hyprland command writer", exc_info=True)
+                        log.exception("Unexpected failure while closing Hyprland command writer")
             return None
 
     async def health_check(self) -> bool:

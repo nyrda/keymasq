@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import math
 import os
 import pwd
@@ -16,6 +17,8 @@ from keymasq.common.recording_guard import (
     write_unlock_expires_at,
 )
 
+log = logging.getLogger("keymasq.record")
+
 _MUTATING_COMMANDS = {
     "unlock-runtime",
     "lock-runtime",
@@ -24,6 +27,11 @@ _MUTATING_COMMANDS = {
     "disable-macro-recording",
     "disable-macro-recording-persistent",
 }
+
+
+def _exit_error(message: object) -> None:
+    print(json.dumps({"status": "error", "message": str(message)}))
+    sys.exit(1)
 
 
 def _require_privileged_caller() -> int:
@@ -233,9 +241,11 @@ def main() -> None:
             return
 
         raise ValueError("Unknown command")
+    except (PermissionError, OSError, ValueError) as exc:
+        _exit_error(exc)
     except Exception as exc:
-        print(json.dumps({"status": "error", "message": str(exc)}))
-        sys.exit(1)
+        log.exception("Unexpected keymasq-record failure")
+        _exit_error(exc)
 
 
 if __name__ == "__main__":

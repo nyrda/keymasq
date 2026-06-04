@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
-from keymasq.common.ipc import Command, CommandType
+from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.models import (
     MAX_MACRO_RECORDING_SLOTS,
     normalize_macro_loop_stop_behavior,
@@ -37,6 +37,21 @@ if TYPE_CHECKING:
 log = logging.getLogger("keymasq-session")
 
 
+def _daemon_unavailable_response() -> JsonObject:
+    return {"status": "error", "message": "Daemon unavailable"}
+
+
+async def _send_daemon_request(
+    manager: "SessionManager",
+    command: Command,
+) -> Response | None:
+    try:
+        return await manager.client.send_command(command)
+    except OSError as exc:
+        log.debug("Daemon request %s failed: %s", command.command.value, exc, exc_info=True)
+        return None
+
+
 async def handle_session_request(
     manager: "SessionManager",
     request: JsonObject,
@@ -51,11 +66,10 @@ async def handle_session_request(
         return {
             "status": "error",
             "message": f"{client_class} is not allowed to call '{command}'",
-    }
+        }
 
     if runtime_recording.is_sensitive_session_command(
-        manager,
-        command, policy
+        manager, command, policy
     ) and not await runtime_recording.authorize_sensitive_session_command(
         manager,
         command,
@@ -167,15 +181,15 @@ async def _handle_profile_commands(
         if not hardware_id:
             return {"status": "error", "message": "missing hardware_id"}
         immediate = bool(request.get("immediate", True))
-        try:
-            result = await manager.client.send_command(
-                Command(
-                    command=CommandType.RELEASE_DEVICE,
-                    data={"hardware_id": hardware_id, "immediate": immediate},
-                )
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(
+            manager,
+            Command(
+                command=CommandType.RELEASE_DEVICE,
+                data={"hardware_id": hardware_id, "immediate": immediate},
+            ),
+        )
+        if result is None:
+            return _daemon_unavailable_response()
         if result.status != "ok":
             return {
                 "status": "error",
@@ -227,9 +241,11 @@ async def _handle_virtual_gamepad_commands(
         int_value(request.get("count"), manager.virtual_gamepad_count)
     )
     if manager.connected:
-        response = await manager.client.send_command(
-            Command(command=CommandType.SET_VIRTUAL_GAMEPADS, data={"count": count})
+        response = await _send_daemon_request(
+            manager, Command(command=CommandType.SET_VIRTUAL_GAMEPADS, data={"count": count})
         )
+        if response is None:
+            return _daemon_unavailable_response()
         if response.status != "ok":
             return {"status": "error", "message": response.error or "daemon rejected count"}
         if isinstance(response.data, dict):
@@ -311,12 +327,18 @@ async def _handle_settings_commands(
     )
 
     if manager.connected:
-        response = await manager.client.send_command(
+        response = await _send_daemon_request(
+            manager,
             Command(
                 command=CommandType.SET_VIRTUAL_GAMEPADS,
                 data={"count": count},
-            )
+            ),
         )
+        if response is None:
+            payload = _settings_payload(manager)
+            payload["status"] = "error"
+            payload["message"] = "Daemon unavailable"
+            return payload
         if response.status != "ok":
             payload = _settings_payload(manager)
             payload["status"] = "error"
@@ -572,10 +594,9 @@ async def _handle_macro_commands(
     request: JsonObject,
 ) -> JsonObject | None:
     if command == "list_macros":
-        try:
-            result = await manager.client.send_command(Command(command=CommandType.MACRO_LIST_META))
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(manager, Command(command=CommandType.MACRO_LIST_META))
+        if result is None:
+            return _daemon_unavailable_response()
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             macros = list(json_list(result_data.get("macros")))
@@ -587,12 +608,12 @@ async def _handle_macro_commands(
 
     if command == "get_macro":
         name = str_value(request.get("name"), "")
-        try:
-            result = await manager.client.send_command(
-                Command(command=CommandType.MACRO_GET, data={"name": name})
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(
+            manager,
+            Command(command=CommandType.MACRO_GET, data={"name": name}),
+        )
+        if result is None:
+            return _daemon_unavailable_response()
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             return {"status": "ok", "macro": result_data.get("macro")}
@@ -602,12 +623,12 @@ async def _handle_macro_commands(
         macro = json_object(request.get("macro"))
         if macro is None:
             return {"status": "error", "message": "macro payload required"}
-        try:
-            result = await manager.client.send_command(
-                Command(command=CommandType.MACRO_CREATE, data={"macro": macro})
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(
+            manager,
+            Command(command=CommandType.MACRO_CREATE, data={"macro": macro}),
+        )
+        if result is None:
+            return _daemon_unavailable_response()
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             created = json_object(result_data.get("macro")) or {}
@@ -626,12 +647,12 @@ async def _handle_macro_commands(
         update_payload: JsonObject = {"name": name, "macro": macro}
         if "expected_revision" in request:
             update_payload["expected_revision"] = request.get("expected_revision")
-        try:
-            result = await manager.client.send_command(
-                Command(command=CommandType.MACRO_UPDATE, data=update_payload)
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(
+            manager,
+            Command(command=CommandType.MACRO_UPDATE, data=update_payload),
+        )
+        if result is None:
+            return _daemon_unavailable_response()
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             updated = json_object(result_data.get("macro")) or {}
@@ -647,12 +668,12 @@ async def _handle_macro_commands(
         delete_payload: JsonObject = {"name": name}
         if "expected_revision" in request:
             delete_payload["expected_revision"] = request.get("expected_revision")
-        try:
-            result = await manager.client.send_command(
-                Command(command=CommandType.MACRO_DELETE, data=delete_payload)
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(
+            manager,
+            Command(command=CommandType.MACRO_DELETE, data=delete_payload),
+        )
+        if result is None:
+            return _daemon_unavailable_response()
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to delete macro"}
         await runtime_profiles.refresh_macro_bindings(manager)
@@ -666,12 +687,12 @@ async def _handle_macro_commands(
         }
         if "expected_revision" in request:
             rename_payload["expected_revision"] = request.get("expected_revision")
-        try:
-            result = await manager.client.send_command(
-                Command(command=CommandType.MACRO_RENAME, data=rename_payload)
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(
+            manager,
+            Command(command=CommandType.MACRO_RENAME, data=rename_payload),
+        )
+        if result is None:
+            return _daemon_unavailable_response()
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to rename macro"}
         await runtime_profiles.refresh_macro_bindings(manager)
@@ -689,20 +710,20 @@ async def _handle_macro_commands(
 
     if command == "play_macro":
         name = str_value(request.get("name"), "")
-        try:
-            result = await manager.client.send_command(
-                Command(
-                    command=CommandType.MACRO_PLAY_BY_NAME,
-                    data={
-                        "name": name,
-                        "replay_mouse_movement": request.get("replay_mouse_movement", True),
-                        "replay_mouse_clicks": request.get("replay_mouse_clicks", True),
-                        "speed": float_value(request.get("speed"), 1.0),
-                    },
-                )
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(
+            manager,
+            Command(
+                command=CommandType.MACRO_PLAY_BY_NAME,
+                data={
+                    "name": name,
+                    "replay_mouse_movement": request.get("replay_mouse_movement", True),
+                    "replay_mouse_clicks": request.get("replay_mouse_clicks", True),
+                    "speed": float_value(request.get("speed"), 1.0),
+                },
+            ),
+        )
+        if result is None:
+            return _daemon_unavailable_response()
         if result.status == "ok":
             response_data = json_object(result.data)
             return response_data if response_data else {"status": "ok"}
@@ -751,12 +772,12 @@ async def _handle_macro_commands(
         return await _send_adhoc_macro_payload(manager, request)
 
     if command == "cancel_macro_playback":
-        try:
-            result = await manager.client.send_command(
-                Command(command=CommandType.CANCEL_MACRO_PLAYBACK)
-            )
-        except Exception:
-            return {"status": "error", "message": "Daemon unavailable"}
+        result = await _send_daemon_request(
+            manager,
+            Command(command=CommandType.CANCEL_MACRO_PLAYBACK),
+        )
+        if result is None:
+            return _daemon_unavailable_response()
         if result.status == "ok":
             response_data = json_object(result.data)
             return response_data if response_data else {"status": "ok", "cancelled": True}
@@ -812,21 +833,19 @@ async def _send_adhoc_macro_payload(
         "speed": float_value(payload.get("speed"), 1.0),
         "loop_mode": str_value(payload.get("loop_mode", "none"), "none") or "none",
         "loop_count": int_value(payload.get("loop_count"), 1),
-        "loop_stop_behavior": normalize_macro_loop_stop_behavior(
-            payload.get("loop_stop_behavior")
-        ),
+        "loop_stop_behavior": normalize_macro_loop_stop_behavior(payload.get("loop_stop_behavior")),
         "move_to_start": bool(payload.get("move_to_start", False)),
         "start_x": int_value(payload.get("start_x"), 0),
         "start_y": int_value(payload.get("start_y"), 0),
         "block_mouse_movement": bool(payload.get("block_mouse_movement", False)),
     }
 
-    try:
-        result = await manager.client.send_command(
-            Command(command=CommandType.PLAY_MACRO, data=adhoc_payload)
-        )
-    except Exception:
-        return {"status": "error", "message": "Daemon unavailable"}
+    result = await _send_daemon_request(
+        manager,
+        Command(command=CommandType.PLAY_MACRO, data=adhoc_payload),
+    )
+    if result is None:
+        return _daemon_unavailable_response()
     if result.status == "ok":
         response_data = json_object(result.data)
         return response_data if response_data else {"status": "ok"}
@@ -915,15 +934,15 @@ async def _handle_set_diagnostics(
         for category in json_list(request.get("categories"))
         if str_value(category, "")
     ]
-    try:
-        result = await manager.client.send_command(
-            Command(
-                command=CommandType.SET_DIAGNOSTICS,
-                data={"enabled": enabled, "interval": interval, "categories": categories},
-            )
-        )
-    except Exception:
-        return {"status": "error", "message": "Daemon unavailable"}
+    result = await _send_daemon_request(
+        manager,
+        Command(
+            command=CommandType.SET_DIAGNOSTICS,
+            data={"enabled": enabled, "interval": interval, "categories": categories},
+        ),
+    )
+    if result is None:
+        return _daemon_unavailable_response()
 
     if result.status == "ok":
         return {"status": "ok", "data": result.data or {}}

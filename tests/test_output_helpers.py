@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import MagicMock
 
 import evdev
@@ -38,7 +39,9 @@ def test_resolve_gamepad_axis_code_resolves_custom_abs_targets() -> None:
     assert output_helpers.resolve_gamepad_axis_code("abs_nope") is None
 
 
-def test_emit_mouse_move_supports_absolute_mode_and_swallows_errors() -> None:
+def test_emit_mouse_move_supports_absolute_mode_and_swallows_errors(
+    caplog,
+) -> None:
     uinput = MagicMock()
 
     output_helpers.emit_mouse_move(uinput, 12, -7, absolute=True)
@@ -52,6 +55,15 @@ def test_emit_mouse_move_supports_absolute_mode_and_swallows_errors() -> None:
     ]
     assert uinput.syn.call_count == 2
 
+    missing_device = MagicMock()
+    missing_device.write.side_effect = OSError("gone")
+    with caplog.at_level(logging.DEBUG, logger="keymasqd.output_helpers"):
+        output_helpers.emit_mouse_move(missing_device, 1, 2)
+    assert "Failed to emit mouse movement" in caplog.text
+
+    caplog.clear()
     broken = MagicMock()
     broken.write.side_effect = RuntimeError("boom")
-    output_helpers.emit_mouse_move(broken, 1, 2)
+    with caplog.at_level(logging.ERROR, logger="keymasqd.output_helpers"):
+        output_helpers.emit_mouse_move(broken, 1, 2)
+    assert "Unexpected failure emitting mouse movement" in caplog.text

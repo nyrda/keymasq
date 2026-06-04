@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import errno
 import logging
 import os
@@ -154,10 +153,7 @@ class CaptureManager:
             raise ValueError("Invalid capture token")
 
         for device in session.devices:
-            try:
-                event = device.read_one()
-            except Exception:
-                continue
+            event = _read_one_device_event(device)
 
             if event is None:
                 continue
@@ -265,10 +261,7 @@ class CaptureManager:
             return {"event": None}
 
         for device in session.devices:
-            try:
-                event = device.read_one()
-            except Exception:
-                continue
+            event = _read_one_device_event(device)
 
             if event is None:
                 continue
@@ -317,14 +310,8 @@ class CaptureManager:
 
         for device in session.devices:
             if session.hardware_id != "__combo__":
-                try:
-                    device.ungrab()
-                except Exception:
-                    log.debug("Failed to ungrab capture device during capture end", exc_info=True)
-            try:
-                device.close()
-            except Exception:
-                log.debug("Failed to close capture device during capture end", exc_info=True)
+                _ungrab_device(device)
+            _close_device(device, context="capture device during capture end")
 
         log.info("Ended capture %s hardware_id=%s", token, session.hardware_id)
         return {"status": "ok", "ended": True}
@@ -350,7 +337,7 @@ class CaptureManager:
         while not session.stop_event.is_set():
             try:
                 ready, _, _ = select.select(list(fd_map), [], [], 0.1)
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 log.debug("Combo capture select failed token=%s error=%s", session.token, e)
                 return
 
@@ -387,12 +374,11 @@ class CaptureManager:
                         device.path,
                         e,
                     )
-                except Exception as e:
-                    log.debug(
-                        "Combo capture unexpected read failure token=%s path=%s error=%s",
+                except Exception:
+                    log.exception(
+                        "Combo capture unexpected read failure token=%s path=%s",
                         session.token,
                         device.path,
-                        e,
                     )
 
     def _parse_hardware_id(self, hardware_id: str) -> tuple[str, str]:
@@ -409,7 +395,7 @@ class CaptureManager:
         for path in list_devices():
             try:
                 device = cast(_CaptureInputDevice, evdev.InputDevice(path))
-            except Exception:
+            except OSError:
                 continue
             if (
                 f"{device.info.vendor:04x}" == vendor_id
@@ -431,7 +417,7 @@ class CaptureManager:
             seen.add(normalized)
             try:
                 devices.append(cast(_CaptureInputDevice, evdev.InputDevice(normalized)))
-            except Exception:
+            except OSError:
                 continue
         return devices
 
@@ -454,7 +440,7 @@ class CaptureManager:
                 devices.append(device)
                 if interface.interface_id:
                     path_sources[device.path] = interface.interface_id
-            except Exception:
+            except OSError:
                 continue
         return devices, path_sources
 
@@ -500,7 +486,7 @@ class CaptureManager:
             keep_device = False
             try:
                 device = cast(_CaptureInputDevice, evdev.InputDevice(path))
-            except Exception:
+            except OSError:
                 continue
 
             try:
@@ -516,10 +502,7 @@ class CaptureManager:
                     if device_hardware_id not in hardware_ids:
                         continue
 
-                try:
-                    key_codes = device.capabilities().get(evdev.ecodes.EV_KEY, [])
-                except Exception:
-                    key_codes = []
+                key_codes = _device_key_codes(device)
 
                 has_supported_key = False
                 for code in cast(list[object], key_codes):
@@ -666,10 +649,18 @@ class CaptureManager:
 
 def _path_aliases(path: str) -> set[str]:
     aliases = {str(path)}
-    with contextlib.suppress(Exception):
+    try:
         aliases.add(resolve_stable_path(path))
-    with contextlib.suppress(Exception):
+    except OSError as exc:
+        log.debug("Unable to resolve stable path alias for %s: %s", path, exc)
+    except Exception:
+        log.exception("Unexpected failure resolving stable path alias for %s", path)
+    try:
         aliases.add(os.path.realpath(path))
+    except OSError as exc:
+        log.debug("Unable to resolve real path alias for %s: %s", path, exc)
+    except Exception:
+        log.exception("Unexpected failure resolving real path alias for %s", path)
     return {alias for alias in aliases if alias}
 
 
@@ -710,15 +701,70 @@ def _capture_mode(mode: str) -> str:
     return normalized
 
 
-def _close_device(device: _CaptureInputDevice) -> None:
-    with contextlib.suppress(Exception):
+def _read_one_device_event(device: _CaptureInputDevice) -> evdev.InputEvent | None:
+    try:
+        return device.read_one()
+    except BlockingIOError:
+        return None
+    except OSError as exc:
+        log.debug("Failed to read capture device %s: %s", device.path, exc)
+        return None
+    except Exception:
+        log.exception("Unexpected failure reading capture device %s", device.path)
+        return None
+
+
+def _ungrab_device(device: _CaptureInputDevice) -> None:
+    try:
+        device.ungrab()
+    except OSError as exc:
+        log.debug("Failed to ungrab capture device %s during capture end: %s", device.path, exc)
+    except Exception:
+        log.exception(
+            "Unexpected failure ungrabbing capture device %s during capture end",
+            device.path,
+        )
+
+
+def _close_device(device: _CaptureInputDevice, *, context: str = "capture device") -> None:
+    try:
         device.close()
+    except OSError as exc:
+        log.debug("Failed to close %s %s: %s", context, device.path, exc)
+    except Exception:
+        log.exception("Unexpected failure closing %s %s", context, device.path)
+
+
+def _device_key_codes(device: _CaptureInputDevice) -> Sequence[object]:
+    try:
+        return device.capabilities().get(evdev.ecodes.EV_KEY, [])
+    except OSError as exc:
+        log.debug("Unable to read combo capture capabilities from %s: %s", device.path, exc)
+        return []
+    except Exception:
+        log.exception("Unexpected failure reading combo capture capabilities from %s", device.path)
+        return []
 
 
 def _abs_info_payload(device: _CaptureInputDevice, code: int) -> JsonObject:
     try:
         info = device.absinfo(code)
+    except KeyError:
+        return {}
+    except OSError as exc:
+        log.debug(
+            "Unable to read absinfo from capture device %s code=%s: %s",
+            device.path,
+            code,
+            exc,
+        )
+        return {}
     except Exception:
+        log.exception(
+            "Unexpected failure reading absinfo from capture device %s code=%s",
+            device.path,
+            code,
+        )
         return {}
     fields = {
         "value": getattr(info, "value", None),

@@ -1,6 +1,14 @@
+import logging
+import socket
+import struct
 from pathlib import Path
 
-from keymasq.common.security import command_allowed, load_security_policy, uid_allowed
+from keymasq.common.security import (
+    command_allowed,
+    get_peer_credentials,
+    load_security_policy,
+    uid_allowed,
+)
 
 
 def test_load_security_policy_defaults_when_missing(tmp_path: Path) -> None:
@@ -12,6 +20,33 @@ def test_load_security_policy_defaults_when_missing(tmp_path: Path) -> None:
     assert policy.recording_unlock_required is True
     assert policy.macro_edit_requires_unlock is False
     assert policy.emergency_cancel_combo_enabled is True
+
+
+def test_get_peer_credentials_reads_socket_peercred() -> None:
+    class _Socket:
+        def getsockopt(self, level: int, optname: int, buflen: int) -> bytes:
+            assert level == socket.SOL_SOCKET
+            assert optname == socket.SO_PEERCRED
+            assert buflen == struct.calcsize("3i")
+            return struct.pack("3i", 42, 1000, 1001)
+
+    credentials = get_peer_credentials(_Socket())
+
+    assert credentials is not None
+    assert credentials.pid == 42
+    assert credentials.uid == 1000
+    assert credentials.gid == 1001
+
+
+def test_get_peer_credentials_logs_unexpected_socket_error(caplog) -> None:
+    class _Socket:
+        def getsockopt(self, _level: int, _optname: int, _buflen: int) -> bytes:
+            raise RuntimeError("socket wrapper failed")
+
+    caplog.set_level(logging.ERROR, logger="keymasq.common.security")
+
+    assert get_peer_credentials(_Socket()) is None
+    assert "Unexpected failure reading peer credentials" in caplog.text
 
 
 def test_load_security_policy_overrides_acl(tmp_path: Path) -> None:

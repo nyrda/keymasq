@@ -12,17 +12,36 @@ from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 log = logging.getLogger("keymasq-session.listeners.x11")
 
 _x_module = None
+_expected_x_errors: tuple[type[BaseException], ...] = (OSError,)
 xdisplay: object | None
 try:
     from Xlib import X as XLIB_X
     from Xlib import display
-except Exception:
+    from Xlib import error as xerror
+except ImportError:
     xdisplay = None
 else:
     _x_module = XLIB_X
     xdisplay = display
+    _expected_x_errors = (
+        OSError,
+        cast(type[BaseException], xerror.DisplayError),
+        cast(type[BaseException], xerror.XError),
+        cast(type[BaseException], xerror.XauthError),
+    )
 
 X = _x_module
+
+
+def _is_expected_x_error(exc: BaseException) -> bool:
+    return isinstance(exc, _expected_x_errors)
+
+
+def _log_x_failure(message: str, exc: BaseException) -> None:
+    if _is_expected_x_error(exc):
+        log.debug("%s: %s", message, exc)
+        return
+    log.exception(message)
 
 
 class _XDisplayModule(Protocol):
@@ -160,7 +179,8 @@ class X11Listener(WindowListener):
             disp = display_mod.Display(display_name)
             disp.close()
             return True
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - Xlib can raise backend-specific errors.
+            _log_x_failure(f"Could not open X11 display {display_name}", exc)
             return False
 
     @classmethod
@@ -206,15 +226,15 @@ class X11Listener(WindowListener):
     async def get_active_window(self) -> tuple[str, str, list[str]]:
         try:
             return await asyncio.to_thread(self._query_active_window)
-        except Exception:
-            log.debug("X11 active window query failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - keep the listener query fallback alive.
+            _log_x_failure("X11 active window query failed", exc)
             return "", "", []
 
     async def get_cursor_position(self) -> tuple[int, int] | None:
         try:
             return await asyncio.to_thread(self._query_cursor_position)
-        except Exception:
-            log.debug("X11 cursor get failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - keep the cursor query fallback alive.
+            _log_x_failure("X11 cursor get failed", exc)
             return None
 
     async def _listen(self) -> None:
@@ -240,13 +260,13 @@ class X11Listener(WindowListener):
                     await self._emit_active_window_if_changed()
         except asyncio.CancelledError:
             raise
-        except Exception:
-            log.error("X11 listener error", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - listener task must log and stop cleanly.
+            _log_x_failure("X11 listener error", exc)
         finally:
             if self._loop and self._display_fd is not None:
                 try:
                     self._loop.remove_reader(self._display_fd)
-                except Exception:
+                except (RuntimeError, ValueError):
                     log.debug("Failed to remove X11 display reader", exc_info=True)
             self._fd_event = None
             self._loop = None
@@ -294,13 +314,13 @@ class X11Listener(WindowListener):
                     self._active_window.change_attributes(
                         event_mask=int(getattr(X, "NoEventMask", 0))
                     )
-                except Exception:
-                    log.debug("Failed to clear X11 active window event mask", exc_info=True)
+                except Exception as exc:  # noqa: BLE001 - cleanup should not block shutdown.
+                    _log_x_failure("Failed to clear X11 active window event mask", exc)
 
             try:
                 self._xdisplay.close()
-            except Exception:
-                log.debug("Failed to close X11 display", exc_info=True)
+            except Exception as exc:  # noqa: BLE001 - cleanup should not block shutdown.
+                _log_x_failure("Failed to close X11 display", exc)
 
             self._xdisplay = None
             self._root = None
@@ -334,7 +354,8 @@ class X11Listener(WindowListener):
                     event = self._xdisplay.next_event()
                     if self._handle_x_event_unlocked(event):
                         changed = True
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - Xlib event drains can fail broadly.
+                _log_x_failure("Failed to drain X11 events", exc)
                 return False
 
             return changed
@@ -376,8 +397,8 @@ class X11Listener(WindowListener):
                 self._active_window.change_attributes(
                     event_mask=int(getattr(X, "NoEventMask", 0))
                 )
-            except Exception:
-                log.debug("Failed to clear previous X11 active window event mask", exc_info=True)
+            except Exception as exc:  # noqa: BLE001 - cleanup should not block watch updates.
+                _log_x_failure("Failed to clear previous X11 active window event mask", exc)
 
         self._active_window = None
         self._active_window_id = None
@@ -391,7 +412,8 @@ class X11Listener(WindowListener):
             self._active_window = win
             self._active_window_id = next_window_id
             self._xdisplay.sync()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - Xlib resource creation can fail broadly.
+            _log_x_failure("Failed to watch X11 active window", exc)
             self._active_window = None
             self._active_window_id = None
 
@@ -416,7 +438,10 @@ class X11Listener(WindowListener):
         if not raw_window_id:
             return None
 
-        window_id = int(cast(int | str | bytes | bytearray, raw_window_id))
+        try:
+            window_id = int(cast(int | str | bytes | bytearray, raw_window_id))
+        except (TypeError, ValueError):
+            return None
         if window_id == 0:
             return None
 
@@ -445,7 +470,8 @@ class X11Listener(WindowListener):
                     class_data = win.get_wm_class()
                     if class_data:
                         wm_class = str(class_data[-1] or class_data[0] or "")
-                except Exception:
+                except Exception as exc:  # noqa: BLE001 - Xlib metadata reads can fail broadly.
+                    _log_x_failure("Failed to read X11 window class", exc)
                     wm_class = ""
 
                 title = ""
@@ -460,18 +486,21 @@ class X11Listener(WindowListener):
                             title = raw.decode(errors="replace")
                         else:
                             title = str(raw)
-                except Exception:
+                except Exception as exc:  # noqa: BLE001 - Xlib metadata reads can fail broadly.
+                    _log_x_failure("Failed to read X11 window title", exc)
                     title = ""
 
                 if not title:
                     try:
                         fallback = win.get_wm_name()
                         title = str(fallback or "")
-                    except Exception:
+                    except Exception as exc:  # noqa: BLE001 - Xlib metadata reads can fail broadly.
+                        _log_x_failure("Failed to read fallback X11 window title", exc)
                         title = ""
 
                 return wm_class, title, []
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - keep the active-window fallback alive.
+                _log_x_failure("Failed to query X11 active window", exc)
                 return "", "", []
 
     def _query_cursor_position(self) -> tuple[int, int] | None:
@@ -481,5 +510,8 @@ class X11Listener(WindowListener):
             try:
                 pointer = self._root.query_pointer()
                 return int(pointer.root_x), int(pointer.root_y)
-            except Exception:
+            except (TypeError, ValueError):
+                return None
+            except Exception as exc:  # noqa: BLE001 - Xlib cursor query can fail broadly.
+                _log_x_failure("Failed to query X11 cursor position", exc)
                 return None

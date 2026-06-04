@@ -381,8 +381,10 @@ def configure_virtual_gamepads(
         uinput_dev = current.pop(output_id)
         try:
             uinput_dev.close()
-        except Exception as exc:
+        except OSError as exc:
             log.warning("Failed to close virtual gamepad %s: %s", output_id, exc)
+        except Exception:
+            log.exception("Unexpected failure closing virtual gamepad %s", output_id)
 
     for index in range(1, count + 1):
         output_id = virtual_gamepad_output_id(index)
@@ -609,8 +611,10 @@ def destroy_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> N
             if uinput_dev:
                 try:
                     uinput_dev.close()
-                except Exception as exc:
+                except OSError as exc:
                     log.warning("Failed to close global uinput device: %s", exc)
+                except Exception:
+                    log.exception("Unexpected failure closing global uinput device")
 
         manager.output_state.keyboard_uinput = None
         manager.output_state.mouse_uinput = None

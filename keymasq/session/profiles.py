@@ -284,8 +284,10 @@ class ProfileManager:
         except RuntimeError:
             try:
                 self._repair_created_at_if_needed(created_at, path)
-            except Exception as exc:
+            except (OSError, tomllib.TOMLDecodeError) as exc:
                 log.error("Failed to repair created_at for %s: %s", path, exc)
+            except Exception:
+                log.exception("Unexpected failure repairing created_at for %s", path)
             return
 
         task = loop.create_task(self._repair_created_at_async(created_at, path))
@@ -299,8 +301,10 @@ class ProfileManager:
                 created_at,
                 path,
             )
-        except Exception as exc:
+        except (OSError, tomllib.TOMLDecodeError) as exc:
             log.error("Failed to repair created_at for %s: %s", path, exc)
+        except Exception:
+            log.exception("Unexpected failure repairing created_at for %s", path)
 
     def _repair_created_at_if_needed(self, created_at: datetime, path: Path) -> None:
         with self._profile_file_lock:
@@ -887,7 +891,12 @@ class ProfileManager:
         try:
             path.rename(trashed_path)
             log.warning("Moved deleted profile to trash: %s", trashed_path)
-        except Exception:
+        except OSError as exc:
+            log.warning(
+                "Failed to move deleted profile to trash %s; deleting permanently: %s",
+                path,
+                exc,
+            )
             path.unlink()
 
     def rename_profile(self, old_name: str, new_name: str) -> ProfileInfo:

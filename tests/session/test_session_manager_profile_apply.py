@@ -309,6 +309,38 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout(
 
 
 @pytest.mark.asyncio
+async def test_apply_resolved_device_profile_logs_unexpected_grab_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={"btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_f13")},
+    )
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        hardware_id=hardware_id,
+        name="Test Mouse",
+        evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/event10")],
+        buttons=[SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse")],
+    )
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("grab bug"))
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    schedule_grab_retry = Mock()
+    monkeypatch.setattr(session_profiles_module, "schedule_grab_retry", schedule_grab_retry)
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+
+    assert "Unexpected failure grabbing device 1234:5678" in caplog.text
+    assert "grab bug" in caplog.text
+    manager.send_notification.assert_not_called()  # type: ignore[attr-defined]
+    schedule_grab_retry.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_apply_resolved_device_profile_waits_when_daemon_reports_no_live_interfaces() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"

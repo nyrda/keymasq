@@ -195,6 +195,75 @@ class TestDeviceManagerHelpers:
         assert created[2].kwargs["vendor"] == 0x4B46
         assert created[2].kwargs["product"] == 0x1003
 
+    def test_configure_virtual_gamepads_logs_close_failures(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class _ClosingUInput:
+            def __init__(self, exc: Exception) -> None:
+                self.exc = exc
+
+            def close(self) -> None:
+                raise self.exc
+
+        manager = SimpleNamespace(
+            output_state=SimpleNamespace(
+                virtual_gamepad_uinputs={
+                    "virtual-gamepad-1": _ClosingUInput(OSError("device gone")),
+                    "virtual-gamepad-2": _ClosingUInput(RuntimeError("close state invalid")),
+                },
+                virtual_gamepad_count=2,
+            )
+        )
+        logger = logging.getLogger("keymasqd.devices")
+
+        with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+            count = ldm.runtime_outputs.configure_virtual_gamepads(
+                manager,
+                0,
+                evdev_mod=SimpleNamespace(ecodes=evdev.ecodes),
+                log=logger,
+                uinput_writer=lambda device: device,
+            )
+
+        assert count == 0
+        assert manager.output_state.virtual_gamepad_uinputs == {}
+        assert "Failed to close virtual gamepad virtual-gamepad-1: device gone" in caplog.text
+        assert "Unexpected failure closing virtual gamepad virtual-gamepad-2" in caplog.text
+        assert "RuntimeError: close state invalid" in caplog.text
+
+    def test_destroy_global_uinputs_logs_close_failures(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class _ClosingUInput:
+            def __init__(self, exc: Exception) -> None:
+                self.exc = exc
+
+            def close(self) -> None:
+                raise self.exc
+
+        manager = SimpleNamespace(
+            output_state=SimpleNamespace(
+                device_count=1,
+                keyboard_uinput=_ClosingUInput(OSError("keyboard gone")),
+                mouse_uinput=_ClosingUInput(RuntimeError("mouse close state invalid")),
+                virtual_gamepad_uinputs={},
+            )
+        )
+        logger = logging.getLogger("keymasqd.devices")
+
+        with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+            ldm.runtime_outputs.destroy_global_uinputs(manager, log=logger)
+
+        assert manager.output_state.device_count == 0
+        assert manager.output_state.keyboard_uinput is None
+        assert manager.output_state.mouse_uinput is None
+        assert manager.output_state.virtual_gamepad_uinputs == {}
+        assert "Failed to close global uinput device: keyboard gone" in caplog.text
+        assert "Unexpected failure closing global uinput device" in caplog.text
+        assert "RuntimeError: mouse close state invalid" in caplog.text
+
     @pytest.mark.asyncio
     async def test_grab_and_release_device_orchestrates_existing_and_removed_paths(
         self,

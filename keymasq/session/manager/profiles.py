@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import traceback
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
@@ -89,12 +88,18 @@ async def cancel_runtime_profile_activation(
                 },
             )
         )
-    except Exception as exc:
+    except OSError as exc:
         log.debug(
             "Failed to cancel runtime profile activation profile=%s activation=%s: %s",
             profile_name,
             activation.activation_id,
             exc,
+        )
+    except Exception:
+        log.exception(
+            "Unexpected failure cancelling runtime profile activation profile=%s activation=%s",
+            profile_name,
+            activation.activation_id,
         )
     if reevaluate:
         await reevaluate_profiles(
@@ -341,8 +346,11 @@ def schedule_topology_refresh(
                     return
                 except asyncio.CancelledError:
                     raise
-                except Exception as e:
-                    log.warning("Topology refresh failed: %s", e)
+                except OSError as exc:
+                    log.warning("Topology refresh failed: %s", exc)
+                    delay = retry_s
+                except Exception:
+                    log.exception("Unexpected topology refresh failure")
                     delay = retry_s
         except asyncio.CancelledError:
             raise
@@ -553,13 +561,21 @@ async def play_profile_lifecycle_macro(
                 data={"name": macro_name},
             )
         )
-    except Exception as exc:
+    except OSError as exc:
         log.warning(
             "Failed to play %s macro '%s' for profile '%s': %s",
             transition,
             macro_name,
             profile_name,
             exc,
+        )
+        return
+    except Exception:
+        log.exception(
+            "Unexpected failure playing %s macro '%s' for profile '%s'",
+            transition,
+            macro_name,
+            profile_name,
         )
         return
 
@@ -805,23 +821,32 @@ async def apply_resolved_device_profile(
             if "timed out waiting" in str(result.error or "").lower():
                 schedule_grab_retry(manager, hardware_id, delay_s=GRAB_RETRY_DELAY_S)
             return
-    except Exception as e:
+    except TimeoutError as exc:
         log.error(
             "keymasqd: Exception grabbing device %s: %s: %s",
             hardware_id,
-            type(e).__name__,
-            e,
+            type(exc).__name__,
+            exc,
         )
-        traceback.print_exc()
-        if isinstance(e, TimeoutError):
-            manager.send_notification(
-                "Keymasq: Grab Timed Out",
-                (
-                    f"{device_name_for_hardware(manager, hardware_id)}: grab timed out while "
-                    "waiting for keys to be released. Retrying automatically."
-                ),
-            )
-            schedule_grab_retry(manager, hardware_id, delay_s=GRAB_RETRY_DELAY_S)
+        manager.send_notification(
+            "Keymasq: Grab Timed Out",
+            (
+                f"{device_name_for_hardware(manager, hardware_id)}: grab timed out while "
+                "waiting for keys to be released. Retrying automatically."
+            ),
+        )
+        schedule_grab_retry(manager, hardware_id, delay_s=GRAB_RETRY_DELAY_S)
+        return
+    except OSError as exc:
+        log.error(
+            "keymasqd: Exception grabbing device %s: %s: %s",
+            hardware_id,
+            type(exc).__name__,
+            exc,
+        )
+        return
+    except Exception:
+        log.exception("Unexpected failure grabbing device %s", hardware_id)
         return
 
     log.info(
@@ -864,9 +889,10 @@ async def apply_resolved_device_profile(
         else:
             log.error("Failed to set mapping: %s", result.error)
 
-    except Exception as e:
-        log.error("Exception setting mapping: %s: %s", type(e).__name__, e)
-        traceback.print_exc()
+    except OSError as exc:
+        log.error("Exception setting mapping: %s: %s", type(exc).__name__, exc)
+    except Exception:
+        log.exception("Unexpected failure setting mapping for %s", hardware_id)
 
 
 def get_interfaces_to_grab(
@@ -1098,8 +1124,16 @@ async def update_grab_device_payload(
             return False
         manager.profile_state.last_sent_grab_signatures[hardware_id] = signature
         return True
-    except Exception as e:
-        log.error("Exception updating grab config for %s: %s: %s", hardware_id, type(e).__name__, e)
+    except OSError as exc:
+        log.error(
+            "Exception updating grab config for %s: %s: %s",
+            hardware_id,
+            type(exc).__name__,
+            exc,
+        )
+        return False
+    except Exception:
+        log.exception("Unexpected failure updating grab config for %s", hardware_id)
         return False
 
 
@@ -1137,8 +1171,10 @@ async def update_combos(
             return
         manager.profile_state.last_sent_combo_signature = signature
         manager.profile_state.resolved_combos = list(active_combos)
-    except Exception as e:
-        log.error("Exception updating combos: %s: %s", type(e).__name__, e)
+    except OSError as exc:
+        log.error("Exception updating combos: %s: %s", type(exc).__name__, exc)
+    except Exception:
+        log.exception("Unexpected failure updating combos")
 
 
 async def update_mapping(
@@ -1175,8 +1211,11 @@ async def update_mapping(
             return True
         log.error("Failed to update mapping: %s", result.error)
         return False
-    except Exception as e:
-        log.error("Exception updating mapping: %s: %s", type(e).__name__, e)
+    except OSError as exc:
+        log.error("Exception updating mapping: %s: %s", type(exc).__name__, exc)
+        return False
+    except Exception:
+        log.exception("Unexpected failure updating mapping for %s", hardware_id)
         return False
 
 
@@ -1205,8 +1244,11 @@ async def deactivate_profile(
             log.error("Failed to release device %s: %s", hardware_id, result.error)
             return False
         clear_hardware_runtime_state(manager, hardware_id)
-    except Exception as e:
-        log.error("Failed to release device %s: %s", hardware_id, e)
+    except OSError as exc:
+        log.error("Failed to release device %s: %s", hardware_id, exc)
+        return False
+    except Exception:
+        log.exception("Unexpected failure releasing device %s", hardware_id)
         return False
 
     runtime_payloads.clear_exec_refs(manager, hardware_id)

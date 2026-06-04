@@ -170,8 +170,10 @@ async def refresh_recording_devices_cache(manager: "SessionManager") -> None:
         manager.recording_state.devices_cache = devices
         manager.recording_state.devices_cache_ready = True
         update_selected_recording_devices_cache(manager)
+    except OSError as exc:
+        log.debug("Failed to refresh recording devices cache: %s", exc)
     except Exception:
-        log.debug("Failed to refresh recording devices cache", exc_info=True)
+        log.exception("Unexpected failure refreshing recording devices cache")
 
 
 def update_selected_recording_devices_cache(manager: "SessionManager") -> None:
@@ -225,7 +227,11 @@ async def get_devices_for_recording(
 ) -> list[JsonObject]:
     try:
         result = await manager.client.send_command(Command(command=CommandType.LIST_DEVICES))
+    except OSError as exc:
+        log.debug("Failed to list devices for recording: %s", exc)
+        return []
     except Exception:
+        log.exception("Unexpected failure listing devices for recording")
         return []
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:

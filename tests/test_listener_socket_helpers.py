@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import socket
 import tempfile
 from pathlib import Path
@@ -72,3 +73,49 @@ async def test_unix_socket_connectable_returns_false_for_missing_socket() -> Non
         assert (
             await unix_socket_connectable(Path(tmp_dir) / "missing.sock", timeout_s=0.01) is False
         )
+
+
+@pytest.mark.asyncio
+async def test_unix_socket_connectable_logs_unexpected_probe_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def _raise_probe_error(*, path: str) -> tuple[object, object]:
+        _ = path
+        raise RuntimeError("probe bug")
+
+    monkeypatch.setattr(asyncio, "open_unix_connection", _raise_probe_error)
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.socket_helpers"):
+        assert await unix_socket_connectable(Path("/tmp/keymasq-test.sock")) is False
+
+    assert "Unexpected error probing Unix socket /tmp/keymasq-test.sock" in caplog.text
+    assert "probe bug" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_unix_socket_connectable_logs_unexpected_close_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _Writer:
+        def close(self) -> None:
+            return
+
+        async def wait_closed(self) -> None:
+            raise RuntimeError("close bug")
+
+    async def _connect(*, path: str) -> tuple[object, _Writer]:
+        _ = path
+        return object(), _Writer()
+
+    monkeypatch.setattr(asyncio, "open_unix_connection", _connect)
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.socket_helpers"):
+        assert await unix_socket_connectable(Path("/tmp/keymasq-test.sock")) is True
+
+    assert (
+        "Unexpected error closing Unix socket probe connection /tmp/keymasq-test.sock"
+        in caplog.text
+    )
+    assert "close bug" in caplog.text

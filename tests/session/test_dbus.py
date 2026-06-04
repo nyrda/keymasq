@@ -1,5 +1,8 @@
+import logging
+
 import pytest
 from dbus_next.constants import MessageType
+from dbus_next.errors import DBusError
 from dbus_next.message import Message
 
 import keymasq.session.dbus as dbus_module
@@ -268,7 +271,7 @@ async def test_name_has_owner_helper_uses_supplied_or_temporary_dbus(
     assert await dbus_module.name_has_owner("org.example.Service", supplied, timeout=0.2) is True
     assert supplied.calls == [("org.example.Service", 0.2)]
 
-    failing = _SuppliedDBus(False, error=RuntimeError("no bus"))
+    failing = _SuppliedDBus(False, error=DBusError("org.example.Error", "no bus"))
     assert await dbus_module.name_has_owner("org.example.Service", failing) is False
 
     temporary_bus = _FakeBus()
@@ -279,3 +282,31 @@ async def test_name_has_owner_helper_uses_supplied_or_temporary_dbus(
     assert await dbus_module.name_has_owner("org.example.Temporary") is True
     assert temporary_iface.calls == ["org.example.Temporary"]
     assert temporary_bus.disconnect_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_name_has_owner_helper_logs_expected_dbus_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    failing = _SuppliedDBus(
+        False,
+        error=DBusError("org.example.Error", "owner lookup failed"),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.dbus"):
+        assert await dbus_module.name_has_owner("org.example.Service", failing) is False
+
+    assert "D-Bus owner lookup failed for org.example.Service: owner lookup failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_name_has_owner_helper_logs_unexpected_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    failing = _SuppliedDBus(False, error=RuntimeError("probe bug"))
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.dbus"):
+        assert await dbus_module.name_has_owner("org.example.Service", failing) is False
+
+    assert "Unexpected D-Bus owner lookup failure for org.example.Service" in caplog.text
+    assert "probe bug" in caplog.text

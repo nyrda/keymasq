@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping, Sequence
 
@@ -10,6 +11,8 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
+
+log = logging.getLogger("keymasq.gui.widgets.input_picker_shared")
 
 GAMEPAD_BUTTONS: dict[str, str] = {
     "A": "btn_south",
@@ -470,7 +473,7 @@ def _build_gamepad_center_col(owner) -> Gtk.Box:
         texture = Gdk.Texture.new_from_filename(_get_gamepad_svg_path())
         svg_pic.set_paintable(texture)
     except Exception:
-        pass
+        log.exception("Failed to load gamepad picker texture")
 
     box.append(svg_pic)
 

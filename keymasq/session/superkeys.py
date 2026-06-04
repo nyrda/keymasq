@@ -81,9 +81,20 @@ class SuperkeyManager:
                 if config:
                     loaded_superkeys[config.name] = config
                     loaded_paths[config.name] = superkey_file
-            except Exception as e:
-                log.error(f"Failed to load superkey {superkey_file}: {e}")
-                failures.append(ConfigLoadFailure(superkey_file, str(e)))
+            except tomllib.TOMLDecodeError as exc:
+                log.error("Failed to load superkey %s: %s", superkey_file, exc)
+                failures.append(ConfigLoadFailure(superkey_file, str(exc)))
+            except (OSError, ValueError, KeyError) as exc:
+                log.error("Failed to load superkey %s: %s", superkey_file, exc)
+                failures.append(ConfigLoadFailure(superkey_file, str(exc)))
+            except Exception as exc:
+                log.exception("Unexpected error while loading superkey %s", superkey_file)
+                failures.append(
+                    ConfigLoadFailure(
+                        superkey_file,
+                        str(exc) or type(exc).__name__,
+                    )
+                )
 
         if strict and failures:
             raise ConfigLoadError("superkey", failures)

@@ -234,11 +234,10 @@ async def clear_device_inspectors_for_writer(
                 hardware_id,
                 reason=f"device inspector owner disconnected {hardware_id}",
             )
-        except Exception as exc:
-            log.warning(
-                "Failed to stop device inspector for disconnected owner hardware_id=%s: %s",
+        except Exception:
+            log.exception(
+                "Failed to stop device inspector for disconnected owner hardware_id=%s",
                 hardware_id,
-                exc,
             )
 
 
@@ -311,7 +310,13 @@ async def _send_inspector_command(
 ) -> JsonObject:
     try:
         result = await manager.client.send_command(Command(command=command_type, data=data))
-    except Exception:
+    except OSError as exc:
+        log.debug(
+            "Device inspector daemon request %s failed: %s",
+            command_type.value,
+            exc,
+            exc_info=True,
+        )
         return {"status": "error", "message": "Daemon unavailable"}
 
     result_data = json_object(result.data)
@@ -425,4 +430,3 @@ def _serialize_axis(axis: AnalogAxisDefinition) -> JsonObject:
         "rest": axis.rest,
         "invert": bool(axis.invert),
     }
-

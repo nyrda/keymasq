@@ -1,9 +1,12 @@
+import logging
 import socket
 import struct
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -128,7 +131,12 @@ def get_peer_credentials(transport_socket: Any) -> PeerCredentials | None:
             struct.calcsize("3i"),
         )
         pid, uid, gid = struct.unpack("3i", creds)
+    except OSError:
+        return None
+    except struct.error:
+        return None
     except Exception:
+        log.exception("Unexpected failure reading peer credentials")
         return None
 
     return PeerCredentials(pid=pid, uid=uid, gid=gid)

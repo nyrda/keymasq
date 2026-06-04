@@ -767,6 +767,41 @@ created_at = "not-a-date"
         assert 'created_at = "' in content
         assert 'created_at = "not-a-date"' not in content
 
+    def test_created_at_repair_logs_unexpected_failure(
+        self,
+        temp_config_dir,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        profile_path = Path(temp_config_dir) / "profiles" / "missing-created-at.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Missing Created"
+enabled = true
+is_permanent = true
+priority = 1
+notify_on_activation = true
+""".strip(),
+            encoding="utf-8",
+        )
+
+        def fail_repair(
+            self: ProfileManager,
+            created_at: datetime,
+            path: Path,
+        ) -> None:
+            raise RuntimeError("repair bug")
+
+        monkeypatch.setattr(ProfileManager, "_repair_created_at_if_needed", fail_repair)
+
+        with caplog.at_level("ERROR", logger="keymasq-session.profiles"):
+            manager = ProfileManager()
+
+        assert manager.get_profile("Missing Created") is not None
+        assert f"Unexpected failure repairing created_at for {profile_path}" in caplog.text
+        assert "repair bug" in caplog.text
+
     def test_pending_created_at_repair_does_not_overwrite_newer_profile_save(
         self,
         temp_config_dir,
@@ -812,6 +847,59 @@ target = "key_1"
         mappings = saved.config.device_layers["1234:5678"].mappings
         assert mappings["btn_back"].target == "key_1"
         assert mappings["btn_forward"].target == "key_2"
+
+    def test_delete_profile_falls_back_to_unlink_when_trash_move_fails(
+        self,
+        temp_config_dir,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = ProfileManager()
+        manager.save_profile(ProfileConfig(name="Delete Me"))
+        profile = manager.get_profile("Delete Me")
+        assert profile is not None
+        profile_path = profile.path
+        original_rename = Path.rename
+
+        def fail_profile_rename(self: Path, target: Path) -> Path:
+            if self == profile_path:
+                raise OSError("cross-device link")
+            return original_rename(self, target)
+
+        monkeypatch.setattr(Path, "rename", fail_profile_rename)
+
+        with caplog.at_level("WARNING", logger="keymasq-session.profiles"):
+            deleted = manager.delete_profile("Delete Me")
+
+        assert deleted is True
+        assert manager.get_profile("Delete Me") is None
+        assert not profile_path.exists()
+        assert "Failed to move deleted profile to trash" in caplog.text
+        assert "cross-device link" in caplog.text
+
+    def test_delete_profile_does_not_unlink_on_unexpected_trash_failure(
+        self,
+        temp_config_dir,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = ProfileManager()
+        manager.save_profile(ProfileConfig(name="Delete Me"))
+        profile = manager.get_profile("Delete Me")
+        assert profile is not None
+        profile_path = profile.path
+
+        def fail_profile_rename(self: Path, target: Path) -> Path:
+            if self == profile_path:
+                raise RuntimeError("rename bug")
+            raise AssertionError("Unexpected rename call")
+
+        monkeypatch.setattr(Path, "rename", fail_profile_rename)
+
+        with pytest.raises(RuntimeError, match="rename bug"):
+            manager.delete_profile("Delete Me")
+
+        assert manager.get_profile("Delete Me") is profile
+        assert profile_path.exists()
 
     def test_remove_device_button_mappings_clears_matching_profile_entries(self, temp_config_dir):
         manager = ProfileManager()

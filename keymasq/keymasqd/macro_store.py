@@ -1,10 +1,12 @@
 import copy
 import fcntl
+import json
 import logging
+import lzma
 import os
 import re
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -90,9 +92,27 @@ class MacroStore:
                 if meta.name.startswith(INTERNAL_MACRO_PREFIX):
                     continue
                 macros.append(meta.to_payload())
-            except Exception as exc:
+            except FileNotFoundError as exc:
+                log.debug("Macro file disappeared while listing %s: %s", path, exc)
+            except PermissionError as exc:
+                log.warning(
+                    "Skipping unreadable macro file %s: %s. Check macro file ownership and "
+                    "permissions for the keymasqd user.",
+                    path,
+                    exc,
+                )
+            except OSError as exc:
                 log.warning("Skipping unreadable macro file %s: %s", path, exc)
-                continue
+            except lzma.LZMAError as exc:
+                log.warning("Skipping corrupt compressed macro file %s: %s", path, exc)
+            except json.JSONDecodeError as exc:
+                log.warning("Skipping malformed macro file %s: invalid JSON: %s", path, exc)
+            except UnicodeDecodeError as exc:
+                log.warning("Skipping malformed macro file %s: invalid UTF-8: %s", path, exc)
+            except ValueError as exc:
+                log.warning("Skipping malformed macro file %s: %s", path, exc)
+            except Exception:
+                log.exception("Unexpected failure reading macro file %s", path)
         return macros
 
     def get(self, name: str) -> MacroPayload:
@@ -260,7 +280,7 @@ class MacroStore:
         write_macro(path, meta, events, overwrite=overwrite)
 
     @contextmanager
-    def _mutation_guard(self) -> Iterator[None]:
+    def _mutation_guard(self) -> Generator[None]:
         self.ensure()
         with _PROCESS_MUTATION_LOCK:
             fd = self._open_mutation_lock()

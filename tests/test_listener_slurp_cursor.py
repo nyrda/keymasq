@@ -108,7 +108,7 @@ async def test_capture_slurp_cursor_position_returns_point_and_triggers_macro() 
 async def test_capture_slurp_cursor_position_returns_none_on_capture_exception(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    slurp = _FakeSlurp(error=RuntimeError("boom"))
+    slurp = _FakeSlurp(error=OSError("boom"))
     client = _FakeClient()
 
     with caplog.at_level(logging.DEBUG):
@@ -120,3 +120,22 @@ async def test_capture_slurp_cursor_position_returns_none_on_capture_exception(
 
     assert result is None
     assert "Slurp cursor capture failed: boom" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_capture_slurp_cursor_position_logs_unexpected_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    slurp = _FakeSlurp(error=RuntimeError("capture bug"))
+    client = _FakeClient()
+
+    with caplog.at_level(logging.ERROR):
+        result = await capture_slurp_cursor_position(
+            slurp,
+            client,  # type: ignore[arg-type]
+            logging.getLogger("keymasq-test"),
+        )
+
+    assert result is None
+    assert "Unexpected slurp cursor capture failure" in caplog.text
+    assert "capture bug" in caplog.text

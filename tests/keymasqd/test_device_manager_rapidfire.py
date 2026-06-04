@@ -298,7 +298,7 @@ class TestRapidfireRelease:
 
         class _FakeInputDevice:
             def active_keys(self) -> list[int]:
-                raise RuntimeError("broken active_keys")
+                raise OSError("broken active_keys")
 
         to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
 
@@ -332,6 +332,53 @@ class TestRapidfireRelease:
         assert [call[0] for call in to_thread_calls] == [device.device.active_keys]
         assert "failed to read active keys before grab: broken active_keys" in caplog.text
         assert "proceeding with grab" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_wait_for_active_keys_logs_unexpected_read_failure_and_proceeds(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+
+        class _FakeInputDevice:
+            def active_keys(self) -> list[int]:
+                raise RuntimeError("broken active_keys")
+
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
+        )
+        device.device = _FakeInputDevice()  # type: ignore[assignment]
+
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            await gdg.wait_for_active_keys_to_clear(
+                device,
+                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                time_mod=gdm.time,
+                log=gdm.log,
+                active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+            )
+
+        assert [call[0] for call in to_thread_calls] == [device.device.active_keys]
+        assert "unexpected failure reading active keys before grab" in caplog.text
+        assert "proceeding with grab" in caplog.text
+        assert "RuntimeError: broken active_keys" in caplog.text
 
     @pytest.mark.asyncio
     async def test_wait_for_active_keys_times_out_with_clear_error(

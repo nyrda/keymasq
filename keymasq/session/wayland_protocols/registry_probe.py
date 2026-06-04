@@ -1,7 +1,11 @@
 import asyncio
+import logging
+import struct
 from pathlib import Path
 
 from keymasq.session.wayland_protocols import client_transport as _transport
+
+log = logging.getLogger("keymasq-session.wayland.registry_probe")
 
 
 class _RegistryProbeTransport(_transport.WaylandClientTransport):
@@ -24,7 +28,8 @@ class _RegistryProbeTransport(_transport.WaylandClientTransport):
     async def _handle_registry_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         try:
             await super()._handle_registry_event(object_id, opcode, payload)
-        except Exception:
+        except struct.error as exc:
+            log.debug("Ignoring malformed Wayland registry global: %s", exc)
             return
 
     async def _handle_registry_global(
@@ -63,5 +68,9 @@ async def list_registry_globals(socket_path: Path, timeout_s: float = 0.6) -> se
     transport = _RegistryProbeTransport(socket_path)
     try:
         return await asyncio.wait_for(transport.collect(timeout_s), timeout=timeout_s)
+    except (OSError, _transport.WaylandDisplayError) as exc:
+        log.debug("Wayland registry probe failed for %s: %s", socket_path, exc)
+        return set()
     except Exception:
+        log.exception("Unexpected Wayland registry probe failure for %s", socket_path)
         return set()

@@ -748,7 +748,7 @@ class MainWindow(Adw.ApplicationWindow):
                     self._set_connection_issue("keymasqd")
             else:
                 self._update_status_disconnected()
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             self._update_unlock_state(None)
             self._update_macro_recording_state(None)
             self._update_status_disconnected()
@@ -1017,7 +1017,7 @@ class MainWindow(Adw.ApplicationWindow):
                 else:
                     log.info("Runtime unlock lease locked on close")
             except Exception:
-                pass
+                log.exception("Failed to lock runtime unlock lease on close")
 
         unregister_session_event_callback("*", self._on_session_event)
 

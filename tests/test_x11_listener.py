@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from types import SimpleNamespace
 
 from keymasq.session.listeners import x11 as x11_listener_module
@@ -75,6 +76,62 @@ def test_x11_probe_available_requires_openable_display(monkeypatch) -> None:
     )
 
     assert asyncio.run(X11Listener.probe_available()) is False
+
+
+def test_x11_can_open_display_logs_expected_failures(monkeypatch, caplog) -> None:
+    class _DisplayModule:
+        def Display(self, _display: str) -> object:  # noqa: N802 - Xlib API
+            raise OSError("display unavailable")
+
+    monkeypatch.setattr(x11_listener_module, "xdisplay", _DisplayModule())
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.x11"):
+        assert X11Listener._can_open_display(":99") is False
+
+    assert "Could not open X11 display :99: display unavailable" in caplog.text
+
+
+def test_x11_can_open_display_logs_unexpected_failures(monkeypatch, caplog) -> None:
+    class _DisplayModule:
+        def Display(self, _display: str) -> object:  # noqa: N802 - Xlib API
+            raise RuntimeError("display bug")
+
+    monkeypatch.setattr(x11_listener_module, "xdisplay", _DisplayModule())
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.x11"):
+        assert X11Listener._can_open_display(":99") is False
+
+    assert "Could not open X11 display :99" in caplog.text
+    assert "display bug" in caplog.text
+
+
+def test_x11_get_active_window_logs_unexpected_query_failures(caplog) -> None:
+    async def run() -> None:
+        listener = X11Listener(_cb)
+
+        def _raise_query() -> tuple[str, str, list[str]]:
+            raise RuntimeError("query bug")
+
+        listener._query_active_window = _raise_query
+
+        with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.x11"):
+            assert await listener.get_active_window() == ("", "", [])
+
+        assert "X11 active window query failed" in caplog.text
+        assert "query bug" in caplog.text
+
+    asyncio.run(run())
+
+
+def test_x11_query_active_window_id_ignores_malformed_property(monkeypatch) -> None:
+    listener = X11Listener(_cb)
+    listener._root = SimpleNamespace(
+        get_full_property=lambda *_args: SimpleNamespace(value=["not-int"])
+    )
+    listener._atom_active = 1
+    monkeypatch.setattr(x11_listener_module, "X", SimpleNamespace(AnyPropertyType=0))
+
+    assert listener._query_active_window_id_unlocked() is None
 
 
 def test_x11_listener_waits_for_fd_event_before_draining(monkeypatch) -> None:

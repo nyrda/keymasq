@@ -288,6 +288,24 @@ async def test_get_devices_for_recording_uses_daemon_grabbed_state_only() -> Non
 
 
 @pytest.mark.asyncio
+async def test_get_devices_for_recording_logs_unexpected_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("list bug"))
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        devices = await session_recording_module.get_devices_for_recording(
+            manager,
+            ["keyboard"],
+        )
+
+    assert devices == []
+    assert "Unexpected failure listing devices for recording" in caplog.text
+    assert "list bug" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_start_recording_defaults_to_recommended_sources_only() -> None:
     manager = SessionManager()
     sent_payloads: list[dict[str, object]] = []

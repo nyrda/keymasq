@@ -114,8 +114,8 @@ class WaylandToplevelListener[
             await self._client.run()
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
-            self._logger.error("%s error: %s", self._listener_error_label, exc)
+        except Exception:
+            self._logger.exception("%s error", self._listener_error_label)
 
     async def health_check(self) -> bool:
         if not await super().health_check():

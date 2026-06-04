@@ -898,7 +898,7 @@ type = "key"
         return f"{event_type}:{name}:{value}"
 
     def settle_udev(self) -> None:
-        try:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
             subprocess.run(
                 ["udevadm", "settle", "--timeout=5"],
                 check=False,
@@ -906,5 +906,3 @@ type = "key"
                 stderr=subprocess.DEVNULL,
                 timeout=6,
             )
-        except Exception:
-            pass

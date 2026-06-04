@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import inspect
 import logging
 from typing import TYPE_CHECKING, cast
@@ -111,8 +110,8 @@ async def query_support_details(
             "supported": False,
             "warning": "Compositor support status query timed out.",
         }
-    except Exception as exc:
-        log.debug("Failed to query compositor support details for %s: %s", compositor_id, exc)
+    except Exception:
+        log.exception("Failed to query compositor support details for %s", compositor_id)
         return {
             "supported": False,
             "warning": "Compositor support status query failed.",
@@ -217,12 +216,11 @@ async def refresh_current_window_from_listener(
         return None
     try:
         window_class, window_title, window_tags = await listener.get_active_window()
-    except Exception as e:
-        log.debug(
-            "Active window query failed (compositor_id=%s listener=%s): %s",
+    except Exception:
+        log.exception(
+            "Active window query failed (compositor_id=%s listener=%s)",
             manager.compositor_state.compositor_id,
             getattr(listener, "name", "unknown"),
-            e,
         )
         return None
 
@@ -262,6 +260,7 @@ async def activate_title(manager: "SessionManager", title: str) -> JsonObject:
             "details": result,
         }
     except Exception as exc:
+        log.exception("Window activation failed")
         return {"status": "error", "message": str(exc)}
 
 
@@ -271,12 +270,11 @@ async def get_cursor_position_payload(manager: "SessionManager") -> JsonObject:
     if manager.compositor_state.window_listener:
         try:
             pos = await manager.compositor_state.window_listener.get_cursor_position()
-        except Exception as e:
-            log.debug(
-                "Cursor query failed (compositor_id=%s listener=%s): %s",
+        except Exception:
+            log.exception(
+                "Cursor query failed (compositor_id=%s listener=%s)",
                 manager.compositor_state.compositor_id,
                 getattr(manager.compositor_state.window_listener, "name", "unknown"),
-                e,
             )
 
     if pos is None:
@@ -293,8 +291,8 @@ async def compositor_supervisor_loop(manager: "SessionManager") -> None:
             await ensure_compositor_listener(manager)
         except asyncio.CancelledError:
             raise
-        except Exception as e:
-            log.debug("Compositor supervisor error: %s", e)
+        except Exception:
+            log.exception("Compositor supervisor error")
 
         stable = (
             manager.compositor_state.window_listener is not None
@@ -320,8 +318,10 @@ async def ensure_compositor_listener(manager: "SessionManager") -> None:
 
     current_healthy = False
     if manager.compositor_state.window_listener is not None:
-        with contextlib.suppress(Exception):
+        try:
             current_healthy = await manager.compositor_state.window_listener.health_check()
+        except Exception:
+            log.exception("Window listener health check failed")
 
     if manager.compositor_state.window_listener is not None and not current_healthy:
         log.warning("Window listener became unhealthy, restarting compositor binding")
@@ -437,8 +437,8 @@ async def stop_window_listener(manager: "SessionManager") -> None:
         return
     try:
         await manager.compositor_state.window_listener.stop()
-    except Exception as e:
-        log.debug("Error stopping window listener: %s", e)
+    except Exception:
+        log.exception("Error stopping window listener")
     manager.compositor_state.window_listener = None
 
 
@@ -510,7 +510,7 @@ async def start_window_listener(manager: "SessionManager") -> None:
         manager.compositor_state.window_listener = None
     except Exception as e:
         manager.compositor_state.last_listener_start_error = str(e)
-        log.debug("Failed to start window listener: %s", e)
+        log.exception("Failed to start window listener")
         manager.compositor_state.window_listener = None
 
 

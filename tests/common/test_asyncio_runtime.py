@@ -1,4 +1,5 @@
 import importlib
+import logging
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -53,3 +54,28 @@ def test_ensure_uvloop_logs_warning_once_when_unavailable(monkeypatch) -> None:
 
     first_logger.warning.assert_called_once()
     second_logger.warning.assert_not_called()
+
+
+def test_ensure_uvloop_logs_unexpected_setup_failure(monkeypatch, caplog) -> None:
+    import keymasq.common.asyncio_runtime as runtime
+
+    runtime = importlib.reload(runtime)
+
+    class _FakePolicy:
+        pass
+
+    def _raise_bad_policy(_policy: object) -> None:
+        raise ValueError("bad event loop policy")
+
+    monkeypatch.setattr(
+        runtime,
+        "_uvloop_module",
+        lambda: SimpleNamespace(EventLoopPolicy=_FakePolicy),
+    )
+    monkeypatch.setattr(runtime.asyncio, "get_event_loop_policy", lambda: object())
+    monkeypatch.setattr(runtime.asyncio, "set_event_loop_policy", _raise_bad_policy)
+
+    caplog.set_level(logging.ERROR, logger="keymasq.asyncio")
+
+    assert runtime.ensure_uvloop() is False
+    assert "Unexpected failure configuring uvloop" in caplog.text

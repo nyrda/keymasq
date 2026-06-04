@@ -217,7 +217,8 @@ async def test_topology_refresh_retries_after_reevaluate_failure(
         session_manager_module.TOPOLOGY_REFRESH_DEBOUNCE_S,
         session_manager_module.TOPOLOGY_REFRESH_RETRY_S,
     ]
-    assert "Topology refresh failed: refresh boom" in caplog.text
+    assert "Unexpected topology refresh failure" in caplog.text
+    assert "refresh boom" in caplog.text
     assert reevaluate_profiles.await_count == 2
     assert manager.profile_state.topology_refresh_task is None
 
@@ -619,3 +620,22 @@ async def test_reevaluate_profiles_plays_lifecycle_macros_once_per_transition(
         "gaming_enter",
         "gaming_leave",
     ]
+
+
+@pytest.mark.asyncio
+async def test_profile_lifecycle_macro_logs_unexpected_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("macro bug"))
+
+    with caplog.at_level("ERROR", logger="keymasq-session"):
+        await session_profiles_module.play_profile_lifecycle_macro(
+            manager,
+            "desktop_enter",
+            profile_name="Desktop",
+            transition="activation",
+        )
+
+    assert "Unexpected failure playing activation macro 'desktop_enter'" in caplog.text
+    assert "macro bug" in caplog.text

@@ -131,8 +131,10 @@ async def _resolve_unlock_status_async_impl(
                 Command(CommandType.RECORDING_UNLOCK_STATUS, data={"uid": int(uid)}),
                 timeout=3.0,
             )
-        except Exception as exc:
+        except OSError as exc:
             log.warning("Failed to query daemon recording unlock status: %s", exc)
+        except Exception:
+            log.exception("Unexpected failure querying daemon recording unlock status")
         else:
             if response.status == "ok" and isinstance(response.data, dict):
                 status = cast(RecordingStatus, response.data)
@@ -169,8 +171,10 @@ async def _resolve_macro_recording_status_async_impl(
                 Command(CommandType.MACRO_RECORDING_STATUS, data={"uid": int(uid)}),
                 timeout=3.0,
             )
-        except Exception as exc:
+        except OSError as exc:
             log.warning("Failed to query daemon macro recording status: %s", exc)
+        except Exception:
+            log.exception("Unexpected failure querying daemon macro recording status")
         else:
             if response.status == "ok" and isinstance(response.data, dict):
                 status = cast(RecordingStatus, response.data)
@@ -323,12 +327,18 @@ async def _cleanup_runtime_unlock_for_uid(
                 reason,
                 result.error,
             )
-    except Exception as e:
+    except OSError as exc:
         log.debug(
             "Runtime unlock cleanup failed uid=%s reason=%s error=%s",
             uid,
             reason,
-            e,
+            exc,
+        )
+    except Exception:
+        log.exception(
+            "Unexpected failure cleaning up runtime unlock uid=%s reason=%s",
+            uid,
+            reason,
         )
 
 
@@ -420,9 +430,13 @@ async def claim_recording_unlock_refresh(
                     },
                 )
             )
-        except Exception:
+        except OSError:
             manager.unlock_state.refresh_owner = None
             return {"status": "error", "message": "Daemon unavailable"}
+        except Exception:
+            log.exception("Unexpected failure establishing capture unlock lease")
+            manager.unlock_state.refresh_owner = None
+            return {"status": "error", "message": "Failed to establish capture unlock lease"}
 
         if refresh_result.status != "ok":
             manager.unlock_state.refresh_owner = None
@@ -494,8 +508,11 @@ async def refresh_recording_unlock(
                     },
                 )
             )
-        except Exception:
+        except OSError:
             return {"status": "error", "message": "Daemon unavailable"}
+        except Exception:
+            log.exception("Unexpected failure refreshing capture unlock")
+            return {"status": "error", "message": "Failed to refresh capture unlock"}
 
         if result.status != "ok":
             _clear_refresh_owner_for_uid(manager, int(peer.uid))
@@ -568,8 +585,11 @@ async def lock_recording_unlock(
                 data={"uid": int(peer.uid)},
             )
         )
-    except Exception:
+    except OSError:
         return {"status": "error", "message": "Daemon unavailable"}
+    except Exception:
+        log.exception("Unexpected failure locking capture unlock")
+        return {"status": "error", "message": "Failed to lock capture unlock"}
 
     if result.status != "ok":
         return {

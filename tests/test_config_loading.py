@@ -42,6 +42,34 @@ async def test_load_config_files_collects_failures_in_non_strict_mode(
 
 
 @pytest.mark.asyncio
+async def test_load_config_files_logs_unexpected_failures(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    broken_path = config_dir / "broken.toml"
+    broken_path.write_text('name = "Broken"\n', encoding="utf-8")
+    logger = logging.getLogger("tests.config_loading")
+
+    def _raise_loader_bug(_path: Path) -> str:
+        raise RuntimeError("loader failed")
+
+    with caplog.at_level(logging.ERROR, logger=logger.name):
+        loaded = await load_config_files(
+            config_dir,
+            config_kind="test",
+            strict=False,
+            load_config=_raise_loader_bug,
+            logger=logger,
+        )
+
+    assert loaded == []
+    assert f"Unexpected error while loading test config {broken_path}" in caplog.text
+    assert "loader failed" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_load_config_files_raises_collected_failures_in_strict_mode(
     tmp_path: Path,
 ) -> None:

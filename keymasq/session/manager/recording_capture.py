@@ -93,9 +93,13 @@ async def capture_begin_for_paths(
                 },
             )
         )
-    except Exception:
+    except OSError:
         await _end_capture(manager, hardware_id)
         return {"status": "error", "message": "Daemon unavailable"}
+    except Exception:
+        log.exception("Unexpected failure beginning capture for hardware_id=%s", hardware_id)
+        await _end_capture(manager, hardware_id)
+        return {"status": "error", "message": "Failed to begin capture"}
 
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:
@@ -129,8 +133,11 @@ async def capture_read(manager: "SessionManager", hardware_id: str) -> JsonObjec
         result = await manager.client.send_command(
             Command(command=CommandType.CAPTURE_READ, data={"token": token})
         )
-    except Exception:
+    except OSError:
         return {"status": "error", "message": "Daemon unavailable"}
+    except Exception:
+        log.exception("Unexpected failure reading capture for hardware_id=%s", hardware_id)
+        return {"status": "error", "message": "Failed to read capture"}
 
     result_data = json_object(result.data)
     if result.status == "ok" and result_data is not None:
@@ -145,9 +152,12 @@ async def capture_end(manager: "SessionManager", hardware_id: str) -> JsonObject
             result = await manager.client.send_command(
                 Command(command=CommandType.CAPTURE_END, data={"token": token})
             )
-        except Exception as exc:
+        except OSError as exc:
             log.debug("Failed to end capture for hardware_id=%s: %s", hardware_id, exc)
             return {"status": "error", "message": "Daemon unavailable"}
+        except Exception:
+            log.exception("Unexpected failure ending capture for hardware_id=%s", hardware_id)
+            return {"status": "error", "message": "Failed to end capture"}
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to end capture"}
         manager.capture_state.tokens.pop(hardware_id, None)
@@ -175,11 +185,16 @@ async def clear_captures_for_writer(
                 )
                 manager.capture_state.tokens.pop(hardware_id, None)
                 await _end_capture(manager, hardware_id)
-        except Exception as exc:
+        except OSError as exc:
             log.warning(
                 "Failed to end capture for disconnected owner hardware_id=%s: %s",
                 hardware_id,
                 exc,
+            )
+        except Exception:
+            log.exception(
+                "Unexpected failure ending capture for disconnected owner hardware_id=%s",
+                hardware_id,
             )
 
 
@@ -257,8 +272,11 @@ async def capture_combo(
                 },
             )
         )
-    except Exception:
+    except OSError:
         return {"status": "error", "message": "Daemon unavailable"}
+    except Exception:
+        log.exception("Unexpected failure capturing combo for profile '%s'", profile_name)
+        return {"status": "error", "message": "Combo capture failed"}
 
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:

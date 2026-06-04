@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -13,6 +14,7 @@ from keymasq.gui.session_client import JsonDict, session_request_async
 from keymasq.gui.widgets.docs_links import docs_page_url
 
 GNOME_BRIDGE_UUID = "gnome-bridge@keymasq.tools"
+log = logging.getLogger("keymasq.gui.widgets.gnome_setup_dialog")
 
 
 GNOME_SETUP_DOCS_URL = docs_page_url("GNOME", version=__version__)
@@ -215,6 +217,7 @@ class GnomeSetupDialog(Adw.Dialog):
             launcher = Gtk.UriLauncher.new(GNOME_SETUP_DOCS_URL)
             launcher.launch(self._parent, None, None)
         except Exception:
+            log.exception("Could not open GNOME setup guide %s", GNOME_SETUP_DOCS_URL)
             self._set_status(
                 f"Could not open the setup guide. Visit {GNOME_SETUP_DOCS_URL}",
                 error=True,

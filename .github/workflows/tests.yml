@@ -26,32 +26,51 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      full: ${{ steps.filter.outputs.full }}
+      keymasqd: ${{ steps.filter.outputs.keymasqd }}
+      session: ${{ steps.filter.outputs.session }}
       gui: ${{ steps.filter.outputs.gui }}
+      non_gui: ${{ steps.filter.outputs.full == 'true' || steps.filter.outputs.keymasqd == 'true' || steps.filter.outputs.session == 'true' }}
+      gui_tests: ${{ steps.filter.outputs.full == 'true' || steps.filter.outputs.session == 'true' || steps.filter.outputs.gui == 'true' }}
+      typecheck: ${{ steps.filter.outputs.full == 'true' || steps.filter.outputs.keymasqd == 'true' || steps.filter.outputs.session == 'true' || steps.filter.outputs.gui == 'true' }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 20
+          persist-credentials: false
 
-      - name: Detect GUI-impacting changes
+      - name: Detect CI-impacting changes
         id: filter
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         with:
-          base: ${{ github.ref }}
           filters: |
-            gui:
+            full:
               - ".github/workflows/tests.yml"
-              - "assets/**"
               - "flake.nix"
               - "flake.lock"
               - "keymasq/__init__.py"
               - "keymasq/__main__.py"
+              - "keymasq/_version.py"
+              - "keymasq/cli/**"
               - "keymasq/common/**"
-              - "keymasq/gui/**"
-              - "keymasq/session/**"
+              - "keymasq/record.py"
+              - "nix/**"
               - "pyproject.toml"
+              - "scripts/**"
               - "tests/common/**"
+              - "tests/conftest.py"
+              - "tests/test_*.py"
+            keymasqd:
+              - "keymasq/keymasqd/**"
+              - "tests/keymasqd/**"
+            session:
+              - "keymasq/session/**"
+              - "tests/session/**"
+            gui:
+              - "assets/**"
+              - "keymasq/gui/**"
               - "tests/gui/**"
 
   static:
@@ -60,10 +79,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
 
       - name: Set Up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12"
           cache: pip
@@ -71,88 +92,160 @@ jobs:
       - name: Install Static Analysis Tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "ruff>=0.12.0" "basedpyright>=1.38.2"
+          python -m pip install "ruff>=0.12.0"
 
       - name: Run Ruff
         run: ruff check keymasq tests
 
   typecheck:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.typecheck == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee # v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-
-      - name: Enable Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Verify Nix
         run: nix --version
 
       - name: Run BasedPyright
-        run: nix develop .#ci-gui -c basedpyright
+        env:
+          FULL_TYPECHECK: ${{ github.event_name != 'pull_request' || needs.changes.outputs.full == 'true' }}
+          TYPECHECK_KEYMASQD: ${{ needs.changes.outputs.keymasqd }}
+          TYPECHECK_SESSION: ${{ needs.changes.outputs.session }}
+          TYPECHECK_GUI: ${{ needs.changes.outputs.gui }}
+        run: |
+          set -euo pipefail
+          source scripts/ci-targets.sh
+
+          if [[ "$FULL_TYPECHECK" == "true" ]]; then
+            nix develop .#ci-typecheck -c basedpyright
+            exit 0
+          fi
+
+          targets=()
+          # shellcheck disable=SC2034
+          declare -A seen=()
+
+          if [[ "$TYPECHECK_KEYMASQD" == "true" ]]; then
+            keymasq_ci_append_unique targets seen "${KEYMASQ_KEYMASQD_TYPECHECK_TARGETS[@]}"
+          fi
+
+          if [[ "$TYPECHECK_SESSION" == "true" ]]; then
+            keymasq_ci_append_unique targets seen "${KEYMASQ_SESSION_TYPECHECK_TARGETS[@]}"
+            keymasq_ci_append_unique targets seen "${KEYMASQ_GUI_TYPECHECK_TARGETS[@]}"
+          fi
+
+          if [[ "$TYPECHECK_GUI" == "true" ]]; then
+            keymasq_ci_append_unique targets seen "${KEYMASQ_GUI_TYPECHECK_TARGETS[@]}"
+          fi
+
+          if [[ "${#targets[@]}" -eq 0 ]]; then
+            echo "No basedpyright targets selected."
+            exit 0
+          fi
+
+          keymasq_ci_validate_targets "${targets[@]}"
+          printf 'basedpyright targets:\n'
+          printf '  %s\n' "${targets[@]}"
+          nix develop .#ci-typecheck -c basedpyright "${targets[@]}"
 
   tests:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.non_gui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee # v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-
-      - name: Enable Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Verify Nix
         run: nix --version
 
       - name: Run Non-GUI pytest
+        env:
+          FULL_PYTEST: ${{ github.event_name != 'pull_request' || needs.changes.outputs.full == 'true' }}
+          TEST_KEYMASQD: ${{ needs.changes.outputs.keymasqd }}
+          TEST_SESSION: ${{ needs.changes.outputs.session }}
         run: |
-          nix develop .#ci -c bash -lc '
-            set -euo pipefail
-            pytest tests -v --ignore=tests/gui -m "not gui"
-          '
+          set -euo pipefail
+          source scripts/ci-targets.sh
+
+          pytest_workers="${KEYMASQ_CI_PYTEST_WORKERS:-auto}"
+          pytest_args=(-q -ra --tb=short)
+          if [[ "$pytest_workers" != "0" && "$pytest_workers" != "1" ]]; then
+            pytest_args+=(-n "$pytest_workers")
+          fi
+
+          if [[ "$FULL_PYTEST" == "true" ]]; then
+            nix develop .#ci -c pytest tests "${pytest_args[@]}" --ignore=tests/gui -m "not gui"
+            exit 0
+          fi
+
+          targets=()
+          # shellcheck disable=SC2034
+          declare -A seen=()
+
+          if [[ "$TEST_KEYMASQD" == "true" ]]; then
+            keymasq_ci_append_unique targets seen "${KEYMASQ_KEYMASQD_TEST_TARGETS[@]}"
+          fi
+
+          if [[ "$TEST_SESSION" == "true" ]]; then
+            keymasq_ci_append_unique targets seen "${KEYMASQ_SESSION_TEST_TARGETS[@]}"
+          fi
+
+          if [[ "${#targets[@]}" -eq 0 ]]; then
+            echo "No non-GUI pytest targets selected."
+            exit 0
+          fi
+
+          keymasq_ci_validate_targets "${targets[@]}"
+          printf 'pytest targets:\n'
+          printf '  %s\n' "${targets[@]}"
+          nix develop .#ci -c pytest "${targets[@]}" "${pytest_args[@]}" -m "not gui"
 
   gui-tests:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.gui == 'true'
+    if: github.event_name != 'pull_request' || needs.changes.outputs.gui_tests == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee # v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-
-      - name: Enable Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Verify Nix
         run: nix --version
@@ -161,11 +254,20 @@ jobs:
         run: |
           nix develop .#ci-gui -c bash <<'EOF'
             set -euo pipefail
+            source scripts/ci-targets.sh
+            keymasq_ci_validate_targets "${KEYMASQ_GUI_TEST_TARGETS[@]}"
+
+            pytest_workers="${KEYMASQ_CI_GUI_PYTEST_WORKERS:-1}"
+            pytest_args=(-q -ra --tb=short -m gui)
+            if [[ "$pytest_workers" != "0" && "$pytest_workers" != "1" ]]; then
+              pytest_args+=(-n "$pytest_workers")
+            fi
+
             export DISPLAY=:99
             export GDK_BACKEND=x11
             Xvfb :99 -screen 0 1280x1024x24 >/tmp/keymasq-xvfb.log 2>&1 &
             xvfb_pid=$!
-            trap 'kill "$xvfb_pid"' EXIT
+            trap 'kill "$xvfb_pid" 2>/dev/null || true' EXIT
             sleep 1
-            pytest tests/gui -v -m gui
+            pytest "${KEYMASQ_GUI_TEST_TARGETS[@]}" "${pytest_args[@]}"
           EOF

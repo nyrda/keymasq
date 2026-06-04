@@ -740,11 +740,14 @@ class NiriListener(WindowListener):
                 except TimeoutError as exc:
                     log.debug("Niri command request timed out: %s", exc)
                     await self._reset_failed_cmd_connection()
-                except OSError as exc:
-                    log.debug("Niri command request failed: %s", exc)
+                except (ConnectionError, RuntimeError) as exc:
+                    log.debug("Niri command socket dropped: %s", exc)
                     await self._reset_failed_cmd_connection()
                 except (json.JSONDecodeError, ValueError) as exc:
                     log.debug("Niri command reply was invalid: %s", exc)
+                    await self._reset_failed_cmd_connection()
+                except OSError as exc:
+                    log.debug("Niri command request failed: %s", exc)
                     await self._reset_failed_cmd_connection()
                 except Exception:
                     log.exception("Unexpected Niri command request failure")

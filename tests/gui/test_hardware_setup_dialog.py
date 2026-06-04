@@ -981,6 +981,61 @@ class TestHardwareSetupDialog:
         assert dialog._detect_devices_via_session(detected_devices) is False
         assert detected_devices == {}
 
+    def test_detect_devices_locally_closes_opened_evdev_devices(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class FakeInputDevice:
+            def __init__(self, path: str) -> None:
+                self.path = path
+                self.name = "Test Device"
+                self.phys = "usb/input0"
+                self.info = SimpleNamespace(vendor=0x1234, product=0x5678)
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        devices: dict[str, FakeInputDevice] = {}
+
+        def input_device(path: str) -> FakeInputDevice:
+            device = FakeInputDevice(path)
+            devices[path] = device
+            return device
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod.evdev,
+            "list_devices",
+            lambda: ["/dev/input/event1", "/dev/input/event2"],
+        )
+        monkeypatch.setattr(hardware_setup_mod.evdev, "InputDevice", input_device)
+        monkeypatch.setattr(hardware_setup_mod, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "detect_input_classes",
+            lambda _device: ["keyboard"],
+        )
+
+        dialog = HardwareSetupDialog(
+            Gtk.Window(),
+            SimpleNamespace(list_hardware=lambda: [], get_hardware=lambda _id: None),
+        )
+        dialog._should_skip_detected_device = lambda device: device.path.endswith("event1")  # type: ignore[method-assign]
+        dialog._should_include_detected_interface = lambda _device_types: False  # type: ignore[method-assign]
+        detected_devices: dict[str, dict] = {}
+
+        dialog._detect_devices_locally({}, detected_devices)
+
+        assert detected_devices == {}
+        assert {path: device.closed for path, device in devices.items()} == {
+            "/dev/input/event1": True,
+            "/dev/input/event2": True,
+        }
+
     def test_detect_devices_via_session_keeps_duplicate_gamepad_slots(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

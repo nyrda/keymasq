@@ -38,10 +38,7 @@ _RECORDING_MANAGER_ERRORS = (
     OSError,
     ConnectionError,
     TimeoutError,
-    RuntimeError,
-    TypeError,
-    ValueError,
-    KeyError,
+    EOFError,
 )
 
 

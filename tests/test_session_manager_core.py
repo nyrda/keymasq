@@ -183,6 +183,24 @@ async def test_connect_loop_logs_unexpected_runtime_failures(
     assert manager.connected is False
 
 
+@pytest.mark.asyncio
+async def test_sync_virtual_gamepads_ignores_malformed_daemon_count(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager()
+    manager.connected = True
+    manager.virtual_gamepad_count = 2
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"count": "not-a-number"})
+    )
+
+    with caplog.at_level("WARNING", logger="keymasq-session"):
+        await manager._sync_virtual_gamepads_to_daemon()
+
+    assert manager.virtual_gamepad_count == 2
+    assert "Ignoring malformed virtual gamepad count from keymasqd" in caplog.text
+
+
 def test_signal_handler_only_sets_shutdown_state() -> None:
     manager = SessionManager()
     manager.running = True

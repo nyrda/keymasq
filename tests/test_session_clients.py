@@ -340,8 +340,27 @@ def test_persistent_session_dispatch_event_falls_back_when_idle_add_fails(
 
     connection._dispatch_event({"event": "macro_saved", "name": "example"})
 
-    assert [call["name"] for call in calls] == ["example"]
+    assert calls == []
     assert "Failed to schedule session event callback with GLib" in caplog.text
+    assert "dropping event macro_saved" in caplog.text
+
+
+def test_persistent_session_dispatch_event_drops_when_idle_add_unavailable(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    glib_module = _install_fake_glib(monkeypatch)
+    glib_module.idle_add = None
+    connection = gui_session_client._PersistentSessionConnection()
+    calls: list[dict[str, Any]] = []
+    connection.register_callback("macro_saved", lambda message: calls.append(message))
+    caplog.set_level(logging.WARNING, logger="keymasq.gui.session_client")
+
+    connection._dispatch_event({"event": "macro_saved", "name": "example"})
+
+    assert calls == []
+    assert "GLib.idle_add unavailable" in caplog.text
+    assert "dropping event macro_saved" in caplog.text
 
 
 def test_persistent_session_reader_loop_routes_events_and_response(

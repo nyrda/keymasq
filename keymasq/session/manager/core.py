@@ -760,7 +760,13 @@ class SessionManager:
                 data = cast(JsonObject, response.data)
                 raw_count = data.get("count", self.virtual_gamepad_count)
                 if isinstance(raw_count, (int, float, str)):
-                    self.virtual_gamepad_count = int(raw_count)
+                    try:
+                        self.virtual_gamepad_count = int(raw_count)
+                    except (TypeError, ValueError, OverflowError):
+                        log.warning(
+                            "Ignoring malformed virtual gamepad count from keymasqd: %r",
+                            raw_count,
+                        )
         except OSError as exc:
             log.warning("Failed to configure virtual gamepads in keymasqd: %s", exc)
 

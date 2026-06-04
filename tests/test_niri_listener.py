@@ -188,7 +188,7 @@ async def test_send_cmd_request_logs_malformed_replies(
 
 
 @pytest.mark.asyncio
-async def test_send_cmd_request_logs_unexpected_write_errors(
+async def test_send_cmd_request_resets_dropped_command_socket_errors(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -201,15 +201,40 @@ async def test_send_cmd_request_logs_unexpected_write_errors(
 
     monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
 
-    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.niri"):
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.niri"):
         ok, body = await listener._send_cmd_request({"Action": {}}, timeout_s=0.5)
 
     assert ok is False
     assert body is None
     assert listener._cmd_reader is None
     assert listener._cmd_writer is None
-    assert "Unexpected Niri command request failure" in caplog.text
+    assert "Niri command socket dropped" in caplog.text
     assert "write bug" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_send_cmd_request_resets_closed_command_socket(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    listener = NiriListener(_noop_callback)
+    listener._cmd_reader = _FakeReader([b""])  # type: ignore[assignment]
+    listener._cmd_writer = _FakeWriter()  # type: ignore[assignment]
+
+    async def fake_ensure() -> bool:
+        return True
+
+    monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.niri"):
+        ok, body = await listener._send_cmd_request({"Action": {}}, timeout_s=0.5)
+
+    assert ok is False
+    assert body is None
+    assert listener._cmd_reader is None
+    assert listener._cmd_writer is None
+    assert "Niri command socket dropped" in caplog.text
+    assert "Niri command socket closed" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -319,6 +319,13 @@
             ];
           };
 
+          ci-typecheck = pkgs.mkShell {
+            packages = [
+              (mkTestPython [ pkgs.python312Packages.pygobject3 ])
+              pkgs.basedpyright
+            ];
+          };
+
           ci-gui = pkgs.mkShell {
             # Point gdk-pixbuf at the librsvg loaders cache so SVG icons
             # (Adwaita theme, GTK4 assets) render correctly inside the

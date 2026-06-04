@@ -1309,7 +1309,9 @@ async def test_device_inspector_disable_session_command_forwards_reason() -> Non
     )
 
     sent = manager.client.send_command.await_args.args[0]
-    assert result == {"status": "ok"}
+    assert result["status"] == "ok"
+    assert result["hardware_id"] == "1234:5678"
+    assert result["reason"] == "key_esc"
     assert sent.command == CommandType.DEVICE_INSPECTOR_DISABLE_SUPPRESSION
     assert sent.data == {"hardware_id": "1234:5678", "reason": "key_esc"}
 

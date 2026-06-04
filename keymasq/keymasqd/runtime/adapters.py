@@ -104,6 +104,8 @@ def close_device(device: object) -> None:
         close()
     except (OSError, RuntimeError, TypeError):
         log.debug("Failed to close evdev-style device", exc_info=True)
+    except Exception:
+        log.exception("Unexpected failure closing evdev-style device")
 
 
 class _ComboEcodesByType(Mapping[int, Mapping[int, object]]):

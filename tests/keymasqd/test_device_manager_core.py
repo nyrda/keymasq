@@ -743,6 +743,40 @@ class TestListDevices:
         assert result == {"devices": []}
         assert closed_paths == ["/dev/input/event0"]
 
+    def test_list_devices_treats_oserror_as_expected_scan_miss(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        closed_paths: list[str] = []
+
+        class FakeDevice:
+            name = "Disconnected Keyboard"
+            phys = "usb-test"
+            uniq = ""
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+            def capabilities(self):
+                raise OSError("device disconnected")
+
+            def close(self) -> None:
+                closed_paths.append(self.path)
+
+        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(dm.evdev, "InputDevice", FakeDevice)
+        caplog.set_level(logging.DEBUG, logger="keymasqd.devices")
+
+        result = manager._list_devices_sync()
+
+        assert result == {"devices": []}
+        assert closed_paths == ["/dev/input/event0"]
+        assert "Skipping unreadable device /dev/input/event0" in caplog.text
+        assert "Could not read device /dev/input/event0" not in caplog.text
+
     def test_list_devices_marks_physical_recording_identity(
         self,
         monkeypatch: pytest.MonkeyPatch,

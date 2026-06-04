@@ -243,7 +243,16 @@ def _serve_registry_probe_response(
                     conn.recv(4096)
                     conn.sendall(response)
                     conn.recv(4096)
-        except (OSError, RuntimeError, TimeoutError, TypeError, ValueError, AssertionError) as exc:
+        except (
+            OSError,
+            RuntimeError,
+            TimeoutError,
+            TypeError,
+            ValueError,
+            AssertionError,
+            AttributeError,
+            KeyError,
+        ) as exc:
             errors.append(exc)
             ready.set()
 

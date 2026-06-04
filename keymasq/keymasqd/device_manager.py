@@ -1299,6 +1299,8 @@ class DeviceManager:
                         **(grabbed_source or {}),
                     }
                 )
+            except OSError as exc:
+                log.debug("Skipping unreadable device %s: %s", path, exc)
             except Exception:
                 log.exception("Could not read device %s", path)
             finally:

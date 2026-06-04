@@ -201,21 +201,26 @@ class _PersistentSessionConnection:
             if callable(raw_idle_add):
                 idle_add = raw_idle_add
             else:
-                log.warning("GLib.idle_add unavailable; dispatching session callbacks directly")
+                log.warning("GLib.idle_add unavailable; dropping session event callback")
 
         for callback in callbacks:
             if idle_add is None:
-                self._dispatch_event_callback_once(callback, message)
+                log.warning(
+                    "Cannot marshal session event callback to GTK main loop; dropping event %s",
+                    event,
+                )
                 continue
 
             try:
                 idle_add(self._dispatch_event_callback_once, callback, message)
             except (RuntimeError, TypeError) as exc:
-                log.warning("Failed to schedule session event callback with GLib: %s", exc)
-                self._dispatch_event_callback_once(callback, message)
+                log.warning(
+                    "Failed to schedule session event callback with GLib: %s; dropping event %s",
+                    exc,
+                    event,
+                )
             except Exception:
                 log.exception("Unexpected failure scheduling session event callback")
-                self._dispatch_event_callback_once(callback, message)
 
     @staticmethod
     def _dispatch_event_callback_once(

@@ -101,7 +101,7 @@ def parse_kde_cursor_payload(payload: str) -> tuple[str, int, int] | None:
     try:
         x = int(float(str(x_raw)))
         y = int(float(str(y_raw)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
     return request_id, x, y

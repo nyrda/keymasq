@@ -343,7 +343,7 @@ def get_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:
     names = _evdev_code_names(event.type, evdev_mod=evdev_mod)
     if names is None:
         return str(event.code)
-    raw_code_name = names.get(raw_code, str(raw_code))
+    raw_code_name = names.get(code, str(raw_code))
     return _evdev_code_name(raw_code_name, code)
 
 

@@ -94,6 +94,17 @@ class TestGrabbedDeviceHelpers:
         assert gde.get_event_name(cast(gdt.InputEventLike, event), evdev_mod=evdev_mod) == "key_a"
         assert gde.get_key_name(evdev.ecodes.KEY_A, evdev_mod=evdev_mod) == "key_a"
 
+    def test_event_name_helpers_normalize_numeric_code_lookup(self) -> None:
+        evdev_mod = SimpleNamespace(
+            ecodes=SimpleNamespace(
+                EV_KEY=evdev.ecodes.EV_KEY,
+                bytype={evdev.ecodes.EV_KEY: {evdev.ecodes.KEY_A: "KEY_A"}},
+            )
+        )
+        event = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=str(evdev.ecodes.KEY_A), value=1)
+
+        assert gde.get_event_name(cast(gdt.InputEventLike, event), evdev_mod=evdev_mod) == "key_a"
+
     @pytest.mark.asyncio
     async def test_device_release_ends_held_profile_trigger_state(
         self,

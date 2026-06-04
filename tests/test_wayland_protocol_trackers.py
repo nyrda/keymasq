@@ -403,6 +403,26 @@ def test_registry_probe_logs_unexpected_collect_failure(
     assert "probe bug" in caplog.text
 
 
+def test_registry_probe_logs_timeout_as_expected_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def timeout_collect(_self: object, _timeout_s: float) -> set[str]:
+        await asyncio.sleep(1)
+        return {"wl_compositor"}
+
+    monkeypatch.setattr(registry_probe._RegistryProbeTransport, "collect", timeout_collect)
+
+    with caplog.at_level("DEBUG", logger="keymasq-session.wayland.registry_probe"):
+        result = asyncio.run(
+            registry_probe.list_registry_globals(Path("/tmp/wayland-test"), timeout_s=0.01)
+        )
+
+    assert result == set()
+    assert "Wayland registry probe timed out" in caplog.text
+    assert "Unexpected Wayland registry probe failure" not in caplog.text
+
+
 def test_wayland_clients_send_requests_with_loop_sock_sendall() -> None:
     async def send_requests() -> None:
         clients = (

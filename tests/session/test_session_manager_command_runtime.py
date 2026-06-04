@@ -1169,6 +1169,15 @@ async def test_list_macros_include_slots_syncs_slots_from_daemon() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sync_pending_macro_slots_does_not_mask_runtime_errors() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(side_effect=RuntimeError("local bug"))
+
+    with pytest.raises(RuntimeError, match="local bug"):
+        await session_recording_module.sync_pending_macro_slots_from_daemon(manager)
+
+
+@pytest.mark.asyncio
 async def test_play_macro_slot_trigger_rejects_empty_slot() -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(

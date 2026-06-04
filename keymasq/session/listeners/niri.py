@@ -26,6 +26,8 @@ NIRI_DISPATCH_TIMEOUT_SECONDS = 1.5
 NIRI_FOCUSED_WINDOW_TIMEOUT_SECONDS = 0.6
 NIRI_ACTIVATE_TIMEOUT_SECONDS = 2.0
 NIRI_CLI_DISPATCH_TIMEOUT_SECONDS = 3.0
+_READ_ONLY_NIRI_REQUESTS = {"FocusedWindow", "Windows"}
+
 
 def _normalize_string(value: object) -> str:
     if isinstance(value, str):
@@ -33,6 +35,19 @@ def _normalize_string(value: object) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _niri_request_name(request: object) -> str:
+    if isinstance(request, str):
+        return request
+    request_object = _json_object(request)
+    if request_object is not None and len(request_object) == 1:
+        return str(next(iter(request_object)))
+    return ""
+
+
+def _niri_request_is_read_only(request: object) -> bool:
+    return _niri_request_name(request) in _READ_ONLY_NIRI_REQUESTS
 
 
 def _parse_workspace_reference(args: str) -> tuple[bool, str, JsonObject | None]:
@@ -716,8 +731,11 @@ class NiriListener(WindowListener):
         request: object,
         timeout_s: float,
     ) -> tuple[bool, object | None]:
+        request_name = _niri_request_name(request)
+        request_read_only = _niri_request_is_read_only(request)
         async with self._cmd_lock:
             for _ in range(2):
+                request_sent = False
                 if not await self._ensure_cmd_connection():
                     return False, None
                 try:
@@ -728,6 +746,7 @@ class NiriListener(WindowListener):
 
                     cmd_writer.write((json.dumps(request) + "\n").encode("utf-8"))
                     await cmd_writer.drain()
+                    request_sent = True
                     reply = await asyncio.wait_for(cmd_reader.readline(), timeout=timeout_s)
                     if not reply:
                         raise ConnectionError("Niri command socket closed")
@@ -739,14 +758,47 @@ class NiriListener(WindowListener):
                     return False, body
                 except TimeoutError as exc:
                     log.debug("Niri command request timed out: %s", exc)
-                    await self._reset_failed_cmd_connection()
-                except OSError as exc:
-                    log.debug("Niri command request failed: %s", exc)
-                    await self._reset_failed_cmd_connection()
+                    if not await self._reset_cmd_connection_for_retry(
+                        request_sent, request_read_only, request_name
+                    ):
+                        return False, None
+                except (ConnectionError, RuntimeError) as exc:
+                    log.debug("Niri command socket dropped: %s", exc)
+                    if not await self._reset_cmd_connection_for_retry(
+                        request_sent, request_read_only, request_name
+                    ):
+                        return False, None
                 except (json.JSONDecodeError, ValueError) as exc:
                     log.debug("Niri command reply was invalid: %s", exc)
-                    await self._reset_failed_cmd_connection()
+                    if not await self._reset_cmd_connection_for_retry(
+                        request_sent, request_read_only, request_name
+                    ):
+                        return False, None
+                except OSError as exc:
+                    log.debug("Niri command request failed: %s", exc)
+                    if not await self._reset_cmd_connection_for_retry(
+                        request_sent, request_read_only, request_name
+                    ):
+                        return False, None
                 except Exception:
                     log.exception("Unexpected Niri command request failure")
-                    await self._reset_failed_cmd_connection()
+                    if not await self._reset_cmd_connection_for_retry(
+                        request_sent, request_read_only, request_name
+                    ):
+                        return False, None
             return False, None
+
+    async def _reset_cmd_connection_for_retry(
+        self,
+        request_sent: bool,
+        request_read_only: bool,
+        request_name: str,
+    ) -> bool:
+        if request_sent and not request_read_only:
+            log.debug(
+                "Not retrying sent non-read-only Niri command request: %s",
+                request_name or "<unknown>",
+            )
+            return False
+        await self._reset_failed_cmd_connection()
+        return True

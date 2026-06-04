@@ -154,7 +154,7 @@ async def test_send_cmd_request_retries_after_eof(monkeypatch) -> None:
 
     monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
 
-    ok, body = await listener._send_cmd_request({"Action": {}}, timeout_s=0.5)
+    ok, body = await listener._send_cmd_request("Windows", timeout_s=0.5)
 
     assert ok is True
     assert body == "Handled"
@@ -188,7 +188,41 @@ async def test_send_cmd_request_logs_malformed_replies(
 
 
 @pytest.mark.asyncio
-async def test_send_cmd_request_logs_unexpected_write_errors(
+async def test_send_cmd_request_does_not_retry_sent_action_after_eof(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    listener = NiriListener(_noop_callback)
+    first_writer = _FakeWriter()
+    second_writer = _FakeWriter()
+    pairs = [
+        (_FakeReader([b""]), first_writer),
+        (_FakeReader([b'{"Ok":"Handled"}\n']), second_writer),
+    ]
+
+    async def fake_ensure() -> bool:
+        if listener._cmd_reader is None or listener._cmd_writer is None:
+            if not pairs:
+                return False
+            listener._cmd_reader, listener._cmd_writer = pairs.pop(0)  # type: ignore[assignment]
+        return True
+
+    monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.niri"):
+        ok, body = await listener._send_cmd_request({"Action": {}}, timeout_s=0.5)
+
+    assert ok is False
+    assert body is None
+    assert first_writer.payloads == ['{"Action": {}}\n']
+    assert second_writer.payloads == []
+    assert listener._cmd_writer is first_writer
+    assert first_writer.closed is False
+    assert "Not retrying sent non-read-only Niri command request: Action" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_send_cmd_request_resets_dropped_command_socket_errors(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -201,15 +235,40 @@ async def test_send_cmd_request_logs_unexpected_write_errors(
 
     monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
 
-    with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.niri"):
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.niri"):
         ok, body = await listener._send_cmd_request({"Action": {}}, timeout_s=0.5)
 
     assert ok is False
     assert body is None
     assert listener._cmd_reader is None
     assert listener._cmd_writer is None
-    assert "Unexpected Niri command request failure" in caplog.text
+    assert "Niri command socket dropped" in caplog.text
     assert "write bug" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_send_cmd_request_resets_closed_command_socket(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    listener = NiriListener(_noop_callback)
+    listener._cmd_reader = _FakeReader([b""])  # type: ignore[assignment]
+    listener._cmd_writer = _FakeWriter()  # type: ignore[assignment]
+
+    async def fake_ensure() -> bool:
+        return True
+
+    monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.niri"):
+        ok, body = await listener._send_cmd_request("Windows", timeout_s=0.5)
+
+    assert ok is False
+    assert body is None
+    assert listener._cmd_reader is None
+    assert listener._cmd_writer is None
+    assert "Niri command socket dropped" in caplog.text
+    assert "Niri command socket closed" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -227,7 +286,7 @@ async def test_send_cmd_request_logs_unexpected_close_errors(
     monkeypatch.setattr(listener, "_ensure_cmd_connection", fake_ensure)
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.niri"):
-        ok, body = await listener._send_cmd_request({"Action": {}}, timeout_s=0.5)
+        ok, body = await listener._send_cmd_request("Windows", timeout_s=0.5)
 
     assert ok is False
     assert body is None

@@ -68,6 +68,9 @@ async def list_registry_globals(socket_path: Path, timeout_s: float = 0.6) -> se
     transport = _RegistryProbeTransport(socket_path)
     try:
         return await asyncio.wait_for(transport.collect(timeout_s), timeout=timeout_s)
+    except TimeoutError as exc:
+        log.debug("Wayland registry probe timed out for %s: %s", socket_path, exc)
+        return set()
     except (OSError, _transport.WaylandDisplayError) as exc:
         log.debug("Wayland registry probe failed for %s: %s", socket_path, exc)
         return set()

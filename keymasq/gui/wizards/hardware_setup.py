@@ -786,65 +786,80 @@ class HardwareSetupDialog(Adw.Dialog):
         for path in sorted(evdev.list_devices(), key=local_sort_key):
             try:
                 device = evdev.InputDevice(path)
-                if self._should_skip_detected_device(device):
-                    continue
-                info = device.info
-                vendor_id = f"{info.vendor:04x}"
-                product_id = f"{info.product:04x}"
-                vid_pid = f"{vendor_id}:{product_id}"
-                device_types = detect_input_classes(device)
-                if not self._should_include_detected_interface(device_types):
-                    continue
-                stable_path = resolve_stable_path(path)
-                phys = str(getattr(device, "phys", "") or "")
-                identity_key = self._detected_identity_key(
-                    model_id=vid_pid,
-                    device_types=device_types,
-                    stable_path=stable_path,
-                    phys=phys,
-                    path=path,
-                )
-                configured_hardware_id = configured_identity_hardware_ids.get(identity_key, "")
-                if not self._show_raw_evdev_devices and (
-                    configured_hardware_id
-                    or (not has_config_inventory and self._hardware_config_exists(vid_pid))
-                ):
-                    continue
-                if self._show_raw_evdev_devices and configured_hardware_id:
-                    hardware_id = configured_hardware_id
-                    device_key = _in_use_row_key(hardware_id, path, stable_path)
-                    configured_fields = {"configured_hardware_id": hardware_id}
-                elif self._show_raw_evdev_devices:
-                    hardware_id = vid_pid
-                    device_key = _raw_row_key(path, stable_path)
-                    configured_fields = {}
-                else:
-                    hardware_id = pending_identity_hardware_ids.get(identity_key)
-                    if hardware_id is None:
-                        hardware_id = self._allocate_hardware_id(vid_pid, used_hardware_ids)
-                        used_hardware_ids.add(hardware_id)
-                        pending_identity_hardware_ids[identity_key] = hardware_id
-                    device_key = hardware_id
-                    configured_fields = {}
-                device_type = primary_input_class(device_types)
-                lsusb_entry = lsusb_map.get(vid_pid)
-                display_name = (
-                    lsusb_entry["name"] if lsusb_entry and lsusb_entry["name"] else device.name
-                )
-                human_name = (
-                    lsusb_entry["name"] if lsusb_entry and lsusb_entry["name"] else device.name
-                )
+                try:
+                    if self._should_skip_detected_device(device):
+                        continue
+                    info = device.info
+                    vendor_id = f"{info.vendor:04x}"
+                    product_id = f"{info.product:04x}"
+                    vid_pid = f"{vendor_id}:{product_id}"
+                    device_types = detect_input_classes(device)
+                    if not self._should_include_detected_interface(device_types):
+                        continue
+                    stable_path = resolve_stable_path(path)
+                    phys = str(getattr(device, "phys", "") or "")
+                    identity_key = self._detected_identity_key(
+                        model_id=vid_pid,
+                        device_types=device_types,
+                        stable_path=stable_path,
+                        phys=phys,
+                        path=path,
+                    )
+                    configured_hardware_id = configured_identity_hardware_ids.get(identity_key, "")
+                    if not self._show_raw_evdev_devices and (
+                        configured_hardware_id
+                        or (not has_config_inventory and self._hardware_config_exists(vid_pid))
+                    ):
+                        continue
+                    if self._show_raw_evdev_devices and configured_hardware_id:
+                        hardware_id = configured_hardware_id
+                        device_key = _in_use_row_key(hardware_id, path, stable_path)
+                        configured_fields = {"configured_hardware_id": hardware_id}
+                    elif self._show_raw_evdev_devices:
+                        hardware_id = vid_pid
+                        device_key = _raw_row_key(path, stable_path)
+                        configured_fields = {}
+                    else:
+                        hardware_id = pending_identity_hardware_ids.get(identity_key)
+                        if hardware_id is None:
+                            hardware_id = self._allocate_hardware_id(vid_pid, used_hardware_ids)
+                            used_hardware_ids.add(hardware_id)
+                            pending_identity_hardware_ids[identity_key] = hardware_id
+                        device_key = hardware_id
+                        configured_fields = {}
+                    device_type = primary_input_class(device_types)
+                    lsusb_entry = lsusb_map.get(vid_pid)
+                    display_name = (
+                        lsusb_entry["name"] if lsusb_entry and lsusb_entry["name"] else device.name
+                    )
+                    human_name = (
+                        lsusb_entry["name"] if lsusb_entry and lsusb_entry["name"] else device.name
+                    )
 
-                if device_key not in detected_devices:
-                    detected_devices[device_key] = {
-                        "name": human_name,
-                        "display_name": display_name,
-                        "hardware_id": hardware_id,
-                        "model_id": vid_pid,
-                        "vendor_id": vendor_id,
-                        "product_id": product_id,
-                        "paths": [path],
-                        "interfaces": [
+                    if device_key not in detected_devices:
+                        detected_devices[device_key] = {
+                            "name": human_name,
+                            "display_name": display_name,
+                            "hardware_id": hardware_id,
+                            "model_id": vid_pid,
+                            "vendor_id": vendor_id,
+                            "product_id": product_id,
+                            "paths": [path],
+                            "interfaces": [
+                                {
+                                    "path": path,
+                                    "stable_path": stable_path,
+                                    "name": device.name,
+                                    "phys": phys,
+                                    "device_type": device_type,
+                                    "device_types": device_types,
+                                    **configured_fields,
+                                }
+                            ],
+                        }
+                    else:
+                        detected_devices[device_key]["paths"].append(path)
+                        detected_devices[device_key]["interfaces"].append(
                             {
                                 "path": path,
                                 "stable_path": stable_path,
@@ -854,21 +869,9 @@ class HardwareSetupDialog(Adw.Dialog):
                                 "device_types": device_types,
                                 **configured_fields,
                             }
-                        ],
-                    }
-                else:
-                    detected_devices[device_key]["paths"].append(path)
-                    detected_devices[device_key]["interfaces"].append(
-                        {
-                            "path": path,
-                            "stable_path": stable_path,
-                            "name": device.name,
-                            "phys": phys,
-                            "device_type": device_type,
-                            "device_types": device_types,
-                            **configured_fields,
-                        }
-                    )
+                        )
+                finally:
+                    device.close()
 
             except Exception:
                 log.exception("Skipping local input device %s", path)

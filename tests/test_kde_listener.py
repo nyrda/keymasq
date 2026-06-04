@@ -44,6 +44,11 @@ def test_parse_kde_cursor_payload_accepts_wrapped_json_string() -> None:
     assert parse_kde_cursor_payload(payload) == ("abc123", 123, 456)
 
 
+def test_parse_kde_cursor_payload_rejects_overflowing_coordinates() -> None:
+    payload = '{"id":"abc123","x":"1e100000","y":456}'
+    assert parse_kde_cursor_payload(payload) is None
+
+
 def test_parse_kde_dispatch_payload_valid() -> None:
     payload = '{"id":"abc123","ok":true,"message":"ok"}'
     assert parse_kde_dispatch_payload(payload) == ("abc123", True, "ok")

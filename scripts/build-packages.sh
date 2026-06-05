@@ -95,6 +95,7 @@ configure_opensuse_dependencies() {
     export RPM_UVLOOP_DEP="${python_prefix}-uvloop"
     export RPM_XLIB_DEP="${python_prefix}-python-xlib"
     export RPM_PYGOBJECT_DEP="${python_prefix}-gobject"
+    export RPM_PYGOBJECT_CAIRO_DEP="${python_prefix}-gobject-cairo"
     export RPM_GTK_DEP='typelib(Gtk) = 4.0'
     export RPM_ADW_DEP='typelib(Adw) = 1'
 }

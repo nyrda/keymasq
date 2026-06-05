@@ -23,6 +23,7 @@ depends=(
     'python-uvloop'
     'python-xlib>=0.33'
     'python-gobject>=3.42.0'
+    'python-cairo'
     'gtk4'
     'libadwaita'
     'polkit'

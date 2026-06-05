@@ -166,6 +166,7 @@ Defined in `PKGBUILD` under `depends`:
 - `python-dbus-next>=0.2.3`
 - `python-evdev>=1.6.0`
 - `python-gobject>=3.42.0`
+- `python-cairo`
 - `python-uvloop`
 - `python-tomli-w>=1.0.0`
 - `python-xlib>=0.33`
@@ -185,6 +186,7 @@ Defined in `debian/control`:
 - `python3-dbus-next`
 - `python3-evdev`
 - `python3-gi`
+- `python3-gi-cairo`
 - `python3-tomli-w`
 - `python3-uvloop`
 - `python3-xlib`
@@ -213,6 +215,7 @@ is built per Fedora release rather than as one cross-release RPM:
   - `dbus-next`
   - `python-xlib`
   - `PyGObject`
+  - PyGObject Cairo bindings where split from `PyGObject`
 - distro-specific GTK4 and libadwaita package names
 - `polkit`
 - `systemd`

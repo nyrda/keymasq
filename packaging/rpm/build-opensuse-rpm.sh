@@ -23,6 +23,7 @@ for var_name in \
     RPM_UVLOOP_DEP \
     RPM_XLIB_DEP \
     RPM_PYGOBJECT_DEP \
+    RPM_PYGOBJECT_CAIRO_DEP \
     RPM_GTK_DEP \
     RPM_ADW_DEP
 do
@@ -71,6 +72,7 @@ Requires: ${RPM_TOMLI_W_DEP}
 Requires: ${RPM_DBUS_NEXT_DEP}
 Requires: ${RPM_XLIB_DEP}
 Requires: ${RPM_PYGOBJECT_DEP}
+Requires: ${RPM_PYGOBJECT_CAIRO_DEP}
 Requires: ${RPM_GTK_DEP}
 Requires: ${RPM_ADW_DEP}
 Requires: polkit

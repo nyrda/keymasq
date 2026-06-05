@@ -450,11 +450,11 @@ def test_logical_gamepad_matching_numbered_id_skips_claimed_candidates() -> None
         ],
         devices,
         hardware_id="2dc8:3106@2",
-        excluded_paths={"/dev/input/event9"},
+        excluded_paths={"/dev/input/event2"},
         match_model_gamepads=True,
     )
 
-    assert [interface.path for interface in resolved] == ["/dev/input/event2"]
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
 
 
 def test_logical_gamepad_matching_uses_stable_path_order_for_candidates() -> None:

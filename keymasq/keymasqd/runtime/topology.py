@@ -360,7 +360,12 @@ def build_topology_events(
                 )
             )
         if (
-            not live_interface_path_is_hidden_source(current_info, hidden_paths)
+            not live_interface_connect_is_hidden_source_churn(
+                stable_path,
+                previous,
+                current_info,
+                hidden_paths,
+            )
             and live_interface_matches_desired(current_info, desired_hardware_ids)
         ):
             events.append(
@@ -372,7 +377,12 @@ def build_topology_events(
 
     for stable_path in sorted(current.keys() - previous.keys()):
         info = current[stable_path]
-        if live_interface_path_is_hidden_source(info, hidden_paths):
+        if live_interface_connect_is_hidden_source_churn(
+            stable_path,
+            previous,
+            info,
+            hidden_paths,
+        ):
             continue
         if not live_interface_matches_desired(info, desired_hardware_ids):
             continue
@@ -391,6 +401,21 @@ def live_interface_path_is_hidden_source(
     hidden_source_paths: set[str],
 ) -> bool:
     return str(getattr(info, "path", "") or "") in hidden_source_paths
+
+
+def live_interface_connect_is_hidden_source_churn(
+    stable_path: str,
+    previous: Snapshot,
+    current_info: Any,
+    hidden_source_paths: set[str],
+) -> bool:
+    previous_info = previous.get(stable_path)
+    if previous_info is None:
+        return False
+    return live_interface_path_is_hidden_source(
+        current_info,
+        hidden_source_paths,
+    ) and live_interface_path_is_hidden_source(previous_info, hidden_source_paths)
 
 
 def live_interface_is_hidden_source_churn(

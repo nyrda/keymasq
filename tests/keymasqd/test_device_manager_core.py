@@ -379,6 +379,36 @@ class TestDeviceManager:
         enable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
 
     @pytest.mark.asyncio
+    async def test_grab_device_logs_hotplug_hiding_enable_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        enable_hotplug_hiding = AsyncMock(side_effect=RuntimeError("udev failed"))
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
+        )
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
+
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            result = await manager.grab_device(
+                hardware_id="2dc8:3106",
+                evdev_paths=["keymasq:2dc8:3106"],
+                evdev_interfaces=evdev_interfaces,
+                button_map={"btn_south": "btn_south"},
+            )
+
+        assert result["waiting_for_device"] is True
+        assert manager.grab_state.desired_paths["2dc8:3106"] == {"keymasq:2dc8:3106"}
+        enable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+        assert "Failed to enable source-hiding hotplug state" in caplog.text
+        assert "hardware_id=2dc8:3106" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_grab_device_waits_for_explicit_gamepad_without_hotplug_hiding(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -434,6 +464,37 @@ class TestDeviceManager:
 
         assert result == {"released": True, "hardware_id": "2dc8:3106"}
         disable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+
+    @pytest.mark.asyncio
+    async def test_release_device_logs_hotplug_hiding_disable_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        disable_hotplug_hiding = AsyncMock(side_effect=RuntimeError("udev failed"))
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
+        manager.grab_state.desired_paths["2dc8:3106"] = {"keymasq:2dc8:3106"}
+        manager.grab_state.desired_grabs["2dc8:3106"] = DesiredGrabConfig(
+            paths={"keymasq:2dc8:3106"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=evdev_interfaces,
+        )
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            disable_hotplug_hiding,
+        )
+
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            result = await manager.release_device("2dc8:3106")
+
+        assert result == {"released": True, "hardware_id": "2dc8:3106"}
+        assert "2dc8:3106" not in manager.grab_state.desired_paths
+        assert "2dc8:3106" not in manager.grab_state.desired_grabs
+        disable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+        assert "Failed to disable source-hiding hotplug state" in caplog.text
+        assert "hardware_id=2dc8:3106" in caplog.text
 
     @pytest.mark.asyncio
     async def test_release_device_keeps_hotplug_hiding_for_same_base_desired_gamepad(
@@ -2238,7 +2299,7 @@ class TestListDevices:
             )
         ]
 
-    def test_topology_events_ignore_hidden_grabbed_hardware_id(self) -> None:
+    def test_topology_events_report_hidden_source_when_stable_path_changes(self) -> None:
         manager = SimpleNamespace(_command_type=CommandType)
         previous = {
             "/dev/input/by-id/test-pad-event-joystick": dm.LiveInterfaceInfo(
@@ -2288,10 +2349,21 @@ class TestListDevices:
                     "stable_path": "/dev/input/by-id/test-mouse",
                     "interface_id": "mouse",
                 },
+            ),
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/test-pad-event-if00",
+                    "interface_id": "event-if00",
+                },
             )
         ]
 
-    def test_topology_events_ignore_pending_hidden_source(self) -> None:
+    def test_topology_events_report_hidden_source_without_previous_membership(self) -> None:
         manager = SimpleNamespace(
             _command_type=CommandType,
             grabbed_devices={
@@ -2326,6 +2398,52 @@ class TestListDevices:
         )
 
         assert hidden_paths == {"/dev/input/event10"}
+        assert events == [
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/test-pad-event-joystick",
+                    "interface_id": "joystick",
+                },
+            )
+        ]
+
+    def test_topology_events_suppress_same_stable_hidden_source_churn(self) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        stable_path = "/dev/input/by-id/test-pad-event-joystick"
+        previous = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event10",
+                interface_id="joystick",
+            )
+        }
+        current = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event10",
+                interface_id="event-if00",
+            )
+        }
+
+        events = tdm.build_topology_events(
+            manager,
+            previous,
+            current,
+            {"1234:5678"},
+            hidden_source_paths={"/dev/input/event10"},
+        )
+
         assert events == []
 
     def test_topology_events_report_hidden_source_when_event_path_is_gone(

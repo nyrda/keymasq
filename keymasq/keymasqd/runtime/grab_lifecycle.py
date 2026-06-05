@@ -482,9 +482,12 @@ async def grab_device_unlocked(
     )
     if update_desired:
         if requests_gamepad_source_hiding and waiting_for_device:
-            await source_hiding.enable_hardware_hotplug_hiding(hardware_id)
+            await _enable_hardware_hotplug_hiding_best_effort(manager, hardware_id)
         else:
-            await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
+            await _disable_hardware_hotplug_hiding_if_unused_best_effort(
+                manager,
+                hardware_id,
+            )
 
     return {
         "grabbed": True,
@@ -654,6 +657,38 @@ async def _disable_hardware_hotplug_hiding_if_unused(
     await source_hiding.disable_hardware_hotplug_hiding(hardware_id)
 
 
+async def _enable_hardware_hotplug_hiding_best_effort(
+    manager: _GrabManager,
+    hardware_id: str,
+) -> None:
+    try:
+        await source_hiding.enable_hardware_hotplug_hiding(hardware_id)
+    except Exception:
+        log.exception(
+            "Failed to enable source-hiding hotplug state hardware_id=%s manager=%s",
+            hardware_id,
+            _manager_log_context(manager),
+        )
+
+
+async def _disable_hardware_hotplug_hiding_if_unused_best_effort(
+    manager: _GrabManager,
+    hardware_id: str,
+) -> None:
+    try:
+        await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
+    except Exception:
+        log.exception(
+            "Failed to disable source-hiding hotplug state hardware_id=%s manager=%s",
+            hardware_id,
+            _manager_log_context(manager),
+        )
+
+
+def _manager_log_context(manager: _GrabManager) -> str:
+    return f"{type(manager).__name__}@0x{id(manager):x}"
+
+
 def _hardware_waiting_for_grab(manager: _GrabManager, hardware_id: str) -> bool:
     return not bool(manager.grabbed_devices.get(hardware_id))
 
@@ -784,7 +819,10 @@ async def release_device_unlocked(
     )
     desired_config = manager.grab_state.desired_grabs.pop(hardware_id, None)
     if _desired_grab_requests_gamepad_source_hiding(desired_config):
-        await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
+        await _disable_hardware_hotplug_hiding_if_unused_best_effort(
+            manager,
+            hardware_id,
+        )
     devices = manager.grabbed_devices.pop(hardware_id, [])
 
     for device in devices:
@@ -812,13 +850,19 @@ async def schedule_hardware_release_unlocked(
         manager.active_mappings.pop(hardware_id, None)
         manager.grab_state.desired_paths.pop(hardware_id, None)
         if _desired_grab_requests_gamepad_source_hiding(desired_config):
-            await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
+            await _disable_hardware_hotplug_hiding_if_unused_best_effort(
+                manager,
+                hardware_id,
+            )
         return {"released": True, "hardware_id": hardware_id}
 
     manager.active_mappings[hardware_id] = {}
     manager.grab_state.desired_paths[hardware_id] = set()
     if _desired_grab_requests_gamepad_source_hiding(desired_config):
-        await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
+        await _disable_hardware_hotplug_hiding_if_unused_best_effort(
+            manager,
+            hardware_id,
+        )
 
     delay = max(
         0.01,
@@ -977,7 +1021,10 @@ async def release_interface_unlocked(
         desired_config = manager.grab_state.desired_grabs.get(hardware_id)
         if manager.grab_state.desired_paths.get(hardware_id):
             if _desired_grab_requests_gamepad_source_hiding(desired_config):
-                await source_hiding.enable_hardware_hotplug_hiding(hardware_id)
+                await _enable_hardware_hotplug_hiding_best_effort(
+                    manager,
+                    hardware_id,
+                )
         else:
             manager.active_mappings.pop(hardware_id, None)
             manager.grab_state.desired_paths.pop(hardware_id, None)

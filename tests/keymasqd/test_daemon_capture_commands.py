@@ -629,6 +629,49 @@ def test_capture_manager_hardware_interface_lookup_keeps_first_alias_owner(monke
     assert path_sources["/dev/input/event9"] == "2dc8:3106-source"
 
 
+def test_capture_manager_hardware_interface_lookup_excludes_prior_model_claims(monkeypatch):
+    manager = CaptureManager()
+    calls: list[tuple[str, set[str]]] = []
+
+    def fake_resolve_evdev_interfaces(_interfaces, **kwargs):
+        hardware_id = str(kwargs["hardware_id"])
+        excluded = set(kwargs.get("excluded_paths") or set())
+        calls.append((hardware_id, excluded))
+        path = (
+            "/dev/input/event10"
+            if "/dev/input/event9" in excluded
+            else "/dev/input/event9"
+        )
+        return [
+            SimpleNamespace(
+                path=path,
+                interface_id=f"{hardware_id}-source",
+            )
+        ]
+
+    monkeypatch.setattr(capture_manager_module, "resolve_stable_path", lambda path: path)
+    monkeypatch.setattr(
+        capture_manager_module.device_path_resolver,
+        "resolve_evdev_interfaces",
+        fake_resolve_evdev_interfaces,
+    )
+
+    path_hardware_ids, path_sources = manager._hardware_interface_lookup(
+        {
+            "2dc8:3106": [{"path": "keymasq:2dc8:3106", "type": "gamepad"}],
+            "2dc8:3106@2": [{"path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        }
+    )
+
+    assert calls == [
+        ("2dc8:3106", set()),
+        ("2dc8:3106@2", {"/dev/input/event9"}),
+    ]
+    assert path_hardware_ids["/dev/input/event9"] == "2dc8:3106"
+    assert path_hardware_ids["/dev/input/event10"] == "2dc8:3106@2"
+    assert path_sources["/dev/input/event10"] == "2dc8:3106@2-source"
+
+
 @pytest.mark.asyncio
 async def test_capture_combo_waits_on_event_not_sleep(daemon_testbed, monkeypatch):
     daemon, device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
@@ -832,22 +875,32 @@ async def test_start_offloads_macro_store_prep_to_thread(
         stop=AsyncMock(),
         broadcast_event=AsyncMock(),
     )
+    startup_order: list[str] = []
 
     async def fake_to_thread(func, /, *args, **kwargs):
         assert kwargs == {}
         to_thread_calls.append((func, args))
         return func(*args)
 
+    async def fake_reconcile_all() -> None:
+        startup_order.append("reconcile")
+
+    def fake_load_security_policy(_path: Path) -> SecurityPolicy:
+        startup_order.append("policy")
+        return SecurityPolicy()
+
     monkeypatch.setattr(daemon_module.asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(daemon_module, "SocketServer", lambda *args, **kwargs: fake_socket_server)
     monkeypatch.setattr(daemon_module, "RUN_DIR", tmp_path / "run")
     monkeypatch.setattr(daemon_module, "SOCKET_PATH", tmp_path / "daemon.sock")
-    monkeypatch.setattr(daemon_module, "load_security_policy", lambda _path: SecurityPolicy())
+    monkeypatch.setattr(daemon_module, "load_security_policy", fake_load_security_policy)
+    monkeypatch.setattr(daemon_module.source_hiding, "reconcile_all", fake_reconcile_all)
     monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
     monkeypatch.setattr(daemon, "_secure_run_dir", Mock())
 
     await daemon.start()
 
+    assert startup_order[:2] == ["reconcile", "policy"]
     assert to_thread_calls[0][0].__name__ == "_prepare_macro_store"
     macro_store.ensure.assert_called_once()
     macro_store.register_internal.assert_called_once()
@@ -878,6 +931,7 @@ async def test_start_cleans_up_resources_when_socket_start_fails(
     monkeypatch.setattr(daemon_module, "RUN_DIR", tmp_path / "run")
     monkeypatch.setattr(daemon_module, "SOCKET_PATH", tmp_path / "daemon.sock")
     monkeypatch.setattr(daemon_module, "load_security_policy", lambda _path: SecurityPolicy())
+    monkeypatch.setattr(daemon_module.source_hiding, "reconcile_all", AsyncMock())
     monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
     monkeypatch.setattr(daemon, "_secure_run_dir", Mock())
 
@@ -931,6 +985,7 @@ async def test_start_cleans_up_resources_when_topology_start_fails(
     monkeypatch.setattr(daemon_module, "RUN_DIR", tmp_path / "run")
     monkeypatch.setattr(daemon_module, "SOCKET_PATH", tmp_path / "daemon.sock")
     monkeypatch.setattr(daemon_module, "load_security_policy", lambda _path: SecurityPolicy())
+    monkeypatch.setattr(daemon_module.source_hiding, "reconcile_all", AsyncMock())
     monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
     monkeypatch.setattr(daemon, "_secure_run_dir", Mock())
 

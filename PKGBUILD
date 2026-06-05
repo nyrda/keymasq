@@ -100,8 +100,11 @@ package() {
     install -Dm644 "tmpfiles.d/keymasq.conf" \
         "$pkgdir/usr/lib/tmpfiles.d/keymasq.conf"
 
-    install -Dm644 "udev/91-keymasq-acl.rules" \
-        "$pkgdir/usr/lib/udev/rules.d/91-keymasq-acl.rules"
+    for rule in \
+        91-keymasq-acl.rules \
+        99-keymasq-hide-grabbed.rules; do
+        install -Dm644 "udev/$rule" "$pkgdir/usr/lib/udev/rules.d/$rule"
+    done
 
     install -Dm644 "polkit/com.keymasq.record-macro.policy" \
         "$pkgdir/usr/share/polkit-1/actions/com.keymasq.record-macro.policy"

@@ -13,7 +13,10 @@ from keymasq.common.devices import (
     detect_input_classes_from_capabilities,
     find_all_interfaces,
     get_interface_id,
+    hardware_model_id_key,
+    input_classes_include_gamepad,
     make_keymasq_device_path,
+    parse_hardware_model_id,
     parse_keymasq_device_path,
     primary_input_class,
     resolve_stable_path,
@@ -116,6 +119,22 @@ def test_keymasq_device_path_helpers() -> None:
     assert parse_keymasq_device_path("keymasq:dc8:1") == ("0dc8", "0001")
     assert parse_keymasq_device_path("keymasq:2dc8") is None
     assert parse_keymasq_device_path("/dev/input/event1") is None
+
+
+def test_input_classes_include_gamepad_normalizes_primary_and_class_list() -> None:
+    assert input_classes_include_gamepad(primary=DeviceType.GAMEPAD)
+    assert input_classes_include_gamepad(["keyboard"], "gamepad")
+    assert not input_classes_include_gamepad(["keyboard"], DeviceType.MOUSE)
+
+
+def test_hardware_model_id_helpers_normalize_supported_forms() -> None:
+    assert parse_hardware_model_id("045E:02A1") == ("045e", "02a1")
+    assert parse_hardware_model_id("45e:2a1") == ("045e", "02a1")
+    assert parse_hardware_model_id("keymasq:045e:02a1") == ("045e", "02a1")
+    assert parse_hardware_model_id("045e:02a1@7") == ("045e", "02a1")
+    assert hardware_model_id_key("keymasq:45e:2a1@7") == "045e:02a1"
+    assert parse_hardware_model_id("not-a-hardware-id") is None
+    assert hardware_model_id_key("12345:02a1") is None
 
 
 def test_config_path_for_detected_event_prefers_by_id(

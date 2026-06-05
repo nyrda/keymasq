@@ -814,6 +814,284 @@ class TestRapidfireRelease:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
+    @pytest.mark.asyncio
+    async def test_gamepad_grab_hides_source_and_release_restores_stored_names(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "js")
+        events: list[str] = []
+
+        class _FakeInputDevice:
+            name = "Xbox 360 Wireless Controller"
+            info = SimpleNamespace(
+                vendor=0x045E,
+                product=0x02A1,
+                version=0x0114,
+                bustype=0x0003,
+            )
+
+            def capabilities(self) -> dict[int, list[object]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [
+                        (
+                            evdev.ecodes.ABS_X,
+                            evdev.AbsInfo(0, -32768, 32767, 16, 128, 0),
+                        )
+                    ],
+                    evdev.ecodes.EV_SYN: [],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def active_keys(self) -> list[int]:
+                return []
+
+            def grab(self) -> None:
+                events.append("grab")
+
+            def ungrab(self) -> None:
+                events.append("ungrab")
+
+            def close(self) -> None:
+                events.append("input-close")
+
+        class _RecordingUInput(FakeUInput):
+            def close(self) -> None:
+                events.append("uinput-close")
+
+        created_tasks: list[asyncio.Task[None]] = []
+        original_create_task = asyncio.create_task
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        def fake_create_task(coro):
+            coro.close()
+            task = original_create_task(asyncio.sleep(60))
+            created_tasks.append(task)
+            return task
+
+        async def fake_hide_source(path: str) -> list[str]:
+            events.append(f"hide:{path}")
+            return ["event22", "js0"]
+
+        async def fake_restore_source(names: list[str]) -> None:
+            events.append(f"restore:{','.join(names)}")
+
+        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(gdm.evdev, "UInput", _RecordingUInput)
+        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(gdm.source_hiding, "hide_source", fake_hide_source)
+        monkeypatch.setattr(
+            gdm.source_hiding,
+            "restore_source_by_kernel_names",
+            fake_restore_source,
+        )
+
+        device = GrabbedDevice(
+            path="/dev/input/event22",
+            hardware_id="045e:02a1",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.GAMEPAD,
+            device_types=["gamepad"],
+            gamepad_uinput=FakeUInput(),  # type: ignore[arg-type]
+        )
+
+        await device.grab()
+        await device.release()
+
+        assert "hide:/dev/input/event22" in events
+        assert device.source_hidden_kernel_names == []
+        assert events.index("restore:event22,js0") > events.index("uinput-close")
+        assert events == [
+            "grab",
+            "hide:/dev/input/event22",
+            "ungrab",
+            "input-close",
+            "uinput-close",
+            "restore:event22,js0",
+        ]
+
+        for task in created_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    @pytest.mark.asyncio
+    async def test_cancelled_gamepad_hide_closes_without_speculative_restore(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "js")
+        events: list[str] = []
+
+        class _FakeInputDevice:
+            name = "Xbox 360 Wireless Controller"
+            info = SimpleNamespace(
+                vendor=0x045E,
+                product=0x02A1,
+                version=0x0114,
+                bustype=0x0003,
+            )
+
+            def capabilities(self) -> dict[int, list[object]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [
+                        (
+                            evdev.ecodes.ABS_X,
+                            evdev.AbsInfo(0, -32768, 32767, 16, 128, 0),
+                        )
+                    ],
+                    evdev.ecodes.EV_SYN: [],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def active_keys(self) -> list[int]:
+                return []
+
+            def grab(self) -> None:
+                events.append("grab")
+
+            def close(self) -> None:
+                events.append("input-close")
+
+        class _RecordingUInput(FakeUInput):
+            def close(self) -> None:
+                events.append("uinput-close")
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        async def fake_hide_source(path: str) -> list[str]:
+            events.append(f"hide:{path}")
+            raise asyncio.CancelledError()
+
+        async def fake_restore_source(names: list[str]) -> None:
+            events.append(f"restore:{','.join(names)}")
+
+        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(gdm.evdev, "UInput", _RecordingUInput)
+        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(gdm.source_hiding, "hide_source", fake_hide_source)
+        monkeypatch.setattr(
+            gdm.source_hiding,
+            "restore_source_by_kernel_names",
+            fake_restore_source,
+        )
+
+        device = GrabbedDevice(
+            path="/dev/input/event22",
+            hardware_id="045e:02a1",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.GAMEPAD,
+            device_types=["gamepad"],
+            gamepad_uinput=FakeUInput(),  # type: ignore[arg-type]
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await device.grab()
+
+        assert device.source_hidden_kernel_names == []
+        assert events == [
+            "grab",
+            "hide:/dev/input/event22",
+            "uinput-close",
+            "input-close",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_keyboard_grab_does_not_hide_source(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        hide_calls: list[str] = []
+        restore_calls: list[list[str]] = []
+
+        class _FakeInputDevice:
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_L],
+                    evdev.ecodes.EV_SYN: [],
+                }
+
+            def active_keys(self) -> list[int]:
+                return []
+
+            def grab(self) -> None:
+                return
+
+            def ungrab(self) -> None:
+                return
+
+            def close(self) -> None:
+                return
+
+        created_tasks: list[asyncio.Task[None]] = []
+        original_create_task = asyncio.create_task
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        def fake_create_task(coro):
+            coro.close()
+            task = original_create_task(asyncio.sleep(60))
+            created_tasks.append(task)
+            return task
+
+        async def fake_hide_source(path: str) -> list[str]:
+            hide_calls.append(path)
+            return ["event22"]
+
+        async def fake_restore_source(names: list[str]) -> None:
+            restore_calls.append(list(names))
+
+        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(gdm.evdev, "UInput", FakeUInput)
+        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(gdm.source_hiding, "hide_source", fake_hide_source)
+        monkeypatch.setattr(
+            gdm.source_hiding,
+            "restore_source_by_kernel_names",
+            fake_restore_source,
+        )
+
+        device = GrabbedDevice(
+            path="/dev/input/event12",
+            hardware_id="1234:5678",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
+        )
+
+        await device.grab()
+        await device.release()
+
+        assert hide_calls == []
+        assert restore_calls == []
+
+        for task in created_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
     def test_gamepad_passthrough_fallback_name_includes_interface(self) -> None:
         device = SimpleNamespace(name="")
 

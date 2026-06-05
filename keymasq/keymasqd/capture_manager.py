@@ -452,6 +452,7 @@ class CaptureManager:
         path_sources: dict[str, str] = {}
         clear_device_path_cache()
         deps = _device_path_resolver_deps()
+        claimed_paths: set[str] = set()
         for hardware_id, interfaces in hardware_interfaces.items():
             normalized_hardware_id = str(hardware_id or "").lower()
             if not normalized_hardware_id:
@@ -460,9 +461,12 @@ class CaptureManager:
                 list(interfaces),
                 deps=deps,
                 hardware_id=normalized_hardware_id,
+                excluded_paths=claimed_paths,
             )
             for interface in resolved:
-                for alias in _path_aliases(interface.path):
+                aliases = _path_aliases(interface.path)
+                claimed_paths.update(aliases)
+                for alias in aliases:
                     if alias in path_hardware_ids:
                         continue
                     path_hardware_ids[alias] = normalized_hardware_id

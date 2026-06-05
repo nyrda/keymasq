@@ -142,6 +142,8 @@ stage_rpm_support_files() {
         "$staging_dir/usr/lib/tmpfiles.d/keymasq.conf"
     cp -f "$REPO_DIR/udev/91-keymasq-acl.rules" \
         "$staging_dir/usr/lib/udev/rules.d/91-keymasq-acl.rules"
+    cp -f "$REPO_DIR/udev/99-keymasq-hide-grabbed.rules" \
+        "$staging_dir/usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules"
     cp -f "$REPO_DIR/polkit/com.keymasq.record-macro.policy" \
         "$staging_dir/usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
     cp -f "$REPO_DIR/assets/tools.keymasq.keymasq.desktop" \

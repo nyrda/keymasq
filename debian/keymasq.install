@@ -9,3 +9,4 @@ systemd/keymasq-session.service usr/lib/systemd/user/
 systemd/keymasqd.service usr/lib/systemd/system/
 tmpfiles.d/keymasq.conf usr/lib/tmpfiles.d/
 udev/91-keymasq-acl.rules usr/lib/udev/rules.d/
+udev/99-keymasq-hide-grabbed.rules usr/lib/udev/rules.d/

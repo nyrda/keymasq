@@ -282,6 +282,15 @@ async def event_loop(
         if runtime_is_running(device_runtime):
             await cleanup_runtime_failure(device_runtime, log=log)
             log.warning("Device read error on %s: %s", device_runtime.path, exc)
+            disconnect_callback = device_runtime.runtime_disconnect_callback
+            if disconnect_callback is not None:
+                try:
+                    await disconnect_callback(device_runtime.hardware_id, device_runtime.path)
+                except Exception:
+                    log.exception(
+                        "Failed to release disconnected device %s",
+                        device_runtime.path,
+                    )
 
 
 async def cleanup_runtime_failure(

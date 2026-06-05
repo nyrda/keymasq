@@ -101,6 +101,9 @@ virtual_count = 1
 Clamp `virtual_count` to 0..4. Gamepad profile actions may include
 `output_id`; valid values are `virtual-gamepad-1`..`virtual-gamepad-4` or a
 configured hardware gamepad ID. Explicit gamepad outputs do not fall back.
+Gamepad source hiding is automatic: grabbed physical gamepads are hidden from
+controller enumeration while the passthrough clone stays visible. There is no
+user-facing setting for this.
 
 Do not edit macro storage directly. Use `keymasq macros ...` or the GUI.
 

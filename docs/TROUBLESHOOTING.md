@@ -212,7 +212,6 @@ matching profile device layer to use the same ID.
 Symptoms:
 
 - two identical devices appear as one configurable device
-- a numbered device such as `045e:02a1@2` grabs the wrong unit
 - mappings swap between identical receivers or devices after reconnecting
 - `/dev/input/by-id/` links look identical except for interface suffixes, or the
   serial number is missing or all zeroes
@@ -237,11 +236,12 @@ logical path such as `keymasq:2dc8:3106` instead of the unstable
 vendor/product IDs and interface metadata such as type, `phys`, and
 capabilities.
 
-For logical paths, a numbered hardware ID such as `045e:02a1@2` is only a
-best-effort duplicate hint. It is not a serial number. If the requested numbered
-candidate is unavailable, `keymasqd` may choose the best unclaimed matching
-candidate instead. This keeps reconnects usable, but it cannot make two
-perfectly identical unserialized devices reliably distinguishable.
+For model-matched gamepads, IDs such as `045e:02a1`, `045e:02a1@2`, and
+`045e:02a1@8` are distinct profile/config keys, not physical slot selectors. At
+runtime, each active config grabs the first unclaimed matching controller. Extra
+matching controllers that are not named by an active profile remain ungrabbed
+and visible to the system. The number is still not a serial number, and it does
+not promise a specific USB receiver slot.
 
 Edit the affected hardware file:
 

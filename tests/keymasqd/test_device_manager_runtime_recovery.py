@@ -89,6 +89,43 @@ class TestEventLoopRecovery:
         assert device.state.held_output_keys["keyboard"] == set()
         assert device.state.held_source_actions == {}
 
+    @pytest.mark.asyncio
+    async def test_device_read_error_releases_disconnected_interface(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        disconnect = AsyncMock()
+        device = make_grabbed_device(
+            monkeypatch,
+            path="/dev/input/event10",
+            hardware_id="cafe:0002",
+            runtime_disconnect_callback=disconnect,
+            running=True,
+        )
+
+        class _FakeInputDevice:
+            async def async_read_loop(self):
+                raise OSError(errno.ENODEV, "No such device")
+                yield
+
+        device.device = _FakeInputDevice()  # type: ignore[assignment]
+
+        await gde.event_loop(device, asyncio_mod=gdm.ASYNCIO_RUNTIME, log=gdm.log)
+
+        disconnect.assert_awaited_once_with("cafe:0002", "/dev/input/event10")
+
+    @pytest.mark.asyncio
+    async def test_release_tolerates_current_event_loop_task(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch, running=True)
+        device.task = asyncio.current_task()  # type: ignore[assignment]
+
+        await device.release()
+
+        assert device.task is None
+
 
 class TestRuntimeFailureCleanup:
     @pytest.mark.asyncio

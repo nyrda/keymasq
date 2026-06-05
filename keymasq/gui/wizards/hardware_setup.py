@@ -28,6 +28,7 @@ from keymasq.common.devices import (
     gamepad_button_label,
     get_interface_id,
     input_class_label,
+    input_classes_include_gamepad,
     is_by_id_path,
     is_low_res_wheel_evdev,
     make_keymasq_device_path,
@@ -218,20 +219,30 @@ def _logical_hardware_identity_key(
     stable_path: str,
     phys: str = "",
     path: str = "",
+    config_path: str = "",
 ) -> str:
     normalized_types = normalize_input_classes(device_types)
-    if "gamepad" in normalized_types and _looks_like_by_id_path(stable_path):
-        return f"path:{stable_path}"
-    if _looks_like_by_id_path(stable_path):
-        return f"by-id:{_by_id_device_stem(stable_path)}"
-    phys_base = _strip_input_suffix(phys)
+    stable_key = str(stable_path or "").strip()
+    config_key = str(config_path or "").strip()
+    identity_path = stable_key
+    # Preserve a durable by-id config identity when live udev only exposes eventN.
+    if not _looks_like_by_id_path(identity_path) and _looks_like_by_id_path(config_key):
+        identity_path = config_key
+    if input_classes_include_gamepad(normalized_types) and _looks_like_by_id_path(identity_path):
+        return f"path:{identity_path}"
+    if _looks_like_by_id_path(identity_path):
+        return f"by-id:{_by_id_device_stem(identity_path)}"
+    phys_key = str(phys or "").strip()
+    phys_base = _strip_input_suffix(phys_key)
     if phys_base == "py-evdev-uinput":
         return f"uinput-model:{model_id}"
     if phys_base and not _is_usb_phys(phys_base):
         return f"phys:{phys_base}"
-    path_key = str(stable_path or path or "").strip()
+    path_key = str(stable_key or path or "").strip()
     if path_key:
         return f"path:{path_key}"
+    if config_key and not config_key.startswith("keymasq:"):
+        return f"path:{config_key}"
     return f"model:{model_id}"
 
 
@@ -756,6 +767,7 @@ class HardwareSetupDialog(Adw.Dialog):
         stable_path: str,
         phys: str = "",
         path: str = "",
+        config_path: str = "",
     ) -> str:
         if self._show_raw_evdev_devices:
             return f"raw:{stable_path or path}"
@@ -765,6 +777,7 @@ class HardwareSetupDialog(Adw.Dialog):
             stable_path=stable_path,
             phys=phys,
             path=path,
+            config_path=config_path,
         )
 
     def _detect_devices_locally(
@@ -797,6 +810,11 @@ class HardwareSetupDialog(Adw.Dialog):
                     if not self._should_include_detected_interface(device_types):
                         continue
                     stable_path = resolve_stable_path(path)
+                    config_path = _config_path_for_detected_interface(
+                        vendor_id,
+                        product_id,
+                        stable_path,
+                    )
                     phys = str(getattr(device, "phys", "") or "")
                     identity_key = self._detected_identity_key(
                         model_id=vid_pid,
@@ -804,6 +822,7 @@ class HardwareSetupDialog(Adw.Dialog):
                         stable_path=stable_path,
                         phys=phys,
                         path=path,
+                        config_path=config_path,
                     )
                     configured_hardware_id = configured_identity_hardware_ids.get(identity_key, "")
                     if not self._show_raw_evdev_devices and (
@@ -924,6 +943,11 @@ class HardwareSetupDialog(Adw.Dialog):
             if not self._should_include_detected_interface(device_types):
                 continue
             stable_path = str(dev.get("stable_path", "") or path)
+            config_path = _config_path_for_detected_interface(
+                vendor_id,
+                product_id,
+                stable_path,
+            )
             phys = str(dev.get("phys", "") or "")
             identity_key = self._detected_identity_key(
                 model_id=vid_pid,
@@ -931,6 +955,7 @@ class HardwareSetupDialog(Adw.Dialog):
                 stable_path=stable_path,
                 phys=phys,
                 path=path,
+                config_path=config_path,
             )
             configured_hardware_id = configured_identity_hardware_ids.get(identity_key, "")
             if not self._show_raw_evdev_devices and (
@@ -1103,6 +1128,7 @@ class HardwareSetupDialog(Adw.Dialog):
                         stable_path=self._configured_device_stable_path(path),
                         phys=self._configured_device_phys(device),
                         path=path,
+                        config_path=path,
                     ),
                     hardware_id,
                 )
@@ -1179,9 +1205,37 @@ class HardwareSetupDialog(Adw.Dialog):
     def _selected_config_id(self, selected_device: DetectedDevice) -> str | None:
         model_id = f"{selected_device['vendor_id']}:{selected_device['product_id']}"
         hardware_id = str(selected_device.get("hardware_id") or model_id)
-        if self._show_raw_evdev_devices and not self._device_in_use(selected_device):
+        if (
+            (self._show_raw_evdev_devices or self._selected_uses_model_path(selected_device))
+            and not self._device_in_use(selected_device)
+        ):
             hardware_id = self._allocate_hardware_id(model_id, self._configured_hardware_ids())
         return hardware_id if hardware_id != model_id else None
+
+    def _selected_uses_model_path(self, selected_device: DetectedDevice) -> bool:
+        vendor_id = str(selected_device.get("vendor_id", "") or "")
+        product_id = str(selected_device.get("product_id", "") or "")
+        if not vendor_id or not product_id:
+            return False
+        for iface in selected_device.get("interfaces", []):
+            if not isinstance(iface, dict):
+                continue
+            if not input_classes_include_gamepad(
+                iface.get("device_types"),
+                iface.get("device_type"),
+            ):
+                continue
+            stable_path = str(iface.get("stable_path", "") or iface.get("path", "") or "")
+            config_path = str(iface.get("config_path") or "")
+            if not config_path:
+                config_path = _config_path_for_detected_interface(
+                    vendor_id,
+                    product_id,
+                    stable_path,
+                )
+            if config_path == make_keymasq_device_path(vendor_id, product_id):
+                return True
+        return False
 
     def _on_device_selected(self, list_box, row) -> None:
         if row is None:

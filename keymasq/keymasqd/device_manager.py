@@ -639,7 +639,7 @@ class DeviceManager:
                 )
                 await self._refresh_combo_runtime_preserving_unchanged()
                 return result
-            return runtime_grab_lifecycle.schedule_hardware_release_unlocked(
+            return await runtime_grab_lifecycle.schedule_hardware_release_unlocked(
                 self,
                 hardware_id,
                 grace_s,

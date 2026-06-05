@@ -64,12 +64,13 @@ fi
 
 usermod -aG keymasq keymasq >/dev/null 2>&1 || true
 
+rm -f /etc/udev/rules.d/60-keymasq-hide-grabbed.rules
 install -Dm644 "${REPO_ROOT}/udev/91-keymasq-acl.rules" /etc/udev/rules.d/91-keymasq-acl.rules
+install -Dm644 "${REPO_ROOT}/udev/99-keymasq-hide-grabbed.rules" /etc/udev/rules.d/99-keymasq-hide-grabbed.rules
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=input --action=add
 udevadm trigger --subsystem-match=misc --action=add
 
-install -d -m 0755 -o keymasq -g keymasq /run/keymasq
 install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
 
 cat >/usr/local/bin/keymasqd-wrapper <<EOF
@@ -100,9 +101,14 @@ ExecStart=/usr/local/bin/keymasqd-wrapper
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
+# Required for udevadm trigger to write sysfs uevent files during source hide/restore.
+AmbientCapabilities=CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+RuntimeDirectory=keymasq
+RuntimeDirectoryMode=0755
 ReadWritePaths=/run/keymasq /var/lib/keymasq
 
 [Install]

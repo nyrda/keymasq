@@ -17,6 +17,12 @@ When Keymasq grabs a physical gamepad, it creates a passthrough uinput clone
 for unmapped events. That clone reuses the source controller name and input
 IDs, so Steam and other tools see it as the same controller model.
 
+While the grab is active, Keymasq hides the original physical gamepad source
+and leaves the passthrough clone visible. This prevents Steam, SDL games, and
+controller pickers from showing two identical controllers where one is the
+grabbed-but-silent original. The physical source is restored when Keymasq
+releases the grab or stops.
+
 ## Button Mapping
 
 Keymasq uses an Xbox 360 controller as the template for game controllers.

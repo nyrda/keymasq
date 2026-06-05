@@ -5,7 +5,13 @@ from typing import Any, cast
 
 import evdev
 
-from keymasq.common.devices import resolve_evdev_code, resolve_evdev_event_type
+from keymasq.common.devices import (
+    hardware_model_id_key,
+    input_classes_include_gamepad,
+    is_keymasq_device_path,
+    resolve_evdev_code,
+    resolve_evdev_event_type,
+)
 from keymasq.common.models import MappingAction
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.combo_engine import ComboDecision
@@ -13,7 +19,7 @@ from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime import actions as runtime_actions
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import combos as runtime_combos
-from keymasq.keymasqd.runtime import device_path_resolver
+from keymasq.keymasqd.runtime import device_path_resolver, source_hiding
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 
 log = logging.getLogger("keymasqd.devices")
@@ -88,6 +94,7 @@ async def grab_device_unlocked(
     errno_mod: runtime_adapters.ErrnoModule,
 ) -> dict[str, object]:
     clear_device_path_cache_fn()
+    device_path_resolver.clear_cached_devices()
     cancel_pending_hardware_release(manager, hardware_id)
 
     raw_interfaces = (
@@ -95,26 +102,57 @@ async def grab_device_unlocked(
         if evdev_interfaces
         else device_path_resolver.interface_descriptors_from_paths(evdev_paths)
     )
-    excluded_paths = grabbed_paths_for_other_hardware(manager, hardware_id)
+    requests_gamepad_source_hiding = _interfaces_request_gamepad_source_hiding(
+        raw_interfaces
+    )
+
+    existing_devices = list(manager.grabbed_devices.get(hardware_id, []))
+    existing_by_claim_path = grabbed_devices_by_claim_path(
+        existing_devices,
+        resolve_stable_path_fn=resolve_stable_path_fn,
+    )
+    previous_desired_paths_raw = manager.grab_state.desired_paths.get(hardware_id)
+    previous_desired_paths = (
+        set(previous_desired_paths_raw) if previous_desired_paths_raw is not None else None
+    )
+    previous_desired_config = manager.grab_state.desired_grabs.get(hardware_id)
+    excluded_paths = grabbed_paths_for_other_hardware(
+        manager,
+        hardware_id,
+        resolve_stable_path_fn=resolve_stable_path_fn,
+    )
     resolved_interfaces = device_path_resolver.resolve_evdev_interfaces(
         raw_interfaces,
         deps=device_path_resolver_deps,
         hardware_id=hardware_id,
         excluded_paths=excluded_paths,
+        preferred_paths=grabbed_paths_for_hardware(
+            manager,
+            hardware_id,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+        ),
+        match_model_gamepads=True,
     )
     requested_interface_paths = [
         resolve_stable_path_fn(interface.path) for interface in resolved_interfaces
     ]
     requested_paths = set(requested_interface_paths)
+    requested_claim_paths: set[str] = set()
+    resolved_by_claim_path: dict[str, Any] = {}
+    for interface in resolved_interfaces:
+        aliases = path_claim_aliases(
+            interface.path,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+        )
+        requested_claim_paths.update(aliases)
+        for alias in aliases:
+            resolved_by_claim_path.setdefault(alias, interface)
     raw_interface_paths = {
         path
         for descriptor in raw_interfaces
         if (path := str(descriptor.get("path", "") or "").strip())
     }
     desired_paths = requested_paths | raw_interface_paths
-    resolved_by_path = {
-        resolve_stable_path_fn(interface.path): interface for interface in resolved_interfaces
-    }
     mapped_evdev_names = {name.lower() for name in button_map.values()}
     resolved_button_codes = {
         button_id: int(code) for button_id, code in (button_codes or {}).items()
@@ -148,14 +186,22 @@ async def grab_device_unlocked(
         len(mapped_bindings),
     )
 
-    existing_by_path = {
-        device.path: device for device in manager.grabbed_devices.get(hardware_id, [])
-    }
-    for path, device in existing_by_path.items():
-        resolved_interface = resolved_by_path.get(path)
+    for device in existing_devices:
+        device_claim_paths = grabbed_device_claim_paths(
+            device,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+        )
+        resolved_interface = next(
+            (
+                resolved_by_claim_path[path]
+                for path in device_claim_paths
+                if path in resolved_by_claim_path
+            ),
+            None,
+        )
         interface_id = str(
             (resolved_interface.interface_id if resolved_interface else "")
-            or get_interface_id_fn(path)
+            or get_interface_id_fn(str(getattr(device, "path", "") or ""))
             or ""
         ).lower()
         if interface_id:
@@ -165,21 +211,31 @@ async def grab_device_unlocked(
         if callable(update_analog_inputs):
             update_analog_inputs(dict(analog_inputs or {}))
 
-    devices = list(existing_by_path.values())
+    devices = list(existing_devices)
     grabbed_count = 0
     skipped_count = 0
     available_count = 0
     created_global_uinputs = False
 
-    for path in existing_by_path:
-        if path in requested_paths:
-            cancel_pending_interface_release(manager, hardware_id, path)
+    for device in existing_devices:
+        device_claim_paths = grabbed_device_claim_paths(
+            device,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+        )
+        if device_claim_paths & requested_claim_paths:
+            cancel_pending_interface_release(manager, hardware_id, device.path)
 
-    for path in sorted(existing_by_path.keys() - requested_paths):
+    for device in existing_devices:
+        device_claim_paths = grabbed_device_claim_paths(
+            device,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+        )
+        if device_claim_paths & requested_claim_paths:
+            continue
         schedule_interface_release(
             manager,
             hardware_id,
-            path,
+            device.path,
             asyncio_mod=ASYNCIO_RUNTIME,
             log=log,
         )
@@ -220,8 +276,14 @@ async def grab_device_unlocked(
             deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
         )
 
+    async def runtime_disconnect_callback(
+        disconnected_hardware_id: str,
+        disconnected_path: str,
+    ) -> None:
+        await release_interface(manager, disconnected_hardware_id, disconnected_path)
+
     for path in sorted(requested_paths):
-        if path in existing_by_path:
+        if path in existing_by_claim_path:
             continue
         raw_device: Any | None = None
         try:
@@ -229,7 +291,7 @@ async def grab_device_unlocked(
             raw_device = probe_device
             available_count += 1
             caps = probe_device.capabilities()
-            resolved_interface = resolved_by_path.get(path)
+            resolved_interface = resolved_by_claim_path.get(path)
             interface_id = str(
                 (resolved_interface.interface_id if resolved_interface else "")
                 or get_interface_id_fn(path)
@@ -313,17 +375,24 @@ async def grab_device_unlocked(
                     mouse_rel_suppression_start_callback=lambda: None,
                     diagnostics_recorder=diagnostics_recorder,
                     runtime_cleanup_callback=runtime_cleanup_callback,
+                    runtime_disconnect_callback=runtime_disconnect_callback,
                     repeat_state=manager.repeat_state,
                     interface_id=interface_id,
                 )
-                await grab_with_retry(
-                    device,
-                    path,
-                    asyncio_mod=ASYNCIO_RUNTIME,
-                    log=log,
-                    errno_mod=errno_mod,
-                )
                 devices.append(device)
+                _store_grabbed_devices(manager, hardware_id, devices)
+                try:
+                    await grab_with_retry(
+                        device,
+                        path,
+                        asyncio_mod=ASYNCIO_RUNTIME,
+                        log=log,
+                        errno_mod=errno_mod,
+                    )
+                except (asyncio.CancelledError, Exception):
+                    devices.remove(device)
+                    _store_grabbed_devices(manager, hardware_id, devices)
+                    raise
                 grabbed_count += 1
                 if manager.verbosity >= 1:
                     reason = "mapped buttons" if has_mapped_buttons else "forced for combos"
@@ -341,11 +410,20 @@ async def grab_device_unlocked(
                 continue
             log.error("Failed to grab %s: %s", path, exc)
             for device in devices:
-                if device.path in existing_by_path:
+                if any(device is existing for existing in existing_devices):
                     continue
                 await device.release()
+            _store_grabbed_devices(manager, hardware_id, existing_devices)
             if created_global_uinputs:
                 runtime_outputs.destroy_global_uinputs(manager, log=log)
+            cancel_pending_interface_releases_for_hardware(manager, hardware_id)
+            if update_desired:
+                restore_desired_grab_state(
+                    manager,
+                    hardware_id,
+                    previous_desired_paths,
+                    previous_desired_config,
+                )
             raise
         except Exception as exc:
             if raw_device is not None:
@@ -353,11 +431,20 @@ async def grab_device_unlocked(
                 raw_device = None
             log.error("Failed to grab %s: %s", path, exc)
             for device in devices:
-                if device.path in existing_by_path:
+                if any(device is existing for existing in existing_devices):
                     continue
                 await device.release()
+            _store_grabbed_devices(manager, hardware_id, existing_devices)
             if created_global_uinputs:
                 runtime_outputs.destroy_global_uinputs(manager, log=log)
+            cancel_pending_interface_releases_for_hardware(manager, hardware_id)
+            if update_desired:
+                restore_desired_grab_state(
+                    manager,
+                    hardware_id,
+                    previous_desired_paths,
+                    previous_desired_config,
+                )
             raise
         finally:
             if raw_device is not None:
@@ -393,6 +480,12 @@ async def grab_device_unlocked(
         grabbed_count,
         skipped_count,
     )
+    if update_desired:
+        if requests_gamepad_source_hiding and waiting_for_device:
+            await source_hiding.enable_hardware_hotplug_hiding(hardware_id)
+        else:
+            await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
+
     return {
         "grabbed": True,
         "hardware_id": hardware_id,
@@ -402,18 +495,167 @@ async def grab_device_unlocked(
     }
 
 
-def grabbed_paths_for_other_hardware(manager: _GrabManager, hardware_id: str) -> set[str]:
+def grabbed_paths_for_other_hardware(
+    manager: _GrabManager,
+    hardware_id: str,
+    *,
+    resolve_stable_path_fn: ResolveStablePathFn | None = None,
+) -> set[str]:
     requested_hardware_id = str(hardware_id or "").strip().lower()
     paths: set[str] = set()
     for grabbed_hardware_id, devices in manager.grabbed_devices.items():
         if str(grabbed_hardware_id or "").strip().lower() == requested_hardware_id:
             continue
         for device in devices:
-            for attr in ("path", "stable_path"):
-                path = str(getattr(device, attr, "") or "").strip()
-                if path:
-                    paths.add(path)
+            paths.update(
+                grabbed_device_claim_paths(
+                    device,
+                    resolve_stable_path_fn=resolve_stable_path_fn,
+                )
+            )
     return paths
+
+
+def grabbed_paths_for_hardware(
+    manager: _GrabManager,
+    hardware_id: str,
+    *,
+    resolve_stable_path_fn: ResolveStablePathFn | None = None,
+) -> set[str]:
+    paths: set[str] = set()
+    for device in manager.grabbed_devices.get(hardware_id, []):
+        paths.update(
+            grabbed_device_claim_paths(
+                device,
+                resolve_stable_path_fn=resolve_stable_path_fn,
+            )
+        )
+    return paths
+
+
+def grabbed_devices_by_claim_path(
+    devices: Sequence[_ManagedGrabbedDevice],
+    *,
+    resolve_stable_path_fn: ResolveStablePathFn | None = None,
+) -> dict[str, _ManagedGrabbedDevice]:
+    by_path: dict[str, _ManagedGrabbedDevice] = {}
+    for device in devices:
+        for path in grabbed_device_claim_paths(
+            device,
+            resolve_stable_path_fn=resolve_stable_path_fn,
+        ):
+            by_path.setdefault(path, device)
+    return by_path
+
+
+def grabbed_device_claim_paths(
+    device: _ManagedGrabbedDevice,
+    *,
+    resolve_stable_path_fn: ResolveStablePathFn | None = None,
+) -> set[str]:
+    paths: set[str] = set()
+    for attr in ("path", "stable_path", "resolved_event_path"):
+        paths.update(
+            path_claim_aliases(
+                getattr(device, attr, ""),
+                resolve_stable_path_fn=resolve_stable_path_fn,
+            )
+        )
+    return paths
+
+
+def path_claim_aliases(
+    path: object,
+    *,
+    resolve_stable_path_fn: ResolveStablePathFn | None = None,
+) -> set[str]:
+    path_text = str(path or "").strip()
+    if not path_text:
+        return set()
+    paths = {path_text}
+    if resolve_stable_path_fn is None:
+        return paths
+    try:
+        stable_path = resolve_stable_path_fn(path_text)
+    except OSError as exc:
+        log.debug("Unable to resolve current stable path for grabbed %s: %s", path_text, exc)
+        return paths
+    except Exception:
+        log.exception("Unexpected failure resolving current stable path for grabbed %s", path_text)
+        return paths
+    if stable_path:
+        paths.add(stable_path)
+    return paths
+
+
+def restore_desired_grab_state(
+    manager: _GrabManager,
+    hardware_id: str,
+    previous_desired_paths: set[str] | None,
+    previous_desired_config: object | None,
+) -> None:
+    if previous_desired_paths is None:
+        manager.grab_state.desired_paths.pop(hardware_id, None)
+    else:
+        manager.grab_state.desired_paths[hardware_id] = set(previous_desired_paths)
+
+    if previous_desired_config is None:
+        manager.grab_state.desired_grabs.pop(hardware_id, None)
+    else:
+        manager.grab_state.desired_grabs[hardware_id] = previous_desired_config
+
+
+def _store_grabbed_devices(
+    manager: _GrabManager,
+    hardware_id: str,
+    devices: Sequence[_ManagedGrabbedDevice],
+) -> None:
+    if devices:
+        manager.grabbed_devices[hardware_id] = list(devices)
+    else:
+        manager.grabbed_devices.pop(hardware_id, None)
+
+
+def _interfaces_request_gamepad_source_hiding(raw_interfaces: Sequence[JsonObject]) -> bool:
+    if not raw_interfaces:
+        return False
+    return any(
+        input_classes_include_gamepad(primary=descriptor.get("type"))
+        and is_keymasq_device_path(str(descriptor.get("path", "") or "").strip())
+        for descriptor in raw_interfaces
+    )
+
+
+def _desired_grab_requests_gamepad_source_hiding(desired_config: object | None) -> bool:
+    raw_interfaces = getattr(desired_config, "evdev_interfaces", None)
+    if not isinstance(raw_interfaces, list):
+        return False
+    return _interfaces_request_gamepad_source_hiding(cast(Sequence[JsonObject], raw_interfaces))
+
+
+async def _disable_hardware_hotplug_hiding_if_unused(
+    manager: _GrabManager,
+    hardware_id: str,
+) -> None:
+    flag_name = hardware_model_id_key(hardware_id)
+    if flag_name is None:
+        return
+
+    for other_hardware_id, desired_config in manager.grab_state.desired_grabs.items():
+        if str(other_hardware_id or "").strip().lower() == str(hardware_id or "").strip().lower():
+            continue
+        if not _desired_grab_requests_gamepad_source_hiding(desired_config):
+            continue
+        if not _hardware_waiting_for_grab(manager, other_hardware_id):
+            continue
+        if hardware_model_id_key(other_hardware_id) == flag_name:
+            return
+
+    await source_hiding.disable_hardware_hotplug_hiding(hardware_id)
+
+
+def _hardware_waiting_for_grab(manager: _GrabManager, hardware_id: str) -> bool:
+    return not bool(manager.grabbed_devices.get(hardware_id))
 
 
 async def grab_with_retry(
@@ -540,7 +782,9 @@ async def release_device_unlocked(
         None,
         deps=combo_runtime_deps(),
     )
-    manager.grab_state.desired_grabs.pop(hardware_id, None)
+    desired_config = manager.grab_state.desired_grabs.pop(hardware_id, None)
+    if _desired_grab_requests_gamepad_source_hiding(desired_config):
+        await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
     devices = manager.grabbed_devices.pop(hardware_id, [])
 
     for device in devices:
@@ -553,7 +797,7 @@ async def release_device_unlocked(
     return {"released": True, "hardware_id": hardware_id}
 
 
-def schedule_hardware_release_unlocked(
+async def schedule_hardware_release_unlocked(
     manager: _GrabManager,
     hardware_id: str,
     grace_s: float | None,
@@ -562,14 +806,19 @@ def schedule_hardware_release_unlocked(
     log: logging.Logger,
 ) -> dict[str, object]:
     devices = manager.grabbed_devices.get(hardware_id, [])
+    desired_config = manager.grab_state.desired_grabs.get(hardware_id)
     if not devices:
         manager.grab_state.desired_grabs.pop(hardware_id, None)
         manager.active_mappings.pop(hardware_id, None)
         manager.grab_state.desired_paths.pop(hardware_id, None)
+        if _desired_grab_requests_gamepad_source_hiding(desired_config):
+            await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
         return {"released": True, "hardware_id": hardware_id}
 
     manager.active_mappings[hardware_id] = {}
     manager.grab_state.desired_paths[hardware_id] = set()
+    if _desired_grab_requests_gamepad_source_hiding(desired_config):
+        await _disable_hardware_hotplug_hiding_if_unused(manager, hardware_id)
 
     delay = max(
         0.01,
@@ -699,6 +948,7 @@ async def delayed_interface_release(
 async def release_interface_unlocked(
     manager: _GrabManager, hardware_id: str, path: str
 ) -> None:
+    """Release one grabbed interface. Caller must already hold manager._op_lock."""
     devices = manager.grabbed_devices.get(hardware_id, [])
     keep: list[_ManagedGrabbedDevice] = []
     removed: _ManagedGrabbedDevice | None = None
@@ -724,11 +974,20 @@ async def release_interface_unlocked(
         manager.grabbed_devices[hardware_id] = keep
     else:
         manager.grabbed_devices.pop(hardware_id, None)
-        if not manager.grab_state.desired_paths.get(hardware_id):
+        desired_config = manager.grab_state.desired_grabs.get(hardware_id)
+        if manager.grab_state.desired_paths.get(hardware_id):
+            if _desired_grab_requests_gamepad_source_hiding(desired_config):
+                await source_hiding.enable_hardware_hotplug_hiding(hardware_id)
+        else:
             manager.active_mappings.pop(hardware_id, None)
             manager.grab_state.desired_paths.pop(hardware_id, None)
             manager.grab_state.desired_grabs.pop(hardware_id, None)
         runtime_outputs.destroy_global_uinputs(manager, log=log)
+
+
+async def release_interface(manager: _GrabManager, hardware_id: str, path: str) -> None:
+    async with manager._op_lock:
+        await release_interface_unlocked(manager, hardware_id, path)
 
 
 async def release_all_devices(

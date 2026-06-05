@@ -346,7 +346,13 @@ class TestDeviceManager:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
+        enable_hotplug_hiding = AsyncMock()
         monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
+        )
         evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
 
         result = await manager.grab_device(
@@ -370,6 +376,156 @@ class TestDeviceManager:
             force_grab_unmapped=False,
             evdev_interfaces=evdev_interfaces,
         )
+        enable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+
+    @pytest.mark.asyncio
+    async def test_grab_device_logs_hotplug_hiding_enable_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        enable_hotplug_hiding = AsyncMock(side_effect=RuntimeError("udev failed"))
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
+        )
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
+
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            result = await manager.grab_device(
+                hardware_id="2dc8:3106",
+                evdev_paths=["keymasq:2dc8:3106"],
+                evdev_interfaces=evdev_interfaces,
+                button_map={"btn_south": "btn_south"},
+            )
+
+        assert result["waiting_for_device"] is True
+        assert manager.grab_state.desired_paths["2dc8:3106"] == {"keymasq:2dc8:3106"}
+        enable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+        assert "Failed to enable source-hiding hotplug state" in caplog.text
+        assert "hardware_id=2dc8:3106" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_grab_device_waits_for_explicit_gamepad_without_hotplug_hiding(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        explicit_path = "/dev/input/by-id/missing-pad-event-joystick"
+        enable_hotplug_hiding = AsyncMock()
+
+        def missing_device(_path: str):
+            raise OSError(errno.ENOENT, "missing")
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
+        )
+        manager._device_input = missing_device  # type: ignore[method-assign]
+        evdev_interfaces = [{"id": "gamepad", "path": explicit_path, "type": "gamepad"}]
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=[explicit_path],
+            evdev_interfaces=evdev_interfaces,
+            button_map={"btn_south": "btn_south"},
+        )
+
+        assert result["waiting_for_device"] is True
+        assert manager.grab_state.desired_paths["2dc8:3106"] == {explicit_path}
+        enable_hotplug_hiding.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_release_device_disables_waiting_gamepad_hotplug_hiding(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        disable_hotplug_hiding = AsyncMock()
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
+        manager.grab_state.desired_paths["2dc8:3106"] = {"keymasq:2dc8:3106"}
+        manager.grab_state.desired_grabs["2dc8:3106"] = DesiredGrabConfig(
+            paths={"keymasq:2dc8:3106"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=evdev_interfaces,
+        )
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            disable_hotplug_hiding,
+        )
+
+        result = await manager.release_device("2dc8:3106")
+
+        assert result == {"released": True, "hardware_id": "2dc8:3106"}
+        disable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+
+    @pytest.mark.asyncio
+    async def test_release_device_logs_hotplug_hiding_disable_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        disable_hotplug_hiding = AsyncMock(side_effect=RuntimeError("udev failed"))
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
+        manager.grab_state.desired_paths["2dc8:3106"] = {"keymasq:2dc8:3106"}
+        manager.grab_state.desired_grabs["2dc8:3106"] = DesiredGrabConfig(
+            paths={"keymasq:2dc8:3106"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=evdev_interfaces,
+        )
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            disable_hotplug_hiding,
+        )
+
+        with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
+            result = await manager.release_device("2dc8:3106")
+
+        assert result == {"released": True, "hardware_id": "2dc8:3106"}
+        assert "2dc8:3106" not in manager.grab_state.desired_paths
+        assert "2dc8:3106" not in manager.grab_state.desired_grabs
+        disable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+        assert "Failed to disable source-hiding hotplug state" in caplog.text
+        assert "hardware_id=2dc8:3106" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_release_device_keeps_hotplug_hiding_for_same_base_desired_gamepad(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        disable_hotplug_hiding = AsyncMock()
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:045e:02a1", "type": "gamepad"}]
+        manager.grab_state.desired_paths["045e:02a1@0"] = {"keymasq:045e:02a1"}
+        manager.grab_state.desired_grabs["045e:02a1@0"] = DesiredGrabConfig(
+            paths={"keymasq:045e:02a1"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=evdev_interfaces,
+        )
+        manager.grab_state.desired_paths["045e:02a1@1"] = {"keymasq:045e:02a1"}
+        manager.grab_state.desired_grabs["045e:02a1@1"] = DesiredGrabConfig(
+            paths={"keymasq:045e:02a1"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=evdev_interfaces,
+        )
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            disable_hotplug_hiding,
+        )
+
+        result = await manager.release_device("045e:02a1@0")
+
+        assert result == {"released": True, "hardware_id": "045e:02a1@0"}
+        disable_hotplug_hiding.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_grab_device_excludes_paths_grabbed_by_other_hardware(
@@ -379,22 +535,31 @@ class TestDeviceManager:
         manager = DeviceManager()
         manager.grabbed_devices["other"] = [
             SimpleNamespace(
-                path="/dev/input/event2",
+                path="/dev/input/by-id/claimed-pad",
                 stable_path="/dev/input/by-id/claimed-pad",
+                resolved_event_path="/dev/input/event2",
             )
         ]
+        enable_hotplug_hiding = AsyncMock()
         captured: dict[str, object] = {}
 
         def fake_resolve_evdev_interfaces(interfaces, **kwargs):
             captured["interfaces"] = interfaces
             captured["excluded_paths"] = kwargs.get("excluded_paths")
             captured["deps"] = kwargs.get("deps")
+            captured["match_model_gamepads"] = kwargs.get("match_model_gamepads")
             return []
 
         monkeypatch.setattr(
             ldm.device_path_resolver,
             "resolve_evdev_interfaces",
             fake_resolve_evdev_interfaces,
+        )
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
         )
         evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
 
@@ -411,9 +576,680 @@ class TestDeviceManager:
             "/dev/input/event2",
             "/dev/input/by-id/claimed-pad",
         }
+        assert captured["match_model_gamepads"] is True
         deps = captured["deps"]
         assert isinstance(deps, ldm.device_path_resolver.DevicePathResolverDeps)
-        assert deps.resolve_stable_path_fn is dm.resolve_stable_path
+        assert callable(deps.resolve_stable_path_fn)
+        enable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+
+    @pytest.mark.asyncio
+    async def test_grab_device_excludes_hidden_grabbed_source_live_aliases(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.grabbed_devices["other"] = [
+            SimpleNamespace(
+                path="/dev/input/by-id/pre-hide-pad",
+                stable_path="/dev/input/by-id/pre-hide-pad",
+                resolved_event_path="/dev/input/event22",
+            )
+        ]
+        captured: dict[str, object] = {}
+
+        def fake_resolve_stable_path(path: str) -> str:
+            if path == "/dev/input/event22":
+                return "/dev/input/by-id/current-pad"
+            return path
+
+        def fake_resolve_evdev_interfaces(_interfaces, **kwargs):
+            captured["excluded_paths"] = kwargs.get("excluded_paths")
+            return []
+
+        monkeypatch.setattr(dm, "resolve_stable_path", fake_resolve_stable_path)
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "resolve_evdev_interfaces",
+            fake_resolve_evdev_interfaces,
+        )
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "enable_hardware_hotplug_hiding",
+            AsyncMock(),
+        )
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=["keymasq:2dc8:3106"],
+            evdev_interfaces=[
+                {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+            ],
+            button_map={"btn_south": "btn_south"},
+        )
+
+        assert result["waiting_for_device"] is True
+        assert captured["excluded_paths"] == {
+            "/dev/input/by-id/pre-hide-pad",
+            "/dev/input/event22",
+            "/dev/input/by-id/current-pad",
+        }
+
+    def test_grabbed_paths_for_hardware_include_hidden_source_live_aliases(self) -> None:
+        manager = SimpleNamespace(
+            grabbed_devices={
+                "2dc8:3106": [
+                    SimpleNamespace(
+                        path="/dev/input/by-id/pre-hide-pad",
+                        stable_path="/dev/input/by-id/pre-hide-pad",
+                        resolved_event_path="/dev/input/event22",
+                    )
+                ]
+            }
+        )
+
+        paths = ldm.grabbed_paths_for_hardware(
+            manager,
+            "2dc8:3106",
+            resolve_stable_path_fn=lambda path: (
+                "/dev/input/by-id/current-pad"
+                if path == "/dev/input/event22"
+                else path
+            ),
+        )
+
+        assert paths == {
+            "/dev/input/by-id/pre-hide-pad",
+            "/dev/input/event22",
+            "/dev/input/by-id/current-pad",
+        }
+
+    @pytest.mark.asyncio
+    async def test_grab_device_logical_path_matches_same_vid_pid_gamepads_only(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        logical_path = "keymasq:2dc8:3106"
+        paths = ["/dev/input/event2", "/dev/input/event3", "/dev/input/event4"]
+
+        class _InputDevice:
+            def __init__(self, path: str) -> None:
+                self.path = path
+                self.name = f"Pad {path.rsplit('event', 1)[-1]}"
+                self.phys = f"usb-{path.rsplit('event', 1)[-1]}/input0"
+                self.info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _GrabbedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+                self.hardware_id = kwargs["hardware_id"]
+                self.stable_path = self.path
+                self.resolved_event_path = self.path
+                self.interface_id = kwargs.get("interface_id", "")
+
+            async def grab(self) -> None:
+                return
+
+            async def release(self) -> None:
+                return
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: list(paths))
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(ldm.device_path_resolver, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(dm, "_device_input", lambda path: _InputDevice(path))
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        enable_hotplug_hiding = AsyncMock()
+        disable_hotplug_hiding = AsyncMock()
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
+        )
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            disable_hotplug_hiding,
+        )
+        manager._device_input = lambda path: _InputDevice(path)  # type: ignore[method-assign]
+
+        evdev_interfaces = [
+            {
+                "id": "gamepad",
+                "path": logical_path,
+                "type": "gamepad",
+                "phys": "usb-2/input0",
+                "capabilities": ["btn_south", "abs_x", "abs_y"],
+            }
+        ]
+
+        first = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                dict(evdev_interfaces[0]),
+            ],
+            button_map={"btn_south": "btn_south"},
+            button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+        )
+        second = await manager.grab_device(
+            hardware_id="2dc8:3106@2",
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                dict(evdev_interfaces[0]),
+            ],
+            button_map={"btn_south": "btn_south"},
+            button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+        )
+
+        assert first["grabbed_count"] == 1
+        assert second["grabbed_count"] == 1
+        assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == [
+            "/dev/input/event2"
+        ]
+        assert [device.path for device in manager.grabbed_devices["2dc8:3106@2"]] == [
+            "/dev/input/event3"
+        ]
+        grabbed_paths = {
+            device.path
+            for devices in manager.grabbed_devices.values()
+            for device in devices
+        }
+        assert "/dev/input/event4" not in grabbed_paths
+        enable_hotplug_hiding.assert_not_awaited()
+        assert [args.args[0] for args in disable_hotplug_hiding.await_args_list] == [
+            "2dc8:3106",
+            "2dc8:3106@2",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_grab_device_honors_explicit_gamepad_path(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        explicit_path = "/dev/input/by-id/test-pad-if02-event-joystick"
+        paths = ["/dev/input/event2", "/dev/input/event3"]
+
+        class _InputDevice:
+            def __init__(self, path: str) -> None:
+                self.path = path
+                self.name = f"Pad {path.rsplit('/', 1)[-1]}"
+                self.phys = "usb-explicit/input0"
+                self.info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _GrabbedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+                self.hardware_id = kwargs["hardware_id"]
+                self.stable_path = self.path
+                self.resolved_event_path = self.path
+                self.interface_id = kwargs.get("interface_id", "")
+
+            async def grab(self) -> None:
+                return
+
+            async def release(self) -> None:
+                return
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: list(paths))
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(ldm.device_path_resolver, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(dm, "_device_input", lambda path: _InputDevice(path))
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        disable_hotplug_hiding = AsyncMock()
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            disable_hotplug_hiding,
+        )
+        manager._device_input = lambda path: _InputDevice(path)  # type: ignore[method-assign]
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=[explicit_path],
+            evdev_interfaces=[
+                {
+                    "id": "gamepad",
+                    "path": explicit_path,
+                    "type": "gamepad",
+                    "phys": "usb-explicit/input0",
+                    "capabilities": ["btn_south", "abs_x", "abs_y"],
+                }
+            ],
+            button_map={"btn_south": "btn_south"},
+            button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+        )
+
+        assert result["grabbed_count"] == 1
+        assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == [
+            explicit_path
+        ]
+        assert "/dev/input/event2" not in {
+            device.path
+            for devices in manager.grabbed_devices.values()
+            for device in devices
+        }
+        disable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+
+    @pytest.mark.asyncio
+    async def test_grab_device_registers_new_device_before_grab_retry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        path = "/dev/input/event2"
+        observed_paths: list[list[str]] = []
+
+        class _InputDevice:
+            name = "Pad"
+            phys = "usb-pad/input0"
+            info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _GrabbedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+                self.hardware_id = kwargs["hardware_id"]
+                self.stable_path = self.path
+                self.resolved_event_path = self.path
+                self.interface_id = kwargs.get("interface_id", "")
+
+            async def release(self) -> None:
+                return
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        async def fake_grab_with_retry(device, *_args, **_kwargs) -> None:
+            observed_paths.append(
+                [grabbed.path for grabbed in manager.grabbed_devices["2dc8:3106"]]
+            )
+            assert device in manager.grabbed_devices["2dc8:3106"]
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(ldm, "grab_with_retry", fake_grab_with_retry)
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            AsyncMock(),
+        )
+        manager._device_input = lambda _path: _InputDevice()  # type: ignore[method-assign]
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=[path],
+            evdev_interfaces=[{"id": "gamepad", "path": path, "type": "gamepad"}],
+            button_map={"btn_south": "btn_south"},
+            button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+        )
+
+        assert result["grabbed_count"] == 1
+        assert observed_paths == [[path]]
+
+    @pytest.mark.asyncio
+    async def test_grab_device_rolls_back_pre_registered_device_on_grab_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        path = "/dev/input/event2"
+
+        class _InputDevice:
+            name = "Pad"
+            phys = "usb-pad/input0"
+            info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _GrabbedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+                self.hardware_id = kwargs["hardware_id"]
+                self.stable_path = self.path
+                self.resolved_event_path = self.path
+                self.interface_id = kwargs.get("interface_id", "")
+
+            async def release(self) -> None:
+                raise AssertionError("failed pre-registered device should not be released")
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        async def fake_grab_with_retry(*_args, **_kwargs) -> None:
+            assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == [
+                path
+            ]
+            raise RuntimeError("grab failed")
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(ldm, "grab_with_retry", fake_grab_with_retry)
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", Mock())
+        manager._device_input = lambda _path: _InputDevice()  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="grab failed"):
+            await manager.grab_device(
+                hardware_id="2dc8:3106",
+                evdev_paths=[path],
+                evdev_interfaces=[{"id": "gamepad", "path": path, "type": "gamepad"}],
+                button_map={"btn_south": "btn_south"},
+                button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+            )
+
+        assert manager.grabbed_devices == {}
+
+    @pytest.mark.asyncio
+    async def test_grab_device_reapply_prefers_existing_model_match(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        logical_path = "keymasq:2dc8:3106"
+        paths = ["/dev/input/event2", "/dev/input/event3", "/dev/input/event4"]
+
+        class _InputDevice:
+            def __init__(self, path: str) -> None:
+                self.path = path
+                self.name = f"Pad {path.rsplit('event', 1)[-1]}"
+                self.phys = f"usb-{path.rsplit('event', 1)[-1]}/input0"
+                self.info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _ExistingGrab:
+            def __init__(self, hardware_id: str, path: str) -> None:
+                self.hardware_id = hardware_id
+                self.path = path
+                self.stable_path = path
+                self.interface_id = "gamepad"
+                self.updated = 0
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                self.updated += 1
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        monkeypatch.setattr(dm.evdev, "list_devices", lambda: list(paths))
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(ldm.device_path_resolver, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "_device_input", lambda path: _InputDevice(path))
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            AsyncMock(),
+        )
+        manager._device_input = lambda path: _InputDevice(path)  # type: ignore[method-assign]
+
+        current = _ExistingGrab("2dc8:3106", "/dev/input/event3")
+        other = _ExistingGrab("2dc8:3106@3", "/dev/input/event4")
+        manager.grabbed_devices["2dc8:3106"] = [current]
+        manager.grabbed_devices["2dc8:3106@3"] = [other]
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=[logical_path],
+            evdev_interfaces=[
+                {
+                    "id": "gamepad",
+                    "path": logical_path,
+                    "type": "gamepad",
+                    "capabilities": ["btn_south", "abs_x", "abs_y"],
+                }
+            ],
+            button_map={"btn_south": "btn_south"},
+            button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+        )
+
+        assert result["grabbed_count"] == 1
+        assert manager.grabbed_devices["2dc8:3106"] == [current]
+        assert current.path == "/dev/input/event3"
+        assert current.updated == 1
+        assert manager.grab_state.pending_interface_release == {}
+
+    @pytest.mark.asyncio
+    async def test_grab_device_reapply_matches_hidden_source_event_alias(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        hardware_id = "2dc8:3106"
+
+        class _ExistingGrab:
+            path = "/dev/input/by-id/pre-hide-pad"
+            stable_path = "/dev/input/by-id/pre-hide-pad"
+            resolved_event_path = "/dev/input/event22"
+            interface_id = "gamepad"
+
+            def __init__(self) -> None:
+                self.updated = 0
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                self.updated += 1
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        current = _ExistingGrab()
+        manager.grabbed_devices[hardware_id] = [current]
+
+        def fake_resolve_stable_path(path: str) -> str:
+            if path == "/dev/input/event22":
+                return "/dev/input/by-id/current-pad"
+            return path
+
+        monkeypatch.setattr(dm, "resolve_stable_path", fake_resolve_stable_path)
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "resolve_evdev_interfaces",
+            lambda *args, **kwargs: [
+                ldm.device_path_resolver.ResolvedInterface(
+                    path="/dev/input/event22",
+                    configured_path="keymasq:2dc8:3106",
+                    interface_id="gamepad",
+                    device_type=DeviceType.GAMEPAD,
+                    capabilities=["btn_south"],
+                )
+            ],
+        )
+        grab_with_retry = AsyncMock(side_effect=AssertionError)
+        schedule_interface_release = Mock()
+        device_input = Mock(side_effect=AssertionError)
+        monkeypatch.setattr(ldm, "grab_with_retry", grab_with_retry)
+        monkeypatch.setattr(ldm, "schedule_interface_release", schedule_interface_release)
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            AsyncMock(),
+        )
+        manager._device_input = device_input  # type: ignore[method-assign]
+
+        result = await manager.grab_device(
+            hardware_id=hardware_id,
+            evdev_paths=["keymasq:2dc8:3106"],
+            evdev_interfaces=[
+                {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+            ],
+            button_map={"btn_south": "btn_south"},
+            button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+        )
+
+        assert result["grabbed_count"] == 1
+        assert manager.grabbed_devices[hardware_id] == [current]
+        assert current.updated == 1
+        schedule_interface_release.assert_not_called()
+        grab_with_retry.assert_not_awaited()
+        device_input.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_grab_device_failed_reassign_preserves_existing_grab_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        hardware_id = "2dc8:3106"
+        old_config = DesiredGrabConfig(
+            paths={"/dev/input/event3"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=[
+                {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+            ],
+        )
+
+        class _InputDevice:
+            path = "/dev/input/event2"
+            name = "Busy Pad"
+            phys = "usb-2/input0"
+            info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {
+                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                    evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y],
+                }
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _ExistingGrab:
+            path = "/dev/input/event3"
+            stable_path = "/dev/input/event3"
+            interface_id = "gamepad"
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        class _BusyGrab:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+
+            async def grab(self) -> None:
+                raise OSError(errno.EBUSY, "Device or resource busy")
+
+            async def release(self) -> None:
+                return
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "_device_input", lambda _path: _InputDevice())
+        monkeypatch.setattr(dm, "GrabbedDevice", _BusyGrab)
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "resolve_evdev_interfaces",
+            lambda *args, **kwargs: [
+                ldm.device_path_resolver.ResolvedInterface(
+                    path="/dev/input/event2",
+                    configured_path="keymasq:2dc8:3106",
+                    interface_id="gamepad",
+                    device_type=DeviceType.GAMEPAD,
+                    capabilities=["btn_south"],
+                )
+            ],
+        )
+        manager._device_input = lambda _path: _InputDevice()  # type: ignore[method-assign]
+        manager.grabbed_devices[hardware_id] = [_ExistingGrab()]
+        manager.grab_state.desired_paths[hardware_id] = {"/dev/input/event3"}
+        manager.grab_state.desired_grabs[hardware_id] = old_config
+
+        with pytest.raises(OSError):
+            await manager.grab_device(
+                hardware_id=hardware_id,
+                evdev_paths=["keymasq:2dc8:3106"],
+                evdev_interfaces=[
+                    {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+                ],
+                button_map={"btn_south": "btn_south"},
+                button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+            )
+
+        assert manager.grabbed_devices[hardware_id][0].path == "/dev/input/event3"
+        assert manager.grab_state.desired_paths[hardware_id] == {"/dev/input/event3"}
+        assert manager.grab_state.desired_grabs[hardware_id] is old_config
+        assert manager.grab_state.pending_interface_release == {}
 
     @pytest.mark.asyncio
     @requires_uinput
@@ -1146,6 +1982,45 @@ class TestListDevices:
         assert "Unexpected failure reading live topology device /dev/input/event1" in caplog.text
         assert "RuntimeError: stable resolver invalid" in caplog.text
 
+    def test_scan_live_interfaces_skips_keymasq_virtual_outputs(self) -> None:
+        class _FakeDevice:
+            path = ""
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def __init__(self, *, name: str, phys: str) -> None:
+                self.name = name
+                self.phys = phys
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {}
+
+        devices = {
+            "/dev/input/event0": _FakeDevice(name="Physical Pad", phys="usb-1"),
+            "/dev/input/event1": _FakeDevice(
+                name="Physical Pad",
+                phys="py-evdev-uinput",
+            ),
+        }
+        resolved_paths: list[str] = []
+
+        def resolve_stable_path(path: str) -> str:
+            resolved_paths.append(path)
+            return f"/dev/input/by-id/{path.rsplit('/', 1)[-1]}"
+
+        snapshot = tdm.scan_live_interfaces_sync(
+            clear_device_path_cache_fn=lambda: None,
+            device_paths_fn=lambda: list(devices),
+            device_input_fn=lambda path: devices[path],
+            detect_input_classes_fn=lambda _device: ["gamepad"],
+            primary_input_class_fn=lambda _classes: DeviceType.GAMEPAD,
+            resolve_stable_path_fn=resolve_stable_path,
+            get_interface_id_fn=lambda _stable_path: "joystick",
+            log=dm.log,
+        )
+
+        assert list(snapshot) == ["/dev/input/by-id/event0"]
+        assert resolved_paths == ["/dev/input/event0"]
+
     @pytest.mark.asyncio
     async def test_start_topology_watcher_reconciles_initial_snapshot_with_existing_grabs(
         self,
@@ -1424,6 +2299,191 @@ class TestListDevices:
             )
         ]
 
+    def test_topology_events_report_hidden_source_when_stable_path_changes(self) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        previous = {
+            "/dev/input/by-id/test-pad-event-joystick": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-pad-event-joystick",
+                path="/dev/input/event10",
+                interface_id="joystick",
+            )
+        }
+        current = {
+            "/dev/input/by-id/test-pad-event-if00": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-pad-event-if00",
+                path="/dev/input/event10",
+                interface_id="event-if00",
+            ),
+            "/dev/input/by-id/test-mouse": dm.LiveInterfaceInfo(
+                hardware_id="8765:4321",
+                vendor_id="8765",
+                product_id="4321",
+                stable_path="/dev/input/by-id/test-mouse",
+                path="/dev/input/event12",
+                interface_id="mouse",
+            ),
+        }
+
+        events = tdm.build_topology_events(
+            manager,
+            previous,
+            current,
+            {"1234:5678", "8765:4321"},
+            hidden_source_paths={"/dev/input/event10"},
+        )
+
+        assert events == [
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "8765:4321",
+                    "vendor_id": "8765",
+                    "product_id": "4321",
+                    "path": "/dev/input/event12",
+                    "stable_path": "/dev/input/by-id/test-mouse",
+                    "interface_id": "mouse",
+                },
+            ),
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/test-pad-event-if00",
+                    "interface_id": "event-if00",
+                },
+            )
+        ]
+
+    def test_topology_events_report_hidden_source_without_previous_membership(self) -> None:
+        manager = SimpleNamespace(
+            _command_type=CommandType,
+            grabbed_devices={
+                "1234:5678": [
+                    SimpleNamespace(
+                        path="/dev/input/event10",
+                        resolved_event_path="/dev/input/event10",
+                        source_hidden_kernel_names=[],
+                        source_pending_hidden_kernel_names=["event10"],
+                    )
+                ]
+            },
+        )
+        current = {
+            "/dev/input/by-id/test-pad-event-joystick": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-pad-event-joystick",
+                path="/dev/input/event10",
+                interface_id="joystick",
+            )
+        }
+
+        hidden_paths = tdm.hidden_grabbed_source_paths(manager)
+        events = tdm.build_topology_events(
+            manager,
+            {},
+            current,
+            {"1234:5678"},
+            hidden_source_paths=hidden_paths,
+        )
+
+        assert hidden_paths == {"/dev/input/event10"}
+        assert events == [
+            (
+                CommandType.DEVICE_CONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/test-pad-event-joystick",
+                    "interface_id": "joystick",
+                },
+            )
+        ]
+
+    def test_topology_events_suppress_same_stable_hidden_source_churn(self) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        stable_path = "/dev/input/by-id/test-pad-event-joystick"
+        previous = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event10",
+                interface_id="joystick",
+            )
+        }
+        current = {
+            stable_path: dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path=stable_path,
+                path="/dev/input/event10",
+                interface_id="event-if00",
+            )
+        }
+
+        events = tdm.build_topology_events(
+            manager,
+            previous,
+            current,
+            {"1234:5678"},
+            hidden_source_paths={"/dev/input/event10"},
+        )
+
+        assert events == []
+
+    def test_topology_events_report_hidden_source_when_event_path_is_gone(
+        self,
+    ) -> None:
+        manager = SimpleNamespace(_command_type=CommandType)
+        previous = {
+            "/dev/input/by-id/test-pad-event-joystick": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-pad-event-joystick",
+                path="/dev/input/event10",
+                interface_id="joystick",
+            )
+        }
+        current: dict[str, dm.LiveInterfaceInfo] = {}
+
+        events = tdm.build_topology_events(
+            manager,
+            previous,
+            current,
+            {"1234:5678"},
+            hidden_source_paths={"/dev/input/event10"},
+        )
+
+        assert events == [
+            (
+                CommandType.DEVICE_DISCONNECTED,
+                {
+                    "hardware_id": "1234:5678",
+                    "vendor_id": "1234",
+                    "product_id": "5678",
+                    "path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/test-pad-event-joystick",
+                    "interface_id": "joystick",
+                },
+            )
+        ]
+
     @pytest.mark.asyncio
     async def test_reconcile_topology_releases_stale_grab_when_live_event_path_changes(
         self,
@@ -1569,6 +2629,80 @@ class TestListDevices:
         await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
 
         release_interface.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reconcile_topology_keeps_hidden_source_when_stable_path_changes(
+        self,
+    ) -> None:
+        stable_path = "/dev/input/by-id/test-pad-event-joystick"
+        manager = SimpleNamespace(
+            grabbed_devices={
+                "1234:5678@joystick": [
+                    SimpleNamespace(
+                        path=stable_path,
+                        stable_path=stable_path,
+                        resolved_event_path="/dev/input/event5",
+                        interface_id="joystick",
+                        source_hidden_kernel_names=["event5", "js0"],
+                    )
+                ]
+            }
+        )
+        snapshot = {
+            "/dev/input/by-id/test-pad-event-if00": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-pad-event-if00",
+                path="/dev/input/event5",
+                interface_id="event-if00",
+            )
+        }
+        release_interface = AsyncMock()
+        deps = SimpleNamespace(release_interface_fn=release_interface)
+
+        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+
+        release_interface.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reconcile_topology_releases_hidden_source_when_event_path_is_gone(
+        self,
+    ) -> None:
+        stable_path = "/dev/input/by-id/test-pad-event-joystick"
+        manager = SimpleNamespace(
+            grabbed_devices={
+                "1234:5678": [
+                    SimpleNamespace(
+                        path=stable_path,
+                        stable_path=stable_path,
+                        resolved_event_path="/dev/input/event5",
+                        interface_id="joystick",
+                        source_hidden_kernel_names=["event5", "js0"],
+                    )
+                ]
+            }
+        )
+        snapshot = {
+            "/dev/input/by-id/test-pad-event-if00": dm.LiveInterfaceInfo(
+                hardware_id="1234:5678",
+                vendor_id="1234",
+                product_id="5678",
+                stable_path="/dev/input/by-id/test-pad-event-if00",
+                path="/dev/input/event9",
+                interface_id="event-if00",
+            )
+        }
+        release_interface = AsyncMock()
+        deps = SimpleNamespace(release_interface_fn=release_interface)
+
+        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+
+        release_interface.assert_awaited_once_with(
+            manager,
+            "1234:5678",
+            stable_path,
+        )
 
     @pytest.mark.asyncio
     async def test_reconcile_topology_keeps_by_id_grab_for_matching_event_path(
@@ -1833,6 +2967,57 @@ class TestMacroControlActions:
 
 class TestReleaseScheduling:
     @pytest.mark.asyncio
+    async def test_release_interface_reenables_gamepad_hotplug_hiding_when_still_desired(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        device = SimpleNamespace(
+            path="/dev/input/event2",
+            interface_id="gamepad",
+            release=AsyncMock(),
+            release_tracked_outputs=Mock(),
+        )
+        manager.grabbed_devices["2dc8:3106"] = [device]
+        evdev_interfaces = [
+            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
+        ]
+        manager.grab_state.desired_paths["2dc8:3106"] = {"keymasq:2dc8:3106"}
+        manager.grab_state.desired_grabs["2dc8:3106"] = DesiredGrabConfig(
+            paths={"keymasq:2dc8:3106"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=evdev_interfaces,
+        )
+        enable_hotplug_hiding = AsyncMock()
+
+        async def clear_combo_runtime(*_args, **_kwargs) -> None:
+            return None
+
+        monkeypatch.setattr(
+            ldm.runtime_combos,
+            "clear_combo_runtime_for_binding_scope",
+            clear_combo_runtime,
+        )
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
+        )
+        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", Mock())
+
+        await ldm.release_interface_unlocked(
+            manager,
+            "2dc8:3106",
+            "/dev/input/event2",
+        )
+
+        enable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
+        assert "2dc8:3106" not in manager.grabbed_devices
+        assert manager.grab_state.desired_grabs["2dc8:3106"].evdev_interfaces == (
+            evdev_interfaces
+        )
+
+    @pytest.mark.asyncio
     async def test_release_on_hold_state_is_retried_then_released(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1855,7 +3040,7 @@ class TestReleaseScheduling:
 
         monkeypatch.setattr(ldm, "release_device_unlocked", release_device)
 
-        ldm.schedule_hardware_release_unlocked(
+        await ldm.schedule_hardware_release_unlocked(
             manager,
             "hw",
             0.001,

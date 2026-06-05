@@ -53,9 +53,49 @@ def enable_test_uinput_identity(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def isolate_keymasq_config_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> Path:
+    config_dir = tmp_path / "keymasq"
+    hardware_dir = config_dir / "hardware"
+    profiles_dir = config_dir / "profiles"
+    superkeys_dir = config_dir / "superkeys"
+    analog_controls_dir = config_dir / "analog_controls"
+    settings_path = config_dir / "settings.toml"
+    virtual_devices_path = config_dir / "virtual_devices.toml"
+
+    from keymasq.common import paths
+    from keymasq.session.manager import core as session_manager_core
+
+    patched_paths = {
+        "CONFIG_DIR": config_dir,
+        "HARDWARE_DIR": hardware_dir,
+        "PROFILES_DIR": profiles_dir,
+        "SUPERKEYS_DIR": superkeys_dir,
+        "SETTINGS_PATH": settings_path,
+        "ANALOG_CONTROLS_DIR": analog_controls_dir,
+        "VIRTUAL_DEVICES_PATH": virtual_devices_path,
+    }
+    for name, value in patched_paths.items():
+        monkeypatch.setattr(paths, name, value)
+        if hasattr(session_manager_core, name):
+            monkeypatch.setattr(session_manager_core, name, value)
+
+    monkeypatch.setattr(
+        session_manager_core.SessionManager,
+        "RECORDING_SETTINGS_PATH",
+        config_dir / "recording_settings.toml",
+    )
+
+    return config_dir
+
+
+@pytest.fixture(autouse=True)
 def isolate_session_recording_settings_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    isolate_keymasq_config_paths: Path,
 ) -> None:
     from keymasq.session.manager.core import SessionManager
 
@@ -71,22 +111,14 @@ def isolate_session_recording_settings_path(
 
 
 @pytest.fixture
-def temp_config_dir(tmp_path: Path) -> Generator[Path, None, None]:
-    config_dir = tmp_path / "keymasq"
-    hardware_dir = config_dir / "hardware"
-    profiles_dir = config_dir / "profiles"
-    analog_controls_dir = config_dir / "analog_controls"
-    hardware_dir.mkdir(parents=True)
-    profiles_dir.mkdir(parents=True)
-    analog_controls_dir.mkdir(parents=True)
-
-    with (
-        mock.patch("keymasq.common.paths.CONFIG_DIR", config_dir),
-        mock.patch("keymasq.common.paths.HARDWARE_DIR", hardware_dir),
-        mock.patch("keymasq.common.paths.PROFILES_DIR", profiles_dir),
-        mock.patch("keymasq.common.paths.ANALOG_CONTROLS_DIR", analog_controls_dir),
+def temp_config_dir(isolate_keymasq_config_paths: Path) -> Path:
+    for directory in (
+        isolate_keymasq_config_paths / "hardware",
+        isolate_keymasq_config_paths / "profiles",
+        isolate_keymasq_config_paths / "analog_controls",
     ):
-        yield config_dir
+        directory.mkdir(parents=True, exist_ok=True)
+    return isolate_keymasq_config_paths
 
 
 @pytest.fixture

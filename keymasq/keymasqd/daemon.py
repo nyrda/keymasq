@@ -45,6 +45,7 @@ from keymasq.keymasqd.daemon_helpers import (
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.recording import RecordingManager
+from keymasq.keymasqd.runtime import source_hiding
 from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 from keymasq.keymasqd.timer_precision import set_timer_slack_ns
 
@@ -87,6 +88,7 @@ class Daemon:
     async def start(self) -> None:
         RUN_DIR.mkdir(parents=True, exist_ok=True)
         self._secure_run_dir()
+        await source_hiding.reconcile_all()
         self.security_policy = load_security_policy(SECURITY_POLICY_PATH)
         self.device_manager.macro_exec_timeout_max_ms = int(
             self.security_policy.macro_exec_timeout_max_ms

@@ -11,6 +11,7 @@ import evdev
 from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.devices import (
     get_interface_id,
+    input_classes_include_gamepad,
     normalize_evdev_binding_value,
     resolve_evdev_code,
     resolve_evdev_event_type,
@@ -25,6 +26,7 @@ from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import grabbed_device_events as runtime_events
 from keymasq.keymasqd.runtime import grabbed_device_grab as runtime_grab
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
+from keymasq.keymasqd.runtime import source_hiding
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     AsyncioModule as _AsyncioModule,
@@ -42,6 +44,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceState,
     MacroPlayer,
     MappingGetter,
+    RuntimeDisconnectCallback,
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ManagedInputDevice as _ManagedInputDevice,
@@ -78,9 +81,7 @@ def _device_input(path: str) -> _ManagedInputDevice:
 
 
 def _is_gamepad_passthrough(device_type: DeviceType, device_types: Sequence[str]) -> bool:
-    if device_type == DeviceType.GAMEPAD:
-        return True
-    return "gamepad" in {str(value or "").strip().lower() for value in device_types}
+    return input_classes_include_gamepad(device_types, device_type)
 
 
 def _passthrough_name(
@@ -203,6 +204,7 @@ class GrabbedDevice:
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
         diagnostics_recorder: Callable[[str, float], None] | None = None,
         runtime_cleanup_callback: Callable[[str, str | None], Awaitable[None]] | None = None,
+        runtime_disconnect_callback: RuntimeDisconnectCallback | None = None,
         repeat_state: RepeatRuntimeState | None = None,
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
@@ -256,6 +258,7 @@ class GrabbedDevice:
         self.mouse_rel_suppression_start_callback = mouse_rel_suppression_start_callback
         self.diagnostics_recorder = diagnostics_recorder
         self.runtime_cleanup_callback = runtime_cleanup_callback
+        self.runtime_disconnect_callback = runtime_disconnect_callback
         if repeat_state is None:
             log.warning(
                 "GrabbedDevice %s created without shared RepeatRuntimeState; "
@@ -265,6 +268,8 @@ class GrabbedDevice:
         self.repeat_state = repeat_state if repeat_state is not None else RepeatRuntimeState()
         self.task: asyncio.Task[None] | None = None
         self._running = False
+        self.source_hidden_kernel_names: list[str] = []
+        self.source_pending_hidden_kernel_names: list[str] = []
         self.state = GrabbedDeviceState()
 
     def update_button_map(
@@ -368,7 +373,7 @@ class GrabbedDevice:
             preserve_state_keys=preserve_state_keys,
         )
 
-    def _cleanup_failed_grab(self) -> None:
+    async def _cleanup_failed_grab(self) -> None:
         uinput = self.uinput
         if uinput is not None:
             try:
@@ -393,8 +398,18 @@ class GrabbedDevice:
                 log.exception("Unexpected failure closing input device after failed grab")
         self.device = None
 
+        hidden_names = self.source_hidden_kernel_names
+        self.source_hidden_kernel_names = []
+        self.source_pending_hidden_kernel_names = []
+        if hidden_names:
+            try:
+                await source_hiding.restore_source_by_kernel_names(hidden_names)
+            except Exception:
+                log.exception("Unexpected failure restoring hidden source after failed grab")
+
     async def grab(self) -> None:
         self.resolved_event_path = os.path.realpath(self.path)
+        self.source_hidden_kernel_names = []
         self.device = _device_input(self.path)
 
         try:
@@ -475,8 +490,26 @@ class GrabbedDevice:
                 active_key_idle_log_interval_s=ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
             )
             self.device.grab()
+            if is_gamepad_passthrough:
+                self.source_hidden_kernel_names = []
+                self.source_pending_hidden_kernel_names = source_hiding.node_kernel_names(
+                    self.resolved_event_path
+                )
+                try:
+                    self.source_hidden_kernel_names = await source_hiding.hide_source(
+                        self.resolved_event_path
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.exception("Unexpected failure hiding source for %s", self.path)
+                finally:
+                    self.source_pending_hidden_kernel_names = []
+        except asyncio.CancelledError:
+            await self._cleanup_failed_grab()
+            raise
         except Exception:
-            self._cleanup_failed_grab()
+            await self._cleanup_failed_grab()
             raise
 
         self._running = True
@@ -502,11 +535,14 @@ class GrabbedDevice:
         self.state.combo_recalled_bindings.clear()
 
         if self.task:
-            self.task.cancel()
-            try:
-                await asyncio.wait_for(self.task, timeout=1.0)
-            except (TimeoutError, asyncio.CancelledError):
-                pass
+            task = self.task
+            self.task = None
+            if task is not asyncio.current_task():
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=1.0)
+                except (TimeoutError, asyncio.CancelledError):
+                    pass
 
         if self.device:
             try:
@@ -530,10 +566,21 @@ class GrabbedDevice:
             except Exception:
                 log.exception("Unexpected failure closing passthrough uinput for %s", self.path)
             finally:
-                runtime_outputs.unregister_passthrough_frame_output(self.uinput)
+                try:
+                    runtime_outputs.unregister_passthrough_frame_output(self.uinput)
+                except Exception:
+                    log.exception("Failed to unregister passthrough output for %s", self.path)
 
         self.device = None
         self.uinput = None
+        hidden_names = self.source_hidden_kernel_names
+        self.source_hidden_kernel_names = []
+        self.source_pending_hidden_kernel_names = []
+        if hidden_names:
+            try:
+                await source_hiding.restore_source_by_kernel_names(hidden_names)
+            except Exception:
+                log.exception("Unexpected failure restoring hidden source for %s", self.path)
 
         log.info("Released %s", self.path)
 

@@ -1,5 +1,4 @@
 import logging
-import re
 import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -13,6 +12,8 @@ from keymasq.common.devices import (
     detect_input_classes,
     is_gamepad_button_name,
     is_keymasq_device_path,
+    make_keymasq_device_path,
+    parse_hardware_model_id,
     parse_keymasq_device_path,
     primary_input_class,
     resolve_stable_path,
@@ -55,6 +56,7 @@ class _MatchScore:
 @dataclass(frozen=True)
 class _Candidate:
     path: str
+    order_path: str
     phys: str
     device_type: DeviceType
     capabilities: set[str]
@@ -193,11 +195,16 @@ def resolve_evdev_interfaces(
     deps: DevicePathResolverDeps,
     hardware_id: str | None = None,
     excluded_paths: Iterable[str] | None = None,
+    preferred_paths: Iterable[str] | None = None,
+    match_model_gamepads: bool = False,
 ) -> list[ResolvedInterface]:
     resolved: list[ResolvedInterface] = []
     selected_paths: set[str] = set()
     normalized_excluded_paths = {
         path for value in excluded_paths or [] if (path := str(value or "").strip())
+    }
+    normalized_preferred_paths = {
+        path for value in preferred_paths or [] if (path := str(value or "").strip())
     }
 
     for descriptor in interfaces:
@@ -209,6 +216,15 @@ def resolve_evdev_interfaces(
         configured_phys = str(descriptor.get("phys", "") or "").strip()
         configured_caps = _capability_set(descriptor.get("capabilities"))
 
+        resolution_path = configured_path
+        resolution_phys = configured_phys
+        model_path = _model_gamepad_path_for_hardware_id(
+            hardware_id=hardware_id,
+            configured_type=configured_type,
+            enabled=match_model_gamepads,
+        )
+        if model_path is not None and _same_keymasq_model_path(configured_path, model_path):
+            resolution_phys = ""
         if not is_keymasq_device_path(configured_path):
             resolved.append(
                 ResolvedInterface(
@@ -222,13 +238,15 @@ def resolve_evdev_interfaces(
             selected_paths.add(configured_path)
             continue
 
-        candidate = _resolve_keymasq_path(
-            configured_path,
+        candidate = _resolve_keymasq_paths(
+            resolution_path,
+            configured_path=configured_path,
             configured_type=configured_type,
-            configured_phys=configured_phys,
+            configured_phys=resolution_phys,
             configured_caps=configured_caps,
             selected_paths=selected_paths,
             excluded_paths=normalized_excluded_paths,
+            preferred_paths=normalized_preferred_paths,
             hardware_id=hardware_id,
             deps=deps,
         )
@@ -244,22 +262,23 @@ def resolve_evdev_interfaces(
                 capabilities=sorted(configured_caps),
             )
         )
-
     return resolved
 
 
-def _resolve_keymasq_path(
-    configured_path: str,
+def _resolve_keymasq_paths(
+    resolution_path: str,
     *,
+    configured_path: str,
     configured_type: DeviceType,
     configured_phys: str,
     configured_caps: set[str],
     selected_paths: set[str],
     excluded_paths: set[str],
+    preferred_paths: set[str],
     hardware_id: str | None,
     deps: DevicePathResolverDeps,
 ) -> _Candidate | None:
-    parsed = parse_keymasq_device_path(configured_path)
+    parsed = parse_keymasq_device_path(resolution_path)
     if parsed is None:
         return None
     vendor_id, product_id = parsed
@@ -286,9 +305,11 @@ def _resolve_keymasq_path(
         )
         if has_selector and not (type_match or phys_score or cap_score):
             continue
+        order_path = _candidate_order_path(path, deps)
         candidates.append(
             _Candidate(
                 path=path,
+                order_path=order_path,
                 phys=cached.phys,
                 device_type=cached.device_type,
                 capabilities=cached.capabilities,
@@ -297,10 +318,10 @@ def _resolve_keymasq_path(
                     phys_match=phys_score,
                     cap_overlap=cap_score,
                 ),
-                claimed=_is_excluded_path(
+                claimed=_path_matches_resolved(
                     path,
+                    order_path,
                     excluded_paths,
-                    resolve_stable_path_fn=deps.resolve_stable_path_fn,
                 ),
             )
         )
@@ -312,7 +333,7 @@ def _resolve_keymasq_path(
             -candidate.score.type_match,
             -candidate.score.phys_match,
             -candidate.score.cap_overlap,
-            candidate.path,
+            candidate.order_path,
         )
     )
     available_candidates = [
@@ -325,37 +346,20 @@ def _resolve_keymasq_path(
             [candidate.path for candidate in candidates],
         )
         return None
-    instance_index = _numbered_hardware_instance_index(
-        hardware_id,
-        vendor_id=vendor_id,
-        product_id=product_id,
-    )
-    if instance_index is not None:
-        best_score = candidates[0].score
-        matching_instances = [
-            candidate for candidate in candidates if candidate.score == best_score
-        ]
-        if instance_index >= len(matching_instances):
-            log.info(
-                "No %s instance %d match from candidates %s; using best unclaimed match %s",
-                configured_path,
-                instance_index + 1,
-                [candidate.path for candidate in matching_instances],
-                available_candidates[0].path,
+    preferred_candidate = next(
+        (
+            candidate
+            for candidate in available_candidates
+            if _path_matches_resolved(
+                candidate.path,
+                candidate.order_path,
+                preferred_paths,
             )
-            return available_candidates[0]
-        for candidate in matching_instances[instance_index:]:
-            if not candidate.claimed:
-                return candidate
-        log.info(
-            "No unclaimed %s instance %d match from candidates %s; using best unclaimed match %s",
-            configured_path,
-            instance_index + 1,
-            [candidate.path for candidate in matching_instances],
-            available_candidates[0].path,
-        )
-        return available_candidates[0]
-
+        ),
+        None,
+    )
+    if preferred_candidate is not None:
+        return preferred_candidate
     best = available_candidates[0]
     if len(available_candidates) > 1 and available_candidates[1].score == best.score:
         log.warning(
@@ -365,6 +369,29 @@ def _resolve_keymasq_path(
             [candidate.path for candidate in available_candidates],
         )
     return best
+
+
+def _model_gamepad_path_for_hardware_id(
+    *,
+    hardware_id: str | None,
+    configured_type: DeviceType,
+    enabled: bool,
+) -> str | None:
+    if not enabled or configured_type != DeviceType.GAMEPAD:
+        return None
+
+    model_ids = parse_hardware_model_id(hardware_id)
+    if model_ids is None:
+        return None
+
+    vendor_id, product_id = model_ids
+    return make_keymasq_device_path(vendor_id, product_id)
+
+
+def _same_keymasq_model_path(path: str, model_path: str) -> bool:
+    parsed_path = parse_keymasq_device_path(path)
+    parsed_model = parse_keymasq_device_path(model_path)
+    return parsed_path is not None and parsed_path == parsed_model
 
 
 def _probe_cached_device(
@@ -398,46 +425,27 @@ def _probe_cached_device(
             close_device(device)
 
 
-def _is_excluded_path(
+def _path_matches_resolved(
     path: str,
-    excluded_paths: set[str],
-    *,
-    resolve_stable_path_fn: Callable[[str], str] | None,
+    resolved_path: str,
+    paths: set[str],
 ) -> bool:
-    if path in excluded_paths:
-        return True
-    if resolve_stable_path_fn is None:
+    if not paths:
         return False
+    return path in paths or resolved_path in paths
+
+
+def _candidate_order_path(path: str, deps: DevicePathResolverDeps) -> str:
+    if deps.resolve_stable_path_fn is None:
+        return path
     try:
-        stable_path = resolve_stable_path_fn(path)
+        return deps.resolve_stable_path_fn(path)
     except OSError as exc:
-        log.debug("Unable to resolve stable path for excluded candidate %s: %s", path, exc)
-        return False
+        log.debug("Unable to resolve stable path for candidate %s: %s", path, exc)
+        return path
     except Exception:
-        log.exception("Unexpected failure resolving stable path for excluded candidate %s", path)
-        return False
-    return stable_path in excluded_paths
-
-
-def _numbered_hardware_instance_index(
-    hardware_id: str | None,
-    *,
-    vendor_id: str,
-    product_id: str,
-) -> int | None:
-    normalized = str(hardware_id or "").strip().lower()
-    match = re.fullmatch(
-        r"([0-9a-f]{1,4}):([0-9a-f]{1,4})@([1-9][0-9]*)",
-        normalized,
-    )
-    if match is None:
-        return None
-
-    hardware_vendor, hardware_product, instance_text = match.groups()
-    if hardware_vendor.zfill(4) != vendor_id or hardware_product.zfill(4) != product_id:
-        return None
-
-    return int(instance_text) - 1
+        log.exception("Unexpected failure resolving stable path for candidate %s", path)
+        return path
 
 
 def _is_keymasq_virtual_device(device: object) -> bool:

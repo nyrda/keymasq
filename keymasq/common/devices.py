@@ -143,6 +143,13 @@ def normalize_input_classes(
     return sorted(normalized, key=lambda value: INPUT_CLASS_ORDER.index(value))
 
 
+def input_classes_include_gamepad(
+    classes: Iterable[str | DeviceType] | None = None,
+    primary: str | DeviceType | None = None,
+) -> bool:
+    return "gamepad" in normalize_input_classes(classes, primary)
+
+
 def input_class_label(value: str | DeviceType) -> str:
     raw = value.value if isinstance(value, DeviceType) else str(value or "")
     label = raw.strip().lower()
@@ -485,6 +492,32 @@ def parse_keymasq_device_path(path: str) -> tuple[str, str] | None:
     ):
         return None
     return vendor_id.zfill(4), product_id.zfill(4)
+
+
+def parse_hardware_model_id(value: object) -> tuple[str, str] | None:
+    normalized = str(value or "").strip().lower()
+    if normalized.startswith(KEYMASQ_DEVICE_PATH_PREFIX):
+        normalized = normalized.removeprefix(KEYMASQ_DEVICE_PATH_PREFIX)
+    model_text = normalized.split("@", 1)[0]
+    parts = model_text.split(":", 1)
+    if len(parts) != 2:
+        return None
+    vendor_id, product_id = (part.strip() for part in parts)
+    if not _is_hardware_hex_id(vendor_id) or not _is_hardware_hex_id(product_id):
+        return None
+    return vendor_id.zfill(4), product_id.zfill(4)
+
+
+def hardware_model_id_key(value: object) -> str | None:
+    parsed = parse_hardware_model_id(value)
+    if parsed is None:
+        return None
+    vendor_id, product_id = parsed
+    return f"{vendor_id}:{product_id}"
+
+
+def _is_hardware_hex_id(value: str) -> bool:
+    return 1 <= len(value) <= 4 and all(char in "0123456789abcdef" for char in value)
 
 
 def is_by_id_path(path: str) -> bool:

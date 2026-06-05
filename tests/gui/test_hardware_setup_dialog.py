@@ -86,6 +86,52 @@ class TestHardwareSetupDialog:
         assert first_key == "uinput-model:1234:1001"
         assert other_model_key == "uinput-model:046d:c24f"
 
+    def test_keymasq_gamepad_identity_uses_event_path_when_no_stable_path(self):
+        from keymasq.gui.wizards.hardware_setup import _logical_hardware_identity_key
+
+        first_key = _logical_hardware_identity_key(
+            model_id="045e:02a1",
+            device_types=["gamepad"],
+            stable_path="/dev/input/event20",
+            phys="usb-0000:0e:00.3-1.2/input0",
+            path="/dev/input/event20",
+            config_path="keymasq:045e:02a1",
+        )
+        second_key = _logical_hardware_identity_key(
+            model_id="045e:02a1",
+            device_types=["gamepad"],
+            stable_path="/dev/input/event21",
+            phys="usb-0000:0e:00.3-1.2/input0",
+            path="/dev/input/event21",
+            config_path="keymasq:045e:02a1",
+        )
+
+        assert first_key == "path:/dev/input/event20"
+        assert second_key == "path:/dev/input/event21"
+
+    def test_identity_prefers_by_id_config_path_over_event_stable_path(self):
+        from keymasq.gui.wizards.hardware_setup import _logical_hardware_identity_key
+
+        keyboard_key = _logical_hardware_identity_key(
+            model_id="1234:5678",
+            device_types=["keyboard"],
+            stable_path="/dev/input/event20",
+            phys="usb-0000:0e:00.3-1.2/input0",
+            path="/dev/input/event20",
+            config_path="/dev/input/by-id/usb-Test-if03-event-kbd",
+        )
+        gamepad_key = _logical_hardware_identity_key(
+            model_id="1234:5678",
+            device_types=["gamepad"],
+            stable_path="/dev/input/event21",
+            phys="usb-0000:0e:00.3-1.2/input0",
+            path="/dev/input/event21",
+            config_path="/dev/input/by-id/usb-Test-if04-event-joystick",
+        )
+
+        assert keyboard_key == "by-id:usb-Test"
+        assert gamepad_key == "path:/dev/input/by-id/usb-Test-if04-event-joystick"
+
     def test_interface_id_for_config_uses_type_without_by_id(self):
         from keymasq.gui.wizards.hardware_setup import _interface_id_for_config
 
@@ -693,6 +739,41 @@ class TestHardwareSetupDialog:
                     "product_id": "02a1",
                     "hardware_id": "045e:02a1",
                     "interfaces": [{"path": "/dev/input/event28"}],
+                }
+            )
+            == "045e:02a1@2"
+        )
+
+    def test_model_path_gamepad_selected_config_id_allocates_lowest_free_id(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(
+            Gtk.Window(),
+            SimpleNamespace(
+                list_hardware_ids=lambda: ["045e:02a1", "045e:02a1@3", "045e:02a1@5"]
+            ),
+        )
+
+        assert (
+            dialog._selected_config_id(
+                {
+                    "vendor_id": "045e",
+                    "product_id": "02a1",
+                    "hardware_id": "045e:02a1@7",
+                    "interfaces": [
+                        {
+                            "path": "/dev/input/event28",
+                            "stable_path": "/dev/input/event28",
+                            "device_types": ["gamepad"],
+                        }
+                    ],
                 }
             )
             == "045e:02a1@2"
@@ -1313,6 +1394,79 @@ class TestHardwareSetupDialog:
         assert set(detected_devices) == {"1234:5678", "1234:5678@2"}
         assert detected_devices["1234:5678"]["paths"] == ["/dev/input/event10"]
         assert detected_devices["1234:5678@2"]["paths"] == ["/dev/input/event11"]
+
+    def test_detect_devices_via_session_keeps_keymasq_gamepad_slots_with_shared_phys_separate(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards import hardware_setup as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event20",
+                        "name": "Xbox 360 Wireless Receiver",
+                        "phys": "usb-0000:0e:00.3-1.2/input0",
+                        "vendor_id": "045e",
+                        "product_id": "02a1",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                    {
+                        "path": "/dev/input/event21",
+                        "name": "Xbox 360 Wireless Receiver",
+                        "phys": "usb-0000:0e:00.3-1.2/input0",
+                        "vendor_id": "045e",
+                        "product_id": "02a1",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                    {
+                        "path": "/dev/input/event22",
+                        "name": "Xbox 360 Wireless Receiver",
+                        "phys": "usb-0000:0e:00.3-1.2/input0",
+                        "vendor_id": "045e",
+                        "product_id": "02a1",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                    {
+                        "path": "/dev/input/event23",
+                        "name": "Xbox 360 Wireless Receiver",
+                        "phys": "usb-0000:0e:00.3-1.2/input0",
+                        "vendor_id": "045e",
+                        "product_id": "02a1",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                ],
+            },
+        )
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+
+        assert set(detected_devices) == {
+            "045e:02a1",
+            "045e:02a1@2",
+            "045e:02a1@3",
+            "045e:02a1@4",
+        }
+        assert [len(device["interfaces"]) for device in detected_devices.values()] == [
+            1,
+            1,
+            1,
+            1,
+        ]
 
     def test_save_gamepad_config_builds_buttons_from_capabilities(self, monkeypatch):
         gi.require_version("Gtk", "4.0")

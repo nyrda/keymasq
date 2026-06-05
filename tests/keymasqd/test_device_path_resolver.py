@@ -48,7 +48,9 @@ def _resolve(
     devices,
     hardware_id: str | None = None,
     excluded_paths=None,
+    preferred_paths=None,
     resolve_stable_path_fn=None,
+    match_model_gamepads: bool = False,
 ):
     cache = DeviceCache()
     cache.refresh_sync(
@@ -69,6 +71,8 @@ def _resolve(
         ),
         hardware_id=hardware_id,
         excluded_paths=excluded_paths,
+        preferred_paths=preferred_paths,
+        match_model_gamepads=match_model_gamepads,
     )
 
 
@@ -80,6 +84,29 @@ def test_literal_path_resolves_unchanged() -> None:
 
     assert resolved[0].path == "/dev/input/by-id/test"
     assert resolved[0].interface_id == "gamepad"
+
+
+def test_literal_gamepad_path_resolves_unchanged_when_model_matching_enabled() -> None:
+    devices = {
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+
+    resolved = _resolve(
+        [
+            {
+                "id": "gamepad",
+                "path": "/dev/input/by-id/test-pad-event-joystick",
+                "type": "gamepad",
+            }
+        ],
+        devices,
+        hardware_id="2dc8:3106",
+        match_model_gamepads=True,
+    )
+
+    assert [interface.path for interface in resolved] == [
+        "/dev/input/by-id/test-pad-event-joystick"
+    ]
 
 
 def test_evdev_device_path_resolver_deps_wires_shared_helpers(monkeypatch) -> None:
@@ -333,6 +360,166 @@ def test_equal_candidates_pick_deterministic_first_and_do_not_duplicate() -> Non
     ]
 
 
+def test_logical_gamepad_matching_keeps_unnumbered_single_instance() -> None:
+    devices = {
+        "/dev/input/event2": _FakeDevice("/dev/input/event2", phys="usb-a/input0"),
+        "/dev/input/event9": _FakeDevice("/dev/input/event9", phys="usb-b/input0"),
+    }
+
+    resolved = _resolve(
+        [
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "phys": "usb-a/input0",
+                "capabilities": ["btn_south", "abs_x", "abs_y"],
+            }
+        ],
+        devices,
+        hardware_id="2dc8:3106",
+        match_model_gamepads=True,
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event2"]
+    assert resolved[0].configured_path == "keymasq:2dc8:3106"
+
+
+def test_logical_gamepad_matching_numbered_id_uses_first_unclaimed_candidate() -> None:
+    devices = {
+        "/dev/input/event2": _FakeDevice("/dev/input/event2", phys="usb-a/input0"),
+        "/dev/input/event9": _FakeDevice("/dev/input/event9", phys="usb-b/input0"),
+    }
+
+    resolved = _resolve(
+        [
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "phys": "usb-a/input0",
+                "capabilities": ["btn_south", "abs_x", "abs_y"],
+            }
+        ],
+        devices,
+        hardware_id="2dc8:3106@2",
+        match_model_gamepads=True,
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event2"]
+
+
+def test_logical_gamepad_matching_numbered_id_does_not_require_instance_count() -> None:
+    devices = {
+        "/dev/input/event2": _FakeDevice("/dev/input/event2", phys="usb-a/input0"),
+    }
+
+    resolved = _resolve(
+        [
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "phys": "usb-a/input0",
+                "capabilities": ["btn_south", "abs_x", "abs_y"],
+            }
+        ],
+        devices,
+        hardware_id="2dc8:3106@2",
+        match_model_gamepads=True,
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event2"]
+
+
+def test_logical_gamepad_matching_numbered_id_skips_claimed_candidates() -> None:
+    devices = {
+        "/dev/input/event2": _FakeDevice("/dev/input/event2", phys="usb-a/input0"),
+        "/dev/input/event9": _FakeDevice("/dev/input/event9", phys="usb-b/input0"),
+    }
+
+    resolved = _resolve(
+        [
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "phys": "usb-a/input0",
+                "capabilities": ["btn_south", "abs_x", "abs_y"],
+            }
+        ],
+        devices,
+        hardware_id="2dc8:3106@2",
+        excluded_paths={"/dev/input/event2"},
+        match_model_gamepads=True,
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+
+
+def test_logical_gamepad_matching_uses_stable_path_order_for_candidates() -> None:
+    devices = {
+        "/dev/input/event10": _FakeDevice("/dev/input/event10", phys="usb-b/input0"),
+        "/dev/input/event9": _FakeDevice("/dev/input/event9", phys="usb-a/input0"),
+    }
+    stable_paths = {
+        "/dev/input/event10": "/dev/input/by-path/test-if02-event-joystick",
+        "/dev/input/event9": "/dev/input/by-path/test-event-joystick",
+    }
+
+    resolved = _resolve(
+        [
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "capabilities": ["btn_south", "abs_x", "abs_y"],
+            }
+        ],
+        devices,
+        hardware_id="2dc8:3106@2",
+        resolve_stable_path_fn=lambda path: stable_paths[path],
+        match_model_gamepads=True,
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+
+
+def test_logical_gamepad_matching_reuses_stable_path_for_candidate_checks() -> None:
+    devices = {
+        "/dev/input/event10": _FakeDevice("/dev/input/event10", phys="usb-b/input0"),
+        "/dev/input/event9": _FakeDevice("/dev/input/event9", phys="usb-a/input0"),
+    }
+    stable_paths = {
+        "/dev/input/event10": "/dev/input/by-path/current-pad",
+        "/dev/input/event9": "/dev/input/by-path/free-pad",
+    }
+    stable_path_calls: list[str] = []
+
+    def resolve_stable_path(path: str) -> str:
+        stable_path_calls.append(path)
+        return stable_paths[path]
+
+    resolved = _resolve(
+        [
+            {
+                "id": "gamepad",
+                "path": "keymasq:2dc8:3106",
+                "type": "gamepad",
+                "capabilities": ["btn_south", "abs_x", "abs_y"],
+            }
+        ],
+        devices,
+        hardware_id="2dc8:3106@2",
+        preferred_paths={"/dev/input/by-path/current-pad"},
+        resolve_stable_path_fn=resolve_stable_path,
+        match_model_gamepads=True,
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event10"]
+    assert stable_path_calls == ["/dev/input/event10", "/dev/input/event9"]
+
+
 def test_keymasq_path_skips_excluded_candidate() -> None:
     devices = {
         "/dev/input/event9": _FakeDevice("/dev/input/event9"),
@@ -368,7 +555,7 @@ def test_keymasq_path_skips_excluded_stable_path_alias() -> None:
     assert [interface.path for interface in resolved] == ["/dev/input/event9"]
 
 
-def test_numbered_hardware_id_selects_matching_keymasq_instance() -> None:
+def test_numbered_hardware_id_uses_first_keymasq_candidate() -> None:
     devices = {
         "/dev/input/event9": _FakeDevice("/dev/input/event9"),
         "/dev/input/event2": _FakeDevice("/dev/input/event2"),
@@ -380,10 +567,10 @@ def test_numbered_hardware_id_selects_matching_keymasq_instance() -> None:
         hardware_id="2dc8:3106@2",
     )
 
-    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+    assert [interface.path for interface in resolved] == ["/dev/input/event2"]
 
 
-def test_numbered_hardware_id_counts_claimed_instances_but_returns_unclaimed() -> None:
+def test_numbered_hardware_id_skips_claimed_keymasq_candidate() -> None:
     devices = {
         "/dev/input/event9": _FakeDevice("/dev/input/event9"),
         "/dev/input/event2": _FakeDevice("/dev/input/event2"),
@@ -399,7 +586,44 @@ def test_numbered_hardware_id_counts_claimed_instances_but_returns_unclaimed() -
     assert [interface.path for interface in resolved] == ["/dev/input/event9"]
 
 
-def test_numbered_hardware_id_out_of_range_falls_back_to_best_unclaimed() -> None:
+def test_numbered_hardware_id_prefers_existing_keymasq_candidate() -> None:
+    devices = {
+        "/dev/input/event9": _FakeDevice("/dev/input/event9"),
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+
+    resolved = _resolve(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        devices,
+        hardware_id="2dc8:3106@7",
+        preferred_paths={"/dev/input/event9"},
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+
+
+def test_numbered_hardware_id_prefers_existing_stable_path_alias() -> None:
+    devices = {
+        "/dev/input/event9": _FakeDevice("/dev/input/event9"),
+        "/dev/input/event2": _FakeDevice("/dev/input/event2"),
+    }
+    stable_paths = {
+        "/dev/input/event2": "/dev/input/by-id/free-pad",
+        "/dev/input/event9": "/dev/input/by-id/current-pad",
+    }
+
+    resolved = _resolve(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        devices,
+        hardware_id="2dc8:3106@7",
+        preferred_paths={"/dev/input/by-id/current-pad"},
+        resolve_stable_path_fn=lambda path: stable_paths[path],
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event9"]
+
+
+def test_numbered_hardware_id_suffix_does_not_require_instance_count() -> None:
     devices = {
         "/dev/input/event2": _FakeDevice("/dev/input/event2"),
     }
@@ -407,7 +631,7 @@ def test_numbered_hardware_id_out_of_range_falls_back_to_best_unclaimed() -> Non
     resolved = _resolve(
         [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
         devices,
-        hardware_id="2dc8:3106@2",
+        hardware_id="2dc8:3106@8",
     )
 
     assert [interface.path for interface in resolved] == ["/dev/input/event2"]

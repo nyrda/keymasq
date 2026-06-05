@@ -25,6 +25,7 @@ assert_file /usr/bin/keymasq-record
 assert_file /usr/lib/systemd/system/keymasqd.service
 assert_file /usr/lib/systemd/user/keymasq-session.service
 assert_file /usr/lib/udev/rules.d/91-keymasq-acl.rules
+assert_file /usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
 assert_file /usr/lib/sysusers.d/keymasq.conf
 assert_file /usr/lib/tmpfiles.d/keymasq.conf
 assert_file /usr/share/polkit-1/actions/com.keymasq.record-macro.policy

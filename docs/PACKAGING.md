@@ -141,10 +141,11 @@ The GUI is never restarted by packaging.
 
 The Nix outputs split that payload slightly differently:
 
-- the plain Nix package installs the application commands, desktop assets, and
-  polkit policy into the Nix store
-- the NixOS module wires up the system daemon, user session service, udev ACLs,
-  tmpfiles, the `keymasq` system user/group, and `/etc/keymasq/security.toml`
+- the plain Nix package installs the application commands, desktop assets,
+  source-hiding udev rule files, and polkit policy into the Nix store
+- the NixOS module wires up the system daemon, user session service, udev ACLs
+  and source-hiding rules, tmpfiles, the `keymasq` system user/group, and
+  `/etc/keymasq/security.toml`
 - the plain Nix package does not mutate `/etc`, systemd, or udev on its own
 
 The main filesystem layout is:
@@ -159,6 +160,7 @@ The main filesystem layout is:
 /usr/lib/sysusers.d/keymasq.conf
 /usr/lib/tmpfiles.d/keymasq.conf
 /usr/lib/udev/rules.d/91-keymasq-acl.rules
+/usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
 /usr/share/polkit-1/actions/com.keymasq.record-macro.policy
 /usr/share/applications/tools.keymasq.keymasq.desktop
 /usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml
@@ -179,6 +181,11 @@ The runtime dependency set also includes `uvloop`. Keymasq uses it as the
 default `asyncio` policy for `keymasqd` and `keymasq-session` when available,
 but those processes still fall back to the stdlib loop with a warning if the
 package is missing or broken.
+
+Source-hiding udev rules call `setfacl` from the ACL utilities when hiding a
+grabbed physical gamepad source. Source builds and downstream packages must
+include the distro package that provides `setfacl` (`acl` on the maintained
+Debian, Arch, Fedora, openSUSE, and Nix packaging paths).
 
 ## Available package definitions
 

@@ -100,6 +100,13 @@
             install -Dm644 $src/assets/tools.keymasq.keymasq.desktop $out/share/applications/tools.keymasq.keymasq.desktop
             install -Dm644 $src/assets/tools.keymasq.keymasq.metainfo.xml $out/share/metainfo/tools.keymasq.keymasq.metainfo.xml
             install -Dm644 $src/assets/tools.keymasq.keymasq.svg $out/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
+            install -Dm644 $src/udev/91-keymasq-acl.rules $out/lib/udev/rules.d/91-keymasq-acl.rules
+            install -Dm644 $src/udev/99-keymasq-hide-grabbed.rules $out/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
+            substituteInPlace $out/lib/udev/rules.d/91-keymasq-acl.rules \
+              --replace-fail /usr/bin/setfacl ${pkgs.acl}/bin/setfacl
+            substituteInPlace $out/lib/udev/rules.d/99-keymasq-hide-grabbed.rules \
+              --replace-fail /usr/bin/setfacl ${pkgs.acl}/bin/setfacl \
+              --replace-fail /usr/bin/chmod ${pkgs.coreutils}/bin/chmod
             for icon in $src/assets/icons/tools.keymasq.keymasq-*.png; do
               size=''${icon##*-}
               size=''${size%.png}
@@ -235,10 +242,7 @@
               "d /var/lib/keymasq 0750 keymasq keymasq -"
             ];
 
-            services.udev.extraRules = ''
-              ACTION=="add|change", KERNEL=="uinput", GROUP="input", MODE="0660", RUN+="${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/%k"
-              ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", RUN+="${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/input/%k"
-            '';
+            services.udev.packages = [ cfg.package ];
 
             systemd.services.keymasqd = {
               description = "Keymasq Input Remapping Daemon";
@@ -263,9 +267,14 @@
                 Restart = "on-failure";
                 RestartSec = 5;
                 NoNewPrivileges = true;
+                # Required for udevadm trigger to write sysfs uevent files during source hide/restore.
+                AmbientCapabilities = [ "CAP_DAC_OVERRIDE" ];
+                CapabilityBoundingSet = [ "CAP_DAC_OVERRIDE" ];
                 ProtectSystem = "strict";
                 ProtectHome = true;
                 PrivateTmp = true;
+                RuntimeDirectory = "keymasq";
+                RuntimeDirectoryMode = "0755";
                 StateDirectory = "keymasq";
                 ReadWritePaths = [ "/run/keymasq" "/var/lib/keymasq" ];
               };

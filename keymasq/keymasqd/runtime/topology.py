@@ -1,9 +1,9 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.types import JsonObject
@@ -189,7 +189,14 @@ async def reconcile_topology(
     async with manager._op_lock:
         previous = dict(manager.topology_state.reconciled_snapshot)
         desired_hardware_ids = set(manager.grab_state.desired_grabs)
-        events = build_topology_events(manager, previous, snapshot, desired_hardware_ids)
+        hidden_source_paths = hidden_grabbed_source_paths(manager)
+        events = build_topology_events(
+            manager,
+            previous,
+            snapshot,
+            desired_hardware_ids,
+            hidden_source_paths=hidden_source_paths,
+        )
         await reconcile_topology_unlocked(manager, snapshot, deps=deps)
         manager.topology_state.reconciled_snapshot = dict(snapshot)
 
@@ -209,13 +216,27 @@ async def reconcile_topology_unlocked(
 
     for hardware_id, devices in manager.grabbed_devices.items():
         for device in devices:
-            stable_path = str(getattr(device, "stable_path", "") or device.path)
-            live_info = snapshot.get(stable_path)
+            hidden_source = is_hidden_grabbed_source(device)
+            live_info = live_info_for_grabbed_device(
+                snapshot,
+                device,
+                hidden_source=hidden_source,
+            )
             if live_info is None:
                 removed.append((hardware_id, device.path))
                 continue
 
-            if not live_interface_matches_desired(live_info, {hardware_id}):
+            if hidden_source:
+                hardware_matches = live_interface_matches_hardware_base(
+                    live_info,
+                    hardware_id,
+                )
+            else:
+                hardware_matches = live_interface_matches_desired(
+                    live_info,
+                    {hardware_id},
+                )
+            if not hardware_matches:
                 removed.append((hardware_id, device.path))
                 continue
 
@@ -230,16 +251,86 @@ async def reconcile_topology_unlocked(
         await deps.release_interface_fn(manager, hardware_id, path)
 
 
+def live_info_for_grabbed_device(
+    snapshot: Snapshot,
+    device: Any,
+    *,
+    hidden_source: bool,
+) -> Any | None:
+    stable_path = str(getattr(device, "stable_path", "") or device.path)
+    live_info = snapshot.get(stable_path)
+    if live_info is not None:
+        return live_info
+
+    if not hidden_source:
+        return None
+
+    grabbed_path = str(getattr(device, "resolved_event_path", "") or device.path)
+    for candidate in snapshot.values():
+        if str(getattr(candidate, "path", "") or "") == grabbed_path:
+            return candidate
+    return None
+
+
+def hidden_grabbed_source_paths(manager: _TopologyManager) -> set[str]:
+    hidden_paths: set[str] = set()
+    for devices in manager.grabbed_devices.values():
+        for device in devices:
+            if not is_hidden_grabbed_source(device):
+                continue
+            path = str(getattr(device, "resolved_event_path", "") or device.path)
+            if path:
+                hidden_paths.add(path)
+    return hidden_paths
+
+
+def is_hidden_grabbed_source(device: Any) -> bool:
+    event_name = path_basename(getattr(device, "resolved_event_path", "") or device.path)
+    hidden_names = source_hidden_kernel_names(device)
+    return bool(event_name and event_name in hidden_names)
+
+
+def source_hidden_kernel_names(device: Any) -> set[str]:
+    names = list(_kernel_name_values(getattr(device, "source_hidden_kernel_names", [])))
+    names.extend(
+        _kernel_name_values(getattr(device, "source_pending_hidden_kernel_names", []))
+    )
+    return set(names)
+
+
+def _kernel_name_values(values: object) -> list[str]:
+    if not isinstance(values, list | tuple | set | frozenset):
+        return []
+    kernel_names: list[str] = []
+    for value in cast(Iterable[object], values):
+        name = str(value or "").strip()
+        if name:
+            kernel_names.append(name)
+    return kernel_names
+
+
+def path_basename(path: object) -> str:
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    return text.rsplit("/", 1)[-1]
+
+
 def build_topology_events(
     manager: _TopologyManager,
     previous: Snapshot,
     current: Snapshot,
     desired_hardware_ids: set[str],
+    *,
+    hidden_source_paths: set[str] | None = None,
 ) -> list[tuple[CommandType, JsonObject]]:
     events: list[tuple[CommandType, JsonObject]] = []
+    hidden_paths = hidden_source_paths or set()
 
     for stable_path in sorted(previous.keys() - current.keys()):
         info = previous[stable_path]
+        if live_interface_is_hidden_source_churn(info, current, hidden_paths):
+            continue
         if not live_interface_matches_desired(info, desired_hardware_ids):
             continue
         events.append(
@@ -254,14 +345,29 @@ def build_topology_events(
         current_info = current[stable_path]
         if not live_interface_changed(previous_info, current_info):
             continue
-        if live_interface_matches_desired(previous_info, desired_hardware_ids):
+        if (
+            not live_interface_is_hidden_source_churn(
+                previous_info,
+                current,
+                hidden_paths,
+            )
+            and live_interface_matches_desired(previous_info, desired_hardware_ids)
+        ):
             events.append(
                 (
                     manager._command_type.DEVICE_DISCONNECTED,
                     live_interface_payload(previous_info),
                 )
             )
-        if live_interface_matches_desired(current_info, desired_hardware_ids):
+        if (
+            not live_interface_connect_is_hidden_source_churn(
+                stable_path,
+                previous,
+                current_info,
+                hidden_paths,
+            )
+            and live_interface_matches_desired(current_info, desired_hardware_ids)
+        ):
             events.append(
                 (
                     manager._command_type.DEVICE_CONNECTED,
@@ -271,6 +377,13 @@ def build_topology_events(
 
     for stable_path in sorted(current.keys() - previous.keys()):
         info = current[stable_path]
+        if live_interface_connect_is_hidden_source_churn(
+            stable_path,
+            previous,
+            info,
+            hidden_paths,
+        ):
+            continue
         if not live_interface_matches_desired(info, desired_hardware_ids):
             continue
         events.append(
@@ -281,6 +394,44 @@ def build_topology_events(
         )
 
     return events
+
+
+def live_interface_path_is_hidden_source(
+    info: Any,
+    hidden_source_paths: set[str],
+) -> bool:
+    return str(getattr(info, "path", "") or "") in hidden_source_paths
+
+
+def live_interface_connect_is_hidden_source_churn(
+    stable_path: str,
+    previous: Snapshot,
+    current_info: Any,
+    hidden_source_paths: set[str],
+) -> bool:
+    previous_info = previous.get(stable_path)
+    if previous_info is None:
+        return False
+    return live_interface_path_is_hidden_source(
+        current_info,
+        hidden_source_paths,
+    ) and live_interface_path_is_hidden_source(previous_info, hidden_source_paths)
+
+
+def live_interface_is_hidden_source_churn(
+    info: Any,
+    current: Snapshot,
+    hidden_source_paths: set[str],
+) -> bool:
+    path = str(getattr(info, "path", "") or "")
+    if path not in hidden_source_paths:
+        return False
+    hardware_id = normalize_hardware_id(info.hardware_id)
+    return any(
+        str(getattr(candidate, "path", "") or "") == path
+        and normalize_hardware_id(candidate.hardware_id) == hardware_id
+        for candidate in current.values()
+    )
 
 
 def live_interface_changed(previous_info: Any, current_info: Any) -> bool:
@@ -302,6 +453,11 @@ def live_interface_matches_desired(info: Any, desired_hardware_ids: set[str]) ->
         desired_hardware_ids,
         interface_id=getattr(info, "interface_id", ""),
     )
+
+
+def live_interface_matches_hardware_base(info: Any, desired_hardware_id: str) -> bool:
+    desired_base, _desired_interface = split_desired_hardware_id(desired_hardware_id)
+    return normalize_hardware_id(info.hardware_id) == desired_base
 
 
 def hardware_id_matches_desired(
@@ -370,6 +526,8 @@ def scan_live_interfaces_sync(
 
     for path, device_info in cached_devices.items():
         try:
+            if device_info.is_virtual:
+                continue
             vendor_id = device_info.vendor_id
             product_id = device_info.product_id
             hardware_id = f"{vendor_id}:{product_id}"

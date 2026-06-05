@@ -106,6 +106,7 @@ install -Dpm0644 systemd/keymasq-session.service %{buildroot}%{_userunitdir}/key
 install -Dpm0644 sysusers.d/keymasq.conf %{buildroot}%{_sysusersdir}/keymasq.conf
 install -Dpm0644 tmpfiles.d/keymasq.conf %{buildroot}%{_tmpfilesdir}/keymasq.conf
 install -Dpm0644 udev/91-keymasq-acl.rules %{buildroot}%{_udevrulesdir}/91-keymasq-acl.rules
+install -Dpm0644 udev/99-keymasq-hide-grabbed.rules %{buildroot}%{_udevrulesdir}/99-keymasq-hide-grabbed.rules
 install -Dpm0644 polkit/com.keymasq.record-macro.policy %{buildroot}%{_datadir}/polkit-1/actions/com.keymasq.record-macro.policy
 install -Dpm0644 assets/tools.keymasq.keymasq.desktop %{buildroot}%{_datadir}/applications/tools.keymasq.keymasq.desktop
 install -Dpm0644 assets/tools.keymasq.keymasq.metainfo.xml %{buildroot}%{_datadir}/metainfo/tools.keymasq.keymasq.metainfo.xml
@@ -151,6 +152,7 @@ cat <<'SPEC_TAIL'
 %{_sysusersdir}/keymasq.conf
 %{_tmpfilesdir}/keymasq.conf
 %{_udevrulesdir}/91-keymasq-acl.rules
+%{_udevrulesdir}/99-keymasq-hide-grabbed.rules
 %{_datadir}/polkit-1/actions/com.keymasq.record-macro.policy
 %{_datadir}/applications/tools.keymasq.keymasq.desktop
 %{_datadir}/metainfo/tools.keymasq.keymasq.metainfo.xml

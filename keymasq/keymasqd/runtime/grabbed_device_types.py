@@ -44,6 +44,7 @@ type ProfileActivationRecorder = Callable[[str | None, str | None], None]
 type ProfileActivationTriggerObserver = Callable[[str | None], None]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
+type RuntimeDisconnectCallback = Callable[[str, str], Awaitable[None]]
 type OutputTracker = Callable[[str, int, int], bool]
 _T = TypeVar("_T")
 
@@ -324,6 +325,9 @@ class GrabbedDeviceRuntime(ActionRuntime, Protocol):
 
     @property
     def runtime_cleanup_callback(self) -> RuntimeCleanupCallback | None: ...
+
+    @property
+    def runtime_disconnect_callback(self) -> RuntimeDisconnectCallback | None: ...
 
     @property
     def mapping_getter(self) -> MappingGetter: ...

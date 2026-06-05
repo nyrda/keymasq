@@ -223,12 +223,54 @@ class ScenarioContext:
             vendor=vendor,
             product=product,
         )
+        self.settle_udev()
+        source_device = self.wait_for_source_device(name, vendor=vendor, product=product)
+        existing_device = getattr(device, "device", None)
+        if existing_device is not None and existing_device is not source_device:
+            with contextlib.suppress(OSError, RuntimeError):
+                existing_device.close()
+        device.device = source_device
         if not getattr(device.device, "path", None):
             device.close()
             raise AssertionError("source uinput did not expose an evdev path")
-        self.settle_udev()
         time.sleep(0.5)
         return device
+
+    def wait_for_source_device(self, name: str, *, vendor: int, product: int) -> evdev.InputDevice:
+        deadline = time.monotonic() + 10
+        last_seen: list[str] = []
+        while time.monotonic() < deadline:
+            self.settle_udev()
+            for path in sorted(evdev.list_devices(), key=self.event_path_sort_key, reverse=True):
+                try:
+                    input_device = evdev.InputDevice(path)
+                except OSError:
+                    continue
+                info = input_device.info
+                if (
+                    input_device.name == name
+                    and int(info.vendor) == int(vendor)
+                    and int(info.product) == int(product)
+                ):
+                    return input_device
+                last_seen.append(
+                    f"{path}:{input_device.name}:{int(info.vendor):04x}:{int(info.product):04x}"
+                )
+                input_device.close()
+            time.sleep(0.1)
+        raise AssertionError(
+            "source uinput did not expose an evdev path "
+            f"(name={name!r}, vendor={vendor:04x}, product={product:04x}, seen={last_seen[-20:]})"
+        )
+
+    def event_path_sort_key(self, path: str) -> int:
+        name = Path(path).name
+        if not name.startswith("event"):
+            return -1
+        try:
+            return int(name.removeprefix("event"))
+        except ValueError:
+            return -1
 
     def write_configs(self, primary_source_path: str, secondary_source_path: str) -> None:
         hardware_dir = self.config_dir / "hardware"

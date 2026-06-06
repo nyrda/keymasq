@@ -45,8 +45,19 @@ mkdir -p "$topdir"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 
 source_stage_dir="$topdir/SOURCES/source-stage"
 mkdir -p "$source_stage_dir"
+mapfile -t source_roots < <(
+    tar -tzf "$SOURCE_TARBALL" \
+        | awk -F/ 'NF > 1 && $1 != "" { print $1 }' \
+        | sort -u
+)
+if [[ "${#source_roots[@]}" -ne 1 ]]; then
+    echo "source tarball must contain exactly one top-level directory" >&2
+    printf 'found source roots:\n' >&2
+    printf '  %s\n' "${source_roots[@]}" >&2
+    exit 1
+fi
 tar -xzf "$SOURCE_TARBALL" -C "$source_stage_dir"
-mv "$source_stage_dir/keymasq-${VERSION}" "$source_stage_dir/keymasq-${VERSION}-build"
+mv "$source_stage_dir/${source_roots[0]}" "$source_stage_dir/keymasq-${VERSION}-build"
 tar -C "$source_stage_dir" -czf "$topdir/SOURCES/keymasq-${VERSION}.tar.gz" \
     "keymasq-${VERSION}-build"
 rm -rf "$source_stage_dir"

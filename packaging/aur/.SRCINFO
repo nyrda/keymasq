@@ -1,6 +1,6 @@
 pkgbase = keymasq
 	pkgdesc = Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
-	pkgver = 0.17.1
+	pkgver = 0.18.0
 	pkgrel = 1
 	url = https://keymasq.tools
 	arch = any
@@ -23,7 +23,7 @@ pkgbase = keymasq
 	depends = libadwaita
 	depends = polkit
 	depends = systemd
-	source = keymasq-0.17.1.tar.gz::https://repo.keymasq.tools/releases/keymasq-0.17.1.tar.gz
+	source = keymasq-0.18.0.tar.gz::https://repo.keymasq.tools/releases/keymasq-0.18.0.tar.gz
 	sha256sums = SKIP
 	install = keymasq.install
 

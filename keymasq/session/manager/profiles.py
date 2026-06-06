@@ -387,22 +387,36 @@ async def request_profile_reevaluation(
 
     task.add_done_callback(_clear_current_apply)
     if wait:
-        await task
-        latest = cast(
-            asyncio.Task[None] | None,
-            manager.profile_state.__dict__.get("apply_task"),
-        )
-        if (
-            not profile_apply_is_current(manager, generation)
-            and latest is not None
-            and latest is not task
-        ):
-            await latest
+        await _await_profile_apply_task(manager, task, generation)
+        while not profile_apply_is_current(manager, generation):
+            latest = cast(
+                asyncio.Task[None] | None,
+                manager.profile_state.__dict__.get("apply_task"),
+            )
+            if latest is None or latest is task:
+                break
+            task = latest
+            generation = manager.profile_state.apply_generation
+            await _await_profile_apply_task(manager, task, generation)
     return task
 
 
 async def reevaluate_profiles(manager: "SessionManager", *, reason: str = "") -> None:
     await request_profile_reevaluation(manager, reason=reason, wait=True)
+
+
+async def _await_profile_apply_task(
+    manager: "SessionManager",
+    task: asyncio.Task[None],
+    generation: int,
+) -> None:
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Stale apply tasks can be cancelled before their coroutine starts.
+        if task.cancelled() and not profile_apply_is_current(manager, generation):
+            return
+        raise
 
 
 def profile_apply_is_current(manager: "SessionManager", generation: int | None) -> bool:

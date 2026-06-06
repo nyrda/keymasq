@@ -5,10 +5,12 @@ import logging
 import re
 import threading
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Concatenate, cast
 
 from keymasq.common import paths
 from keymasq.common.coercion import int_value as _int_value
@@ -37,6 +39,9 @@ log = logging.getLogger("keymasq-session.profiles")
 MAX_PROFILE_PATH_ATTEMPTS = 10000
 DEFAULT_PROFILE_NAME = "Default"
 type TomlDict = dict[str, object]
+type ComboEventSignature = tuple[str, str, str]
+type ComboStepSignature = tuple[ComboEventSignature, ...]
+type ComboSignature = tuple[ComboStepSignature, ...]
 
 
 def _as_toml_dict(value: object) -> TomlDict | None:
@@ -45,6 +50,7 @@ def _as_toml_dict(value: object) -> TomlDict | None:
 
 def _as_toml_list(value: object) -> list[object]:
     return cast(list[object], value) if isinstance(value, list) else []
+
 
 @dataclass
 class ProfileInfo:
@@ -97,6 +103,17 @@ if TYPE_CHECKING:
 
 
 class ProfileManager:
+    @staticmethod
+    def _with_profile_file_lock[**P, R](
+        method: Callable[Concatenate["ProfileManager", P], R],
+    ) -> Callable[Concatenate["ProfileManager", P], R]:
+        @wraps(method)
+        def wrapper(self: "ProfileManager", *args: P.args, **kwargs: P.kwargs) -> R:
+            with self._profile_file_lock:
+                return method(self, *args, **kwargs)
+
+        return wrapper
+
     def __init__(
         self,
         superkey_manager: "SuperkeyManager | None" = None,
@@ -167,6 +184,7 @@ class ProfileManager:
             return second
         return first
 
+    @_with_profile_file_lock
     def reload(self) -> None:
         self._load_all(strict=True)
         self._ensure_default_profile_exists()
@@ -409,85 +427,111 @@ class ProfileManager:
 
         combos: list[ComboConfig] = []
         for combo_data in cast(list[object], combos_data):
-            combo_dict = _as_toml_dict(combo_data)
-            if combo_dict is None:
-                continue
-            steps_data = combo_dict.get("steps", [])
-            steps: list[ComboStep] = []
-            if isinstance(steps_data, list):
-                for step_data in cast(list[object], steps_data):
-                    step_dict = _as_toml_dict(step_data)
-                    if step_dict is None:
-                        continue
-                    events_data = step_dict.get("events", [])
-                    events: list[ComboEvent] = []
-                    if isinstance(events_data, list):
-                        for event_data in cast(list[object], events_data):
-                            event_dict = _as_toml_dict(event_data)
-                            if event_dict is None:
-                                continue
-                            evdev = str(event_dict.get("evdev", "") or "")
-                            hardware_id = str(event_dict.get("hardware_id", "") or "")
-                            if not evdev:
-                                continue
-                            source_raw = event_dict.get("source")
-                            source = str(source_raw) if source_raw is not None else None
-                            events.append(
-                                ComboEvent(
-                                    evdev=normalize_combo_evdev(evdev),
-                                    hardware_id=hardware_id,
-                                    source=source,
-                                )
-                            )
-                    if events:
-                        timeout_raw = step_dict.get("timeout_ms")
-                        timeout_ms = _int_value(timeout_raw, 0) if timeout_raw is not None else None
-                        steps.append(ComboStep(events=events, timeout_ms=timeout_ms))
-
-            action_data = combo_dict.get("action")
-            action_dict = _as_toml_dict(action_data)
-            action = (
-                self._parse_action(action_data)
-                if isinstance(action_data, str)
-                else self._parse_action(action_dict)
-                if action_dict is not None
-                else None
-            )
-            combo_id = str(combo_dict.get("id", "") or "")
-            if not combo_id:
-                continue
-            combos.append(
-                ComboConfig(
-                    id=combo_id,
-                    name=str(combo_dict.get("name", "") or ""),
-                    steps=steps,
-                    action=action,
-                    recall_trigger_keys=bool(combo_dict.get("recall_trigger_keys", False)),
-                    restore_trigger_keys=normalize_combo_restore_keys(
-                        _as_toml_list(combo_dict.get("restore_trigger_keys", []))
-                    ),
-                    match_across_devices=bool(
-                        combo_dict.get("match_across_devices", False)
-                    ),
-                )
-            )
+            combo = self._parse_combo(combo_data)
+            if combo is not None:
+                combos.append(combo)
         return combos
 
+    def _parse_combo(self, combo_data: object) -> ComboConfig | None:
+        combo_dict = _as_toml_dict(combo_data)
+        if combo_dict is None:
+            return None
+
+        steps = self._parse_combo_steps(combo_dict.get("steps", []))
+        action = self._parse_combo_action(combo_dict.get("action"))
+        combo_id = str(combo_dict.get("id", "") or "")
+        if not combo_id:
+            return None
+
+        return ComboConfig(
+            id=combo_id,
+            name=str(combo_dict.get("name", "") or ""),
+            steps=steps,
+            action=action,
+            recall_trigger_keys=bool(combo_dict.get("recall_trigger_keys", False)),
+            restore_trigger_keys=normalize_combo_restore_keys(
+                _as_toml_list(combo_dict.get("restore_trigger_keys", []))
+            ),
+            match_across_devices=bool(combo_dict.get("match_across_devices", False)),
+        )
+
+    def _parse_combo_steps(self, steps_data: object) -> list[ComboStep]:
+        if not isinstance(steps_data, list):
+            return []
+
+        steps: list[ComboStep] = []
+        for step_data in cast(list[object], steps_data):
+            step = self._parse_combo_step(step_data)
+            if step is not None:
+                steps.append(step)
+        return steps
+
+    def _parse_combo_step(self, step_data: object) -> ComboStep | None:
+        step_dict = _as_toml_dict(step_data)
+        if step_dict is None:
+            return None
+
+        events = self._parse_combo_events(step_dict.get("events", []))
+        if not events:
+            return None
+
+        timeout_raw = step_dict.get("timeout_ms")
+        timeout_ms = _int_value(timeout_raw, 0) if timeout_raw is not None else None
+        return ComboStep(events=events, timeout_ms=timeout_ms)
+
+    def _parse_combo_events(self, events_data: object) -> list[ComboEvent]:
+        if not isinstance(events_data, list):
+            return []
+
+        events: list[ComboEvent] = []
+        for event_data in cast(list[object], events_data):
+            event = self._parse_combo_event(event_data)
+            if event is not None:
+                events.append(event)
+        return events
+
+    def _parse_combo_event(self, event_data: object) -> ComboEvent | None:
+        event_dict = _as_toml_dict(event_data)
+        if event_dict is None:
+            return None
+
+        evdev = str(event_dict.get("evdev", "") or "")
+        if not evdev:
+            return None
+
+        source_raw = event_dict.get("source")
+        source = str(source_raw) if source_raw is not None else None
+        return ComboEvent(
+            evdev=normalize_combo_evdev(evdev),
+            hardware_id=str(event_dict.get("hardware_id", "") or ""),
+            source=source,
+        )
+
+    def _parse_combo_action(self, action_data: object) -> MappingAction | None:
+        action_dict = _as_toml_dict(action_data)
+        if isinstance(action_data, str):
+            return self._parse_action(action_data)
+        if action_dict is not None:
+            return self._parse_action(action_dict)
+        return None
+
+    @_with_profile_file_lock
     def list_profiles(self) -> list[ProfileInfo]:
         return list(self._profiles.values())
 
-    def get_all_profiles(self) -> dict[str, ProfileInfo]:
-        return self._profiles.copy()
-
+    @_with_profile_file_lock
     def snapshot_profiles(self) -> dict[str, ProfileInfo]:
         return self._profiles.copy()
 
+    @_with_profile_file_lock
     def restore_profiles(self, profiles: dict[str, ProfileInfo]) -> None:
         self._profiles = profiles.copy()
 
+    @_with_profile_file_lock
     def get_profile(self, profile_name: str) -> ProfileInfo | None:
         return self._profiles.get(profile_name)
 
+    @_with_profile_file_lock
     def get_next_priority(self) -> int:
         if not self._profiles:
             return 0
@@ -528,6 +572,7 @@ class ProfileManager:
 
         return candidate
 
+    @_with_profile_file_lock
     def set_profile_enabled(self, profile_name: str, enabled: bool | None) -> ProfileConfig | None:
         profile = self.get_profile(profile_name)
         if profile is None:
@@ -590,6 +635,7 @@ class ProfileManager:
 
         return True
 
+    @_with_profile_file_lock
     def resolve_active_profiles(
         self,
         window_info: TomlDict | None = None,
@@ -645,10 +691,6 @@ class ProfileManager:
             known_hardware_ids.update(profile.device_layers.keys())
 
         devices: dict[str, ResolvedDeviceProfile] = {}
-        combos_by_signature: dict[
-            tuple[tuple[tuple[str, str, str], ...], ...],
-            ResolvedCombo,
-        ] = {}
         for hardware_id in sorted(known_hardware_ids):
             resolved = ResolvedDeviceProfile(hardware_id=hardware_id)
             for profile in active_profiles:
@@ -670,58 +712,33 @@ class ProfileManager:
                         resolved.mapping_profile_names[button_id] = profile.name
             devices[hardware_id] = resolved
 
+        combos = self._resolve_profile_combos(active_profiles, devices)
+
+        return ResolvedProfiles(
+            active_profiles=active_profiles,
+            devices=devices,
+            combos=combos,
+        )
+
+    def _resolve_profile_combos(
+        self,
+        active_profiles: list[ProfileConfig],
+        devices: dict[str, ResolvedDeviceProfile],
+    ) -> list[ResolvedCombo]:
+        combos_by_signature: dict[ComboSignature, ResolvedCombo] = {}
         for profile in active_profiles:
             for combo in profile.combos:
-                if combo.action is None or not combo.steps:
+                action = combo.action
+                if action is None or not combo.steps:
                     continue
-                normalized_steps: list[tuple[tuple[str, str, str], ...]] = []
-                combo_steps: list[ComboStep] = []
-                for step in combo.steps:
-                    if not step.events:
-                        normalized_steps = []
-                        break
-                    effective_step = copy.deepcopy(step)
-                    if combo.match_across_devices:
-                        for event in effective_step.events:
-                            event.hardware_id = ""
-                            event.source = None
-                    normalized_events = sorted(
-                        (
-                            event.hardware_id or "",
-                            event.source or "",
-                            normalize_combo_evdev(event.evdev),
-                        )
-                        for event in effective_step.events
-                        if event.evdev
-                    )
-                    if not normalized_events:
-                        normalized_steps = []
-                        break
-                    normalized_steps.append(tuple(normalized_events))
-                    combo_steps.append(effective_step)
-                    for hardware_id, _source, _evdev in normalized_events:
-                        if not hardware_id:
-                            continue
-                        resolved = devices.setdefault(
-                            hardware_id,
-                            ResolvedDeviceProfile(hardware_id=hardware_id),
-                        )
-                        if profile.name not in resolved.active_profile_names:
-                            resolved.active_profile_names.append(profile.name)
-                        resolved.combo_event_count += 1
-                        if (
-                            profile.notify_on_activation
-                            and profile.name not in resolved.notify_profiles
-                        ):
-                            resolved.notify_profiles.append(profile.name)
-                        if _source:
-                            resolved.combo_sources.add(_source)
-                if not normalized_steps:
+                normalized = self._normalize_combo_steps(combo)
+                if normalized is None:
                     continue
-                signature = tuple(normalized_steps)
+                signature, combo_steps = normalized
+                self._mark_combo_devices(devices, profile, signature)
                 if signature in combos_by_signature:
                     combos_by_signature.pop(signature, None)
-                combo_action = copy.deepcopy(combo.action)
+                combo_action = copy.deepcopy(action)
                 combo_action.source_profile_name = profile.name
                 combos_by_signature[signature] = ResolvedCombo(
                     id=combo.id,
@@ -735,13 +752,60 @@ class ProfileManager:
                     ),
                     match_across_devices=bool(combo.match_across_devices),
                 )
+        return list(combos_by_signature.values())
 
-        return ResolvedProfiles(
-            active_profiles=active_profiles,
-            devices=devices,
-            combos=list(combos_by_signature.values()),
-        )
+    @staticmethod
+    def _normalize_combo_steps(combo: ComboConfig) -> tuple[ComboSignature, list[ComboStep]] | None:
+        normalized_steps: list[ComboStepSignature] = []
+        combo_steps: list[ComboStep] = []
+        for step in combo.steps:
+            if not step.events:
+                return None
+            effective_step = copy.deepcopy(step)
+            if combo.match_across_devices:
+                for event in effective_step.events:
+                    event.hardware_id = ""
+                    event.source = None
+            normalized_events: ComboStepSignature = tuple(
+                sorted(
+                    (
+                        event.hardware_id or "",
+                        event.source or "",
+                        normalize_combo_evdev(event.evdev),
+                    )
+                    for event in effective_step.events
+                    if event.evdev
+                )
+            )
+            if not normalized_events:
+                return None
+            normalized_steps.append(normalized_events)
+            combo_steps.append(effective_step)
+        return tuple(normalized_steps), combo_steps
 
+    @staticmethod
+    def _mark_combo_devices(
+        devices: dict[str, ResolvedDeviceProfile],
+        profile: ProfileConfig,
+        signature: ComboSignature,
+    ) -> None:
+        for normalized_events in signature:
+            for hardware_id, source, _evdev in normalized_events:
+                if not hardware_id:
+                    continue
+                resolved = devices.setdefault(
+                    hardware_id,
+                    ResolvedDeviceProfile(hardware_id=hardware_id),
+                )
+                if profile.name not in resolved.active_profile_names:
+                    resolved.active_profile_names.append(profile.name)
+                resolved.combo_event_count += 1
+                if profile.notify_on_activation and profile.name not in resolved.notify_profiles:
+                    resolved.notify_profiles.append(profile.name)
+                if source:
+                    resolved.combo_sources.add(source)
+
+    @_with_profile_file_lock
     def save_profile(self, config: ProfileConfig, path: Path | None = None) -> None:
         paths.ensure_config_dirs()
         self.validate_window_rules(config.window_rules)
@@ -872,6 +936,7 @@ class ProfileManager:
             write_toml_atomically(path, data, overwrite=not exclusive)
             return
 
+    @_with_profile_file_lock
     def delete_profile(self, name: str) -> bool:
         profile = self._profiles.get(name)
         if profile is None:
@@ -897,8 +962,17 @@ class ProfileManager:
                 path,
                 exc,
             )
-            path.unlink()
+            try:
+                path.unlink()
+            except OSError as unlink_exc:
+                log.warning(
+                    "Failed to delete profile file %s after trash move failed: %s",
+                    path,
+                    unlink_exc,
+                )
+                raise
 
+    @_with_profile_file_lock
     def rename_profile(self, old_name: str, new_name: str) -> ProfileInfo:
         if new_name in self._profiles and new_name != old_name:
             raise ValueError(f"Profile '{new_name}' already exists")
@@ -923,6 +997,7 @@ class ProfileManager:
         log.info("Renamed profile: %s -> %s", old_name, new_name)
         return renamed_profile
 
+    @_with_profile_file_lock
     def find_profiles_using_superkey(self, superkey_name: str) -> list[tuple[str, str]]:
         result: list[tuple[str, str]] = []
         for info in self.list_profiles():
@@ -945,6 +1020,7 @@ class ProfileManager:
                     break
         return result
 
+    @_with_profile_file_lock
     def find_profiles_using_analog_control(
         self,
         analog_control_name: str,
@@ -961,6 +1037,7 @@ class ProfileManager:
                         break
         return result
 
+    @_with_profile_file_lock
     def replace_analog_control_with_suppress(self, analog_control_name: str) -> int:
         count = 0
         for info in self.list_profiles():
@@ -996,6 +1073,7 @@ class ProfileManager:
             )
         return count
 
+    @_with_profile_file_lock
     def rename_analog_control_references(self, old_name: str, new_name: str) -> int:
         if old_name == new_name:
             return 0
@@ -1026,6 +1104,7 @@ class ProfileManager:
             )
         return count
 
+    @_with_profile_file_lock
     def replace_superkey_with_suppress(self, superkey_name: str) -> int:
         count = 0
         for info in self.list_profiles():
@@ -1052,9 +1131,14 @@ class ProfileManager:
             if modified:
                 self.save_profile(info.config)
         if count > 0:
-            log.info("Replaced superkey '%s' with suppress in %d references", superkey_name, count)
+            log.info(
+                "Replaced superkey '%s' with suppress in %d references",
+                superkey_name,
+                count,
+            )
         return count
 
+    @_with_profile_file_lock
     def remove_device_layers(self, hardware_id: str) -> int:
         updated = 0
         for info in self.list_profiles():
@@ -1065,6 +1149,7 @@ class ProfileManager:
             updated += 1
         return updated
 
+    @_with_profile_file_lock
     def remove_device_button_mappings(self, hardware_id: str, button_id: str) -> int:
         updated = 0
         for info in self.list_profiles():

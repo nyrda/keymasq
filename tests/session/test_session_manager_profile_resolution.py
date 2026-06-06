@@ -188,6 +188,34 @@ async def test_profile_reevaluation_interrupts_stale_apply(
 
 
 @pytest.mark.asyncio
+async def test_profile_reevaluation_wait_ignores_prestart_stale_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    cancelled_task = asyncio.create_task(asyncio.sleep(0))
+    cancelled_task.cancel()
+    try:
+        await cancelled_task
+    except asyncio.CancelledError:
+        pass
+
+    def create_cancelled_apply(coro):
+        coro.close()
+        manager.profile_state.apply_generation += 1
+        return cancelled_task
+
+    monkeypatch.setattr(
+        session_profiles_module.asyncio,
+        "create_task",
+        create_cancelled_apply,
+    )
+
+    task = await session_profiles_module.request_profile_reevaluation(manager, wait=True)
+
+    assert task is cancelled_task
+
+
+@pytest.mark.asyncio
 async def test_topology_refresh_retries_after_reevaluate_failure(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

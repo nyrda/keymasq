@@ -1,12 +1,18 @@
+import time
+
 import evdev
-from support import REPEAT_PROFILE_NAME, SECOND_PROFILE_NAME, ScenarioContext
+from support import HARDWARE_ID, REPEAT_PROFILE_NAME, SECOND_PROFILE_NAME, ScenarioContext
 
 
 def run(ctx: ScenarioContext) -> None:
     try:
         ctx.set_profile_enabled(REPEAT_PROFILE_NAME, enabled=True)
         ctx.tap_source(evdev.ecodes.KEY_T)
+        time.sleep(0.5)
         ctx.wait_for_active_profile(REPEAT_PROFILE_NAME, enabled=True)
+        ctx.request({"command": "reevaluate_hardware"})
+        ctx.reopen_outputs()
+        ctx.wait_for_hardware_mapping(HARDWARE_ID)
         ctx.subtest("repeat has no output before history", lambda: _repeat_without_history(ctx))
         ctx.subtest(
             "repeat follows keyboard press/repeat/release",

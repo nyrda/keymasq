@@ -494,8 +494,23 @@ jobs:
             opensuse/tumbleweed:latest \
             bash -lc '
               set -euo pipefail
-              zypper --non-interactive refresh
-              zypper --non-interactive install \
+
+              zypper_retry() {
+                local attempt
+                for attempt in 1 2 3; do
+                  if zypper --non-interactive "$@"; then
+                    return 0
+                  fi
+                  if [[ "$attempt" -eq 3 ]]; then
+                    return 1
+                  fi
+                  sleep $((attempt * 10))
+                  zypper --non-interactive refresh --force || true
+                done
+              }
+
+              zypper_retry refresh
+              zypper_retry install \
                 findutils \
                 gcc \
                 git \
@@ -552,8 +567,23 @@ jobs:
             opensuse/tumbleweed:latest \
             bash -lc '
               set -euo pipefail
-              zypper --non-interactive refresh
-              zypper --non-interactive install python3 systemd acl
+
+              zypper_retry() {
+                local attempt
+                for attempt in 1 2 3; do
+                  if zypper --non-interactive "$@"; then
+                    return 0
+                  fi
+                  if [[ "$attempt" -eq 3 ]]; then
+                    return 1
+                  fi
+                  sleep $((attempt * 10))
+                  zypper --non-interactive refresh --force || true
+                done
+              }
+
+              zypper_retry refresh
+              zypper_retry install python3 systemd acl
               bash packaging/rpm/ci-test-installed.sh \
                 "$(echo dist/rpm/keymasq-*.opensuse.*.rpm)"
             '
@@ -674,8 +704,23 @@ jobs:
             opensuse/tumbleweed:latest \
             bash -lc '
               set -euo pipefail
-              zypper --non-interactive refresh
-              zypper --non-interactive install python3 systemd acl
+
+              zypper_retry() {
+                local attempt
+                for attempt in 1 2 3; do
+                  if zypper --non-interactive "$@"; then
+                    return 0
+                  fi
+                  if [[ "$attempt" -eq 3 ]]; then
+                    return 1
+                  fi
+                  sleep $((attempt * 10))
+                  zypper --non-interactive refresh --force || true
+                done
+              }
+
+              zypper_retry refresh
+              zypper_retry install python3 systemd acl
               KEYMASQ_RPM_SIGNING_PUBLIC_KEY_PATH=dist/rpm/rpm-signing-key.asc \
                 bash packaging/rpm/ci-test-installed.sh \
                 "$(echo dist/rpm/keymasq-*.opensuse.*.rpm)"

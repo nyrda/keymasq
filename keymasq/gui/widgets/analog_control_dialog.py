@@ -2567,6 +2567,10 @@ class AnalogControlDialog(Adw.Dialog):
         dialog.set_close_response("ok")
         dialog.present(self)
 
+    def select_control_by_name(self, name: str) -> None:
+        """Select a saved analog control by name, e.g. when opened to edit one."""
+        self._select_control(name)
+
     def _select_control(self, name: str) -> None:
         idx = 0
         while True:

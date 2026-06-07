@@ -151,6 +151,14 @@ output     = clamp((normalized ^ response_curve) * sensitivity, 0, 1)
 
 The curve mirrors for negative stick directions and for `output_direction = "both"`.
 
+## Presets
+
+For new users, the mapping dialog's **Presets** tab offers one-click starting
+points (Mouse Move, Mouse Area, Scroll Wheel, WASD for sticks; Trigger Left
+Click, Trigger Right Click, Trigger Scroll Up, Trigger Scroll Down for
+triggers). A preset saves a normal, fully editable config and maps it to the
+input — see [Game Controller Support](GAMEPAD.md) for the GUI workflow.
+
 ## Templates
 
 The GUI provides templates for stick digital actions. Templates append
@@ -160,7 +168,7 @@ thresholds to the existing list; the result is fully editable.
 |----------|-----------|---------|
 | WASD | 4 (±X, ±Y at 0.65) | `key_w`, `key_s`, `key_a`, `key_d` |
 | Arrow Keys | 4 (±X, ±Y at 0.65) | `key_up`, `key_down`, `key_left`, `key_right` |
-| Mouse Wheel | 2 (±Y at 0.55) | Scroll up/down with rapidfire (hold 20ms, wait 60ms) |
+| Mouse Wheel | 4 (±X, ±Y at 0.55) | Scroll up/down (Y) and side-scroll left/right (X) with rapidfire (hold 20ms, wait 60ms) |
 
 ## Full Example
 

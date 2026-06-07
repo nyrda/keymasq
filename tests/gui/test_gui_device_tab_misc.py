@@ -1019,10 +1019,12 @@ def test_key_selector_dialog_passthrough_clears_current_profile_mapping():
     assert results == [None]
 
 
-def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough():
+def test_analog_key_selector_default_tab_and_special_has_no_passthrough(temp_config_dir):
     from gi.repository import Gtk
 
+    from keymasq.common.models import AnalogControlConfig
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
 
     def collect_buttons(widget):
         buttons = []
@@ -1034,27 +1036,19 @@ def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough
             child = child.get_next_sibling()
         return buttons
 
-    def collect_labels(widget):
-        labels = []
-        child = widget.get_first_child()
-        while child is not None:
-            if isinstance(child, Gtk.Label):
-                labels.append(child)
-            labels.extend(collect_labels(child))
-            child = child.get_next_sibling()
-        return labels
-
+    # New users have no saved controls, so the dialog opens on the Presets tab
+    # with a link through to the full Analog Controls manager.
     dialog = KeySelectorDialog(Gtk.Box(), "Left Stick", source_type="analog")
+    assert dialog.stack.get_visible_child_name() == "analog_presets"
+    presets_tab = dialog.stack.get_child_by_name("analog_presets")
+    assert presets_tab is not None
+    presets_labels = {button.get_label() for button in collect_buttons(presets_tab)}
+    assert "Open Analog Controls…" in presets_labels
 
-    assert dialog.stack.get_visible_child_name() == "analog_control"
-    analog_tab = dialog.stack.get_child_by_name("analog_control")
-    assert analog_tab is not None
-    hint = next(
-        label
-        for label in collect_labels(analog_tab)
-        if label.get_text() == "Select one or multiple analog controls"
-    )
-    assert "dim-label" in hint.get_css_classes()
+    # Once a control exists, the dialog opens on the picker instead.
+    AnalogControlManager().save_analog_control(AnalogControlConfig(name="My Stick"))
+    populated = KeySelectorDialog(Gtk.Box(), "Left Stick", source_type="analog")
+    assert populated.stack.get_visible_child_name() == "analog_control"
 
     special_tab = dialog._build_special_tab()
     button_labels = {button.get_label() for button in collect_buttons(special_tab)}
@@ -1062,6 +1056,46 @@ def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough
     assert "Clear Mapping" in button_labels
     assert "Suppress" in button_labels
     assert "Passthrough" not in button_labels
+
+
+def test_analog_key_selector_preset_uses_suffixed_name_for_storage_collision(
+    temp_config_dir,
+    monkeypatch,
+):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import (
+        AnalogControlManager,
+        analog_control_presets,
+    )
+
+    monkeypatch.setattr(dialog_module, "notify_session_reload_async", lambda: None)
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(AnalogControlConfig(name="Mouse_Move"))
+
+    results: list[MappingAction] = []
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Left Stick",
+        source_type="analog",
+        analog_input_type="stick",
+    )
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+    preset = next(
+        preset
+        for preset in analog_control_presets("stick")
+        if preset.preset_id == "mouse_move"
+    )
+
+    dialog._on_analog_preset_clicked(Gtk.Button(), preset)
+
+    assert results[0].action_type == ActionType.ANALOG_CONTROL
+    assert results[0].analog_control_names == ["Mouse Move 2"]
+    assert AnalogControlManager().get_analog_control("Mouse Move 2") is not None
 
 
 def test_key_selector_dialog_repeat_uses_special_toggle_buttons_and_inline_rapidfire():

@@ -80,12 +80,19 @@ delete it.
 
 ### Assigning an Analog Control
 
-Once you have a learned analog input and a saved analog control config:
+Open the **Device** tab and select the analog input. The mapping dialog opens
+on the **Presets** tab when no analog controls exist yet.
 
-1. Open the **Device** tab and select the analog input.
-2. In the mapping dialog, choose a saved analog control by name.
-3. One input can fan out to multiple configs — each receives the same
-   normalized input and handles its output independently:
+**Quick start (presets):** Click a preset card — for sticks: Mouse Move, Mouse
+Area, Scroll Wheel, or WASD Keys; for triggers: Trigger Left Click, Trigger
+Right Click, Trigger Scroll Up, or Trigger Scroll Down. The preset is saved as a
+normal analog control, mapped to the input, and the dialog closes. Reopen the
+input later to fine-tune it or pick others.
+
+**From saved controls:** On the **Analog Controls** tab, select one or more
+saved configs by name. Right-click a config (or use **Open Analog Controls…**)
+to edit it in the manager. One input can fan out to multiple configs — each
+receives the same normalized input and handles its output independently:
 
 ```toml
 [devices."045e:028e".mapping.right_stick]
@@ -166,7 +173,8 @@ thresholds can overlap — they are evaluated independently.
 **Templates** (stick only):
 - **WASD** — maps stick to W/A/S/D keys
 - **Arrow Keys** — maps stick to arrow keys
-- **Mouse Wheel** — maps stick Y to scroll up/down with rapidfire
+- **Mouse Wheel** — maps stick Y to scroll up/down and stick X to side-scroll
+  left/right, all with rapidfire
 
 Templates append thresholds to the existing list and are fully editable
 after applying.

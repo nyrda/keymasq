@@ -12,10 +12,12 @@ from keymasq.common.models import (
     AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
     MappingAction,
+    validate_analog_control_config,
 )
 from keymasq.session.analog_controls import (
     AnalogControlManager,
     analog_control_mouse_wheel_template,
+    analog_control_presets,
     analog_control_wasd_template,
 )
 
@@ -523,3 +525,103 @@ def test_analog_control_templates_produce_threshold_actions() -> None:
     assert wheel[0].actions[0].rapidfire_enabled is True
     assert wheel[0].actions[0].rapidfire_hold_ms == 20
     assert wheel[0].actions[0].rapidfire_wait_ms == 60
+    # Vertical (Y) up/down plus horizontal (X) left/right side-scrolling.
+    assert [(t.axis, t.actions[0].target) for t in wheel] == [
+        ("y", "rel_wheel:1"),
+        ("y", "rel_wheel:-1"),
+        ("x", "rel_hwheel:-1"),
+        ("x", "rel_hwheel:1"),
+    ]
+    assert all(t.actions[0].rapidfire_enabled for t in wheel)
+
+
+def test_analog_control_presets_filtered_by_input_type() -> None:
+    stick = analog_control_presets("stick")
+    axis = analog_control_presets("axis")
+    assert {p.preset_id for p in stick} == {
+        "mouse_move",
+        "mouse_area",
+        "scroll_wheel",
+        "wasd",
+    }
+    assert {p.preset_id for p in axis} == {
+        "trigger_left_click",
+        "trigger_right_click",
+        "trigger_scroll_up",
+        "trigger_scroll_down",
+    }
+    assert all(p.input_type == "stick" for p in stick)
+    assert all(p.input_type == "axis" for p in axis)
+
+
+def test_analog_control_presets_none_returns_all() -> None:
+    every = analog_control_presets(None)
+    assert {p.preset_id for p in every} == {
+        "mouse_move",
+        "mouse_area",
+        "scroll_wheel",
+        "wasd",
+        "trigger_left_click",
+        "trigger_right_click",
+        "trigger_scroll_up",
+        "trigger_scroll_down",
+    }
+
+
+def test_analog_control_presets_build_valid_configs() -> None:
+    for preset in analog_control_presets(None):
+        config = preset.build(preset.default_name)
+        assert config.name == preset.default_name
+        assert config.input_type == preset.input_type
+        # Should not raise — every preset is a valid, ready-to-use config.
+        validate_analog_control_config(config)
+
+
+def test_analog_control_mouse_move_preset_uses_velocity_mouse_motion() -> None:
+    preset = next(p for p in analog_control_presets("stick") if p.preset_id == "mouse_move")
+    config = preset.build("Mouse Move")
+    assert config.mouse_motion.enabled is True
+    assert config.mouse_motion.mode == "velocity"
+
+
+def test_analog_control_mouse_area_preset_uses_area_mode() -> None:
+    preset = next(p for p in analog_control_presets("stick") if p.preset_id == "mouse_area")
+    config = preset.build("Mouse Area")
+    assert config.mouse_motion.enabled is True
+    assert config.mouse_motion.mode == "area"
+
+
+def test_analog_control_trigger_presets_cover_clicks_and_scroll() -> None:
+    targets = {}
+    for preset in analog_control_presets("axis"):
+        config = preset.build(preset.default_name)
+        assert config.input_type == "axis"
+        assert len(config.thresholds) == 1
+        action = config.thresholds[0].actions[0]
+        assert action.action_type == ActionType.MOUSE
+        targets[preset.preset_id] = action.target
+    assert targets == {
+        "trigger_left_click": "btn_left",
+        "trigger_right_click": "btn_right",
+        "trigger_scroll_up": "rel_wheel:1",
+        "trigger_scroll_down": "rel_wheel:-1",
+    }
+
+
+def test_analog_control_presets_round_trip_through_manager(temp_config_dir) -> None:
+    manager = AnalogControlManager()
+    for preset in analog_control_presets(None):
+        config = preset.build(preset.default_name)
+        manager.save_analog_control(config)
+    saved = set(manager.list_analog_controls())
+    assert {p.default_name for p in analog_control_presets(None)} <= saved
+
+
+def test_analog_control_unique_name_accounts_for_storage_filename_collisions(
+    temp_config_dir,
+) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(AnalogControlConfig(name="Mouse_Move"))
+    manager.save_analog_control(AnalogControlConfig(name="Mouse Move 2"))
+
+    assert manager.unique_analog_control_name("Mouse Move") == "Mouse Move 3"

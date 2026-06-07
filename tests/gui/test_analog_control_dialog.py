@@ -1312,6 +1312,113 @@ def test_analog_selector_clicking_selected_control_deselects_it(temp_config_dir)
     assert dialog.map_btn.get_sensitive() is False
 
 
+def test_analog_control_dialog_select_control_by_name_selects_saved_control(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(AnalogControlConfig(name="Alpha"))
+    manager.save_analog_control(AnalogControlConfig(name="Beta"))
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    dialog.select_control_by_name("Beta")
+
+    assert dialog._current_name == "Beta"
+    assert dialog.name_entry.get_text() == "Beta"
+
+
+def test_analog_selector_right_click_opens_manager_for_control(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    AnalogControlManager().save_analog_control(AnalogControlConfig(name="Mouse"))
+    dialog = KeySelectorDialog(
+        Gtk.Window(),
+        "Left Stick",
+        source_type="analog",
+        analog_input_type="stick",
+    )
+    opened: list[str | None] = []
+    monkeypatch.setattr(dialog, "_open_analog_control_manager", opened.append)
+
+    dialog._on_analog_control_row_right_pressed(
+        Gtk.GestureClick(),
+        1,
+        0.0,
+        0.0,
+        "Mouse",
+    )
+
+    assert opened == ["Mouse"]
+
+
+def test_analog_selector_open_manager_presents_and_selects_requested_control(
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    captured: dict[str, object] = {}
+    parent = Gtk.Window()
+    profile_manager = object()
+    parent.profile_manager = profile_manager
+
+    class DummyAnalogControlDialog:
+        def __init__(self, root, profile_manager_arg):
+            captured["root"] = root
+            captured["profile_manager"] = profile_manager_arg
+            captured["signals"] = []
+
+        def connect(self, signal_name, callback):
+            captured["signals"].append(signal_name)
+            captured[signal_name] = callback
+
+        def present(self, root):
+            captured["present_root"] = root
+
+        def select_control_by_name(self, name):
+            captured["selected_name"] = name
+
+    monkeypatch.setattr(
+        analog_dialog_module,
+        "AnalogControlDialog",
+        DummyAnalogControlDialog,
+    )
+
+    dialog = KeySelectorDialog(
+        parent,
+        "Left Stick",
+        source_type="analog",
+        analog_input_type="stick",
+    )
+    monkeypatch.setattr(dialog, "get_root", lambda: parent)
+
+    dialog._open_analog_control_manager("Mouse")
+
+    assert captured["root"] is parent
+    assert captured["profile_manager"] is profile_manager
+    assert captured["present_root"] is parent
+    assert captured["signals"] == ["analog-control-saved", "analog-control-deleted"]
+    assert captured["selected_name"] == "Mouse"
+
+
 def test_analog_selector_docs_button_links_to_analog_controls_docs(
     temp_config_dir,
     monkeypatch,
@@ -1326,7 +1433,9 @@ def test_analog_selector_docs_button_links_to_analog_controls_docs(
 
     dialog = KeySelectorDialog(Gtk.Window(), "Left Stick", source_type="analog")
 
-    assert dialog.stack.get_visible_child_name() == "analog_control"
+    # With no saved controls the dialog opens on the Presets tab, which still
+    # links to the Analog Controls docs.
+    assert dialog.stack.get_visible_child_name() == "analog_presets"
     assert dialog.actions_docs_btn.get_visible() is True
     assert (
         dialog.actions_docs_btn.get_tooltip_text()

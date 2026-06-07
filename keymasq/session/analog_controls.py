@@ -1,5 +1,6 @@
 import logging
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, cast
@@ -218,6 +219,25 @@ class AnalogControlManager:
     def get_all_analog_controls(self) -> dict[str, AnalogControlConfig]:
         return {name: entry.config for name, entry in self._analog_controls.items()}
 
+    def unique_analog_control_name(self, base: str) -> str:
+        """Return a new display name that will not collide with storage paths."""
+        base_name = str(base or "").strip() or "Analog Control"
+        name = base_name
+        index = 2
+        while not self._can_create_analog_control_named(name):
+            name = f"{base_name} {index}"
+            index += 1
+        return name
+
+    def _can_create_analog_control_named(self, name: str) -> bool:
+        if name in self._analog_controls:
+            return False
+        try:
+            self._ensure_storage_path_available(name, self._path_for_name(name))
+        except ValueError:
+            return False
+        return True
+
     def snapshot_analog_controls(self) -> dict[str, _AnalogControlEntry]:
         return self._analog_controls.copy()
 
@@ -434,40 +454,41 @@ def analog_control_arrow_template() -> list[AnalogActionThreshold]:
     )
 
 
+def _scroll_action(target: str) -> MappingAction:
+    return MappingAction(
+        action_type=ActionType.MOUSE,
+        target=target,
+        rapidfire_enabled=True,
+        rapidfire_hold_ms=20,
+        rapidfire_wait_ms=60,
+    )
+
+
+def _scroll_threshold(
+    axis: str,
+    trigger_min: float,
+    trigger_max: float,
+    release_min: float,
+    release_max: float,
+    target: str,
+) -> AnalogActionThreshold:
+    return AnalogActionThreshold(
+        axis=axis,
+        trigger_min=trigger_min,
+        trigger_max=trigger_max,
+        release_min=release_min,
+        release_max=release_max,
+        actions=[_scroll_action(target)],
+    )
+
+
 def analog_control_mouse_wheel_template() -> list[AnalogActionThreshold]:
+    # Vertical (Y) scrolls up/down; horizontal (X) scrolls left/right.
     return [
-        AnalogActionThreshold(
-            axis="y",
-            trigger_min=-1.0,
-            trigger_max=-0.55,
-            release_min=-1.0,
-            release_max=-0.45,
-            actions=[
-                MappingAction(
-                    action_type=ActionType.MOUSE,
-                    target="rel_wheel:1",
-                    rapidfire_enabled=True,
-                    rapidfire_hold_ms=20,
-                    rapidfire_wait_ms=60,
-                )
-            ],
-        ),
-        AnalogActionThreshold(
-            axis="y",
-            trigger_min=0.55,
-            trigger_max=1.0,
-            release_min=0.45,
-            release_max=1.0,
-            actions=[
-                MappingAction(
-                    action_type=ActionType.MOUSE,
-                    target="rel_wheel:-1",
-                    rapidfire_enabled=True,
-                    rapidfire_hold_ms=20,
-                    rapidfire_wait_ms=60,
-                )
-            ],
-        ),
+        _scroll_threshold("y", -1.0, -0.55, -1.0, -0.45, "rel_wheel:1"),
+        _scroll_threshold("y", 0.55, 1.0, 0.45, 1.0, "rel_wheel:-1"),
+        _scroll_threshold("x", -1.0, -0.55, -1.0, -0.45, "rel_hwheel:-1"),
+        _scroll_threshold("x", 0.55, 1.0, 0.45, 1.0, "rel_hwheel:1"),
     ]
 
 
@@ -489,3 +510,218 @@ def _direction_template(targets: dict[str, str]) -> list[AnalogActionThreshold]:
         )
         for axis, trigger_min, trigger_max, release_min, release_max, target in specs
     ]
+
+
+@dataclass(frozen=True)
+class AnalogControlPreset:
+    """A ready-to-use analog control starting point offered in the GUI.
+
+    Presets give new users a one-click way to make a stick or trigger do
+    something useful without first understanding reusable analog controls.
+    ``build`` returns a full, editable config saved like any other.
+    """
+
+    preset_id: str
+    label: str
+    description: str
+    icon_name: str
+    input_type: str
+    default_name: str
+    build: Callable[[str], AnalogControlConfig]
+
+
+def analog_control_mouse_move_preset(name: str) -> AnalogControlConfig:
+    return AnalogControlConfig(
+        name=name,
+        description="Move the mouse with the stick",
+        input_type="stick",
+        mouse_motion=AnalogMouseMotionConfig(
+            enabled=True,
+            mode="velocity",
+            speed=1000.0,
+            deadzone=0.18,
+            sensitivity=1.0,
+            response_curve=2.0,
+        ),
+    )
+
+
+def analog_control_mouse_area_preset(name: str) -> AnalogControlConfig:
+    return AnalogControlConfig(
+        name=name,
+        description="Map the stick position to a cursor area",
+        input_type="stick",
+        mouse_motion=AnalogMouseMotionConfig(
+            enabled=True,
+            mode="area",
+            area_radius_x=400.0,
+            area_radius_y=400.0,
+            deadzone=0.12,
+            sensitivity=1.0,
+            response_curve=1.0,
+        ),
+    )
+
+
+def analog_control_scroll_wheel_preset(name: str) -> AnalogControlConfig:
+    return AnalogControlConfig(
+        name=name,
+        description="Scroll up/down and side-scroll with the stick",
+        input_type="stick",
+        thresholds=analog_control_mouse_wheel_template(),
+    )
+
+
+def analog_control_wasd_preset(name: str) -> AnalogControlConfig:
+    return AnalogControlConfig(
+        name=name,
+        description="Map the stick to W/A/S/D",
+        input_type="stick",
+        thresholds=analog_control_wasd_template(),
+    )
+
+
+def _axis_action_threshold(action: MappingAction) -> AnalogActionThreshold:
+    return AnalogActionThreshold(
+        axis="x",
+        trigger_min=0.5,
+        trigger_max=1.0,
+        release_min=0.45,
+        release_max=1.0,
+        actions=[action],
+    )
+
+
+def _trigger_action_preset(
+    name: str, description: str, action: MappingAction
+) -> AnalogControlConfig:
+    return AnalogControlConfig(
+        name=name,
+        description=description,
+        input_type="axis",
+        thresholds=[_axis_action_threshold(action)],
+    )
+
+
+def analog_control_trigger_left_click_preset(name: str) -> AnalogControlConfig:
+    return _trigger_action_preset(
+        name,
+        "Left-click when the trigger is pulled",
+        MappingAction(action_type=ActionType.MOUSE, target="btn_left"),
+    )
+
+
+def analog_control_trigger_right_click_preset(name: str) -> AnalogControlConfig:
+    return _trigger_action_preset(
+        name,
+        "Right-click when the trigger is pulled",
+        MappingAction(action_type=ActionType.MOUSE, target="btn_right"),
+    )
+
+
+def analog_control_trigger_scroll_up_preset(name: str) -> AnalogControlConfig:
+    return _trigger_action_preset(
+        name,
+        "Scroll up while the trigger is pulled",
+        _scroll_action("rel_wheel:1"),
+    )
+
+
+def analog_control_trigger_scroll_down_preset(name: str) -> AnalogControlConfig:
+    return _trigger_action_preset(
+        name,
+        "Scroll down while the trigger is pulled",
+        _scroll_action("rel_wheel:-1"),
+    )
+
+
+_STICK_PRESETS: tuple[AnalogControlPreset, ...] = (
+    AnalogControlPreset(
+        preset_id="mouse_move",
+        label="Mouse Move",
+        description="Move the cursor with the stick",
+        icon_name="input-mouse-symbolic",
+        input_type="stick",
+        default_name="Mouse Move",
+        build=analog_control_mouse_move_preset,
+    ),
+    AnalogControlPreset(
+        preset_id="mouse_area",
+        label="Mouse Area",
+        description="Stick position controls cursor position",
+        icon_name="view-restore-symbolic",
+        input_type="stick",
+        default_name="Mouse Area",
+        build=analog_control_mouse_area_preset,
+    ),
+    AnalogControlPreset(
+        preset_id="scroll_wheel",
+        label="Scroll Wheel",
+        description="Scroll up/down and side-scroll with the stick",
+        icon_name="go-up-symbolic",
+        input_type="stick",
+        default_name="Scroll Wheel",
+        build=analog_control_scroll_wheel_preset,
+    ),
+    AnalogControlPreset(
+        preset_id="wasd",
+        label="WASD Keys",
+        description="Map the stick to W/A/S/D",
+        icon_name="input-keyboard-symbolic",
+        input_type="stick",
+        default_name="WASD",
+        build=analog_control_wasd_preset,
+    ),
+)
+
+_AXIS_PRESETS: tuple[AnalogControlPreset, ...] = (
+    AnalogControlPreset(
+        preset_id="trigger_left_click",
+        label="Trigger Left Click",
+        description="Left-click when the trigger is pulled",
+        icon_name="input-mouse-symbolic",
+        input_type="axis",
+        default_name="Trigger Left Click",
+        build=analog_control_trigger_left_click_preset,
+    ),
+    AnalogControlPreset(
+        preset_id="trigger_right_click",
+        label="Trigger Right Click",
+        description="Right-click when the trigger is pulled",
+        icon_name="input-mouse-symbolic",
+        input_type="axis",
+        default_name="Trigger Right Click",
+        build=analog_control_trigger_right_click_preset,
+    ),
+    AnalogControlPreset(
+        preset_id="trigger_scroll_up",
+        label="Trigger Scroll Up",
+        description="Scroll up while the trigger is pulled",
+        icon_name="go-up-symbolic",
+        input_type="axis",
+        default_name="Trigger Scroll Up",
+        build=analog_control_trigger_scroll_up_preset,
+    ),
+    AnalogControlPreset(
+        preset_id="trigger_scroll_down",
+        label="Trigger Scroll Down",
+        description="Scroll down while the trigger is pulled",
+        icon_name="go-down-symbolic",
+        input_type="axis",
+        default_name="Trigger Scroll Down",
+        build=analog_control_trigger_scroll_down_preset,
+    ),
+)
+
+
+def analog_control_presets(input_type: str | None) -> tuple[AnalogControlPreset, ...]:
+    """Return the presets that apply to a given analog input type.
+
+    ``None`` returns every preset (useful for tests and discovery).
+    """
+    normalized = str(input_type or "").lower()
+    if normalized == "stick":
+        return _STICK_PRESETS
+    if normalized == "axis":
+        return _AXIS_PRESETS
+    return _STICK_PRESETS + _AXIS_PRESETS

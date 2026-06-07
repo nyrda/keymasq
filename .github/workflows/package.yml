@@ -660,7 +660,7 @@ jobs:
             dist/SHA256SUMS
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: |
             dist/*.deb
@@ -720,7 +720,7 @@ jobs:
           sha256sum ./*.deb ./*.rpm ./*.tar.gz > SHA256SUMS
 
       - name: Create GitHub prerelease
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: ${{ needs.version-metadata.outputs.release_tag }}
           target_commitish: ${{ needs.version-metadata.outputs.checkout_sha }}

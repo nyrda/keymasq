@@ -1312,6 +1312,82 @@ def test_analog_selector_clicking_selected_control_deselects_it(temp_config_dir)
     assert dialog.map_btn.get_sensitive() is False
 
 
+def test_analog_selector_presets_tab_hides_rapidfire_tap_footer(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Window(), "Left Stick", source_type="analog")
+
+    assert dialog.stack.get_visible_child_name() == "analog_presets"
+    assert dialog.options_box.get_visible() is False
+
+
+def test_analog_manager_changed_switches_presets_to_control_picker(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import AnalogControlConfig
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    monkeypatch.setattr(dialog_module, "notify_session_reload_async", lambda: None)
+
+    dialog = KeySelectorDialog(Gtk.Window(), "Left Stick", source_type="analog")
+    assert dialog.stack.get_visible_child_name() == "analog_presets"
+
+    AnalogControlManager().save_analog_control(AnalogControlConfig(name="Mouse"))
+    dialog._on_analog_control_manager_changed(dialog, "Mouse")
+
+    assert dialog.stack.get_visible_child_name() == "analog_control"
+    assert dialog.map_btn.get_sensitive() is False
+
+
+def test_analog_manager_changed_clears_deleted_control_selection(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    monkeypatch.setattr(dialog_module, "notify_session_reload_async", lambda: None)
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(AnalogControlConfig(name="Mouse"))
+    dialog = KeySelectorDialog(
+        Gtk.Window(),
+        "Left Stick",
+        current_action=MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_names=["Mouse"],
+        ),
+        source_type="analog",
+        analog_input_type="stick",
+    )
+
+    assert dialog.stack.get_visible_child_name() == "analog_control"
+    assert dialog.map_btn.get_sensitive() is True
+
+    manager.delete_analog_control("Mouse")
+    dialog._on_analog_control_manager_changed(dialog, "Mouse")
+
+    assert dialog._selected_analog_controls == []
+    assert dialog._selected_analog_control is None
+    assert dialog.map_btn.get_sensitive() is False
+
+
 def test_analog_control_dialog_select_control_by_name_selects_saved_control(
     temp_config_dir,
 ) -> None:
@@ -1367,6 +1443,7 @@ def test_analog_selector_right_click_opens_manager_for_control(
 
 
 def test_analog_selector_open_manager_presents_and_selects_requested_control(
+    temp_config_dir,
     monkeypatch,
 ) -> None:
     gi.require_version("Gtk", "4.0")

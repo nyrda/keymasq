@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Callable
+from typing import cast
 
 import evdev
 import gi
@@ -87,6 +88,7 @@ from keymasq.session.analog_controls import (
 )
 from keymasq.session.compositor import detect_compositor_sync
 from keymasq.session.hardware import HardwareManager
+from keymasq.session.profiles import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
 
 log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
@@ -1007,6 +1009,13 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
                     queue.append(root)
         return candidates
 
+    def _profile_manager_for_child_dialog(self) -> ProfileManager | None:
+        for candidate in self._macro_parent_candidates():
+            profile_manager = getattr(candidate, "profile_manager", None)
+            if profile_manager is not None:
+                return cast(ProfileManager, profile_manager)
+        return None
+
     def _resolve_macro_recording_enabled(self, *, default: bool) -> bool:
         for candidate in self._macro_parent_candidates():
             enabled = getattr(candidate, "macro_recording_enabled", None)
@@ -1208,10 +1217,17 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         toolbar_row.set_margin_end(12)
         toolbar_row.set_halign(Gtk.Align.START)
 
-        refresh_btn = Gtk.Button(label="Refresh")
-        refresh_btn.add_css_class("flat")
-        refresh_btn.connect("clicked", self._on_superkey_refresh)
-        toolbar_row.append(refresh_btn)
+        manage_btn = Gtk.Button(label="Open Super Keys…")
+        manage_btn.add_css_class("flat")
+        manage_btn.set_tooltip_text("Create or edit super keys")
+        manage_btn.connect("clicked", self._on_open_superkey_manager_clicked)
+        toolbar_row.append(manage_btn)
+
+        selection_hint = Gtk.Label(label="Select one · right-click to edit")
+        selection_hint.add_css_class("dim-label")
+        selection_hint.add_css_class("caption")
+        selection_hint.set_halign(Gtk.Align.START)
+        toolbar_row.append(selection_hint)
         outer.append(toolbar_row)
 
         scrolled = Gtk.ScrolledWindow()
@@ -1230,6 +1246,25 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
 
         self._load_superkey_list()
         return outer
+
+    def _on_open_superkey_manager_clicked(self, _button: Gtk.Button) -> None:
+        self._open_superkey_manager()
+
+    def _open_superkey_manager(self, select_name: str | None = None) -> None:
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        root = self.get_root()
+        profile_manager = self._profile_manager_for_child_dialog()
+        dialog = SuperkeyDialog(root, profile_manager)
+        dialog.connect("superkey-saved", self._on_superkey_manager_changed)
+        dialog.connect("superkey-deleted", self._on_superkey_manager_changed)
+        dialog.present(root)
+        if select_name:
+            dialog.select_superkey_by_name(select_name)
+
+    def _on_superkey_manager_changed(self, _dialog, _name: str) -> None:
+        notify_session_reload_async()
+        self._load_superkey_list()
 
     def _set_initial_analog_tab(self) -> None:
         action = self._current_action
@@ -1357,7 +1392,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
 
         root = self.get_root()
-        profile_manager = getattr(self._parent, "profile_manager", None)
+        profile_manager = self._profile_manager_for_child_dialog()
         dialog = AnalogControlDialog(root, profile_manager)
         dialog.connect("analog-control-saved", self._on_analog_control_manager_changed)
         dialog.connect("analog-control-deleted", self._on_analog_control_manager_changed)
@@ -1368,6 +1403,9 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
     def _on_analog_control_manager_changed(self, _dialog, _name: str) -> None:
         notify_session_reload_async()
         self._load_analog_control_list()
+        if self.stack.get_visible_child_name() == "analog_presets":
+            self.stack.set_visible_child_name("analog_control")
+        self._on_tab_changed(self.stack, None)
 
     def _build_analog_control_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -1856,6 +1894,8 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         is_special = child_name == "special"
         is_superkey = child_name == "superkey"
         is_analog_control = child_name == "analog_control"
+        is_analog_presets = child_name == "analog_presets"
+        is_analog_only = is_analog_control or is_analog_presets
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
         is_exec = child_name == "exec"
@@ -1867,7 +1907,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         show_options = has_options and not (
             is_special
             or is_superkey
-            or is_analog_control
+            or is_analog_only
             or is_macro
             or is_profile
             or is_exec
@@ -2948,6 +2988,10 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         for config in self._superkey_list:
             row = Gtk.ListBoxRow()
             row._superkey_name = config.name
+            right_click = Gtk.GestureClick()
+            right_click.set_button(3)
+            right_click.connect("pressed", self._on_superkey_row_right_pressed, config.name)
+            row.add_controller(right_click)
 
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             row_box.set_margin_top(8)
@@ -3004,8 +3048,16 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         noun = "slot" if slots == 1 else "slots"
         return f"Pattern · {slots} {noun}"
 
-    def _on_superkey_refresh(self, btn) -> None:
-        self._load_superkey_list()
+    def _on_superkey_row_right_pressed(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+        name: str,
+    ) -> None:
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._open_superkey_manager(name)
 
     def _on_superkey_row_selected(self, listbox, row) -> None:
         if row and hasattr(row, "_superkey_name"):
@@ -3176,6 +3228,10 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             row = Gtk.ListBoxRow()
             row._macro_name = macro["name"]
             row._search_text = macro_search_text(macro)
+            right_click = Gtk.GestureClick()
+            right_click.set_button(3)
+            right_click.connect("pressed", self._on_macro_row_right_pressed, macro["name"])
+            row.add_controller(right_click)
 
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             row_box.set_margin_top(8)
@@ -3242,6 +3298,29 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         else:
             self._clear_macro_selection()
         self.map_btn.set_sensitive(self._selected_macro is not None)
+
+    def _on_macro_row_right_pressed(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+        name: str,
+    ) -> None:
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._open_macro_editor(name)
+
+    def _open_macro_editor(self, name: str) -> None:
+        from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
+
+        root = self.get_root()
+        parent = root if root is not None else self._parent
+        dialog = MacroEditorDialog(parent, name)
+        dialog.connect("closed", self._on_macro_editor_closed)
+        dialog.present(parent)
+
+    def _on_macro_editor_closed(self, _dialog: Adw.Dialog) -> None:
+        self._load_macro_list()
 
     def _on_macro_movement_toggled(self, check) -> None:
         self._macro_replay_movement = check.get_active()

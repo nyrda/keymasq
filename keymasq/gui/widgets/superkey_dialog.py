@@ -1209,6 +1209,21 @@ class SuperkeyDialog(Adw.Dialog):
         dialog.set_close_response("ok")
         dialog.present(self)
 
+    def select_superkey_by_name(self, name: str) -> None:
+        """Select a saved super key by name, e.g. when opened to edit one."""
+        self._select_superkey(name)
+
+    def _select_superkey(self, name: str) -> None:
+        idx = 0
+        while True:
+            row = self.list_box.get_row_at_index(idx)
+            if row is None:
+                return
+            if getattr(row, "_superkey_name", None) == name:
+                self.list_box.select_row(row)
+                return
+            idx += 1
+
     def _on_save_clicked(self, _button) -> None:
         self._save_current_superkey()
 

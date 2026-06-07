@@ -1241,6 +1241,28 @@ class TestDialogConstruction:
         assert dialog._current_config.name == "Beta"
         assert dialog._modified is False
 
+    def test_superkey_dialog_select_superkey_by_name_selects_saved_superkey(
+        self, temp_config_dir
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import SuperkeyConfig
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.session.superkeys import SuperkeyManager
+
+        manager = SuperkeyManager()
+        manager.save_superkey(SuperkeyConfig(name="Alpha"))
+        manager.save_superkey(SuperkeyConfig(name="Beta"))
+
+        dialog = SuperkeyDialog(Gtk.Window())
+
+        dialog.select_superkey_by_name("Beta")
+
+        assert dialog._current_config is not None
+        assert dialog._current_config.name == "Beta"
+        assert dialog.name_entry.get_text() == "Beta"
+
     def test_superkey_dialog_docs_button_links_to_superkeys_docs(
         self, temp_config_dir, monkeypatch
     ):
